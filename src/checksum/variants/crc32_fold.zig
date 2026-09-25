@@ -137,8 +137,9 @@ pub fn Folding(
 
 /// Folding with registers of `width` lanes: 256-bit registers of two lanes, or 512-bit ones of four,
 /// each carry-less multiplication taking every lane of its register at once. `register_count`
-/// registers fold per step; `Narrow` is a `Folding` of `width · register_count` lanes, which folds
-/// the lanes into one at the end, and `Short` takes an input too short for one step.
+/// registers fold per step. At the end the registers fold into one, which folds on over each whole
+/// register of what is left; `Narrow`, a `Folding` of `width` lanes, folds that register's lanes
+/// into one and takes the tail, and `Short` takes an input too short for one step.
 pub fn WideFolding(
     comptime MultiplyWide: type,
     comptime width: usize,
@@ -146,19 +147,23 @@ pub fn WideFolding(
     comptime Narrow: type,
     comptime Short: type,
 ) type {
-    const lane_count = width * register_count;
     const Wide = @Vector(width * @typeInfo(Lane).vector.len, u64);
     const register_len = width * constants.crc32_lane_len;
+    const register_bits = width * lane_bits;
     return struct {
         pub const step_len = register_count * register_len;
-        const fold_all: Wide = @bitCast([_]Lane{fold_by(lane_count * lane_bits)} ** width);
 
-        comptime {
-            assert(Narrow.step_len == step_len);
+        /// The multipliers that move every lane of a register forward by `bits`.
+        fn wide_fold_by(comptime bits: usize) Wide {
+            return @bitCast([_]Lane{fold_by(bits)} ** width);
         }
 
-        fn load_wide(octets: *const [step_len]u8, index: usize) Wide {
-            return @bitCast(octets[index * register_len ..][0..register_len].*);
+        fn wide_fold(wide: Wide, comptime by: Wide, next: Wide) Wide {
+            return MultiplyWide.first_halves(wide, by) ^ MultiplyWide.last_halves(wide, by) ^ next;
+        }
+
+        fn load_wide(octets: []const u8, at: usize) Wide {
+            return @bitCast(octets[at..][0..register_len].*);
         }
 
         /// The CRC register after the octets, from `register`, as crc32_table.update_register
@@ -166,18 +171,26 @@ pub fn WideFolding(
         pub fn update(register: u32, octets: []const u8) u32 {
             if (octets.len < step_len) return Short.update(register, octets);
             var registers: [register_count]Wide = undefined;
-            for (&registers, 0..) |*wide, index| wide.* = load_wide(octets[0..step_len], index);
+            for (&registers, 0..) |*wide, index| wide.* = load_wide(octets, index * register_len);
             // The register enters as the first 32 bits of the message, XORed in.
             registers[0][0] ^= register;
             var position: usize = step_len;
             while (octets.len - position >= step_len) : (position += step_len) {
                 const step = octets[position..][0..step_len];
                 inline for (&registers, 0..) |*wide, index| {
-                    const products = MultiplyWide.first_halves(wide.*, fold_all) ^ MultiplyWide.last_halves(wide.*, fold_all);
-                    wide.* = products ^ load_wide(step, index);
+                    wide.* = wide_fold(wide.*, comptime wide_fold_by(register_count * register_bits), load_wide(step, index * register_len));
                 }
             }
-            const lanes: [lane_count]Lane = @bitCast(registers);
+            // Each register folds straight to the last by its own distance, then the last folds
+            // on over whole registers of the rest.
+            var last = registers[register_count - 1];
+            inline for (registers[0 .. register_count - 1], 0..) |earlier, index| {
+                last = wide_fold(earlier, comptime wide_fold_by((register_count - 1 - index) * register_bits), last);
+            }
+            while (octets.len - position >= register_len) : (position += register_len) {
+                last = wide_fold(last, comptime wide_fold_by(register_bits), load_wide(octets, position));
+            }
+            const lanes: [width]Lane = @bitCast(last);
             return Narrow.finish_lanes(lanes, octets[position..]);
         }
     };

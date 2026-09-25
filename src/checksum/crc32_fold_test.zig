@@ -68,8 +68,10 @@ fn Software(comptime Vector: type) type {
 const Short = crc32_fold.Folding(Software(Lane), constants.crc32_lanes_pclmul, crc32_table.update_register);
 const Eight = crc32_fold.Folding(Software(Lane), constants.crc32_lanes_vpclmul, crc32_table.update_register);
 const Sixteen = crc32_fold.Folding(Software(Lane), constants.crc32_lanes_avx512, crc32_table.update_register);
-const Wide256 = crc32_fold.WideFolding(Software(@Vector(width_256 * halves, u64)), width_256, registers_per_step, Eight, Short);
-const Wide512 = crc32_fold.WideFolding(Software(@Vector(width_512 * halves, u64)), width_512, registers_per_step, Sixteen, Short);
+const Two = crc32_fold.Folding(Software(Lane), width_256, crc32_table.update_register);
+const Four = crc32_fold.Folding(Software(Lane), width_512, crc32_table.update_register);
+const Wide256 = crc32_fold.WideFolding(Software(@Vector(width_256 * halves, u64)), width_256, registers_per_step, Two, Short);
+const Wide512 = crc32_fold.WideFolding(Software(@Vector(width_512 * halves, u64)), width_512, registers_per_step, Four, Short);
 
 /// A fixed, irregular input.
 fn sample() [len_max + offsets]u8 {

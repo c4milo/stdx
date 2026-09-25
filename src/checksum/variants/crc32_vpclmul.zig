@@ -33,7 +33,7 @@ const MultiplyWide = struct {
 };
 
 const register_count = constants.crc32_lanes_vpclmul / width;
-const Narrow = crc32_fold.Folding(pclmul.MultiplyVex, constants.crc32_lanes_vpclmul, crc32_table.update_register);
+const Narrow = crc32_fold.Folding(pclmul.MultiplyVex, width, crc32_table.update_register);
 const Folding = crc32_fold.WideFolding(MultiplyWide, width, register_count, Narrow, pclmul.FoldingVex);
 
 /// The CRC register after `len` octets from `register`, as crc32_table.update_register gives it.
