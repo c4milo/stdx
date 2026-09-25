@@ -110,8 +110,8 @@ test "every path holds RFC 1950 section 8.2's bound over runs of 0xff from the l
 }
 
 test "the vector path equals the reference at every width a variant uses, on any CPU" {
-    // The AVX2 object runs this code at 32 octets, which a CPU without AVX2 cannot call there.
-    inline for (.{ 16, 32, 64 }) |lanes| {
+    // The AVX2 object runs this code at 64 octets, which a CPU without AVX2 cannot call there.
+    inline for (.{ 16, 32, 64, 128 }) |lanes| {
         for (0..offsets) |offset| {
             for (0..len_max + 1) |len| {
                 const octets = sample[offset..][0..len];

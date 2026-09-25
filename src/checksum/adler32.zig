@@ -12,8 +12,10 @@ const adler32_scalar = @import("adler32_scalar.zig");
 const adler32_vector = @import("adler32_vector.zig");
 const Features = @import("features.zig").Features;
 
-/// The octets one block of the vector path takes: the target's vector width.
-const vector_len = std.simd.suggestVectorLength(u8) orelse constants.adler32_vector_len_fallback;
+/// The octets one block of the vector path takes: two of the target's vector registers, which
+/// measured faster than one on aarch64 (docs/design.md §8 step 4).
+const vector_len = constants.adler32_registers_per_block *
+    (std.simd.suggestVectorLength(u8) orelse constants.adler32_vector_len_fallback);
 
 pub const Adler32Path = enum {
     /// One octet at a time, on every target.

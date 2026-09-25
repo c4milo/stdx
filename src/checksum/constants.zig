@@ -21,9 +21,12 @@ pub const crc32_fold_len = 64;
 /// The octets of one 128-bit lane of the folding path.
 pub const crc32_lane_len = 16;
 
-/// The octets one block of Adler-32's vector path takes when the target suggests no vector width:
-/// one 128-bit register, the width SSE2 and NEON share.
+/// The octets of one vector register when the target suggests no vector width: 128 bits, the
+/// width SSE2 and NEON share.
 pub const adler32_vector_len_fallback = 16;
+
+/// The vector registers one block of Adler-32's vector path takes.
+pub const adler32_registers_per_block = 2;
 
 /// Adler-32's modulus, the largest prime below 65536 (RFC 1950 §9, BASE).
 pub const adler32_base: u32 = 65521;
