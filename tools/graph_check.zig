@@ -1,5 +1,5 @@
 //! The check of docs/design.md §8 step 0, and the check behind invariant 14: `src/deflate/` cannot
-//! import a wrapper, another codec, or a package.
+//! import a wrapper, another codec, a package, or the oracles of tools/oracle/.
 //!
 //! A lint rule over the source would only check what build/modules.zig declares. This checks what
 //! the compiler rejects: it compiles a fixture as a module carrying exactly the import set
@@ -25,7 +25,7 @@ const deflate_imports = [_]Import{
 };
 
 /// Every module name `deflate` must not be able to import. Each gets a fixture and each must fail.
-const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "pepegrillo" };
+const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "pepegrillo", "oracle" };
 
 /// The module name the positive control imports: one `deflate` really does have.
 const control = "codec";
@@ -121,10 +121,9 @@ fn compile(
 }
 
 test "the forbidden list names every module of the graph deflate does not import, and a package" {
-    // docs/design.md §3: every library module but `deflate` itself and `codec`, then pepegrillo,
-    // the one package the build fetches today. The oracles join this list when design §8 step 2
-    // adds them.
-    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "pepegrillo" };
+    // docs/design.md §3: every library module but `deflate` itself and `codec`, then pepegrillo
+    // and the oracle bindings of tools/oracle/, which only tools and benchmarks may import.
+    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "pepegrillo", "oracle" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {
         try std.testing.expectEqualStrings(want, got);

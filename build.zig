@@ -19,13 +19,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
+const oracle = @import("build/oracle.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
-const source_directories = [_][]const u8{ "build", "src", "tools" };
+const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
 
 /// Every directory the tools/lint rules read: the sources above plus the documents, which the
 /// markdown rule covers.
-const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
+const lint_rule_directories = [_][]const u8{ "bench", "build", "src", "tools", "docs" };
 
 /// Every Markdown file at the top of the tree, which the markdown rule reads beside `docs/`.
 const lint_rule_files = [_][]const u8{ "CLAUDE.md", "README.md" };
@@ -36,6 +37,13 @@ const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
     "tools/cognitive_complexity.zig",
     "tools/commit_lint.zig",
+};
+
+/// Every tool that needs neither pepegrillo nor a package, whose own tests `zig build test` runs.
+const plain_tool_test_roots = [_][]const u8{
+    "tools/graph_check.zig",
+    "tools/corpus/cut.zig",
+    "bench/costs/costs.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.
@@ -107,13 +115,22 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(run);
         tool_test_step.dependOn(run);
     }
-    const graph_check_tests = b.addTest(.{
-        .name = "graph_check",
-        .root_module = host_module(b, "tools/graph_check.zig"),
+    for (plain_tool_test_roots) |root| {
+        const tool_tests = b.addTest(.{
+            .name = std.fs.path.stem(root),
+            .root_module = host_module(b, root),
+        });
+        const run = &b.addRunArtifact(tool_tests).step;
+        test_step.dependOn(run);
+        tool_test_step.dependOn(run);
+    }
+
+    // Decisions 8 and 15: the oracles and the corpora are lazy packages, requested only when the
+    // build is given -Doracles, so a plain `zig build test` fetches none of them.
+    add_costs_step(b);
+    oracle.add(b, .{
+        .enabled = b.option(bool, "oracles", "Fetch the oracles and the corpora (decisions 8, 15)") orelse false,
     });
-    const graph_check_tests_run = &b.addRunArtifact(graph_check_tests).step;
-    test_step.dependOn(graph_check_tests_run);
-    tool_test_step.dependOn(graph_check_tests_run);
 
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
@@ -214,6 +231,25 @@ fn add_commit_lint_step(
     const run = b.addRunArtifact(tool);
     run.addArgs(&.{ "--range", commit_lint_range });
     const step = b.step("lint-commits", "Check the commit messages this branch adds");
+    step.dependOn(&run.step);
+}
+
+/// `zig build costs`: the microbenchmarks behind docs/costs.md, built ReleaseFast for the host. It
+/// is a measuring device, never the library (decision 17), and decision 20's workflow runs it on
+/// each hosted runner, pinned to one core.
+fn add_costs_step(b: *std.Build) void {
+    const costs = b.addExecutable(.{
+        .name = "costs",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("bench/costs/costs.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    b.installArtifact(costs);
+    const run = b.addRunArtifact(costs);
+    run.has_side_effects = true;
+    const step = b.step("costs", "Measure the costs of docs/costs.md on this host");
     step.dependOn(&run.step);
 }
 

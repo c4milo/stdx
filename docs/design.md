@@ -63,9 +63,11 @@ No library module receives a package: pepegrillo, the oracles and the corpora ar
 
 Outside the library, and never imported by it:
 
-- `tools/`: the lint rules, the complexity scorer, the commit linter, the graph check, and, from
-  step 2, the differential checks of `tools/oracle/`.
-- `bench/`: the benchmarks, from step 2.
+- `tools/`: the lint rules, the complexity scorer, the commit linter, the graph check, the oracle
+  bindings and their self-test in `tools/oracle/`, and the corpus tools in `tools/corpus/`. The
+  `oracle` module links zlib and Wuffs, and `zig build graph-check` shows `deflate` cannot import
+  it.
+- `bench/`: the benchmarks; `bench/costs/` measures docs/costs.md.
 
 ## 4. The streaming contract
 
@@ -198,8 +200,9 @@ to 12 are reordered and nothing else changes.
   in `tools/` and `bench/` only (decision 8), the others joining at the steps that use them;
   Silesia, Canterbury and the HTTP payloads as lazy packages pinned by hash, with the tool that
   cuts the 1 KiB, 16 KiB and 1 MiB pieces (decision 15);
-  `bench/costs/` (docs/costs.md); `tools/ci.sh` and the workflow of decision 19; and the
-  benchmark and fuzzing jobs on the hosted runners of decision 20.
+  `bench/costs/` (docs/costs.md); `tools/ci.sh` and the workflow of decision 19; and the costs
+  job on the hosted runners of decision 20. The fuzzing job lands with step 3, which writes the
+  first code there is to fuzz.
   **Check:**
   - `zig build oracle-selftest`: zlib and Wuffs decode every stream zlib encodes from the corpora,
     at every level and strategy in all three containers, to the same octets. Two oracles that
@@ -211,9 +214,11 @@ to 12 are reordered and nothing else changes.
 
 - **Step 3: `codec`.** The status, counts and flush modes; the checked reader and writer; the
   least-significant-bit-first bit reader of RFC 1951 §3.1.1 with its checked refill; the seeded
-  split driver every codec's tests use; the `input-index` lint rule of decision 16.
+  split driver every codec's tests use; the `input-index` lint rule of decision 16; and the
+  fuzzing workflow of decision 20, with the bit reader as its first target.
   **Check:** unit tests for every refusal of the reader and writer; the split driver's schedules
-  replay from their seed; the new lint rule's fixtures and its canary line; mutations.
+  replay from their seed; the new lint rule's fixtures and its canary line; the fuzzing workflow's
+  first run on both runners, with its length and findings recorded; mutations.
 
 - **Step 4: `checksum`, CRC-32 and Adler-32.** From RFC 1952 §8 and RFC 1950 §9.
   **Check:** equal to the sample code in those appendices, compiled in `tools/` as an oracle, and to

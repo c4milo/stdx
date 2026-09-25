@@ -197,8 +197,9 @@ check lands with its step.
   another, and no library module receives pepegrillo, an oracle or a corpus.
 - **Mechanism.** A module can import only what `build/modules.zig` gives it.
 - **Check.** Lint rule `tools/lint/module_graph.zig` pins the graph; `zig build graph-check`
-  compiles fixtures that import a wrapper, another codec and a package from inside `src/deflate/`,
-  and requires each compile to fail, beside a control that must compile. Step 0.
+  compiles fixtures that import a wrapper, another codec, a package and the oracle bindings from
+  inside `src/deflate/`, and requires each compile to fail, beside a control that must compile.
+  Steps 0 and 2.
 - **Violation.** `deflate.addImport("checksum", checksum)` to share a helper.
 
 ### INV-15: no source names a consumer

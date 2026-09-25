@@ -142,8 +142,12 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - `tools/` is developer tooling, run by `zig build` and never linked into the library. Its rule
   implementations come from pepegrillo, a lazy Zig package pinned by hash (decision 7). The
   differential checks and their oracles live here (decision 8).
+- `tools/oracle/` holds the oracle bindings (`oracle.c`, `oracle.zig`) and their self-test, and
+  `tools/corpus/` the corpus fetcher and the tool that cuts the HTTP payloads.
 - `bench/` holds the benchmarks, their scripts and their committed results. The baselines are
-  compiled here and nowhere else.
+  compiled here and in `tools/`, and nowhere else. `bench/costs/` measures docs/costs.md.
+- `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
+  (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
 - `docs/` is the design set. `docs/rfcs/` holds the RFCs.
 
 ## Performance
@@ -177,10 +181,16 @@ tree. Decision 14 holds the claims and design §8 the steps that measure them.
 
 - Changing a named limit.
 - Adding a dependency. The library has none and imports no package. The ruled exceptions, none of
-  which the library imports: pepegrillo, the tooling `tools/` builds on (decision 7); and the
-  oracles and baselines of `tools/` and `bench/` (decision 8): zlib, Wuffs, libzstd, Google's
-  brotli, zlib-ng and libdeflate. Each oracle is added as a lazy package pinned by hash, in the
-  commit that first uses it, and none is added before its step.
+  which the library imports:
+  - pepegrillo, the tooling `tools/` builds on (decision 7);
+  - the oracles and baselines of `tools/` and `bench/` (decision 8): zlib and Wuffs, added at
+    design §8 step 2, and libzstd, Google's brotli, zlib-ng and libdeflate, each added in the
+    commit that first uses it;
+  - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
+    CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
+    fetches and checks against a pinned SHA-256 because Zig fetches archives only.
+  Every one is a lazy package pinned by hash, or a file pinned by SHA-256, and `build/oracle.zig`
+  requests them only when a build passes `-Doracles`.
 - Weakening an assertion or an invariant to make a test pass.
 - Adding a module or an edge to the module graph.
 - Leaving the checked reader or writer in a hot loop anywhere decision 16 does not name.
@@ -192,7 +202,7 @@ Change this section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
-- Lint: `zig build lint`: cognitive complexity over `build.zig`, `build`, `src` and `tools`, then
+- Lint: `zig build lint`: cognitive complexity over `build.zig`, `bench`, `build`, `src` and `tools`, then
   the `tools/lint` rules: heap, io, determinism, unbounded-loop, relative-import, global-state,
   denied-words (no consumer's name in any `.zig` file), module-graph, markdown, file-length,
   magic-numbers and rfc-citation. Every rule `tools/lint/main.zig` registers runs, and a canary
@@ -200,9 +210,23 @@ Change this section when a step adds or renames a command.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
   `graph-check` and `hook-check`. `zig build test-<module>` runs one module's tests with nothing
   else in the graph, which is what a mutation is measured against.
-- Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec or
-  a package from inside `src/deflate/`, and requires each compile to fail.
-- Format: `zig fmt --check build.zig build src tools`, or `zig build fmt`.
+- Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec, a
+  package or the oracle bindings from inside `src/deflate/`, and requires each compile to fail.
+- Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
+  zlib encodes from the corpora, at every level and strategy in all three containers, to the same
+  octets. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The
+  first build with `-Doracles` fetches about 260 MB of oracles and corpora; without the option,
+  these steps fail and say so.
+- Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
+  installs every corpus file under `zig-out/corpus/`.
+- Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
+  `bench/costs/run.sh <report.md>` pins it to one core on Linux and records the run. The `costs`
+  workflow runs it on both hosted runners when a person asks (decision 20).
+- CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine and writes the
+  report; `.github/workflows/main.yml` runs it on each push to main, on x86-64 and aarch64
+  (decision 19). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned
+  SHA-256.
+- Format: `zig fmt --check build.zig bench build src tools`, or `zig build fmt`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
