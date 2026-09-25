@@ -7,7 +7,7 @@ Entries marked **owner** wait on a ruling and are not settled. Everything else i
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
-and 20 came out of that review.
+and 20 came out of that review, and entry 21 out of design §8 step 2.
 
 ## Scope and shape
 
@@ -832,3 +832,35 @@ and 20 came out of that review.
 
     The alternatives refused: a machine of the owner's, which the owner declined; and a bare-metal
     cloud instance, which is steadier and costs money per run.
+
+21. **SIMD wherever it measurably speeds a loop up.** Ruled by the owner on 2026-09-25, during
+    design §8 step 2: "use SIMD to accelerate anything that can be accelerated". It amends entry
+    14, which named SIMD for the checksums alone.
+    - Every hot loop gets a SIMD path beside its scalar one. The candidates known now: CRC-32 and
+      Adler-32 (claim S9); match copies, runs of one octet and short repeated patterns (S4, Z4);
+      the copy into the window at the end of a call (S5); stored blocks and raw Zstandard blocks;
+      the replicated entries of a Huffman or FSE table fill (S8, Z3); match-length compares 16 or
+      32 octets at a time (E1); hashing several positions at once in the encoders' match finders;
+      Zstandard's literal copies; and brotli's word transforms, which change the case of up to 24
+      octets (RFC 7932 Appendix B).
+    - A SIMD path is written with `@Vector` wherever Zig can express it, so one source serves
+      x86-64 and aarch64. Instructions `@Vector` cannot express, carry-less multiplication and
+      Arm's CRC32, use inline assembly with register operands only (decision 16).
+    - The scalar path stays. It is the oracle the fuzzer runs the SIMD path against, and the path on
+      a target without the instructions.
+    - "Anything that can be accelerated" is read as anything measurably accelerated. A SIMD path
+      must beat its scalar path by more than the noise, in the same job, on each architecture it
+      applies to (decision 20), or it is removed with its code, as every claim of entry 14 is.
+    - `docs/costs.md` prices a 32-octet vector compare beside the scalar costs, so a SIMD claim
+      states what it replaces in the same units.
+
+    **owner: how the instructions are chosen.** Proposed on 2026-09-25, waiting on a ruling:
+    - Proposal: at comptime, from the target the caller builds for. A build for baseline x86-64
+      gets SSE2, a build with `-Dcpu=x86_64_v3` or `-Dcpu=native` gets AVX2, and aarch64 always
+      has NEON. The benchmarks report a baseline build and a native build, side by side.
+    - Refused: choosing at run time from the CPU's feature flags, as zlib-ng and libdeflate do.
+      The flags would live either in process-wide state, which invariant 4 forbids, or in every
+      codec's state, which adds an indirect call or a branch to every hot loop.
+    - The cost of the proposal: a consumer that ships one generic x86-64 binary gets SSE2 paths,
+      while zlib-ng and libdeflate pick AVX2 on the same machine. Reopen if a consumer ships such
+      a binary and the baseline build loses to them by more than the noise.
