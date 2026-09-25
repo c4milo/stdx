@@ -854,13 +854,36 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
     - `docs/costs.md` prices a 32-octet vector compare beside the scalar costs, so a SIMD claim
       states what it replaces in the same units.
 
-    **owner: how the instructions are chosen.** Proposed on 2026-09-25, waiting on a ruling:
-    - Proposal: at comptime, from the target the caller builds for. A build for baseline x86-64
-      gets SSE2, a build with `-Dcpu=x86_64_v3` or `-Dcpu=native` gets AVX2, and aarch64 always
-      has NEON. The benchmarks report a baseline build and a native build, side by side.
-    - Refused: choosing at run time from the CPU's feature flags, as zlib-ng and libdeflate do.
-      The flags would live either in process-wide state, which invariant 4 forbids, or in every
-      codec's state, which adds an indirect call or a branch to every hot loop.
-    - The cost of the proposal: a consumer that ships one generic x86-64 binary gets SSE2 paths,
-      while zlib-ng and libdeflate pick AVX2 on the same machine. Reopen if a consumer ships such
-      a binary and the baseline build loses to them by more than the noise.
+    **How the instructions are chosen.** Ruled by the owner on 2026-09-25: at run time, from what
+    the hardware supports, and not from the build target alone. Two rules shape how, and the owner
+    ruled on each:
+    - The caller detects, and passes the result in. `codec.Features.detect()` reads the CPU once,
+      and the caller hands the value to each codec's `init`, which keeps it in the codec's state.
+      Invariant 4 forbids a process-wide cache, and detecting in every `init` would pay for it on
+      every message a pooled decoder starts: CPUID leaves a virtual machine on a cloud host, about
+      half a microsecond. A caller may pass `codec.Features.target()` instead, what the build
+      target guarantees with no detection, and a test may pass any set, so one machine exercises
+      every path its CPU supports.
+    - One object per feature level. Zig 0.16 cannot compile one function for more CPU features
+      than the module's target. So the build compiles each SIMD path's source once per feature
+      level, as a separate object linked into the module, and a codec calls the variant its
+      features allow, once per call and never per octet. The SIMD stays in `@Vector` code at every
+      level. The levels are x86-64 with SSE4.1 and carry-less multiplication, x86-64 with AVX2,
+      x86-64 with AVX-512, and aarch64 with the CRC32 and PMULL instructions; the target's own
+      level is the module itself.
+    - Detection reads no file and makes no syscall. On x86-64 it runs the CPUID and XGETBV
+      instructions. On aarch64 Linux it reads the kernel's hardware capability words with
+      `std.os.linux.getauxval`, which reads the auxiliary vector the kernel wrote into the
+      process's memory at start; `tools/lint/io.zig` allows that one call, in
+      `src/codec/features.zig` alone. On macOS, every aarch64 machine has CRC32 and PMULL.
+      Elsewhere, `detect()` gives the build target's features.
+
+    The alternatives refused:
+    - Comptime from the target alone, which stdx proposed. A consumer shipping one generic x86-64
+      binary would get SSE2 paths where zlib-ng and libdeflate use AVX2.
+    - A write-once global cache of the features, which invariant 4 forbids.
+    - Detection in every `init`, which pays a virtual machine exit per message.
+    - Inline assembly for every path above the baseline. It needs no build change, but each SIMD
+      path becomes hand-written assembly per architecture, which is more code to review and test.
+    - `@Vector` at the baseline alone, with assembly only for carry-less multiplication and CRC32.
+      It needs the least machinery and gives up AVX2 and AVX-512.
