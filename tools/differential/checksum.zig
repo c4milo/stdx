@@ -62,8 +62,11 @@ const Check = struct {
     }
 };
 
-/// The most paths one check has.
-const paths_max = 4;
+/// The most paths one check has: every path of the check with the most.
+const paths_max: usize = @max(
+    std.enums.values(checksum.Crc32Path).len,
+    std.enums.values(checksum.Adler32Path).len,
+);
 
 /// One stdx path, by name.
 const Path = struct {
@@ -309,6 +312,14 @@ test "every implementation agrees over a sample, and every length is compared" {
     const adler32_per_len = 2 * (1 + checks[1].paths_len) + 1;
     const whole = (2 + checks[0].paths_len * 2) + (2 + checks[1].paths_len * 2);
     try testing.expectEqual((len_max + 1) * (crc32_per_len + adler32_per_len) + whole, tally.compared);
+}
+
+test "each check holds every path its module has" {
+    try testing.expect(paths_max >= std.enums.values(checksum.Crc32Path).len);
+    try testing.expect(paths_max >= std.enums.values(checksum.Adler32Path).len);
+    const every: checksum.Features = .{ .pclmul = true, .avx2 = true, .vpclmul = true, .avx512 = true, .vnni = true, .crc32 = true, .pmull = true, .dotprod = true };
+    const checks = build_checks(every);
+    for (checks) |check| try testing.expect(check.paths_len <= paths_max);
 }
 
 test "detection on this host finds what the build host's CPU has" {
