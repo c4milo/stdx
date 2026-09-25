@@ -35,6 +35,21 @@ pub const crc32_lanes_pmull = 8;
 /// measured faster than the CRC32 instructions alone from 64 octets.
 pub const crc32_lanes_pmull_short = 4;
 
+/// The chains of CRC32 instructions the combined aarch64 path runs beside its folding: enough that
+/// the integer unit never waits on one chain's latency.
+pub const crc32_streams = 3;
+
+/// The steps of a long block of the combined path, and the octets each chain takes per step. Of
+/// the mixes measured on a Neoverse N2 runner, 128 octets folded to 40 on each chain was fastest
+/// from 16 KiB (docs/design.md §8 step 4).
+pub const crc32_combined_long_iterations = 32;
+pub const crc32_combined_long_stream_step_len = 40;
+
+/// The steps of a short block, 896 octets, which measured faster on the N2 runner than folding
+/// alone from 1 KiB, and the octets each chain takes per step.
+pub const crc32_combined_short_iterations = 4;
+pub const crc32_combined_short_stream_step_len = 32;
+
 /// The most lanes a folding path folds per step, which bounds the comptime work of its multipliers.
 pub const crc32_lanes_max = 16;
 

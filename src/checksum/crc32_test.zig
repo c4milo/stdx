@@ -23,8 +23,8 @@ const len_max = folds_checked * constants.crc32_lanes_max * constants.crc32_lane
 /// The alignments the seeded tests start at: one of each within a lane.
 const offsets = constants.crc32_lane_len;
 
-/// The largest input the fuzz test takes.
-const fuzz_input_len_max = 1024;
+/// The largest input the fuzz test takes: past a long block of the combined aarch64 path.
+const fuzz_input_len_max = 8192;
 
 /// The octets the seeded tests read: a fixed, irregular sequence.
 const sample: [len_max + offsets]u8 = sample_octets();
@@ -97,6 +97,36 @@ test "every path gives the same value however the input is split in two" {
         for (0..octets.len + 1) |cut| {
             const first = crc32.update(path, 0, octets[0..cut]);
             try testing.expectEqual(whole, crc32.update(path, first, octets[cut..]));
+        }
+    }
+}
+
+/// The lengths of the combined aarch64 path's blocks, long and short: each step folds 128 octets
+/// and takes a few more on each of three chains.
+const combined_fold_step_len = constants.crc32_lanes_pmull * constants.crc32_lane_len;
+const combined_long_len = constants.crc32_combined_long_iterations *
+    (combined_fold_step_len + constants.crc32_streams * constants.crc32_combined_long_stream_step_len);
+const combined_short_len = constants.crc32_combined_short_iterations *
+    (combined_fold_step_len + constants.crc32_streams * constants.crc32_combined_short_stream_step_len);
+
+test "every path equals the table path over many blocks of the combined path" {
+    // Lengths that straddle long and short blocks and the folding after them, at each alignment
+    // within a lane.
+    const lengths = [_]usize{
+        combined_short_len - 1,                     combined_short_len,
+        combined_short_len + 1,                     2 * combined_short_len + 129,
+        combined_long_len - 1,                      combined_long_len,
+        combined_long_len + combined_short_len + 1, 2 * combined_long_len + 2 * combined_short_len + 300,
+    };
+    var octets: [2 * combined_long_len + 2 * combined_short_len + 300 + offsets]u8 = undefined;
+    for (&octets, 0..) |*octet, index| octet.* = sample[index % sample.len] ^ @as(u8, @truncate(index >> 8));
+    for (std.enums.values(Crc32Path)) |path| {
+        if (!runs_here(path)) continue;
+        for (0..offsets) |offset| {
+            for (lengths) |len| {
+                const input = octets[offset..][0..len];
+                try testing.expectEqual(crc32.update(.table, 0x1234_5678, input), crc32.update(path, 0x1234_5678, input));
+            }
         }
     }
 }
