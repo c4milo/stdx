@@ -35,12 +35,20 @@ const forbidden_prefixes = [_][]const u8{
     "std.debug.print",
 };
 
+/// The one call under a forbidden prefix that reaches no host: `std.os.linux.getauxval` reads the
+/// auxiliary vector the kernel wrote into the process's memory at start, with no syscall.
+/// `codec.Features.detect` reads the CPU's features from it on aarch64 Linux (decision 21).
+const exceptions = [_]forbidden_references.Exception{
+    .{ .prefix = "std.os.linux", .last_segment_prefixes = &.{"getauxval"} },
+};
+
 /// The configuration. It reads every file under `src/`: stdx has no test-only endpoint, so no
 /// directory is exempt.
 pub const config: forbidden_references.Config = .{
     .name = "io",
     .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
     .prefixes = &forbidden_prefixes,
+    .exceptions = &exceptions,
     .reason = "stdx owns no I/O (decision 2, invariant 2)",
 };
 
@@ -129,6 +137,16 @@ test "io flags every prefix on its list, in a parameter type as well as a body" 
         "reference to std.c.write: " ++ reason,
         "reference to std.log.scoped: " ++ reason,
     });
+}
+
+test "io allows getauxval, which reads memory, and nothing else under std.os" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/codec/features.zig",
+        \\const word = std.os.linux.getauxval(std.elf.AT_HWCAP);
+        \\const pid = std.os.linux.getpid();
+    );
+    try harness.expect_messages(findings, &.{"reference to std.os.linux.getpid: " ++ reason});
 }
 
 test "io does not flag a name that merely starts with the same letters" {
