@@ -20,6 +20,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
+/// Signed weights are shifted down by half the block length, which centers them on zero.
+const center_divisor = 2;
+
 /// The sum 0 + 1 + … + (B − 1), which bounds how often a lane of `sums_before` gains a lane of
 /// `sums`, is at most B² over this.
 const triangle_divisor = 2;
@@ -41,7 +44,7 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
         pub const block_len = register_count * register_len;
 
         /// What each weight is less than the true one, `block_len` down to 1.
-        pub const weight_shift = if (Dot.signed_weights) block_len / 2 else 0;
+        pub const weight_shift = if (Dot.signed_weights) block_len / center_divisor else 0;
 
         const weights: [register_count]Octets = block_weights(register_count, register_len, weight_shift);
 
@@ -98,13 +101,10 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
             var all_weighted = weighted[0];
             inline for (weighted[1..]) |lanes| all_weighted +%= lanes;
             const run_s1 = reduce(Lanes, sums);
-            const weighted_sum: i64 = if (Dot.signed_weights)
-                @reduce(.Add, @as(@Vector(@typeInfo(Lanes).vector.len, i64), @as(@Vector(@typeInfo(Lanes).vector.len, i32), @bitCast(all_weighted))))
-            else
-                @intCast(reduce(Lanes, all_weighted));
             const before: i64 = @intCast(reduce(Lanes, sums_before));
             const len: i64 = block_len;
             const shift: i64 = weight_shift;
+            const weighted_sum = reduce_weighted(Lanes, Dot.signed_weights, all_weighted);
             const run_s2 = len * before + weighted_sum + shift * @as(i64, @intCast(run_s1));
             return .{ run_s1, @intCast(run_s2) };
         }
@@ -113,6 +113,14 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
 
 fn reduce(comptime Lanes: type, lanes: Lanes) u64 {
     return @reduce(.Add, @as(@Vector(@typeInfo(Lanes).vector.len, u64), lanes));
+}
+
+/// The weighted lanes added up, each read as a signed 32-bit value when the weights are signed.
+fn reduce_weighted(comptime Lanes: type, comptime signed: bool, lanes: Lanes) i64 {
+    const len = @typeInfo(Lanes).vector.len;
+    if (!signed) return @intCast(reduce(Lanes, lanes));
+    const signed_lanes: @Vector(len, i32) = @bitCast(lanes);
+    return @reduce(.Add, @as(@Vector(len, i64), signed_lanes));
 }
 
 /// The weights of each register of a block: `block_len` for its first octet down to 1 for its last,

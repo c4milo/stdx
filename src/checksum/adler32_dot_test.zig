@@ -37,7 +37,7 @@ fn Software(comptime len: usize, comptime signed: bool, comptime max: comptime_i
             var result: [len / group_len]u32 = accumulator;
             const octet_array: [len]u8 = octets;
             for (octet_array, 0..) |octet, index| {
-                const lane = if (octets_per_lane == group_len) index / group_len else index / octets_per_lane * 2;
+                const lane = if (octets_per_lane == group_len) index / group_len else index / octets_per_lane * lanes_per_sad;
                 result[lane] +%= octet;
             }
             return result;
@@ -45,11 +45,22 @@ fn Software(comptime len: usize, comptime signed: bool, comptime max: comptime_i
     };
 }
 
+/// The 32-bit lanes of one 64-bit lane of VPSADBW.
+const lanes_per_sad = @sizeOf(u64) / group_len;
+
+/// The octets of a NEON, an AVX2 and an AVX-512 register.
+const neon_len = 16;
+const avx2_len = 32;
+const avx512_len = 64;
+
+/// The largest weight VPMADDUBSW's 16-bit pair sums hold.
+const pair_weight_max = 64;
+
 /// The objects' shapes: UDOT, VPMADDUBSW on 32 and 64 octets, and VPDPBUSD.
-const Udot = Software(16, false, 255, 4);
-const Avx2 = Software(32, true, 64, 8);
-const Avx512 = Software(64, true, 64, 8);
-const Vnni = Software(64, true, 127, 4);
+const Udot = Software(neon_len, false, std.math.maxInt(u8), group_len);
+const Avx2 = Software(avx2_len, true, pair_weight_max, @sizeOf(u64));
+const Avx512 = Software(avx512_len, true, pair_weight_max, @sizeOf(u64));
+const Vnni = Software(avx512_len, true, std.math.maxInt(i8), group_len);
 
 /// RFC 1950 §9's update_adler32, reducing after every octet.
 fn reference(adler: u32, octets: []const u8) u32 {
