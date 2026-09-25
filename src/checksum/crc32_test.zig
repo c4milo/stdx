@@ -12,12 +12,13 @@ const crc32_table = @import("crc32_table.zig");
 const Crc32Path = crc32.Crc32Path;
 const Features = @import("features.zig").Features;
 
-/// The folds of 64 octets the seeded tests reach past: several, so the folding loop repeats.
-const folds_checked = 4;
+/// The steps of the widest folding path the seeded tests reach past: several, so its loop repeats.
+const folds_checked = 3;
 
 /// The longest input the seeded tests take at every length and alignment: past `folds_checked`
-/// folds, a lane and a tail, so the folding path's every branch runs.
-const len_max = folds_checked * constants.crc32_fold_len + constants.crc32_lane_len + constants.crc32_slice_len;
+/// steps of the widest fold, a lane and a tail, so a folding path's every branch runs.
+const len_max = folds_checked * constants.crc32_lanes_max * constants.crc32_lane_len +
+    constants.crc32_lane_len + constants.crc32_slice_len;
 
 /// The alignments the seeded tests start at: one of each within a lane.
 const offsets = constants.crc32_lane_len;
@@ -108,8 +109,12 @@ test "fastest picks the path the features allow on this architecture" {
     try testing.expectEqual(pclmul, Crc32Path.fastest(.{ .pclmul = true, .avx2 = true }));
     const armv8: Crc32Path = if (arch == .aarch64) .armv8 else .table;
     try testing.expectEqual(armv8, Crc32Path.fastest(.{ .crc32 = true }));
+    // PMULL folding needs the CRC32 instructions for its tail.
+    try testing.expectEqual(.table, Crc32Path.fastest(.{ .pmull = true }));
+    const pmull: Crc32Path = if (arch == .aarch64) .pmull else .table;
+    try testing.expectEqual(pmull, Crc32Path.fastest(.{ .crc32 = true, .pmull = true }));
     for (std.enums.values(Crc32Path)) |path| {
-        try testing.expectEqual(path == .table or path == pclmul or path == armv8, path.built());
+        try testing.expectEqual(path == .table or path == pclmul or path == armv8 or path == pmull, path.built());
     }
 }
 
@@ -122,6 +127,7 @@ test "the tests run every path the target's CPU model has" {
         },
         .aarch64 => if (std.Target.aarch64.featureSetHas(cpu.features, .crc)) {
             try testing.expect(runs_here(.armv8));
+            if (std.Target.aarch64.featureSetHas(cpu.features, .aes)) try testing.expect(runs_here(.pmull));
         },
         else => {},
     }

@@ -11,6 +11,6 @@ comptime {
     switch (level) {
         .x86_64_pclmul => _ = @import("variants/crc32_pclmul.zig"),
         .x86_64_avx2 => _ = @import("variants/adler32_avx2.zig"),
-        .aarch64_crc => _ = @import("variants/crc32_armv8.zig"),
+        .aarch64_crc_pmull => _ = @import("variants/crc32_armv8.zig"),
     }
 }

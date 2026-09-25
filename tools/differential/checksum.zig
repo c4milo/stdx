@@ -207,7 +207,12 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("differential-checksum FAILED: detection misses {s}, which the build host has\n", .{name});
         std.process.exit(1);
     }
-    const wanted: checksum.Features = .{ .pclmul = features.pclmul, .avx2 = features.avx2, .crc32 = features.crc32 };
+    const wanted: checksum.Features = .{
+        .pclmul = features.pclmul,
+        .avx2 = features.avx2,
+        .crc32 = features.crc32,
+        .pmull = features.pmull,
+    };
     const checks = build_checks(wanted);
     std.debug.print("differential-checksum: CRC-32 paths {s}; Adler-32 paths {s}\n", .{
         path_names(arena, checks[0].paths()), path_names(arena, checks[1].paths()),

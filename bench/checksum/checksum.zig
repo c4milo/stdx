@@ -130,7 +130,12 @@ pub fn main(init: std.process.Init) !void {
     for (input) |*octet| octet.* = @truncate(generator.next());
 
     const features = codec.Features.detect();
-    const wanted: checksum.Features = .{ .pclmul = features.pclmul, .avx2 = features.avx2, .crc32 = features.crc32 };
+    const wanted: checksum.Features = .{
+        .pclmul = features.pclmul,
+        .avx2 = features.avx2,
+        .crc32 = features.crc32,
+        .pmull = features.pmull,
+    };
     for (build_checks(wanted)) |check| {
         try check_agrees(check, input);
         try report_check(io, out, check, input);

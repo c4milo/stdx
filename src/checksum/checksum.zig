@@ -10,7 +10,11 @@
 //! `Features` it copied out of its `codec.Features` (decision 21):
 //!
 //! ```zig
-//! const path = checksum.Crc32Path.fastest(.{ .pclmul = features.pclmul, .crc32 = features.crc32 });
+//! const path = checksum.Crc32Path.fastest(.{
+//!     .pclmul = features.pclmul,
+//!     .crc32 = features.crc32,
+//!     .pmull = features.pmull,
+//! });
 //! crc = checksum.crc32(path, crc, written);
 //! ```
 

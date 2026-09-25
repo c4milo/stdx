@@ -15,11 +15,22 @@ pub const crc32_conditioning: u32 = 0xffff_ffff;
 /// The octets the slice-by-8 table path takes per step, and so the number of 256-entry tables.
 pub const crc32_slice_len = 8;
 
-/// The octets one step of the carry-less multiplication path folds: four 128-bit lanes.
-pub const crc32_fold_len = 64;
-
-/// The octets of one 128-bit lane of the folding path.
+/// The octets of one 128-bit lane of the folding paths.
 pub const crc32_lane_len = 16;
+
+/// The lanes the PCLMULQDQ path folds per step.
+pub const crc32_lanes_pclmul = 4;
+
+/// The lanes the PMULL path folds per step. Of 4, 8 and 16, 8 measured fastest from 1 KiB on
+/// aarch64 (docs/design.md §8 step 4).
+pub const crc32_lanes_pmull = 8;
+
+/// The lanes the PMULL path folds per step on an input too short for `crc32_lanes_pmull`, which
+/// measured faster than the CRC32 instructions alone from 64 octets.
+pub const crc32_lanes_pmull_short = 4;
+
+/// The most lanes a folding path folds per step, which bounds the comptime work of its multipliers.
+pub const crc32_lanes_max = 8;
 
 /// The octets of one vector register when the target suggests no vector width: 128 bits, the
 /// width SSE2 and NEON share.
@@ -50,5 +61,5 @@ comptime {
     std.debug.assert(adler32_deferral_holds(adler32_deferral_len));
     std.debug.assert(!adler32_deferral_holds(adler32_deferral_len + 1));
     std.debug.assert(@bitReverse(crc32_polynomial) == crc32_polynomial_reflected);
-    std.debug.assert(crc32_fold_len == 4 * crc32_lane_len);
+    std.debug.assert(crc32_lanes_pclmul <= crc32_lanes_max and crc32_lanes_pmull <= crc32_lanes_max);
 }

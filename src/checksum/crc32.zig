@@ -18,10 +18,13 @@ pub const Crc32Path = enum {
     pclmul,
     /// Arm's CRC32 instructions, from the aarch64 variant object.
     armv8,
+    /// Carry-less multiplication by PMULL, with the CRC32 instructions for the tail, from the
+    /// aarch64 variant object.
+    pmull,
 
     /// The fastest path a CPU with `features` runs in this build.
     pub fn fastest(features: Features) Crc32Path {
-        for ([_]Crc32Path{ .pclmul, .armv8 }) |path| {
+        for ([_]Crc32Path{ .pclmul, .pmull, .armv8 }) |path| {
             if (path.runs_on(features)) return path;
         }
         return .table;
@@ -33,16 +36,17 @@ pub const Crc32Path = enum {
             .table => true,
             .pclmul => features.pclmul,
             .armv8 => features.crc32,
+            .pmull => features.pmull and features.crc32,
         };
     }
 
     /// True when this build holds the path's code. Only an x86-64 build links the PCLMULQDQ
-    /// object, and only an aarch64 build the CRC32 one.
+    /// object, and only an aarch64 build the CRC32 and PMULL one.
     pub fn built(path: Crc32Path) bool {
         return switch (path) {
             .table => true,
             .pclmul => builtin.cpu.arch == .x86_64,
-            .armv8 => builtin.cpu.arch == .aarch64,
+            .armv8, .pmull => builtin.cpu.arch == .aarch64,
         };
     }
 };
@@ -51,6 +55,7 @@ pub const Crc32Path = enum {
 // referenced only on the architecture that links it.
 extern fn stdx_checksum_crc32_pclmul(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 extern fn stdx_checksum_crc32_armv8(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
+extern fn stdx_checksum_crc32_pmull(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 
 /// The CRC-32 after the octets, from `crc`, by `path`. The caller has checked that the CPU has the
 /// path's instructions, through `Crc32Path.fastest` or `runs_on`.
@@ -62,6 +67,7 @@ pub fn update(path: Crc32Path, crc: u32, octets: []const u8) u32 {
         .table => crc32_table.update_register(register, octets),
         .pclmul => pclmul(register, octets),
         .armv8 => armv8(register, octets),
+        .pmull => pmull(register, octets),
     };
     return result ^ constants.crc32_conditioning;
 }
@@ -69,6 +75,11 @@ pub fn update(path: Crc32Path, crc: u32, octets: []const u8) u32 {
 fn pclmul(register: u32, octets: []const u8) u32 {
     if (builtin.cpu.arch != .x86_64) unreachable;
     return stdx_checksum_crc32_pclmul(register, octets.ptr, octets.len);
+}
+
+fn pmull(register: u32, octets: []const u8) u32 {
+    if (builtin.cpu.arch != .aarch64) unreachable;
+    return stdx_checksum_crc32_pmull(register, octets.ptr, octets.len);
 }
 
 fn armv8(register: u32, octets: []const u8) u32 {
