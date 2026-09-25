@@ -14,6 +14,10 @@
 //!
 //! The seed of a file is the hash of its name, so a failure replays on every host.
 //!
+//! Before any value, the check requires `codec.Features.detect()` to find every feature Zig's own
+//! detection found on the build host, so a path detection misses fails the check rather than go
+//! untested.
+//!
 //! Usage: `differential_checksum <name>=<path>...`. Exit status 0 when every value agrees, 1 when
 //! any does not, 2 on a usage error.
 
@@ -23,6 +27,7 @@ const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
 const checksum = @import("checksum");
+const host_features = @import("host_features");
 
 /// The longest piece checked at every length (design §8 step 4).
 pub const len_max = 4096;
@@ -198,6 +203,10 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
     const features = codec.Features.detect();
+    if (missed_feature(features)) |name| {
+        std.debug.print("differential-checksum FAILED: detection misses {s}, which the build host has\n", .{name});
+        std.process.exit(1);
+    }
     const wanted: checksum.Features = .{ .pclmul = features.pclmul, .avx2 = features.avx2, .crc32 = features.crc32 };
     const checks = build_checks(wanted);
     std.debug.print("differential-checksum: CRC-32 paths {s}; Adler-32 paths {s}\n", .{
@@ -218,6 +227,14 @@ pub fn main(init: std.process.Init) !void {
         names.items.len, total.compared, total.failures,
     });
     if (total.failures != 0) std.process.exit(1);
+}
+
+/// The first feature the build host has and `detected` lacks, or null.
+fn missed_feature(detected: codec.Features) ?[]const u8 {
+    inline for (.{ "pclmul", "avx2", "crc32", "pmull" }) |name| {
+        if (@field(host_features, name) and !@field(detected, name)) return name;
+    }
+    return null;
 }
 
 /// The two checks, with the paths a CPU with `features` runs.
@@ -283,6 +300,13 @@ test "every implementation agrees over a sample, and every length is compared" {
     const adler32_per_len = 2 * (1 + checks[1].paths_len) + 1;
     const whole = (2 + checks[0].paths_len * 2) + (2 + checks[1].paths_len * 2);
     try testing.expectEqual((len_max + 1) * (crc32_per_len + adler32_per_len) + whole, tally.compared);
+}
+
+test "detection on this host finds what the build host's CPU has" {
+    try testing.expectEqual(null, missed_feature(codec.Features.detect()));
+    // With nothing detected, every feature the host has is missed.
+    const host_has_any = host_features.pclmul or host_features.avx2 or host_features.crc32 or host_features.pmull;
+    try testing.expectEqual(host_has_any, missed_feature(.{}) != null);
 }
 
 test "the offsets spread over the input and every piece fits" {

@@ -7,8 +7,8 @@
 //!
 //! Detection reads no file and makes no syscall (invariant 2). On x86-64 it runs the CPUID and
 //! XGETBV instructions. On aarch64 Linux it reads the kernel's hardware capability word through
-//! `std.os.linux.getauxval`, which reads the auxiliary vector the kernel wrote into the process's
-//! memory at start. Every aarch64 Mac has the CRC32 and PMULL instructions. Elsewhere, detection
+//! `getauxval`, Zig's or libc's, which reads the auxiliary vector the kernel wrote into the
+//! process's memory at start. Every aarch64 Mac has the CRC32 and PMULL instructions. Elsewhere, detection
 //! gives the build target's features.
 
 const std = @import("std");
@@ -42,12 +42,7 @@ pub const Features = struct {
     /// The features of the CPU this runs on. Never fewer than `target()`, since a program built
     /// for more than the CPU has would not run.
     pub fn detect() Features {
-        const detected = switch (builtin.cpu.arch) {
-            .x86_64 => detect_x86_64(),
-            .aarch64 => detect_aarch64(),
-            else => target(),
-        };
-        return detected.with(target());
+        return detect_cpu().with(target());
     }
 
     /// The features both sets hold.
@@ -68,6 +63,15 @@ pub const Features = struct {
         return result;
     }
 };
+
+/// The features detection finds, before the target's are added.
+fn detect_cpu() Features {
+    return switch (builtin.cpu.arch) {
+        .x86_64 => detect_x86_64(),
+        .aarch64 => detect_aarch64(),
+        else => Features.target(),
+    };
+}
 
 fn from_target(cpu: std.Target.Cpu) Features {
     return switch (cpu.arch) {
@@ -185,11 +189,19 @@ const hwcap = struct {
 fn detect_aarch64() Features {
     if (builtin.cpu.arch != .aarch64) unreachable;
     return switch (builtin.os.tag) {
-        .linux => from_hwcap(std.os.linux.getauxval(std.elf.AT_HWCAP)),
+        .linux => from_hwcap(hwcap_word()),
         // Every aarch64 Mac is an Apple M-series part, which has both.
         .macos => .{ .crc32 = true, .pmull = true },
         else => Features.target(),
     };
+}
+
+/// Linux's hardware capability word. A program that links libc starts in libc, which keeps the
+/// auxiliary vector itself, so Zig's own reader of it, which the Zig start code fills, finds
+/// nothing there; libc's getauxval reads the same memory.
+fn hwcap_word() usize {
+    if (builtin.link_libc) return std.c.getauxval(std.elf.AT_HWCAP);
+    return std.os.linux.getauxval(std.elf.AT_HWCAP);
 }
 
 fn from_hwcap(word: usize) Features {
@@ -200,10 +212,12 @@ fn from_hwcap(word: usize) Features {
 
 const testing = std.testing;
 
-test "detect finds at least what the target guarantees" {
-    const detected = Features.detect();
+test "detection alone finds at least what the target guarantees" {
+    // The target's features are those of the CPU the tests run on, or fewer, so detection must
+    // find each of them without `detect` adding them.
     const target_features = Features.target();
-    try testing.expectEqual(target_features, detected.intersect(target_features));
+    try testing.expectEqual(target_features, detect_cpu().intersect(target_features));
+    try testing.expectEqual(target_features, Features.detect().intersect(target_features));
 }
 
 test "none holds nothing, and intersect and with combine field by field" {

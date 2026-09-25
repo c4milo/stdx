@@ -35,11 +35,14 @@ const forbidden_prefixes = [_][]const u8{
     "std.debug.print",
 };
 
-/// The one call under a forbidden prefix that reaches no host: `std.os.linux.getauxval` reads the
-/// auxiliary vector the kernel wrote into the process's memory at start, with no syscall.
-/// `codec.Features.detect` reads the CPU's features from it on aarch64 Linux (decision 21).
+/// The one call under a forbidden prefix that reaches no host: `getauxval` reads the auxiliary
+/// vector the kernel wrote into the process's memory at start, with no syscall. Zig's reader,
+/// `std.os.linux.getauxval`, and libc's, `std.c.getauxval`, read the same memory; a program that
+/// links libc has only libc's filled. `codec.Features.detect` reads the CPU's features from it on
+/// aarch64 Linux (decision 21).
 const exceptions = [_]forbidden_references.Exception{
     .{ .prefix = "std.os.linux", .last_segment_prefixes = &.{"getauxval"} },
+    .{ .prefix = "std.c", .last_segment_prefixes = &.{"getauxval"} },
 };
 
 /// The configuration. It reads every file under `src/`: stdx has no test-only endpoint, so no
@@ -139,14 +142,19 @@ test "io flags every prefix on its list, in a parameter type as well as a body" 
     });
 }
 
-test "io allows getauxval, which reads memory, and nothing else under std.os" {
+test "io allows getauxval, which reads memory, and nothing else under std.os or std.c" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/codec/features.zig",
         \\const word = std.os.linux.getauxval(std.elf.AT_HWCAP);
+        \\const libc_word = std.c.getauxval(std.elf.AT_HWCAP);
         \\const pid = std.os.linux.getpid();
+        \\const libc_pid = std.c.getpid();
     );
-    try harness.expect_messages(findings, &.{"reference to std.os.linux.getpid: " ++ reason});
+    try harness.expect_messages(findings, &.{
+        "reference to std.os.linux.getpid: " ++ reason,
+        "reference to std.c.getpid: " ++ reason,
+    });
 }
 
 test "io does not flag a name that merely starts with the same letters" {

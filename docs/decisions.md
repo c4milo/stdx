@@ -873,10 +873,11 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
       level is the module itself.
     - Detection reads no file and makes no syscall. On x86-64 it runs the CPUID and XGETBV
       instructions. On aarch64 Linux it reads the kernel's hardware capability words with
-      `std.os.linux.getauxval`, which reads the auxiliary vector the kernel wrote into the
-      process's memory at start; `tools/lint/io.zig` allows that one call and nothing else under
-      `std.os`, and `src/codec/features.zig` is its one caller. On macOS, every aarch64 machine has
-      CRC32 and PMULL.
+      `getauxval`, which reads the auxiliary vector the kernel wrote into the process's memory at
+      start: Zig's `std.os.linux.getauxval`, or libc's `std.c.getauxval` in a program that links
+      libc, where Zig's finds nothing. `tools/lint/io.zig` allows those two calls and nothing else
+      under `std.os` or `std.c`, and `src/codec/features.zig` is their one caller. On macOS, every
+      aarch64 machine has CRC32 and PMULL.
       Elsewhere, `detect()` gives the build target's features.
 
     The alternatives refused:

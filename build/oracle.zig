@@ -132,6 +132,7 @@ pub fn add(b: *std.Build, options: Options) void {
     checksum_module.addImport("corpus", corpus_names);
     checksum_module.addImport("codec", graph.codec);
     checksum_module.addImport("checksum", graph.checksum);
+    checksum_module.addOptions("host_features", host_features(b));
     const checksum_check = b.addExecutable(.{ .name = "differential_checksum", .root_module = checksum_module });
     const checksum_run = b.addRunArtifact(checksum_check);
     add_corpus_args(b, checksum_run, corpus);
@@ -161,6 +162,22 @@ pub fn add(b: *std.Build, options: Options) void {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
+}
+
+/// The SIMD features Zig's own detection finds on the build host, which runs the checks: the
+/// oracle for `codec.Features.detect()`, which the checks require to find at least as many.
+fn host_features(b: *std.Build) *std.Build.Step.Options {
+    const cpu = b.graph.host.result.cpu;
+    const x86 = std.Target.x86;
+    const aarch64 = std.Target.aarch64;
+    const is_x86_64 = cpu.arch == .x86_64;
+    const is_aarch64 = cpu.arch == .aarch64;
+    const options = b.addOptions();
+    options.addOption(bool, "pclmul", is_x86_64 and x86.featureSetHasAll(cpu.features, .{ .pclmul, .sse4_1 }));
+    options.addOption(bool, "avx2", is_x86_64 and x86.featureSetHas(cpu.features, .avx2));
+    options.addOption(bool, "crc32", is_aarch64 and aarch64.featureSetHas(cpu.features, .crc));
+    options.addOption(bool, "pmull", is_aarch64 and aarch64.featureSetHas(cpu.features, .aes));
+    return options;
 }
 
 /// Passes every corpus file to `run` as `<name>=<path>`.
