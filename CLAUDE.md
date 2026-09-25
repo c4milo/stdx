@@ -232,7 +232,7 @@ Change this section when a step adds or renames a command.
   run, the median of five runs with the spread. `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
   person asks (decision 20). stdx's decoder and encoder join the candidates in design §8 steps 5,
-  7 and 9.
+  7 and 9. Each published report is committed under `bench/results/`, as the workflow wrote it.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine and writes the
   report; `.github/workflows/main.yml` runs it on each push to main, on x86-64 and aarch64
   (decision 19). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned
