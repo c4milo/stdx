@@ -56,7 +56,9 @@ pub fn main(init: std.process.Init) !void {
     const random = random_state.random();
 
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    // Streaming, not positional: when stdout is a file the caller already wrote to, a positional
+    // writer starts at offset 0 and overwrites what bench/costs/run.sh put before the table.
+    var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
     try out.print("| Cost | Median, ns | Spread |\n|---|---|---|\n", .{});
 
