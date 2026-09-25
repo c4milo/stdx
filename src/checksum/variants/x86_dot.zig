@@ -64,6 +64,10 @@ pub fn DotVnni(comptime len: usize) type {
             );
         }
 
-        pub const sums = Dot(len).sums;
+        /// VPDPBUSD by ones adds each four octets into its lane in place, one instruction where
+        /// VPSADBW and an addition take two.
+        pub fn sums(accumulator: Lanes, octets: Octets) Lanes {
+            return weighted(accumulator, octets, @splat(1));
+        }
     };
 }
