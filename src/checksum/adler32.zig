@@ -28,10 +28,12 @@ pub const Adler32Path = enum {
     avx512,
     /// Arm's UDOT, from the aarch64 DotProd variant object.
     udot,
+    /// VPDPBUSD on 64-octet vectors, from the x86-64 AVX512_VNNI variant object.
+    vnni,
 
     /// The fastest path a CPU with `features` runs in this build.
     pub fn fastest(features: Features) Adler32Path {
-        for ([_]Adler32Path{ .avx512, .avx2, .udot }) |path| {
+        for ([_]Adler32Path{ .vnni, .avx512, .avx2, .udot }) |path| {
             if (path.runs_on(features)) return path;
         }
         return .vector;
@@ -44,25 +46,27 @@ pub const Adler32Path = enum {
             .avx2 => features.avx2,
             .avx512 => features.avx512,
             .udot => features.dotprod,
+            .vnni => features.avx512 and features.vnni,
         };
     }
 
-    /// True when this build holds the path's code. Only an x86-64 build links the AVX2 and AVX-512
-    /// objects, and only an aarch64 build the DotProd one.
+    /// True when this build holds the path's code. Only an x86-64 build links the AVX2, AVX-512 and
+    /// VNNI objects, and only an aarch64 build the DotProd one.
     pub fn built(path: Adler32Path) bool {
         return switch (path) {
             .scalar, .vector => true,
-            .avx2, .avx512 => builtin.cpu.arch == .x86_64,
+            .avx2, .avx512, .vnni => builtin.cpu.arch == .x86_64,
             .udot => builtin.cpu.arch == .aarch64,
         };
     }
 };
 
-// The kernels of the variant objects: AVX2 and AVX-512 in an x86-64 build, DotProd in an aarch64
-// build.
+// The kernels of the variant objects: AVX2, AVX-512 and VNNI in an x86-64 build, DotProd in an
+// aarch64 build.
 extern fn stdx_checksum_adler32_avx2(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 extern fn stdx_checksum_adler32_avx512(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 extern fn stdx_checksum_adler32_udot(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
+extern fn stdx_checksum_adler32_vnni(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 
 /// The Adler-32 after the octets, from `adler`, by `path`. The caller has checked that the CPU has
 /// the path's instructions, through `Adler32Path.fastest` or `runs_on`.
@@ -74,7 +78,13 @@ pub fn update(path: Adler32Path, adler: u32, octets: []const u8) u32 {
         .avx2 => avx2(adler, octets),
         .avx512 => avx512(adler, octets),
         .udot => udot(adler, octets),
+        .vnni => vnni(adler, octets),
     };
+}
+
+fn vnni(adler: u32, octets: []const u8) u32 {
+    if (builtin.cpu.arch != .x86_64) unreachable;
+    return stdx_checksum_adler32_vnni(adler, octets.ptr, octets.len);
 }
 
 fn udot(adler: u32, octets: []const u8) u32 {

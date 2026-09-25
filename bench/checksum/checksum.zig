@@ -135,6 +135,7 @@ pub fn main(init: std.process.Init) !void {
         .avx2 = features.avx2,
         .vpclmul = features.vpclmul,
         .avx512 = features.avx512,
+        .vnni = features.vnni,
         .crc32 = features.crc32,
         .pmull = features.pmull,
         .dotprod = features.dotprod,

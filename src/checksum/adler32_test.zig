@@ -132,6 +132,10 @@ test "fastest picks the path the features allow on this architecture" {
     try testing.expectEqual(avx2, Adler32Path.fastest(.{ .avx2 = true }));
     const avx512: Adler32Path = if (arch == .x86_64) .avx512 else .vector;
     try testing.expectEqual(avx512, Adler32Path.fastest(.{ .avx2 = true, .avx512 = true }));
+    // VNNI without AVX-512 does not run the VNNI path.
+    try testing.expectEqual(avx2, Adler32Path.fastest(.{ .avx2 = true, .vnni = true }));
+    const vnni: Adler32Path = if (arch == .x86_64) .vnni else .vector;
+    try testing.expectEqual(vnni, Adler32Path.fastest(.{ .avx2 = true, .avx512 = true, .vnni = true }));
     try testing.expectEqual(arch == .x86_64, Adler32Path.avx2.built());
     try testing.expectEqual(arch == .x86_64, Adler32Path.avx512.built());
     const udot: Adler32Path = if (arch == .aarch64) .udot else .vector;
@@ -147,6 +151,7 @@ test "the tests run every path the target's CPU model has" {
     }
     if (cpu.arch == .x86_64 and std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl })) {
         try testing.expect(runs_here(.avx512));
+        if (std.Target.x86.featureSetHas(cpu.features, .avx512vnni)) try testing.expect(runs_here(.vnni));
     }
     if (cpu.arch == .aarch64 and std.Target.aarch64.featureSetHas(cpu.features, .dotprod)) {
         try testing.expect(runs_here(.udot));

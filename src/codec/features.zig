@@ -24,6 +24,8 @@ pub const Features = struct {
     avx512: bool = false,
     /// x86-64: VPCLMULQDQ, carry-less multiplication on YMM and ZMM registers.
     vpclmul: bool = false,
+    /// x86-64: AVX512_VNNI's VPDPBUSD, dot products of octets, with the ZMM registers saved.
+    vnni: bool = false,
     /// aarch64: the CRC32 instructions, whose polynomial is gzip's (RFC 1952 §8).
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
@@ -82,6 +84,7 @@ fn from_target(cpu: std.Target.Cpu) Features {
             .avx2 = has_x86(cpu, .avx2),
             .avx512 = has_x86(cpu, .avx512f) and has_x86(cpu, .avx512bw) and has_x86(cpu, .avx512vl),
             .vpclmul = has_x86(cpu, .vpclmulqdq),
+            .vnni = has_x86(cpu, .avx512vnni),
         },
         .aarch64 => .{
             .crc32 = std.Target.aarch64.featureSetHas(cpu.features, .crc),
@@ -105,12 +108,13 @@ const x86 = struct {
     const ecx_sse4_1 = 0x0008_0000;
     const ecx_osxsave = 0x0800_0000;
     const ecx_avx = 0x1000_0000;
-    // Leaf 7, EBX: bits 5, 16, 30 and 31; ECX: bit 10.
+    // Leaf 7, EBX: bits 5, 16, 30 and 31; ECX: bits 10 and 11.
     const ebx_avx2 = 0x0000_0020;
     const ebx_avx512f = 0x0001_0000;
     const ebx_avx512bw = 0x4000_0000;
     const ebx_avx512vl = 0x8000_0000;
     const ecx_vpclmulqdq = 0x0000_0400;
+    const ecx_avx512_vnni = 0x0000_0800;
     /// XCR0: the operating system saves the XMM and YMM registers.
     const xcr0_ymm = 0b110;
     /// XCR0: it also saves the opmask and ZMM registers.
@@ -179,6 +183,7 @@ fn from_x86(registers: X86Registers) Features {
         .avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2),
         .avx512 = zmm and all(registers.leaf_7_ebx, avx512_bits),
         .vpclmul = ymm and all(registers.leaf_7_ecx, x86.ecx_vpclmulqdq),
+        .vnni = zmm and all(registers.leaf_7_ecx, x86.ecx_avx512_vnni),
     };
 }
 
@@ -240,10 +245,15 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     const every: X86Registers = .{
         .leaf_1_ecx = 0x0000_0002 | 0x0008_0000,
         .leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000,
-        .leaf_7_ecx = 0x0000_0400,
+        .leaf_7_ecx = 0x0000_0400 | 0x0000_0800,
         .xcr0 = 0b1110_0111,
     };
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true }, from_x86(every));
+    const all_x86: Features = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true };
+    try testing.expectEqual(all_x86, from_x86(every));
+    // VPCLMULQDQ without VNNI, as on the first CPUs with both AVX-512 and VPCLMULQDQ.
+    var no_vnni = every;
+    no_vnni.leaf_7_ecx = 0x0000_0400;
+    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true }, from_x86(no_vnni));
     // No YMM state saved: nothing that uses YMM or ZMM, whatever CPUID says.
     var no_ymm = every;
     no_ymm.xcr0 = 0b011;
@@ -252,11 +262,12 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     var no_zmm = every;
     no_zmm.xcr0 = 0b111;
     try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true }, from_x86(no_zmm));
-    // PCLMULQDQ without SSE4.1, and AVX-512 F without BW.
+    // PCLMULQDQ without SSE4.1, and AVX-512 F without BW. VNNI is reported as the CPU reports it;
+    // each path that uses it requires AVX-512 as well.
     var partial = every;
     partial.leaf_1_ecx = 0x0000_0002;
     partial.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x8000_0000;
-    try testing.expectEqual(Features{ .avx2 = true, .vpclmul = true }, from_x86(partial));
+    try testing.expectEqual(Features{ .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(partial));
 }
 
 test "the hardware capability word maps CRC32 and PMULL" {
