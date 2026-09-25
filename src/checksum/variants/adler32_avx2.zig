@@ -11,7 +11,7 @@ const x86_dot = @import("x86_dot.zig");
 const register_len = 32;
 
 const Short = adler32_dot.Kernel(x86_dot.Dot(register_len), constants.adler32_x86_registers_short, adler32_scalar);
-const Kernel = adler32_dot.Kernel(x86_dot.Dot(register_len), constants.adler32_x86_registers, Short);
+const Kernel = adler32_dot.Kernel(x86_dot.Dot(register_len), constants.adler32_dot_block_len / register_len, Short);
 
 /// The Adler-32 value after `len` octets from `adler`.
 export fn stdx_checksum_adler32_avx2(adler: u32, octets_pointer: [*]const u8, len: usize) callconv(.c) u32 {

@@ -1,7 +1,7 @@
 //! The dot products of adler32_dot.zig on x86-64, for registers of `register_len` octets: 32 with
 //! AVX2, 64 with AVX-512 BW, and 64 with AVX512_VNNI's VPDPBUSD, which does the weighted products
-//! and their sums in one instruction. VPMADDUBSW multiplies each unsigned octet by a signed weight and adds
-//! neighbouring products into 16 bits, which holds them while every weight is below 64 and a half;
+//! and their sums in one instruction. VPMADDUBSW multiplies each unsigned octet by a signed weight
+//! and adds neighbouring products into 16 bits, which holds them while every weight is at most 64;
 //! VPMADDWD by ones adds neighbouring 16-bit sums into 32 bits; VPSADBW adds each eight octets into
 //! a 64-bit lane. This file exports nothing.
 
@@ -14,10 +14,15 @@ pub fn Dot(comptime len: usize) type {
     const Eights = @Vector(len / @sizeOf(u64), u64);
     return struct {
         pub const register_len = len;
+        /// VPSADBW adds eight octets into each 64-bit lane, the low half of two 32-bit lanes.
+        pub const lane_octets = @sizeOf(u64);
+        pub const signed_weights = true;
+        /// VPMADDUBSW adds two neighbouring products into 16 bits; with neighbouring weights of at
+        /// most 64 and 63, the sum fits.
+        pub const weight_max = 64;
 
         comptime {
-            // Two products of an octet and a weight fit a signed 16-bit sum.
-            std.debug.assert(2 * std.math.maxInt(u8) * len <= std.math.maxInt(i16));
+            std.debug.assert((2 * weight_max - 1) * std.math.maxInt(u8) <= std.math.maxInt(i16));
         }
 
         pub fn weighted(accumulator: Lanes, octets: Octets, weights: Octets) Lanes {
@@ -54,6 +59,10 @@ pub fn DotVnni(comptime len: usize) type {
     const Lanes = @Vector(len / @sizeOf(u32), u32);
     return struct {
         pub const register_len = len;
+        /// VPDPBUSD by ones adds four octets into each lane.
+        pub const lane_octets = @sizeOf(u32);
+        pub const signed_weights = true;
+        pub const weight_max = std.math.maxInt(i8);
 
         pub fn weighted(accumulator: Lanes, octets: Octets, weights: Octets) Lanes {
             return asm ("vpdpbusd %[weights], %[octets], %[out]"

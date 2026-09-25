@@ -2,25 +2,23 @@
 //! in groups of four and adds each group's products into a 32-bit lane: Arm's UDOT, x86's VPDPBUSD,
 //! or VPMADDUBSW followed by VPMADDWD. Each object supplies `Dot`; this file holds the rest.
 //!
-//! A block is `register_count` registers of `Dot.register_len` octets. For each register the path
-//! keeps three vectors of 32-bit lanes:
+//! A block is `register_count` registers of `Dot.register_len` octets, `block_len` in all. The path
+//! keeps three kinds of vectors of 32-bit lanes:
 //!
-//! - `sums`, the register's octets added up, by a dot product with ones or by `Dot.sums`;
+//! - `sums`, every octet so far added up; each block's octets are added up first, by a short chain
+//!   of `Dot.sums` that the next block does not wait on;
 //! - `sums_before`, the value `sums` had before each block, added up;
-//! - `weighted`, the dot product of the register's octets with the weights `register_len` down to
-//!   1, the same for every register, so each weight fits the signed octet VPMADDUBSW takes.
+//! - `weighted`, one per register, the dot products of its octets with their weights: `block_len`
+//!   for a block's first octet down to 1 for its last, less `weight_shift`, which centers them on
+//!   zero when `Dot` takes signed weights, so every weight fits one octet.
 //!
 //! After a run of blocks, with s1 and s2 as they were before it (RFC 1950 §2.2): s1 gains the sums;
-//! s2 gains `block_len` times s1 per block, `block_len` times the sums before each block, the
-//! weighted sums, and for each register the octets of the registers after it in the block times
-//! `register_len`, since its weights count from its own end and not from the block's.
+//! s2 gains `block_len` times s1 per block, `block_len` times the sums before each block, and the
+//! weighted sums with `weight_shift` times the run's octets added back.
 
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
-
-/// The most a 32-bit lane of `sums` gains per block: eight octets of 255, from VPSADBW.
-const lane_gain_max = @sizeOf(u64) * std.math.maxInt(u8);
 
 /// The sum 0 + 1 + … + (B − 1), which bounds how often a lane of `sums_before` gains a lane of
 /// `sums`, is at most B² over this.
@@ -29,6 +27,9 @@ const triangle_divisor = 2;
 /// Adler-32 over `Dot`'s registers, `register_count` to a block, with `Next` for the octets after
 /// the last whole block. `Dot` has:
 /// - `register_len`, the octets of one register;
+/// - `lane_octets`, the most octets `sums` adds into one 32-bit lane of one register;
+/// - `signed_weights`, true when `weighted` takes each weight as a signed octet, and `weight_max`,
+///   the largest weight it takes, signed or not;
 /// - `weighted(accumulator, octets, weights)`, adding into each 32-bit lane the products of its four
 ///   octets with their weights;
 /// - `sums(accumulator, octets)`, adding the octets into the lanes, in any grouping.
@@ -38,22 +39,25 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
     const Lanes = @Vector(register_len / @sizeOf(u32), u32);
     return struct {
         pub const block_len = register_count * register_len;
-        const weights: Octets = descending(register_len);
 
-        /// The blocks one run takes: few enough that no 32-bit lane overflows once the registers'
-        /// lanes are added together. A lane of `sums_before` gains at most a lane of `sums` per
-        /// block, which gains at most `lane_gain_max`.
-        pub const blocks_per_run_max = run_blocks_max(register_count);
+        /// What each weight is less than the true one, `block_len` down to 1.
+        pub const weight_shift = if (Dot.signed_weights) block_len / 2 else 0;
+
+        const weights: [register_count]Octets = block_weights(register_count, register_len, weight_shift);
+
+        pub const blocks_per_run_max = run_blocks_max(Dot, register_count);
 
         comptime {
-            assert(before_fits(register_count, blocks_per_run_max));
-            // A lane of `weighted` gains four octets of 255 times weights of at most `register_len`.
-            const weighted_gain_max = @sizeOf(u32) * std.math.maxInt(u8) * register_len;
-            assert(register_count * weighted_gain_max * blocks_per_run_max <= std.math.maxInt(u32));
+            // The largest weight fits what `Dot` takes, and a signed weight's most negative, 1 less
+            // `weight_shift`, fits a signed octet.
+            assert(block_len - weight_shift <= Dot.weight_max);
+            assert(!Dot.signed_weights or weight_shift - 1 <= -@as(isize, std.math.minInt(i8)));
+            assert(before_fits(Dot, register_count, blocks_per_run_max));
+            assert(weighted_fits(Dot, register_count, blocks_per_run_max));
         }
 
         /// The Adler-32 value after the octets, from `adler`. The octets after the last whole
-        /// block take the scalar path.
+        /// block take `Next`.
         pub fn update(adler: u32, octets: []const u8) u32 {
             var s1: u64 = adler & std.math.maxInt(u16);
             var s2: u64 = adler >> @bitSizeOf(u16);
@@ -76,74 +80,74 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
 
         /// What one run adds to s1, and to s2 beyond `block_len` times s1 per block.
         fn run_sums(run: []const [block_len]u8) struct { u64, u64 } {
-            var sums: [register_count]Lanes = @splat(@splat(0));
-            var sums_before: [register_count]Lanes = @splat(@splat(0));
+            var sums: Lanes = @splat(0);
+            var sums_before: Lanes = @splat(0);
             var weighted: [register_count]Lanes = @splat(@splat(0));
             for (run) |*block| {
+                // No lane can overflow within a run of `blocks_per_run_max` blocks, so the
+                // additions wrap rather than check.
+                sums_before +%= sums;
+                var block_sums: Lanes = @splat(0);
                 inline for (0..register_count) |register| {
                     const register_octets: Octets = block[register * register_len ..][0..register_len].*;
-                    // No lane can overflow within a run of `blocks_per_run_max` blocks, so the
-                    // additions wrap rather than check.
-                    sums_before[register] +%= sums[register];
-                    sums[register] = Dot.sums(sums[register], register_octets);
-                    weighted[register] = Dot.weighted(weighted[register], register_octets, weights);
+                    block_sums = Dot.sums(block_sums, register_octets);
+                    weighted[register] = Dot.weighted(weighted[register], register_octets, weights[register]);
                 }
+                sums +%= block_sums;
             }
-            return finish_run(register_count, register_len, Lanes, sums, sums_before, weighted);
+            var all_weighted = weighted[0];
+            inline for (weighted[1..]) |lanes| all_weighted +%= lanes;
+            const run_s1 = reduce(Lanes, sums);
+            const weighted_sum: i64 = if (Dot.signed_weights)
+                @reduce(.Add, @as(@Vector(@typeInfo(Lanes).vector.len, i64), @as(@Vector(@typeInfo(Lanes).vector.len, i32), @bitCast(all_weighted))))
+            else
+                @intCast(reduce(Lanes, all_weighted));
+            const before: i64 = @intCast(reduce(Lanes, sums_before));
+            const len: i64 = block_len;
+            const shift: i64 = weight_shift;
+            const run_s2 = len * before + weighted_sum + shift * @as(i64, @intCast(run_s1));
+            return .{ run_s1, @intCast(run_s2) };
         }
     };
-}
-
-/// The largest power of two of blocks a run of `register_count` registers per block may take, so
-/// that no 32-bit lane overflows once the registers' lanes are added together. A lane of
-/// `sums_before` gains at most a lane of `sums` per block, which gains at most `lane_gain_max`.
-fn run_blocks_max(comptime register_count: usize) usize {
-    var blocks: usize = 1;
-    while (before_fits(register_count, blocks << 1)) blocks <<= 1;
-    return blocks;
-}
-
-/// True when the registers' lanes of `sums_before`, added together, stay within 32 bits over a run
-/// of `blocks` blocks.
-fn before_fits(comptime register_count: usize, comptime blocks: usize) bool {
-    return register_count * lane_gain_max * blocks * blocks / triangle_divisor <= std.math.maxInt(u32);
-}
-
-/// The weights of a register: `len` for its first octet down to 1 for its last.
-fn descending(comptime len: usize) @Vector(len, u8) {
-    var result: [len]u8 = undefined;
-    for (&result, 0..) |*weight, index| weight.* = @intCast(len - index);
-    return result;
 }
 
 fn reduce(comptime Lanes: type, lanes: Lanes) u64 {
     return @reduce(.Add, @as(@Vector(@typeInfo(Lanes).vector.len, u64), lanes));
 }
 
-/// What one run adds to s1, and to s2 beyond `block_len` times s1 per block, from each register's
-/// three vectors.
-fn finish_run(
-    comptime register_count: usize,
-    comptime register_len: usize,
-    comptime Lanes: type,
-    sums: [register_count]Lanes,
-    sums_before: [register_count]Lanes,
-    weighted: [register_count]Lanes,
-) struct { u64, u64 } {
-    // The registers' lanes added together, and for each register the sums of the registers before
-    // it added up: the octets that each later register's weights do not count.
-    var all_sums = sums[0];
-    var all_before = sums_before[0];
-    var all_weighted = weighted[0];
-    var later = sums[0];
-    inline for (1..register_count) |register| {
-        all_sums +%= sums[register];
-        all_before +%= sums_before[register];
-        all_weighted +%= weighted[register];
-        if (register + 1 < register_count) later +%= all_sums;
-    }
-    const offsets: u64 = if (register_count > 1) reduce(Lanes, later) else 0;
+/// The weights of each register of a block: `block_len` for its first octet down to 1 for its last,
+/// less `shift`, each as the octet `Dot.weighted` takes, signed or not.
+fn block_weights(comptime register_count: usize, comptime register_len: usize, comptime shift: usize) [register_count]@Vector(register_len, u8) {
     const block_len = register_count * register_len;
-    const s2 = block_len * reduce(Lanes, all_before) + reduce(Lanes, all_weighted) + register_len * offsets;
-    return .{ reduce(Lanes, all_sums), s2 };
+    var result: [register_count][register_len]u8 = undefined;
+    for (0..register_count) |register| {
+        for (0..register_len) |index| {
+            const weight: isize = @as(isize, @intCast(block_len - register * register_len - index)) - @as(isize, @intCast(shift));
+            result[register][index] = @bitCast(@as(i8, @truncate(weight)));
+        }
+    }
+    var vectors: [register_count]@Vector(register_len, u8) = undefined;
+    for (&vectors, result) |*vector, octets| vector.* = octets;
+    return vectors;
+}
+
+/// The largest power of two of blocks a run may take, so that no 32-bit lane overflows.
+fn run_blocks_max(comptime Dot: type, comptime register_count: usize) usize {
+    var blocks: usize = 1;
+    while (before_fits(Dot, register_count, blocks << 1) and weighted_fits(Dot, register_count, blocks << 1)) blocks <<= 1;
+    return blocks;
+}
+
+/// True when a lane of `sums_before` stays within 32 bits over a run of `blocks` blocks: a lane of
+/// `sums` gains at most `lane_octets` octets of 255 from each register per block.
+fn before_fits(comptime Dot: type, comptime register_count: usize, comptime blocks: usize) bool {
+    const gain = register_count * Dot.lane_octets * std.math.maxInt(u8);
+    return gain * blocks * blocks / triangle_divisor <= std.math.maxInt(u32);
+}
+
+/// True when the registers' `weighted` lanes, added together, stay within 31 bits over a run of
+/// `blocks` blocks: each gains at most four octets of 255 times `weight_max` per block.
+fn weighted_fits(comptime Dot: type, comptime register_count: usize, comptime blocks: usize) bool {
+    const gain = register_count * @sizeOf(u32) * std.math.maxInt(u8) * Dot.weight_max;
+    return gain * blocks <= std.math.maxInt(i32);
 }
