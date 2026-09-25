@@ -127,13 +127,16 @@ test "the vector path equals the reference at every width a variant uses, on any
 test "fastest picks the path the features allow on this architecture" {
     const arch = @import("builtin").cpu.arch;
     try testing.expectEqual(.vector, Adler32Path.fastest(.{}));
-    try testing.expectEqual(.vector, Adler32Path.fastest(.{ .pclmul = true, .crc32 = true }));
+    try testing.expectEqual(.vector, Adler32Path.fastest(.{ .pclmul = true, .crc32 = true, .pmull = true }));
     const avx2: Adler32Path = if (arch == .x86_64) .avx2 else .vector;
     try testing.expectEqual(avx2, Adler32Path.fastest(.{ .avx2 = true }));
     const avx512: Adler32Path = if (arch == .x86_64) .avx512 else .vector;
     try testing.expectEqual(avx512, Adler32Path.fastest(.{ .avx2 = true, .avx512 = true }));
     try testing.expectEqual(arch == .x86_64, Adler32Path.avx2.built());
     try testing.expectEqual(arch == .x86_64, Adler32Path.avx512.built());
+    const udot: Adler32Path = if (arch == .aarch64) .udot else .vector;
+    try testing.expectEqual(udot, Adler32Path.fastest(.{ .dotprod = true }));
+    try testing.expectEqual(arch == .aarch64, Adler32Path.udot.built());
 }
 
 test "the tests run every path the target's CPU model has" {
@@ -144,6 +147,9 @@ test "the tests run every path the target's CPU model has" {
     }
     if (cpu.arch == .x86_64 and std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl })) {
         try testing.expect(runs_here(.avx512));
+    }
+    if (cpu.arch == .aarch64 and std.Target.aarch64.featureSetHas(cpu.features, .dotprod)) {
+        try testing.expect(runs_here(.udot));
     }
     try testing.expect(runs_here(.scalar) and runs_here(.vector));
 }

@@ -60,6 +60,15 @@ pub const adler32_vector_len_fallback = 16;
 /// The vector registers one block of Adler-32's vector path takes.
 pub const adler32_registers_per_block = 2;
 
+/// The registers one block of Adler-32's UDOT path takes, and of the blocks after the last of
+/// those. Of 2, 4 and 8, eight measured fastest at 1 MiB on aarch64 and two from 64 octets.
+pub const adler32_udot_registers = 8;
+pub const adler32_udot_registers_short = 2;
+
+/// The same for Adler-32's x86-64 dot-product paths.
+pub const adler32_x86_registers = 4;
+pub const adler32_x86_registers_short = 1;
+
 /// Adler-32's modulus, the largest prime below 65536 (RFC 1950 §9, BASE).
 pub const adler32_base: u32 = 65521;
 

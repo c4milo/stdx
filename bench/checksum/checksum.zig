@@ -137,6 +137,7 @@ pub fn main(init: std.process.Init) !void {
         .avx512 = features.avx512,
         .crc32 = features.crc32,
         .pmull = features.pmull,
+        .dotprod = features.dotprod,
     };
     for (build_checks(wanted)) |check| {
         try check_agrees(check, input);

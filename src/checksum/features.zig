@@ -1,5 +1,5 @@
 //! The instructions the checksum paths use, which the caller reads from its `codec.Features` and
-//! passes in: the checksum module imports nothing (design §3), so it names the six fields it
+//! passes in: the checksum module imports nothing (design §3), so it names the seven fields it
 //! reads rather than import the type. Decision 21 has the rest.
 
 const std = @import("std");
@@ -19,6 +19,8 @@ pub const Features = struct {
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
     pmull: bool = false,
+    /// aarch64: UDOT, dot products of octets.
+    dotprod: bool = false,
 
     /// The instructions the build target guarantees, which a test may run without detection.
     pub fn target() Features {
@@ -33,6 +35,7 @@ pub const Features = struct {
             .aarch64 => .{
                 .crc32 = std.Target.aarch64.featureSetHas(cpu.features, .crc),
                 .pmull = std.Target.aarch64.featureSetHas(cpu.features, .aes),
+                .dotprod = std.Target.aarch64.featureSetHas(cpu.features, .dotprod),
             },
             else => .{},
         };

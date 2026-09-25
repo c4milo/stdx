@@ -26,10 +26,12 @@ pub const Adler32Path = enum {
     avx2,
     /// Vectors of 64 octets, from the x86-64 AVX-512 variant object.
     avx512,
+    /// Arm's UDOT, from the aarch64 DotProd variant object.
+    udot,
 
     /// The fastest path a CPU with `features` runs in this build.
     pub fn fastest(features: Features) Adler32Path {
-        for ([_]Adler32Path{ .avx512, .avx2 }) |path| {
+        for ([_]Adler32Path{ .avx512, .avx2, .udot }) |path| {
             if (path.runs_on(features)) return path;
         }
         return .vector;
@@ -41,23 +43,26 @@ pub const Adler32Path = enum {
             .scalar, .vector => true,
             .avx2 => features.avx2,
             .avx512 => features.avx512,
+            .udot => features.dotprod,
         };
     }
 
     /// True when this build holds the path's code. Only an x86-64 build links the AVX2 and AVX-512
-    /// objects.
+    /// objects, and only an aarch64 build the DotProd one.
     pub fn built(path: Adler32Path) bool {
         return switch (path) {
             .scalar, .vector => true,
             .avx2, .avx512 => builtin.cpu.arch == .x86_64,
+            .udot => builtin.cpu.arch == .aarch64,
         };
     }
 };
 
-// The kernels of the AVX2 and AVX-512 variant objects, which build/variants.zig links into an
-// x86-64 build.
+// The kernels of the variant objects: AVX2 and AVX-512 in an x86-64 build, DotProd in an aarch64
+// build.
 extern fn stdx_checksum_adler32_avx2(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 extern fn stdx_checksum_adler32_avx512(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
+extern fn stdx_checksum_adler32_udot(adler: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 
 /// The Adler-32 after the octets, from `adler`, by `path`. The caller has checked that the CPU has
 /// the path's instructions, through `Adler32Path.fastest` or `runs_on`.
@@ -68,7 +73,13 @@ pub fn update(path: Adler32Path, adler: u32, octets: []const u8) u32 {
         .vector => adler32_vector.update(vector_len, adler, octets),
         .avx2 => avx2(adler, octets),
         .avx512 => avx512(adler, octets),
+        .udot => udot(adler, octets),
     };
+}
+
+fn udot(adler: u32, octets: []const u8) u32 {
+    if (builtin.cpu.arch != .aarch64) unreachable;
+    return stdx_checksum_adler32_udot(adler, octets.ptr, octets.len);
 }
 
 fn avx512(adler: u32, octets: []const u8) u32 {

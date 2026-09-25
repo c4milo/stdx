@@ -214,6 +214,7 @@ pub fn main(init: std.process.Init) !void {
         .avx512 = features.avx512,
         .crc32 = features.crc32,
         .pmull = features.pmull,
+        .dotprod = features.dotprod,
     };
     const checks = build_checks(wanted);
     std.debug.print("differential-checksum: CRC-32 paths {s}; Adler-32 paths {s}\n", .{
@@ -238,7 +239,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// The first feature the build host has and `detected` lacks, or null.
 fn missed_feature(detected: codec.Features) ?[]const u8 {
-    inline for (.{ "pclmul", "avx2", "vpclmul", "avx512", "crc32", "pmull" }) |name| {
+    inline for (.{ "pclmul", "avx2", "vpclmul", "avx512", "crc32", "pmull", "dotprod" }) |name| {
         if (@field(host_features, name) and !@field(detected, name)) return name;
     }
     return null;
@@ -313,7 +314,7 @@ test "detection on this host finds what the build host's CPU has" {
     try testing.expectEqual(null, missed_feature(codec.Features.detect()));
     // With nothing detected, every feature the host has is missed.
     const host_has_any = host_features.pclmul or host_features.avx2 or host_features.vpclmul or
-        host_features.avx512 or host_features.crc32 or host_features.pmull;
+        host_features.avx512 or host_features.crc32 or host_features.pmull or host_features.dotprod;
     try testing.expectEqual(host_has_any, missed_feature(.{}) != null);
 }
 

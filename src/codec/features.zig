@@ -28,6 +28,8 @@ pub const Features = struct {
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
     pmull: bool = false,
+    /// aarch64: the DotProd extension's UDOT and SDOT, dot products of octets.
+    dotprod: bool = false,
 
     /// No feature: every codec takes its scalar paths.
     pub fn none() Features {
@@ -84,6 +86,7 @@ fn from_target(cpu: std.Target.Cpu) Features {
         .aarch64 => .{
             .crc32 = std.Target.aarch64.featureSetHas(cpu.features, .crc),
             .pmull = std.Target.aarch64.featureSetHas(cpu.features, .aes),
+            .dotprod = std.Target.aarch64.featureSetHas(cpu.features, .dotprod),
         },
         else => .{},
     };
@@ -181,17 +184,18 @@ fn from_x86(registers: X86Registers) Features {
 
 /// The bits of Linux's arm64 hardware capability word that detection reads.
 const hwcap = struct {
-    // Bits 4 and 7 of AT_HWCAP.
+    // Bits 4, 7 and 20 of AT_HWCAP.
     const pmull = 0x10;
     const crc32 = 0x80;
+    const dotprod = 0x10_0000;
 };
 
 fn detect_aarch64() Features {
     if (builtin.cpu.arch != .aarch64) unreachable;
     return switch (builtin.os.tag) {
         .linux => from_hwcap(hwcap_word()),
-        // Every aarch64 Mac is an Apple M-series part, which has both.
-        .macos => .{ .crc32 = true, .pmull = true },
+        // Every aarch64 Mac is an Apple M-series part, which has all three.
+        .macos => .{ .crc32 = true, .pmull = true, .dotprod = true },
         else => Features.target(),
     };
 }
@@ -205,7 +209,11 @@ fn hwcap_word() usize {
 }
 
 fn from_hwcap(word: usize) Features {
-    return .{ .crc32 = word & hwcap.crc32 != 0, .pmull = word & hwcap.pmull != 0 };
+    return .{
+        .crc32 = word & hwcap.crc32 != 0,
+        .pmull = word & hwcap.pmull != 0,
+        .dotprod = word & hwcap.dotprod != 0,
+    };
 }
 
 // Tests.
@@ -254,14 +262,15 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
 test "the hardware capability word maps CRC32 and PMULL" {
     try testing.expectEqual(Features{ .crc32 = true, .pmull = true }, from_hwcap(0b1001_0000));
     try testing.expectEqual(Features{ .crc32 = true }, from_hwcap(0b1000_0000));
-    try testing.expectEqual(Features{}, from_hwcap(0b0110_1111));
+    try testing.expectEqual(Features{ .dotprod = true }, from_hwcap(0x10_0000));
+    try testing.expectEqual(Features{}, from_hwcap(0x0f_ef6f));
 }
 
 test "detection on this host finds what its architecture's feature set should" {
     const detected = Features.detect();
     switch (builtin.cpu.arch) {
-        .aarch64 => if (builtin.os.tag == .macos) try testing.expect(detected.crc32 and detected.pmull),
-        .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull),
+        .aarch64 => if (builtin.os.tag == .macos) try testing.expect(detected.crc32 and detected.pmull and detected.dotprod),
+        .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull and !detected.dotprod),
         else => try testing.expectEqual(Features.target(), detected),
     }
 }

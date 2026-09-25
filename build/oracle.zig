@@ -177,6 +177,7 @@ fn host_features(b: *std.Build) *std.Build.Step.Options {
     options.addOption(bool, "avx512", is_x86_64 and x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl }));
     options.addOption(bool, "crc32", is_aarch64 and aarch64.featureSetHas(cpu.features, .crc));
     options.addOption(bool, "pmull", is_aarch64 and aarch64.featureSetHas(cpu.features, .aes));
+    options.addOption(bool, "dotprod", is_aarch64 and aarch64.featureSetHas(cpu.features, .dotprod));
     return options;
 }
 
