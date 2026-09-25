@@ -251,8 +251,10 @@ rules on them.
     ```
 
     `init` costs a constant. It writes the few dozen octets of state a stream starts from and does
-    not clear the window or any table. No octet of history is read before it is written
-    (invariant 10), so the uninitialised part is never observed.
+    not clear the window or any table. No octet of history is read before this stream writes it
+    (invariant 10), so neither uninitialised memory nor the octets of a previous stream in the
+    same state is ever observed. That comparison is what makes a pool of decoders safe to share
+    between messages from different peers, so invariant 10 tests it on every copy path.
 
     **Whole-buffer helpers.** Each codec builds these on the streaming call:
 

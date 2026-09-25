@@ -118,15 +118,37 @@ rules differently.
 
 ### INV-10: a decoder reads no history octet it has not written
 
-- **Claim.** A back-reference reads only octets this stream wrote, in this call's output or in the
-  window.
-- **Mechanism.** Every distance is checked against the octets written so far, and refused past them
-  (RFC 1951 §3.2.3, RFC 8878 §3.1.1.4, RFC 7932 §4). `init` does not clear the window, so this check
-  is also what keeps uninitialised memory out of every output (decision 11).
-- **Check.** Runtime assertion in the copy, after the check that refuses the input; seeded check
-  with corrupted distances. Step 5.
-- **Violation.** A distance checked against the window's size instead of the octets written, which
-  lets a stream read the window's previous contents.
+- **Claim.** A back-reference reads only octets this stream wrote since `init`, in this call's
+  output or in the window. This is a boundary between messages, not only a format rule: `init`
+  clears no window (decision 11), and a caller that keeps decoders in a pool and takes one per
+  message, as colibri's h11 does (colibri's decision 91), hands the next message a window that
+  still holds the last one's octets. On a server those can be another client's request body. A
+  back-reference that reached them would copy one peer's data into another peer's output, and
+  would make the output depend on memory the input never wrote.
+- **Mechanism.** Each decoder counts the octets it has written since `init`, up to the window's
+  size, and compares every distance with that count before it copies:
+  - DEFLATE refuses a distance past the start of the output as `Corrupt` (RFC 1951 §3.2.3). Each
+    gzip member starts at zero, because each starts with `init`.
+  - Zstandard refuses an offset past the start of the frame (RFC 8878 §3.1.1.3, §3.1.1.4),
+    repeat offsets included, whose first values reach 8 octets back before any are decoded
+    (§3.1.1.5).
+  - brotli reads a distance past the octets produced as a reference into the static dictionary
+    (RFC 7932 §8), never into the window.
+  - Every copy path makes the comparison: the checked path, and each fast path of decision 16,
+    whose deliberate overrun writes past the match but never reads before the output's start.
+- **Check.** Runtime assertion in each copy, after the comparison that refuses the input. And a
+  seeded check at the codec's step, proposed by the colibri session, with a mutation that removes
+  the comparison:
+  1. Fill a decoder's window with a marker pattern.
+  2. Call `init`.
+  3. Decode a stream whose first back-reference reaches past the start of its output.
+  4. The call must return a `Corrupt` error for DEFLATE and Zstandard, and a dictionary word or a
+     `Corrupt` error for brotli, and the marker must appear in no output octet.
+
+  It runs through the checked path and through every fast path, across a gzip member boundary,
+  and across a Zstandard frame boundary. Steps 5, 6, 7, 11 and 12.
+- **Violation.** A distance checked against the window's size instead of the octets written since
+  `init`, which lets a stream read the previous message's octets.
 
 ### INV-11: `done` follows every check the format carries
 
