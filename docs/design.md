@@ -195,8 +195,9 @@ to 12 are reordered and nothing else changes.
   `zig build test` passed after it.
 
 - **Step 2: oracles, corpora, costs and CI.** zlib and Wuffs as lazy packages pinned by hash, built
-  in `tools/` and `bench/` only (decision 8), the others joining at the steps that use them; Silesia, Canterbury and the HTTP payloads as lazy packages
-  pinned by hash, with the tool that cuts the 1 KiB, 16 KiB and 1 MiB pieces (decision 15);
+  in `tools/` and `bench/` only (decision 8), the others joining at the steps that use them;
+  Silesia, Canterbury and the HTTP payloads as lazy packages pinned by hash, with the tool that
+  cuts the 1 KiB, 16 KiB and 1 MiB pieces (decision 15);
   `bench/costs/` (docs/costs.md); `tools/ci.sh` and the workflow of decision 19; and the owner's
   Linux machine, written down in docs/costs.md.
   **Check:**
