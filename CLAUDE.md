@@ -246,6 +246,9 @@ Change this section when a step adds or renames a command.
 - Linux: Zig 0.16 fails to fetch a zip package on a machine whose global cache has no `tmp`
   directory. `tools/install_zig.sh` creates it; on a fresh Linux machine without that script, run
   `mkdir -p ~/.cache/zig/tmp` before the first `-Doracles` build.
+- Packages: `tools/fetch_packages.sh` fetches every package, lazy ones included, retrying with
+  growing pauses; `tools/ci.sh` and `bench/run.sh` run it first, because the corpus hosts drop
+  connections and answer 500 now and then.
 - Tooling: the first build on a machine fetches pepegrillo. A bump is `zig fetch
   --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`; confirm `.lazy = true`
   survives it and copy the new hook. `zig build --fork=<pepegrillo checkout>` builds against a

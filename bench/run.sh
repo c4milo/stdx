@@ -25,6 +25,7 @@ readonly step="$2"
 shift 2
 
 cd "$(git rev-parse --show-toplevel)"
+tools/fetch_packages.sh
 zig build install "$@"
 
 cpu_model="$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//' || true)"

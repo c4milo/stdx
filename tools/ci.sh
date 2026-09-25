@@ -43,21 +43,9 @@ check_rfcs() {
   fi
 }
 
-# Fetches every package, lazy ones included, before any check runs. Zig's fetcher does not retry,
-# and a corpus host that drops one connection would otherwise fail a check that has nothing to do
-# with the network.
-fetch_packages() {
-  local attempt
-  for attempt in 1 2 3; do
-    if zig build --fetch=all -Doracles; then
-      return 0
-    fi
-    echo "ci.sh: fetch attempt ${attempt} failed" >&2
-  done
-  return 1
-}
-
-run_check "fetch" fetch_packages
+# Every package, lazy ones included, is fetched before any check runs, with retries, so a host that
+# drops one connection does not fail a check that has nothing to do with the network.
+run_check "fetch" tools/fetch_packages.sh
 run_check "format" zig fmt --check build.zig bench build src tools
 run_check "rfcs" check_rfcs
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
