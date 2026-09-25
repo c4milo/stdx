@@ -28,8 +28,14 @@ const sizes = [_]usize{ 64, 1024, 16 * 1024, 1024 * 1024 };
 /// The seed of the input.
 const input_seed = 0;
 
-/// The most candidates one check has: stdx's paths and four baselines.
-const candidates_max = 8;
+/// The baselines each check is timed against: zlib, Wuffs, libdeflate and zlib-ng.
+const baseline_count = 4;
+
+/// The most candidates one check has: every path of the check with the most, and the baselines.
+const candidates_max: usize = @as(usize, @max(
+    std.enums.values(checksum.Crc32Path).len,
+    std.enums.values(checksum.Adler32Path).len,
+)) + baseline_count;
 
 /// One implementation of a check, as a function of the start and the octets.
 const Candidate = struct {
