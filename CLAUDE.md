@@ -226,8 +226,13 @@ Change this section when a step adds or renames a command.
   mode in Debug. `tools/ci.sh` runs a short pass on every push, and the `fuzz` workflow a long one
   every night on both runners, keeping each runner's corpus between runs (decision 20).
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
-  `bench/costs/run.sh <report.md>` pins it to one core on Linux and records the run. The `costs`
-  workflow runs it on both hosted runners when a person asks (decision 20).
+  `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
+- DEFLATE benchmark: `zig build bench-deflate -Doracles` times zlib's and Wuffs's decoders, and
+  zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one
+  run, the median of five runs with the spread. `bench/run.sh <report.md> bench-deflate -Doracles`
+  pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
+  person asks (decision 20). stdx's decoder and encoder join the candidates in design §8 steps 5,
+  7 and 9.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine and writes the
   report; `.github/workflows/main.yml` runs it on each push to main, on x86-64 and aarch64
   (decision 19). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned

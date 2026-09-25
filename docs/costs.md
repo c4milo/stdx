@@ -56,7 +56,7 @@ What the table says for the claims that price against it:
 
 ## How each row is measured
 
-Each row is a microbenchmark in `bench/costs/costs.zig`, run by `bench/costs/run.sh` on one core
+Each row is a microbenchmark in `bench/costs/costs.zig`, run by `bench/run.sh` on one core
 the job pins with `taskset`, with one untimed run first. It is built ReleaseFast: each row measures
 one machine operation, and a bounds check in the measured loop would add its own cost to every row.
 The library is never built this way (decision 17); this program is a measuring device.

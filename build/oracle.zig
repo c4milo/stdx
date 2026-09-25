@@ -6,6 +6,8 @@
 //! - `zig build corpus -Doracles` cuts the HTTP-shaped payloads into their three sizes and installs
 //!   them, with every other corpus file, under `zig-out/corpus/`.
 //! - `zig build test-oracle -Doracles` runs the tests of the oracle bindings and the self-test.
+//! - `zig build bench-deflate -Doracles` times DEFLATE decoding and encoding over the corpora
+//!   (`bench/deflate/deflate.zig`).
 //!
 //! The oracles and the corpora are lazy packages (decisions 8 and 15), fetched only when a build
 //! passes `-Doracles`, so `zig build test` on a fresh clone downloads none of their 260 MB. A step
@@ -60,9 +62,10 @@ pub fn add(b: *std.Build, options: Options) void {
     const selftest_step = b.step("oracle-selftest", "Require zlib and Wuffs to agree over the corpora (-Doracles)");
     const corpus_step = b.step("corpus", "Cut the HTTP payloads and install every corpus file (-Doracles)");
     const test_step = b.step("test-oracle", "Run the tests of the oracle bindings and the self-test (-Doracles)");
+    const bench_step = b.step("bench-deflate", "Time DEFLATE decoding and encoding over the corpora (-Doracles)");
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
-        inline for (.{ selftest_step, corpus_step, test_step }) |step| step.dependOn(&fail.step);
+        inline for (.{ selftest_step, corpus_step, test_step, bench_step }) |step| step.dependOn(&fail.step);
         return;
     }
     const oracle = add_oracle_module(b) orelse return;
@@ -72,10 +75,21 @@ pub fn add(b: *std.Build, options: Options) void {
     selftest_module.addImport("oracle", oracle);
     const selftest = b.addExecutable(.{ .name = "oracle_selftest", .root_module = selftest_module });
     const run = b.addRunArtifact(selftest);
-    for (corpus.files) |file| {
-        run.addPrefixedFileArg(b.fmt("{s}=", .{file.name}), file.path);
-    }
+    add_corpus_args(b, run, corpus);
     selftest_step.dependOn(&run.step);
+
+    const bench_module = b.createModule(.{
+        .root_source_file = b.path("bench/deflate/deflate.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
+    bench_module.addImport("oracle", oracle);
+    const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
+    b.installArtifact(bench);
+    const bench_run = b.addRunArtifact(bench);
+    bench_run.has_side_effects = true;
+    add_corpus_args(b, bench_run, corpus);
+    bench_step.dependOn(&bench_run.step);
 
     const install = b.addInstallDirectory(.{
         .source_dir = corpus.pieces,
@@ -84,10 +98,15 @@ pub fn add(b: *std.Build, options: Options) void {
     });
     corpus_step.dependOn(&install.step);
 
-    inline for (.{ oracle, selftest_module }) |module| {
+    inline for (.{ oracle, selftest_module, bench_module }) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
+}
+
+/// Passes every corpus file to `run` as `<name>=<path>`.
+fn add_corpus_args(b: *std.Build, run: *std.Build.Step.Run, corpus: Corpus) void {
+    for (corpus.files) |file| run.addPrefixedFileArg(b.fmt("{s}=", .{file.name}), file.path);
 }
 
 /// The `oracle` module: tools/oracle/oracle.zig over zlib and Wuffs, compiled for the host. The C

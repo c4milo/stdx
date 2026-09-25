@@ -1,0 +1,48 @@
+# Decisions 10 and 20: benchmarks run on the hosted runners when a person asks, pinned to one core,
+# with each run recorded beside its numbers. docs/costs.md and the published results are filled
+# from named runs of this workflow.
+name: bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: "Which benchmark to run"
+        type: choice
+        options: [costs, deflate]
+        default: deflate
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      RUNNER_LABEL: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}
+      - name: Install Zig
+        run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Measure costs
+        if: inputs.benchmark == 'costs'
+        run: bench/run.sh bench-report.md costs
+      - name: Measure DEFLATE
+        if: inputs.benchmark == 'deflate'
+        run: bench/run.sh bench-report.md bench-deflate -Doracles
+      - name: Summarize
+        run: cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-${{ inputs.benchmark }}-${{ matrix.runner }}
+          path: bench-report.md
