@@ -5,8 +5,14 @@
 //! (decision 9); this file names their sources and the flags their CMake files give them.
 //!
 //! zlib-ng is built in its native mode, not zlib-compatible, so its public calls are `zng_`
-//! functions that do not collide with the oracle's zlib in one program.
+//! functions that do not collide with the oracle's zlib in one program. Its CMake file compiles
+//! each group of SIMD sources with flags that add the group's instructions. Zig passes the target's
+//! whole feature list to Clang, which overrides such flags, so each group is instead a library of
+//! its own, compiled for the host with the group's features added, as stdx's variant objects are
+//! (build/variants.zig).
 const std = @import("std");
+const x86 = std.Target.x86;
+const aarch64 = std.Target.aarch64;
 
 /// libdeflate's library sources. The architecture files hold their own guards.
 const libdeflate_sources = [_][]const u8{
@@ -19,11 +25,12 @@ const libdeflate_sources = [_][]const u8{
 /// zlib-ng's sources on every architecture: its CMake file's ZLIB_SRCS without the gz* layer,
 /// with CRC-32 by Chorba and run-time CPU detection, as its defaults build it.
 const zlib_ng_sources = [_][]const u8{
-    "adler32.c",      "compress.c",                    "crc32.c",              "crc32_braid_comb.c", "deflate.c",
-    "deflate_fast.c", "deflate_huff.c",                "deflate_medium.c",     "deflate_quick.c",    "deflate_rle.c",
-    "deflate_slow.c", "deflate_stored.c",              "functable.c",          "infback.c",          "inflate.c",
-    "inftrees.c",     "insert_string.c",               "insert_string_roll.c", "trees.c",            "uncompr.c",
-    "zutil.c",        "arch/generic/crc32_chorba_c.c", "cpu_features.c",
+    "adler32.c",       "compress.c",                    "crc32.c",        "crc32_braid_comb.c",
+    "deflate.c",       "deflate_fast.c",                "deflate_huff.c", "deflate_medium.c",
+    "deflate_quick.c", "deflate_rle.c",                 "deflate_slow.c", "deflate_stored.c",
+    "functable.c",     "infback.c",                     "inflate.c",      "inftrees.c",
+    "insert_string.c", "insert_string_roll.c",          "trees.c",        "uncompr.c",
+    "zutil.c",         "arch/generic/crc32_chorba_c.c", "cpu_features.c",
 };
 
 /// The generic functions an x86-64 build keeps as fallbacks; SSE2 serves the rest.
@@ -37,25 +44,32 @@ const zlib_ng_all_fallbacks = zlib_ng_x86_64_fallbacks ++ [_][]const u8{
     "arch/generic/chunkset_c.c", "arch/generic/compare256_c.c", "arch/generic/slide_hash_c.c",
 };
 
-/// One group of zlib-ng's architecture sources and the flags its CMake file compiles them with.
-const Group = struct { files: []const []const u8, flags: []const []const u8 = &.{} };
+/// One group of zlib-ng's architecture sources and the instructions its CMake flags add.
+const Group = struct { files: []const []const u8, features: std.Target.Cpu.Feature.Set = .empty };
 
-const avx512_flags = [_][]const u8{ "-mavx512f", "-mavx512dq", "-mavx512bw", "-mavx512vl", "-mbmi2" };
+/// `evex512` gives the AVX-512 features their 512-bit registers in Clang 18 and later.
+const avx512 = [_]x86.Feature{ .avx512f, .avx512dq, .avx512bw, .avx512vl, .bmi2, .evex512 };
 
 const zlib_ng_x86_64_groups = [_]Group{
-    .{ .files = &.{"arch/x86/x86_features.c"}, .flags = &.{"-mxsave"} },
+    .{ .files = &.{"arch/x86/x86_features.c"}, .features = x86.featureSet(&.{.xsave}) },
     .{ .files = &.{ "arch/x86/chunkset_sse2.c", "arch/x86/chorba_sse2.c", "arch/x86/compare256_sse2.c", "arch/x86/slide_hash_sse2.c" } },
-    .{ .files = &.{ "arch/x86/adler32_ssse3.c", "arch/x86/chunkset_ssse3.c" }, .flags = &.{"-mssse3"} },
-    .{ .files = &.{"arch/x86/chorba_sse41.c"}, .flags = &.{"-msse4.1"} },
-    .{ .files = &.{"arch/x86/adler32_sse42.c"}, .flags = &.{"-msse4.2"} },
-    .{ .files = &.{"arch/x86/crc32_pclmulqdq.c"}, .flags = &.{ "-msse4.2", "-mpclmul" } },
+    .{ .files = &.{ "arch/x86/adler32_ssse3.c", "arch/x86/chunkset_ssse3.c" }, .features = x86.featureSet(&.{.ssse3}) },
+    .{ .files = &.{"arch/x86/chorba_sse41.c"}, .features = x86.featureSet(&.{.sse4_1}) },
+    .{ .files = &.{"arch/x86/adler32_sse42.c"}, .features = x86.featureSet(&.{.sse4_2}) },
+    .{ .files = &.{"arch/x86/crc32_pclmulqdq.c"}, .features = x86.featureSet(&.{ .sse4_2, .pclmul }) },
     .{
         .files = &.{ "arch/x86/slide_hash_avx2.c", "arch/x86/chunkset_avx2.c", "arch/x86/compare256_avx2.c", "arch/x86/adler32_avx2.c" },
-        .flags = &.{ "-mavx2", "-mbmi2" },
+        .features = x86.featureSet(&.{ .avx2, .bmi2 }),
     },
-    .{ .files = &.{ "arch/x86/adler32_avx512.c", "arch/x86/chunkset_avx512.c", "arch/x86/compare256_avx512.c" }, .flags = &avx512_flags },
-    .{ .files = &.{"arch/x86/adler32_avx512_vnni.c"}, .flags = &(avx512_flags ++ [_][]const u8{"-mavx512vnni"}) },
-    .{ .files = &.{"arch/x86/crc32_vpclmulqdq.c"}, .flags = &(avx512_flags ++ [_][]const u8{ "-mpclmul", "-mvpclmulqdq" }) },
+    .{
+        .files = &.{ "arch/x86/adler32_avx512.c", "arch/x86/chunkset_avx512.c", "arch/x86/compare256_avx512.c" },
+        .features = x86.featureSet(&avx512),
+    },
+    .{ .files = &.{"arch/x86/adler32_avx512_vnni.c"}, .features = x86.featureSet(&(avx512 ++ [_]x86.Feature{.avx512vnni})) },
+    .{
+        .files = &.{"arch/x86/crc32_vpclmulqdq.c"},
+        .features = x86.featureSet(&(avx512 ++ [_]x86.Feature{ .pclmul, .vpclmulqdq })),
+    },
 };
 
 const zlib_ng_x86_64_macros = [_][]const u8{
@@ -66,7 +80,7 @@ const zlib_ng_x86_64_macros = [_][]const u8{
 
 const zlib_ng_aarch64_groups = [_]Group{
     .{ .files = &.{"arch/arm/arm_features.c"} },
-    .{ .files = &.{"arch/arm/crc32_armv8.c"}, .flags = &.{"-mcrc"} },
+    .{ .files = &.{"arch/arm/crc32_armv8.c"}, .features = aarch64.featureSet(&.{.crc}) },
     .{ .files = &.{ "arch/arm/adler32_neon.c", "arch/arm/chunkset_neon.c", "arch/arm/compare256_neon.c", "arch/arm/slide_hash_neon.c" } },
 };
 
@@ -81,20 +95,69 @@ const zlib_ng_common_macros = [_][]const u8{
     "HAVE_BUILTIN_CTZ", "HAVE_BUILTIN_CTZLL", "HAVE_VISIBILITY_HIDDEN", "HAVE_VISIBILITY_INTERNAL",
 };
 
-/// A static library of libdeflate and zlib-ng for the host, with `bench/baselines/baselines.c`
-/// over their public calls. Null until the packages are fetched.
-pub fn add_library(b: *std.Build) ?*std.Build.Step.Compile {
-    const libdeflate = b.lazyDependency("libdeflate", .{}) orelse return null;
-    const zlib_ng = b.lazyDependency("zlib_ng", .{}) orelse return null;
-    const library = b.addLibrary(.{
-        .name = "baselines_c",
-        .linkage = .static,
-        .root_module = b.createModule(.{
-            .target = b.graph.host,
-            .optimize = .ReleaseFast,
-            .link_libc = true,
-        }),
-    });
+/// The host with `features` added.
+fn host_with(b: *std.Build, features: std.Target.Cpu.Feature.Set) std.Build.ResolvedTarget {
+    var query = b.graph.host.query;
+    query.cpu_features_add.addFeatureSet(features);
+    return b.resolveTargetQuery(query);
+}
+
+/// A module of C for the host with `features` added, built as the baselines' own builds build them.
+fn c_module(b: *std.Build, features: std.Target.Cpu.Feature.Set) *std.Build.Module {
+    return b.createModule(.{ .target = host_with(b, features), .optimize = .ReleaseFast, .link_libc = true });
+}
+
+/// zlib-ng's include paths and macros, which every one of its objects compiles with.
+const ZlibNg = struct {
+    package: *std.Build.Dependency,
+    headers: std.Build.LazyPath,
+
+    fn configure(self: ZlibNg, module: *std.Build.Module) void {
+        module.addIncludePath(self.headers);
+        module.addIncludePath(self.package.path(""));
+        for (zlib_ng_common_macros) |name| module.addCMacro(name, "1");
+        const host = module.resolved_target.?.result;
+        switch (host.cpu.arch) {
+            .x86_64 => for (zlib_ng_x86_64_macros) |name| module.addCMacro(name, "1"),
+            .aarch64 => {
+                for (zlib_ng_aarch64_macros) |name| module.addCMacro(name, "1");
+                if (host.os.tag == .linux) {
+                    module.addCMacro("HAVE_SYS_AUXV_H", "1");
+                    module.addCMacro("ARM_AUXV_HAS_CRC32", "1");
+                }
+            },
+            else => module.addCMacro("WITH_ALL_FALLBACKS", "1"),
+        }
+    }
+
+    /// The sources on no architecture's list of groups.
+    fn add_common(self: ZlibNg, module: *std.Build.Module, fallbacks: []const []const u8) void {
+        module.addCSourceFiles(.{ .root = self.package.path(""), .files = &zlib_ng_sources });
+        module.addCSourceFiles(.{ .root = self.package.path(""), .files = fallbacks });
+    }
+
+    /// Each group as a static library of its own, linked into `module`.
+    fn link_groups(self: ZlibNg, b: *std.Build, module: *std.Build.Module, groups: []const Group) void {
+        for (groups, 0..) |group, index| {
+            const group_module = c_module(b, group.features);
+            self.configure(group_module);
+            group_module.addCSourceFiles(.{ .root = self.package.path(""), .files = group.files });
+            const name = b.fmt("zlib_ng_group_{d}", .{index});
+            module.linkLibrary(b.addLibrary(.{ .name = name, .linkage = .static, .root_module = group_module }));
+        }
+    }
+};
+
+/// Links libdeflate and zlib-ng, built for the host, into `consumer`, with
+/// `bench/baselines/baselines.c` over their public calls. False until the packages are fetched.
+pub fn link(b: *std.Build, consumer: *std.Build.Module) bool {
+    const libdeflate = b.lazyDependency("libdeflate", .{}) orelse return false;
+    const zlib_ng_package = b.lazyDependency("zlib_ng", .{}) orelse return false;
+    const arch = b.graph.host.result.cpu.arch;
+    // libdeflate marks its AVX-512 functions with target attributes instead, which need the
+    // `evex512` feature in the target on a host CPU without AVX-512.
+    const evex512 = if (arch == .x86_64) x86.featureSet(&.{.evex512}) else std.Target.Cpu.Feature.Set.empty;
+    const library = b.addLibrary(.{ .name = "baselines_c", .linkage = .static, .root_module = c_module(b, evex512) });
     const module = library.root_module;
     module.addIncludePath(libdeflate.path(""));
     module.addCSourceFiles(.{ .root = libdeflate.path(""), .files = &libdeflate_sources });
@@ -102,38 +165,24 @@ pub fn add_library(b: *std.Build) ?*std.Build.Step.Compile {
     // CMake writes zlib-ng's three public headers from templates. With HAVE_UNISTD_H defined and
     // no symbol prefix, each template is already the header, so the build copies it.
     const headers = b.addWriteFiles();
-    _ = headers.addCopyFile(zlib_ng.path("zconf-ng.h.in"), "zconf-ng.h");
-    _ = headers.addCopyFile(zlib_ng.path("zlib-ng.h.in"), "zlib-ng.h");
-    _ = headers.addCopyFile(zlib_ng.path("zlib_name_mangling.h.empty"), "zlib_name_mangling-ng.h");
-    module.addIncludePath(headers.getDirectory());
-    module.addIncludePath(zlib_ng.path(""));
-    for (zlib_ng_common_macros) |name| module.addCMacro(name, "1");
-    module.addCSourceFiles(.{ .root = zlib_ng.path(""), .files = &zlib_ng_sources });
-    const host = b.graph.host.result;
-    switch (host.cpu.arch) {
+    _ = headers.addCopyFile(zlib_ng_package.path("zconf-ng.h.in"), "zconf-ng.h");
+    _ = headers.addCopyFile(zlib_ng_package.path("zlib-ng.h.in"), "zlib-ng.h");
+    _ = headers.addCopyFile(zlib_ng_package.path("zlib_name_mangling.h.empty"), "zlib_name_mangling-ng.h");
+    const zlib_ng: ZlibNg = .{ .package = zlib_ng_package, .headers = headers.getDirectory() };
+    zlib_ng.configure(module);
+    switch (arch) {
         .x86_64 => {
-            for (zlib_ng_x86_64_macros) |name| module.addCMacro(name, "1");
-            module.addCSourceFiles(.{ .root = zlib_ng.path(""), .files = &zlib_ng_x86_64_fallbacks });
-            for (zlib_ng_x86_64_groups) |group| {
-                module.addCSourceFiles(.{ .root = zlib_ng.path(""), .files = group.files, .flags = group.flags });
-            }
+            zlib_ng.add_common(module, &zlib_ng_x86_64_fallbacks);
+            zlib_ng.link_groups(b, consumer, &zlib_ng_x86_64_groups);
         },
         .aarch64 => {
-            for (zlib_ng_aarch64_macros) |name| module.addCMacro(name, "1");
-            if (host.os.tag == .linux) {
-                module.addCMacro("HAVE_SYS_AUXV_H", "1");
-                module.addCMacro("ARM_AUXV_HAS_CRC32", "1");
-            }
-            module.addCSourceFiles(.{ .root = zlib_ng.path(""), .files = &zlib_ng_all_fallbacks });
-            for (zlib_ng_aarch64_groups) |group| {
-                module.addCSourceFiles(.{ .root = zlib_ng.path(""), .files = group.files, .flags = group.flags });
-            }
+            zlib_ng.add_common(module, &zlib_ng_all_fallbacks);
+            zlib_ng.link_groups(b, consumer, &zlib_ng_aarch64_groups);
         },
-        else => {
-            module.addCMacro("WITH_ALL_FALLBACKS", "1");
-            module.addCSourceFiles(.{ .root = zlib_ng.path(""), .files = &zlib_ng_all_fallbacks });
-        },
+        else => zlib_ng.add_common(module, &zlib_ng_all_fallbacks),
     }
     module.addCSourceFile(.{ .file = b.path("bench/baselines/baselines.c") });
-    return library;
+    consumer.link_libc = true;
+    consumer.linkLibrary(library);
+    return true;
 }

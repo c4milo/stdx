@@ -79,7 +79,6 @@ pub fn add(b: *std.Build, options: Options) void {
     }
     const oracle = add_oracle_module(b) orelse return;
     const corpus = add_corpus(b) orelse return;
-    const baselines_library = baselines.add_library(b) orelse return;
     // The timing loop runs between every repetition, so it is built as the benchmarks are.
     const timing = b.createModule(.{
         .root_source_file = b.path("bench/timing/timing.zig"),
@@ -139,8 +138,7 @@ pub fn add(b: *std.Build, options: Options) void {
     checksum_step.dependOn(&checksum_run.step);
 
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
-    baselines_module.link_libc = true;
-    baselines_module.linkLibrary(baselines_library);
+    if (!baselines.link(b, baselines_module)) return;
     const bench_checksum_module = b.createModule(.{
         .root_source_file = b.path("bench/checksum/checksum.zig"),
         .target = baseline,
