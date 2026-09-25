@@ -5,8 +5,8 @@ build plan. [decisions.md](decisions.md) holds why each choice beat its alternat
 [invariants.md](invariants.md) what no change may break. Cite sections by number: "design §8 step
 5".
 
-Decisions 11 to 18 wait on the owner. Where this document depends on one, it says so, and no codec
-code is written until the owner rules.
+The owner ruled on decisions 11 to 19 on 2026-09-25, so this document states the design as
+ruled. Where it depends on a decision, it names the decision.
 
 ## 1. Thesis and scope
 
@@ -49,7 +49,7 @@ threads, and formats that are not the four HTTP codings.
 
 | Module | Holds | Imports | RFCs |
 |---|---|---|---|
-| `codec` | The status, counts and flush modes of every call; the checked reader, writer and bit readers (decision 11, proposed) | nothing | none |
+| `codec` | The status, counts and flush modes of every call; the checked reader, writer and bit readers (decision 11) | nothing | none |
 | `checksum` | CRC-32, Adler-32, XXH64 | nothing | 1952 §8, 1950 §9, 8878 §3.1.1 |
 | `deflate` | Raw DEFLATE, decoder and encoder | `codec` | 1951 |
 | `zlib` | The zlib container | `codec`, `checksum`, `deflate` | 1950 |
@@ -122,7 +122,7 @@ where one can pin it. The ones that exist today are fixed by the RFCs:
 | `brotli.constants.window_bits_max` | 24 | RFC 7932 §9.1 |
 | `brotli.constants.window_len_max` | 2^24 - 16 | RFC 7932 §9.1 |
 
-Limits that land with their steps, once the owner rules: each fast path's `input_slack` and
+Limits that land with their steps: each fast path's `input_slack` and
 `output_slack` (decision 16), the table widths of decision 14, and each encoder level's window and
 table sizes (decision 12).
 
@@ -188,16 +188,24 @@ to 12 are reordered and nothing else changes.
   **Check:** each of those entries carries the owner's ruling and date in place of **owner**, and
   this document, invariants.md and CLAUDE.md agree with the rulings. *No code.*
 
-- **Step 2: oracles, corpora and costs.** zlib and Wuffs as lazy packages pinned by hash, built in
-  `tools/` and `bench/` only (decision 8); Silesia, Canterbury and the HTTP payloads as lazy packages
+  **Check passed, 2026-09-25.** The owner reviewed decisions 11 to 18 one by one and accepted each
+  proposal. The review changed two things and added one: the HTML payload is the WHATWG HTML
+  Standard, whose size allows a 1 MiB cut; the four proposed oracles are ruled in; and decision 19
+  adds CI. Every document that said a decision was pending was changed in the same commit, and
+  `zig build test` passed after it.
+
+- **Step 2: oracles, corpora, costs and CI.** zlib and Wuffs as lazy packages pinned by hash, built
+  in `tools/` and `bench/` only (decision 8), the others joining at the steps that use them; Silesia, Canterbury and the HTTP payloads as lazy packages
   pinned by hash, with the tool that cuts the 1 KiB, 16 KiB and 1 MiB pieces (decision 15);
-  `bench/costs/` (docs/costs.md). CLAUDE.md lists each new package as a ruled dependency.
+  `bench/costs/` (docs/costs.md); `tools/ci.sh` and the workflow of decision 19; and the owner's
+  Linux machine, written down in docs/costs.md.
   **Check:**
   - `zig build oracle-selftest`: zlib and Wuffs decode every stream zlib encodes from the corpora,
     at every level and strategy in all three containers, to the same octets. Two oracles that
     disagree on valid input would make every later verdict meaningless.
   - The graph check forbids `deflate` the oracle modules too.
   - `docs/costs.md` is filled on the Linux machine, with the machine written down.
+  - The workflow's first run passes, and its report matches a run of `tools/ci.sh` by hand.
 
 - **Step 3: `codec`.** The status, counts and flush modes; the checked reader and writer; the
   least-significant-bit-first bit reader of RFC 1951 §3.1.1 with its checked refill; the seeded
@@ -230,7 +238,7 @@ to 12 are reordered and nothing else changes.
   - Each claim's A/B on the Linux machine; a claim that does not beat the noise is removed with its
     code.
   - Decision 17's measurement of the safety checks' cost.
-  - The benchmark against zlib and Wuffs, and against zlib-ng and libdeflate if ruled in: median of
+  - The benchmark against zlib, zlib-ng, libdeflate and Wuffs: median of
     five with spread, the losses included.
 
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
@@ -242,22 +250,23 @@ to 12 are reordered and nothing else changes.
   containers, with `Flush.flush` and `encoded_len_max`.
   **Check:** decision 15 for encoders: every output decodes to its input through zlib, Wuffs and
   stdx; the output is the same under every split, and its hashes match across hosts and modes
-  (invariant 5); `encoded_len_max` holds; the ratio and speed per level against zlib, and zlib-ng
-  and libdeflate if ruled in; mutations.
+  (invariant 5); `encoded_len_max` holds; the ratio and speed per level against zlib, zlib-ng and
+  libdeflate; mutations.
 
-- **Step 10: XXH64.** Waits on decision 18.
+- **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
+  SHA-256 (decision 18).
   **Check:** the ruled specification's test values; equal to libzstd's checksums through the
-  oracle, once libzstd is ruled in; throughput; mutations.
+  oracle; throughput; mutations.
 
-- **Step 11: the Zstandard decoder.** The checked path, then the fast path (claims Z1 to Z5). Needs
-  libzstd ruled in as an oracle.
+- **Step 11: the Zstandard decoder.** The checked path, then the fast path (claims Z1 to Z5), with
+  libzstd as the oracle.
   **Check:** decision 15 against libzstd; windows of exactly 2^23 accepted and above it refused in
   the HTTP instance; skippable and multiple frames; the verified errata of docs/rfcs/README.md;
   then the fast path's equality, A/Bs and benchmark as step 7; mutations.
 
 - **Step 12: the brotli decoder.** The static dictionary generated from RFC 7932 Appendix A and the
-  transforms from Appendix B; the checked path, then the fast path (claims B1 to B3). Needs Google's
-  brotli ruled in as an oracle.
+  transforms from Appendix B; the checked path, then the fast path (claims B1 to B3), with Google's
+  brotli as the oracle.
   **Check:** the dictionary's length and CRC-32, 122,784 octets and 0x5136cb04, pinned by a
   comptime assert; the exact table budget of decision 12 computed and pinned; decision 15 against
   Google's brotli; the large-window signature refused as `error.LargeWindow`; then as step 7;
@@ -287,13 +296,8 @@ and one that does not beat the noise is removed.
 
 ## 10. Open questions for the owner
 
-1. Decisions 11 to 18.
-2. Rulings on libzstd, Google's brotli, zlib-ng and libdeflate as oracles and baselines (decision
-   8). Steps 11 and 12 need the first two; steps 7 and 9 compare against the last two when they
-   are ruled in.
-3. The sources of the HTTP payloads (decision 15).
-4. The Linux machine for costs, benchmarks and fuzzing (decision 10): which host, and whether a
-   hosted CI runner runs the checks that need no fixed machine, as colibri's decision 47 does.
+1. The Linux machine for costs, benchmarks and fuzzing (decisions 10 and 19): the owner will name
+   it, and step 2 needs it.
 
 ## 11. Risks
 

@@ -12,9 +12,9 @@ an encoder and a decoder. Each one:
   needs more input, needs more room, or is done;
 - is deterministic: an encoder's output depends on its input and its parameters alone.
 
-Nothing is implemented yet. The design waits on the owner's review of decisions 11 to 17 in
-[docs/decisions.md](docs/decisions.md). The build plan is [docs/design.md](docs/design.md) §8, and
-the work is tracked in [the issues](https://github.com/c4milo/stdx/issues).
+Nothing is implemented yet. The owner has ruled on the design in
+[docs/decisions.md](docs/decisions.md), and the build plan is [docs/design.md](docs/design.md) §8.
+The work is tracked in [the issues](https://github.com/c4milo/stdx/issues).
 
 ## Modules
 
@@ -23,7 +23,7 @@ Each module is exported by name, so a project that depends on stdx imports it wi
 
 | Module | What it holds |
 |---|---|
-| `codec` | The streaming contract every codec shares (proposed in decision 11) |
+| `codec` | The streaming contract every codec shares (decision 11) |
 | `checksum` | CRC-32, Adler-32 and XXH64 |
 | `deflate` | RFC 1951 |
 | `zlib` | RFC 1950, the HTTP `deflate` coding |

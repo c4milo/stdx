@@ -5,8 +5,9 @@ re-arguing the trade, not editing the code. The README states what stdx does; th
 
 Entries marked **owner** wait on a ruling and are not settled. Everything else is settled and is
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
-stdx on 2026-09-25. Entries 11 to 18 are proposals, and no codec code is written until the owner
-rules on them.
+stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
+brief asked for before any codec code, and the owner ruled on each after reviewing it. Entry 19
+came out of that review.
 
 ## Scope and shape
 
@@ -106,8 +107,9 @@ rules on them.
      fetched from its release archive, and Wuffs as the single file `wuffs-v0.4.c` from
      github.com/google/wuffs-mirror-release-c. Each is a lazy package pinned by hash.
    - libzstd (github.com/facebook/zstd), Google's brotli (github.com/google/brotli), zlib-ng and
-     libdeflate are proposals. Each needs its own ruling before it is added, and joins CLAUDE.md's
-     list of ruled dependencies in the commit that adds it.
+     libdeflate were proposed, and the owner ruled all four in on 2026-09-25. Each is a lazy
+     package pinned by hash, and joins CLAUDE.md's list of ruled dependencies in the commit that
+     adds it.
    - Each does two jobs. In `tools/`, it is an oracle: the same inputs through stdx and through it
      give the same octets, and stdx refuses what it refuses (decision 15). In `bench/`, it is a
      baseline, run in the same harness in the same run as stdx (decision 10).
@@ -151,10 +153,12 @@ rules on them.
     number from the development Mac, which predicts nothing about the Linux hosts stdx's
     consumers run on.
 
-## Waiting on the owner
+## The decision records
 
-11. **owner: The streaming contract every codec shares.** Proposed on 2026-09-25, the first
-    decision record the owner asked for.
+11. **The streaming contract every codec shares.** Proposed on 2026-09-25, the first decision record
+    the owner asked for. Ruled by the owner on 2026-09-25, after a review of the proposal. The owner
+    accepted the `codec` module, the overrun into the caller's output past `written`, and an
+    assertion for a call after `done`.
 
     **A seventh module, `codec`.** Decision 6 names six modules. The status a call ends with, the
     counts it reports and the checked reader and writer are the same for all five codecs, so they
@@ -321,9 +325,12 @@ rules on them.
       caller would still need to know whether the body may end there, which `done` already says,
       and the owner fixed three statuses.
 
-12. **owner: The memory each decoder and each encoder level takes, and what happens when a
-    stream asks for more.** Proposed on 2026-09-25, the second decision record the owner asked
-    for.
+12. **The memory each decoder and each encoder level takes, and what happens when a stream asks for
+    more.** Proposed on 2026-09-25, the second decision record the owner asked for. Ruled by the
+    owner on 2026-09-25, after a review of the proposal. The owner accepted a Zstandard HTTP window
+    of 2^23 for decoding and at most 8,000,000 octets for encoding, a brotli default of WBITS 24
+    with every tree's table held, and the refusal of a distance past the window a zlib header
+    declares.
 
     **Decoders.** The window is the history a back-reference reaches. The other state is tables,
     counters, and the buffers a format needs between calls. Budgets are upper bounds. The step
@@ -405,12 +412,14 @@ rules on them.
       It saves most of 3 MiB, and a stream that switches on every symbol makes it rebuild a
       table per output octet.
 
-13. **owner: The scope and order of version one.** Proposed on 2026-09-25, the third decision
-    record the owner asked for. The owner proposed: the DEFLATE family decoder, then the Zstandard
-    decoder, the brotli decoder, the DEFLATE encoder, the Zstandard encoder and the brotli
-    encoder. This entry proposes one change: the DEFLATE encoder moves to second.
+13. **The scope and order of version one.** Proposed on 2026-09-25, the third decision record the
+    owner asked for. Ruled by the owner on 2026-09-25, after a review of the proposal: the DEFLATE
+    encoder second, the levels as proposed, and nothing further into version one. The owner's brief
+    proposed: the DEFLATE family decoder, then the Zstandard decoder, the brotli decoder, the
+    DEFLATE encoder, the Zstandard encoder and the brotli encoder. This entry proposed one change:
+    the DEFLATE encoder moves to second.
 
-    **The order proposed.**
+    **The order.**
     1. The gzip, zlib and DEFLATE decoder: stdx issue 1, which colibri waits on.
     2. The DEFLATE encoder, levels 1, 6 and 9, in all three containers.
     3. The Zstandard decoder.
@@ -468,14 +477,17 @@ rules on them.
 
     Nothing else is argued in.
 
-14. **owner: Where the speed comes from.** Proposed on 2026-09-25, the fourth decision record the
-    owner asked for. Each claim below names the cost it removes, priced against a row of
-    `docs/costs.md`, and the check that tests it. Each fast path is an A/B against the checked
-    path on the Linux machine, five runs, median and spread (decision 10), and stays only when it
-    wins by more than the noise. The last column names the baselines whose own documentation or
-    published write-ups describe the same technique. It is a list of what to compare against, and
-    nobody confirms it by reading their source (decision 9). A dash means none of them documents it
-    that stdx found; the benchmark compares against all of them either way.
+14. **Where the speed comes from.** Proposed on 2026-09-25, the fourth decision record the owner
+    asked for. Ruled by the owner on 2026-09-25, after a review of the proposal. The owner chose
+    checksum paths per architecture (x86-64 and aarch64, register operands only) with a table path
+    for every other target and as the oracle, and the predictions stated before any code. Each claim
+    below names the cost it removes, priced against a row of `docs/costs.md`, and the check that
+    tests it. Each fast path is an A/B against the checked path on the Linux machine, five runs,
+    median and spread (decision 10), and stays only when it wins by more than the noise. The last
+    column names the baselines whose own documentation or published write-ups describe the same
+    technique. It is a list of what to compare against, and nobody confirms it by reading their
+    source (decision 9). A dash means none of them documents it that stdx found; the benchmark
+    compares against all of them either way.
 
     DEFLATE decoder:
 
@@ -529,18 +541,24 @@ rules on them.
     The alternative refused: tuning before the checked path exists and is proved. Every claim
     above is measured against a correct path, never against a guess.
 
-15. **owner: The checks.** Proposed on 2026-09-25, the fifth decision record the owner asked
-    for.
+15. **The checks.** Proposed on 2026-09-25, the fifth decision record the owner asked for. Ruled by
+    the owner on 2026-09-25, after a review of the proposal. The owner chose to fail closed where an
+    RFC lets a decoder choose, and let a verdict entry land when it cites its RFC section and
+    carries its mutation results, with no separate ruling per entry. The owner chose the payload
+    sources below.
 
     **The corpora.** Each is a lazy package pinned by hash, fetched by `tools/` and `bench/` and
     never by the library:
     - Silesia, the 12-file corpus at `https://sun.aei.polsl.pl/~sdeor/corpus/silesia.zip`.
     - Canterbury: `cantrbry.tar.gz` and `large.tar.gz` from `https://corpus.canterbury.ac.nz`.
     - HTTP-shaped payloads: HTML, JSON, JavaScript and CSS, each cut to 1 KiB, 16 KiB and 1 MiB by
-      a tool, from files whose licences let stdx fetch and run them. Proposed sources, for the
-      owner to rule on: the HTML of RFC 9110 from rfc-editor.org; the Unicode CLDR JSON data
-      (Unicode licence); three.js's build (MIT); and Bootstrap's CSS (MIT), each from its npm
-      tarball where it has one, so the hash pins an archive.
+      a tool, from files whose licences let stdx fetch and run them. The owner chose the sources
+      on 2026-09-25: the WHATWG HTML Standard's single page (CC-BY 4.0, about 13 MB); the Unicode
+      CLDR JSON data (Unicode licence); three.js's `three.module.js` (MIT); and Bootstrap's CSS
+      files (MIT), concatenated and repeated to reach 1 MiB. Each comes from its npm tarball where
+      it has one, so the hash pins an archive. Bootstrap's 1 MiB piece repeats about 500 KB, a
+      distance DEFLATE's 32 KiB window cannot reach and Zstandard's and brotli's can, so its ratios
+      favour those two, and each report says so beside the number.
 
     **Decoders against the oracles.** `tools/oracle/` runs the same inputs through stdx and through
     every ruled oracle, and requires byte-identical output.
@@ -643,10 +661,12 @@ rules on them.
     - Fuzzing without oracles. It finds crashes, and misses a decoder that accepts what it should
       refuse.
 
-16. **owner: Where a hot loop may leave the checked reader and writer.** Proposed on 2026-09-25,
-    to resolve the first conflict the owner named: fast decoders use table-driven multi-symbol
-    lookups, wide bit buffers, word-at-a-time copies that overrun on purpose, and SIMD, while
-    CLAUDE.md sends all parsing through a checked reader and all output through a checked writer.
+16. **Where a hot loop may leave the checked reader and writer.** Proposed on 2026-09-25, and ruled
+    by the owner on 2026-09-25, after a review of the proposal: no safety turned off without a
+    measurement and a ruling, and the `input-index` rule at step 3. It resolves the first conflict
+    the owner named: fast decoders use table-driven multi-symbol lookups, wide bit buffers,
+    word-at-a-time copies that overrun on purpose, and SIMD, while CLAUDE.md sends all parsing
+    through a checked reader and all output through a checked writer.
 
     **The rule.**
     - The checked `codec` reader, writer and bit reader are the reference path. Every codec
@@ -706,8 +726,10 @@ rules on them.
     - Slack the caller provides: buffers that carry extra octets past the length they report. It
       changes every caller's contract, and it breaks the output room of one octet h11 asked for.
 
-17. **owner: Assertions in production, and what they cost in the inner loops.** Proposed on
-    2026-09-25, to resolve the second conflict the owner named.
+17. **Assertions in production, and what they cost in the inner loops.** Proposed on 2026-09-25, to
+    resolve the second conflict the owner named. Ruled by the owner on 2026-09-25, after a review of
+    the proposal: no assertion per symbol in a fast path, and a proposal whenever the safety checks
+    cost more than 5% on any corpus.
 
     **What stays on.** The build offers Debug and ReleaseSafe only. In ReleaseSafe the compiler
     keeps three kinds of check: slice bounds, integer overflow, and `unreachable`, which is what
@@ -749,7 +771,8 @@ rules on them.
     - Assertions per symbol in the fast paths. On a 1 MiB body, that is millions of branches per
       call to check what the margin already proves.
 
-18. **owner: XXH64, which RFC 8878 defines by reference.** Proposed on 2026-09-25. A Zstandard
+18. **XXH64, which RFC 8878 defines by reference.** Proposed on 2026-09-25. Ruled by the owner on
+    2026-09-25, after a review of the proposal: read xxHash's specification document. A Zstandard
     frame's Content_Checksum is the low 32 bits of XXH64 with seed 0 (RFC 8878 §3.1.1). RFC 8878
     cites xxHash by a URL and gives no algorithm, and no RFC defines it. Decision 9 allows the RFCs
     alone.
@@ -757,8 +780,21 @@ rules on them.
     Proposal: read xxHash's own specification document (`doc/xxhash_spec.md` in
     github.com/Cyan4973/xxHash), which is a specification in prose and not an implementation's
     source. Copy it unmodified into `docs/specs/`, pinned by commit and SHA-256 like the RFCs, and
-    check stdx's XXH64 against libzstd's checksums through the oracle, once libzstd is ruled in.
+    check stdx's XXH64 against libzstd's checksums through the oracle.
 
     The alternatives refused:
     - Skipping the check. It is what decision 4 names as a defect of Zig's DEFLATE decoder.
     - Reading libzstd's or xxHash's source. Decision 9 forbids it.
+
+19. **Every check that needs no fixed machine runs on each push to main.** Ruled by the owner on
+    2026-09-25, during the review of entries 11 to 18, as colibri's decision 47 rules it for
+    colibri.
+    - `tools/ci.sh` runs the lint, the tests, the graph check and the oracle checks, and writes a
+      report. `.github/workflows/main.yml` runs it on a hosted runner on each push to main. A new
+      check joins `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.
+    - Published numbers never come from the hosted runner. Costs, benchmarks and fuzzing run on the
+      owner's Linux machine (decision 10), named in design §8 step 2 when it is set up.
+    - Both land with design §8 step 2.
+
+    The alternative refused: every check run by hand, with each step's entry recording what was run.
+    A check nobody runs between steps drifts, and the owner asked for CI.

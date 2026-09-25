@@ -61,8 +61,7 @@ pub const Module = struct {
     imports: []const []const u8,
 };
 
-/// The graph of docs/design.md §3. `codec` is decision 11's proposal and stays here until the
-/// owner rules on it.
+/// The graph of docs/design.md §3, with `codec` as decision 11 rules it.
 pub const expected_graph = [_]Module{
     .{ .name = "codec", .imports = &.{} },
     .{ .name = "checksum", .imports = &.{} },

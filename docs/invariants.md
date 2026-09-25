@@ -18,8 +18,7 @@ Each entry has four fields. **Claim** is the invariant. **Mechanism** is what ma
 **Violation** is what a breaking change looks like, so review can recognise one.
 
 Each entry names the step of design §8 that lands its check. Step 0's checks exist; every other
-check lands with its step, and the entries that depend on decisions 11 to 17 change if the owner
-rules differently.
+check lands with its step.
 
 ## Memory and the host
 

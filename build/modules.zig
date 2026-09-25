@@ -17,7 +17,7 @@ const std = @import("std");
 /// module's API as `pub const` declarations and imports every file that has tests.
 pub const Modules = struct {
     /// The streaming contract every codec shares: the status a call ends with, the counts it
-    /// reports, and the checked reader and writer (decision 11, proposed). Imports nothing.
+    /// reports, and the checked reader and writer (decision 11). Imports nothing.
     codec: *std.Build.Module,
     /// CRC-32 (RFC 1952 §8), Adler-32 (RFC 1950 §9) and XXH64 (RFC 8878 §3.1.1). Imports nothing.
     checksum: *std.Build.Module,

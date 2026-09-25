@@ -176,9 +176,10 @@ tree. Decision 14 holds the claims and design §8 the steps that measure them.
 
 - Changing a named limit.
 - Adding a dependency. The library has none and imports no package. The ruled exceptions, none of
-  which the library imports: pepegrillo, the tooling `tools/` builds on (decision 7); zlib and
-  Wuffs, the oracles and baselines of the DEFLATE family, in `tools/` and `bench/` (decision 8).
-  libzstd, Google's brotli, zlib-ng and libdeflate are proposed and each needs its own ruling.
+  which the library imports: pepegrillo, the tooling `tools/` builds on (decision 7); and the
+  oracles and baselines of `tools/` and `bench/` (decision 8): zlib, Wuffs, libzstd, Google's
+  brotli, zlib-ng and libdeflate. Each oracle is added as a lazy package pinned by hash, in the
+  commit that first uses it, and none is added before its step.
 - Weakening an assertion or an invariant to make a test pass.
 - Adding a module or an edge to the module graph.
 - Leaving the checked reader or writer in a hot loop anywhere decision 16 does not name.
