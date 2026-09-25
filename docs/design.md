@@ -265,6 +265,42 @@ to 12 are reordered and nothing else changes.
   replay from their seed; the new lint rule's fixtures and its canary line; the fuzzing workflow's
   first run on both runners, with its length and findings recorded; mutations.
 
+  **Check passed, 2026-09-25.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted runners.
+  - `zig build test` passes, and `zig build test-codec` runs 25 tests. Among them, the bit reader
+    reads every width of 2,000 seeded cases as a bit-by-bit reference reads it, under a seeded
+    split, with the state's bits carried between calls and unused octets handed back; and the
+    split driver decodes a toy codec's stream under 500 seeds.
+  - The split driver replays a seed's schedule exactly, draws every piece kind, and gives
+    SplitMix64's published values for seed 0.
+  - `input-index` joins the lint: 6 fixture tests, and the canary tree draws it.
+  - The fuzz workflow's first run,
+    [36182962073](https://github.com/c4milo/stdx/actions/runs/36182962073): 2,000,038 runs on
+    aarch64 and 2,000,034 on x86-64 of the bit reader's fuzz test, no failure, in about 95 s each.
+    CI run [36182947786](https://github.com/c4milo/stdx/actions/runs/36182947786) passed on both
+    runners with the new short fuzz pass of 20,000 runs.
+  - Zig 0.16.0's test runner does not compile in fuzz mode in Debug, so `tools/fuzz.sh` builds
+    ReleaseSafe.
+  - Two findings changed the code:
+    - Invariant 8 follows from invariant 7. A test for its separate violation found no input that
+      reaches it, and the dead case was removed.
+    - The split driver moved the state too rarely to catch a state that points into itself: 46
+      of 100 seeds at one move in eight calls. It now always moves before the second call, and
+      77 of 100 seeds of the toy with that defect fail; the test pins the exact count. The rest
+      finish in one call, or read the header only after that move.
+  - 20 mutations, all CAUGHT:
+    - the reader reading past its end in `take` and in `read_octet`; the writer writing past its
+      end in `write_all`, and `write_partial` writing all of its input;
+    - the bit reader counting an octet as 7 bits, `align_to_octet` dropping nothing,
+      `unread_whole_octets` handing back an earlier call's octets, and its mask one bit too wide;
+    - the split driver cutting a piece longer than what is left, ending on `needs_input` with
+      input left, not overwriting a moved state's old slot, not forcing the move before the
+      second call, and a changed generator increment;
+    - `violation` allowing `needs_input` with input left, and `overlap` reading adjacent slices as
+      overlapping;
+    - `input-index` not following `BitReader`, reading the bit reader's own file, and reading a
+      slice's length as input-derived; the canary losing its input-index line; `tools/fuzz.sh`
+      losing `codec` from its list.
+
 - **Step 4: `checksum`, CRC-32 and Adler-32.** From RFC 1952 §8 and RFC 1950 §9.
   **Check:** equal to the sample code in those appendices, compiled in `tools/` as an oracle, and to
   zlib's `crc32` and `adler32`, over the corpora at every length from 0 to 4096 and at seeded
