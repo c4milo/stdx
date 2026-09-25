@@ -129,11 +129,18 @@ rules differently.
   size, and compares every distance with that count before it copies:
   - DEFLATE refuses a distance past the start of the output as `Corrupt` (RFC 1951 §3.2.3). Each
     gzip member starts at zero, because each starts with `init`.
-  - Zstandard refuses an offset past the start of the frame (RFC 8878 §3.1.1.3, §3.1.1.4),
-    repeat offsets included, whose first values reach 8 octets back before any are decoded
-    (§3.1.1.5).
+  - Zstandard refuses an offset past the start of the frame (RFC 8878 §3.1.1.3, §3.1.1.4). Only
+    a dictionary lets an offset reach past the output decoded so far (§5), and stdx takes none
+    (decision 13). Repeat offsets are checked the same way: their first values reach 8 octets
+    back before any are decoded, and an offset_value of 3 with a literals_length of 0 means
+    Repeated_Offset1 minus 1 (§3.1.1.5), which is 0 when Repeated_Offset1 is 1. An offset counts
+    octets back from the current position (§3.1.1.4), so an offset of 0 names no decoded octet.
+    RFC 8878 does not name the case, so stdx refuses it as `Corrupt`, failing closed
+    (decision 15).
   - brotli reads a distance past the octets produced as a reference into the static dictionary
-    (RFC 7932 §8), never into the window.
+    (RFC 7932 §8), never into the window. A dictionary reference whose copy length is under 4 or
+    over 24, or whose transform_id is over 120, is `Corrupt` (§8), and never falls back to the
+    window.
   - Every copy path makes the comparison: the checked path, and each fast path of decision 16,
     whose deliberate overrun writes past the match but never reads before the output's start.
 - **Check.** Runtime assertion in each copy, after the comparison that refuses the input. And a
@@ -141,9 +148,12 @@ rules differently.
   the comparison:
   1. Fill a decoder's window with a marker pattern.
   2. Call `init`.
-  3. Decode a stream whose first back-reference reaches past the start of its output.
-  4. The call must return a `Corrupt` error for DEFLATE and Zstandard, and a dictionary word or a
-     `Corrupt` error for brotli, and the marker must appear in no output octet.
+  3. Decode a stream whose first back-reference reaches past the start of its output. For
+     Zstandard, also one whose first sequence has an offset_value of 3 and a literals_length of
+     0, an offset of 0. For brotli, also dictionary references with a copy length of 3 and of 25,
+     and with a transform_id of 121.
+  4. Each call must return a `Corrupt` error, except a valid brotli dictionary reference, which
+     must write the dictionary word. The marker must appear in no output octet.
 
   It runs through the checked path and through every fast path, across a gzip member boundary,
   and across a Zstandard frame boundary. Steps 5, 6, 7, 11 and 12.

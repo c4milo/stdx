@@ -607,8 +607,10 @@ rules on them.
       appear, because RFC 1951 §3.2.6 says they never occur.
     - Zstandard: the reserved bit is refused (RFC 8878 §3.1.1.1.1.4) and the unused bit ignored
       (§3.1.1.1.1.3). A frame whose decoded size differs from its Frame_Content_Size
-      (§3.1.1.1.4) is refused, as §8 warns. Content_Checksum is compared when present, and
-      skippable frames are skipped (§3.1.2).
+      (§3.1.1.1.4) is refused, as §8 warns. An offset of 0, which a repeat offset can produce
+      (§3.1.1.5) and which names no decoded octet (§3.1.1.4), is refused; the RFC does not name
+      the case. Content_Checksum is compared when present, and skippable frames are skipped
+      (§3.1.2).
     - brotli: every "should be rejected as invalid" of RFC 7932 is a refusal, nonzero padding bits
       included.
 
