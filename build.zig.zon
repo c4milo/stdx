@@ -1,0 +1,21 @@
+.{
+    .name = .stdx,
+    .version = "0.0.0",
+    .fingerprint = 0x5479474fb6b43e04,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        // Developer tooling only, never linked into the library (decision 7). Lazy, and requested
+        // only when stdx is the root build, so a project that depends on stdx never fetches it.
+        .pepegrillo = .{
+            .url = "git+https://github.com/c4milo/pepegrillo#6fcb273ca37573cbcb7aa3aeaa06cc768a9a08ca",
+            .hash = "pepegrillo-0.0.0-axiFUGT2CACzkYUiEAp0Dyt74j7Foq_MdBGv1QGEO2Qh",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "build",
+        "src",
+    },
+}
