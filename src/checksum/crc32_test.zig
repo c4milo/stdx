@@ -143,6 +143,8 @@ test "fastest picks the path the features allow on this architecture" {
     const avx512: Crc32Path = if (arch == .x86_64) .avx512 else .table;
     try testing.expectEqual(avx512, Crc32Path.fastest(.{ .pclmul = true, .avx2 = true, .vpclmul = true, .avx512 = true }));
     try testing.expectEqual(pclmul, Crc32Path.fastest(.{ .pclmul = true, .avx512 = true }));
+    // AVX-512 without AVX2 would leave short inputs no VPCLMULQDQ path to take.
+    try testing.expectEqual(pclmul, Crc32Path.fastest(.{ .pclmul = true, .vpclmul = true, .avx512 = true }));
     const armv8: Crc32Path = if (arch == .aarch64) .armv8 else .table;
     try testing.expectEqual(armv8, Crc32Path.fastest(.{ .crc32 = true }));
     // PMULL folding needs the CRC32 instructions for its tail.

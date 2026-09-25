@@ -27,6 +27,10 @@ pub const crc32_lanes_vpclmul = 8;
 /// The lanes the AVX-512 path folds per step, four to a 512-bit register.
 pub const crc32_lanes_avx512 = 16;
 
+/// The shortest input the AVX-512 path takes: one step. A shorter one takes the VPCLMULQDQ path,
+/// whose object runs the 128-bit folding faster (docs/design.md §8 step 4).
+pub const crc32_avx512_len_min = crc32_lanes_avx512 * crc32_lane_len;
+
 /// The lanes the PMULL path folds per step. Of 4, 8 and 16, 8 measured fastest from 1 KiB on
 /// aarch64 (docs/design.md §8 step 4).
 pub const crc32_lanes_pmull = 8;
