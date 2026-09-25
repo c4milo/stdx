@@ -8,12 +8,12 @@
 const std = @import("std");
 
 /// The feature levels, as `src/<module>/variants.zig` names them.
-pub const Level = enum { x86_64_pclmul, x86_64_avx2, aarch64_crc_pmull };
+pub const Level = enum { x86_64_pclmul, x86_64_avx2, x86_64_vpclmul, x86_64_avx512, aarch64_crc_pmull };
 
 /// The levels built for a target of this architecture.
 fn levels_of(arch: std.Target.Cpu.Arch) []const Level {
     return switch (arch) {
-        .x86_64 => &.{ .x86_64_pclmul, .x86_64_avx2 },
+        .x86_64 => &.{ .x86_64_pclmul, .x86_64_avx2, .x86_64_vpclmul, .x86_64_avx512 },
         .aarch64 => &.{.aarch64_crc_pmull},
         else => &.{},
     };
@@ -25,6 +25,11 @@ fn level_target(b: *std.Build, target: std.Build.ResolvedTarget, level: Level) s
     switch (level) {
         .x86_64_pclmul => query.cpu_features_add = std.Target.x86.featureSet(&.{ .pclmul, .sse4_1 }),
         .x86_64_avx2 => query.cpu_features_add = std.Target.x86.featureSet(&.{ .avx2, .bmi2, .fma, .pclmul, .sse4_1 }),
+        .x86_64_vpclmul => query.cpu_features_add = std.Target.x86.featureSet(&.{ .avx2, .pclmul, .sse4_1, .vpclmulqdq }),
+        .x86_64_avx512 => query.cpu_features_add = std.Target.x86.featureSet(&.{
+            .avx2,    .avx512f, .avx512bw, .avx512dq,   .avx512vl,
+            .evex512, .bmi2,    .pclmul,   .vpclmulqdq, .sse4_1,
+        }),
         .aarch64_crc_pmull => query.cpu_features_add = std.Target.aarch64.featureSet(&.{ .crc, .aes }),
     }
     return b.resolveTargetQuery(query);
@@ -48,7 +53,13 @@ pub fn add(
             .optimize = optimize,
         });
         root.addOptions("variant_level", options);
-        const object = b.addObject(.{ .name = b.fmt("{s}_{t}", .{ name, level }), .root_module = root });
+        // LLVM, in every mode: Zig's own x86-64 backend, which Debug builds use on Linux, cannot
+        // place a 512-bit operand of inline assembly.
+        const object = b.addObject(.{
+            .name = b.fmt("{s}_{t}", .{ name, level }),
+            .root_module = root,
+            .use_llvm = true,
+        });
         module.addObject(object);
     }
 }

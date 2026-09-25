@@ -107,6 +107,12 @@ test "fastest picks the path the features allow on this architecture" {
     try testing.expectEqual(.table, Crc32Path.fastest(.{ .avx2 = true }));
     const pclmul: Crc32Path = if (arch == .x86_64) .pclmul else .table;
     try testing.expectEqual(pclmul, Crc32Path.fastest(.{ .pclmul = true, .avx2 = true }));
+    try testing.expectEqual(pclmul, Crc32Path.fastest(.{ .pclmul = true, .vpclmul = true }));
+    const vpclmul: Crc32Path = if (arch == .x86_64) .vpclmul else .table;
+    try testing.expectEqual(vpclmul, Crc32Path.fastest(.{ .pclmul = true, .avx2 = true, .vpclmul = true }));
+    const avx512: Crc32Path = if (arch == .x86_64) .avx512 else .table;
+    try testing.expectEqual(avx512, Crc32Path.fastest(.{ .pclmul = true, .avx2 = true, .vpclmul = true, .avx512 = true }));
+    try testing.expectEqual(pclmul, Crc32Path.fastest(.{ .pclmul = true, .avx512 = true }));
     const armv8: Crc32Path = if (arch == .aarch64) .armv8 else .table;
     try testing.expectEqual(armv8, Crc32Path.fastest(.{ .crc32 = true }));
     // PMULL folding needs the CRC32 instructions for its tail.
@@ -114,7 +120,9 @@ test "fastest picks the path the features allow on this architecture" {
     const pmull: Crc32Path = if (arch == .aarch64) .pmull else .table;
     try testing.expectEqual(pmull, Crc32Path.fastest(.{ .crc32 = true, .pmull = true }));
     for (std.enums.values(Crc32Path)) |path| {
-        try testing.expectEqual(path == .table or path == pclmul or path == armv8 or path == pmull, path.built());
+        const built = path == .table or path == pclmul or path == vpclmul or path == avx512 or
+            path == armv8 or path == pmull;
+        try testing.expectEqual(built, path.built());
     }
 }
 
@@ -124,6 +132,9 @@ test "the tests run every path the target's CPU model has" {
     switch (cpu.arch) {
         .x86_64 => if (std.Target.x86.featureSetHasAll(cpu.features, .{ .pclmul, .sse4_1 })) {
             try testing.expect(runs_here(.pclmul));
+            if (std.Target.x86.featureSetHasAll(cpu.features, .{ .avx2, .vpclmulqdq })) try testing.expect(runs_here(.vpclmul));
+            const avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl, .vpclmulqdq });
+            if (avx512) try testing.expect(runs_here(.avx512));
         },
         .aarch64 => if (std.Target.aarch64.featureSetHas(cpu.features, .crc)) {
             try testing.expect(runs_here(.armv8));

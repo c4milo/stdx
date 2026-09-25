@@ -21,6 +21,12 @@ pub const crc32_lane_len = 16;
 /// The lanes the PCLMULQDQ path folds per step.
 pub const crc32_lanes_pclmul = 4;
 
+/// The lanes the VPCLMULQDQ path folds per step, two to a 256-bit register.
+pub const crc32_lanes_vpclmul = 8;
+
+/// The lanes the AVX-512 path folds per step, four to a 512-bit register.
+pub const crc32_lanes_avx512 = 16;
+
 /// The lanes the PMULL path folds per step. Of 4, 8 and 16, 8 measured fastest from 1 KiB on
 /// aarch64 (docs/design.md §8 step 4).
 pub const crc32_lanes_pmull = 8;
@@ -30,7 +36,7 @@ pub const crc32_lanes_pmull = 8;
 pub const crc32_lanes_pmull_short = 4;
 
 /// The most lanes a folding path folds per step, which bounds the comptime work of its multipliers.
-pub const crc32_lanes_max = 8;
+pub const crc32_lanes_max = 16;
 
 /// The octets of one vector register when the target suggests no vector width: 128 bits, the
 /// width SSE2 and NEON share.

@@ -16,6 +16,10 @@ pub const Crc32Path = enum {
     table,
     /// Carry-less multiplication, from the x86-64 variant object.
     pclmul,
+    /// Carry-less multiplication of 256-bit registers, from the x86-64 VPCLMULQDQ variant object.
+    vpclmul,
+    /// Carry-less multiplication of 512-bit registers, from the x86-64 AVX-512 variant object.
+    avx512,
     /// Arm's CRC32 instructions, from the aarch64 variant object.
     armv8,
     /// Carry-less multiplication by PMULL, with the CRC32 instructions for the tail, from the
@@ -24,7 +28,7 @@ pub const Crc32Path = enum {
 
     /// The fastest path a CPU with `features` runs in this build.
     pub fn fastest(features: Features) Crc32Path {
-        for ([_]Crc32Path{ .pclmul, .pmull, .armv8 }) |path| {
+        for ([_]Crc32Path{ .avx512, .vpclmul, .pclmul, .pmull, .armv8 }) |path| {
             if (path.runs_on(features)) return path;
         }
         return .table;
@@ -35,6 +39,8 @@ pub const Crc32Path = enum {
         return path.built() and switch (path) {
             .table => true,
             .pclmul => features.pclmul,
+            .vpclmul => features.vpclmul and features.avx2 and features.pclmul,
+            .avx512 => features.avx512 and features.vpclmul and features.pclmul,
             .armv8 => features.crc32,
             .pmull => features.pmull and features.crc32,
         };
@@ -45,7 +51,7 @@ pub const Crc32Path = enum {
     pub fn built(path: Crc32Path) bool {
         return switch (path) {
             .table => true,
-            .pclmul => builtin.cpu.arch == .x86_64,
+            .pclmul, .vpclmul, .avx512 => builtin.cpu.arch == .x86_64,
             .armv8, .pmull => builtin.cpu.arch == .aarch64,
         };
     }
@@ -54,6 +60,8 @@ pub const Crc32Path = enum {
 // The kernels of the variant objects, which build/variants.zig links into this module. Each is
 // referenced only on the architecture that links it.
 extern fn stdx_checksum_crc32_pclmul(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
+extern fn stdx_checksum_crc32_vpclmul(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
+extern fn stdx_checksum_crc32_avx512(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 extern fn stdx_checksum_crc32_armv8(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 extern fn stdx_checksum_crc32_pmull(register: u32, octets: [*]const u8, len: usize) callconv(.c) u32;
 
@@ -66,6 +74,8 @@ pub fn update(path: Crc32Path, crc: u32, octets: []const u8) u32 {
     const result = switch (path) {
         .table => crc32_table.update_register(register, octets),
         .pclmul => pclmul(register, octets),
+        .vpclmul => vpclmul(register, octets),
+        .avx512 => avx512(register, octets),
         .armv8 => armv8(register, octets),
         .pmull => pmull(register, octets),
     };
@@ -75,6 +85,16 @@ pub fn update(path: Crc32Path, crc: u32, octets: []const u8) u32 {
 fn pclmul(register: u32, octets: []const u8) u32 {
     if (builtin.cpu.arch != .x86_64) unreachable;
     return stdx_checksum_crc32_pclmul(register, octets.ptr, octets.len);
+}
+
+fn avx512(register: u32, octets: []const u8) u32 {
+    if (builtin.cpu.arch != .x86_64) unreachable;
+    return stdx_checksum_crc32_avx512(register, octets.ptr, octets.len);
+}
+
+fn vpclmul(register: u32, octets: []const u8) u32 {
+    if (builtin.cpu.arch != .x86_64) unreachable;
+    return stdx_checksum_crc32_vpclmul(register, octets.ptr, octets.len);
 }
 
 fn pmull(register: u32, octets: []const u8) u32 {

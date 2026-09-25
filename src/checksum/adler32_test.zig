@@ -110,7 +110,8 @@ test "every path holds RFC 1950 section 8.2's bound over runs of 0xff from the l
 }
 
 test "the vector path equals the reference at every width a variant uses, on any CPU" {
-    // The AVX2 object runs this code at 64 octets, which a CPU without AVX2 cannot call there.
+    // The AVX2 and AVX-512 objects run this code at 64 and 128 octets, which a CPU without them
+    // cannot call there.
     inline for (.{ 16, 32, 64, 128 }) |lanes| {
         for (0..offsets) |offset| {
             for (0..len_max + 1) |len| {
@@ -129,7 +130,10 @@ test "fastest picks the path the features allow on this architecture" {
     try testing.expectEqual(.vector, Adler32Path.fastest(.{ .pclmul = true, .crc32 = true }));
     const avx2: Adler32Path = if (arch == .x86_64) .avx2 else .vector;
     try testing.expectEqual(avx2, Adler32Path.fastest(.{ .avx2 = true }));
+    const avx512: Adler32Path = if (arch == .x86_64) .avx512 else .vector;
+    try testing.expectEqual(avx512, Adler32Path.fastest(.{ .avx2 = true, .avx512 = true }));
     try testing.expectEqual(arch == .x86_64, Adler32Path.avx2.built());
+    try testing.expectEqual(arch == .x86_64, Adler32Path.avx512.built());
 }
 
 test "the tests run every path the target's CPU model has" {
@@ -137,6 +141,9 @@ test "the tests run every path the target's CPU model has" {
     const cpu = @import("builtin").cpu;
     if (cpu.arch == .x86_64 and std.Target.x86.featureSetHas(cpu.features, .avx2)) {
         try testing.expect(runs_here(.avx2));
+    }
+    if (cpu.arch == .x86_64 and std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl })) {
+        try testing.expect(runs_here(.avx512));
     }
     try testing.expect(runs_here(.scalar) and runs_here(.vector));
 }

@@ -10,6 +10,11 @@ const level = @import("variant_level").level;
 comptime {
     switch (level) {
         .x86_64_pclmul => _ = @import("variants/crc32_pclmul.zig"),
+        .x86_64_vpclmul => _ = @import("variants/crc32_vpclmul.zig"),
+        .x86_64_avx512 => {
+            _ = @import("variants/crc32_avx512.zig");
+            _ = @import("variants/adler32_avx512.zig");
+        },
         .x86_64_avx2 => _ = @import("variants/adler32_avx2.zig"),
         .aarch64_crc_pmull => _ = @import("variants/crc32_armv8.zig"),
     }

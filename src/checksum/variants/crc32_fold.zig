@@ -26,10 +26,13 @@ const lane_bits = constants.crc32_lane_len * @bitSizeOf(u8);
 /// The coefficient of x^31, the top bit of a 32-bit polynomial.
 const top_bit: u32 = 0x8000_0000;
 
+/// The comptime branches every `x_power_mod` evaluated together may take: one per power of x, for
+/// every multiplier of a variant object, with room to spare.
+const x_power_quota = 4_000_000;
+
 /// x^n modulo the CRC polynomial, bit d the coefficient of x^d.
-fn x_power_mod(n: usize) u32 {
-    // A few branches per power of x, for the largest fold the objects use.
-    @setEvalBranchQuota(constants.crc32_lanes_max * lane_bits * constants.crc32_slice_len);
+pub fn x_power_mod(comptime n: usize) u32 {
+    @setEvalBranchQuota(x_power_quota);
     var remainder: u32 = 1;
     for (0..n) |_| {
         const carry = remainder & top_bit != 0;
@@ -42,13 +45,13 @@ fn x_power_mod(n: usize) u32 {
 /// The 64-bit operand that multiplies a reflected 64-bit half by x^n modulo the polynomial, placed
 /// so the 128-bit product lines up with a lane. It is x·(x^(n-1) mod P), congruent to x^n, in the
 /// reflected order.
-fn multiplier(n: usize) u64 {
+fn multiplier(comptime n: usize) u64 {
     return @bitReverse(@as(u64, x_power_mod(n - 1)));
 }
 
 /// The multipliers that move a lane forward by `bits`: its first half by bits + 64, its last by
 /// bits.
-fn fold_by(bits: usize) Lane {
+fn fold_by(comptime bits: usize) Lane {
     return .{ multiplier(bits + @bitSizeOf(u64)), multiplier(bits) };
 }
 
@@ -66,7 +69,7 @@ pub fn Folding(
 ) type {
     comptime assert(lane_count >= 1 and lane_count <= constants.crc32_lanes_max);
     return struct {
-        const step_len = lane_count * constants.crc32_lane_len;
+        pub const step_len = lane_count * constants.crc32_lane_len;
         const fold_all = fold_by(lane_count * lane_bits);
         const fold_one = fold_by(lane_bits);
 
@@ -74,32 +77,108 @@ pub fn Folding(
             return Multiply.first_halves(lane, by) ^ Multiply.last_halves(lane, by) ^ next;
         }
 
+        /// The lanes of a first step, with `register` entered as the first 32 bits of the
+        /// message, XORed in.
+        pub fn start(register: u32, step: *const [step_len]u8) [lane_count]Lane {
+            var lanes: [lane_count]Lane = undefined;
+            for (&lanes, 0..) |*lane, index| lane.* = load(step, index * constants.crc32_lane_len);
+            lanes[0] ^= Lane{ register, 0 };
+            return lanes;
+        }
+
+        /// Folds every lane forward over one more step.
+        pub fn fold_step(lanes: *[lane_count]Lane, step: *const [step_len]u8) void {
+            inline for (lanes, 0..) |*lane, index| {
+                lane.* = fold(lane.*, fold_all, load(step, index * constants.crc32_lane_len));
+            }
+        }
+
+        /// The lanes folded into one, and then over each whole lane of `rest`. Returns the lane
+        /// and the octets of `rest` it did not take.
+        fn fold_rest(lanes: [lane_count]Lane, rest: []const u8) struct { Lane, []const u8 } {
+            // Each lane folds straight to the last by its own distance, so the multiplications
+            // do not wait on one another.
+            var lane = lanes[lane_count - 1];
+            inline for (lanes[0 .. lane_count - 1], 0..) |earlier, index| {
+                const by = comptime fold_by((lane_count - 1 - index) * lane_bits);
+                lane ^= Multiply.first_halves(earlier, by) ^ Multiply.last_halves(earlier, by);
+            }
+            var position: usize = 0;
+            while (rest.len - position >= constants.crc32_lane_len) : (position += constants.crc32_lane_len) {
+                lane = fold(lane, fold_one, load(rest, position));
+            }
+            assert(rest.len - position < constants.crc32_lane_len);
+            return .{ lane, rest[position..] };
+        }
+
+        /// The CRC register the lanes stand for, after the octets of `rest`.
+        pub fn finish_lanes(lanes: [lane_count]Lane, rest: []const u8) u32 {
+            const lane, const tail = fold_rest(lanes, rest);
+            // The lane is a message of 16 octets whose CRC, from a zero register, is the register
+            // so far.
+            const lane_octets: [constants.crc32_lane_len]u8 = @bitCast(lane);
+            return finish(finish(0, &lane_octets), tail);
+        }
+
         /// The CRC register after the octets, from `register`, as crc32_table.update_register
         /// gives it.
         pub fn update(register: u32, octets: []const u8) u32 {
             if (octets.len < step_len) return finish(register, octets);
-            var lanes: [lane_count]Lane = undefined;
-            for (&lanes, 0..) |*lane, index| lane.* = load(octets, index * constants.crc32_lane_len);
-            // The register enters as the first 32 bits of the message, XORed in.
-            lanes[0] ^= Lane{ register, 0 };
+            var lanes = start(register, octets[0..step_len]);
             var position: usize = step_len;
             while (octets.len - position >= step_len) : (position += step_len) {
                 // One bounds check per step rather than one per lane.
+                fold_step(&lanes, octets[position..][0..step_len]);
+            }
+            return finish_lanes(lanes, octets[position..]);
+        }
+    };
+}
+
+/// Folding with registers of `width` lanes: 256-bit registers of two lanes, or 512-bit ones of four,
+/// each carry-less multiplication taking every lane of its register at once. `register_count`
+/// registers fold per step; `Narrow` is a `Folding` of `width · register_count` lanes, which folds
+/// the lanes into one at the end, and `Short` takes an input too short for one step.
+pub fn WideFolding(
+    comptime MultiplyWide: type,
+    comptime width: usize,
+    comptime register_count: usize,
+    comptime Narrow: type,
+    comptime Short: type,
+) type {
+    const lane_count = width * register_count;
+    const Wide = @Vector(width * @typeInfo(Lane).vector.len, u64);
+    const register_len = width * constants.crc32_lane_len;
+    return struct {
+        pub const step_len = register_count * register_len;
+        const fold_all: Wide = @bitCast([_]Lane{fold_by(lane_count * lane_bits)} ** width);
+
+        comptime {
+            assert(Narrow.step_len == step_len);
+        }
+
+        fn load_wide(octets: *const [step_len]u8, index: usize) Wide {
+            return @bitCast(octets[index * register_len ..][0..register_len].*);
+        }
+
+        /// The CRC register after the octets, from `register`, as crc32_table.update_register
+        /// gives it.
+        pub fn update(register: u32, octets: []const u8) u32 {
+            if (octets.len < step_len) return Short.update(register, octets);
+            var registers: [register_count]Wide = undefined;
+            for (&registers, 0..) |*wide, index| wide.* = load_wide(octets[0..step_len], index);
+            // The register enters as the first 32 bits of the message, XORed in.
+            registers[0][0] ^= register;
+            var position: usize = step_len;
+            while (octets.len - position >= step_len) : (position += step_len) {
                 const step = octets[position..][0..step_len];
-                inline for (&lanes, 0..) |*lane, index| {
-                    lane.* = fold(lane.*, fold_all, load(step, index * constants.crc32_lane_len));
+                inline for (&registers, 0..) |*wide, index| {
+                    const products = MultiplyWide.first_halves(wide.*, fold_all) ^ MultiplyWide.last_halves(wide.*, fold_all);
+                    wide.* = products ^ load_wide(step, index);
                 }
             }
-            var lane = lanes[0];
-            for (lanes[1..]) |next| lane = fold(lane, fold_one, next);
-            while (octets.len - position >= constants.crc32_lane_len) : (position += constants.crc32_lane_len) {
-                lane = fold(lane, fold_one, load(octets, position));
-            }
-            assert(octets.len - position < constants.crc32_lane_len);
-            // The lane is a message of 16 octets whose CRC, from a zero register, is the register
-            // so far.
-            const lane_octets: [constants.crc32_lane_len]u8 = @bitCast(lane);
-            return finish(finish(0, &lane_octets), octets[position..]);
+            const lanes: [lane_count]Lane = @bitCast(registers);
+            return Narrow.finish_lanes(lanes, octets[position..]);
         }
     };
 }

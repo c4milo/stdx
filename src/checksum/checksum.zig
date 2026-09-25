@@ -37,4 +37,5 @@ test {
     _ = crc32_module;
     _ = adler32_module;
     _ = @import("crc32_table.zig");
+    _ = @import("crc32_fold_test.zig");
 }

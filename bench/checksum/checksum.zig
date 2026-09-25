@@ -133,6 +133,8 @@ pub fn main(init: std.process.Init) !void {
     const wanted: checksum.Features = .{
         .pclmul = features.pclmul,
         .avx2 = features.avx2,
+        .vpclmul = features.vpclmul,
+        .avx512 = features.avx512,
         .crc32 = features.crc32,
         .pmull = features.pmull,
     };

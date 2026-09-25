@@ -210,6 +210,8 @@ pub fn main(init: std.process.Init) !void {
     const wanted: checksum.Features = .{
         .pclmul = features.pclmul,
         .avx2 = features.avx2,
+        .vpclmul = features.vpclmul,
+        .avx512 = features.avx512,
         .crc32 = features.crc32,
         .pmull = features.pmull,
     };
@@ -236,7 +238,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// The first feature the build host has and `detected` lacks, or null.
 fn missed_feature(detected: codec.Features) ?[]const u8 {
-    inline for (.{ "pclmul", "avx2", "crc32", "pmull" }) |name| {
+    inline for (.{ "pclmul", "avx2", "vpclmul", "avx512", "crc32", "pmull" }) |name| {
         if (@field(host_features, name) and !@field(detected, name)) return name;
     }
     return null;
@@ -310,7 +312,8 @@ test "every implementation agrees over a sample, and every length is compared" {
 test "detection on this host finds what the build host's CPU has" {
     try testing.expectEqual(null, missed_feature(codec.Features.detect()));
     // With nothing detected, every feature the host has is missed.
-    const host_has_any = host_features.pclmul or host_features.avx2 or host_features.crc32 or host_features.pmull;
+    const host_has_any = host_features.pclmul or host_features.avx2 or host_features.vpclmul or
+        host_features.avx512 or host_features.crc32 or host_features.pmull;
     try testing.expectEqual(host_has_any, missed_feature(.{}) != null);
 }
 

@@ -1,5 +1,5 @@
 //! The instructions the checksum paths use, which the caller reads from its `codec.Features` and
-//! passes in: the checksum module imports nothing (design §3), so it names the four fields it
+//! passes in: the checksum module imports nothing (design §3), so it names the six fields it
 //! reads rather than import the type. Decision 21 has the rest.
 
 const std = @import("std");
@@ -11,6 +11,10 @@ pub const Features = struct {
     pclmul: bool = false,
     /// x86-64: AVX2, with the operating system saving the YMM registers.
     avx2: bool = false,
+    /// x86-64: VPCLMULQDQ, carry-less multiplication of every lane of a YMM register.
+    vpclmul: bool = false,
+    /// x86-64: AVX-512 F, BW and VL, with the operating system saving the ZMM registers.
+    avx512: bool = false,
     /// aarch64: the CRC32 instructions.
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
@@ -23,6 +27,8 @@ pub const Features = struct {
             .x86_64 => .{
                 .pclmul = std.Target.x86.featureSetHasAll(cpu.features, .{ .pclmul, .sse4_1 }),
                 .avx2 = std.Target.x86.featureSetHas(cpu.features, .avx2),
+                .vpclmul = std.Target.x86.featureSetHas(cpu.features, .vpclmulqdq),
+                .avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl }),
             },
             .aarch64 => .{
                 .crc32 = std.Target.aarch64.featureSetHas(cpu.features, .crc),
