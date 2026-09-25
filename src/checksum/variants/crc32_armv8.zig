@@ -155,7 +155,15 @@ const CombinedLong = Combined(
 );
 
 /// The CRC register after `len` octets from `register`: long combined blocks, short ones, folding
-/// with PMULL over eight lanes and then four, and the CRC32 instructions.
+/// with PMULL over eight lanes and then four, and the CRC32 instructions. An input too short for a
+/// combined block goes straight to the folding, so its call saves none of the registers the blocks
+/// need.
 export fn stdx_checksum_crc32_pmull(register: u32, octets_pointer: [*]const u8, len: usize) callconv(.c) u32 {
-    return CombinedLong.update(register, octets_pointer[0..len]);
+    const octets = octets_pointer[0..len];
+    if (len < CombinedShort.block_len) return Folding.update(register, octets);
+    return combined(register, octets);
+}
+
+noinline fn combined(register: u32, octets: []const u8) u32 {
+    return CombinedLong.update(register, octets);
 }
