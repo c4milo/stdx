@@ -68,9 +68,12 @@ pub const adler32_registers_per_block = 2;
 /// fit UDOT's unsigned octets, and centered on zero, x86's signed ones.
 pub const adler32_dot_block_len = 128;
 
-/// The registers of each block after the last whole 128-octet block: two on aarch64, one on x86-64.
-pub const adler32_udot_registers_short = 2;
-pub const adler32_x86_registers_short = 1;
+/// The octets of one block after the last whole 128-octet block: two 128-bit registers, whose sums
+/// reduce in fewer instructions than a wider register's.
+pub const adler32_dot_short_block_len = 32;
+
+/// The octets of one 128-bit register, the width of every dot-product path's short blocks.
+pub const adler32_short_register_len = 16;
 
 /// Adler-32's modulus, the largest prime below 65536 (RFC 1950 §9, BASE).
 pub const adler32_base: u32 = 65521;

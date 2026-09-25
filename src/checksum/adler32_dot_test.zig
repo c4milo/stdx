@@ -62,6 +62,21 @@ const Avx2 = Software(avx2_len, true, pair_weight_max, @sizeOf(u64));
 const Avx512 = Software(avx512_len, true, pair_weight_max, @sizeOf(u64));
 const Vnni = Software(avx512_len, true, std.math.maxInt(i8), group_len);
 
+/// VPDPBUSD's shape with the blocks taken in turn by two sets of weighted sums.
+const VnniInTurn = struct {
+    pub const register_len = Vnni.register_len;
+    pub const lane_octets = Vnni.lane_octets;
+    pub const signed_weights = Vnni.signed_weights;
+    pub const weight_max = Vnni.weight_max;
+    pub const accumulator_sets = 2;
+    pub const weighted = Vnni.weighted;
+    pub const sums = Vnni.sums;
+};
+
+/// The x86 shapes on 128-bit registers, as the short blocks take them.
+const Short128 = Software(neon_len, true, pair_weight_max, @sizeOf(u64));
+const VnniShort128 = Software(neon_len, true, std.math.maxInt(i8), group_len);
+
 /// RFC 1950 §9's update_adler32, reducing after every octet.
 fn reference(adler: u32, octets: []const u8) u32 {
     var s1: u32 = adler & std.math.maxInt(u16);
@@ -79,9 +94,9 @@ const start_max: u32 = ((constants.adler32_base - 1) << @bitSizeOf(u16)) | (cons
 test "the dot-product path equals the reference in every object's shape" {
     var octets: [1024 + 64]u8 = undefined;
     for (&octets, 0..) |*octet, index| octet.* = @truncate(index *% 2654435761 >> 11);
-    inline for (.{ .{ Udot, 2 }, .{ Avx2, 1 }, .{ Avx512, 1 }, .{ Vnni, 1 } }) |shape| {
+    inline for (.{ .{ Udot, Udot }, .{ Avx2, Short128 }, .{ Avx512, Short128 }, .{ Vnni, VnniShort128 }, .{ VnniInTurn, VnniShort128 } }) |shape| {
         const Dot = shape[0];
-        const Short = adler32_dot.Kernel(Dot, shape[1], adler32_scalar);
+        const Short = adler32_dot.Kernel(shape[1], 2, adler32_scalar);
         const Kernel = adler32_dot.Kernel(Dot, 128 / Dot.register_len, Short);
         for (0..64) |offset| {
             var len: usize = 0;
@@ -95,7 +110,7 @@ test "the dot-product path equals the reference in every object's shape" {
 }
 
 test "the dot-product path holds its lanes over a whole run of 0xff" {
-    inline for (.{ Udot, Avx2, Avx512, Vnni }) |Dot| {
+    inline for (.{ Udot, Avx2, Avx512, Vnni, VnniInTurn }) |Dot| {
         const Kernel = adler32_dot.Kernel(Dot, 128 / Dot.register_len, adler32_scalar);
         const len = (Kernel.blocks_per_run_max + 1) * Kernel.block_len + 7;
         const ones: [len]u8 = @splat(0xff);

@@ -35,7 +35,7 @@ const Dot = struct {
     }
 };
 
-const Short = adler32_dot.Kernel(Dot, constants.adler32_udot_registers_short, adler32_scalar);
+const Short = adler32_dot.Kernel(Dot, constants.adler32_dot_short_block_len / register_len, adler32_scalar);
 const Kernel = adler32_dot.Kernel(Dot, constants.adler32_dot_block_len / register_len, Short);
 
 /// The Adler-32 value after `len` octets from `adler`. An input shorter than a block of `Kernel`

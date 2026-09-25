@@ -35,11 +35,12 @@ const triangle_divisor = 2;
 ///   the largest weight it takes, signed or not;
 /// - `weighted(accumulator, octets, weights)`, adding into each 32-bit lane the products of its four
 ///   octets with their weights;
-/// - `sums(accumulator, octets)`, adding the octets into the lanes, in any grouping.
+/// - `sums(accumulator, octets)`, adding the octets into the lanes, in any grouping;
+/// - optionally `accumulator_sets`, the sets of weighted sums the blocks take in turn, 2 when
+///   `weighted` accumulates in place with a latency longer than a block's other work.
 pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next: type) type {
     const register_len = Dot.register_len;
     const Octets = @Vector(register_len, u8);
-    const Lanes = @Vector(register_len / @sizeOf(u32), u32);
     return struct {
         pub const block_len = register_count * register_len;
 
@@ -47,6 +48,9 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
         pub const weight_shift = if (Dot.signed_weights) block_len / center_divisor else 0;
 
         const weights: [register_count]Octets = block_weights(register_count, register_len, weight_shift);
+
+        /// The sets of weighted sums the blocks take in turn.
+        const accumulator_sets = if (@hasDecl(Dot, "accumulator_sets")) Dot.accumulator_sets else 1;
 
         pub const blocks_per_run_max = run_blocks_max(Dot, register_count);
 
@@ -70,7 +74,7 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
             var start: usize = 0;
             while (start < blocks.len) {
                 const run = blocks[start..@min(blocks.len, start + blocks_per_run_max)];
-                const run_s1, const run_s2 = run_sums(run);
+                const run_s1, const run_s2 = run_sums(Dot, register_count, accumulator_sets, weights, run);
                 s2 += block_len * run.len * s1 + run_s2;
                 s1 += run_s1;
                 s1 %= constants.adler32_base;
@@ -80,45 +84,75 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
             const blocks_value: u32 = @intCast((s2 << @bitSizeOf(u16)) | s1);
             return Next.update(blocks_value, octets[whole_len..]);
         }
-
-        /// What one run adds to s1, and to s2 beyond `block_len` times s1 per block.
-        fn run_sums(run: []const [block_len]u8) struct { u64, u64 } {
-            var sums: Lanes = @splat(0);
-            var sums_before: Lanes = @splat(0);
-            var weighted: [register_count]Lanes = @splat(@splat(0));
-            for (run) |*block| {
-                // No lane can overflow within a run of `blocks_per_run_max` blocks, so the
-                // additions wrap rather than check.
-                sums_before +%= sums;
-                var block_sums: Lanes = @splat(0);
-                inline for (0..register_count) |register| {
-                    const register_octets: Octets = block[register * register_len ..][0..register_len].*;
-                    block_sums = Dot.sums(block_sums, register_octets);
-                    weighted[register] = Dot.weighted(weighted[register], register_octets, weights[register]);
-                }
-                sums +%= block_sums;
-            }
-            var all_weighted = weighted[0];
-            inline for (weighted[1..]) |lanes| all_weighted +%= lanes;
-            const run_s1 = reduce(Lanes, sums);
-            const before: i64 = @intCast(reduce(Lanes, sums_before));
-            const len: i64 = block_len;
-            const shift: i64 = weight_shift;
-            const weighted_sum = reduce_weighted(Lanes, Dot.signed_weights, all_weighted);
-            const run_s2 = len * before + weighted_sum + shift * @as(i64, @intCast(run_s1));
-            return .{ run_s1, @intCast(run_s2) };
-        }
     };
 }
 
-fn reduce(comptime Lanes: type, lanes: Lanes) u64 {
-    return @reduce(.Add, @as(@Vector(@typeInfo(Lanes).vector.len, u64), lanes));
+/// Adds one block into the sums, the sums before it, and one set of weighted sums.
+inline fn add_block(
+    comptime Dot: type,
+    comptime register_count: usize,
+    weights: [register_count]@Vector(Dot.register_len, u8),
+    sums: *Lanes(Dot),
+    sums_before: *Lanes(Dot),
+    weighted: *[register_count]Lanes(Dot),
+    block: *const [register_count * Dot.register_len]u8,
+) void {
+    // No lane can overflow within a run of `blocks_per_run_max` blocks, so the additions wrap
+    // rather than check.
+    sums_before.* +%= sums.*;
+    var block_sums: Lanes(Dot) = @splat(0);
+    inline for (0..register_count) |register| {
+        const octets: @Vector(Dot.register_len, u8) = block[register * Dot.register_len ..][0..Dot.register_len].*;
+        block_sums = Dot.sums(block_sums, octets);
+        weighted[register] = Dot.weighted(weighted[register], octets, weights[register]);
+    }
+    sums.* +%= block_sums;
+}
+
+/// What one run adds to s1, and to s2 beyond `block_len` times s1 per block. `sets` sets of
+/// weighted sums take the blocks in turn, so a block does not wait on the one before it when
+/// `Dot.weighted` accumulates in place.
+fn run_sums(
+    comptime Dot: type,
+    comptime register_count: usize,
+    comptime sets: usize,
+    weights: [register_count]@Vector(Dot.register_len, u8),
+    run: []const [register_count * Dot.register_len]u8,
+) struct { u64, u64 } {
+    var sums: Lanes(Dot) = @splat(0);
+    var sums_before: Lanes(Dot) = @splat(0);
+    var weighted: [sets * register_count]Lanes(Dot) = @splat(@splat(0));
+    var index: usize = 0;
+    while (run.len - index >= sets) : (index += sets) {
+        inline for (0..sets) |set| {
+            add_block(Dot, register_count, weights, &sums, &sums_before, weighted[set * register_count ..][0..register_count], &run[index + set]);
+        }
+    }
+    for (run[index..]) |*block| add_block(Dot, register_count, weights, &sums, &sums_before, weighted[0..register_count], block);
+    var all_weighted = weighted[0];
+    inline for (weighted[1..]) |lanes| all_weighted +%= lanes;
+    const run_s1 = reduce(Lanes(Dot), sums);
+    const before: i64 = @intCast(reduce(Lanes(Dot), sums_before));
+    const block_len: i64 = register_count * Dot.register_len;
+    const shift: i64 = if (Dot.signed_weights) @divExact(block_len, center_divisor) else 0;
+    const weighted_sum = reduce_weighted(Lanes(Dot), Dot.signed_weights, all_weighted);
+    const run_s2 = block_len * before + weighted_sum + shift * @as(i64, @intCast(run_s1));
+    return .{ run_s1, @intCast(run_s2) };
+}
+
+/// The vector of 32-bit lanes `Dot` adds into.
+fn Lanes(comptime Dot: type) type {
+    return @Vector(Dot.register_len / @sizeOf(u32), u32);
+}
+
+fn reduce(comptime Vector: type, lanes: Vector) u64 {
+    return @reduce(.Add, @as(@Vector(@typeInfo(Vector).vector.len, u64), lanes));
 }
 
 /// The weighted lanes added up, each read as a signed 32-bit value when the weights are signed.
-fn reduce_weighted(comptime Lanes: type, comptime signed: bool, lanes: Lanes) i64 {
-    const len = @typeInfo(Lanes).vector.len;
-    if (!signed) return @intCast(reduce(Lanes, lanes));
+fn reduce_weighted(comptime Vector: type, comptime signed: bool, lanes: Vector) i64 {
+    const len = @typeInfo(Vector).vector.len;
+    if (!signed) return @intCast(reduce(Vector, lanes));
     const signed_lanes: @Vector(len, i32) = @bitCast(lanes);
     return @reduce(.Add, @as(@Vector(len, i64), signed_lanes));
 }

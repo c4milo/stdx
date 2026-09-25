@@ -63,6 +63,9 @@ pub fn DotVnni(comptime len: usize) type {
         pub const lane_octets = @sizeOf(u32);
         pub const signed_weights = true;
         pub const weight_max = std.math.maxInt(i8);
+        /// VPDPBUSD accumulates in place and takes about five cycles, longer than the rest of a
+        /// block's work, so two sets of weighted sums take the blocks in turn.
+        pub const accumulator_sets = 2;
 
         pub fn weighted(accumulator: Lanes, octets: Octets, weights: Octets) Lanes {
             return asm ("vpdpbusd %[weights], %[octets], %[out]"
