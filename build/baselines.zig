@@ -1,7 +1,7 @@
 //! The baselines of decision 8 that are not also oracles, libdeflate and zlib-ng, compiled for
-//! `bench/` only (CLAUDE.md, Layout). Each is built as its own build system would build it for the
-//! host, with its run-time CPU dispatch and every SIMD level of the host's architecture, so each
-//! runs its fastest code on the runner. Nobody working on stdx reads their implementations
+//! `bench/` only (CLAUDE.md, Layout). Each is built as its own build system would build it, with its
+//! run-time CPU dispatch and every SIMD level of the host's architecture, so each runs its fastest
+//! code on the runner; and for the architecture's baseline CPU, as the benchmarks build stdx. Nobody working on stdx reads their implementations
 //! (decision 9); this file names their sources and the flags their CMake files give them.
 //!
 //! zlib-ng is built in its native mode, not zlib-compatible, so its public calls are `zng_`
@@ -95,9 +95,12 @@ const zlib_ng_common_macros = [_][]const u8{
     "HAVE_BUILTIN_CTZ", "HAVE_BUILTIN_CTZLL", "HAVE_VISIBILITY_HIDDEN", "HAVE_VISIBILITY_INTERNAL",
 };
 
-/// The host with `features` added.
+/// The host's architecture at its baseline CPU, with `features` added. Each library picks its SIMD
+/// code at run time, as stdx does, so neither needs the host's CPU model; and on a CPU with AVX10,
+/// Clang's own headers cannot inline the AVX-512 VL intrinsics both libraries call (their SSE2
+/// helpers then lack the `no-evex512` mark), which fails the build on the runners that have one.
 fn host_with(b: *std.Build, features: std.Target.Cpu.Feature.Set) std.Build.ResolvedTarget {
-    var query = b.graph.host.query;
+    var query: std.Target.Query = .{ .cpu_model = .baseline };
     query.cpu_features_add.addFeatureSet(features);
     return b.resolveTargetQuery(query);
 }
