@@ -212,6 +212,51 @@ to 12 are reordered and nothing else changes.
     recorded.
   - The workflow's first run passes, and its report matches a run of `tools/ci.sh` by hand.
 
+  **Check passed, 2026-09-25**, on GitHub's hosted runners of decision 20, `ubuntu-24.04` (AMD EPYC
+  9V74) and `ubuntu-24.04-arm` (Neoverse-N2), and by hand on macOS 26.6 arm64. zlib 1.3.2 and
+  Wuffs `wuffs-v0.4.c` at `google/wuffs-mirror-release-c` commit `7411f48`.
+  - `zig build oracle-selftest -Doracles`, in CI run
+    [36179844058](https://github.com/c4milo/stdx/actions/runs/36179844058) on both runners and by
+    hand: `oracle-selftest: 38 files, 5745 streams, 4089798186 octets decoded twice each, 0 failed`.
+    The 38 files are Silesia's 12, Canterbury's 11 and its large corpus's 3, and the 12 HTTP pieces.
+    It took 152 s on aarch64 and 180 s on x86-64.
+  - `zig build graph-check` prints the control line and seven refusals, the oracle bindings among
+    them.
+  - docs/costs.md is filled from costs run
+    [36180336051](https://github.com/c4milo/stdx/actions/runs/36180336051), with each runner
+    recorded.
+  - The workflow's first run, [36179116730](https://github.com/c4milo/stdx/actions/runs/36179116730),
+    failed on two defects the step introduced: the new packages were not lazy, so plain `zig build
+    test` fetched 260 MB; and Zig 0.16 on Linux does not create its cache's `tmp` directory before
+    it fetches a zip, which Silesia is. An Ubuntu 24.04 container reproduced the second and
+    confirmed the fix, now in `tools/install_zig.sh`. The same container showed a corpus host
+    dropping a connection once, so `tools/ci.sh` fetches every package first, with three attempts.
+    The second run passed, and its report lists the checks a run of `tools/ci.sh` by hand passed.
+  - The first costs run lost its run record: Zig 0.16's file writer is positional, so the table was
+    written over the header `bench/costs/run.sh` had put in the same file. `costs` now writes
+    stdout as a stream.
+  - Two rulings changed while the step ran: the owner chose GitHub's hosted runners (decision 20)
+    and SIMD wherever it measurably helps (decision 21). The step's sources differ from decision
+    15's words in two places: three.js now splits into `three.core.js` and `three.module.js`, and
+    the pair a page loads is used; and no CLDR file reaches 1 MiB, so cldr-core's supplemental JSON
+    files are joined in path order.
+  - 18 mutations of the step's checks, all CAUGHT in the end:
+    - the bindings: gzip passed to zlib as zlib; Wuffs decoding raw DEFLATE as zlib; zlib's data
+      error read as success; Wuffs's full output read as a cut input;
+    - the self-test: the octets written ignored; a differing octet ignored; Wuffs never called; the
+      matrix down to the default strategy; long files never run whole; a corpus set of the wrong
+      length accepted, NOT CAUGHT at first, since a set with one name added slipped through, and
+      caught once that test was written; a corpus file dropped from the build;
+    - the cut tool: the 1 MiB piece cut at 1,000,000 octets; an octet skipped between repeats;
+    - the fetch script: the hash never compared; a refused download left behind;
+    - the graph check: the oracle dropped from the forbidden list;
+    - the costs: the median taken as the fastest run; each chain node linked two ahead. A first
+      mutation there, a plain shuffle for Sattolo's, survived because the chain is one cycle for
+      any shuffle; the comment that claimed otherwise was wrong and was corrected.
+  - `tools/ci.sh`'s own failure path was checked by hand: an unformatted file made it exit 1 and
+    report the format check as FAIL.
+  - The fuzzing job moved to step 3, which writes the first code there is to fuzz.
+
 - **Step 3: `codec`.** The status, counts and flush modes; the checked reader and writer; the
   least-significant-bit-first bit reader of RFC 1951 §3.1.1 with its checked refill; the seeded
   split driver every codec's tests use; the `input-index` lint rule of decision 16; and the

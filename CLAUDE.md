@@ -232,6 +232,9 @@ Change this section when a step adds or renames a command.
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
 - RFCs: `cd docs/rfcs && shasum -a 256 -c SHA256SUMS`.
+- Linux: Zig 0.16 fails to fetch a zip package on a machine whose global cache has no `tmp`
+  directory. `tools/install_zig.sh` creates it; on a fresh Linux machine without that script, run
+  `mkdir -p ~/.cache/zig/tmp` before the first `-Doracles` build.
 - Tooling: the first build on a machine fetches pepegrillo. A bump is `zig fetch
   --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`; confirm `.lazy = true`
   survives it and copy the new hook. `zig build --fork=<pepegrillo checkout>` builds against a
