@@ -205,7 +205,8 @@ Change this section when a step adds or renames a command.
 - Lint: `zig build lint`: cognitive complexity over `build.zig`, `bench`, `build`, `src` and `tools`, then
   the `tools/lint` rules: heap, io, determinism, unbounded-loop, relative-import, global-state,
   denied-words (no consumer's name in any `.zig` file), module-graph, markdown, file-length,
-  magic-numbers and rfc-citation. Every rule `tools/lint/main.zig` registers runs, and a canary
+  magic-numbers, rfc-citation and input-index (no slice or index bound read from the input outside
+  the checked reader and writer, decision 16). Every rule `tools/lint/main.zig` registers runs, and a canary
   tree in `build/lint.zig` proves it.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
   `graph-check` and `hook-check`. `zig build test-<module>` runs one module's tests with nothing
@@ -219,6 +220,11 @@ Change this section when a step adds or renames a command.
   these steps fail and say so.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
   installs every corpus file under `zig-out/corpus/`.
+- Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a
+  `std.testing.fuzz` test, for `<runs>` runs each (`20K`, `2M`), and refuses to run when its list
+  of modules misses one. It builds ReleaseSafe: Zig 0.16.0's test runner does not compile in fuzz
+  mode in Debug. `tools/ci.sh` runs a short pass on every push, and the `fuzz` workflow a long one
+  every night on both runners, keeping each runner's corpus between runs (decision 20).
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
   `bench/costs/run.sh <report.md>` pins it to one core on Linux and records the run. The `costs`
   workflow runs it on both hosted runners when a person asks (decision 20).

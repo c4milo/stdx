@@ -28,6 +28,7 @@ const canary_rules = [_][]const u8{
     "file-length",
     "magic-numbers",
     "rfc-citation",
+    "input-index",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -50,6 +51,9 @@ const canary_source =
     \\    var buffer: [4096]u8 = undefined;
     \\    _ = &buffer;
     \\    if (buffer.len == 0) return error.Empty;
+    \\}
+    \\pub fn parse(reader: *Reader, buffer: []u8) !void {
+    \\    _ = buffer[0..try reader.read_octet()];
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;

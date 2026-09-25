@@ -1,0 +1,48 @@
+# Decision 20: fuzzing runs in scheduled jobs of fixed length per target, on both hosted runners.
+# The corpus a run grows lives in .zig-cache, which is kept from one run to the next.
+name: fuzz
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Runs per fuzzed module, with Zig's K, M or G suffix"
+        default: "2M"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .zig-cache
+          key: fuzz-corpus-${{ matrix.runner }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.runner }}-
+      - name: Install Zig
+        run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Fuzz
+        run: tools/fuzz.sh "${{ inputs.runs || '2M' }}" fuzz-report.md
+      - name: Summarize
+        if: always()
+        run: cat fuzz-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-${{ matrix.runner }}
+          path: fuzz-report.md

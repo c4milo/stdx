@@ -101,9 +101,13 @@ check lands with its step.
 
 - **Claim.** A call consumes or writes at least one octet, or returns `done`, or returns
   `needs_input` with an empty `input`, or `needs_room` with an empty `output`.
-- **Mechanism.** The status rules of decision 11.
-- **Check.** Runtime assertion at every public call's exit; seeded check with empty calls in the
-  split schedule. Steps 3 and 5.
+- **Mechanism.** The status rules of decision 11. It follows from invariant 7: a call that returns
+  `needs_input` took all of its input, and one that returns `needs_room` filled all of its output,
+  so either made progress unless its slice was empty. Step 3 found this when a test for a separate
+  violation turned out to have no case.
+- **Check.** Invariant 7's runtime assertion, `codec.check_progress`, at every public call's exit;
+  the split driver's bound on calls per octet; seeded check with empty calls in the split
+  schedule. Steps 3 and 5.
 - **Violation.** A decoder that returns `needs_room` with room left, so a caller loops forever.
 
 ### INV-9: every loop over input-derived counts is bounded

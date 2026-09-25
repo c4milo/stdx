@@ -63,6 +63,7 @@ run_check "rfcs" check_rfcs
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "test" zig build test
 run_check "oracle tests" zig build test-oracle -Doracles
+run_check "fuzz, short" tools/fuzz.sh 20K fuzz-report.md
 run_check "oracle self-test" zig build oracle-selftest -Doracles
 
 {

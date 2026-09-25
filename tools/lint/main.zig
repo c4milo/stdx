@@ -16,8 +16,8 @@
 //! Exit status: 0 when nothing was found, 1 when any finding was reported or a file failed to read,
 //! 2 on a usage error.
 //!
-//! Ten rules are pepegrillo's, configured in the file named after each. `module-graph` and
-//! `rfc-citation` are stdx's own, written against pepegrillo's readers.
+//! Ten rules are pepegrillo's, configured in the file named after each. `module-graph`,
+//! `rfc-citation` and `input-index` are stdx's own, written against pepegrillo's readers.
 //!
 //! This tool is developer tooling. It is never linked into the library, so it allocates, reads the
 //! filesystem, and is exempt from the rules it enforces over `src/` (CLAUDE.md, Layout).
@@ -40,6 +40,7 @@ const rules = .{
     @import("file_length.zig"),
     @import("magic_numbers.zig"),
     @import("rfc_citation.zig"),
+    @import("input_index.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -66,6 +67,7 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
         "file-length",
         "magic-numbers",
         "rfc-citation",
+        "input-index",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {

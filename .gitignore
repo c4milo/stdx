@@ -3,3 +3,4 @@ zig-out/
 zig-pkg/
 ci-report.md
 costs-report.md
+fuzz-report.md
