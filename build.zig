@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
-    const graph = modules.add(b, target, optimize);
+    const graph = modules.add(b, .{ .target = target, .optimize = optimize, .visibility = .exported });
 
     // Everything below is stdx's own build: the tests, the checks and the tools. A project that
     // depends on stdx stops here, before the tools request pepegrillo.

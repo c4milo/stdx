@@ -12,6 +12,7 @@
 //! cannot import them, and the `module-graph` rule of tools/lint keeps this file equal to design
 //! §3's table.
 const std = @import("std");
+const variants = @import("variants.zig");
 
 /// Each module's root is the file named after its directory (`src/gzip/gzip.zig`), which lists the
 /// module's API as `pub const` declarations and imports every file that has tests.
@@ -34,32 +35,41 @@ pub const Modules = struct {
     brotli: *std.Build.Module,
 };
 
-pub fn add(
-    b: *std.Build,
+/// Whether a graph's modules are exported by name. build.zig exports the graph a dependent imports;
+/// the differential checks and the benchmarks build their own copy for the host, in ReleaseSafe,
+/// which nothing outside this build can reach.
+pub const Visibility = enum { exported, private };
+
+/// The build settings of one graph.
+pub const Settings = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-) Modules {
-    const codec = library(b, "codec", target, optimize);
-    const checksum = library(b, "checksum", target, optimize);
+    visibility: Visibility,
+};
 
-    const deflate = library(b, "deflate", target, optimize);
+pub fn add(b: *std.Build, settings: Settings) Modules {
+    const codec = library(b, "codec", settings);
+    const checksum = library(b, "checksum", settings);
+    variants.add(b, checksum, "checksum", settings.target, settings.optimize);
+
+    const deflate = library(b, "deflate", settings);
     deflate.addImport("codec", codec);
 
-    const zlib = library(b, "zlib", target, optimize);
+    const zlib = library(b, "zlib", settings);
     zlib.addImport("codec", codec);
     zlib.addImport("checksum", checksum);
     zlib.addImport("deflate", deflate);
 
-    const gzip = library(b, "gzip", target, optimize);
+    const gzip = library(b, "gzip", settings);
     gzip.addImport("codec", codec);
     gzip.addImport("checksum", checksum);
     gzip.addImport("deflate", deflate);
 
-    const zstd = library(b, "zstd", target, optimize);
+    const zstd = library(b, "zstd", settings);
     zstd.addImport("codec", codec);
     zstd.addImport("checksum", checksum);
 
-    const brotli = library(b, "brotli", target, optimize);
+    const brotli = library(b, "brotli", settings);
     brotli.addImport("codec", codec);
 
     return .{
@@ -73,16 +83,16 @@ pub fn add(
     };
 }
 
-/// A library module, exported by name so a dependent can import it (decision 6).
-fn library(
-    b: *std.Build,
-    comptime name: []const u8,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
-    return b.addModule(name, .{
+/// A library module, exported by name so a dependent can import it (decision 6), or private to
+/// this build.
+fn library(b: *std.Build, comptime name: []const u8, settings: Settings) *std.Build.Module {
+    const options: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path("src/" ++ name ++ "/" ++ name ++ ".zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+        .target = settings.target,
+        .optimize = settings.optimize,
+    };
+    return switch (settings.visibility) {
+        .exported => b.addModule(name, options),
+        .private => b.createModule(options),
+    };
 }
