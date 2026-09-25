@@ -9,7 +9,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate]
+        options: [costs, deflate, checksum]
         default: deflate
 
 permissions:
@@ -39,6 +39,9 @@ jobs:
       - name: Measure DEFLATE
         if: inputs.benchmark == 'deflate'
         run: bench/run.sh bench-report.md bench-deflate -Doracles
+      - name: Measure checksums
+        if: inputs.benchmark == 'checksum'
+        run: bench/run.sh bench-report.md bench-checksum -Doracles
       - name: Summarize
         run: cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the report

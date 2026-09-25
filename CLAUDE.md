@@ -240,6 +240,10 @@ Change this section when a step adds or renames a command.
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
   person asks (decision 20). stdx's decoder and encoder join the candidates in design §8 steps 5,
   7 and 9. Each published report is committed under `bench/results/`, as the workflow wrote it.
+- Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
+  this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, from 64 octets to 1 MiB, with the
+  timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
+  and records it, and the `bench` workflow offers it.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine and writes the
   report; `.github/workflows/main.yml` runs it on each push to main, on x86-64 and aarch64
   (decision 19). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned

@@ -7,6 +7,7 @@
 # Usage: bench/run.sh <report.md> <step> [build options...]
 #   bench/run.sh costs-report.md costs
 #   bench/run.sh deflate-report.md bench-deflate -Doracles
+#   bench/run.sh checksum-report.md bench-checksum -Doracles
 #
 # The first build compiles and fetches everything unpinned; the second, pinned, finds it all
 # cached and runs only the benchmark.

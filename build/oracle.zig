@@ -8,6 +8,8 @@
 //! - `zig build test-oracle -Doracles` runs the tests of the oracle bindings and the self-test.
 //! - `zig build bench-deflate -Doracles` times DEFLATE decoding and encoding over the corpora
 //!   (`bench/deflate/deflate.zig`).
+//! - `zig build bench-checksum -Doracles` times CRC-32 and Adler-32 against zlib, Wuffs,
+//!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
 //! - `zig build differential-checksum -Doracles` requires stdx's CRC-32 and Adler-32 to equal the
 //!   RFCs' sample code, zlib and Wuffs over the corpora (`tools/differential/checksum.zig`).
 //!
@@ -18,6 +20,7 @@
 //! `oracle` (invariant 14).
 const std = @import("std");
 const modules = @import("modules.zig");
+const baselines = @import("baselines.zig");
 
 /// The zlib sources the oracle compiles: the library without its gz* file layer, which would need
 /// the host's file I/O.
@@ -67,13 +70,22 @@ pub fn add(b: *std.Build, options: Options) void {
     const test_step = b.step("test-oracle", "Run the tests of the oracle bindings and the self-test (-Doracles)");
     const bench_step = b.step("bench-deflate", "Time DEFLATE decoding and encoding over the corpora (-Doracles)");
     const checksum_step = b.step("differential-checksum", "Require CRC-32 and Adler-32 to equal the oracles (-Doracles)");
+    const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
-        inline for (.{ selftest_step, corpus_step, test_step, bench_step, checksum_step }) |step| step.dependOn(&fail.step);
+        inline for (steps) |step| step.dependOn(&fail.step);
         return;
     }
     const oracle = add_oracle_module(b) orelse return;
     const corpus = add_corpus(b) orelse return;
+    const baselines_library = baselines.add_library(b) orelse return;
+    // The timing loop runs between every repetition, so it is built as the benchmarks are.
+    const timing = b.createModule(.{
+        .root_source_file = b.path("bench/timing/timing.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
     const corpus_names = host_module(b, "tools/corpus/corpus.zig");
     // The library as a caller shipping one binary for every CPU of an architecture runs it: built
     // for the architecture's baseline, so each SIMD path runs because detection found its
@@ -96,6 +108,7 @@ pub fn add(b: *std.Build, options: Options) void {
         .optimize = .ReleaseSafe,
     });
     bench_module.addImport("oracle", oracle);
+    bench_module.addImport("timing", timing);
     const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
     b.installArtifact(bench);
     const bench_run = b.addRunArtifact(bench);
@@ -124,7 +137,27 @@ pub fn add(b: *std.Build, options: Options) void {
     add_corpus_args(b, checksum_run, corpus);
     checksum_step.dependOn(&checksum_run.step);
 
-    inline for (.{ oracle, corpus_names, selftest_module, bench_module, checksum_module }) |module| {
+    const baselines_module = host_module(b, "bench/baselines/baselines.zig");
+    baselines_module.link_libc = true;
+    baselines_module.linkLibrary(baselines_library);
+    const bench_checksum_module = b.createModule(.{
+        .root_source_file = b.path("bench/checksum/checksum.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    bench_checksum_module.addImport("timing", timing);
+    bench_checksum_module.addImport("oracle", oracle);
+    bench_checksum_module.addImport("baselines", baselines_module);
+    bench_checksum_module.addImport("codec", graph.codec);
+    bench_checksum_module.addImport("checksum", graph.checksum);
+    const bench_checksum = b.addExecutable(.{ .name = "bench_checksum", .root_module = bench_checksum_module });
+    b.installArtifact(bench_checksum);
+    const bench_checksum_run = b.addRunArtifact(bench_checksum);
+    bench_checksum_run.has_side_effects = true;
+    bench_checksum_step.dependOn(&bench_checksum_run.step);
+
+    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module };
+    inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }

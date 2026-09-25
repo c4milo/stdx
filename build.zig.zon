@@ -23,6 +23,17 @@
             .hash = "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
             .lazy = true,
         },
+        // Baselines of decision 8, from design §8 step 4 on: libdeflate 1.26 and zlib-ng 2.3.3.
+        .libdeflate = .{
+            .url = "https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.26.tar.gz",
+            .hash = "N-V-__8AAEaRCwCsYb_rSsH72Pb6DNFQLSjdRzTFOVsJWcoB",
+            .lazy = true,
+        },
+        .zlib_ng = .{
+            .url = "https://github.com/zlib-ng/zlib-ng/archive/refs/tags/2.3.3.tar.gz",
+            .hash = "N-V-__8AAPaJcABkB6U-96R7h2xuXX5TlDMvwPbE4PucPI59",
+            .lazy = true,
+        },
         // The corpora of decision 15: test data, never linked into anything. Lazy, and requested only
         // by a build given -Doracles, like the oracles. The WHATWG page is not here: Zig fetches
         // archives only, so tools/corpus/fetch.sh fetches it and checks its pinned SHA-256.
