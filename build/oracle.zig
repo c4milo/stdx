@@ -8,6 +8,8 @@
 //! - `zig build test-oracle -Doracles` runs the tests of the oracle bindings and the self-test.
 //! - `zig build bench-deflate -Doracles` times DEFLATE decoding and encoding over the corpora
 //!   (`bench/deflate/deflate.zig`).
+//! - `zig build differential-checksum -Doracles` requires stdx's CRC-32 and Adler-32 to equal the
+//!   RFCs' sample code, zlib and Wuffs over the corpora (`tools/differential/checksum.zig`).
 //!
 //! The oracles and the corpora are lazy packages (decisions 8 and 15), fetched only when a build
 //! passes `-Doracles`, so `zig build test` on a fresh clone downloads none of their 260 MB. A step
@@ -15,6 +17,7 @@
 //! are built in build/modules.zig, and `zig build graph-check` shows `deflate` cannot import
 //! `oracle` (invariant 14).
 const std = @import("std");
+const modules = @import("modules.zig");
 
 /// The zlib sources the oracle compiles: the library without its gz* file layer, which would need
 /// the host's file I/O.
@@ -63,16 +66,25 @@ pub fn add(b: *std.Build, options: Options) void {
     const corpus_step = b.step("corpus", "Cut the HTTP payloads and install every corpus file (-Doracles)");
     const test_step = b.step("test-oracle", "Run the tests of the oracle bindings and the self-test (-Doracles)");
     const bench_step = b.step("bench-deflate", "Time DEFLATE decoding and encoding over the corpora (-Doracles)");
+    const checksum_step = b.step("differential-checksum", "Require CRC-32 and Adler-32 to equal the oracles (-Doracles)");
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
-        inline for (.{ selftest_step, corpus_step, test_step, bench_step }) |step| step.dependOn(&fail.step);
+        inline for (.{ selftest_step, corpus_step, test_step, bench_step, checksum_step }) |step| step.dependOn(&fail.step);
         return;
     }
     const oracle = add_oracle_module(b) orelse return;
     const corpus = add_corpus(b) orelse return;
+    const corpus_names = host_module(b, "tools/corpus/corpus.zig");
+    // The library as a caller shipping one binary for every CPU of an architecture runs it: built
+    // for the architecture's baseline, so each SIMD path runs because detection found its
+    // instructions and not because the target promised them (decision 21); ReleaseSafe (decision
+    // 17); exported to nobody.
+    const baseline = b.resolveTargetQuery(.{ .cpu_model = .baseline });
+    const graph = modules.add(b, .{ .target = baseline, .optimize = .ReleaseSafe, .visibility = .private });
 
     const selftest_module = host_module(b, "tools/oracle/selftest.zig");
     selftest_module.addImport("oracle", oracle);
+    selftest_module.addImport("corpus", corpus_names);
     const selftest = b.addExecutable(.{ .name = "oracle_selftest", .root_module = selftest_module });
     const run = b.addRunArtifact(selftest);
     add_corpus_args(b, run, corpus);
@@ -98,7 +110,21 @@ pub fn add(b: *std.Build, options: Options) void {
     });
     corpus_step.dependOn(&install.step);
 
-    inline for (.{ oracle, selftest_module, bench_module }) |module| {
+    const checksum_module = b.createModule(.{
+        .root_source_file = b.path("tools/differential/checksum.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    checksum_module.addImport("oracle", oracle);
+    checksum_module.addImport("corpus", corpus_names);
+    checksum_module.addImport("codec", graph.codec);
+    checksum_module.addImport("checksum", graph.checksum);
+    const checksum_check = b.addExecutable(.{ .name = "differential_checksum", .root_module = checksum_module });
+    const checksum_run = b.addRunArtifact(checksum_check);
+    add_corpus_args(b, checksum_run, corpus);
+    checksum_step.dependOn(&checksum_run.step);
+
+    inline for (.{ oracle, corpus_names, selftest_module, bench_module, checksum_module }) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
@@ -128,6 +154,7 @@ fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
     library.root_module.addIncludePath(wuffs.path(wuffs_directory));
     library.root_module.addCSourceFiles(.{ .root = zlib.path(""), .files = &zlib_sources });
     library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/oracle.c") });
+    library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/rfc_samples.c") });
     const module = host_module(b, "tools/oracle/oracle.zig");
     module.link_libc = true;
     module.linkLibrary(library);

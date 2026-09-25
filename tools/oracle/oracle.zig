@@ -1,7 +1,8 @@
-//! The oracles of decision 8, zlib and Wuffs, as Zig calls over `tools/oracle/oracle.c`.
+//! The oracles of decision 8, zlib and Wuffs, as Zig calls over `tools/oracle/oracle.c`, and the
+//! sample code of RFC 1952 §8 and RFC 1950 §9, over `tools/oracle/rfc_samples.c`.
 //!
-//! Each call takes a whole input and a whole output and returns what the oracle did: a verdict, the
-//! octets it consumed and the octets it wrote. The C file calls each oracle through its public API
+//! Each decode and encode takes a whole input and a whole output and returns what the oracle did: a
+//! verdict, the octets it consumed and the octets it wrote. Each checksum returns its value. The C file calls each oracle through its public API
 //! alone, and nobody working on stdx reads either oracle's implementation (decision 9).
 //!
 //! This module is tooling. `build/oracle.zig` builds it for `tools/` and `bench/`, and no library
@@ -59,6 +60,12 @@ extern fn oracle_zlib_encode(
 ) Result;
 extern fn oracle_zlib_decode(container: Container, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) Result;
 extern fn oracle_wuffs_decode(container: Container, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) Result;
+extern fn oracle_zlib_crc32(crc: u32, input: [*]const u8, input_len: usize) u32;
+extern fn oracle_zlib_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
+extern fn oracle_wuffs_crc32(input: [*]const u8, input_len: usize) u32;
+extern fn oracle_wuffs_adler32(input: [*]const u8, input_len: usize) u32;
+extern fn oracle_rfc1952_update_crc(crc: u32, input: [*]const u8, input_len: usize) u32;
+extern fn oracle_rfc1950_update_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
 
 /// The most octets zlib writes when it encodes `input_len` octets in `container`, at any level and
 /// strategy.
@@ -95,6 +102,36 @@ pub fn zlib_decode(container: Container, input: []const u8, output: []u8) Result
 
 pub fn wuffs_decode(container: Container, input: []const u8, output: []u8) Result {
     return oracle_wuffs_decode(container, input.ptr, input.len, output.ptr, output.len);
+}
+
+/// zlib's crc32_z: the CRC-32 after `input`, from `crc`.
+pub fn zlib_crc32(crc: u32, input: []const u8) u32 {
+    return oracle_zlib_crc32(crc, input.ptr, input.len);
+}
+
+/// zlib's adler32_z: the Adler-32 after `input`, from `adler`.
+pub fn zlib_adler32(adler: u32, input: []const u8) u32 {
+    return oracle_zlib_adler32(adler, input.ptr, input.len);
+}
+
+/// Wuffs's CRC-32 hasher: the CRC-32 of `input`, from the start.
+pub fn wuffs_crc32(input: []const u8) u32 {
+    return oracle_wuffs_crc32(input.ptr, input.len);
+}
+
+/// Wuffs's Adler-32 hasher: the Adler-32 of `input`, from the start.
+pub fn wuffs_adler32(input: []const u8) u32 {
+    return oracle_wuffs_adler32(input.ptr, input.len);
+}
+
+/// RFC 1952 §8's update_crc, the RFC's own code: the CRC-32 after `input`, from `crc`.
+pub fn rfc1952_update_crc(crc: u32, input: []const u8) u32 {
+    return oracle_rfc1952_update_crc(crc, input.ptr, input.len);
+}
+
+/// RFC 1950 §9's update_adler32, the RFC's own code: the Adler-32 after `input`, from `adler`.
+pub fn rfc1950_update_adler32(adler: u32, input: []const u8) u32 {
+    return oracle_rfc1950_update_adler32(adler, input.ptr, input.len);
 }
 
 // Tests. They check the bindings, not the oracles: that each container reaches the oracle as the
@@ -155,6 +192,20 @@ test "both oracles report a cut input, a full output and a wrong checksum" {
         corrupt[encoded_len - 8] ^= 1;
         try testing.expectEqual(Verdict.refused, decode(.gzip, corrupt[0..encoded_len], &decoded).verdict);
     }
+}
+
+test "every checksum binding gives the check values" {
+    const check = "123456789";
+    // The CRC-32 check value of RFC 1952's polynomial, and Adler-32 of "Wikipedia".
+    try testing.expectEqual(0xcbf43926, zlib_crc32(0, check));
+    try testing.expectEqual(0xcbf43926, wuffs_crc32(check));
+    try testing.expectEqual(0xcbf43926, rfc1952_update_crc(0, check));
+    try testing.expectEqual(0x11e60398, zlib_adler32(1, "Wikipedia"));
+    try testing.expectEqual(0x11e60398, wuffs_adler32("Wikipedia"));
+    try testing.expectEqual(0x11e60398, rfc1950_update_adler32(1, "Wikipedia"));
+    // A running value carries across calls.
+    try testing.expectEqual(0xcbf43926, rfc1952_update_crc(rfc1952_update_crc(0, check[0..4]), check[4..]));
+    try testing.expectEqual(0xcbf43926, zlib_crc32(zlib_crc32(0, check[0..4]), check[4..]));
 }
 
 test "the bound covers the largest stored encoding" {

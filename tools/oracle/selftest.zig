@@ -15,6 +15,7 @@
 
 const std = @import("std");
 const oracle = @import("oracle");
+const corpus = @import("corpus");
 
 /// The prefix of each file the full matrix of settings runs over. 1 MiB keeps a run over Silesia
 /// within minutes on a hosted runner while covering every block type and window distance zlib uses.
@@ -25,34 +26,6 @@ pub const whole_file_level: c_int = 6;
 
 /// The exit status of a usage error.
 const usage_exit_status = 2;
-
-/// Every corpus file of decision 15 by the name build/oracle.zig gives it. The self-test refuses
-/// to run over any other set, so a file the build drops or adds is a failure, not a quieter run.
-pub const corpus_names = [_][]const u8{
-    "silesia/dickens",            "silesia/mozilla",               "silesia/mr",            "silesia/nci",
-    "silesia/ooffice",            "silesia/osdb",                  "silesia/reymont",       "silesia/samba",
-    "silesia/sao",                "silesia/webster",               "silesia/x-ray",         "silesia/xml",
-    "canterbury/alice29.txt",     "canterbury/asyoulik.txt",       "canterbury/cp.html",    "canterbury/fields.c",
-    "canterbury/grammar.lsp",     "canterbury/kennedy.xls",        "canterbury/lcet10.txt", "canterbury/plrabn12.txt",
-    "canterbury/ptt5",            "canterbury/sum",                "canterbury/xargs.1",    "canterbury-large/E.coli",
-    "canterbury-large/bible.txt", "canterbury-large/world192.txt", "http/html-1k",          "http/html-16k",
-    "http/html-1m",               "http/json-1k",                  "http/json-16k",         "http/json-1m",
-    "http/js-1k",                 "http/js-16k",                   "http/js-1m",            "http/css-1k",
-    "http/css-16k",               "http/css-1m",
-};
-
-/// True when `names` holds every name of `corpus_names` once and nothing else.
-pub fn is_whole_corpus(names: []const []const u8) bool {
-    if (names.len != corpus_names.len) return false;
-    for (corpus_names) |wanted| {
-        var found: usize = 0;
-        for (names) |name| {
-            if (std.mem.eql(u8, name, wanted)) found += 1;
-        }
-        if (found != 1) return false;
-    }
-    return true;
-}
 
 /// Every container, level and strategy zlib offers: 3 * 10 * 5 settings.
 pub const matrix = build_matrix();
@@ -129,9 +102,9 @@ pub fn main(init: std.process.Init) !void {
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse argument.len;
         try names.append(arena, argument[0..split]);
     }
-    if (!is_whole_corpus(names.items)) {
+    if (!corpus.is_whole(names.items)) {
         std.debug.print("oracle-selftest FAILED: the build passed {d} files, not the {d} of decision 15\n", .{
-            names.items.len, corpus_names.len,
+            names.items.len, corpus.names.len,
         });
         std.process.exit(1);
     }
@@ -257,17 +230,6 @@ test "check_stream counts a stream both oracles reproduce, and counts nothing fa
     try testing.expectEqual(matrix.len, tally.streams);
     try testing.expectEqual(2 * matrix.len, tally.decodes);
     try testing.expectEqual(0, tally.failures);
-}
-
-test "the corpus is decision 15's 38 files, and a set with one dropped or added is refused" {
-    try testing.expectEqual(38, corpus_names.len);
-    try testing.expect(is_whole_corpus(&corpus_names));
-    try testing.expect(!is_whole_corpus(corpus_names[1..]));
-    var doubled = corpus_names;
-    doubled[1] = doubled[0];
-    try testing.expect(!is_whole_corpus(&doubled));
-    const added = corpus_names ++ [_][]const u8{"silesia/extra"};
-    try testing.expect(!is_whole_corpus(&added));
 }
 
 test "check_file runs a long file whole as well as through the matrix" {

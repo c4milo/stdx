@@ -53,6 +53,7 @@ run_check "test" zig build test
 run_check "oracle tests" zig build test-oracle -Doracles
 run_check "fuzz, short" tools/fuzz.sh 20K fuzz-report.md
 run_check "oracle self-test" zig build oracle-selftest -Doracles
+run_check "differential checksum" zig build differential-checksum -Doracles
 
 {
   echo "# CI report"

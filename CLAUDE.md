@@ -142,8 +142,10 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - `tools/` is developer tooling, run by `zig build` and never linked into the library. Its rule
   implementations come from pepegrillo, a lazy Zig package pinned by hash (decision 7). The
   differential checks and their oracles live here (decision 8).
-- `tools/oracle/` holds the oracle bindings (`oracle.c`, `oracle.zig`) and their self-test, and
-  `tools/corpus/` the corpus fetcher and the tool that cuts the HTTP payloads.
+- `tools/oracle/` holds the oracle bindings (`oracle.c`, `oracle.zig`), the RFCs' sample code
+  (`rfc_samples.c`) and the oracles' self-test. `tools/differential/` holds the differential
+  checks of stdx against them, and `tools/corpus/` the corpus fetcher, the corpus's names and the
+  tool that cuts the HTTP payloads.
 - `bench/` holds the benchmarks, their scripts and their committed results. The baselines are
   compiled here and in `tools/`, and nowhere else. `bench/costs/` measures docs/costs.md.
 - `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
@@ -218,6 +220,11 @@ Change this section when a step adds or renames a command.
   octets. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The
   first build with `-Doracles` fetches about 260 MB of oracles and corpora; without the option,
   these steps fail and say so.
+- Differential checks: `zig build differential-checksum -Doracles` requires every CRC-32 and
+  Adler-32 path this CPU runs to equal the RFCs' sample code, zlib and Wuffs over every corpus
+  file, at every length from 0 to 4096 at seeded offsets and starts, and whole under a seeded
+  split. It builds stdx for the architecture's baseline CPU, so each SIMD path runs because
+  detection found its instructions.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
   installs every corpus file under `zig-out/corpus/`.
 - Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a

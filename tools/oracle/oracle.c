@@ -163,3 +163,34 @@ oracle_result oracle_wuffs_decode(int container, const uint8_t* input, size_t in
   }
   return result;
 }
+
+// The checksums of zlib and Wuffs, for the differential check and the benchmark of design §8 step
+// 4: zlib through zlib.h's crc32_z and adler32_z, Wuffs through its hashers. A Wuffs hasher starts
+// from the value of no octets, 0 for CRC-32 and 1 for Adler-32, so its calls take no start. A
+// hasher that fails to initialize gives 0, which the check then reports as a disagreement.
+
+uint32_t oracle_zlib_crc32(uint32_t crc, const uint8_t* input, size_t input_len) {
+  return (uint32_t)crc32_z(crc, input, input_len);
+}
+
+uint32_t oracle_zlib_adler32(uint32_t adler, const uint8_t* input, size_t input_len) {
+  return (uint32_t)adler32_z(adler, input, input_len);
+}
+
+uint32_t oracle_wuffs_crc32(const uint8_t* input, size_t input_len) {
+  wuffs_crc32__ieee_hasher hasher;
+  wuffs_base__status status = wuffs_crc32__ieee_hasher__initialize(
+      &hasher, sizeof hasher, WUFFS_VERSION, WUFFS_INITIALIZE__DEFAULT_OPTIONS);
+  if (!wuffs_base__status__is_ok(&status)) return 0;
+  return wuffs_crc32__ieee_hasher__update_u32(&hasher,
+                                              wuffs_base__make_slice_u8((uint8_t*)input, input_len));
+}
+
+uint32_t oracle_wuffs_adler32(const uint8_t* input, size_t input_len) {
+  wuffs_adler32__hasher hasher;
+  wuffs_base__status status = wuffs_adler32__hasher__initialize(
+      &hasher, sizeof hasher, WUFFS_VERSION, WUFFS_INITIALIZE__DEFAULT_OPTIONS);
+  if (!wuffs_base__status__is_ok(&status)) return 0;
+  return wuffs_adler32__hasher__update_u32(&hasher,
+                                           wuffs_base__make_slice_u8((uint8_t*)input, input_len));
+}
