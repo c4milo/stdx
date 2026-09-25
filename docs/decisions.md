@@ -6,8 +6,8 @@ re-arguing the trade, not editing the code. The README states what stdx does; th
 Entries marked **owner** wait on a ruling and are not settled. Everything else is settled and is
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
-brief asked for before any codec code, and the owner ruled on each after reviewing it. Entry 19
-came out of that review.
+brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
+and 20 came out of that review.
 
 ## Scope and shape
 
@@ -135,9 +135,10 @@ came out of that review.
    rule by reference to a document that is not an RFC.
 
 10. **Real numbers come from Linux, measured one way.** Ruled by the owner on 2026-09-25, as
-    colibri's decision 32 ruled it for colibri.
+    colibri's decision 32 ruled it for colibri. Entry 20 amends it: the Linux hosts are GitHub's
+    hosted runners, and a result is a ratio within one job.
     - Benchmarks run on Linux alone, with the machine written down beside the numbers: CPU model,
-      core count, frequency governor, kernel, compiler versions. macOS publishes no number.
+      core count, kernel, compiler versions. macOS publishes no number.
     - Each result is the median of five runs, with the spread.
     - Every candidate runs in the same harness in the same run, at a pinned version: zlib,
       zlib-ng, libdeflate, Wuffs, libzstd and brotli, as far as decision 8's rulings admit them.
@@ -482,7 +483,7 @@ came out of that review.
     checksum paths per architecture (x86-64 and aarch64, register operands only) with a table path
     for every other target and as the oracle, and the predictions stated before any code. Each claim
     below names the cost it removes, priced against a row of `docs/costs.md`, and the check that
-    tests it. Each fast path is an A/B against the checked path on the Linux machine, five runs,
+    tests it. Each fast path is an A/B against the checked path on the Linux runners, five runs,
     median and spread (decision 10), and stays only when it wins by more than the noise. The last
     column names the baselines whose own documentation or published write-ups describe the same
     technique. It is a list of what to compare against, and nobody confirms it by reading their
@@ -696,7 +697,7 @@ came out of that review.
       or the CRC32 instructions, takes register operands only, loaded through checked slices, and
       never an address.
     - `@setRuntimeSafety(false)` appears nowhere in version one. An exception needs an A/B of the
-      same function with safety on and off on the Linux machine, five runs each over all three
+      same function with safety on and off on the Linux runners, five runs each over all three
       corpora, a gain above the 5% noise floor, a new row in this entry with the numbers, and the
       owner's ruling.
     - A lint rule, `input-index`, lands with the `codec` module (design §8 step 3). Outside the
@@ -750,7 +751,7 @@ came out of that review.
       overflow checks the compiler keeps are branches that never fire. The wrapping operators
       appear only where the format itself wraps: CRC and Adler arithmetic, and hash multiplies.
 
-    **The measurement,** made by each codec's fast-path step on the Linux machine, and written
+    **The measurement,** made by each codec's fast-path step on the Linux runners, and written
     into this entry:
     1. The same benchmark built ReleaseSafe and ReleaseFast. The difference bounds the cost of
        every safety check together. ReleaseFast is a measuring device only, and never offered to
@@ -792,9 +793,42 @@ came out of that review.
     - `tools/ci.sh` runs the lint, the tests, the graph check and the oracle checks, and writes a
       report. `.github/workflows/main.yml` runs it on a hosted runner on each push to main. A new
       check joins `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.
-    - Published numbers never come from the hosted runner. Costs, benchmarks and fuzzing run on the
-      owner's Linux machine (decision 10), named in design §8 step 2 when it is set up.
+    - Entry 20 amends this item. Published numbers were to come from a machine of the owner's; the
+      owner then ruled that costs, benchmarks and fuzzing run on the hosted runners too, in jobs of
+      their own.
     - Both land with design §8 step 2.
 
     The alternative refused: every check run by hand, with each step's entry recording what was run.
     A check nobody runs between steps drifts, and the owner asked for CI.
+
+20. **Costs, benchmarks and fuzzing run on GitHub's hosted Linux runners.** Ruled by the owner on
+    2026-09-25, when asked which Linux machine decision 10 needs. It amends entry 10, which asked
+    for a machine written down beside the numbers, and entry 19, which kept published numbers off
+    the hosted runners.
+    - The jobs run on pinned runner labels, never `ubuntu-latest`: `ubuntu-24.04` for x86-64 and
+      `ubuntu-24.04-arm` for aarch64, both free for a public repository, with 4 virtual CPUs and
+      16 GB each. Both architectures are measured, so both checksum paths of decision 14 are.
+    - A hosted runner is a virtual machine on shared hardware. Its CPU model can change from one
+      run to the next, other tenants load the host, nobody pins a governor, and it may expose no
+      performance counters. So the method changes in four ways:
+      - Every comparison happens inside one job. stdx and each baseline run on the same virtual
+        machine in the same run, interleaved candidate by candidate, so a slowdown lands on all of
+        them alike. A result is a ratio against a baseline in that job. An absolute number from one
+        run is never compared with another run's.
+      - Each report records the runner label, the image version, the CPU model and core count from
+        `/proc/cpuinfo`, the kernel, the Zig version and the run's URL, and is committed under
+        `bench/` with that record.
+      - The noise floor is the larger of 5% and the spread the job measured for that candidate. A
+        claim of decision 14 must beat it, in the same job, on both architectures it applies to.
+      - `docs/costs.md` is filled from one named run per architecture, in nanoseconds. Cycles are
+        filled only where the runner exposes the counters, and marked unavailable otherwise.
+    - Fuzzing runs in scheduled jobs of fixed length per target, within the runner's job time
+      limit. The corpus a run grows is kept between runs, and a finding becomes a committed
+      fixture and a named test (decision 15).
+
+    Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
+    busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
+    and a run anyone can repeat from the workflow file.
+
+    The alternatives refused: a machine of the owner's, which the owner declined; and a bare-metal
+    cloud instance, which is steadier and costs money per run.

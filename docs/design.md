@@ -5,7 +5,7 @@ build plan. [decisions.md](decisions.md) holds why each choice beat its alternat
 [invariants.md](invariants.md) what no change may break. Cite sections by number: "design §8 step
 5".
 
-The owner ruled on decisions 11 to 19 on 2026-09-25, so this document states the design as
+The owner ruled on decisions 11 to 20 on 2026-09-25, so this document states the design as
 ruled. Where it depends on a decision, it names the decision.
 
 ## 1. Thesis and scope
@@ -190,22 +190,23 @@ to 12 are reordered and nothing else changes.
 
   **Check passed, 2026-09-25.** The owner reviewed decisions 11 to 18 one by one and accepted each
   proposal. The review changed two things and added one: the HTML payload is the WHATWG HTML
-  Standard, whose size allows a 1 MiB cut; the four proposed oracles are ruled in; and decision 19
-  adds CI. Every document that said a decision was pending was changed in the same commit, and
+  Standard, whose size allows a 1 MiB cut; the four proposed oracles are ruled in; decision 19
+  adds CI; and decision 20 runs costs, benchmarks and fuzzing on GitHub's hosted Linux runners. Every document that said a decision was pending was changed in the same commit, and
   `zig build test` passed after it.
 
 - **Step 2: oracles, corpora, costs and CI.** zlib and Wuffs as lazy packages pinned by hash, built
   in `tools/` and `bench/` only (decision 8), the others joining at the steps that use them;
   Silesia, Canterbury and the HTTP payloads as lazy packages pinned by hash, with the tool that
   cuts the 1 KiB, 16 KiB and 1 MiB pieces (decision 15);
-  `bench/costs/` (docs/costs.md); `tools/ci.sh` and the workflow of decision 19; and the owner's
-  Linux machine, written down in docs/costs.md.
+  `bench/costs/` (docs/costs.md); `tools/ci.sh` and the workflow of decision 19; and the
+  benchmark and fuzzing jobs on the hosted runners of decision 20.
   **Check:**
   - `zig build oracle-selftest`: zlib and Wuffs decode every stream zlib encodes from the corpora,
     at every level and strategy in all three containers, to the same octets. Two oracles that
     disagree on valid input would make every later verdict meaningless.
   - The graph check forbids `deflate` the oracle modules too.
-  - `docs/costs.md` is filled on the Linux machine, with the machine written down.
+  - `docs/costs.md` is filled from one named run on each runner of decision 20, with the run
+    recorded.
   - The workflow's first run passes, and its report matches a run of `tools/ci.sh` by hand.
 
 - **Step 3: `codec`.** The status, counts and flush modes; the checked reader and writer; the
@@ -236,7 +237,7 @@ to 12 are reordered and nothing else changes.
   decision 16's rules.
   **Check:**
   - The fast path writes what the checked path writes, under the fuzzer and over the corpora.
-  - Each claim's A/B on the Linux machine; a claim that does not beat the noise is removed with its
+  - Each claim's A/B on the Linux runners; a claim that does not beat the noise is removed with its
     code.
   - Decision 17's measurement of the safety checks' cost.
   - The benchmark against zlib, zlib-ng, libdeflate and Wuffs: median of
@@ -282,8 +283,10 @@ to 12 are reordered and nothing else changes.
   **Check:** as step 9, through Google's brotli and stdx's decoder.
 
 - **Step 15: the published benchmark.** Every codec, every ruled baseline, every corpus, on the
-  Linux machine, and the README's tables generated from the results rather than written beside them.
-  **Check:** decision 10's method, with the machine written down and the losses included.
+  Linux runners of decision 20, and the README's tables generated from the results rather than
+  written beside them.
+  **Check:** decision 10's method as decision 20 amends it, with each run recorded and the losses
+  included.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
@@ -297,11 +300,13 @@ and one that does not beat the noise is removed.
 
 ## 10. Open questions for the owner
 
-1. The Linux machine for costs, benchmarks and fuzzing (decisions 10 and 19): the owner will name
-   it, and step 2 needs it.
+None. Decisions 11 to 20 are ruled.
 
 ## 11. Risks
 
+- **Hosted runners are noisy.** They are shared virtual machines whose CPU model can change between
+  runs (decision 20). A gain smaller than the spread a job measures cannot be shown, and a claim
+  that cannot be shown is removed.
 - **Safety checks in ReleaseSafe may cost more than decision 17 expects.** A wide access pays one
   bounds check, but the compiler may not merge the checks a loop repeats. Step 7 measures it before
   any claim is made, and decision 17 says what happens above 5%.

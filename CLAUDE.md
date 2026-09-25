@@ -153,7 +153,8 @@ The discipline is [Abseil's performance hints](https://abseil.io/fast/hints.html
 tree. Decision 14 holds the claims and design §8 the steps that measure them.
 
 - **Measure; do not assume.** A performance claim carries a number, the command that produced it
-  and the machine it ran on. Numbers come from Linux alone, with the machine written down; macOS
+  and the run it came from. Numbers come from GitHub's hosted Linux runners alone, x86-64 and
+  aarch64, and a result is a ratio against a baseline inside one job (decision 20); macOS
   publishes no number (decision 10).
 - **Know the order of magnitude before optimizing.** `docs/costs.md` holds the measured cost of an
   L1 hit, a cache miss, a branch mispredict, a copy of 64 octets and of 32 KiB, and a 64-bit bit
