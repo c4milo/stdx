@@ -34,4 +34,9 @@ if [[ "$actual" != "$expected" ]]; then
   exit 1
 fi
 tar -xJf "${install_dir}/${name}.tar.xz" -C "$install_dir"
+
+# Zig 0.16 on Linux writes a zip package's download into the global cache's tmp directory without
+# creating it first, so the first fetch of a zip (Silesia's) fails with FileNotFound on a fresh
+# machine. Creating the directory first is the whole fix; macOS is not affected.
+mkdir -p "${ZIG_GLOBAL_CACHE_DIR:-${HOME}/.cache/zig}/tmp"
 echo "${install_dir}/${name}"

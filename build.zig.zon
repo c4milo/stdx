@@ -11,37 +11,50 @@
             .hash = "pepegrillo-0.0.0-axiFUGT2CACzkYUiEAp0Dyt74j7Foq_MdBGv1QGEO2Qh",
             .lazy = true,
         },
+        // The oracles of decision 8, compiled in tools/ and bench/ only and never into the library.
+        // Lazy, and requested only by a build given -Doracles (build/oracle.zig).
         .madler_zlib = .{
             .url = "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
             .hash = "N-V-__8AAJ2cNgAgfBtAw33Bxfu1IWISDeKKSr3DAqoAysIJ",
+            .lazy = true,
         },
         .wuffs = .{
             .url = "https://github.com/google/wuffs-mirror-release-c/archive/7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
             .hash = "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+            .lazy = true,
         },
+        // The corpora of decision 15: test data, never linked into anything. Lazy, and requested only
+        // by a build given -Doracles, like the oracles. The WHATWG page is not here: Zig fetches
+        // archives only, so tools/corpus/fetch.sh fetches it and checks its pinned SHA-256.
         .canterbury = .{
             .url = "https://corpus.canterbury.ac.nz/resources/cantrbry.tar.gz",
             .hash = "N-V-__8AAKDjKgCAFNUqJzXJu93EJ6LO0coCiS1wieFvCNLW",
+            .lazy = true,
         },
         .canterbury_large = .{
             .url = "https://corpus.canterbury.ac.nz/resources/large.tar.gz",
             .hash = "N-V-__8AALpHqgAub1rhde0Dod78bzmNWo40DW0SLlzHPpvE",
+            .lazy = true,
         },
         .three = .{
             .url = "https://registry.npmjs.org/three/-/three-0.186.1.tgz",
             .hash = "N-V-__8AAHjwNwEkDZo-4yeDAV9729z29uIk0IAAP52VTHZs",
+            .lazy = true,
         },
         .bootstrap = .{
             .url = "https://registry.npmjs.org/bootstrap/-/bootstrap-5.3.8.tgz",
             .hash = "N-V-__8AAHv_kgBOmjHy8BvbrmaKCXu-IMMHok-lYW8TNQTu",
+            .lazy = true,
         },
         .cldr_core = .{
             .url = "https://registry.npmjs.org/cldr-core/-/cldr-core-48.2.0.tgz",
             .hash = "N-V-__8AAJ77GgCr4jV_q5d8vuaUZIWMrHbXUMYV7il4sgLB",
+            .lazy = true,
         },
         .silesia = .{
             .url = "https://sun.aei.polsl.pl/~sdeor/corpus/silesia.zip",
             .hash = "N-V-__8AABTtoQyteKi1AL0OUreAhQnDUMebvAFWz2P-oFvH",
+            .lazy = true,
         },
     },
     .paths = .{
