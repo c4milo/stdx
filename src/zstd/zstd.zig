@@ -8,4 +8,5 @@ pub const constants = @import("constants.zig");
 test {
     _ = constants;
     _ = @import("fse.zig");
+    _ = @import("huffman.zig");
 }
