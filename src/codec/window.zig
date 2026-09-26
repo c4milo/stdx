@@ -49,6 +49,32 @@ pub fn Window(comptime capacity: usize) type {
             assert(distance <= self.filled_len);
             return self.octets[(self.position + capacity - distance) & (capacity - 1)];
         }
+
+        /// Appends `octets` at once, as `push` would one by one. Only the last `capacity` stay.
+        pub fn append(self: *Self, octets: []const u8) void {
+            assert(self.position < capacity);
+            const kept = octets[octets.len -| capacity..];
+            // The octets not kept would have wrapped past where the kept ones start.
+            const start = (self.position + octets.len - kept.len) & (capacity - 1);
+            // From there to the ring's end, then from its start.
+            const first_len = @min(kept.len, capacity - start);
+            @memcpy(self.octets[start..][0..first_len], kept[0..first_len]);
+            @memcpy(self.octets[0 .. kept.len - first_len], kept[first_len..]);
+            self.position = (start + kept.len) & (capacity - 1);
+            self.filled_len = @min(self.filled_len + octets.len, capacity);
+        }
+
+        /// Copies into `into` the octets from `distance` back, in order, as `back` would read them
+        /// one by one. The caller has refused every distance past `reach()` (invariant 10), and
+        /// `into` is no longer than `distance`, so every octet it reads was written before the copy.
+        pub fn copy_back(self: *const Self, distance: usize, into: []u8) void {
+            assert(distance >= 1 and distance <= self.filled_len);
+            assert(into.len <= distance);
+            const start = (self.position + capacity - distance) & (capacity - 1);
+            const first_len = @min(into.len, capacity - start);
+            @memcpy(into[0..first_len], self.octets[start..][0..first_len]);
+            @memcpy(into[first_len..], self.octets[0 .. into.len - first_len]);
+        }
     };
 }
 
@@ -76,4 +102,31 @@ test "init leaves the ring's octets and reaches none of them" {
     try testing.expectEqual(1, window.back(1));
     // The ring still holds the old octets, which no read may reach.
     try testing.expectEqual(0x5a, window.octets[5]);
+}
+
+test "append and copy_back agree with push and back, across the ring's end" {
+    var pushed: Window(8) = undefined;
+    var appended: Window(8) = undefined;
+    pushed.init();
+    appended.init();
+    var next: u8 = 0;
+    for ([_]usize{ 3, 0, 4, 1, 7, 8, 13, 2 }) |len| {
+        var octets: [16]u8 = undefined;
+        for (octets[0..len]) |*octet| {
+            octet.* = next;
+            pushed.push(next);
+            next +%= 1;
+        }
+        appended.append(octets[0..len]);
+        try testing.expectEqual(pushed.reach(), appended.reach());
+        try testing.expectEqual(pushed.position, appended.position);
+        for (1..pushed.reach() + 1) |distance| {
+            try testing.expectEqual(pushed.back(distance), appended.back(distance));
+            var copied: [8]u8 = undefined;
+            appended.copy_back(distance, copied[0..distance]);
+            for (copied[0..distance], 0..) |octet, index| {
+                try testing.expectEqual(pushed.back(distance - index), octet);
+            }
+        }
+    }
 }
