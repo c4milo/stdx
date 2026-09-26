@@ -14,7 +14,7 @@ const BitWriter = @import("../test_writer.zig").BitWriter;
 const StreamWriter = @import("../test_writer.zig").StreamWriter;
 
 /// A decoder small enough for a test's stack: a window of one Block_Maximum_Size.
-const Decoder = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max });
+pub const Decoder = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max });
 
 /// The octets a written frame takes at most.
 const frame_capacity = 512;
@@ -41,7 +41,7 @@ const literals_kind_and_format_bits = 4;
 const sentinel = 0xee;
 
 /// Appends octets to a frame under construction.
-const FrameWriter = struct {
+pub const FrameWriter = struct {
     octets: [frame_capacity]u8 = undefined,
     len: usize = 0,
 
@@ -76,7 +76,7 @@ const FrameWriter = struct {
         self.put_int(u32, content_len);
     }
 
-    fn written(self: *const FrameWriter) []const u8 {
+    pub fn written(self: *const FrameWriter) []const u8 {
         return self.octets[0..self.len];
     }
 };
@@ -112,7 +112,7 @@ fn three_block_frame(writer: *FrameWriter, content: []const u8, text: []const u8
 /// The frame most tests decode, and what it decodes to. Raw literals "abcdefgh", two sequences
 /// under RLE_Mode tables of literals length code 3 (3 literals), offset code 2 (Offset_Value 4
 /// plus 2 bits) and match length code 1 (4): offsets 3 and 1, as in block_test.zig.
-fn standard_frame(writer: *FrameWriter) []const u8 {
+pub fn standard_frame(writer: *FrameWriter) []const u8 {
     // 0x40: raw literals, 8 of them; 0x02: two sequences; 0x54: RLE_Mode for all three codes, whose
     // symbols 3, 2 and 1 follow. The sequences' Offset_Value extras are 2 and 0.
     const head = "\x40abcdefgh\x02\x54\x03\x02\x01";
@@ -271,10 +271,10 @@ test "a header fed one octet a call resumes, and a block past Frame_Content_Size
 
 /// RFC 8878 Table 24's tree, as literals_test.zig reads it: Number_of_Symbols 5 after
 /// huffman_direct_symbols_offset, then literals 0 to 4 weighing 4, 3, 2, 0 and 1; 5 weighs 1.
-const table_24_tree = "\x84\x43\x20\x10";
+pub const table_24_tree = "\x84\x43\x20\x10";
 
 /// The literals of the marker frame's Huffman-coded section.
-const marker_literals = "\x00\x01\x01\x05\x02\x04\x00\x00\x02\x05\x01";
+pub const marker_literals = "\x00\x01\x01\x05\x02\x04\x00\x00\x02\x05\x01";
 
 /// The raw block the marker frame starts with, which the window then holds.
 const marker = "MARKMARK";
@@ -296,7 +296,7 @@ fn huffman_literals(content: *FrameWriter, kind: u2, tree: []const u8, stream: [
 
 /// A frame that leaves set every state a frame may carry: the marker in the window, a Huffman
 /// tree, RLE_Mode sequence tables, and Repeated_Offsets of 3, 1 and 4.
-fn marker_frame(writer: *FrameWriter, stream: []const u8) void {
+pub fn marker_frame(writer: *FrameWriter, stream: []const u8) void {
     var content: FrameWriter = .{};
     huffman_literals(&content, compressed_literals, table_24_tree, stream);
     // One sequence of RLE_Mode codes: 3 literals, Offset_Value 6 (offset 3), match length 4.
