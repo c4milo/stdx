@@ -27,7 +27,10 @@ pub const Table = struct {
 pub const Error = fse.Error || error{
     HuffmanTreeTruncated,
     HuffmanWeightsInvalid,
-    HuffmanStreamInvalid,
+    /// The stream's last octet is 0, so it holds no final 1 bit.
+    HuffmanStreamUnterminated,
+    /// The literals did not read the stream exactly to its first bit.
+    HuffmanStreamNotConsumed,
 };
 
 /// The weights an FSE-compressed description's table covers: 0 to `huffman_weight_max`.
@@ -166,14 +169,14 @@ fn fill(weights: []const u8, table: *Table) void {
 /// its first bit (RFC 8878 §4.2.2).
 pub fn decode_stream(table: *const Table, octets: []const u8, output: []u8) Error!void {
     // RFC 8878 §4.2.2: the stream's last octet holds its final 1 bit, so it is not 0.
-    var reader = codec.BackwardBitReader.init(octets) orelse return error.HuffmanStreamInvalid;
+    var reader = codec.BackwardBitReader.init(octets) orelse return error.HuffmanStreamUnterminated;
     for (output) |*literal| {
         const cell = huffman_cell(table, reader.peek(table.bits_max));
         literal.* = cell.symbol;
         reader.consume(@intCast(cell.bits));
     }
     // RFC 8878 §4.2.2: a stream not entirely and exactly consumed is faulty.
-    if (!reader.finished()) return error.HuffmanStreamInvalid;
+    if (!reader.finished()) return error.HuffmanStreamNotConsumed;
 }
 
 /// The cell the next `bits_max` bits index, which never pass the table's 2^`bits_max` cells.
