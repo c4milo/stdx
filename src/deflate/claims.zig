@@ -14,8 +14,6 @@ pub const Claims = struct {
     /// takes the canonical decode.
     literal_length_table_bits: u4 = constants.literal_length_table_bits,
     distance_table_bits: u4 = constants.distance_table_bits,
-    /// S3: two literals from one lookup when both codes fit the table.
-    literal_pairs: bool = true,
     /// S4: match copies of 8 or 16 octets at a time. Off, a match is copied an octet at a time.
     chunk_copies: bool = true,
     /// S5: the window takes the call's last 32 KiB once. Off, it takes every octet the fast path
@@ -29,7 +27,6 @@ pub const Claims = struct {
 pub const each_off = [_]Claims{
     .{ .word_refill = false },
     .{ .literal_length_table_bits = constants.narrow_literal_length_table_bits, .distance_table_bits = constants.narrow_distance_table_bits },
-    .{ .literal_pairs = false },
     .{ .chunk_copies = false },
     .{ .window_once = false },
     .{ .comptime_fixed_tables = false },
@@ -39,7 +36,6 @@ pub const each_off = [_]Claims{
 pub const each_off_names = [each_off.len][]const u8{
     "S1 word refill",
     "S2 11- and 8-bit tables",
-    "S3 literal pairs",
     "S4 chunk copies",
     "S5 one window copy",
     "S7 comptime fixed tables",

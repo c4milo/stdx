@@ -295,7 +295,7 @@ fn copy_stored(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReade
 
 /// Runs the fast path while its margins hold, then reads one symbol through the checked path.
 fn read_symbols_fast(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
-    const Fixed = lookup.Fixed(claims.literal_length_table_bits, claims.distance_table_bits, claims.literal_pairs);
+    const Fixed = lookup.Fixed(claims.literal_length_table_bits, claims.distance_table_bits);
     const comptime_fixed = decoder.fixed_codes and claims.comptime_fixed_tables;
     const codes: fast.Codes = .{
         .literal_length_table = if (comptime_fixed) &Fixed.literal_length else &decoder.literal_length_table,

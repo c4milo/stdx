@@ -128,6 +128,6 @@ pub fn build_tables(
     literal_length_code: *const huffman.Code(constants.literal_length_alphabet_len),
     distance_code: *const huffman.Code(constants.distance_alphabet_len),
 ) void {
-    count_work(decoder, decoder.literal_length_table.build_shaped(claims.literal_length_table_bits, claims.literal_pairs, &literal_length_code.counts, &literal_length_code.symbols));
-    count_work(decoder, decoder.distance_table.build_shaped(claims.distance_table_bits, false, &distance_code.counts, &distance_code.symbols));
+    count_work(decoder, decoder.literal_length_table.build_shaped(claims.literal_length_table_bits, &literal_length_code.counts, &literal_length_code.symbols));
+    count_work(decoder, decoder.distance_table.build_shaped(claims.distance_table_bits, &distance_code.counts, &distance_code.symbols));
 }

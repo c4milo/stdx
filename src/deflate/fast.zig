@@ -37,7 +37,7 @@ const literals_per_refill = refill_bits / constants.literal_length_table_bits;
 
 comptime {
     assert(constants.pair_bits_max <= refill_bits);
-    assert(2 * literals_per_refill <= output_slack);
+    assert(literals_per_refill <= output_slack);
 }
 
 /// The two loops: the wide one, which the margins let read 8 octets at a time and write chunks
@@ -293,7 +293,7 @@ inline fn step(comptime mode: Mode, comptime claims: Claims, loop: *Loop, codes:
         entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
     }
     switch (entry.kind) {
-        .literal, .literal_pair => return step_literals(mode, loop, codes, entry),
+        .literal => return step_literals(mode, loop, codes, entry),
         .end_of_block => {
             loop.consume(entry.used_bits);
             return .end_of_block;
@@ -303,38 +303,32 @@ inline fn step(comptime mode: Mode, comptime claims: Claims, loop: *Loop, codes:
     }
 }
 
-/// Writes a literal entry, and in the wide loop the literal entries after it while the buffer
-/// holds their codes.
+/// Writes a literal, and in the wide loop the literals after it while the buffer holds their
+/// codes.
 inline fn step_literals(comptime mode: Mode, loop: *Loop, codes: Codes, entry: lookup.Entry) Next {
-    // The tail writes one entry an iteration, into room it checks first.
+    // The tail writes one literal an iteration, into room it checks first.
     if (mode == .tail) {
-        if (loop.room() < @sizeOf(u16)) return .margin;
-        write_literals(loop, entry);
+        if (loop.room() == 0) return .margin;
+        write_literal(loop, entry);
         return .go_on;
     }
-    write_literals(loop, entry);
+    write_literal(loop, entry);
     // More literals while the buffer holds a whole table code: the first may have been a long
     // code.
     for (1..literals_per_refill) |_| {
         if (loop.count < constants.literal_length_table_bits) return .go_on;
         const next = loop.look_up(codes.literal_length_table);
         // The next iteration looks the entry up again, from the same bits.
-        if (next.kind != .literal and next.kind != .literal_pair) return .go_on;
-        write_literals(loop, next);
+        if (next.kind != .literal) return .go_on;
+        write_literal(loop, next);
     }
     return .go_on;
 }
 
-/// Writes a literal, or a pair's two octets, the first from the value's low octet.
-inline fn write_literals(loop: *Loop, entry: lookup.Entry) void {
-    if (entry.kind == .literal_pair) {
-        std.mem.writeInt(u16, loop.output[loop.written..][0..@sizeOf(u16)], entry.value, .little);
-        loop.written += @sizeOf(u16);
-        if (builtin.is_test) loop.decoded += 1;
-    } else {
-        loop.output[loop.written] = @truncate(entry.value);
-        loop.written += 1;
-    }
+/// Writes a literal.
+inline fn write_literal(loop: *Loop, entry: lookup.Entry) void {
+    loop.output[loop.written] = @truncate(entry.value);
+    loop.written += 1;
     loop.consume_entry(entry);
 }
 

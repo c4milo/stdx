@@ -23,27 +23,15 @@ fn decode(code: anytype, index: usize, bits: u6) huffman.Decoded {
 }
 
 /// The entry the canonical decode says `index` of a table of `bits` holds: the symbol whose code
-/// its bits start with, or with `pairs`, both literals when a second one's code follows whole.
-fn expected_entry(code: anytype, index: usize, bits: u4, pairs: bool, comptime entry_of: fn (u16, u4) lookup.Entry) lookup.Entry {
-    const first = switch (decode(code, index, bits)) {
+/// its bits start with.
+fn expected_entry(code: anytype, index: usize, bits: u4, comptime entry_of: fn (u16, u4) lookup.Entry) lookup.Entry {
+    const symbol = switch (decode(code, index, bits)) {
         .symbol => |symbol| symbol,
         .invalid => return .{ .used_bits = 0, .code_bits = 0, .kind = .invalid, .value = 0 },
         .needs_bits => unreachable,
     };
-    if (first.len > bits) return .{ .used_bits = 0, .code_bits = 0, .kind = .long, .value = 0 };
-    const single = entry_of(first.value, @intCast(first.len));
-    if (!pairs or single.kind != .literal or first.len >= bits) return single;
-    const second = switch (decode(code, index >> @intCast(first.len), bits - @as(u4, @intCast(first.len)))) {
-        .symbol => |symbol| symbol,
-        .invalid, .needs_bits => return single,
-    };
-    if (second.value >= constants.end_of_block or first.len + second.len > bits) return single;
-    return .{
-        .used_bits = @intCast(first.len + second.len),
-        .code_bits = @intCast(first.len + second.len),
-        .kind = .literal_pair,
-        .value = first.value | second.value << @bitSizeOf(u8),
-    };
+    if (symbol.len > bits) return .{ .used_bits = 0, .code_bits = 0, .kind = .long, .value = 0 };
+    return entry_of(symbol.value, @intCast(symbol.len));
 }
 
 /// Requires every entry of `table` to say what the canonical decode of its index says.
@@ -51,9 +39,8 @@ fn expect_agrees(comptime Table: type, table: *const Table, lengths: []const u8,
     var code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
     var work: huffman.Work = 0;
     try code.build(lengths, completeness, &work);
-    const pairs = Table == lookup.LiteralLengthTable;
     for (0..@as(usize, 1) << table.bits) |index| {
-        try testing.expectEqual(expected_entry(&code, index, table.bits, pairs, entry_of), table.lookup(index));
+        try testing.expectEqual(expected_entry(&code, index, table.bits, entry_of), table.lookup(index));
     }
 }
 
@@ -75,10 +62,9 @@ test "codes longer than the table mark their prefixes long" {
     var table: lookup.LiteralLengthTable = undefined;
     const written = try build(&table, &lengths, .complete);
     try testing.expectEqual(constants.literal_length_table_bits, table.bits);
-    // 2^11 entries as the table doubles from two, one for each of the 16 codes, of which the five
-    // longer than the table write their shared prefix, and one for each of the 55 pairs of the
-    // literals of 1 to 10 bits whose lengths sum to 11 or less.
-    try testing.expectEqual((1 << 11) + 16 + 55, written);
+    // 2^11 entries as the table doubles from two, and one for each of the 16 codes, of which the
+    // five longer than the table write their shared prefix.
+    try testing.expectEqual((1 << 11) + 16, written);
     try expect_agrees(lookup.LiteralLengthTable, &table, &lengths, .complete, lookup.literal_length_entry);
 }
 
@@ -88,8 +74,8 @@ test "a table is as wide as its longest code" {
     lengths[constants.end_of_block] = 2;
     lengths[constants.first_length_symbol] = 2;
     var table: lookup.LiteralLengthTable = undefined;
-    // Four entries, three codes, and literal 0 twice.
-    try testing.expectEqual(4 + 3 + 1, try build(&table, &lengths, .complete));
+    // Four entries, and three codes.
+    try testing.expectEqual(4 + 3, try build(&table, &lengths, .complete));
     try testing.expectEqual(2, table.bits);
     try expect_agrees(lookup.LiteralLengthTable, &table, &lengths, .complete, lookup.literal_length_entry);
 }
@@ -137,39 +123,4 @@ fn shuffle(generator: *codec.split.Generator, lengths: []u8) void {
         const other: usize = @intCast(generator.below(index + 1));
         std.mem.swap(u8, &lengths[index], &lengths[other]);
     }
-}
-
-test "a pair holds the two literals the canonical decode reads, and nothing else pairs" {
-    // Length code 257 takes 1 bit, literals 'a' to 'd' take 2 to 5, and literal 'e' and
-    // end-of-block the last two codes of 6.
-    var lengths: [constants.literal_length_alphabet_len]u8 = @splat(0);
-    for ("abcd", 2..) |symbol, len| lengths[symbol] = @intCast(len);
-    lengths['e'] = 6;
-    lengths[constants.end_of_block] = 6;
-    lengths[constants.first_length_symbol] = 1;
-    var table: lookup.LiteralLengthTable = undefined;
-    // The table doubles to 64 entries from two, the 7 codes each write one, and each of the 6
-    // pairs one, which the doublings after copy to the 11 indexes counted below.
-    try testing.expectEqual(64 + 7 + 6, try build(&table, &lengths, .complete));
-    var code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
-    var work: huffman.Work = 0;
-    try code.build(&lengths, .complete, &work);
-    var pairs: usize = 0;
-    for (0..@as(usize, 1) << table.bits) |index| {
-        const entry = table.lookup(index);
-        const first = code.decode(index, table.bits).symbol;
-        if (entry.kind != .literal_pair) {
-            try testing.expectEqual(lookup.literal_length_entry(first.value, @intCast(first.len)), entry);
-            continue;
-        }
-        pairs += 1;
-        const second = code.decode(index >> @intCast(first.len), table.bits - first.len).symbol;
-        try testing.expect(first.value < constants.end_of_block and second.value < constants.end_of_block);
-        try testing.expectEqual(first.len + second.len, entry.code_bits);
-        try testing.expectEqual(first.len + second.len, entry.used_bits);
-        try testing.expectEqual(first.value | second.value << 8, entry.value);
-    }
-    // In the 4 bits after 'a', 'a', 'b' and 'c' fit in 4, 2 and 1 indexes; in the 3 after 'b',
-    // 'a' and 'b' in 2 and 1; in the 2 after 'c', 'a' in 1. The length code takes half of each.
-    try testing.expectEqual(4 + 2 + 1 + 2 + 1 + 1, pairs);
 }
