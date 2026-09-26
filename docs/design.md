@@ -307,6 +307,75 @@ to 12 are reordered and nothing else changes.
   offsets and splits; the vector paths of decision 14's claim S9 equal the table path under the
   fuzzer; mutations. The throughput against every ruled baseline goes into this entry.
 
+  **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted runners.
+  - The paths. CRC-32: slice-by-8 tables; carry-less folding with PCLMULQDQ over 4 lanes, and with
+    VPCLMULQDQ over 256-bit and 512-bit registers; PMULL over 8 lanes beside three chains of Arm's
+    CRC32 instructions; and those instructions alone. Adler-32: the scalar path with RFC 1950
+    §8.2's deferred reduction, a vector path of 16-bit columns on every target, and dot products
+    by UDOT, VPMADDUBSW and VPDPBUSD. Each SIMD path is an object of one of seven feature levels,
+    picked at run time by `Crc32Path.fastest` and `Adler32Path.fastest` from
+    `codec.Features.detect()` (decision 21, whose last paragraph records what this step found).
+  - `zig build differential-checksum -Doracles` passed on both runners in CI run
+    [36203101618](https://github.com/c4milo/stdx/actions/runs/36203101618): 2,575,022 values on
+    each, 0 failed. Every path this CPU runs equals RFC 1952 §8's update_crc and RFC 1950 §9's
+    update_adler32, compiled from the RFCs, and zlib and Wuffs, at every length from 0 to 4096 at
+    seeded offsets and starts, and whole under a seeded split. The check builds stdx for the
+    baseline CPU, so each SIMD path runs because detection found its instructions, and it fails
+    when detection misses a feature Zig's own detection finds on the host.
+  - The unit tests hold every path to bit-by-bit references at every length and alignment, under
+    splits, over runs of 0xff at RFC 1950 §8.2's bound, and under a fuzz test per check. A
+    carry-less multiplication and a dot product written in plain Zig run the folding at every
+    register width, and the dot-product path in every object's shape, on any CPU.
+  - Where each path ran on hardware: every aarch64 path on the Neoverse N2 runner and an M-series
+    Mac; PCLMULQDQ, VPCLMULQDQ and AVX2 on the AMD EPYC 7763 CI runners; AVX-512 and VNNI in
+    benchmark runs on an AMD EPYC 9V74, an Intel Xeon 8573C and an Intel Xeon 8370C, which refuse
+    to time candidates whose values differ. No CI test run has landed on an AVX-512 runner yet.
+  - Throughput: stdx's fastest path over the fastest of zlib, Wuffs, libdeflate and zlib-ng, above
+    1 when stdx is faster, from run
+    [36203101031](https://github.com/c4milo/stdx/actions/runs/36203101031), whose reports are in
+    `bench/results/`:
+
+    | Runner, check | 64 octets | 1 KiB | 16 KiB | 1 MiB |
+    |---|---|---|---|---|
+    | Neoverse N2, CRC-32 | 0.66 | 1.17 | 1.68 | 1.31 |
+    | Neoverse N2, Adler-32 | 0.68 | 0.96 | 1.31 | 1.25 |
+    | AMD EPYC 9V74, CRC-32 | 0.68 | 0.85 | 0.99 | 0.99 |
+    | AMD EPYC 9V74, Adler-32 | 0.54 | 0.74 | 1.03 | 0.94 |
+
+    Other x86-64 CPUs, from earlier commits: the AMD EPYC 7763 of run
+    [36202144918](https://github.com/c4milo/stdx/actions/runs/36202144918), 0.82, 0.98, 0.99 and
+    1.00 for CRC-32 and 0.53, 0.83, 1.06 and 1.08 for Adler-32; the Intel Xeon 8370C of run
+    [36202696538](https://github.com/c4milo/stdx/actions/runs/36202696538), 0.65, 1.63, 1.11 and
+    1.05 for CRC-32, and 0.42, 0.61, 0.98 and 0.73 for Adler-32 before the two sets of VNNI
+    accumulators of d273c5c.
+  - The losses: every input of 64 octets, and Adler-32 at 1 KiB on x86-64. There the fixed cost of
+    a call, its setup, horizontal sums and reduction, is a few nanoseconds against a few
+    nanoseconds of work. Short-input code of its own is open work, not part of this step:
+    [issue 10](https://github.com/c4milo/stdx/issues/10).
+  - Findings that changed the code:
+    - Zig's `getauxval` reads a vector only Zig's start code fills, so detection found nothing in a
+      program that links libc; it now reads libc's there.
+    - ReleaseSafe's check of each vector addition and of each lane's bounds cost more than the
+      work. Where a comptime assert proves no lane overflows, the additions wrap, and a folding
+      step checks its bounds once.
+    - On Intel, PCLMULQDQ's legacy encoding after a write to a YMM register ran at 0.8 GB/s; the
+      AVX objects use the VEX encoding.
+    - EOR3 made folding slower on the N2 runner and no faster on the Mac, so SHA3 is no level.
+    - On the N2 runner every baseline sat near one CRC32X per cycle, and folding alone near 19
+      GB/s. Running three CRC32 chains beside the folding, combined by multiplying by x^(8n) mod P,
+      reached 1.68 times the best baseline.
+    - On the N2 runner at 1 MiB, dot products took Adler-32 from 0.64 of libdeflate to 1.02, and
+      weights that count across a whole block, not within each register, from 1.02 to 1.25.
+    - The baselines: Zig hands Clang the target's whole feature list, which overrides zlib-ng's
+      per-file flags, so each of its SIMD groups is a library built for its own features; and a
+      runner with AVX10 cannot compile either library for its own CPU model, so both build for the
+      baseline CPU, as the benchmarks build stdx.
+  - Mutations are listed in each commit's body. All are CAUGHT but those that change speed alone,
+    which no test can see: the registers of a block, the lanes of a short fold, a combined block's
+    chain step, a length threshold and one loop that the folding after it covers. Three NOT CAUGHT
+    showed a missing test, and each was written: the differential check's offsets, the benchmark's
+    doubling batches, and VNNI read from the wrong CPUID bit.
+
 - **Step 5: the DEFLATE decoder, checked path.** Stored, fixed and dynamic blocks (RFC 1951 §3.2),
   through `codec`'s reader and writer alone.
   **Check:** decision 15 against zlib and Wuffs, raw DEFLATE: identical output under seeded splits,

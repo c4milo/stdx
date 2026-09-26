@@ -889,3 +889,22 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
       path becomes hand-written assembly per architecture, which is more code to review and test.
     - `@Vector` at the baseline alone, with assembly only for carry-less multiplication and CRC32.
       It needs the least machinery and gives up AVX2 and AVX-512.
+
+    **What design §8 step 4 found.** Recorded on 2026-09-25; the rulings above stand, and these
+    are what applying them to the checksums took. Step 4's entry holds the measurements.
+    - Seven levels, not four: x86-64 with PCLMULQDQ; with AVX2; with AVX2 and VPCLMULQDQ; with
+      AVX-512 and VPCLMULQDQ; with AVX-512 and VNNI; aarch64 with CRC32 and PMULL; and aarch64
+      with DotProd. Each exists because a path on it measured faster on a hosted runner than the
+      level below it.
+    - Inline assembly also carries the dot products of Adler-32: UDOT, VPDPBUSD, VPMADDUBSW with
+      VPMADDWD, and VPSADBW. `@Vector` cannot write a sum of products into wider lanes, and the
+      shuffles that describe a pairwise sum measured slower than the scalar-reduction path they
+      were meant to replace.
+    - The level objects are compiled by LLVM in every build mode: Zig's own x86-64 backend, which
+      Debug builds use on Linux, cannot place a 512-bit operand of inline assembly.
+    - The checksum module imports nothing (design §3), so it names the fields of
+      `codec.Features` it reads in a `Features` of its own, and the caller copies them.
+    - A path is chosen by length as well as by features where the measurement asks for it:
+      CRC-32 below one AVX-512 step takes the VPCLMULQDQ object.
+    - Detection reads libc's `getauxval` in a program that links libc; Zig's reads a vector only
+      Zig's own start code fills.
