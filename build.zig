@@ -130,6 +130,7 @@ pub fn build(b: *std.Build) void {
     add_costs_step(b);
     oracle.add(b, .{
         .enabled = b.option(bool, "oracles", "Fetch the oracles and the corpora (decisions 8, 15)") orelse false,
+        .encode_optimize = b.option(std.builtin.OptimizeMode, "encode-optimize", "The mode differential-encode builds stdx in (invariant 5)") orelse .ReleaseSafe,
     });
 
     test_step.dependOn(add_graph_check_step(b));

@@ -67,6 +67,9 @@ const disabled_message = "pass -Doracles: the oracles and the corpora are lazy p
 pub const Options = struct {
     /// Whether the build was given `-Doracles`.
     enabled: bool,
+    /// The mode differential-encode builds stdx in: the encoders' output must be the same in every
+    /// mode (invariant 5).
+    encode_optimize: std.builtin.OptimizeMode,
 };
 
 pub fn add(b: *std.Build, options: Options) void {
@@ -76,9 +79,10 @@ pub fn add(b: *std.Build, options: Options) void {
     const bench_step = b.step("bench-deflate", "Time DEFLATE decoding and encoding over the corpora (-Doracles)");
     const checksum_step = b.step("differential-checksum", "Require CRC-32 and Adler-32 to equal the oracles (-Doracles)");
     const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
+    const encode_step = b.step("differential-encode", "Require the encoders' output to decode through the oracles (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip decoder (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, profile_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -190,6 +194,25 @@ pub fn add(b: *std.Build, options: Options) void {
     add_corpus_args(b, deflate_run, corpus);
     deflate_step.dependOn(&deflate_run.step);
 
+    const encode_module = b.createModule(.{
+        .root_source_file = b.path("tools/differential/encode.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    const encode_graph = if (options.encode_optimize == .ReleaseSafe) graph else modules.add(b, .{ .target = baseline, .optimize = options.encode_optimize, .visibility = .private });
+    encode_module.addImport("oracle", oracle);
+    encode_module.addImport("corpus", corpus_names);
+    encode_module.addImport("codec", encode_graph.codec);
+    encode_module.addImport("deflate", encode_graph.deflate);
+    encode_module.addImport("zlib", encode_graph.zlib);
+    encode_module.addImport("gzip", encode_graph.gzip);
+    const encode_check = b.addExecutable(.{ .name = "differential_encode", .root_module = encode_module });
+    const encode_run = b.addRunArtifact(encode_check);
+    encode_run.has_side_effects = true;
+    if (b.args) |args| encode_run.addArgs(args);
+    add_corpus_args(b, encode_run, corpus);
+    encode_step.dependOn(&encode_run.step);
+
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
     bench_module.addImport("baselines", baselines_module);
@@ -225,7 +248,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
-    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, profile_module };
+    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, profile_module };
     inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
