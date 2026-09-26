@@ -9,4 +9,5 @@ test {
     _ = constants;
     _ = @import("fse.zig");
     _ = @import("huffman.zig");
+    _ = @import("literals.zig");
 }
