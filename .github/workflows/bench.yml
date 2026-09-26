@@ -9,7 +9,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate, checksum]
+        options: [costs, deflate, checksum, profile]
         default: deflate
 
 permissions:
@@ -42,6 +42,12 @@ jobs:
       - name: Measure checksums
         if: inputs.benchmark == 'checksum'
         run: bench/run.sh bench-report.md bench-checksum -Doracles
+      - name: Count cycles and branch misses
+        if: inputs.benchmark == 'profile'
+        run: |
+          # perf_event_open lets a process count its own events only where the kernel allows it.
+          sudo sysctl -w kernel.perf_event_paranoid=1
+          bench/run.sh bench-report.md bench-profile -Doracles
       - name: Summarize
         run: cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the report

@@ -10,6 +10,8 @@
 //!   (`bench/deflate/deflate.zig`).
 //! - `zig build bench-checksum -Doracles` times CRC-32 and Adler-32 against zlib, Wuffs,
 //!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
+//! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
+//!   decoder, where the host exposes the counters (`bench/profile/profile.zig`).
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
 //!   agree with zlib and Wuffs over the corpora, and on seeded corruptions
 //!   (`tools/differential/deflate.zig`).
@@ -75,7 +77,8 @@ pub fn add(b: *std.Build, options: Options) void {
     const checksum_step = b.step("differential-checksum", "Require CRC-32 and Adler-32 to equal the oracles (-Doracles)");
     const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step };
+    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip decoder (-Doracles)");
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -188,6 +191,21 @@ pub fn add(b: *std.Build, options: Options) void {
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
     bench_module.addImport("baselines", baselines_module);
+    const profile_module = b.createModule(.{
+        .root_source_file = b.path("bench/profile/profile.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    profile_module.addImport("oracle", oracle);
+    profile_module.addImport("codec", graph.codec);
+    profile_module.addImport("gzip", graph.gzip);
+    profile_module.addImport("baselines", baselines_module);
+    const profile = b.addExecutable(.{ .name = "bench_profile", .root_module = profile_module });
+    b.installArtifact(profile);
+    const profile_run = b.addRunArtifact(profile);
+    profile_run.has_side_effects = true;
+    add_corpus_args(b, profile_run, corpus);
+    profile_step.dependOn(&profile_run.step);
     const bench_checksum_module = b.createModule(.{
         .root_source_file = b.path("bench/checksum/checksum.zig"),
         .target = baseline,
@@ -204,7 +222,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
-    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module };
+    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, profile_module };
     inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
