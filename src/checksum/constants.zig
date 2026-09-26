@@ -109,6 +109,12 @@ pub const xxh64_lane_len = 8;
 /// The octets of the 32-bit word Step 5 reads after the whole lanes of the remaining input.
 pub const xxh64_word_len = 4;
 
+/// The shortest run of whole stripes the AVX-512 path takes; a shorter one takes the scalar path.
+/// On an AMD EPYC 9V74 runner the AVX-512 path ran at 0.51 of the scalar path's speed over 64
+/// octets and at 1.05 over 1 KiB, as its accumulators cross into a vector register and back once
+/// a call (design §8 step 10).
+pub const xxh64_avx512_len_min = 1024;
+
 /// The left rotation of Step 2's round.
 pub const xxh64_round_rotation = 31;
 

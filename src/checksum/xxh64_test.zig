@@ -141,6 +141,36 @@ fn expect_splits_agree(path: Xxh64Path) !void {
     }
 }
 
+test "every path gives the specification's value where the AVX-512 path takes its stripes" {
+    // Around `xxh64_avx512_len_min` and past it, from each remainder of a stripe, split in two.
+    var long: [long_len]u8 = undefined;
+    for (&long, 0..) |*octet, index| octet.* = sample[index % sample.len] ^ @as(u8, @truncate(index / sample.len));
+    for (paths) |path| {
+        for (0..stripe_len) |remainder| {
+            for ([_]usize{ constants.xxh64_avx512_len_min - stripe_len, constants.xxh64_avx512_len_min, long_len - stripe_len }) |start| {
+                const len = start + remainder;
+                try testing.expectEqual(reference(seeds[2], long[0..len]), xxh64_module.xxh64(path, seeds[2], long[0..len]));
+                var state = Xxh64.init(path, seeds[2]);
+                state.update(long[0 .. len / 2]);
+                state.update(long[len / 2 .. len]);
+                try testing.expectEqual(reference(seeds[2], long[0..len]), state.final());
+            }
+        }
+    }
+}
+
+/// The longest input the test of long runs takes: a few times the AVX-512 path's shortest run.
+const long_len = long_runs * constants.xxh64_avx512_len_min;
+const long_runs = 4;
+
+test "fastest takes the AVX-512 path only where VPMULLQ is fast" {
+    const intel: Features = .{ .avx512 = true };
+    const amd: Features = .{ .avx512 = true, .vpmullq_fast = true };
+    try testing.expectEqual(.scalar, Xxh64Path.fastest(intel));
+    try testing.expectEqual(if (Xxh64Path.avx512.built()) Xxh64Path.avx512 else .scalar, Xxh64Path.fastest(amd));
+    try testing.expectEqual(.scalar, Xxh64Path.fastest(.{ .vpmullq_fast = true }));
+}
+
 test "final leaves the state as it was, so the hash goes on" {
     var state = Xxh64.init(.scalar, seeds[1]);
     for (0..len_max + 1) |len| {

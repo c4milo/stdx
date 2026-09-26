@@ -30,9 +30,11 @@ pub const Xxh64Path = enum {
     /// The four accumulators in one 256-bit register, from the x86-64 AVX-512 variant object.
     avx512,
 
-    /// The fastest path a CPU with `features` runs in this build.
+    /// The fastest path a CPU with `features` runs in this build. The AVX-512 path is the faster
+    /// only where VPMULLQ is: 1.27 times the scalar path on an AMD EPYC 9V74 runner, and 0.47 times
+    /// on an Intel Xeon 6973P-C (design §8 step 10).
     pub fn fastest(features: Features) Xxh64Path {
-        return if (Xxh64Path.avx512.runs_on(features)) .avx512 else .scalar;
+        return if (Xxh64Path.avx512.runs_on(features) and features.vpmullq_fast) .avx512 else .scalar;
     }
 
     /// True when a CPU with `features` runs the path in this build.
@@ -126,7 +128,7 @@ fn process_stripes(path: Xxh64Path, accumulators: *[constants.xxh64_lanes]u64, o
     if (octets.len == 0) return;
     switch (path) {
         .scalar => process_stripes_scalar(accumulators, octets),
-        .avx512 => process_stripes_avx512(accumulators, octets),
+        .avx512 => if (octets.len < constants.xxh64_avx512_len_min) process_stripes_scalar(accumulators, octets) else process_stripes_avx512(accumulators, octets),
     }
 }
 
