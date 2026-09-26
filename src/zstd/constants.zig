@@ -38,6 +38,7 @@ pub const content_size_field_lens = [_]u8{ 0, 2, 4, 8 };
 
 /// What a 2-octet Frame_Content_Size adds to the value it holds (RFC 8878 §3.1.1.1.4).
 pub const content_size_two_octet_offset = 256;
+pub const content_size_offset_field_len = 2;
 
 /// DID_Field_Size for each Dictionary_ID_Flag (RFC 8878 §3.1.1.1.1.6, Table 5).
 pub const dictionary_id_field_lens = [_]u8{ 0, 1, 2, 4 };

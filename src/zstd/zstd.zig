@@ -11,4 +11,5 @@ test {
     _ = @import("huffman.zig");
     _ = @import("literals.zig");
     _ = @import("sequences.zig");
+    _ = @import("frame.zig");
 }
