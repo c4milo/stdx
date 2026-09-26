@@ -39,4 +39,5 @@ test {
     _ = @import("crc32_table.zig");
     _ = @import("crc32_fold_test.zig");
     _ = @import("adler32_dot_test.zig");
+    _ = @import("features.zig");
 }

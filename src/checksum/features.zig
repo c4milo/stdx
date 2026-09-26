@@ -43,4 +43,31 @@ pub const Features = struct {
             else => .{},
         };
     }
+
+    /// These fields of `features`, a `codec.Features` or any struct that spells them the same.
+    pub fn from(features: anytype) Features {
+        var result: Features = .{};
+        inline for (@typeInfo(Features).@"struct".fields) |field| {
+            @field(result, field.name) = @field(features, field.name);
+        }
+        return result;
+    }
 };
+
+test "from copies every field it names, and nothing else" {
+    const Wider = struct {
+        pclmul: bool = true,
+        avx2: bool = false,
+        vpclmul: bool = true,
+        avx512: bool = false,
+        vnni: bool = true,
+        crc32: bool = false,
+        pmull: bool = true,
+        dotprod: bool = false,
+        other: bool = true,
+    };
+    const features = Features.from(Wider{});
+    try std.testing.expectEqual(Features{ .pclmul = true, .vpclmul = true, .vnni = true, .pmull = true }, features);
+    const flipped = Features.from(Wider{ .pclmul = false, .avx2 = true, .vpclmul = false, .avx512 = true, .vnni = false, .crc32 = true, .pmull = false, .dotprod = true });
+    try std.testing.expectEqual(Features{ .avx2 = true, .avx512 = true, .crc32 = true, .dotprod = true }, flipped);
+}
