@@ -28,6 +28,12 @@ pub const piece_weight_total: u8 = 8;
 /// over the old slot (invariant 12).
 pub const state_move_period: u64 = 4;
 
+/// The split driver passes `none` on about one call in this many whose input piece reaches a flush
+/// point or the input's end, and leaves the `flush` or `finish` to the next call, which then has no
+/// input: a caller that writes its last octets, then flushes or ends the stream with an empty call
+/// (invariant 5).
+pub const flush_hold_period: u64 = 2;
+
 /// The octet the split driver writes over a state's old slot after moving it.
 pub const moved_state_fill: u8 = 0xaa;
 

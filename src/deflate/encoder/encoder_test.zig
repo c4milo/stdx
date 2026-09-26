@@ -245,3 +245,60 @@ test "each level's output for two seeded letters, whose chains run long, is the 
 /// The octets of the seeded letters the second recorded output encodes, and how many letters.
 const letters_len = 24_576;
 const letters = 2;
+
+test "a stream that ends or flushes as the window fills gives the same octets under every split" {
+    // The input fills the window exactly at `encoder_window_len` octets, and at every
+    // `window_len` after. A caller that gives those octets with `none` and then finishes or
+    // flushes with an empty call gets the octets of one call (invariant 5).
+    var input: [window_full_lens[window_full_lens.len - 1]]u8 = undefined;
+    fill(&input, .mixed, 19);
+    inline for (levels) |level| {
+        for (window_full_lens) |len| try expect_empty_finish_agrees(level, input[0..len]);
+        try expect_flush_splits_agree(level, &input, window_full_lens[0]);
+    }
+}
+
+/// The lengths at which the input fills the window: the first fill, and the fill after a slide.
+const window_full_lens = [_]usize{ constants.encoder_window_len, constants.encoder_window_len + constants.window_len };
+
+/// Room for the stream of the longest input there with one flush in it. The flush adds at most two
+/// blocks' headers, the block it cuts short and its empty stored block, which an empty stream's
+/// `encoded_len_max` counts.
+const window_full_output_len = encoder_module.Encoder(.{}).encoded_len_max(window_full_lens[window_full_lens.len - 1]) +
+    encoder_module.Encoder(.{}).encoded_len_max(0);
+
+/// Requires `input` given with `none`, then an empty `finish`, to encode as `encode_all` does.
+fn expect_empty_finish_agrees(comptime level: u4, input: []const u8) !void {
+    var whole: [window_full_output_len]u8 = undefined;
+    const whole_len = try encode_whole(level, input, &whole);
+    var split: [whole.len]u8 = undefined;
+    var state: Step(level).Encoder = undefined;
+    state.init(.{});
+    const given = state.encode(input, &split, .none);
+    const last = state.encode("", split[given.written..], .finish);
+    try testing.expectEqual(.done, last.status);
+    try testing.expectEqualSlices(u8, whole[0..whole_len], split[0 .. given.written + last.written]);
+}
+
+/// Requires every seeded split with a flush at `point` to encode as a flush carried by the call
+/// that gives the octets before it.
+fn expect_flush_splits_agree(comptime level: u4, input: []const u8, point: usize) !void {
+    const S = Step(level);
+    var carried: [window_full_output_len]u8 = undefined;
+    var state: S.Encoder = undefined;
+    state.init(.{});
+    const first = state.encode(input[0..point], &carried, .flush);
+    const last = state.encode(input[point..], carried[first.written..], .finish);
+    try testing.expectEqual(.done, last.status);
+    const carried_len = first.written + last.written;
+    for (0..flush_split_seeds) |seed| {
+        var states: [codec.split.state_slots]S.Encoder = undefined;
+        states[0].init(.{});
+        var split: [carried.len]u8 = undefined;
+        const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, input, &split, &.{point}, seed);
+        try testing.expectEqualSlices(u8, carried[0..carried_len], split[0..outcome.written]);
+    }
+}
+
+/// The seeded splits the flush at a full window is driven under.
+const flush_split_seeds = 8;

@@ -140,7 +140,10 @@ fn step(comptime options: EncoderOptions, self: *Encoder(options), input: []cons
     const taken = self.matcher.fill(input[consumed.*..]);
     consumed.* += taken;
     self.taken += taken;
-    if (self.matcher.must_slide()) {
+    // The window slides only to take more input. Were a call with no input left to slide, a flush
+    // or `finish` given in an empty call after the window filled would end a block where one call
+    // carrying the same flush does not (invariant 5).
+    if (self.matcher.must_slide() and consumed.* < input.len) {
         if (self.block.symbol_count > 0) return end_block(options, self, false, writer);
         self.matcher.slide();
         self.block.reset(self.matcher.pending_start());

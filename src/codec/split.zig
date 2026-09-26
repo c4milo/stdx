@@ -86,6 +86,12 @@ pub const Schedule = struct {
         return self.generator.below(constants.state_move_period) == 0;
     }
 
+    /// Whether a call whose input piece reaches a flush point or the input's end passes `none`,
+    /// leaving the `flush` or `finish` to an empty call after it.
+    pub fn hold_flush(self: *Schedule) bool {
+        return self.generator.below(constants.flush_hold_period) == 0;
+    }
+
     fn piece(self: *Schedule) Piece {
         var draw = self.generator.below(constants.piece_weight_total);
         for (constants.piece_weights, 0..) |weight, index| {
@@ -150,8 +156,10 @@ pub fn drive(
 /// A piece never crosses the next of `flush_points`, which ascend and lie before the input's end,
 /// where `finish` falls: the call whose piece reaches one passes `flush`, and so does every call
 /// after it until one returns `needs_input` there. The call whose piece reaches the input's end
-/// passes `finish`, and so does every call after it (decision 11). The state moves between the two
-/// slots as `drive` moves it.
+/// passes `finish`, and so does every call after it (decision 11). For about one point in
+/// `flush_hold_period`, and for the end as often, the call that reaches it passes `none` instead,
+/// and the `flush` or `finish` comes with the next call's empty piece. The state moves between the
+/// two slots as `drive` moves it.
 pub fn drive_encoder(
     comptime State: type,
     states: *[state_slots]State,
@@ -165,12 +173,12 @@ pub fn drive_encoder(
     var outcome: Outcome = .{ .consumed = 0, .written = 0, .status = .needs_input, .calls = 0 };
     var slot: usize = 0;
     var next_point: usize = 0;
-    var finishing = false;
+    var ends: EncoderEnds = .{};
     const calls_max = constants.driver_calls_floor +
         constants.driver_calls_per_octet_max * (input.len + output.len + flush_points.len);
     while (outcome.calls < calls_max) : (outcome.calls += 1) {
         if (outcome.calls == 1 or (outcome.calls > 1 and schedule.move_state())) slot = move(State, states, slot);
-        const input_piece, const flush = encoder_call(&schedule, input, outcome.consumed, flush_points[next_point..], &finishing);
+        const input_piece, const flush = encoder_call(&schedule, input, outcome.consumed, flush_points[next_point..], &ends);
         const room_left = output.len - outcome.written;
         const output_piece = output[outcome.written..][0..schedule.piece_len(room_left)];
         const progress: Progress = step(&states[slot], input_piece, output_piece, flush);
@@ -187,17 +195,32 @@ pub fn drive_encoder(
     return error.TestNoProgress;
 }
 
+/// What an encoder drive has decided about the stream's end and its flush points.
+const EncoderEnds = struct {
+    /// Whether a call has passed `finish`.
+    finishing: bool = false,
+    /// The flush point, or the input's end, whose `flush` or `finish` a call has held back once.
+    held_limit: usize = no_limit_held,
+
+    const no_limit_held = std.math.maxInt(usize);
+};
+
 /// The input piece and the flush of an encoder drive's next call, `consumed` octets in, with
 /// `points` the flush points still ahead.
-fn encoder_call(schedule: *Schedule, input: []const u8, consumed: usize, points: []const usize, finishing: *bool) struct { []const u8, Flush } {
+fn encoder_call(schedule: *Schedule, input: []const u8, consumed: usize, points: []const usize, ends: *EncoderEnds) struct { []const u8, Flush } {
     const limit = if (points.len > 0) points[0] else input.len;
     assert(limit >= consumed and (points.len == 0 or limit < input.len));
     // After `finish`, every call passes all the input not yet taken (decision 11).
-    const piece_len = if (finishing.*) input.len - consumed else schedule.piece_len(limit - consumed);
+    const piece_len = if (ends.finishing) input.len - consumed else schedule.piece_len(limit - consumed);
+    const piece = input[consumed..][0..piece_len];
     const reaches = consumed + piece_len == limit;
-    finishing.* = finishing.* or (reaches and limit == input.len);
-    const flush: Flush = if (finishing.*) .finish else if (reaches and points.len > 0) .flush else .none;
-    return .{ input[consumed..][0..piece_len], flush };
+    if (reaches and !ends.finishing and ends.held_limit != limit and schedule.hold_flush()) {
+        ends.held_limit = limit;
+        return .{ piece, .none };
+    }
+    ends.finishing = ends.finishing or (reaches and limit == input.len);
+    const flush: Flush = if (ends.finishing) .finish else if (reaches and points.len > 0) .flush else .none;
+    return .{ piece, flush };
 }
 
 /// True when a call's status ends the drive: the stream is done, or it wants what is no longer
