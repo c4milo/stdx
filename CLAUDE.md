@@ -243,7 +243,8 @@ Change this section when a step adds or renames a command.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
   libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, and
   zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one
-  run, the median of five runs with the spread. `bench/run.sh <report.md> bench-deflate -Doracles`
+  run, the median of five runs with the spread. A second program then repeats the raw A/B with
+  stdx built ReleaseFast, decision 17's measure of what the safety checks cost. `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
   person asks (decision 20). stdx's encoder joins the candidates in design §8 step 9. Each
   published report is committed under `bench/results/`, as the workflow wrote it.

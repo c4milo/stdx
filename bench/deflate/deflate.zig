@@ -8,6 +8,9 @@
 //!   counts decoded octets. Each decoder's output is compared with the input before any is timed.
 //! - stdx's paths: its raw DEFLATE decoder with the fast path of decision 16 and on its checked
 //!   path alone, the A/B that admits the fast path, over the same streams without the container.
+//! - Decision 17's measurement: `bench_deflate_release_fast`, this program with stdx built
+//!   ReleaseFast, prints the same A/B after it. The difference bounds what the safety checks
+//!   cost; ReleaseFast is never offered to a caller.
 //! - Encoding: zlib's gzip encoder at levels 1, 6 and 9, the levels decision 13 gives stdx's
 //!   encoder. Throughput counts input octets, and the ratio is input octets over encoded octets.
 //!
@@ -27,6 +30,7 @@ const codec = @import("codec");
 const deflate = @import("deflate");
 const gzip = @import("gzip");
 const baselines = @import("baselines");
+const bench_options = @import("bench_options");
 
 /// The zlib level whose streams the decoders are timed on.
 const decode_level: c_int = 6;
@@ -120,6 +124,13 @@ pub fn main(init: std.process.Init) !void {
         try files.append(arena, .{ .name = argument[0..split], .input = input });
     }
 
+    if (bench_options.release_fast) {
+        try out.print("\n## stdx built ReleaseFast: its fast path against its checked path (decision 17)\n\n", .{});
+        try out.print("| File | Octets | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|\n", .{});
+        for (files.items) |file| try report_paths(arena, io, out, file);
+        try out.flush();
+        return;
+    }
     try out.print("## Decoding, gzip at zlib level {d}\n\n", .{decode_level});
     try out.print("| File | Octets | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
     try out.print("|---|---|---|---|---|---|---|---|\n", .{});

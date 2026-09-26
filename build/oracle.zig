@@ -115,12 +115,35 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_module.addImport("codec", graph.codec);
     bench_module.addImport("deflate", graph.deflate);
     bench_module.addImport("gzip", graph.gzip);
+    bench_module.addOptions("bench_options", bench_options(b, false));
     const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
     b.installArtifact(bench);
     const bench_run = b.addRunArtifact(bench);
     bench_run.has_side_effects = true;
     add_corpus_args(b, bench_run, corpus);
     bench_step.dependOn(&bench_run.step);
+    // Decision 17's measurement: the same A/B with stdx built ReleaseFast, a measuring device
+    // only, run after the benchmark on the same host. The two graphs share source files, which one
+    // compilation cannot hold twice, so it is a program of its own.
+    const release_fast_graph = modules.add(b, .{ .target = baseline, .optimize = .ReleaseFast, .visibility = .private });
+    const release_fast_module = b.createModule(.{
+        .root_source_file = b.path("bench/deflate/deflate.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    release_fast_module.addImport("oracle", oracle);
+    release_fast_module.addImport("timing", timing);
+    release_fast_module.addImport("codec", release_fast_graph.codec);
+    release_fast_module.addImport("deflate", release_fast_graph.deflate);
+    release_fast_module.addImport("gzip", release_fast_graph.gzip);
+    release_fast_module.addOptions("bench_options", bench_options(b, true));
+    const release_fast = b.addExecutable(.{ .name = "bench_deflate_release_fast", .root_module = release_fast_module });
+    b.installArtifact(release_fast);
+    const release_fast_run = b.addRunArtifact(release_fast);
+    release_fast_run.has_side_effects = true;
+    add_corpus_args(b, release_fast_run, corpus);
+    release_fast_run.step.dependOn(&bench_run.step);
+    bench_step.dependOn(&release_fast_run.step);
 
     const install = b.addInstallDirectory(.{
         .source_dir = corpus.pieces,
@@ -190,6 +213,13 @@ pub fn add(b: *std.Build, options: Options) void {
 
 /// The SIMD features Zig's own detection finds on the build host, which runs the checks: the
 /// oracle for `codec.Features.detect()`, which the checks require to find at least as many.
+/// Whether a benchmark program is decision 17's ReleaseFast measuring device.
+fn bench_options(b: *std.Build, release_fast: bool) *std.Build.Step.Options {
+    const options = b.addOptions();
+    options.addOption(bool, "release_fast", release_fast);
+    return options;
+}
+
 fn host_features(b: *std.Build) *std.Build.Step.Options {
     const cpu = b.graph.host.result.cpu;
     const x86 = std.Target.x86;
