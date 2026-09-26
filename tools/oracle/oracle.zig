@@ -97,6 +97,8 @@ extern fn oracle_rfc1952_update_crc(crc: u32, input: [*]const u8, input_len: usi
 extern fn oracle_rfc1950_update_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
 extern fn oracle_zstd_bound(input_len: usize) usize;
 extern fn oracle_zstd_xxh64(input: [*]const u8, input_len: usize, seed: u64) u64;
+extern fn oracle_zstd_encode(level: c_int, window_log: c_int, with_checksum: c_int, with_content_size: c_int, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
+extern fn oracle_zstd_decode(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
 extern fn oracle_zstd_content_checksum(input: [*]const u8, input_len: usize, frame: [*]u8, frame_len: usize, checksum: *u32) c_int;
 
 /// The most octets zlib writes when it encodes `input_len` octets in `container`, at any level and
@@ -171,6 +173,28 @@ pub fn wuffs_decode(container: Container, input: []const u8, output: []u8) Resul
 /// zlib's crc32_z: the CRC-32 after `input`, from `crc`.
 pub fn zlib_crc32(crc: u32, input: []const u8) u32 {
     return oracle_zlib_crc32(crc, input.ptr, input.len);
+}
+
+/// The parameters of one libzstd frame.
+pub const ZstdEncoding = struct {
+    level: c_int,
+    /// ZSTD_c_windowLog, or 0 for the level's own.
+    window_log: c_int = 0,
+    checksum: bool = true,
+    content_size: bool = true,
+};
+
+/// libzstd's frame of `input` into `output`, or null when libzstd failed or `output` had no room.
+pub fn zstd_encode(encoding: ZstdEncoding, input: []const u8, output: []u8) ?usize {
+    const written = oracle_zstd_encode(encoding.level, encoding.window_log, @intFromBool(encoding.checksum), @intFromBool(encoding.content_size), input.ptr, input.len, output.ptr, output.len);
+    return if (written == std.math.maxInt(usize)) null else written;
+}
+
+/// libzstd's decoding of every frame of `input` into `output`, or null when libzstd refused the
+/// input or `output` had no room.
+pub fn zstd_decode(input: []const u8, output: []u8) ?usize {
+    const written = oracle_zstd_decode(input.ptr, input.len, output.ptr, output.len);
+    return if (written == std.math.maxInt(usize)) null else written;
 }
 
 /// libzstd's copy of xxHash's XXH64 of `input` from `seed`, all 64 bits.
@@ -300,6 +324,19 @@ test "libzstd's Content_Checksum binding repeats for one input, differs for anot
     try testing.expect(empty != letter);
     try testing.expect(zstd_bound(3) <= frame.len);
     try testing.expectEqual(null, zstd_content_checksum("abc", frame[0..3]));
+}
+
+test "libzstd decodes what it encodes, with and without the checksum and the content size" {
+    const text = "zstd frames, zstd frames, zstd frames, and more zstd frames";
+    var frame: [256]u8 = undefined;
+    var output: [text.len]u8 = undefined;
+    for ([_]bool{ false, true }) |flag| {
+        const frame_len = zstd_encode(.{ .level = 3, .checksum = flag, .content_size = !flag }, text, &frame) orelse return error.TestUnexpectedResult;
+        try testing.expectEqual(text.len, zstd_decode(frame[0..frame_len], &output));
+        try testing.expectEqualStrings(text, &output);
+        frame[frame_len - 1] ^= 0x80;
+        try testing.expectEqual(null, zstd_decode(frame[0..frame_len], &output));
+    }
 }
 
 test "libzstd's XXH64 gives its Content_Checksum in the low 32 bits, and takes the seed" {

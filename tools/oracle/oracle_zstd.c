@@ -50,3 +50,41 @@ int oracle_zstd_content_checksum(const uint8_t* input, size_t input_len, uint8_t
               (uint32_t)octets[3] << 24;
   return 0;
 }
+
+// The largest window libzstd decodes on a 64-bit host, 2^31 (zstd.h, ZSTD_WINDOWLOG_MAX_64), so its
+// verdict on a frame never comes from a window limit stdx does not share.
+enum { ORACLE_ZSTD_WINDOW_LOG_MAX = 31 };
+
+// Compresses `input` into `output` as one frame at `level`, with `window_log` (0 keeps the level's
+// own), and the checksum and content-size flags as given. Returns the frame's octets, or SIZE_MAX
+// when libzstd failed or `output` had no room.
+size_t oracle_zstd_encode(int level, int window_log, int with_checksum, int with_content_size,
+                          const uint8_t* input, size_t input_len, uint8_t* output,
+                          size_t output_len) {
+  ZSTD_CCtx* context = ZSTD_createCCtx();
+  if (context == NULL) return SIZE_MAX;
+  size_t result = ZSTD_CCtx_setParameter(context, ZSTD_c_compressionLevel, level);
+  if (!ZSTD_isError(result) && window_log != 0) {
+    result = ZSTD_CCtx_setParameter(context, ZSTD_c_windowLog, window_log);
+  }
+  if (!ZSTD_isError(result)) result = ZSTD_CCtx_setParameter(context, ZSTD_c_checksumFlag, with_checksum);
+  if (!ZSTD_isError(result)) {
+    result = ZSTD_CCtx_setParameter(context, ZSTD_c_contentSizeFlag, with_content_size);
+  }
+  if (!ZSTD_isError(result)) result = ZSTD_compress2(context, output, output_len, input, input_len);
+  ZSTD_freeCCtx(context);
+  return ZSTD_isError(result) ? SIZE_MAX : result;
+}
+
+// Decodes every frame of `input`, skippable ones skipped, into `output`, with libzstd's largest
+// window. Returns the octets written, or SIZE_MAX when libzstd refused the input or `output` had
+// no room.
+size_t oracle_zstd_decode(const uint8_t* input, size_t input_len, uint8_t* output,
+                          size_t output_len) {
+  ZSTD_DCtx* context = ZSTD_createDCtx();
+  if (context == NULL) return SIZE_MAX;
+  size_t result = ZSTD_DCtx_setParameter(context, ZSTD_d_windowLogMax, ORACLE_ZSTD_WINDOW_LOG_MAX);
+  if (!ZSTD_isError(result)) result = ZSTD_decompressDCtx(context, output, output_len, input, input_len);
+  ZSTD_freeDCtx(context);
+  return ZSTD_isError(result) ? SIZE_MAX : result;
+}

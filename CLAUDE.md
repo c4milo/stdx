@@ -239,6 +239,11 @@ Change this section when a step adds or renames a command.
   recorded in `tools/differential/encode_hashes.zig` (invariant 5); seeded flush points and splits
   must give the same octets. `-Dencode-optimize=Debug` builds stdx in another mode, to show the
   hashes hold there. Passing `-- --record` prints a new list, for a change meant to alter output.
+  `zig build differential-zstd -Doracles` has libzstd encode the first 256 KiB of every corpus
+  file at levels 1, 3, 9 and 19, each with the level's own window log and with 10, 17 and 23, the
+  checksum and content-size flags seeded. stdx's HTTP decoder must decode each frame whole and
+  under a seeded split, and libzstd must decode it too, all to the input. Longer files also run
+  whole at level 3, and two frames with a skippable frame between them must decode to both inputs.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
   installs every corpus file under `zig-out/corpus/`.
 - Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a
