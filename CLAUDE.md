@@ -228,7 +228,7 @@ Change this section when a step adds or renames a command.
   `zig build differential-deflate -Doracles` requires stdx, zlib and Wuffs to decode the same
   octets from the raw DEFLATE, zlib and gzip streams zlib encodes from every corpus file: every
   level and strategy, with seeded window bits, memory levels and flush points, stdx under a seeded
-  split. It then corrupts streams of each file's first 4 KiB, the containers' fields included,
+  split and through its whole-buffer `decode_all`. It then corrupts streams of each file's first 4 KiB, the containers' fields included,
   and requires stdx's verdict to equal both oracles' or to match an entry of
   `tools/oracle/verdicts.zig`.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and

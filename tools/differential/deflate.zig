@@ -102,6 +102,18 @@ pub fn stdx_split(container: oracle.Container, buffers: Buffers, stream: []const
     }
 }
 
+/// stdx's decode of `stream` through its whole-buffer helper (decision 11).
+pub fn stdx_all(container: oracle.Container, buffers: Buffers, stream: []const u8, output: []u8) !codec.Whole {
+    switch (container) {
+        inline else => |known| {
+            const module = Codec(known);
+            const decoder = &@field(buffers.states, @tagName(known))[0];
+            module.init(decoder, .{});
+            return module.decode_all(decoder, stream, output);
+        },
+    }
+}
+
 /// A decoder's verdict on one input, and what it wrote. For stdx, where its DEFLATE decoder
 /// stopped as well.
 pub const Verdict = struct {
@@ -205,6 +217,15 @@ fn check_stream(name: []const u8, setting: Setting, input: []const u8, buffers: 
     if (outcome.status != .done) return fail(tally, name, setting, "stdx", "did not end the stream");
     if (outcome.consumed != stream.len) return fail(tally, name, setting, "stdx", "did not stop at the stream's end");
     if (!std.mem.eql(u8, input, buffers.output[0..outcome.written])) return fail(tally, name, setting, "stdx", "gave other octets");
+    // Decision 15: the whole-buffer helper agrees with the split decode and the oracles. The
+    // split decode's octets are cleared first, so they cannot stand in for the helper's.
+    @memset(buffers.output[0..input.len], 0);
+    const whole = stdx_all(container, buffers, stream, buffers.output[0..input.len]) catch {
+        return fail(tally, name, setting, "stdx's decode_all", "refused it");
+    };
+    if (whole.consumed != stream.len or !std.mem.eql(u8, input, buffers.output[0..whole.written])) {
+        return fail(tally, name, setting, "stdx's decode_all", "disagreed with the input");
+    }
     const by_zlib = oracle.zlib_decode(container, stream, buffers.zlib_output);
     if (by_zlib.verdict != .ok or by_zlib.consumed != stream.len or !std.mem.eql(u8, input, buffers.zlib_output[0..by_zlib.written])) {
         return fail(tally, name, setting, "zlib", "disagreed with the input");
