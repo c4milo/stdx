@@ -373,6 +373,24 @@ test "RFC 1951 section 3.2.7: an unused distance value, and a length with no dis
     try decoder_test.expect_refused(stream.slice(), error.InvalidCode);
 }
 
+test "RFC 1951 section 3.2.6: distance code 30 is refused when its code is longer than the table" {
+    // Distance codes 0 to 7 take 1 to 8 bits, and codes 8 and 30 the two 9-bit codes left: a
+    // complete code (RFC 1951 §3.2.2) whose code 30 the fast path resolves past its table.
+    var block = small_block();
+    block.distance_count = constants.distance_alphabet_len;
+    block.distance_lengths = @splat(0);
+    for (0..8) |symbol| block.distance_lengths[symbol] = @intCast(symbol + 1);
+    block.distance_lengths[8] = 9;
+    block.distance_lengths[constants.distance_used] = 9;
+    var stream: Stream = .{};
+    block.header(&stream, true);
+    block.literal(&stream, 'a');
+    block.literal(&stream, constants.first_length_symbol);
+    block.distance(&stream, constants.distance_used);
+    stream.bits(0, 64);
+    try decoder_test.expect_refused(stream.slice(), error.InvalidDistance);
+}
+
 test "every refusal is corrupt input, not a feature refused" {
     inline for (@typeInfo(deflate.Corrupt).error_set.?) |corrupt| {
         try testing.expectEqual(codec.Refusal.corrupt, deflate.refusal(@field(anyerror, corrupt.name)));

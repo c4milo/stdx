@@ -108,9 +108,8 @@ const Loop = struct {
     literal_length_mask: lookup.LiteralLengthTable.Index,
     distance_mask: lookup.DistanceTable.Index,
     decoded: usize = 0,
-    /// The last input and output positions the wide loop's margins allow, set when it starts, so
-    /// each iteration compares against them with no subtraction.
-    input_limit: usize = 0,
+    /// The last output position the wide loop's margin allows, set when it starts, so each
+    /// iteration compares against it with no subtraction.
     output_limit: usize = 0,
 
     /// The literal/length entry of the code the buffer starts with.
@@ -233,7 +232,6 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
 /// The loop itself, entered with its margins held.
 inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
     assert(loop.has_margin());
-    loop.input_limit = loop.input.len - input_slack;
     loop.output_limit = loop.output.len - output_slack;
     // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
     // iteration uses a bit or more, so every later refill finds 63 bits or fewer. The margins are
@@ -242,10 +240,12 @@ inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
     var entry = loop.look_up(codes.literal_length_table);
     // Each iteration consumes at least a bit, or ends the loop.
     const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
-    for (0..iterations_max) |_| {
+    var iterations_left = iterations_max;
+    while (iterations_left > 0) : (iterations_left -= 1) {
         const next = step(.wide, loop, codes, history, entry);
         if (next != .go_on) return next.end();
-        if (loop.position > loop.input_limit or loop.written > loop.output_limit) return .margin;
+        // The input's margin is the bound the refill's load checks, so the two are one compare.
+        if (loop.position + input_slack > loop.input.len or loop.written > loop.output_limit) return .margin;
         entry = refill_and_look_up(loop, codes);
     }
     unreachable;
@@ -339,11 +339,16 @@ fn resolve_literal_length(codes: Codes, buffer: u64) ?lookup.Entry {
     };
 }
 
-fn resolve_distance(codes: Codes, buffer: u64) ?lookup.Entry {
-    return switch (codes.distance_code.decode(buffer, constants.code_len_max)) {
+/// The distance entry of a table entry that is not a distance's: a long code's, decoded with the
+/// canonical code from `buffer`, or null for the checked path.
+fn resolve_distance(codes: Codes, entry: lookup.Entry, buffer: u64) ?lookup.Entry {
+    if (entry.kind != .long) return null;
+    const resolved = switch (codes.distance_code.decode(buffer, constants.code_len_max)) {
         .symbol => |symbol| lookup.distance_entry(symbol.value, @intCast(symbol.len)),
-        .needs_bits, .invalid => null,
+        .needs_bits, .invalid => return null,
     };
+    // RFC 1951 §3.2.6: distance codes 30 and 31 never occur; the checked path refuses them.
+    return if (resolved.kind == .distance) resolved else null;
 }
 
 /// Reads a length's extra bits and its distance, and copies the match, or stops before using any
@@ -354,11 +359,10 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
     if (len == constants.match_len_max and length.used_bits != length.code_bits) return .checked;
     const after_length = past(loop.buffer, length);
     var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(after_length)) & loop.distance_mask];
-    if (distance_entry.kind == .long) {
+    if (distance_entry.kind != .distance) {
         @branchHint(.cold);
-        distance_entry = resolve_distance(codes, after_length) orelse return .checked;
+        distance_entry = resolve_distance(codes, distance_entry, after_length) orelse return .checked;
     }
-    if (distance_entry.kind != .distance) return .checked;
     const distance = distance_entry.value + extra_value(after_length, distance_entry);
     const used = @as(u32, length.used_bits) + distance_entry.used_bits;
     // The tail copies a match whole or leaves it to the checked path, which copies what fits.
