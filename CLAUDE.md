@@ -263,6 +263,9 @@ Change this section when a step adds or renames a command.
   stdx built ReleaseFast, decision 17's measure of what the safety checks cost. `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
   person asks (decision 20). Each published report is committed under `bench/results/`, as the workflow wrote it.
+- Zstandard benchmark: `zig build bench-zstd -Doracles` times libzstd's decoder, with a context
+  kept across decodes, and stdx's HTTP decoder over every corpus file encoded by libzstd at level
+  3: both interleaved in one run, the median of five runs with the spread.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder over every corpus file, through Linux's

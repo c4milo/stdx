@@ -99,6 +99,9 @@ extern fn oracle_zstd_bound(input_len: usize) usize;
 extern fn oracle_zstd_xxh64(input: [*]const u8, input_len: usize, seed: u64) u64;
 extern fn oracle_zstd_encode(level: c_int, window_log: c_int, with_checksum: c_int, with_content_size: c_int, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
 extern fn oracle_zstd_decode(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
+extern fn oracle_zstd_context_create() ?*ZstdContext;
+extern fn oracle_zstd_context_free(context: *ZstdContext) void;
+extern fn oracle_zstd_decode_with(context: *ZstdContext, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
 extern fn oracle_zstd_decode_verdict(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize, window_log_max: c_int) Result;
 extern fn oracle_zstd_content_checksum(input: [*]const u8, input_len: usize, frame: [*]u8, frame_len: usize, checksum: *u32) c_int;
 
@@ -195,6 +198,25 @@ pub fn zstd_encode(encoding: ZstdEncoding, input: []const u8, output: []u8) ?usi
 /// input or `output` had no room.
 pub fn zstd_decode(input: []const u8, output: []u8) ?usize {
     const written = oracle_zstd_decode(input.ptr, input.len, output.ptr, output.len);
+    return if (written == std.math.maxInt(usize)) null else written;
+}
+
+/// A libzstd decompression context, kept across decodes.
+pub const ZstdContext = opaque {};
+
+/// A new context, or null when libzstd could not allocate one.
+pub fn zstd_context_create() ?*ZstdContext {
+    return oracle_zstd_context_create();
+}
+
+pub fn zstd_context_free(context: *ZstdContext) void {
+    oracle_zstd_context_free(context);
+}
+
+/// libzstd's one-shot decoding of every frame of `input` into `output` with `context`, or null
+/// when libzstd refused the input or `output` had no room.
+pub fn zstd_decode_with(context: *ZstdContext, input: []const u8, output: []u8) ?usize {
+    const written = oracle_zstd_decode_with(context, input.ptr, input.len, output.ptr, output.len);
     return if (written == std.math.maxInt(usize)) null else written;
 }
 
@@ -345,6 +367,21 @@ test "libzstd decodes what it encodes, with and without the checksum and the con
         frame[frame_len - 1] ^= 0x80;
         try testing.expectEqual(null, zstd_decode(frame[0..frame_len], &output));
     }
+}
+
+test "a kept libzstd context decodes one frame after another" {
+    const text = "zstd frames, zstd frames, zstd frames, and more zstd frames";
+    var frame: [256]u8 = undefined;
+    var output: [text.len]u8 = undefined;
+    const context = zstd_context_create() orelse return error.TestUnexpectedResult;
+    defer zstd_context_free(context);
+    const frame_len = zstd_encode(.{ .level = 3 }, text, &frame) orelse return error.TestUnexpectedResult;
+    for (0..2) |_| {
+        try testing.expectEqual(text.len, zstd_decode_with(context, frame[0..frame_len], &output));
+        try testing.expectEqualStrings(text, &output);
+    }
+    frame[frame_len - 1] ^= 0x80;
+    try testing.expectEqual(null, zstd_decode_with(context, frame[0..frame_len], &output));
 }
 
 test "libzstd's streaming verdict: ok, refused, incomplete and no room" {

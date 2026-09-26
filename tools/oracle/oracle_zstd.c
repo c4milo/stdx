@@ -152,3 +152,17 @@ oracle_zstd_result oracle_zstd_decode_verdict(const uint8_t* input, size_t input
   ZSTD_freeDCtx(context);
   return result;
 }
+
+// A decompression context kept across calls, as a server keeps one per connection or thread, so a
+// benchmark times decoding and not the context's allocation.
+ZSTD_DCtx* oracle_zstd_context_create(void) { return ZSTD_createDCtx(); }
+
+void oracle_zstd_context_free(ZSTD_DCtx* context) { ZSTD_freeDCtx(context); }
+
+// Decodes every frame of `input` into `output` with `context`, libzstd's one-shot path. Returns the
+// octets written, or SIZE_MAX when libzstd refused the input or `output` had no room.
+size_t oracle_zstd_decode_with(ZSTD_DCtx* context, const uint8_t* input, size_t input_len,
+                               uint8_t* output, size_t output_len) {
+  size_t result = ZSTD_decompressDCtx(context, output, output_len, input, input_len);
+  return ZSTD_isError(result) ? SIZE_MAX : result;
+}
