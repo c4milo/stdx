@@ -3,13 +3,15 @@
 //! each, the median and the spread reported, and the losses shown. The timing is
 //! bench/timing/timing.zig's.
 //!
-//! - Decoding: zlib's and Wuffs's gzip decoders over each corpus file, encoded by zlib at level 6,
-//!   its default and the level HTTP servers commonly use. Throughput counts decoded octets.
+//! - Decoding: stdx's, zlib's and Wuffs's gzip decoders over each corpus file, encoded by zlib at
+//!   level 6, its default and the level HTTP servers commonly use. Throughput counts decoded
+//!   octets. Each decoder's output is compared with the input before any is timed.
 //! - Encoding: zlib's gzip encoder at levels 1, 6 and 9, the levels decision 13 gives stdx's
 //!   encoder. Throughput counts input octets, and the ratio is input octets over encoded octets.
 //!
-//! stdx's decoder and encoder join the candidates in the steps that write them (design §8 steps 5,
-//! 7 and 9), and zlib-ng and libdeflate at step 7.
+//! stdx's gzip decoder is a candidate from design §8 step 6; its fast path joins at step 7, with
+//! zlib-ng and libdeflate, and its encoder at step 9. stdx picks its checksum path from the CPU's
+//! features, as a caller does (decision 21).
 //!
 //! The candidates' C is built ReleaseFast. This program is built ReleaseSafe, stdx's production
 //! mode, so stdx's candidates will be measured as callers run them (decision 17).
@@ -19,6 +21,8 @@
 const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
+const codec = @import("codec");
+const gzip = @import("gzip");
 
 /// The zlib level whose streams the decoders are timed on.
 const decode_level: c_int = 6;
@@ -36,6 +40,21 @@ const Decode = struct {
         const self: *const Decode = @ptrCast(@alignCast(context));
         const result = self.decode(.gzip, self.stream, self.output);
         std.debug.assert(result.verdict == .ok);
+    }
+};
+
+/// A decode of one gzip stream by stdx's decoder, in one call.
+const StdxDecode = struct {
+    stream: []const u8,
+    output: []u8,
+    decoder: *gzip.Decoder,
+    features: codec.Features,
+
+    fn run_once(context: *const anyopaque) void {
+        const self: *const StdxDecode = @ptrCast(@alignCast(context));
+        gzip.init(self.decoder, self.features);
+        const progress = gzip.decode(self.decoder, self.stream, self.output) catch unreachable;
+        std.debug.assert(progress.status == .done and progress.written == self.output.len);
     }
 };
 
@@ -68,7 +87,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try out.print("## Decoding, gzip at zlib level {d}\n\n", .{decode_level});
-    try out.print("| File | Octets | zlib, MB/s | Wuffs, MB/s | Wuffs / zlib |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | zlib, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / zlib | stdx / Wuffs |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_decode(arena, io, out, file);
     try out.print("\n## Encoding, gzip\n\n", .{});
     try out.print("| File | Octets | Level | zlib, MB/s | Ratio |\n|---|---|---|---|---|\n", .{});
@@ -87,24 +107,40 @@ fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
     const encoded = try arena.alloc(u8, oracle.zlib_bound(.gzip, file.input.len));
     const encoding: oracle.Encoding = .{ .container = .gzip, .level = decode_level, .strategy = .default };
     const stream = encoded[0..oracle.zlib_encode(encoding, file.input, encoded).written];
-    const zlib_output = try arena.alloc(u8, file.input.len);
-    const wuffs_output = try arena.alloc(u8, file.input.len);
-    const zlib: Decode = .{ .stream = stream, .output = zlib_output, .decode = oracle.zlib_decode };
-    const wuffs: Decode = .{ .stream = stream, .output = wuffs_output, .decode = oracle.wuffs_decode };
-    var runs: [2][timing.run_count]f64 = undefined;
+    const zlib: Decode = .{ .stream = stream, .output = try arena.alloc(u8, file.input.len), .decode = oracle.zlib_decode };
+    const wuffs: Decode = .{ .stream = stream, .output = try arena.alloc(u8, file.input.len), .decode = oracle.wuffs_decode };
+    const stdx: StdxDecode = .{
+        .stream = stream,
+        .output = try arena.alloc(u8, file.input.len),
+        .decoder = try arena.create(gzip.Decoder),
+        .features = codec.Features.detect(),
+    };
+    // Every candidate decodes the input back before any is timed.
+    Decode.run_once(&zlib);
+    Decode.run_once(&wuffs);
+    StdxDecode.run_once(&stdx);
+    for ([_][]const u8{ zlib.output, wuffs.output, stdx.output }) |output| {
+        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
+    }
+    var runs: [3][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &.{
         .{ .context = &zlib, .run_once = Decode.run_once },
         .{ .context = &wuffs, .run_once = Decode.run_once },
+        .{ .context = &stdx, .run_once = StdxDecode.run_once },
     }, &runs);
-    const zlib_summary = timing.summarize(runs[0]);
-    const wuffs_summary = timing.summarize(runs[1]);
-    const zlib_rate = timing.megabytes_per_second(file.input.len, zlib_summary.median);
-    const wuffs_rate = timing.megabytes_per_second(file.input.len, wuffs_summary.median);
-    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,              file.input.len,
-        zlib_rate,              zlib_summary.spread * 100,
-        wuffs_rate,             wuffs_summary.spread * 100,
-        wuffs_rate / zlib_rate,
+    var rates: [3]f64 = undefined;
+    var spreads: [3]f64 = undefined;
+    for (&rates, &spreads, runs) |*rate, *spread, candidate_runs| {
+        const summary = timing.summarize(candidate_runs);
+        rate.* = timing.megabytes_per_second(file.input.len, summary.median);
+        spread.* = summary.spread * 100;
+    }
+    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} | {d:.2} |\n", .{
+        file.name,           file.input.len,
+        rates[0],            spreads[0],
+        rates[1],            spreads[1],
+        rates[2],            spreads[2],
+        rates[2] / rates[0], rates[2] / rates[1],
     });
 }
 

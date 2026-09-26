@@ -107,11 +107,13 @@ pub fn add(b: *std.Build, options: Options) void {
 
     const bench_module = b.createModule(.{
         .root_source_file = b.path("bench/deflate/deflate.zig"),
-        .target = b.graph.host,
+        .target = baseline,
         .optimize = .ReleaseSafe,
     });
     bench_module.addImport("oracle", oracle);
     bench_module.addImport("timing", timing);
+    bench_module.addImport("codec", graph.codec);
+    bench_module.addImport("gzip", graph.gzip);
     const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
     b.installArtifact(bench);
     const bench_run = b.addRunArtifact(bench);
