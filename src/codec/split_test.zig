@@ -6,6 +6,7 @@ const split = @import("split.zig");
 const Progress = @import("status.zig").Progress;
 const Reader = @import("reader.zig").Reader;
 const Writer = @import("writer.zig").Writer;
+const split_status = @import("status.zig");
 
 /// The toy decoder's state. It reads nothing ahead, so a call's counts are exact.
 const Toy = struct {
@@ -150,4 +151,52 @@ test "the generator gives the published SplitMix64 values for seed 0" {
     try testing.expectEqual(0xe220a8397b1dcdaf, generator.next());
     try testing.expectEqual(0x6e789e6aa1b965f4, generator.next());
     try testing.expectEqual(0x06c45d188009454f, generator.next());
+}
+
+/// A toy encoder: it copies its input, writes `|` at a flush that follows new input, and `.` at the
+/// end. It holds nothing back, so every split gives the same octets.
+const ToyEncoder = struct {
+    taken: usize = 0,
+    flushed_at: usize = 0,
+    marker_owed: bool = false,
+};
+
+fn toy_encode(toy: *ToyEncoder, input: []const u8, output: []u8, flush: split_status.Flush) Progress {
+    var writer = Writer.init(output);
+    if (toy.marker_owed) {
+        writer.write_octet('|') catch return .{ .consumed = 0, .written = 0, .status = .needs_room };
+        toy.marker_owed = false;
+    }
+    const taken = writer.write_partial(input);
+    toy.taken += taken;
+    if (taken < input.len) return .{ .consumed = taken, .written = writer.position, .status = .needs_room };
+    switch (flush) {
+        .none => return .{ .consumed = taken, .written = writer.position, .status = .needs_input },
+        .flush => {
+            if (toy.taken > toy.flushed_at) {
+                toy.flushed_at = toy.taken;
+                writer.write_octet('|') catch {
+                    toy.marker_owed = true;
+                    return .{ .consumed = taken, .written = writer.position, .status = .needs_room };
+                };
+            }
+            return .{ .consumed = taken, .written = writer.position, .status = .needs_input };
+        },
+        .finish => {
+            writer.write_octet('.') catch return .{ .consumed = taken, .written = writer.position, .status = .needs_room };
+            return .{ .consumed = taken, .written = writer.position, .status = .done };
+        },
+    }
+}
+
+test "drive_encoder flushes at each point, finishes at the end, and every split agrees" {
+    const input = "abcdefghij";
+    for (0..200) |seed| {
+        var states: [split.state_slots]ToyEncoder = @splat(.{});
+        var output: [16]u8 = undefined;
+        const outcome = try split.drive_encoder(ToyEncoder, &states, toy_encode, input, &output, &.{ 3, 3, 7 }, seed);
+        try testing.expectEqual(.done, outcome.status);
+        try testing.expectEqual(input.len, outcome.consumed);
+        try testing.expectEqualStrings("abc|defg|hij.", output[0..outcome.written]);
+    }
 }

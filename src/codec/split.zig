@@ -17,6 +17,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const Progress = @import("status.zig").Progress;
 const check_progress = @import("status.zig").check_progress;
+const Flush = @import("status.zig").Flush;
 
 /// SplitMix64: a 64-bit state advanced by a fixed odd increment and mixed on the way out.
 pub const Generator = struct {
@@ -142,6 +143,60 @@ pub fn drive(
         }
     }
     return error.TestNoProgress;
+}
+
+/// Drives an encoder's `step(state, input_piece, output_piece, flush)` over all of `input` and
+/// `output`, with the pieces `seed` draws, until the stream is done or the output has no more room.
+/// A piece never crosses the next of `flush_points`, which ascend: the call whose piece reaches one
+/// passes `flush`, and so does every call after it until one returns `needs_input` there. The call
+/// whose piece reaches the input's end passes `finish`, and so does every call after it (decision
+/// 11). The state moves between the two slots as `drive` moves it.
+pub fn drive_encoder(
+    comptime State: type,
+    states: *[state_slots]State,
+    step: anytype,
+    input: []const u8,
+    output: []u8,
+    flush_points: []const usize,
+    seed: u64,
+) !Outcome {
+    var schedule = Schedule.init(seed);
+    var outcome: Outcome = .{ .consumed = 0, .written = 0, .status = .needs_input, .calls = 0 };
+    var slot: usize = 0;
+    var next_point: usize = 0;
+    var finishing = false;
+    const calls_max = constants.driver_calls_floor +
+        constants.driver_calls_per_octet_max * (input.len + output.len + flush_points.len);
+    while (outcome.calls < calls_max) : (outcome.calls += 1) {
+        if (outcome.calls == 1 or (outcome.calls > 1 and schedule.move_state())) slot = move(State, states, slot);
+        const input_piece, const flush = encoder_call(&schedule, input, outcome.consumed, flush_points[next_point..], &finishing);
+        const room_left = output.len - outcome.written;
+        const output_piece = output[outcome.written..][0..schedule.piece_len(room_left)];
+        const progress: Progress = step(&states[slot], input_piece, output_piece, flush);
+        check_progress(input_piece.len, output_piece.len, progress);
+        outcome.consumed += progress.consumed;
+        outcome.written += progress.written;
+        outcome.status = progress.status;
+        if (progress.status == .done or (progress.status == .needs_room and output_piece.len == room_left)) {
+            outcome.calls += 1;
+            return outcome;
+        }
+        if (flush == .flush and progress.status == .needs_input) next_point += 1;
+    }
+    return error.TestNoProgress;
+}
+
+/// The input piece and the flush of an encoder drive's next call, `consumed` octets in, with
+/// `points` the flush points still ahead.
+fn encoder_call(schedule: *Schedule, input: []const u8, consumed: usize, points: []const usize, finishing: *bool) struct { []const u8, Flush } {
+    const limit = if (points.len > 0) points[0] else input.len;
+    assert(limit >= consumed and limit <= input.len);
+    // After `finish`, every call passes all the input not yet taken (decision 11).
+    const piece_len = if (finishing.*) input.len - consumed else schedule.piece_len(limit - consumed);
+    const reaches = consumed + piece_len == limit;
+    finishing.* = finishing.* or (reaches and limit == input.len);
+    const flush: Flush = if (finishing.*) .finish else if (reaches and points.len > 0) .flush else .none;
+    return .{ input[consumed..][0..piece_len], flush };
 }
 
 /// True when a call's status ends the drive: the stream is done, or it wants what is no longer

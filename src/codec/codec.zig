@@ -35,6 +35,7 @@ pub const Reader = @import("reader.zig").Reader;
 pub const Writer = @import("writer.zig").Writer;
 pub const BitReader = @import("bit_reader.zig").BitReader;
 pub const Bits = @import("bit_reader.zig").Bits;
+pub const BitWriter = @import("bit_writer.zig").BitWriter;
 pub const Window = @import("window.zig").Window;
 pub const Field = @import("field.zig").Field;
 pub const split = @import("split.zig");
@@ -46,6 +47,7 @@ test {
     _ = @import("reader.zig");
     _ = @import("writer.zig");
     _ = @import("bit_reader.zig");
+    _ = @import("bit_writer.zig");
     _ = split;
     _ = @import("window.zig");
     _ = @import("field.zig");
