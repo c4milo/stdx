@@ -10,7 +10,8 @@
 //!   path alone, the A/B that admits the fast path, over the same streams without the container.
 //! - Decision 14's claims: stdx's raw decoder with each claim off in turn against the decoder with
 //!   all on (design §8 step 7), each claim's A/B, reported as the ratio of the two throughputs.
-//!   S10's A/B decodes in calls of `split_output_len` octets: the gzip decoder, which checksums
+//!   S7's A/B also runs over streams zlib's fixed strategy encodes, since level 6 writes no fixed
+//!   block for most of the corpus. S10's A/B decodes in calls of `split_output_len` octets: the gzip decoder, which checksums
 //!   each call's output, against the raw decoder and one CRC-32 pass over the whole output after
 //!   the last call.
 //! - Decision 17's measurement: `bench_deflate_release_fast`, this program with stdx built
@@ -155,6 +156,9 @@ pub fn main(init: std.process.Init) !void {
     for (deflate.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (files.items) |file| try report_claims(arena, io, out, file);
+    try out.print("\n## S7 on fixed-code streams: zlib's fixed strategy at level {d}, raw DEFLATE\n\n", .{decode_level});
+    try out.print("| File | Octets | All on, MB/s | S7 comptime fixed tables off, MB/s | Off / on |\n|---|---|---|---|---|\n", .{});
+    for (files.items) |file| try report_fixed_tables(arena, io, out, file);
     try out.print("\n## S10: the checksum over each call's output against one pass after the stream, calls of {d} octets\n\n", .{split_output_len});
     try out.print("| File | Octets | Per call, MB/s | After the stream, MB/s | After / per call |\n|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_checksum_order(arena, io, out, file);
@@ -263,8 +267,13 @@ fn report_encode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
 
 /// The raw DEFLATE stream zlib encodes from `input` at `decode_level`.
 fn raw_stream(arena: std.mem.Allocator, input: []const u8) ![]const u8 {
+    return raw_stream_with(arena, input, .default);
+}
+
+/// The raw DEFLATE stream zlib encodes from `input` at `decode_level` with `strategy`.
+fn raw_stream_with(arena: std.mem.Allocator, input: []const u8, strategy: oracle.Strategy) ![]const u8 {
     const encoded = try arena.alloc(u8, oracle.zlib_bound(.raw, input.len));
-    const encoding: oracle.Encoding = .{ .container = .raw, .level = decode_level, .strategy = .default };
+    const encoding: oracle.Encoding = .{ .container = .raw, .level = decode_level, .strategy = strategy };
     return encoded[0..oracle.zlib_encode(encoding, input, encoded).written];
 }
 
@@ -362,6 +371,25 @@ fn report_checksum_order(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writ
     };
     for (candidates) |candidate| candidate.run_once(candidate.context);
     if (!std.mem.eql(u8, file.input, per_call.output) or !std.mem.eql(u8, file.input, after.output)) return error.CandidatesDisagree;
+    var runs: [candidates.len][timing.run_count]f64 = undefined;
+    timing.time_interleaved(io, &candidates, &runs);
+    const rates = rates_of(candidates.len, &runs, file.input.len);
+    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
+        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+        rates[0][1] / rates[0][0],
+    });
+}
+
+fn report_fixed_tables(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
+    const stream = try raw_stream_with(arena, file.input, .fixed);
+    var candidates: [2]timing.Operation = undefined;
+    var outputs: [2][]const u8 = undefined;
+    candidates[0], outputs[0] = try raw_candidate(.{}, arena, stream, file.input.len);
+    candidates[1], outputs[1] = try raw_candidate(.{ .claims = .{ .comptime_fixed_tables = false } }, arena, stream, file.input.len);
+    for (candidates) |candidate| candidate.run_once(candidate.context);
+    for (outputs) |output| {
+        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
+    }
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
