@@ -1,5 +1,6 @@
-//! Writers the zstd tests encode with: a Huffman-coded stream as RFC 8878 §4.2.2 reads it. Test
-//! code only; the decoder never imports it.
+//! Writers the zstd tests encode with: bits written forward as a Zstandard compressor writes them,
+//! and a Huffman-coded stream as RFC 8878 §4.2.2 reads it. Test code only; the decoder never
+//! imports it.
 
 const std = @import("std");
 const huffman = @import("huffman.zig");
@@ -36,6 +37,30 @@ pub const StreamWriter = struct {
             for (0..bits) |bit| self.put_bit(@intCast((code >> @intCast(bit)) & 1));
         }
         self.put_bit(1);
+        return self.octets[0 .. std.math.divCeil(usize, self.bits_written, @bitSizeOf(u8)) catch unreachable];
+    }
+};
+
+/// The octets a forward bit stream in these tests takes at most.
+const bits_capacity = 256;
+
+/// Bits written forward, each octet filled from its least significant bit, ended by the final 1
+/// bit a backward reader starts below (RFC 8878 §4.1, §3.1.1.3.2.1.2).
+pub const BitWriter = struct {
+    octets: [bits_capacity]u8 = @splat(0),
+    bits_written: usize = 0,
+
+    pub fn put(self: *BitWriter, value: u64, count: usize) void {
+        const octet_bits = @bitSizeOf(u8);
+        for (0..count) |bit| {
+            if ((value >> @intCast(bit)) & 1 != 0) self.octets[self.bits_written / octet_bits] |= @as(u8, 1) << @intCast(self.bits_written % octet_bits);
+            self.bits_written += 1;
+        }
+    }
+
+    /// Writes the final 1 bit and returns the stream.
+    pub fn finish(self: *BitWriter) []const u8 {
+        self.put(1, 1);
         return self.octets[0 .. std.math.divCeil(usize, self.bits_written, @bitSizeOf(u8)) catch unreachable];
     }
 };

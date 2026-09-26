@@ -10,4 +10,5 @@ test {
     _ = @import("fse.zig");
     _ = @import("huffman.zig");
     _ = @import("literals.zig");
+    _ = @import("sequences.zig");
 }
