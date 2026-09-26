@@ -90,8 +90,8 @@ const Loop = struct {
     reach_before: usize,
     /// The index masks of the block's tables, kept here because the output's stores might alias
     /// the tables' own fields.
-    literal_length_mask: u64,
-    distance_mask: u64,
+    literal_length_mask: lookup.LiteralLengthTable.Index,
+    distance_mask: lookup.DistanceTable.Index,
     decoded: usize = 0,
     /// The entry of the next symbol, when a literal run already looked it up: a refill leaves the
     /// bits it came from in place.
@@ -174,8 +174,8 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
         .written = writer.position,
         .start = history.synced,
         .reach_before = history.window.reach(),
-        .literal_length_mask = (@as(u64, 1) << codes.literal_length_table.bits) - 1,
-        .distance_mask = (@as(u64, 1) << codes.distance_table.bits) - 1,
+        .literal_length_mask = codes.literal_length_table.mask(),
+        .distance_mask = codes.distance_table.mask(),
     };
     assert(loop.count <= @bitSizeOf(u64));
     const end: End = switch (mode) {
@@ -229,7 +229,7 @@ inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
 /// Decodes one literal/length symbol, and the distance a length takes, or a run of literals.
 /// Returns why the loop stops, or null to go on.
 inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History) ?End {
-    var entry = loop.pending orelse codes.literal_length_table.entries[@intCast(loop.buffer & loop.literal_length_mask)];
+    var entry = loop.pending orelse codes.literal_length_table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(loop.buffer)) & loop.literal_length_mask];
     loop.pending = null;
     if (entry.kind == .long) entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
     switch (entry.kind) {
@@ -253,7 +253,7 @@ inline fn step_literals(comptime mode: Mode, loop: *Loop, codes: Codes, entry: l
     // code.
     for (1..literals_per_refill) |_| {
         if (loop.count < constants.literal_length_table_bits) return null;
-        const next = codes.literal_length_table.entries[@intCast(loop.buffer & loop.literal_length_mask)];
+        const next = codes.literal_length_table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(loop.buffer)) & loop.literal_length_mask];
         if (next.kind != .literal and next.kind != .literal_pair) {
             loop.pending = next;
             return null;
@@ -300,7 +300,7 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
     if (len == constants.match_len_max and length.extra_bits != 0) return .checked;
     used += length.extra_bits;
-    var distance_entry = codes.distance_table.entries[@intCast((loop.buffer >> @intCast(used)) & loop.distance_mask)];
+    var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(loop.buffer >> @intCast(used))) & loop.distance_mask];
     if (distance_entry.kind == .long) distance_entry = resolve_distance(codes, loop.buffer >> @intCast(used)) orelse return .checked;
     if (distance_entry.kind != .distance) return .checked;
     used += distance_entry.code_bits;

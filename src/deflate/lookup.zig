@@ -78,6 +78,10 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry, compt
         /// The bits this block's table is indexed by: its longest code, up to `bits_max`.
         bits: u4,
 
+        /// An index into `entries`: its type holds every index and no other, so indexing by it
+        /// needs no bounds check.
+        pub const Index = std.meta.Int(.unsigned, bits_max);
+
         /// Builds the table of the canonical code huffman.zig built from a block's lengths, which
         /// the decoder accepts: its `counts` of each length and its `symbols` in code order (RFC
         /// 1951 §3.2.2). Returns the entries it wrote.
@@ -88,6 +92,12 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry, compt
         /// The entry the next bits of the stream select.
         pub fn lookup(self: *const Self, bits: u64) Entry {
             return self.entries[@intCast(bits & ((@as(u64, 1) << self.bits) - 1))];
+        }
+
+        /// The mask that keeps the bits this block's table is indexed by.
+        pub fn mask(self: *const Self) Index {
+            assert(self.bits <= bits_max);
+            return @intCast((@as(u32, 1) << self.bits) - 1);
         }
     };
 }
