@@ -5,7 +5,8 @@
 //!
 //! `Xxh64` is the state of a hash fed in pieces: `init` with a path and a seed, `update` with each
 //! piece, and `final` for the value, which leaves the state as it was. `xxh64` hashes one buffer
-//! through the same state. Every multi-octet read takes the least significant octet first, as the
+//! by the same steps, reading its remaining input where it lies rather than through the state's
+//! stripe buffer. Every multi-octet read takes the least significant octet first, as the
 //! specification's "Operation notations" require. Every path gives the same value; the scalar path
 //! is the one the others are tested against (decision 21).
 
@@ -74,7 +75,7 @@ pub const Xxh64 = struct {
         assert(path.built());
         return .{
             .path = path,
-            .accumulators = .{ seed +% prime_1 +% prime_2, seed +% prime_2, seed, seed -% prime_1 },
+            .accumulators = initial_accumulators(seed),
             .total_len = 0,
             .seed = seed,
             .partial = @splat(0),
@@ -107,19 +108,31 @@ pub const Xxh64 = struct {
     pub fn final(self: *const Xxh64) u64 {
         assert(self.partial_len < stripe_len);
         assert(self.total_len % stripe_len == self.partial_len);
-        // Step 1's special case: an input shorter than a stripe takes one accumulator.
-        const start = if (self.total_len >= stripe_len) converge(self.accumulators) else self.seed +% prime_5;
-        // Step 4.
-        const with_len = start +% self.total_len;
-        return avalanche(consume_remaining(with_len, self.partial[0..self.partial_len]));
+        return finish(self.accumulators, self.seed, self.total_len, self.partial[0..self.partial_len]);
     }
 };
 
 /// The XXH64 of `octets` from `seed`, by `path`.
 pub fn xxh64(path: Xxh64Path, seed: u64, octets: []const u8) u64 {
-    var state = Xxh64.init(path, seed);
-    state.update(octets);
-    return state.final();
+    assert(path.built());
+    var accumulators = initial_accumulators(seed);
+    const whole_len = octets.len - octets.len % stripe_len;
+    process_stripes(path, &accumulators, octets[0..whole_len]);
+    return finish(accumulators, seed, octets.len, octets[whole_len..]);
+}
+
+/// Step 1's four accumulators.
+fn initial_accumulators(seed: u64) [constants.xxh64_lanes]u64 {
+    return .{ seed +% prime_1 +% prime_2, seed +% prime_2, seed, seed -% prime_1 };
+}
+
+/// Steps 3 to 7, after Step 2 took every whole stripe of the `total_len` octets.
+fn finish(accumulators: [constants.xxh64_lanes]u64, seed: u64, total_len: u64, remaining: []const u8) u64 {
+    assert(total_len % stripe_len == remaining.len);
+    // Step 1's special case: an input shorter than a stripe takes one accumulator.
+    const start = if (total_len >= stripe_len) converge(accumulators) else seed +% prime_5;
+    // Step 4.
+    return avalanche(consume_remaining(start +% total_len, remaining));
 }
 
 /// Step 2 over whole stripes, by `path`.
