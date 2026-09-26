@@ -21,6 +21,7 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const lookup = @import("lookup.zig");
+const Claims = @import("claims.zig").Claims;
 
 /// Decision 16's margins: the input one iteration may read, a refill of 8 octets, and the output
 /// it may write, a longest match and the overrun of its last chunk.
@@ -189,17 +190,17 @@ inline fn past(buffer: u64, entry: lookup.Entry) u64 {
 
 /// Decodes symbols from `bits` into `writer` until a margin, a block's end, or a symbol for the
 /// checked path, and hands the bit buffer, the input position and the output position back.
-pub noinline fn run(codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
-    return run_loop(.wide, codes, history, bits, writer);
+pub noinline fn run(comptime claims: Claims, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+    return run_loop(.wide, claims, codes, history, bits, writer);
 }
 
 /// As `run`, symbol by symbol through the end of the input and of the output, for what the wide
 /// loop's margins leave out.
-pub noinline fn run_tail(codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
-    return run_loop(.tail, codes, history, bits, writer);
+pub noinline fn run_tail(comptime claims: Claims, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+    return run_loop(.tail, claims, codes, history, bits, writer);
 }
 
-inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+inline fn run_loop(comptime mode: Mode, comptime claims: Claims, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
     var loop: Loop = .{
         .input = bits.reader.octets,
         .position = bits.reader.position,
@@ -214,8 +215,8 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
     };
     assert(loop.count <= @bitSizeOf(u64));
     const end: End = switch (mode) {
-        .wide => if (loop.has_margin()) decode_symbols(&loop, codes, history) else .margin,
-        .tail => decode_tail(&loop, codes, history),
+        .wide => if (loop.has_margin()) decode_symbols(claims, &loop, codes, history) else .margin,
+        .tail => decode_tail(claims, &loop, codes, history),
     };
     assert(loop.written <= loop.output.len and loop.position <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
@@ -230,23 +231,23 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
 }
 
 /// The loop itself, entered with its margins held.
-inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
+inline fn decode_symbols(comptime claims: Claims, loop: *Loop, codes: Codes, history: History) End {
     assert(loop.has_margin());
     loop.output_limit = loop.output.len - output_slack;
     // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
     // iteration uses a bit or more, so every later refill finds 63 bits or fewer. The margins are
     // checked before each refill, which ends every iteration.
-    if (loop.count < refill_bits) loop.refill();
+    if (loop.count < refill_bits) refill(claims, loop);
     var entry = loop.look_up(codes.literal_length_table);
     // Each iteration consumes at least a bit, or ends the loop.
     const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
     var iterations_left = iterations_max;
     while (iterations_left > 0) : (iterations_left -= 1) {
-        const next = step(.wide, loop, codes, history, entry);
+        const next = step(.wide, claims, loop, codes, history, entry);
         if (next != .go_on) return next.end();
         // The input's margin is the bound the refill's load checks, so the two are one compare.
         if (loop.position + input_slack > loop.input.len or loop.written > loop.output_limit) return .margin;
-        entry = refill_and_look_up(loop, codes);
+        entry = refill_and_look_up(claims, loop, codes);
     }
     unreachable;
 }
@@ -254,25 +255,30 @@ inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
 /// Refills, and looks up the next symbol's entry. When the bits before the refill hold a whole
 /// table code, the lookup reads them, which the refill leaves in place, so the lookup need not
 /// wait for the refill.
-inline fn refill_and_look_up(loop: *Loop, codes: Codes) lookup.Entry {
+inline fn refill_and_look_up(comptime claims: Claims, loop: *Loop, codes: Codes) lookup.Entry {
     if (loop.count >= constants.literal_length_table_bits) {
         const entry = loop.look_up(codes.literal_length_table);
-        loop.refill();
+        refill(claims, loop);
         return entry;
     }
-    loop.refill();
+    refill(claims, loop);
     return loop.look_up(codes.literal_length_table);
 }
 
+/// The wide loop's refill: one 8-octet load (S1), or with the claim off, an octet at a time.
+inline fn refill(comptime claims: Claims, loop: *Loop) void {
+    if (claims.word_refill) loop.refill() else loop.refill_exact();
+}
+
 /// The tail: a symbol at a time, while the input holds a whole pair's bits.
-inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
+inline fn decode_tail(comptime claims: Claims, loop: *Loop, codes: Codes, history: History) End {
     // Each iteration consumes at least a bit, or ends the loop.
     const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
     for (0..iterations_max) |_| {
         loop.refill_exact();
         // Near the input's end, the checked path decodes what is left, and asks for more.
         if (loop.count < constants.pair_bits_max) return .checked;
-        const next = step(.tail, loop, codes, history, loop.look_up(codes.literal_length_table));
+        const next = step(.tail, claims, loop, codes, history, loop.look_up(codes.literal_length_table));
         if (next != .go_on) return next.end();
     }
     unreachable;
@@ -280,7 +286,7 @@ inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
 
 /// Decodes one literal/length symbol, whose table entry is `first`, and the distance a length
 /// takes, or a run of literals. Returns why the loop stops, or `go_on`.
-inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, first: lookup.Entry) Next {
+inline fn step(comptime mode: Mode, comptime claims: Claims, loop: *Loop, codes: Codes, history: History, first: lookup.Entry) Next {
     var entry = first;
     if (entry.kind == .long) {
         @branchHint(.cold);
@@ -292,7 +298,7 @@ inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History,
             loop.consume(entry.used_bits);
             return .end_of_block;
         },
-        .length => return copy_pair(mode, loop, codes, history, entry),
+        .length => return copy_pair(mode, claims, loop, codes, history, entry),
         .distance, .long, .invalid => return .checked,
     }
 }
@@ -353,7 +359,7 @@ fn resolve_distance(codes: Codes, entry: lookup.Entry, buffer: u64) ?lookup.Entr
 
 /// Reads a length's extra bits and its distance, and copies the match, or stops before using any
 /// bit of the pair when the checked path must see it.
-inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) Next {
+inline fn copy_pair(comptime mode: Mode, comptime claims: Claims, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) Next {
     const len = length.value + extra_value(loop.buffer, length);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
     if (len == constants.match_len_max) {
@@ -376,10 +382,7 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
     if (distance <= target and distance <= history.distance_max) {
         loop.consume_pair(after_length, distance_entry, used);
         loop.written += @intCast(len);
-        switch (mode) {
-            .wide => copy_within(loop.output, target, @intCast(distance), @intCast(len)),
-            .tail => copy_exact(loop.output, target, @intCast(distance), @intCast(len)),
-        }
+        copy_in_output(mode, claims, loop.output, target, @intCast(distance), @intCast(len));
     } else {
         @branchHint(.unlikely);
         if (!copy_from_window(loop.output, target, loop.start, loop.reach_before, history, @intCast(distance), @intCast(len))) return .checked;
@@ -388,6 +391,12 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
     }
     if (builtin.is_test) loop.decoded += 1;
     return .go_on;
+}
+
+/// Copies a match within this call's output: in chunks in the wide loop (S4), and an octet at a
+/// time in the tail or with the claim off.
+inline fn copy_in_output(comptime mode: Mode, comptime claims: Claims, output: []u8, target: usize, distance: usize, len: usize) void {
+    if (mode == .wide and claims.chunk_copies) copy_within(output, target, distance, len) else copy_exact(output, target, distance, len);
 }
 
 /// Copies a match that reaches before this call's output: its first octets from the window, the

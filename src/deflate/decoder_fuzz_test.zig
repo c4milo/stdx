@@ -10,6 +10,7 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
+const claims = @import("claims.zig");
 const Decoder = deflate.Decoder;
 const Stream = decoder_test.Stream;
 
@@ -48,6 +49,7 @@ fn check_split(input: []const u8, seed: u64) !void {
     const checked = verdict_of(deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &checked_output));
     try testing.expectEqual(checked, whole);
     if (whole == .progress) try testing.expectEqualSlices(u8, checked_output[0..whole.progress.written], whole_output[0..whole.progress.written]);
+    try check_each_claim_off(input, whole, &whole_output);
     var states: [codec.split.state_slots]Decoder = undefined;
     deflate.init(&states[0], .{});
     var split_output: [output_len_max]u8 = undefined;
@@ -63,6 +65,19 @@ fn check_split(input: []const u8, seed: u64) !void {
     try testing.expectEqual(progress.written, outcome.written);
     try testing.expectEqual(progress.consumed, outcome.consumed);
     try testing.expectEqualSlices(u8, whole_output[0..progress.written], split_output[0..outcome.written]);
+}
+
+/// Decodes `input` in one call with each claim of decision 14 off in turn (claims.zig), and
+/// requires each to agree with the decode that has them all on.
+fn check_each_claim_off(input: []const u8, whole: Verdict, whole_output: []const u8) !void {
+    inline for (claims.each_off) |off| {
+        var output: [output_len_max]u8 = undefined;
+        var decoder: Decoder = undefined;
+        deflate.init(&decoder, .{});
+        const verdict = verdict_of(deflate.decode_with(.{ .claims = off }, &decoder, input, &output));
+        try testing.expectEqual(whole, verdict);
+        if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], output[0..whole.progress.written]);
+    }
 }
 
 /// The matches of the stream to corrupt: one that repeats its literals, and a longest one.

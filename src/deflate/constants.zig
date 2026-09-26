@@ -88,6 +88,15 @@ pub const steps_floor = 16;
 pub const literal_length_table_bits = 11;
 pub const distance_table_bits = 8;
 
+/// The narrower widths S2's A/B times the tables at (design §8 step 7).
+pub const narrow_literal_length_table_bits = 9;
+pub const narrow_distance_table_bits = 6;
+
+comptime {
+    assert(narrow_literal_length_table_bits < literal_length_table_bits);
+    assert(narrow_distance_table_bits < distance_table_bits);
+}
+
 /// The octets the fast path's match copy moves at once (decision 14, S4): a 128-bit vector, or a
 /// 64-bit word for a distance shorter than the vector but at least as long as the word.
 pub const copy_chunk_len = 16;

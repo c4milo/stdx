@@ -16,6 +16,8 @@ pub const limit_window = decoder.limit_window;
 pub const decode = decoder.decode;
 pub const decode_with = decoder.decode_with;
 pub const Options = decoder.Options;
+pub const claims = @import("claims.zig");
+pub const Claims = claims.Claims;
 pub const refusal = decoder.refusal;
 
 /// A bit writer that builds DEFLATE streams for tests, this module's and its containers'.

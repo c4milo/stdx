@@ -17,6 +17,7 @@ const huffman = @import("huffman.zig");
 const lookup = @import("lookup.zig");
 const fast = @import("fast.zig");
 const header = @import("decoder_header.zig");
+const Claims = @import("claims.zig").Claims;
 
 /// Every way a stream breaks RFC 1951.
 pub const Corrupt = error{
@@ -140,6 +141,8 @@ pub fn count_work(decoder: *Decoder, work: usize) void {
 pub const Options = struct {
     /// The fast path of decision 16, for the symbols of a block while the margins hold.
     fast_paths: bool = true,
+    /// Decision 14's claims, which the benchmark switches off one at a time (claims.zig).
+    claims: Claims = .{},
 };
 
 /// Decodes as much of `input` into `output` as both allow (decision 11).
@@ -160,7 +163,7 @@ pub fn decode_with(comptime options: Options, decoder: *Decoder, input: []const 
         return err;
     };
     // The window takes the call's last octets once, whatever the fast path wrote (S5).
-    sync_window(decoder, &writer);
+    sync_window(options.claims, decoder, &writer);
     // Decision 11's read-ahead rule: hand back the whole octets not used, unless the call ends for
     // want of input, when every octet it holds belongs to the step it could not finish.
     if (status != .needs_input) bits.unread_whole_octets();
@@ -183,13 +186,13 @@ fn run(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, wri
 /// One step, and the status that ends the call, or null to go on.
 fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
     return switch (decoder.phase) {
-        .block_header => try read_block_header(decoder, bits),
+        .block_header => try read_block_header(options.claims, decoder, bits),
         .stored_header => try read_stored_header(decoder, bits),
-        .stored_copy => copy_stored(decoder, bits, writer),
+        .stored_copy => copy_stored(options.claims, decoder, bits, writer),
         .table_counts => try header.read_table_counts(decoder, bits),
         .code_length_code => try header.read_code_length_code(decoder, bits),
-        .code_lengths => try header.read_code_lengths(decoder, bits),
-        .symbols => if (options.fast_paths) try read_symbols_fast(decoder, bits, writer) else try read_symbol(decoder, bits, writer),
+        .code_lengths => try header.read_code_lengths(options.claims, decoder, bits),
+        .symbols => if (options.fast_paths) try read_symbols_fast(options.claims, decoder, bits, writer) else try read_symbol(decoder, bits, writer),
         .copy => copy_match(decoder, writer),
         .done, .refused => unreachable,
     };
@@ -205,11 +208,21 @@ fn end_block(decoder: *Decoder) ?codec.Status {
     return null;
 }
 
-/// Appends to the window the octets the fast path wrote since the last sync.
-fn sync_window(decoder: *Decoder, writer: *const codec.Writer) void {
+/// Appends to the window the octets the fast path wrote since the last sync: the last 32 KiB of
+/// them (S5), or with the claim off, every one of them.
+fn sync_window(comptime claims: Claims, decoder: *Decoder, writer: *const codec.Writer) void {
     const written = writer.written();
     assert(decoder.window_synced <= written.len);
-    decoder.window.append(written[decoder.window_synced..]);
+    var rest = written[decoder.window_synced..];
+    if (claims.window_once) {
+        decoder.window.append(rest);
+    } else {
+        for (0..std.math.divCeil(usize, rest.len, constants.window_len) catch unreachable) |_| {
+            const piece = rest[0..@min(rest.len, constants.window_len)];
+            decoder.window.append(piece);
+            rest = rest[piece.len..];
+        }
+    }
     decoder.window_synced = written.len;
 }
 
@@ -222,7 +235,7 @@ fn emit(decoder: *Decoder, writer: *codec.Writer, octet: u8) void {
     decoder.window_synced += 1;
 }
 
-fn read_block_header(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+fn read_block_header(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     if (!bits.ensure(constants.final_bits + constants.type_bits)) return .needs_input;
     decoder.last_block = bits.read(constants.final_bits).? == 1;
     const block_type: constants.BlockType = @enumFromInt(bits.read(constants.type_bits).?);
@@ -230,6 +243,8 @@ fn read_block_header(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Sta
         .stored => decoder.phase = .stored_header,
         .fixed => {
             decoder.fixed_codes = true;
+            // S7 off: the fixed codes' tables are built for this block.
+            if (!claims.comptime_fixed_tables) header.build_tables(claims, decoder, &huffman.fixed_literal_length, &huffman.fixed_distance);
             decoder.phase = .symbols;
         },
         .dynamic => {
@@ -258,10 +273,10 @@ fn read_stored_header(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.St
 
 /// Copies a stored block's octets: those the bit buffer already holds one at a time, then as many
 /// as the input and the room allow in one copy, straight from the input.
-fn copy_stored(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) ?codec.Status {
+fn copy_stored(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) ?codec.Status {
     if (decoder.stored_left == 0) return end_block(decoder);
     if (writer.room_len() == 0) return .needs_room;
-    sync_window(decoder, writer);
+    sync_window(claims, decoder, writer);
     // The block starts on an octet boundary, so the buffer holds whole octets of it.
     assert(bits.bits.count % @bitSizeOf(u8) == 0);
     if (bits.bits.count > 0) {
@@ -279,10 +294,12 @@ fn copy_stored(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer)
 }
 
 /// Runs the fast path while its margins hold, then reads one symbol through the checked path.
-fn read_symbols_fast(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+fn read_symbols_fast(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+    const Fixed = lookup.Fixed(claims.literal_length_table_bits, claims.distance_table_bits, claims.literal_pairs);
+    const comptime_fixed = decoder.fixed_codes and claims.comptime_fixed_tables;
     const codes: fast.Codes = .{
-        .literal_length_table = if (decoder.fixed_codes) &lookup.fixed_literal_length else &decoder.literal_length_table,
-        .distance_table = if (decoder.fixed_codes) &lookup.fixed_distance else &decoder.distance_table,
+        .literal_length_table = if (comptime_fixed) &Fixed.literal_length else &decoder.literal_length_table,
+        .distance_table = if (comptime_fixed) &Fixed.distance else &decoder.distance_table,
         .literal_length_code = block_literal_length_code(decoder),
         .distance_code = block_distance_code(decoder),
     };
@@ -292,14 +309,14 @@ fn read_symbols_fast(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.W
         .distance_max = decoder.distance_max,
         .work = &decoder.work,
     };
-    const end = switch (fast.run(codes, history, bits, writer)) {
-        .margin => fast.run_tail(codes, history, bits, writer),
+    const end = switch (fast.run(claims, codes, history, bits, writer)) {
+        .margin => fast.run_tail(claims, codes, history, bits, writer),
         .end_of_block, .checked => |end| end,
     };
     return switch (end) {
         .end_of_block => end_block(decoder),
         .margin, .checked => {
-            sync_window(decoder, writer);
+            sync_window(claims, decoder, writer);
             return read_symbol(decoder, bits, writer);
         },
     };

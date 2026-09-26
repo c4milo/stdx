@@ -89,7 +89,14 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry, compt
         /// the decoder accepts: its `counts` of each length and its `symbols` in code order (RFC
         /// 1951 §3.2.2). Returns the entries it wrote.
         pub fn build(self: *Self, counts: *const Counts, symbols: []const u16) usize {
-            return build_table(&self.entries, &self.bits, bits_max, counts, symbols, entry_of, pairs);
+            return self.build_shaped(bits_max, pairs, counts, symbols);
+        }
+
+        /// `build`, at most `width` bits wide and with pairs only when `with_pairs` says so, for
+        /// the A/Bs of S2 and S3 (claims.zig).
+        pub fn build_shaped(self: *Self, comptime width: u4, comptime with_pairs: bool, counts: *const Counts, symbols: []const u16) usize {
+            comptime assert(width <= bits_max and (pairs or !with_pairs));
+            return build_table(&self.entries, &self.bits, width, counts, symbols, entry_of, with_pairs);
         }
 
         /// The entry the next bits of the stream select.
@@ -222,18 +229,27 @@ fn reversed(code: u16, len: u4) usize {
 }
 
 /// The tables of the fixed codes (RFC 1951 §3.2.6), built once at comptime (decision 14, S7).
-pub const fixed_literal_length: LiteralLengthTable = fixed: {
-    @setEvalBranchQuota(fixed_build_quota);
-    var table: LiteralLengthTable = undefined;
-    _ = table.build(&huffman.fixed_literal_length.counts, &huffman.fixed_literal_length.symbols);
-    break :fixed table;
-};
-pub const fixed_distance: DistanceTable = fixed: {
-    @setEvalBranchQuota(fixed_build_quota);
-    var table: DistanceTable = undefined;
-    _ = table.build(&huffman.fixed_distance.counts, &huffman.fixed_distance.symbols);
-    break :fixed table;
-};
+pub const fixed_literal_length = Fixed(constants.literal_length_table_bits, constants.distance_table_bits, true).literal_length;
+pub const fixed_distance = Fixed(constants.literal_length_table_bits, constants.distance_table_bits, true).distance;
+
+/// The fixed codes' tables in the shape `build_shaped` gives: as wide as `literal_length_width` and
+/// `distance_width` allow, with pairs when `pairs` says so.
+pub fn Fixed(comptime literal_length_width: u4, comptime distance_width: u4, comptime pairs: bool) type {
+    return struct {
+        pub const literal_length: LiteralLengthTable = fixed: {
+            @setEvalBranchQuota(fixed_build_quota);
+            var table: LiteralLengthTable = undefined;
+            _ = table.build_shaped(literal_length_width, pairs, &huffman.fixed_literal_length.counts, &huffman.fixed_literal_length.symbols);
+            break :fixed table;
+        };
+        pub const distance: DistanceTable = fixed: {
+            @setEvalBranchQuota(fixed_build_quota);
+            var table: DistanceTable = undefined;
+            _ = table.build_shaped(distance_width, false, &huffman.fixed_distance.counts, &huffman.fixed_distance.symbols);
+            break :fixed table;
+        };
+    };
+}
 
 /// The comptime branches building a fixed table takes: a few per entry.
 const fixed_build_quota = 100_000;

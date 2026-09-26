@@ -10,6 +10,7 @@ const constants = @import("constants.zig");
 const deflate = @import("decoder.zig");
 const Decoder = deflate.Decoder;
 const test_stream = @import("test_stream.zig");
+const claims = @import("claims.zig");
 
 /// The most octets a test decodes into.
 const output_len_max = 4096;
@@ -61,6 +62,7 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
     try testing.expectEqual(codec.Status.done, with_padding.status);
     try testing.expectEqual(input.len, with_padding.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..with_padding.written]);
+    try expect_each_claim_off(padded(input, &buffer), with_padding, expected);
     var decoder = fresh();
     const checked = try deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output);
     try testing.expectEqual(whole, checked);
@@ -73,6 +75,18 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
         try testing.expectEqual(codec.Status.done, outcome.status);
         try testing.expectEqual(input.len, outcome.consumed);
         try testing.expectEqualSlices(u8, expected, split_output[0..outcome.written]);
+    }
+}
+
+/// Requires the padded stream to decode as it does with every claim on, with each claim of decision
+/// 14 off in turn (claims.zig).
+fn expect_each_claim_off(input: []const u8, expected_progress: codec.Progress, expected: []const u8) !void {
+    inline for (claims.each_off) |off| {
+        var output: [output_len_max]u8 = undefined;
+        var decoder = fresh();
+        const progress = try deflate.decode_with(.{ .claims = off }, &decoder, input, &output);
+        try testing.expectEqual(expected_progress, progress);
+        try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
     }
 }
 

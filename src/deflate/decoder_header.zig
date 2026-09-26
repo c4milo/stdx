@@ -11,6 +11,8 @@ const Decoder = decoder_module.Decoder;
 const Error = decoder_module.Error;
 const count_work = decoder_module.count_work;
 const low_bits = decoder_module.low_bits;
+const Claims = @import("claims.zig").Claims;
+const huffman = @import("huffman.zig");
 
 /// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills.
 pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
@@ -44,8 +46,8 @@ pub fn read_code_length_code(decoder: *Decoder, bits: *codec.BitReader) Error!?c
 }
 
 /// Reads the code length symbols, with their repeats' extra bits, while the input holds them, then
-/// builds the block's codes after the last length.
-pub fn read_code_lengths(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+/// builds the block's codes after the last length, its tables in the shape `claims` gives.
+pub fn read_code_lengths(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const total = decoder.literal_length_count + decoder.distance_count;
     // Each symbol writes at least one length.
     for (0..total - decoder.header_index) |_| {
@@ -53,7 +55,7 @@ pub fn read_code_lengths(decoder: *Decoder, bits: *codec.BitReader) Error!?codec
         if (try read_code_length(decoder, bits, total)) |status| return status;
     }
     assert(decoder.header_index == total);
-    try build_block_codes(decoder);
+    try build_block_codes(claims, decoder);
     decoder.phase = .symbols;
     return null;
 }
@@ -109,13 +111,23 @@ fn fill_lengths(lengths: []u8, start: usize, count: usize, len: u8) void {
 }
 
 /// Builds a dynamic block's literal/length and distance codes from the lengths just read.
-fn build_block_codes(decoder: *Decoder) Error!void {
+fn build_block_codes(comptime claims: Claims, decoder: *Decoder) Error!void {
     const literal_lengths = decoder.lengths[0..decoder.literal_length_count];
     // RFC 1951 §3.2.7: every block ends with symbol 256, so its code must have a length.
     if (literal_lengths[constants.end_of_block] == 0) return error.MissingEndOfBlock;
     try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
     try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
-    count_work(decoder, decoder.literal_length_table.build(&decoder.literal_length_code.counts, &decoder.literal_length_code.symbols));
-    count_work(decoder, decoder.distance_table.build(&decoder.distance_code.counts, &decoder.distance_code.symbols));
+    build_tables(claims, decoder, &decoder.literal_length_code, &decoder.distance_code);
+}
+
+/// Builds the block's lookup tables from its canonical codes, in the shape `claims` gives.
+pub fn build_tables(
+    comptime claims: Claims,
+    decoder: *Decoder,
+    literal_length_code: *const huffman.Code(constants.literal_length_alphabet_len),
+    distance_code: *const huffman.Code(constants.distance_alphabet_len),
+) void {
+    count_work(decoder, decoder.literal_length_table.build_shaped(claims.literal_length_table_bits, claims.literal_pairs, &literal_length_code.counts, &literal_length_code.symbols));
+    count_work(decoder, decoder.distance_table.build_shaped(claims.distance_table_bits, false, &distance_code.counts, &distance_code.symbols));
 }
