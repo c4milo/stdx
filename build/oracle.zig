@@ -118,6 +118,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_module.addImport("codec", graph.codec);
     bench_module.addImport("deflate", graph.deflate);
     bench_module.addImport("gzip", graph.gzip);
+    bench_module.addImport("checksum", graph.checksum);
     bench_module.addOptions("bench_options", bench_options(b, false));
     const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
     b.installArtifact(bench);
@@ -139,6 +140,7 @@ pub fn add(b: *std.Build, options: Options) void {
     release_fast_module.addImport("codec", release_fast_graph.codec);
     release_fast_module.addImport("deflate", release_fast_graph.deflate);
     release_fast_module.addImport("gzip", release_fast_graph.gzip);
+    release_fast_module.addImport("checksum", release_fast_graph.checksum);
     release_fast_module.addOptions("bench_options", bench_options(b, true));
     const release_fast = b.addExecutable(.{ .name = "bench_deflate_release_fast", .root_module = release_fast_module });
     b.installArtifact(release_fast);
