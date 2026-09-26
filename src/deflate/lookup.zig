@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const huffman = @import("huffman.zig");
 
 /// What a table entry stands for.
 pub const Kind = enum(u3) {
@@ -67,8 +68,9 @@ pub fn distance_entry(symbol: u16, code_bits: u4) Entry {
     };
 }
 
-/// A table for an alphabet whose codes the table takes up to `bits_max` bits of.
-pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type {
+/// A table for an alphabet whose codes the table takes up to `bits_max` bits of, with literal pairs
+/// (decision 14, S3) when `pairs` says so.
+pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry, comptime pairs: bool) type {
     return struct {
         const Self = @This();
 
@@ -76,16 +78,11 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
         /// The bits this block's table is indexed by: its longest code, up to `bits_max`.
         bits: u4,
 
-        /// Builds the table of the code the lengths define (RFC 1951 §3.2.2), which the caller has
-        /// checked is a code the decoder accepts. Returns the entries it wrote.
-        pub fn build(self: *Self, lengths: []const u8) usize {
-            return build_table(&self.entries, &self.bits, bits_max, lengths, entry_of);
-        }
-
-        /// Turns each literal whose index also holds the next literal's whole code into a pair
-        /// (decision 14, S3). Returns the entries it read.
-        pub fn pair_literals(self: *Self) usize {
-            return pair_table_literals(self.entries[0 .. @as(usize, 1) << self.bits], self.bits);
+        /// Builds the table of the canonical code huffman.zig built from a block's lengths, which
+        /// the decoder accepts: its `counts` of each length and its `symbols` in code order (RFC
+        /// 1951 §3.2.2). Returns the entries it wrote.
+        pub fn build(self: *Self, counts: *const Counts, symbols: []const u16) usize {
+            return build_table(&self.entries, &self.bits, bits_max, counts, symbols, entry_of, pairs);
         }
 
         /// The entry the next bits of the stream select.
@@ -95,49 +92,101 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
     };
 }
 
-fn build_table(entries: []Entry, table_bits: *u4, bits_max: u4, lengths: []const u8, entry_of: fn (u16, u4) Entry) usize {
-    var counts: [constants.code_len_max + 1]u16 = @splat(0);
-    for (lengths) |len| counts[len] += 1;
-    counts[0] = 0;
-    const bits = @max(1, @min(bits_max, longest(counts)));
+/// The number of codes of each length, 0 to 15, as huffman.zig counts them: none of length 0.
+pub const Counts = [constants.code_len_max + 1]u16;
+
+/// The entries of the table a build starts from: one bit's.
+const first_table_len = 2;
+
+/// Each code length's first code, the place of its first symbol in code order, and how many of
+/// its symbols are literals, which come first, since symbols of a length are in order.
+const Lengths = struct {
+    first_code: Counts = @splat(0),
+    start: Counts = @splat(0),
+    literals: Counts = @splat(0),
+};
+
+/// Places the codes of each length in a table of that length's size, from the shortest, and
+/// doubles the table before the next length, so each code is written once and each doubling is a
+/// copy. The table starts as two unused values, which each doubling copies on, so an incomplete
+/// code leaves them invalid. A pair of literals whose codes take `len` bits together repeats in the
+/// table every 2^`len` entries, so it is placed once at that length, and the doublings copy it on;
+/// no longer code overwrites it, since no code has a shorter code for its start.
+fn build_table(entries: []Entry, table_bits: *u4, bits_max: u4, counts: *const Counts, symbols: []const u16, entry_of: fn (u16, u4) Entry, pairs: bool) usize {
+    assert(counts[0] == 0);
+    const bits = @max(1, @min(bits_max, longest(counts.*)));
     table_bits.* = bits;
-    const size = @as(usize, 1) << bits;
-    // Every entry is written once by a complete code; an incomplete one leaves some unused.
-    var written: usize = 0;
-    if (!complete(counts)) {
-        @memset(entries[0..size], Entry.invalid);
-        written += size;
-    }
-    var next_code = first_codes(counts);
-    for (lengths, 0..) |len, symbol| {
-        if (len == 0) continue;
-        const code = next_code[len];
-        next_code[len] += 1;
-        const entry = entry_of(@intCast(symbol), @intCast(len));
-        written += place(entries[0..size], bits, entry, @intCast(len), code);
+    @memset(entries[0..first_table_len], Entry.invalid);
+    var written: usize = first_table_len;
+    var lengths: Lengths = .{};
+    var code: u16 = 0;
+    var placed: u16 = 0;
+    for (1..constants.code_len_max + 1) |len| {
+        // RFC 1951 §3.2.2, step 2: the first code of this length.
+        code = (code + counts[len - 1]) << 1;
+        const of_length = symbols[placed..][0..counts[len]];
+        lengths.first_code[len] = code;
+        lengths.start[len] = placed;
+        lengths.literals[len] = literal_count(of_length);
+        if (len > 1 and len <= bits) {
+            const half = @as(usize, 1) << @intCast(len - 1);
+            @memcpy(entries[half..][0..half], entries[0..half]);
+            written += half;
+        }
+        written += place_codes(entries, bits, of_length, @intCast(len), code, entry_of);
+        if (pairs and len <= bits) written += place_pairs(entries, &lengths, symbols, @intCast(len));
+        placed += counts[len];
     }
     return written;
 }
 
-fn pair_table_literals(entries: []Entry, bits: u4) usize {
-    // From the last index down, so the literal an index pairs with, at a smaller index, is still
-    // single when it is read.
-    var index = entries.len;
-    for (0..entries.len) |_| {
-        index -= 1;
-        const first = entries[index];
-        if (first.kind != .literal or first.code_bits >= bits) continue;
-        // The bits after the first code, of which `bits - code_bits` are known.
-        const second = entries[index >> @intCast(first.code_bits)];
-        if (second.kind != .literal or second.code_bits > bits - first.code_bits) continue;
-        entries[index] = .{
-            .code_bits = first.code_bits + second.code_bits,
-            .extra_bits = 0,
-            .kind = .literal_pair,
-            .value = first.value | second.value << @bitSizeOf(u8),
-        };
+/// How many of a length's symbols, in order, are literals.
+fn literal_count(symbols: []const u16) u16 {
+    var count: u16 = 0;
+    for (symbols) |symbol| {
+        if (symbol >= constants.end_of_block) break;
+        count += 1;
     }
-    return entries.len;
+    return count;
+}
+
+/// Writes every pair of literals whose codes take `total` bits together, one entry each, in the
+/// table of that size. Returns how many.
+fn place_pairs(entries: []Entry, lengths: *const Lengths, symbols: []const u16, total: u4) usize {
+    var written: usize = 0;
+    for (1..total) |first_len| {
+        const second_len = total - first_len;
+        for (0..lengths.literals[first_len]) |first| {
+            const low = reversed(@intCast(lengths.first_code[first_len] + first), @intCast(first_len));
+            const first_symbol = symbols[lengths.start[first_len] + first];
+            for (0..lengths.literals[second_len]) |second| {
+                const high = reversed(@intCast(lengths.first_code[second_len] + second), @intCast(second_len));
+                entries[low | high << @intCast(first_len)] = .{
+                    .code_bits = total,
+                    .extra_bits = 0,
+                    .kind = .literal_pair,
+                    .value = first_symbol | symbols[lengths.start[second_len] + second] << @bitSizeOf(u8),
+                };
+            }
+            written += lengths.literals[second_len];
+        }
+    }
+    return written;
+}
+
+/// Writes the entries of the codes of one length, `first_code` and on, one entry each: in the
+/// table of that length's size, or as a long code's prefix in the whole table.
+fn place_codes(entries: []Entry, bits: u4, symbols: []const u16, len: u4, first_code: u16, entry_of: fn (u16, u4) Entry) usize {
+    for (symbols, 0..) |symbol, index| {
+        const code: u16 = @intCast(first_code + index);
+        if (len <= bits) {
+            entries[reversed(code, len)] = entry_of(symbol, len);
+        } else {
+            // The first `bits` bits of the code, as the stream gives them, name its prefix.
+            entries[reversed(code >> (len - bits), bits)] = Entry.long;
+        }
+    }
+    return symbols.len;
 }
 
 /// The longest code's length.
@@ -149,43 +198,8 @@ fn longest(counts: [constants.code_len_max + 1]u16) u4 {
     return len;
 }
 
-/// Writes the entries of one symbol's code into a table of `bits`, and returns how many.
-fn place(entries: []Entry, bits: u4, entry: Entry, len: u4, code: u16) usize {
-    if (len > bits) {
-        // The first `bits` bits of the code, as the stream gives them, name its prefix.
-        entries[reversed(code >> (len - bits), bits)] = Entry.long;
-        return 1;
-    }
-    const step = @as(usize, 1) << len;
-    var index: usize = reversed(code, len);
-    const count = entries.len >> len;
-    for (0..count) |_| {
-        entries[index] = entry;
-        index += step;
-    }
-    return count;
-}
-
-pub const LiteralLengthTable = Table(constants.literal_length_table_bits, literal_length_entry);
-pub const DistanceTable = Table(constants.distance_table_bits, distance_entry);
-
-/// Whether the counts fill the code space: no value unused (RFC 1951 §3.2.2).
-fn complete(counts: [constants.code_len_max + 1]u16) bool {
-    var left: i32 = 1;
-    for (counts[1..]) |count| left = (left << 1) - count;
-    return left == 0;
-}
-
-/// The first code of each length: RFC 1951 §3.2.2's step 2.
-fn first_codes(counts: [constants.code_len_max + 1]u16) [constants.code_len_max + 1]u16 {
-    var next_code: [constants.code_len_max + 1]u16 = @splat(0);
-    var code: u16 = 0;
-    for (1..constants.code_len_max + 1) |len| {
-        code = (code + counts[len - 1]) << 1;
-        next_code[len] = code;
-    }
-    return next_code;
-}
+pub const LiteralLengthTable = Table(constants.literal_length_table_bits, literal_length_entry, true);
+pub const DistanceTable = Table(constants.distance_table_bits, distance_entry, false);
 
 /// A code of `len` bits, most significant first, as the stream packs it: least significant first
 /// (RFC 1951 §3.1.1).
@@ -198,14 +212,13 @@ fn reversed(code: u16, len: u4) usize {
 pub const fixed_literal_length: LiteralLengthTable = fixed: {
     @setEvalBranchQuota(fixed_build_quota);
     var table: LiteralLengthTable = undefined;
-    _ = table.build(&constants.fixed_literal_length_lengths);
-    _ = table.pair_literals();
+    _ = table.build(&huffman.fixed_literal_length.counts, &huffman.fixed_literal_length.symbols);
     break :fixed table;
 };
 pub const fixed_distance: DistanceTable = fixed: {
     @setEvalBranchQuota(fixed_build_quota);
     var table: DistanceTable = undefined;
-    _ = table.build(&constants.fixed_distance_lengths);
+    _ = table.build(&huffman.fixed_distance.counts, &huffman.fixed_distance.symbols);
     break :fixed table;
 };
 

@@ -93,11 +93,11 @@ pub const distance_table_bits = 8;
 pub const copy_chunk_len = 16;
 pub const copy_word_len = @sizeOf(u64);
 
-/// Invariant 17's count for one lookup table's build, at most: a clear of every entry when the
-/// code is incomplete, every entry once, one more for each code longer than the table, and a pass
-/// over every entry that pairs literals.
+/// Invariant 17's count for one lookup table's build, at most: every entry once as the table
+/// doubles, one more for each code, and one for each pair of literals, which takes an entry of
+/// its own.
 pub fn table_build_work_max(table_bits: u4, symbols: usize) usize {
-    return 3 * (@as(usize, 1) << table_bits) + symbols;
+    return 2 * (@as(usize, 1) << table_bits) + symbols;
 }
 
 /// Invariant 17's count for one code build, at most: the build reads each code length twice, to

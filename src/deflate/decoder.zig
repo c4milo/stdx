@@ -275,15 +275,23 @@ fn read_code_length_code(decoder: *Decoder, bits: *codec.BitReader) Error!?codec
     return null;
 }
 
-/// Reads one code length symbol, with a repeat's extra bits, or builds the block's codes after the
-/// last length.
+/// Reads the code length symbols, with their repeats' extra bits, while the input holds them, then
+/// builds the block's codes after the last length.
 fn read_code_lengths(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const total = decoder.literal_length_count + decoder.distance_count;
-    if (decoder.header_index == total) {
-        try build_block_codes(decoder);
-        decoder.phase = .symbols;
-        return null;
+    // Each symbol writes at least one length.
+    for (0..total - decoder.header_index) |_| {
+        if (decoder.header_index == total) break;
+        if (try read_code_length(decoder, bits, total)) |status| return status;
     }
+    assert(decoder.header_index == total);
+    try build_block_codes(decoder);
+    decoder.phase = .symbols;
+    return null;
+}
+
+/// Reads one code length symbol, with a repeat's extra bits.
+fn read_code_length(decoder: *Decoder, bits: *codec.BitReader, total: u16) Error!?codec.Status {
     _ = bits.ensure(constants.code_length_symbol_bits_max);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);
@@ -324,7 +332,12 @@ fn code_length_repeat(decoder: *const Decoder, symbol: u16, extra: u64, availabl
 
 fn fill_lengths(lengths: []u8, start: usize, count: usize, len: u8) void {
     assert(start + count <= lengths.len);
-    @memset(lengths[start..][0..count], len);
+    // Most symbols write one length, which a call to memset would cost more than.
+    if (count == 1) {
+        lengths[start] = len;
+    } else {
+        @memset(lengths[start..][0..count], len);
+    }
 }
 
 /// Builds a dynamic block's literal/length and distance codes from the lengths just read.
@@ -335,9 +348,8 @@ fn build_block_codes(decoder: *Decoder) Error!void {
     try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
     try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
-    count_work(decoder, decoder.literal_length_table.build(literal_lengths));
-    count_work(decoder, decoder.literal_length_table.pair_literals());
-    count_work(decoder, decoder.distance_table.build(distance_lengths));
+    count_work(decoder, decoder.literal_length_table.build(&decoder.literal_length_code.counts, &decoder.literal_length_code.symbols));
+    count_work(decoder, decoder.distance_table.build(&decoder.distance_code.counts, &decoder.distance_code.symbols));
 }
 
 /// Runs the fast path while its margins hold, then reads one symbol through the checked path.

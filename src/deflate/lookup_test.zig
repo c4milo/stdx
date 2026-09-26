@@ -8,25 +8,52 @@ const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const lookup = @import("lookup.zig");
 
+/// Builds `table` from the canonical code of `lengths`, and returns the entries the build wrote.
+fn build(table: anytype, lengths: []const u8, completeness: huffman.Completeness) !usize {
+    var code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
+    var work: huffman.Work = 0;
+    try code.build(lengths, completeness, &work);
+    return table.build(&code.counts, &code.symbols);
+}
+
+/// The canonical decode of the bits of `index` in a table of `bits`, followed by ones: the canonical
+/// decode needs at most 15.
+fn decode(code: anytype, index: usize, bits: u6) huffman.Decoded {
+    return code.decode(index | (~@as(u64, 0) << bits), constants.code_len_max);
+}
+
+/// The entry the canonical decode says `index` of a table of `bits` holds: the symbol whose code
+/// its bits start with, or with `pairs`, both literals when a second one's code follows whole.
+fn expected_entry(code: anytype, index: usize, bits: u4, pairs: bool, comptime entry_of: fn (u16, u4) lookup.Entry) lookup.Entry {
+    const first = switch (decode(code, index, bits)) {
+        .symbol => |symbol| symbol,
+        .invalid => return .{ .code_bits = 0, .extra_bits = 0, .kind = .invalid, .value = 0 },
+        .needs_bits => unreachable,
+    };
+    if (first.len > bits) return .{ .code_bits = 0, .extra_bits = 0, .kind = .long, .value = 0 };
+    const single = entry_of(first.value, @intCast(first.len));
+    if (!pairs or single.kind != .literal or first.len >= bits) return single;
+    const second = switch (decode(code, index >> @intCast(first.len), bits - @as(u4, @intCast(first.len)))) {
+        .symbol => |symbol| symbol,
+        .invalid, .needs_bits => return single,
+    };
+    if (second.value >= constants.end_of_block or first.len + second.len > bits) return single;
+    return .{
+        .code_bits = @intCast(first.len + second.len),
+        .extra_bits = 0,
+        .kind = .literal_pair,
+        .value = first.value | second.value << @bitSizeOf(u8),
+    };
+}
+
 /// Requires every entry of `table` to say what the canonical decode of its index says.
 fn expect_agrees(comptime Table: type, table: *const Table, lengths: []const u8, completeness: huffman.Completeness, comptime entry_of: fn (u16, u4) lookup.Entry) !void {
     var code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
     var work: huffman.Work = 0;
     try code.build(lengths, completeness, &work);
-    const size = @as(usize, 1) << table.bits;
-    for (0..size) |index| {
-        const entry = table.lookup(index);
-        // The index's bits, then ones: the canonical decode needs at most 15.
-        const bits = index | (~@as(u64, 0) << table.bits);
-        switch (code.decode(bits, constants.code_len_max)) {
-            .symbol => |symbol| if (symbol.len <= table.bits) {
-                try testing.expectEqual(entry_of(symbol.value, @intCast(symbol.len)), entry);
-            } else {
-                try testing.expectEqual(lookup.Kind.long, entry.kind);
-            },
-            .invalid => try testing.expectEqual(lookup.Kind.invalid, entry.kind),
-            .needs_bits => unreachable,
-        }
+    const pairs = Table == lookup.LiteralLengthTable;
+    for (0..@as(usize, 1) << table.bits) |index| {
+        try testing.expectEqual(expected_entry(&code, index, table.bits, pairs, entry_of), table.lookup(index));
     }
 }
 
@@ -46,11 +73,12 @@ test "codes longer than the table mark their prefixes long" {
     for (0..constants.code_len_max) |index| lengths[index] = @intCast(index + 1);
     lengths[constants.end_of_block] = constants.code_len_max;
     var table: lookup.LiteralLengthTable = undefined;
-    const written = table.build(&lengths);
+    const written = try build(&table, &lengths, .complete);
     try testing.expectEqual(constants.literal_length_table_bits, table.bits);
-    // 2^11 entries for the codes of 1 to 11 bits and the one prefix of the longer codes, which
-    // each of the five longer codes writes.
-    try testing.expectEqual((1 << 11) - 1 + 5, written);
+    // 2^11 entries as the table doubles from two, one for each of the 16 codes, of which the five
+    // longer than the table write their shared prefix, and one for each of the 55 pairs of the
+    // literals of 1 to 10 bits whose lengths sum to 11 or less.
+    try testing.expectEqual((1 << 11) + 16 + 55, written);
     try expect_agrees(lookup.LiteralLengthTable, &table, &lengths, .complete, lookup.literal_length_entry);
 }
 
@@ -60,7 +88,8 @@ test "a table is as wide as its longest code" {
     lengths[constants.end_of_block] = 2;
     lengths[constants.first_length_symbol] = 2;
     var table: lookup.LiteralLengthTable = undefined;
-    try testing.expectEqual(4, table.build(&lengths));
+    // Four entries, three codes, and literal 0 twice.
+    try testing.expectEqual(4 + 3 + 1, try build(&table, &lengths, .complete));
     try testing.expectEqual(2, table.bits);
     try expect_agrees(lookup.LiteralLengthTable, &table, &lengths, .complete, lookup.literal_length_entry);
 }
@@ -68,10 +97,10 @@ test "a table is as wide as its longest code" {
 test "RFC 1951 section 3.2.7's incomplete distance codes leave the unused values invalid" {
     var table: lookup.DistanceTable = undefined;
     const single = [_]u8{ 0, 1 };
-    try testing.expectEqual(3, table.build(&single));
+    try testing.expectEqual(2 + 1, try build(&table, &single, .distance));
     try expect_agrees(lookup.DistanceTable, &table, &single, .distance, lookup.distance_entry);
     const none = [_]u8{ 0, 0 };
-    _ = table.build(&none);
+    _ = try build(&table, &none, .distance);
     try testing.expectEqual(lookup.Kind.invalid, table.lookup(0).kind);
     try testing.expectEqual(lookup.Kind.invalid, table.lookup(1).kind);
 }
@@ -84,7 +113,7 @@ test "every seeded complete code's table agrees with the canonical decode" {
         complete_lengths(&generator, lengths[0..symbols]);
         shuffle(&generator, &lengths);
         var table: lookup.LiteralLengthTable = undefined;
-        _ = table.build(&lengths);
+        _ = try build(&table, &lengths, .complete);
         try expect_agrees(lookup.LiteralLengthTable, &table, &lengths, .complete, lookup.literal_length_entry);
     }
 }
@@ -119,8 +148,9 @@ test "a pair holds the two literals the canonical decode reads, and nothing else
     lengths[constants.end_of_block] = 6;
     lengths[constants.first_length_symbol] = 1;
     var table: lookup.LiteralLengthTable = undefined;
-    _ = table.build(&lengths);
-    try testing.expectEqual(1 << 6, table.pair_literals());
+    // The table doubles to 64 entries from two, the 7 codes each write one, and each of the 6
+    // pairs one, which the doublings after copy to the 11 indexes counted below.
+    try testing.expectEqual(64 + 7 + 6, try build(&table, &lengths, .complete));
     var code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
     var work: huffman.Work = 0;
     try code.build(&lengths, .complete, &work);

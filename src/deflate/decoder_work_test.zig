@@ -81,12 +81,12 @@ fn minimal_block(stream: *Stream, last: bool, shape: Shape, literal_count: usize
     }
     for (0..literal_count) |_| stream.code(0, 1);
     stream.code(1, 1);
-    // The lookup tables of one-bit codes hold two entries. The literal/length table is written,
-    // then passed over for literal pairs. The distance table is cleared first, because a code of
-    // one code or none is incomplete, and its one code, if any, written after.
+    // The lookup tables of one-bit codes hold two entries, both cleared, then a write for each
+    // code: literal 0 and end-of-block, and the distance code's one code, if any. No two codes
+    // fit one bit together, so no pair is placed.
     const table_entries = 2;
-    const literal_length_table_passes = 2;
-    const literal_length_table_work = literal_length_table_passes * table_entries;
+    const literal_length_codes = 2;
+    const literal_length_table_work = table_entries + literal_length_codes;
     const distance_table_work: u64 = table_entries + @as(u64, @intFromBool(rest == 1));
     return constants.code_lengths_len + code_length_count + constants.build_work_max(constants.code_length_alphabet_len) +
         code_length_symbols + literal_length_count + distance_count + constants.build_work_max(literal_length_count) +
