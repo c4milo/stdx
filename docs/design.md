@@ -572,6 +572,34 @@ to 12 are reordered and nothing else changes.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
   colibri may then pin the commit (colibri's design §8 step 14).
 
+  **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted
+  runners.
+  - The whole-buffer helpers of decision 11. `codec.whole` turns a call's progress into a
+    `codec.Whole`, or into `error.Truncated` for `needs_input` and `error.NoSpaceLeft` for
+    `needs_room` (561a174). `decode_all` makes one call for raw DEFLATE and zlib (c564381,
+    6d4136e). For gzip it calls `init` after each member and goes on while input remains, and the
+    20 octets of the shortest member bound its loop (ff5b8e1). `encode_all` and
+    `encoded_len_max` come with the encoders, from step 9.
+  - `differential-deflate` decodes each stream through `decode_all` as well (3a52743), and passed
+    on both runners in CI run
+    [36255493108](https://github.com/c4milo/stdx/actions/runs/36255493108): 5,769 streams and
+    1,659,548 corruptions, 0 failed, and 2,690 disagreements that step 6's verdict entries match.
+  - [Issue 1](https://github.com/c4milo/stdx/issues/1)'s list, each item with the entry that
+    proves it:
+    - stdx, zlib and Wuffs decode the same octets, from zlib's streams at every level and strategy
+      in all three containers, stdx in pieces a seed draws: steps 5 and 6, and the run above.
+    - Seeded corruptions: stdx refuses every input zlib refuses, but for one shape. A dynamic
+      block's header whose HDIST declares 31 or 32 distance codes, which RFC 1951 §3.2.7 allows,
+      zlib refuses at once, and stdx reads on (step 5). Where zlib and Wuffs disagree, a verdict
+      entry records the RFC section: the CRC16 of FHCRC (RFC 1952 §2.3.1), and a CRC32 or a
+      reserved FLG bit that Wuffs reads past (step 6).
+    - The throughput against zlib and Wuffs on Linux, and against zlib-ng and libdeflate: step 7.
+    - Fuzzing and mutations: every step's entry, and the `fuzz` workflow's run
+      [36251966069](https://github.com/c4milo/stdx/actions/runs/36251966069) at 6988cf5.
+    - zlib and Wuffs as lazy packages pinned by hash, compiled in `tools/` and `bench/` alone:
+      step 2 ([issue 2](https://github.com/c4milo/stdx/issues/2)).
+  - Mutations are listed in each commit's body.
+
 - **Step 9: the DEFLATE encoder.** Levels 1, 6 and 9 (decisions 12 and 13), in all three
   containers, with `Flush.flush` and `encoded_len_max`.
   **Check:** decision 15 for encoders: every output decodes to its input through zlib, Wuffs and
