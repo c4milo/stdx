@@ -419,9 +419,9 @@ fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
 fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
     const source = target - distance;
     if (distance >= constants.copy_chunk_len) {
-        copy_chunks(constants.copy_chunk_len, output, target, source, len);
+        copy_chunks(constants.copy_chunk_len, output, target, distance, len);
     } else if (distance >= constants.copy_word_len) {
-        copy_chunks(constants.copy_word_len, output, target, source, len);
+        copy_chunks(constants.copy_word_len, output, target, distance, len);
     } else if (distance == 1) {
         fill(output, target, output[source], len);
     } else {
@@ -434,14 +434,14 @@ const chunks_unconditional = 2;
 
 /// Copies `len` octets in chunks of `chunk_len`: the first `chunks_unconditional` whatever the
 /// length, and the rest in a loop.
-fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, source: usize, len: usize) void {
-    // The first chunks' target and source, each bounded once: the chunks inside them sit at
-    // offsets known at compile time, so their bounds need no check.
+fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
+    // The first chunks' source and target lie in one span, bounded once: the chunks inside it
+    // sit at offsets its length covers, so their bounds need no check.
     const head_len = chunks_unconditional * chunk_len;
-    const head_target = output[target..][0..head_len];
-    const head_source = output[source..][0..head_len];
+    const source = target - distance;
+    const span = output[source..][0 .. distance + head_len];
     inline for (0..chunks_unconditional) |chunk| {
-        head_target[chunk * chunk_len ..][0..chunk_len].* = head_source[chunk * chunk_len ..][0..chunk_len].*;
+        span[distance..][chunk * chunk_len ..][0..chunk_len].* = span[chunk * chunk_len ..][0..chunk_len].*;
     }
     if (len <= head_len) return;
     const chunks = std.math.divCeil(usize, len, chunk_len) catch unreachable;
