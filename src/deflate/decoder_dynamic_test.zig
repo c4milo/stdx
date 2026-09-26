@@ -162,6 +162,47 @@ test "codes longer than the fast path's tables decode alike, literals, lengths a
     try decoder_test.expect_decodes(stream.slice(), "abcdefghijklmnmnmmmmn" ++ run ** 16);
 }
 
+test "a call that ends in a dynamic header leaves the fast path's octets in the window" {
+    // A fixed block of 300 literals, which the fast path and its tail decode whole when the input
+    // goes on, then a dynamic block whose match reaches back to the first literal. At some cut the
+    // first call ends in the dynamic block's header, with the checked path never having run.
+    var stream: Stream = .{};
+    stream.block_header(false, .fixed);
+    var expected: [300 + 3 + 1]u8 = undefined;
+    for (expected[0..300], 0..) |*octet, index| {
+        octet.* = @truncate(index *% 13);
+        stream.fixed_literal(octet.*);
+    }
+    stream.fixed_literal(constants.end_of_block);
+    // 'x', end-of-block and length code 257 take 1, 2 and 2 bits; distance codes 0 and 16 a bit
+    // each, and code 16 takes 7 extra bits for 257 to 384 (RFC 1951 §3.2.5).
+    var block: Dynamic = .{ .literal_count = constants.first_length_symbol + 1, .distance_count = 17 };
+    block.literal_lengths['x'] = 1;
+    block.literal_lengths[constants.end_of_block] = 2;
+    block.literal_lengths[constants.first_length_symbol] = 2;
+    block.distance_lengths[0] = 1;
+    block.distance_lengths[16] = 1;
+    block.header(&stream, true);
+    block.literal(&stream, constants.first_length_symbol);
+    block.distance(&stream, 16);
+    stream.bits(300 - 257, 7);
+    block.literal(&stream, 'x');
+    block.literal(&stream, constants.end_of_block);
+    @memcpy(expected[300..][0..3], expected[0..3]);
+    expected[303] = 'x';
+    const input = stream.slice();
+    for (1..input.len) |cut| {
+        var decoder: deflate.Decoder = undefined;
+        deflate.init(&decoder, .{});
+        var output: [expected.len]u8 = undefined;
+        const first = try deflate.decode(&decoder, input[0..cut], &output);
+        try testing.expectEqual(codec.Status.needs_input, first.status);
+        const second = try deflate.decode(&decoder, input[first.consumed..], output[first.written..]);
+        try testing.expectEqual(codec.Status.done, second.status);
+        try testing.expectEqualSlices(u8, &expected, output[0 .. first.written + second.written]);
+    }
+}
+
 test "RFC 1951 section 3.2.7: a single one-bit distance code, and no distance code at all" {
     var single = small_block();
     single.distance_lengths[1] = 0;

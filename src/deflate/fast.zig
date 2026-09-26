@@ -5,9 +5,9 @@
 //! room remain, checked once at the top of each iteration. It refills a 64-bit bit buffer with one
 //! 8-octet little-endian load (S1), decodes each symbol with one lookup in the block's tables (S2),
 //! and copies a match in chunks of `constants.copy_chunk_len` octets, overrunning into the room
-//! the margin leaves (S4). It writes straight into the caller's output, reads history from the
-//! output and, for what came before the call, from the window, and appends what it wrote to the
-//! window when it stops (S5).
+//! the margin leaves (S4). It writes straight into the caller's output and reads history from the
+//! output and, for what the window holds, from the window; the decoder appends the call's last
+//! octets to the window once, when the call ends or the checked path needs it (S5).
 //!
 //! It decodes only what is valid and common: at a value no code names, a symbol RFC 1951 says
 //! never occurs, or a distance past the history, it stops before using the symbol's bits, and the
@@ -66,6 +66,9 @@ pub const Codes = struct {
 /// The history the loop reads and extends.
 pub const History = struct {
     window: *codec.Window(constants.window_len),
+    /// Where the output stands in the window: the octets before it are in the window, and the
+    /// caller appends those after it, the loop's among them, when it next syncs.
+    synced: usize,
     /// The farthest distance the stream may take (`limit_window`).
     distance_max: usize,
     /// Invariant 17's count, which a test build keeps.
@@ -81,7 +84,7 @@ const Loop = struct {
     count: u32,
     output: []u8,
     written: usize,
-    /// Where the output stood when the loop started: the window holds everything before it.
+    /// Where the output stands in the window: the window holds everything before it.
     start: usize,
     /// The window's reach when the loop started.
     reach_before: usize,
@@ -170,7 +173,7 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
         .count = bits.bits.count,
         .output = writer.octets,
         .written = writer.position,
-        .start = writer.position,
+        .start = history.synced,
         .reach_before = history.window.reach(),
         .literal_length_mask = (@as(u64, 1) << codes.literal_length_table.bits) - 1,
         .distance_mask = (@as(u64, 1) << codes.distance_table.bits) - 1,
@@ -188,7 +191,6 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
     };
     bits.reader.position = loop.position;
     writer.position = loop.written;
-    history.window.append(loop.output[loop.start..loop.written]);
     if (builtin.is_test) history.work.* += loop.decoded;
     return end;
 }
