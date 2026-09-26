@@ -4,7 +4,7 @@
 
 pub const constants = @import("constants.zig");
 
-const decoder = @import("decoder.zig");
+const decoder = @import("decoder/decoder.zig");
 pub const DecoderOptions = decoder.DecoderOptions;
 pub const Decoder = decoder.Decoder;
 /// The decoder of the `zstd` content coding: a window of 2^23 octets (RFC 9659 §3, decision 12).

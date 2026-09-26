@@ -5,9 +5,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const checksum = @import("checksum");
-const constants = @import("constants.zig");
-const frame = @import("frame.zig");
-const block = @import("block.zig");
+const constants = @import("../constants.zig");
+const frame = @import("../frame.zig");
+const block = @import("../block.zig");
 const decoder = @import("decoder.zig");
 
 const DecoderOptions = decoder.DecoderOptions;
