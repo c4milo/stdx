@@ -9,6 +9,10 @@
 //! stream until it has written at least `decoded_len_min` octets, after one decode checked against
 //! the file.
 //!
+//! Before the counters, on every host, it prints S2's count (decision 14): how stdx's decoder
+//! took each symbol of each file's raw DEFLATE stream at the same level, by one lookup in its
+//! tables, by the canonical code after a lookup, or on the checked path.
+//!
 //! Usage: `bench_profile <name>=<path>...`. It prints a Markdown table to standard output.
 
 const std = @import("std");
@@ -17,6 +21,7 @@ const linux = std.os.linux;
 const oracle = @import("oracle");
 const codec = @import("codec");
 const gzip = @import("gzip");
+const deflate = @import("deflate");
 const baselines = @import("baselines");
 
 /// The zlib level of the streams, bench-deflate's.
@@ -110,6 +115,22 @@ const candidates = [_]Candidate{
     .{ .name = "stdx", .decode = decode_stdx },
 };
 
+/// Prints S2's count for one file: the symbols of its raw DEFLATE stream, and how stdx took them.
+fn report_lookups(arena: std.mem.Allocator, out: *std.Io.Writer, name: []const u8, input: []const u8) !void {
+    const encoded = try arena.alloc(u8, oracle.zlib_bound(.raw, input.len));
+    const encoding: oracle.Encoding = .{ .container = .raw, .level = encode_level, .strategy = .default };
+    const stream = encoded[0..oracle.zlib_encode(encoding, input, encoded).written];
+    const output = try arena.alloc(u8, input.len);
+    const decoder = try arena.create(deflate.Decoder);
+    deflate.init(decoder, .{});
+    var lookups: deflate.Lookups = .{};
+    const progress = try deflate.decode_counting(.{}, decoder, stream, output, &lookups);
+    if (progress.status != .done or !std.mem.eql(u8, input, output)) return error.CandidateDisagrees;
+    const symbols = lookups.table + lookups.canonical + lookups.checked;
+    const share = @as(f64, @floatFromInt(lookups.table)) / @as(f64, @floatFromInt(@max(1, symbols)));
+    try out.print("| {s} | {d} | {d} | {d} | {d} | {d:.4} |\n", .{ name, symbols, lookups.table, lookups.canonical, lookups.checked, share });
+}
+
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
@@ -117,6 +138,15 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [4096]u8 = undefined;
     var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
+    try out.print("## S2: how stdx's decoder took each symbol, raw DEFLATE at zlib level {d}\n\n", .{encode_level});
+    try out.print("| File | Symbols | One lookup | Canonical code | Checked path | One lookup, share |\n", .{});
+    try out.print("|---|---|---|---|---|---|\n", .{});
+    for (args[1..]) |argument| {
+        const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
+        const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
+        try report_lookups(arena, out, argument[0..split], input);
+    }
+    try out.print("\n## Hardware counters per decoded octet, gzip at zlib level {d}\n\n", .{encode_level});
     if (comptime builtin.os.tag != .linux) {
         try out.print("Hardware counters are read through Linux's perf_event_open; this host is not Linux.\n", .{});
         try out.flush();

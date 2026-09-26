@@ -201,6 +201,7 @@ pub fn add(b: *std.Build, options: Options) void {
     profile_module.addImport("oracle", oracle);
     profile_module.addImport("codec", graph.codec);
     profile_module.addImport("gzip", graph.gzip);
+    profile_module.addImport("deflate", graph.deflate);
     profile_module.addImport("baselines", baselines_module);
     const profile = b.addExecutable(.{ .name = "bench_profile", .root_module = profile_module });
     b.installArtifact(profile);
