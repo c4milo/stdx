@@ -164,9 +164,10 @@ fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: 
     self.previous = .{};
 }
 
-/// The longest match at `position` among `candidates_max` earlier positions with its hash, the
-/// nearest first, up to `len_max` octets; a search ends early at `nice_len`. When the match waiting
-/// from the position before is at least `cut_len` long, the search tries `cut_candidates_max`.
+/// The longest match at `position` of at least `match_len_taken_min` octets, or none, among
+/// `candidates_max` earlier positions with its hash, the nearest first, up to `len_max` octets; a
+/// search ends early at `nice_len`. When the match waiting from the position before is at least
+/// `cut_len` long, the search tries `cut_candidates_max`.
 fn best(comptime level: constants.Level, self: *const Matcher(level), len_max: usize) Match {
     var found: Match = .{};
     if (self.position + constants.hash_len > self.filled) return found;
@@ -184,7 +185,8 @@ fn best(comptime level: constants.Level, self: *const Matcher(level), len_max: u
     return found;
 }
 
-/// `found`, or the match at `candidate` when it is longer and near enough.
+/// `found`, or the match at `candidate` when it is longer, at least `match_len_taken_min` octets
+/// long, and near enough.
 fn try_candidate(comptime level: constants.Level, self: *const Matcher(level), candidate: u16, len_max: usize, found: Match) Match {
     if (candidate == 0 or candidate >= self.position) return found;
     const distance = self.position - candidate;

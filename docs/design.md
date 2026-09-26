@@ -669,7 +669,44 @@ to 12 are reordered and nothing else changes.
     seeded search of 180 inputs of 400 KiB, random octets with a match across each threshold, came
     no closer than 13 octets under the bound without the term. The term stays until a proof
     removes it.
-  - Open: E4 and E5 are not written, and E1's and E2's A/Bs have not run.
+  - After the check, level 6 on JSON, 2026-09-26. A profile of level 6 over json-1m, on macOS, put
+    48% of the samples in `match_len` and 38% in the search around it. Of the candidates level 6
+    tries on json-1m, html-1m, dickens's first MiB and kennedy.xls, 88% to 96% differ from the
+    current position at the octet where the match found so far stops, so they cannot win, yet
+    each paid a full compare.
+    - 533b36a compares the 4 octets that end there before `match_len`, and changes no output.
+      Comparing one octet instead slowed E.coli at level 6 to 0.79 of its speed on the N2, in
+      bench run [36266160954](https://github.com/c4milo/stdx/actions/runs/36266160954): with four
+      letters, a quarter of candidates passed it, and its branch mispredicted. Bench run
+      [36267745579](https://github.com/c4milo/stdx/actions/runs/36267745579) on the N2, stdx over
+      zlib, the geometric mean over the corpus: level 6 from 0.89 to 1.04, level 9 from 1.05 to
+      1.28, level 1 unchanged, and no file slower.
+    - 7aa0098 cuts the lazy step's search to a quarter of `candidates_max` once the waiting match is
+      8 octets or longer, as the owner ruled on 2026-09-26. The counts below are the encoder's
+      decisions, the same on every host.
+
+      | File | Level 6 candidates per octet | Level 6 ratio | Level 9 candidates per octet | Level 9 ratio |
+      |---|---|---|---|---|
+      | json-1m | 3.10 to 2.01 | 8.464 to 8.433 | 18.18 to 15.91 | 8.660, unchanged |
+      | kennedy.xls | 10.67 to 3.98 | 5.106 to 5.078 | 146.36 to 75.12 | 5.117, unchanged |
+      | ptt5 | 1.74 to 1.27 | 9.332 to 9.311 | 47.94 to 20.32 | 9.896 to 9.867 |
+      | html-1m | 2.94 to 2.35 | 5.939 to 5.936 | 4.50, unchanged | 5.960, unchanged |
+      | dickens's first MiB | 5.78 to 5.18 | 2.696 to 2.695 | 7.60, unchanged | 2.700, unchanged |
+
+      Bench run [36267746852](https://github.com/c4milo/stdx/actions/runs/36267746852) on the N2,
+      against 10b90db's run: level 6 at 1.15 of zlib from 0.89, level 9 at 1.38 from 1.05, and
+      level 6 on json-1m at 0.89 from 0.53, on json-16k at 0.98 from 0.49, on kennedy.xls at 1.23
+      from 0.44. Its x86-64 job ran on an EPYC 9V45, not the EPYC 7763 of 10b90db's run, so its
+      numbers are not compared. The reports are
+      `bench/results/2026-09-26-deflate-encoder-search-*.md`.
+    - A review of these two commits found a break of invariant 5 from 1d28c05. A caller that gave
+      the octets filling the window with `none`, then flushed or finished in an empty call, got a
+      block boundary one call does not make: the empty call slid the window, and a slide ends the
+      block. 283fbb8 slides the window only to take more input. The split driver now holds back a
+      flush or `finish` to an empty call, and differential-encode's 256 KiB prefixes, which end as
+      the window fills, fail without the fix.
+  - Open: E4 and E5 are not written, and E1's and E2's A/Bs have not run. Level 1, which neither
+    change touches, ran at 0.47 to 0.67 of libdeflate's and zlib-ng's speed in 10b90db's run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
   SHA-256 (decision 18).

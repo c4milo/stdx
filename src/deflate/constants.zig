@@ -209,10 +209,10 @@ pub const Level = struct {
     candidates_max: u16,
     nice_len: u16,
     lazy_len: u16,
-    /// The lazy step's search tries at most `cut_candidates_max` candidates when the match waiting
-    /// from the position before is at least `cut_len` long, as a longer match then saves less.
-    /// Measured at design §8 step 9: at level 6, 8 and 32 try 35% fewer candidates on json-1m and
-    /// 63% fewer on kennedy.xls, for at most 0.5% of the ratio.
+    /// The lazy step's search tries at most `cut_candidates_max` candidates, a quarter of
+    /// `candidates_max`, when the match waiting from the position before is at least `cut_len`
+    /// long, as a longer match then saves less. Design §8 step 9 records what the cut saves and
+    /// what it costs.
     cut_len: u16,
     cut_candidates_max: u16,
     /// What decision 12 budgets for the encoder's state at this level.
