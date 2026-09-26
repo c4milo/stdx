@@ -20,7 +20,8 @@ pub const Features = struct {
     pclmul: bool = false,
     /// x86-64: AVX2, with the operating system saving the YMM registers.
     avx2: bool = false,
-    /// x86-64: AVX-512 F, BW and VL, with the operating system saving the ZMM registers.
+    /// x86-64: AVX-512 F, BW, DQ and VL, with the operating system saving the ZMM registers: the
+    /// features the AVX-512 variant objects are compiled for (decision 21).
     avx512: bool = false,
     /// x86-64: VPCLMULQDQ, carry-less multiplication on YMM and ZMM registers.
     vpclmul: bool = false,
@@ -82,7 +83,7 @@ fn from_target(cpu: std.Target.Cpu) Features {
         .x86_64 => .{
             .pclmul = has_x86(cpu, .pclmul) and has_x86(cpu, .sse4_1),
             .avx2 = has_x86(cpu, .avx2),
-            .avx512 = has_x86(cpu, .avx512f) and has_x86(cpu, .avx512bw) and has_x86(cpu, .avx512vl),
+            .avx512 = has_x86(cpu, .avx512f) and has_x86(cpu, .avx512bw) and has_x86(cpu, .avx512dq) and has_x86(cpu, .avx512vl),
             .vpclmul = has_x86(cpu, .vpclmulqdq),
             .vnni = has_x86(cpu, .avx512vnni),
         },
@@ -108,9 +109,10 @@ const x86 = struct {
     const ecx_sse4_1 = 0x0008_0000;
     const ecx_osxsave = 0x0800_0000;
     const ecx_avx = 0x1000_0000;
-    // Leaf 7, EBX: bits 5, 16, 30 and 31; ECX: bits 10 and 11.
+    // Leaf 7, EBX: bits 5, 16, 17, 30 and 31; ECX: bits 10 and 11.
     const ebx_avx2 = 0x0000_0020;
     const ebx_avx512f = 0x0001_0000;
+    const ebx_avx512dq = 0x0002_0000;
     const ebx_avx512bw = 0x4000_0000;
     const ebx_avx512vl = 0x8000_0000;
     const ecx_vpclmulqdq = 0x0000_0400;
@@ -177,7 +179,7 @@ const X86Registers = struct { leaf_1_ecx: u32, leaf_7_ebx: u32, leaf_7_ecx: u32,
 fn from_x86(registers: X86Registers) Features {
     const ymm = registers.xcr0 & x86.xcr0_ymm == x86.xcr0_ymm;
     const zmm = ymm and registers.xcr0 & x86.xcr0_zmm == x86.xcr0_zmm;
-    const avx512_bits = x86.ebx_avx512f | x86.ebx_avx512bw | x86.ebx_avx512vl;
+    const avx512_bits = x86.ebx_avx512f | x86.ebx_avx512bw | x86.ebx_avx512dq | x86.ebx_avx512vl;
     return .{
         .pclmul = all(registers.leaf_1_ecx, x86.ecx_pclmulqdq | x86.ecx_sse4_1),
         .avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2),
@@ -244,7 +246,7 @@ test "none holds nothing, and intersect and with combine field by field" {
 test "the x86-64 registers map each feature, and XCR0 gates the vector registers" {
     const every: X86Registers = .{
         .leaf_1_ecx = 0x0000_0002 | 0x0008_0000,
-        .leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000,
+        .leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x4000_0000 | 0x8000_0000,
         .leaf_7_ecx = 0x0000_0400 | 0x0000_0800,
         .xcr0 = 0b1110_0111,
     };
@@ -266,8 +268,12 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     // each path that uses it requires AVX-512 as well.
     var partial = every;
     partial.leaf_1_ecx = 0x0000_0002;
-    partial.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x8000_0000;
+    partial.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x8000_0000;
     try testing.expectEqual(Features{ .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(partial));
+    // AVX-512 F, BW and VL without DQ, whose VPMULLQ the XXH64 path runs: no AVX-512.
+    var no_dq = every;
+    no_dq.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000;
+    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
 }
 
 test "the hardware capability word maps CRC32 and PMULL" {

@@ -13,7 +13,7 @@ pub const Features = struct {
     avx2: bool = false,
     /// x86-64: VPCLMULQDQ, carry-less multiplication of every lane of a YMM register.
     vpclmul: bool = false,
-    /// x86-64: AVX-512 F, BW and VL, with the operating system saving the ZMM registers.
+    /// x86-64: AVX-512 F, BW, DQ and VL, with the operating system saving the ZMM registers.
     avx512: bool = false,
     /// x86-64: AVX512_VNNI's VPDPBUSD.
     vnni: bool = false,
@@ -32,7 +32,7 @@ pub const Features = struct {
                 .pclmul = std.Target.x86.featureSetHasAll(cpu.features, .{ .pclmul, .sse4_1 }),
                 .avx2 = std.Target.x86.featureSetHas(cpu.features, .avx2),
                 .vpclmul = std.Target.x86.featureSetHas(cpu.features, .vpclmulqdq),
-                .avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl }),
+                .avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl }),
                 .vnni = std.Target.x86.featureSetHas(cpu.features, .avx512vnni),
             },
             .aarch64 => .{

@@ -165,7 +165,7 @@ test "the tests run every path the target's CPU model has" {
         .x86_64 => if (std.Target.x86.featureSetHasAll(cpu.features, .{ .pclmul, .sse4_1 })) {
             try testing.expect(runs_here(.pclmul));
             if (std.Target.x86.featureSetHasAll(cpu.features, .{ .avx2, .vpclmulqdq })) try testing.expect(runs_here(.vpclmul));
-            const avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl, .vpclmulqdq });
+            const avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl, .vpclmulqdq });
             if (avx512) try testing.expect(runs_here(.avx512));
         },
         .aarch64 => if (std.Target.aarch64.featureSetHas(cpu.features, .crc)) {

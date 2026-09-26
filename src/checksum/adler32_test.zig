@@ -149,7 +149,7 @@ test "the tests run every path the target's CPU model has" {
     if (cpu.arch == .x86_64 and std.Target.x86.featureSetHas(cpu.features, .avx2)) {
         try testing.expect(runs_here(.avx2));
     }
-    if (cpu.arch == .x86_64 and std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512vl })) {
+    if (cpu.arch == .x86_64 and std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl })) {
         try testing.expect(runs_here(.avx512));
         if (std.Target.x86.featureSetHas(cpu.features, .avx512vnni)) try testing.expect(runs_here(.vnni));
     }
