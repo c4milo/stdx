@@ -81,6 +81,13 @@ pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Pr
     return progress;
 }
 
+/// Decodes a whole stream in one call (decision 11). The input ending before the stream does is
+/// `error.Truncated`, and the output filling first is `error.NoSpaceLeft`. Octets after the stream
+/// stay the caller's: `consumed` says where it ended.
+pub fn decode_all(decoder: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
+    return codec.whole(try decode(decoder, input, output));
+}
+
 fn run(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cursor) Error!codec.Status {
     for (0..constants.phases_per_call_max) |_| {
         const status = switch (decoder.phase) {

@@ -98,6 +98,24 @@ test "a stream decodes to its octets, and stops at the end of ADLER32" {
     try expect_decodes(stream.slice(), stream_len, text);
 }
 
+test "decode_all decodes a whole stream, and names an input cut short and a full output" {
+    var stream: Stream = .{};
+    stored_stream(&stream, text);
+    const stream_len = stream.slice().len;
+    // Octets after ADLER32 stay the caller's: `consumed` stops at the stream's end.
+    stream.append("next");
+    var output: [output_len_max]u8 = undefined;
+    var decoder: Decoder = undefined;
+    zlib.init(&decoder, .{});
+    const whole = try zlib.decode_all(&decoder, stream.slice(), &output);
+    try testing.expectEqual(codec.Whole{ .consumed = stream_len, .written = text.len }, whole);
+    try testing.expectEqualSlices(u8, text, output[0..whole.written]);
+    zlib.init(&decoder, .{});
+    try testing.expectError(error.Truncated, zlib.decode_all(&decoder, stream.slice()[0 .. stream_len - 1], &output));
+    zlib.init(&decoder, .{});
+    try testing.expectError(error.NoSpaceLeft, zlib.decode_all(&decoder, stream.slice(), output[0 .. text.len - 1]));
+}
+
 test "an empty stream's ADLER32 is 1" {
     var stream: Stream = .{};
     stored_stream(&stream, "");
