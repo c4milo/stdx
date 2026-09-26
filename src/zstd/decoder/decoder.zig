@@ -185,6 +185,7 @@ fn step(comptime options: DecoderOptions, self: *Decoder(options), reader: *code
 test {
     _ = @import("decoder_phases.zig");
     _ = @import("decoder_test.zig");
+    _ = @import("decoder_fuzz_test.zig");
 }
 
 const phases = @import("decoder_phases.zig");
