@@ -40,6 +40,10 @@ pub const content_size_field_lens = [_]u8{ 0, 2, 4, 8 };
 pub const content_size_two_octet_offset = 256;
 pub const content_size_offset_field_len = 2;
 
+/// The passes one call of a block's execution takes at most: each copies an octet or decodes a
+/// sequence, and a block holds at most Block_Maximum_Size of each.
+pub const block_execute_passes_max = 2 * block_len_max + 2;
+
 /// DID_Field_Size for each Dictionary_ID_Flag (RFC 8878 §3.1.1.1.1.6, Table 5).
 pub const dictionary_id_field_lens = [_]u8{ 0, 1, 2, 4 };
 

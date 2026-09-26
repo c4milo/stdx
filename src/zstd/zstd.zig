@@ -12,4 +12,5 @@ test {
     _ = @import("literals.zig");
     _ = @import("sequences.zig");
     _ = @import("frame.zig");
+    _ = @import("block.zig");
 }
