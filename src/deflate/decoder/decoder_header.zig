@@ -5,14 +5,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const decoder_module = @import("decoder.zig");
 const Decoder = decoder_module.Decoder;
 const Error = decoder_module.Error;
 const count_work = decoder_module.count_work;
 const low_bits = decoder_module.low_bits;
-const Claims = @import("claims.zig").Claims;
-const huffman = @import("huffman.zig");
+const Claims = @import("../claims.zig").Claims;
+const huffman = @import("../huffman.zig");
 
 /// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills.
 pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {

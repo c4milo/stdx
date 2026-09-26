@@ -6,7 +6,7 @@
 
 pub const constants = @import("constants.zig");
 
-const decoder = @import("decoder.zig");
+const decoder = @import("decoder/decoder.zig");
 pub const Decoder = decoder.Decoder;
 pub const Corrupt = decoder.Corrupt;
 pub const Unsupported = decoder.Unsupported;

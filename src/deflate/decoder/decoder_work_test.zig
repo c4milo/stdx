@@ -7,7 +7,7 @@
 
 const std = @import("std");
 const testing = std.testing;
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const Stream = @import("decoder_test.zig").Stream;
 

@@ -7,7 +7,7 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
-const decoder = @import("../decoder.zig");
+const decoder = @import("../decoder/decoder.zig");
 const encoder_module = @import("encoder.zig");
 
 const levels = constants.encoder_levels;

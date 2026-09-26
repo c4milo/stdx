@@ -6,11 +6,11 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const Decoder = deflate.Decoder;
-const test_stream = @import("test_stream.zig");
-const claims = @import("claims.zig");
+const test_stream = @import("../test_stream.zig");
+const claims = @import("../claims.zig");
 
 /// The most octets a test decodes into.
 const output_len_max = 4096;

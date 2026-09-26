@@ -89,14 +89,14 @@ test "relative-import flags an @import nested inside an expression" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/zlib/zlib.zig",
-        \\const Decoder = @import("../deflate/decoder.zig").Decoder;
+        \\const Decoder = @import("../deflate/decoder/decoder.zig").Decoder;
         \\fn read() void {
         \\    const adler = @import("../checksum/adler32.zig").Adler32;
         \\    _ = adler;
         \\}
     );
     try harness.expect_messages(findings, &.{
-        "@import(\"../deflate/decoder.zig\")" ++ suffix,
+        "@import(\"../deflate/decoder/decoder.zig\")" ++ suffix,
         "@import(\"../checksum/adler32.zig\")" ++ suffix,
     });
     try testing.expectEqual(3, findings[1].line);

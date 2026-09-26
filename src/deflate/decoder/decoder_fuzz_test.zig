@@ -7,10 +7,10 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
-const claims = @import("claims.zig");
+const claims = @import("../claims.zig");
 const Decoder = deflate.Decoder;
 const Stream = decoder_test.Stream;
 

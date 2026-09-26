@@ -4,11 +4,11 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
 const Stream = decoder_test.Stream;
-const test_stream = @import("test_stream.zig");
+const test_stream = @import("../test_stream.zig");
 
 /// A complete code for the code length alphabet: 13 symbols of 4 bits and 6 of 5, since
 /// 13/16 + 6/32 = 1 (RFC 1951 §3.2.2). The long codes go to the last six symbols of

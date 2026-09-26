@@ -6,7 +6,7 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
-const decoder = @import("../decoder.zig");
+const decoder = @import("../decoder/decoder.zig");
 const encoder_module = @import("encoder.zig");
 
 /// The largest input one case takes, and the most flush points it draws.
