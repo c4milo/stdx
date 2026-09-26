@@ -26,7 +26,11 @@ fn held_int(comptime T: type, field_octets: []const u8) T {
 /// Magic_Number, least significant octet first: a Zstandard frame's, or a skippable frame's
 /// (RFC 8878 §3.1.1, §3.1.2).
 pub fn read_magic(comptime options: DecoderOptions, self: *Self(options), reader: *codec.Reader) Error!?Status {
-    if (!self.field.fill(reader, constants.magic_len)) return .needs_input;
+    if (!self.field.fill(reader, constants.magic_len)) {
+        // RFC 8878 §3.1: frames alone make a stream, so octets no Magic_Number starts with are refused.
+        if (!starts_magic(self.field.held())) return error.InvalidMagic;
+        return .needs_input;
+    }
     const magic = held_int(u32, self.field.held());
     self.field.init();
     if (magic == constants.frame_magic) {
@@ -37,6 +41,20 @@ pub fn read_magic(comptime options: DecoderOptions, self: *Self(options), reader
     if (magic < constants.skippable_magic_first or magic > constants.skippable_magic_last) return error.InvalidMagic;
     self.phase = .skippable_size;
     return null;
+}
+
+/// Whether `held`, the octets of a Magic_Number read so far, start a Zstandard frame's or a
+/// skippable frame's, least significant octet first (RFC 8878 §3.1.1, §3.1.2).
+fn starts_magic(held: []const u8) bool {
+    assert(held.len < constants.magic_len);
+    var frame_octets: [constants.magic_len]u8 = undefined;
+    std.mem.writeInt(u32, &frame_octets, constants.frame_magic, .little);
+    if (std.mem.startsWith(u8, &frame_octets, held)) return true;
+    var skippable_octets: [constants.magic_len]u8 = undefined;
+    std.mem.writeInt(u32, &skippable_octets, constants.skippable_magic_first, .little);
+    // The empty prefix started the frame's; the skippable ones differ in their first octet's low bits.
+    if (held[0] & ~constants.skippable_magic_variable_mask != skippable_octets[0]) return false;
+    return std.mem.startsWith(u8, skippable_octets[1..], held[1..]);
 }
 
 /// Frame_Header: its descriptor first, which tells how long the rest is (RFC 8878 §3.1.1.1).

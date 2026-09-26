@@ -220,6 +220,22 @@ test "a magic below the skippable range is refused, and a cut skippable frame as
     below.put_int(u32, constants.skippable_magic_first - 1);
     decoder.init(.{});
     try testing.expectError(error.InvalidMagic, decoder.decode(below.written(), &output));
+    // Octets that start a Magic_Number wait for the rest; others are refused at once.
+    for ([_][]const u8{ "\x28", "\x28\xb5\x2f", "\x5f", "\x53\x2a\x4d" }) |start| {
+        decoder.init(.{});
+        try testing.expectEqual(codec.Progress{ .consumed = start.len, .written = 0, .status = .needs_input }, try decoder.decode(start, &output));
+    }
+    for ([_][]const u8{ "\x72", "\x28\xb4", "\x60", "\x5f\x2a\x4c" }) |start| {
+        decoder.init(.{});
+        try testing.expectError(error.InvalidMagic, decoder.decode(start, &output));
+    }
+    // After a frame, one octet no Magic_Number starts with.
+    var trailing: FrameWriter = .{};
+    trailing.frame_header(3, false);
+    trailing.block_header(true, raw_type, 3);
+    trailing.put("abc\x72");
+    decoder.init(.{});
+    try testing.expectError(error.InvalidMagic, decoder.decode_all(trailing.written(), &output));
     var cut: FrameWriter = .{};
     cut.put_int(u32, constants.skippable_magic_first);
     cut.put_int(u32, 5);
