@@ -9,6 +9,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
+const work_module = @import("work.zig");
+const Work = work_module.Work;
 const fse = @import("fse.zig");
 
 /// One cell: the symbol whose code begins these bits, and the code's Number_of_Bits.
@@ -21,6 +23,9 @@ pub const Table = struct {
     cells: [1 << constants.huffman_bits_max]Entry,
     /// Max_Number_of_Bits.
     bits_max: u4,
+    /// Invariant 17's count for the last tree read: its cells, its weights, and the cells and
+    /// symbols of the FSE table that decoded them, if one did.
+    work: Work,
 };
 
 /// Every way a Huffman tree description or stream breaks RFC 8878 §4.2.
@@ -53,11 +58,13 @@ pub fn read_tree(octets: []const u8, table: *Table) Error!usize {
     if (octets.len == 0) return error.HuffmanTreeTruncated;
     const header = octets[0];
     var weights: Weights = undefined;
+    var weights_work = work_module.zero;
     const description_len = if (header < constants.huffman_direct_header_min)
-        try read_compressed_weights(octets[1..], header, &weights)
+        try read_compressed_weights(octets[1..], header, &weights, &weights_work)
     else
         try read_direct_weights(octets[1..], header - constants.huffman_direct_symbols_offset, &weights);
     try build(&weights, table);
+    work_module.add(&table.work, weights_work);
     return 1 + description_len;
 }
 
@@ -77,7 +84,7 @@ fn read_direct_weights(octets: []const u8, count: u16, weights: *Weights) Error!
 
 /// Weights FSE-compressed in `compressed_len` octets: a table description, then a backward stream
 /// two states share, the first decoding the even-numbered weights (RFC 8878 §4.2.1.2).
-fn read_compressed_weights(octets: []const u8, compressed_len: u8, weights: *Weights) Error!usize {
+fn read_compressed_weights(octets: []const u8, compressed_len: u8, weights: *Weights, work: *Work) Error!usize {
     // RFC 8878 §4.2.1.1: the FSE-compressed weights take headerByte octets.
     if (octets.len < compressed_len) return error.HuffmanTreeTruncated;
     const compressed = octets[0..compressed_len];
@@ -90,6 +97,7 @@ fn read_compressed_weights(octets: []const u8, compressed_len: u8, weights: *Wei
     // RFC 8878 §4.2.1.2 and §4.2.2: the stream's last octet holds its final 1 bit.
     var reader = codec.BackwardBitReader.init(compressed[description_len..]) orelse return error.HuffmanWeightsInvalid;
     try decode_weights(&table, &reader, weights);
+    work.* = table.work;
     return compressed_len;
 }
 
@@ -150,6 +158,7 @@ pub fn build(weights: *Weights, table: *Table) Error!void {
     if (std.mem.indexOfScalar(u8, weights.values[0 .. weights.written + 1], 1) == null) return error.HuffmanWeightsInvalid;
     table.bits_max = @intCast(bits_max);
     fill(weights.values[0 .. weights.written + 1], table);
+    table.work = work_module.of((@as(usize, 1) << table.bits_max) + weights.written + 1);
 }
 
 /// Gives each literal 2^(Weight-1) consecutive cells, the lowest weights first.

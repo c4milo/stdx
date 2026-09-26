@@ -13,6 +13,8 @@ const checksum = @import("checksum");
 const constants = @import("constants.zig");
 const literals = @import("literals.zig");
 const sequences = @import("sequences.zig");
+const work_module = @import("work.zig");
+const Work = work_module.Work;
 
 /// Every way a compressed block breaks RFC 8878 §3.1.1.3 and §3.1.1.4.
 pub const Error = literals.Error || sequences.Error || error{
@@ -73,6 +75,8 @@ pub const Context = struct {
     /// Block_Maximum_Size and Window_Size of the frame (RFC 8878 §3.1.1.2.4, §3.1.1.1.2).
     block_len_max: u32,
     window_len: u64,
+    /// Invariant 17's count for the frame's decoder.
+    work: *Work,
 };
 
 /// Reads the block's literals section and sequences header, and starts its sequences (RFC 8878
@@ -83,6 +87,9 @@ pub fn prepare(run: *Run, context: Context) Error!void {
     _ = reader.take(run.section.section_len) catch unreachable;
     const sequences_octets = reader.take(reader.remaining_len()) catch unreachable;
     const header = try sequences.read_header(sequences_octets, context.tables);
+    work_module.add(context.work, run.section.work);
+    work_module.add(context.work, context.tables.work);
+    context.tables.work = work_module.zero;
     run.literals_used = 0;
     run.literals_left = 0;
     run.match_left = 0;
@@ -133,6 +140,7 @@ pub fn execute(comptime Window: type, run: *Run, context: Context, sink: *Sink(W
 /// Decodes the next sequence and checks it against the block (RFC 8878 §3.1.1.3.2.1.2, §3.1.1.5).
 fn next_sequence(run: *Run, context: Context) Error!void {
     const sequence = try sequences.next(&run.stream, stream_octets(run, context.block), context.tables);
+    work_module.add(context.work, work_module.of(1));
     // RFC 8878 §3.1.1.4: a sequence copies literals the literals section holds.
     if (sequence.literals_len > run.section.len - run.literals_used) return error.LiteralsOverrun;
     run.promised_len +|= sequence.match_len;

@@ -10,6 +10,8 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const fse = @import("fse.zig");
+const work_module = @import("work.zig");
+const Work = work_module.Work;
 
 /// The three codes a sequence has, in the order the Symbol_Compression_Modes byte names them.
 pub const Code = enum(u2) { literals_length, offset, match_length };
@@ -31,9 +33,12 @@ pub const Tables = struct {
     sources: [codes.len]Source,
     /// Whether a block with sequences set the tables, which Repeat_Mode needs.
     valid: bool,
+    /// Invariant 17's count for the tables built since the block took it last.
+    work: Work,
 
     pub fn init(self: *Tables) void {
         self.valid = false;
+        self.work = work_module.zero;
     }
 
     fn cells(self: *const Tables, code: Code) []const fse.Entry {
@@ -41,6 +46,15 @@ pub const Tables = struct {
             .literals_length => if (self.sources[slot(code)] == .default) default_literals_length.entries() else self.literals_length.entries(),
             .offset => if (self.sources[slot(code)] == .default) default_offset.entries() else self.offset.entries(),
             .match_length => if (self.sources[slot(code)] == .default) default_match_length.entries() else self.match_length.entries(),
+        };
+    }
+
+    /// The count of the last build of a code's own table.
+    fn built_work(self: *const Tables, code: Code) Work {
+        return switch (code) {
+            .literals_length => self.literals_length.work,
+            .offset => self.offset.work,
+            .match_length => self.match_length.work,
         };
     }
 
@@ -143,6 +157,7 @@ fn build_repeated(tables: *Tables, code: Code, symbol: u8) Error!void {
         .offset => fse.build_rle(constants.offset_accuracy_log_max, &tables.offset, symbol),
         .match_length => fse.build_rle(constants.match_length_accuracy_log_max, &tables.match_length, symbol),
     }
+    work_module.add(&tables.work, tables.built_work(code));
 }
 
 fn read_distribution(tables: *Tables, code: Code, octets: []const u8) Error!usize {
@@ -157,6 +172,7 @@ fn read_distribution(tables: *Tables, code: Code, octets: []const u8) Error!usiz
         .offset => try fse.build(constants.offset_accuracy_log_max, &tables.offset, &distribution),
         .match_length => try fse.build(constants.match_length_accuracy_log_max, &tables.match_length, &distribution),
     }
+    work_module.add(&tables.work, tables.built_work(code));
     return read;
 }
 

@@ -6,6 +6,7 @@ const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const fse = @import("fse.zig");
+const DescriptionWriter = @import("test_writer.zig").DescriptionWriter;
 
 /// A row of RFC 8878 Appendix A: Symbol, Number_Of_Bits and Base, by state.
 const Row = struct { u8, u8, u16 };
@@ -52,61 +53,11 @@ test "a symbol of probability 5 in 128 states takes RFC 8878 §4.1.1's widths an
     try testing.expectEqualSlices(struct { u8, u16 }, &.{ .{ 5, 32 }, .{ 5, 64 }, .{ 5, 96 }, .{ 4, 0 }, .{ 4, 16 } }, &widths);
 }
 
-/// The octets a written description takes at most: 53 symbols of up to 10 bits and their flags.
-const description_capacity = 128;
-
 /// The kinds of seeded probability: zero, "less than 1", and a count of cells.
 const probability_kinds = 4;
 
 /// A seeded count of cells takes up to a third of those left, so later symbols get some.
 const share_divisor = 3;
-
-/// Writes `distribution` in RFC 8878 §4.1.1's format, least significant bit first.
-const DescriptionWriter = struct {
-    octets: [description_capacity]u8 = @splat(0),
-    bits_written: usize = 0,
-
-    fn put(self: *DescriptionWriter, value: u32, count: usize) void {
-        const octet_bits = @bitSizeOf(u8);
-        for (0..count) |bit| {
-            if ((value >> @intCast(bit)) & 1 != 0) self.octets[self.bits_written / octet_bits] |= @as(u8, 1) << @intCast(self.bits_written % octet_bits);
-            self.bits_written += 1;
-        }
-    }
-
-    fn write(self: *DescriptionWriter, distribution: *const fse.Distribution) void {
-        self.put(distribution.accuracy_log - constants.accuracy_log_offset, constants.accuracy_log_field_bits);
-        var left: u32 = @as(u32, 1) << distribution.accuracy_log;
-        var symbol: usize = 0;
-        while (left > 0) {
-            const probability = distribution.probabilities[symbol];
-            self.put_value(@intCast(probability + 1), left);
-            left -= if (probability < 0) 1 else @intCast(probability);
-            symbol += 1;
-            if (probability != 0) continue;
-            var zeros: u32 = 0;
-            while (symbol + zeros < distribution.symbol_count and distribution.probabilities[symbol + zeros] == 0) zeros += 1;
-            symbol += zeros;
-            const more = constants.fse_repeat_flag_more;
-            for (0..fse.symbols_max) |_| {
-                const flag = @min(zeros, more);
-                self.put(flag, constants.fse_repeat_flag_bits);
-                if (flag < more) break;
-                zeros -= more;
-            }
-        }
-    }
-
-    /// Table 20's inverse: small values in one bit fewer.
-    fn put_value(self: *DescriptionWriter, value: u32, left: u32) void {
-        const value_max = left + 1;
-        const bits = std.math.log2_int(u32, value_max) + 1;
-        const threshold = (@as(u32, 1) << @intCast(bits)) - 1 - value_max;
-        if (value < threshold) return self.put(value, bits - 1);
-        if (value < @as(u32, 1) << @intCast(bits - 1)) return self.put(value, bits);
-        self.put(value + threshold, bits);
-    }
-};
 
 /// A seeded distribution of `symbol_count` symbols over 2^`accuracy_log` points, with zeros and
 /// "less than 1" probabilities among them.

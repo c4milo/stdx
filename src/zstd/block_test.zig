@@ -10,6 +10,7 @@ const constants = @import("constants.zig");
 const block = @import("block.zig");
 const huffman = @import("huffman.zig");
 const sequences = @import("sequences.zig");
+const work_module = @import("work.zig");
 const BitWriter = @import("test_writer.zig").BitWriter;
 
 /// A window of one Block_Maximum_Size, enough for these blocks.
@@ -32,6 +33,7 @@ const Fixture = struct {
     /// Window_Size and Block_Maximum_Size, which a test may set below the octets a block decodes.
     window_len: u64 = window_len,
     block_len_max: u32 = constants.block_len_max,
+    work: work_module.Work = work_module.zero,
 
     fn start(self: *Fixture) void {
         self.window.init();
@@ -47,6 +49,7 @@ const Fixture = struct {
             .repeats = &self.repeats,
             .block_len_max = self.block_len_max,
             .window_len = self.window_len,
+            .work = &self.work,
         };
     }
 };

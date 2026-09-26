@@ -17,19 +17,19 @@ const StreamWriter = @import("../test_writer.zig").StreamWriter;
 pub const Decoder = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max });
 
 /// The octets a written frame takes at most.
-const frame_capacity = 512;
+const frame_capacity = 32768;
 
 /// Block_Type (RFC 8878 §3.1.1.2.2).
-const raw_type = 0;
+pub const raw_type = 0;
 const repeated_type = 1;
-const compressed_type = 2;
+pub const compressed_type = 2;
 const reserved_type = 3;
 
 /// The Offset_Value extra bits of offset code 2, which the compressed block uses.
 const offset_extra_bits = 2;
 
 /// Frame_Header_Descriptor with Frame_Content_Size_Flag 2: a 4-octet Frame_Content_Size.
-const four_octet_content_size: u8 = 0x80;
+pub const four_octet_content_size: u8 = 0x80;
 
 /// Literals_Block_Type of a Huffman-coded section with its tree, and of one without (RFC 8878
 /// §3.1.1.3.1.1), and the bits before Regenerated_Size in a header of Size_Format 0.
@@ -45,12 +45,12 @@ pub const FrameWriter = struct {
     octets: [frame_capacity]u8 = undefined,
     len: usize = 0,
 
-    fn put(self: *FrameWriter, octets: []const u8) void {
+    pub fn put(self: *FrameWriter, octets: []const u8) void {
         @memcpy(self.octets[self.len..][0..octets.len], octets);
         self.len += octets.len;
     }
 
-    fn put_int(self: *FrameWriter, comptime T: type, value: T) void {
+    pub fn put_int(self: *FrameWriter, comptime T: type, value: T) void {
         var octets: [@bitSizeOf(T) / @bitSizeOf(u8)]u8 = undefined;
         std.mem.writeInt(T, &octets, value, .little);
         self.put(&octets);
@@ -64,13 +64,13 @@ pub const FrameWriter = struct {
     }
 
     /// A Block_Header: Last_Block, Block_Type, Block_Size.
-    fn block_header(self: *FrameWriter, last: bool, block_type: u2, size: u21) void {
+    pub fn block_header(self: *FrameWriter, last: bool, block_type: u2, size: u21) void {
         self.put_int(u24, @intFromBool(last) | @as(u24, block_type) << constants.block_type_shift | @as(u24, size) << constants.block_size_shift);
     }
 
     /// Magic_Number, then a header with a Window_Descriptor of 1 KiB and a 4-octet
     /// Frame_Content_Size: 6 octets after the magic.
-    fn long_frame_header(self: *FrameWriter, content_len: u32) void {
+    pub fn long_frame_header(self: *FrameWriter, content_len: u32) void {
         self.put_int(u32, constants.frame_magic);
         self.put(&.{ four_octet_content_size, 0 });
         self.put_int(u32, content_len);

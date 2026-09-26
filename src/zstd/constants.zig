@@ -232,8 +232,40 @@ pub const offset_default = [29]i16{
     1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1,
 };
 
+/// Invariant 17's count for one table: the cells its build fills, and the symbols its description
+/// decodes.
+pub fn table_work_max(accuracy_log: u5, symbols: usize) usize {
+    return (@as(usize, 1) << accuracy_log) + symbols;
+}
+
+/// The count of every table one compressed block can build: a Huffman tree and the FSE table of its
+/// weights, and the three sequence tables.
+pub const block_table_work_max = table_work_max(huffman_bits_max, literal_symbols) +
+    table_work_max(huffman_weights_accuracy_log_max, huffman_weight_max + 1) +
+    table_work_max(literals_length_accuracy_log_max, literals_length_symbols) +
+    table_work_max(offset_accuracy_log_max, offset_symbols) +
+    table_work_max(match_length_accuracy_log_max, match_length_symbols);
+
+/// The fewest octets a compressed block takes: its Block_Header, a literals section header of one
+/// octet, and Number_of_Sequences.
+pub const compressed_block_len_min = block_header_len + 2;
+
+/// Invariant 17's bound per octet consumed: a block's tables over its fewest octets. It covers a
+/// literal per bit of a Huffman-coded stream too, as no code is shorter than a bit.
+pub const work_per_octet_max = std.math.divCeil(usize, block_table_work_max, compressed_block_len_min) catch unreachable;
+
+/// Invariant 17's bound per octet written: a sequence writes its match, at least 3 octets.
+pub const work_per_written_max = 1;
+
+/// Invariant 17's bound per call, beyond the bounds per octet: the call that completes a block's
+/// octets builds its tables and decodes its literals, at most Block_Maximum_Size of them, and a call
+/// can decode one sequence it has no room to write.
+pub const work_per_call_max = block_table_work_max + block_len_max + 1;
+
 comptime {
     assert(std.math.isPowerOfTwo(http_window_len));
+    assert(match_length_baselines[0] >= 3 * work_per_written_max);
+    assert(work_per_octet_max >= @bitSizeOf(u8));
     assert(block_len_max <= http_window_len);
     assert(literals_length_baselines[literals_length_symbols - 1] + (1 << literals_length_extra_bits[literals_length_symbols - 1]) - 1 == 131071);
     assert(match_length_baselines[match_length_symbols - 1] + (1 << match_length_extra_bits[match_length_symbols - 1]) - 1 == 131074);
