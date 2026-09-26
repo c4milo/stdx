@@ -713,6 +713,59 @@ to 12 are reordered and nothing else changes.
   **Check:** the ruled specification's test values; equal to libzstd's checksums through the
   oracle; throughput; mutations.
 
+  **Check passed, 2026-09-26, but for the test values, which the specification does not give.**
+  Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted runners.
+  - The specification is xxHash's `doc/xxhash_spec.md`, version 0.2.0, copied unmodified into
+    `docs/specs/` from the commit that last changed it, d66a9cb, whose octets release v0.8.4 also
+    holds. Its SHA-256 is in `docs/specs/SHA256SUMS`, and CI checks the copy as it checks the
+    RFCs (c0fcbee).
+  - The document gives no test values. In their place:
+    - libzstd 1.5.7 joins as decision 8's Zstandard oracle (4a4c3b4), built from lib/common,
+      lib/compress and lib/decompress as its lib/README.md describes, and called through zstd.h.
+      A frame's last 4 octets are XXH64's low 32 bits with seed 0 (RFC 8878 §3.1.1).
+    - `differential-checksum` (b165971) requires those bits of every XXH64 path this CPU runs to
+      equal libzstd's at every length from 0 to 4096 and over every corpus file, and each path's
+      state under a seeded split to give all 64 bits of one call. CI run
+      [36272807058](https://github.com/c4milo/stdx/actions/runs/36272807058) at bcc93db:
+      3,719,586 values on x86-64, with the scalar and AVX-512 paths, and 2,718,121 on aarch64, 0
+      failed.
+    - The unit tests (06889b9) compare every path with a direct reading of the steps at every
+      length below five stripes, split in two anywhere, from four seeds, and pin ten values
+      recorded after libzstd agreed.
+  - XXH64 (06889b9) is a state fed in pieces, `Xxh64`, and one call, `xxh64`, by an `Xxh64Path`.
+  - Throughput, bench-checksum (051b5e4), each path beside stdx's fastest CRC-32 path in one run,
+    GB/s at 1 MiB, from the runs of bcc93db:
+
+    | CPU | Scalar | AVX-512 | Path `fastest` takes | CRC-32 |
+    |---|---|---|---|---|
+    | AMD EPYC 9V74 | 14.55 | 18.56 | AVX-512, 1.28 times scalar | 57.45 |
+    | Intel Xeon 8370C | 13.86 | 6.53 | scalar | 52.29 |
+    | AMD EPYC 7763 | 12.77 | none | scalar | 25.31 |
+    | Neoverse N2 | 18.17 | none | scalar | 34.57 |
+
+    The runs are [36272819388](https://github.com/c4milo/stdx/actions/runs/36272819388), the EPYC
+    9V74 and the N2, and [36272808606](https://github.com/c4milo/stdx/actions/runs/36272808606),
+    the Xeon 8370C, whose reports are `bench/results/2026-09-26-checksum-xxh64-*.md`, and
+    [36272823050](https://github.com/c4milo/stdx/actions/runs/36272823050) for the EPYC 7763.
+  - SIMD, as the owner asked on 2026-09-26. XXH64 has four accumulators, each a chain in which a
+    stripe waits for the one before, so a vector holds the same four chains and shortens a stripe
+    only where its multiply is faster than the scalar multiplier's throughput:
+    - The AVX-512 path (06889b9) runs a stripe in VPMULLQ, VPADDQ, VPROLQ and VPMULLQ. On AMD's
+      Zen 4, VPMULLQ takes 3 cycles, so a stripe takes about 5 against the scalar path's 8
+      multiplies, and it measured 1.26 to 1.28 times from 16 KiB. Intel builds VPMULLQ from three
+      32-bit multiplies in about 15 cycles, so a stripe takes about 17: it measured 0.47 on a Xeon
+      8370C and on a Xeon 6973P-C, in run
+      [36272137694](https://github.com/c4milo/stdx/actions/runs/36272137694).
+    - The owner ruled that the path is chosen by the vendor (decision 21, amended):
+      `codec.Features.vpmullq_fast` reads CPUID's vendor string (122f36d), and `fastest` takes
+      the path on AMD alone, for 1 KiB of stripes or more (bcc93db). At 64 octets it had run at
+      0.51 of scalar, in run [36271867725](https://github.com/c4milo/stdx/actions/runs/36271867725),
+      as its accumulators cross into a vector register and back.
+    - `avx512` now requires DQ, as the AVX-512 objects are compiled for it (c09f954).
+    - NEON has no multiply of 64-bit lanes, so aarch64 stays scalar.
+  - Mutations are listed in each commit's body. NOT CAUGHT, each changing no output: the 1 KiB
+    floor moved; `fastest` ignoring `vpmullq_fast` on aarch64, where the path is not built.
+
 - **Step 11: the Zstandard decoder.** The checked path, then the fast path (claims Z1 to Z5), with
   libzstd as the oracle.
   **Check:** decision 15 against libzstd; windows of exactly 2^23 accepted and above it refused in

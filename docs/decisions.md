@@ -938,3 +938,21 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
       CRC-32 below one AVX-512 step takes the VPCLMULQDQ object.
     - Detection reads libc's `getauxval` in a program that links libc; Zig's reads a vector only
       Zig's own start code fills.
+
+    **What design §8 step 10 found.** Ruled by the owner on 2026-09-26: where the same instructions
+    measure faster on one vendor's cores and slower on another's, a path is chosen by the vendor as
+    well as the features. Step 10's entry holds the measurements.
+    - XXH64's AVX-512 path holds its four accumulators in one 256-bit register and multiplies them
+      with VPMULLQ. From 16 KiB it ran at 1.27 times the scalar path on an AMD EPYC 9V74 runner and
+      at 0.47 on an Intel Xeon 6973P-C, whose VPMULLQ takes about 15 cycles to AMD's 3. Both CPUs
+      report the same AVX-512 features.
+    - `codec.Features.vpmullq_fast` holds on an AMD CPU with AVX-512, which detection reads from
+      CPUID leaf 0's vendor string. `Xxh64Path.fastest` takes the AVX-512 path only with it, and
+      only for 1 KiB of stripes or more. `runs_on` holds on Intel as well, so the differential
+      check and the benchmark run the path there.
+    - `avx512` now requires DQ with F, BW and VL, as the AVX-512 level objects are compiled for it.
+    - NEON has no multiply of 64-bit lanes, so XXH64 stays scalar on aarch64.
+
+    The alternatives refused:
+    - XXH64 scalar everywhere, which gives up the 27% on AMD.
+    - The AVX-512 path kept for callers that name it, with `fastest` always scalar.

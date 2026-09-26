@@ -218,13 +218,15 @@ Change this section when a step adds or renames a command.
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
   zlib encodes from the corpora, at every level and strategy in all three containers, to the same
   octets. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The
-  first build with `-Doracles` fetches about 260 MB of oracles and corpora; without the option,
-  these steps fail and say so.
+  first build with `-Doracles` fetches about 265 MB of oracles and corpora, libzstd among them;
+  without the option, these steps fail and say so.
 - Differential checks: `zig build differential-checksum -Doracles` requires every CRC-32 and
   Adler-32 path this CPU runs to equal the RFCs' sample code, zlib and Wuffs over every corpus
   file, at every length from 0 to 4096 at seeded offsets and starts, and whole under a seeded
-  split. It builds stdx for the architecture's baseline CPU, so each SIMD path runs because
-  detection found its instructions.
+  split. It then requires the low 32 bits of every XXH64 path this CPU runs to equal libzstd's
+  Content_Checksum at every length from 0 to 4096 and over every file, and each path's state under
+  a seeded split to give all 64 bits of one call. It builds stdx for the architecture's baseline
+  CPU, so each SIMD path runs because detection found its instructions.
   `zig build differential-deflate -Doracles` requires stdx, zlib and Wuffs to decode the same
   octets from the raw DEFLATE, zlib and gzip streams zlib encodes from every corpus file: every
   level and strategy, with seeded window bits, memory levels and flush points, stdx under a seeded
@@ -259,8 +261,8 @@ Change this section when a step adds or renames a command.
   perf_event_open, and says so where the host exposes no counters. The `bench` workflow's `profile` option runs it
   on both hosted runners, after allowing a process to count its own events.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
-  this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, from 64 octets to 1 MiB, with the
-  timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
+  this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
+  fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
   and records it, and the `bench` workflow offers it.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine and writes the
   report; `.github/workflows/main.yml` runs it on each push to main, on x86-64 and aarch64
@@ -271,7 +273,8 @@ Change this section when a step adds or renames a command.
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
-- RFCs: `cd docs/rfcs && shasum -a 256 -c SHA256SUMS`.
+- RFCs and specifications: `cd docs/rfcs && shasum -a 256 -c SHA256SUMS`, and the same in
+  `docs/specs`.
 - Linux: Zig 0.16 fails to fetch a zip package on a machine whose global cache has no `tmp`
   directory. `tools/install_zig.sh` creates it; on a fresh Linux machine without that script, run
   `mkdir -p ~/.cache/zig/tmp` before the first `-Doracles` build.
