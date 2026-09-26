@@ -27,10 +27,10 @@ fn decode(code: anytype, index: usize, bits: u6) huffman.Decoded {
 fn expected_entry(code: anytype, index: usize, bits: u4, pairs: bool, comptime entry_of: fn (u16, u4) lookup.Entry) lookup.Entry {
     const first = switch (decode(code, index, bits)) {
         .symbol => |symbol| symbol,
-        .invalid => return .{ .code_bits = 0, .extra_bits = 0, .kind = .invalid, .value = 0 },
+        .invalid => return .{ .used_bits = 0, .code_bits = 0, .kind = .invalid, .value = 0 },
         .needs_bits => unreachable,
     };
-    if (first.len > bits) return .{ .code_bits = 0, .extra_bits = 0, .kind = .long, .value = 0 };
+    if (first.len > bits) return .{ .used_bits = 0, .code_bits = 0, .kind = .long, .value = 0 };
     const single = entry_of(first.value, @intCast(first.len));
     if (!pairs or single.kind != .literal or first.len >= bits) return single;
     const second = switch (decode(code, index >> @intCast(first.len), bits - @as(u4, @intCast(first.len)))) {
@@ -39,8 +39,8 @@ fn expected_entry(code: anytype, index: usize, bits: u4, pairs: bool, comptime e
     };
     if (second.value >= constants.end_of_block or first.len + second.len > bits) return single;
     return .{
+        .used_bits = @intCast(first.len + second.len),
         .code_bits = @intCast(first.len + second.len),
-        .extra_bits = 0,
         .kind = .literal_pair,
         .value = first.value | second.value << @bitSizeOf(u8),
     };
@@ -166,6 +166,7 @@ test "a pair holds the two literals the canonical decode reads, and nothing else
         const second = code.decode(index >> @intCast(first.len), table.bits - first.len).symbol;
         try testing.expect(first.value < constants.end_of_block and second.value < constants.end_of_block);
         try testing.expectEqual(first.len + second.len, entry.code_bits);
+        try testing.expectEqual(first.len + second.len, entry.used_bits);
         try testing.expectEqual(first.value | second.value << 8, entry.value);
     }
     // In the 4 bits after 'a', 'a', 'b' and 'c' fit in 4, 2 and 1 indexes; in the 3 after 'b',

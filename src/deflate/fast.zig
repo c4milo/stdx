@@ -138,18 +138,37 @@ const Loop = struct {
         if (builtin.is_test) self.decoded += 1;
     }
 
+    /// Uses a pair's bits: `after_length` is the buffer past the length's, and the distance's
+    /// entry says how many bits come after them. `used` counts both.
+    inline fn consume_pair(self: *Loop, after_length: u64, distance: lookup.Entry, used: u32) void {
+        self.buffer = past(after_length, distance);
+        self.count -= used;
+        if (builtin.is_test) self.decoded += 1;
+    }
+
     /// Uses a table entry's code. The shift takes the entry's low six bits, which hold the code's
     /// length, so the length need not be taken out first.
     inline fn consume_entry(self: *Loop, entry: lookup.Entry) void {
         const raw: u32 = @bitCast(entry);
         self.buffer >>= @truncate(raw);
-        self.count -= entry.code_bits;
+        self.count -= entry.used_bits;
         if (builtin.is_test) self.decoded += 1;
     }
 };
 
 inline fn low_bits(value: u64, count: u32) u64 {
     return value & ((@as(u64, 1) << @intCast(count)) - 1);
+}
+
+/// The value of the extra bits after a length's or a distance's code, which `buffer` starts with.
+inline fn extra_value(buffer: u64, entry: lookup.Entry) u64 {
+    return low_bits(buffer, entry.used_bits) >> entry.code_bits;
+}
+
+/// The bits of `buffer` past the symbol it starts with, and the symbol's extra bits: the entry's
+/// low octet says how many, and a 64-bit shift takes the low six bits of its amount.
+inline fn past(buffer: u64, entry: lookup.Entry) u64 {
+    return buffer >> @truncate(@as(u32, @bitCast(entry)));
 }
 
 /// Decodes symbols from `bits` into `writer` until a margin, a block's end, or a symbol for the
@@ -235,7 +254,7 @@ inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History)
     switch (entry.kind) {
         .literal, .literal_pair => return step_literals(mode, loop, codes, entry),
         .end_of_block => {
-            loop.consume(entry.code_bits);
+            loop.consume(entry.used_bits);
             return .end_of_block;
         },
         .length => return copy_pair(mode, loop, codes, history, entry),
@@ -295,24 +314,22 @@ fn resolve_distance(codes: Codes, buffer: u64) ?lookup.Entry {
 /// Reads a length's extra bits and its distance, and copies the match, or stops before using any
 /// bit of the pair when the checked path must see it.
 inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) ?End {
-    var used: u32 = length.code_bits;
-    const len = length.value + low_bits(loop.buffer >> @intCast(used), length.extra_bits);
+    const len = length.value + extra_value(loop.buffer, length);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
-    if (len == constants.match_len_max and length.extra_bits != 0) return .checked;
-    used += length.extra_bits;
-    var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(loop.buffer >> @intCast(used))) & loop.distance_mask];
-    if (distance_entry.kind == .long) distance_entry = resolve_distance(codes, loop.buffer >> @intCast(used)) orelse return .checked;
+    if (len == constants.match_len_max and length.used_bits != length.code_bits) return .checked;
+    const after_length = past(loop.buffer, length);
+    var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(after_length)) & loop.distance_mask];
+    if (distance_entry.kind == .long) distance_entry = resolve_distance(codes, after_length) orelse return .checked;
     if (distance_entry.kind != .distance) return .checked;
-    used += distance_entry.code_bits;
-    const distance = distance_entry.value + low_bits(loop.buffer >> @intCast(used), distance_entry.extra_bits);
-    used += distance_entry.extra_bits;
+    const distance = distance_entry.value + extra_value(after_length, distance_entry);
+    const used = @as(u32, length.used_bits) + distance_entry.used_bits;
     // The tail copies a match whole or leaves it to the checked path, which copies what fits.
     if (mode == .tail and loop.room() < len) return .margin;
     // Most matches reach only octets this call wrote, inside the container's window, and copy
     // straight from the output; the rest go out of line.
     const target = loop.written;
     if (distance <= target and distance <= history.distance_max) {
-        loop.consume(used);
+        loop.consume_pair(after_length, distance_entry, used);
         loop.written += @intCast(len);
         switch (mode) {
             .wide => copy_within(loop.output, target, @intCast(distance), @intCast(len)),
@@ -320,7 +337,7 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
         }
     } else {
         if (!copy_from_window(loop.output, target, loop.start, loop.reach_before, history, @intCast(distance), @intCast(len))) return .checked;
-        loop.consume(used);
+        loop.consume_pair(after_length, distance_entry, used);
         loop.written += @intCast(len);
     }
     if (builtin.is_test) loop.decoded += 1;

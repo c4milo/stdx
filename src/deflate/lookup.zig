@@ -27,45 +27,48 @@ pub const Kind = enum(u3) {
 };
 
 pub const Entry = packed struct(u32) {
-    /// The bits the code takes, when it fits the table. It fills the entry's low octet, so the
+    /// The bits the symbol takes: its code's, and for a length or a distance, its extra bits'
+    /// after the code (RFC 1951 §3.2.5). With `reserved` it fills the entry's low octet, so the
     /// fast path shifts its bit buffer by the whole entry: a 64-bit shift uses only the low six
     /// bits of its amount.
-    code_bits: u8,
-    /// The extra bits after the code, for a length or a distance (RFC 1951 §3.2.5).
-    extra_bits: u4,
+    used_bits: u5,
+    reserved: u3 = 0,
+    /// The bits the code alone takes, when it fits the table.
+    code_bits: u4,
     kind: Kind,
     padding: u1 = 0,
     /// A literal's octet; two literals' octets, the first in the low octet; or a length's or
     /// distance's base.
     value: u16,
 
-    const invalid: Entry = .{ .code_bits = 0, .extra_bits = 0, .kind = .invalid, .value = 0 };
-    const long: Entry = .{ .code_bits = 0, .extra_bits = 0, .kind = .long, .value = 0 };
+    const invalid: Entry = .{ .used_bits = 0, .code_bits = 0, .kind = .invalid, .value = 0 };
+    const long: Entry = .{ .used_bits = 0, .code_bits = 0, .kind = .long, .value = 0 };
+
+    /// The entry with a code of `code_bits`, and `extra_bits` after it.
+    fn coded(kind: Kind, value: u16, code_bits: u4, extra_bits: u4) Entry {
+        return .{ .used_bits = @as(u5, code_bits) + extra_bits, .code_bits = code_bits, .kind = kind, .value = value };
+    }
 };
+
+comptime {
+    // A length's or a distance's code and extra bits fit `used_bits`, codes up to 15 bits long.
+    assert(constants.code_len_max + std.mem.max(u7, &constants.distance_extra_bits) <= std.math.maxInt(u5));
+    assert(constants.code_len_max + std.mem.max(u7, &constants.length_extra_bits) <= std.math.maxInt(u5));
+}
 
 /// The entry for a literal/length symbol whose code takes `code_bits`.
 pub fn literal_length_entry(symbol: u16, code_bits: u4) Entry {
-    if (symbol < constants.end_of_block) return .{ .code_bits = code_bits, .extra_bits = 0, .kind = .literal, .value = symbol };
-    if (symbol == constants.end_of_block) return .{ .code_bits = code_bits, .extra_bits = 0, .kind = .end_of_block, .value = 0 };
+    if (symbol < constants.end_of_block) return Entry.coded(.literal, symbol, code_bits, 0);
+    if (symbol == constants.end_of_block) return Entry.coded(.end_of_block, 0, code_bits, 0);
     if (symbol >= constants.literal_length_used) return Entry.invalid;
     const index = symbol - constants.first_length_symbol;
-    return .{
-        .code_bits = code_bits,
-        .extra_bits = @intCast(constants.length_extra_bits[index]),
-        .kind = .length,
-        .value = constants.length_base[index],
-    };
+    return Entry.coded(.length, constants.length_base[index], code_bits, @intCast(constants.length_extra_bits[index]));
 }
 
 /// The entry for a distance symbol whose code takes `code_bits`.
 pub fn distance_entry(symbol: u16, code_bits: u4) Entry {
     if (symbol >= constants.distance_used) return Entry.invalid;
-    return .{
-        .code_bits = code_bits,
-        .extra_bits = @intCast(constants.distance_extra_bits[symbol]),
-        .kind = .distance,
-        .value = constants.distance_base[symbol],
-    };
+    return Entry.coded(.distance, constants.distance_base[symbol], code_bits, @intCast(constants.distance_extra_bits[symbol]));
 }
 
 /// A table for an alphabet whose codes the table takes up to `bits_max` bits of, with literal pairs
@@ -171,12 +174,12 @@ fn place_pairs(entries: []Entry, lengths: *const Lengths, symbols: []const u16, 
             const first_symbol = symbols[lengths.start[first_len] + first];
             for (0..lengths.literals[second_len]) |second| {
                 const high = reversed(@intCast(lengths.first_code[second_len] + second), @intCast(second_len));
-                entries[low | high << @intCast(first_len)] = .{
-                    .code_bits = total,
-                    .extra_bits = 0,
-                    .kind = .literal_pair,
-                    .value = first_symbol | symbols[lengths.start[second_len] + second] << @bitSizeOf(u8),
-                };
+                entries[low | high << @intCast(first_len)] = Entry.coded(
+                    .literal_pair,
+                    first_symbol | symbols[lengths.start[second_len] + second] << @bitSizeOf(u8),
+                    total,
+                    0,
+                );
             }
             written += lengths.literals[second_len];
         }
