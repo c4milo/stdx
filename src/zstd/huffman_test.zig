@@ -66,8 +66,8 @@ test "seeded trees decode the literals a writer encodes with them" {
         try huffman.decode_stream(&table, stream, decoded[0..count]);
         try testing.expectEqualSlices(u8, literals[0..count], decoded[0..count]);
         // One literal too few leaves bits unread; one too many reads past the start.
-        if (count > 0) try testing.expectError(error.HuffmanStreamInvalid, huffman.decode_stream(&table, stream, decoded[0 .. count - 1]));
-        try testing.expectError(error.HuffmanStreamInvalid, huffman.decode_stream(&table, stream, decoded[0 .. count + 1]));
+        if (count > 0) try testing.expectError(error.HuffmanStreamNotConsumed, huffman.decode_stream(&table, stream, decoded[0 .. count - 1]));
+        try testing.expectError(error.HuffmanStreamNotConsumed, huffman.decode_stream(&table, stream, decoded[0 .. count + 1]));
     }
     try testing.expectEqual(400, built);
 }
@@ -105,6 +105,6 @@ test "weights that give a code past 11 bits, or no power of 2, and a last octet 
     odd.values[0] = 3;
     odd.values[1] = 1;
     try testing.expectError(error.HuffmanWeightsInvalid, huffman.build(&odd, &table));
-    try testing.expectError(error.HuffmanStreamInvalid, huffman.decode_stream(&table, &.{ 0x12, 0 }, &.{}));
+    try testing.expectError(error.HuffmanStreamUnterminated, huffman.decode_stream(&table, &.{ 0x12, 0 }, &.{}));
     try testing.expectError(error.HuffmanTreeTruncated, huffman.read_tree(&.{ constants.huffman_direct_symbols_offset + 5, 0x43 }, &table));
 }
