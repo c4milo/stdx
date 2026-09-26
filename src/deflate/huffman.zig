@@ -47,19 +47,23 @@ pub fn Code(comptime alphabet_len: usize) type {
         const Self = @This();
 
         counts: Counts,
+        /// The number of symbols with a code.
+        code_count: u16,
         /// The symbols with a code, in code order: by length, then by symbol.
         symbols: [alphabet_len]u16,
 
         /// The code the lengths define, one length per symbol, 0 for a symbol with no code.
         pub fn build(self: *Self, lengths: []const u8, completeness: Completeness) BuildError!void {
             assert(lengths.len <= alphabet_len);
-            return build_code(&self.counts, &self.symbols, lengths, completeness);
+            try build_code(&self.counts, &self.symbols, lengths, completeness);
+            self.code_count = 0;
+            for (self.counts[1..]) |count| self.code_count += count;
         }
 
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
         /// are present.
         pub fn decode(self: *const Self, bits: u64, available: u7) Decoded {
-            return decode_code(&self.counts, &self.symbols, bits, available);
+            return decode_code(&self.counts, &self.symbols, self.code_count, bits, available);
         }
     };
 }
@@ -103,11 +107,14 @@ fn place_symbols(counts: Counts, symbols: []u16, lengths: []const u8) void {
     }
 }
 
-fn decode_code(counts: *const Counts, symbols: []const u16, bits: u64, available: u7) Decoded {
+fn decode_code(counts: *const Counts, symbols: []const u16, code_count: u16, bits: u64, available: u7) Decoded {
     var code: i32 = 0; // The bits read so far, first bit most significant.
     var first: i32 = 0; // The first code of the length read so far.
     var index: i32 = 0; // The place of that length's first code in `symbols`.
     for (1..constants.code_len_max + 1) |len| {
+        // No code is this long, so the bits read so far match none, whatever bits follow: an
+        // unused value of an incomplete code is known as soon as its bits are.
+        if (index == code_count) return .invalid;
         if (len > available) return .needs_bits;
         code |= @intCast((bits >> @intCast(len - 1)) & 1);
         const count: i32 = counts[len];
@@ -175,6 +182,15 @@ test "a code too short for its bits waits, and an unused value is invalid" {
     try code.build(&.{ 0, 1 }, .distance);
     try testing.expectEqual(@as(u16, 1), code.decode(0, 15).symbol.value);
     try testing.expectEqual(Decoded.invalid, code.decode(1, 15));
+}
+
+test "an unused value is invalid as soon as its bits are read, not after the longest code's" {
+    var code: Code(constants.distance_alphabet_len) = undefined;
+    try code.build(&.{ 0, 0 }, .distance);
+    try testing.expectEqual(Decoded.invalid, code.decode(0, 0));
+    try code.build(&.{ 0, 1 }, .distance);
+    try testing.expectEqual(Decoded.invalid, code.decode(1, 1));
+    try testing.expectEqual(Decoded.needs_bits, code.decode(0, 0));
 }
 
 test "over-subscribed and incomplete codes are refused, but for RFC 1951 section 3.2.7's cases" {
