@@ -765,6 +765,17 @@ to 12 are reordered and nothing else changes.
     - NEON has no multiply of 64-bit lanes, so aarch64 stays scalar.
   - Mutations are listed in each commit's body. NOT CAUGHT, each changing no output: the 1 KiB
     floor moved; `fastest` ignoring `vpmullq_fast` on aarch64, where the path is not built.
+  - After the check, 2026-09-26. libzstd's library exports its copy of xxHash's XXH64, which
+    zstd.h does not declare; its binding's test checks it against the frame's checksum.
+    - `differential-checksum` now compares all 64 bits of every path with it at every length,
+      from seed 0 and from a drawn seed (1960901): 3,004,167 values on macOS, 0 failed.
+    - bench-checksum times it as XXH64's baseline (d5ed087). `xxh64` then ran at 0.66 of it over
+      64 octets on the N2 and 0.70 on an EPYC 7763, in run
+      [36274183552](https://github.com/c4milo/stdx/actions/runs/36274183552): the call went
+      through the streaming state's stripe buffer. It now runs the steps over the buffer where it
+      lies (e79284e), and in run
+      [36274191626](https://github.com/c4milo/stdx/actions/runs/36274191626) the scalar path runs
+      at 0.87 and 0.92 of libzstd over 64 octets, 0.98 and 0.99 over 1 KiB, and 1.00 from 16 KiB.
 
 - **Step 11: the Zstandard decoder.** The checked path, then the fast path (claims Z1 to Z5), with
   libzstd as the oracle.
