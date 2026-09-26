@@ -146,11 +146,6 @@ const Loop = struct {
         self.count -= entry.code_bits;
         if (builtin.is_test) self.decoded += 1;
     }
-
-    /// The history a distance may reach now: the window's, and what the loop wrote since.
-    inline fn reach(self: *const Loop) usize {
-        return @min(constants.window_len, self.reach_before + self.written - self.start);
-    }
 };
 
 inline fn low_bits(value: u64, count: u32) u64 {
@@ -311,33 +306,43 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
     used += distance_entry.code_bits;
     const distance = distance_entry.value + low_bits(loop.buffer >> @intCast(used), distance_entry.extra_bits);
     used += distance_entry.extra_bits;
-    // A distance past the history or the container's window is the checked path's to refuse.
-    if (distance > loop.reach() or distance > history.distance_max) return .checked;
     // The tail copies a match whole or leaves it to the checked path, which copies what fits.
     if (mode == .tail and loop.room() < len) return .margin;
-    loop.consume(used);
+    // Most matches reach only octets this call wrote, inside the container's window, and copy
+    // straight from the output; the rest go out of line.
+    const target = loop.written;
+    if (distance <= target and distance <= history.distance_max) {
+        loop.consume(used);
+        loop.written += @intCast(len);
+        switch (mode) {
+            .wide => copy_within(loop.output, target, @intCast(distance), @intCast(len)),
+            .tail => copy_exact(loop.output, target, @intCast(distance), @intCast(len)),
+        }
+    } else {
+        if (!copy_from_window(loop.output, target, loop.start, loop.reach_before, history, @intCast(distance), @intCast(len))) return .checked;
+        loop.consume(used);
+        loop.written += @intCast(len);
+    }
     if (builtin.is_test) loop.decoded += 1;
-    copy_match(mode, loop, history.window, @intCast(distance), @intCast(len));
     return null;
 }
 
-/// Copies `len` octets from `distance` back: first what lies before this call's output, from the
-/// window, then from the output itself.
-fn copy_match(comptime mode: Mode, loop: *Loop, window: *const codec.Window(constants.window_len), distance: usize, len: usize) void {
-    var copied: usize = 0;
-    if (distance > loop.written) {
-        const from_window = @min(len, distance - loop.written);
-        // The window's newest octet is the one before `start`.
-        window.copy_back(distance - loop.written + loop.start, loop.output[loop.written..][0..from_window]);
-        copied = from_window;
-    }
-    if (copied < len) {
-        switch (mode) {
-            .wide => copy_within(loop.output, loop.written + copied, distance, len - copied),
-            .tail => copy_exact(loop.output, loop.written + copied, distance, len - copied),
-        }
-    }
-    loop.written += len;
+/// Copies a match that reaches before this call's output: its first octets from the window, the
+/// rest from the output, octet by octet. Returns false, having copied nothing, for a distance past
+/// the history or the container's window, which the checked path refuses. It takes the loop's
+/// state as values, so the loop's state stays in registers.
+noinline fn copy_from_window(output: []u8, written: usize, start: usize, reach_before: usize, history: History, distance: usize, len: usize) bool {
+    assert(distance > written or distance > history.distance_max);
+    assert(start <= written);
+    const reach = @min(constants.window_len, reach_before + written - start);
+    if (distance > reach or distance > history.distance_max) return false;
+    const from_window = @min(len, distance - written);
+    // The window's newest octet is the one before `start`.
+    history.window.copy_back(distance - written + start, output[written..][0..from_window]);
+    if (from_window == len) return true;
+    // The rest, when a match runs from the window into this call's output, is short.
+    copy_exact(output, written + from_window, distance, len - from_window);
+    return true;
 }
 
 /// Copies `len` octets to `target` from `distance` before it, octet by octet, so the copy reads
