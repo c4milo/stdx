@@ -282,7 +282,10 @@ inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
 /// takes, or a run of literals. Returns why the loop stops, or `go_on`.
 inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, first: lookup.Entry) Next {
     var entry = first;
-    if (entry.kind == .long) entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
+    if (entry.kind == .long) {
+        @branchHint(.cold);
+        entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
+    }
     switch (entry.kind) {
         .literal, .literal_pair => return step_literals(mode, loop, codes, entry),
         .end_of_block => {
@@ -351,7 +354,10 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
     if (len == constants.match_len_max and length.used_bits != length.code_bits) return .checked;
     const after_length = past(loop.buffer, length);
     var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(after_length)) & loop.distance_mask];
-    if (distance_entry.kind == .long) distance_entry = resolve_distance(codes, after_length) orelse return .checked;
+    if (distance_entry.kind == .long) {
+        @branchHint(.cold);
+        distance_entry = resolve_distance(codes, after_length) orelse return .checked;
+    }
     if (distance_entry.kind != .distance) return .checked;
     const distance = distance_entry.value + extra_value(after_length, distance_entry);
     const used = @as(u32, length.used_bits) + distance_entry.used_bits;
@@ -368,6 +374,7 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
             .tail => copy_exact(loop.output, target, @intCast(distance), @intCast(len)),
         }
     } else {
+        @branchHint(.unlikely);
         if (!copy_from_window(loop.output, target, loop.start, loop.reach_before, history, @intCast(distance), @intCast(len))) return .checked;
         loop.consume_pair(after_length, distance_entry, used);
         loop.written += @intCast(len);
