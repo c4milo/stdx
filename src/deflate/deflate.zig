@@ -14,6 +14,7 @@ pub const Error = decoder.Error;
 pub const init = decoder.init;
 pub const limit_window = decoder.limit_window;
 pub const decode = decoder.decode;
+pub const decode_all = decoder.decode_all;
 pub const decode_with = decoder.decode_with;
 pub const decode_counting = decoder.decode_counting;
 pub const Lookups = decoder.Lookups;

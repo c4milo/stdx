@@ -165,6 +165,13 @@ pub fn decode_counting(comptime options: Options, decoder: *Decoder, input: []co
     return decode_counted(counting, decoder, input, output, lookups);
 }
 
+/// Decodes a whole stream in one call (decision 11). The input ending before the stream does is
+/// `error.Truncated`, and the output filling first is `error.NoSpaceLeft`. Octets after the stream
+/// stay the caller's: `consumed` says where it ended.
+pub fn decode_all(decoder: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
+    return codec.whole(try decode(decoder, input, output));
+}
+
 fn decode_counted(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8, lookups: Counter(options)) Error!codec.Progress {
     codec.check_entry(input, output);
     // A call after `done` or after a refusal, without `init`, is a programmer error (decision 11).

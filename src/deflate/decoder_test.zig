@@ -171,6 +171,25 @@ test "octets after the stream stay in the input, after a block read ahead of its
     }
 }
 
+test "decode_all decodes a whole stream, and names an input cut short and a full output" {
+    var stream: Stream = .{};
+    stream.block_header(true, .fixed);
+    for ("abcdef") |octet| stream.fixed_literal(octet);
+    stream.fixed_literal(constants.end_of_block);
+    const stream_len = stream.slice().len;
+    // Octets after the stream stay the caller's: `consumed` stops at its end.
+    stream.append("next");
+    var output: [output_len_max]u8 = undefined;
+    var decoder = fresh();
+    const whole = try deflate.decode_all(&decoder, stream.slice(), &output);
+    try testing.expectEqual(codec.Whole{ .consumed = stream_len, .written = 6 }, whole);
+    try testing.expectEqualSlices(u8, "abcdef", output[0..whole.written]);
+    decoder = fresh();
+    try testing.expectError(error.Truncated, deflate.decode_all(&decoder, stream.slice()[0 .. stream_len - 1], &output));
+    decoder = fresh();
+    try testing.expectError(error.NoSpaceLeft, deflate.decode_all(&decoder, stream.slice(), output[0..5]));
+}
+
 test "a stream cut short asks for input and has taken all of it" {
     var stream: Stream = .{};
     stream.block_header(true, .fixed);
