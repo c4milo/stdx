@@ -480,8 +480,8 @@ to 12 are reordered and nothing else changes.
   - The benchmark against zlib, zlib-ng, libdeflate and Wuffs: median of
     five with spread, the losses included.
 
-  **Checked 2026-09-26; one count open.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both
-  hosted runners.
+  **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted
+  runners.
   - The fast path: `fast.zig` decodes a block's symbols while decision 16's margins hold, 8 octets
     of input and 274 of output, and a tail loop decodes what the margins leave out (f2373f6,
     225077a). It refills a 64-bit buffer with one 8-octet load (S1), looks each code up in
@@ -524,10 +524,17 @@ to 12 are reordered and nothing else changes.
       0.83 of zlib-ng's. The libdeflate baseline allocates its decompressor for each stream, which
       is its reset (`bench/baselines/baselines.c`).
     - S8: invariant 17's test holds 48 minimal dynamic blocks at 151.9 units of work per octet
-      consumed, within the bound of 1,717. Tables as wide as their alphabets would write 2,304
-      entries a block, 195 more per octet.
-    - S2's other test, the fraction of symbols one lookup decodes on each corpus file, did not
-      run. It asks for a count in a test build, and no test build reads the corpora.
+      consumed, within the bound of 1,141, which 093e387 tightened to one write an entry and one
+      a code. Tables as wide as their alphabets would write 2,304 entries a block, 195 more per
+      octet.
+    - S2's count: `bench-profile` run
+      [36253767681](https://github.com/c4milo/stdx/actions/runs/36253767681) decodes each corpus
+      file's stream with `decode_counting` (69d5d68, d4244bf), with the same counts on both
+      runners. Of 68,359,294 symbols, 99.75% take one lookup, 0.25% the canonical code after a
+      lookup, and 148 the checked path. The median file takes 99.68% by one lookup, and the
+      lowest, the 1 KiB JSON body, 98.16%: its other symbols go to the checked path at the
+      input's end, where the margins no longer hold. The count asks for a test build, and no
+      test build reads the corpora, so the benchmark counts in its ReleaseSafe build.
     - S9 is step 4's.
   - Decision 17: the same program built ReleaseFast runs the fast path at a median of 1.012 of its
     ReleaseSafe speed on the N2 (1.003 to 1.094) and 0.997 on the EPYC (0.981 to 1.067). The
@@ -559,11 +566,6 @@ to 12 are reordered and nothing else changes.
       of x-ray's and 0.06% of dickens's take such a distance.
   - Mutations are listed in each commit's body. Each NOT CAUGHT is an equivalent mutant, with its
     reason in the body, and each other gap found a test that was then written.
-  - Open, waiting on the owner:
-    - S2's count of one-lookup symbols per corpus file, which needs a counting hook in the decoder
-      or a test build that reads the corpora.
-    - `constants.table_build_work_max` still allows each entry a second write, which S3's pairs
-      took. Tightening it changes a named limit.
 
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
