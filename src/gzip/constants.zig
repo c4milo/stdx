@@ -11,6 +11,9 @@ pub const identification_1_offset = 0;
 pub const identification_2_offset = 1;
 pub const method_offset = 2;
 pub const flags_offset = 3;
+pub const modification_time_offset = 4;
+pub const extra_flags_offset = 8;
+pub const operating_system_offset = 9;
 
 /// ID1 and ID2 (RFC 1952 §2.3.1).
 pub const identification_1: u8 = 0x1f;
@@ -48,6 +51,21 @@ pub const deflate_stream_len_min = std.math.divCeil(
 /// The fewest octets a member takes: the fixed header, the shortest DEFLATE stream, and the
 /// trailer (RFC 1952 §2.3).
 pub const member_len_min = fixed_header_len + deflate_stream_len_min + trailer_len;
+
+/// What the encoder's header holds beside ID1, ID2 and CM (RFC 1952 §2.3.1): no FLG bit; MTIME 0,
+/// no time, so no clock reaches the output (invariant 5); OS 255, unknown, the same on every host;
+/// and XFL, 4 for the fastest level, 2 for the strongest, and 0 for the others.
+pub const encoder_flags: u8 = 0;
+pub const encoder_modification_time: u32 = 0;
+pub const encoder_operating_system: u8 = 255;
+pub fn extra_flags(comptime level: u4) u8 {
+    return switch (level) {
+        1 => 4,
+        6 => 0,
+        9 => 2,
+        else => @compileError("the gzip encoder's levels are 1, 6 and 9 (decision 13)"),
+    };
+}
 
 /// The CRC-32 of no octets (RFC 1952 §8).
 pub const crc32_initial: u32 = 0;
