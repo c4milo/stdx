@@ -17,6 +17,9 @@ pub const Features = struct {
     avx512: bool = false,
     /// x86-64: AVX512_VNNI's VPDPBUSD.
     vnni: bool = false,
+    /// x86-64: VPMULLQ as fast as a scalar multiply, on an AMD CPU with AVX-512. It chooses the
+    /// XXH64 path rather than naming an instruction.
+    vpmullq_fast: bool = false,
     /// aarch64: the CRC32 instructions.
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
@@ -33,6 +36,8 @@ pub const Features = struct {
                 .avx2 = std.Target.x86.featureSetHas(cpu.features, .avx2),
                 .vpclmul = std.Target.x86.featureSetHas(cpu.features, .vpclmulqdq),
                 .avx512 = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl }),
+                .vpmullq_fast = std.Target.x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl }) and
+                    std.mem.startsWith(u8, cpu.model.name, "znver"),
                 .vnni = std.Target.x86.featureSetHas(cpu.features, .avx512vnni),
             },
             .aarch64 => .{
@@ -61,6 +66,7 @@ test "from copies every field it names, and nothing else" {
         vpclmul: bool = true,
         avx512: bool = false,
         vnni: bool = true,
+        vpmullq_fast: bool = false,
         crc32: bool = false,
         pmull: bool = true,
         dotprod: bool = false,

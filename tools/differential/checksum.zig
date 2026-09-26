@@ -212,16 +212,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("differential-checksum FAILED: detection misses {s}, which the build host has\n", .{name});
         std.process.exit(1);
     }
-    const wanted: checksum.Features = .{
-        .pclmul = features.pclmul,
-        .avx2 = features.avx2,
-        .vpclmul = features.vpclmul,
-        .avx512 = features.avx512,
-        .vnni = features.vnni,
-        .crc32 = features.crc32,
-        .pmull = features.pmull,
-        .dotprod = features.dotprod,
-    };
+    const wanted = checksum.Features.from(features);
     const checks = build_checks(wanted);
     std.debug.print("differential-checksum: CRC-32 paths {s}; Adler-32 paths {s}; XXH64 paths {s}\n", .{
         path_names(arena, checks[0].paths()), path_names(arena, checks[1].paths()), xxh64_path_names(arena, wanted),
@@ -255,7 +246,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// The first feature the build host has and `detected` lacks, or null.
 fn missed_feature(detected: codec.Features) ?[]const u8 {
-    inline for (.{ "pclmul", "avx2", "vpclmul", "avx512", "vnni", "crc32", "pmull", "dotprod" }) |name| {
+    inline for (.{ "pclmul", "avx2", "vpclmul", "avx512", "vnni", "vpmullq_fast", "crc32", "pmull", "dotprod" }) |name| {
         if (@field(host_features, name) and !@field(detected, name)) return name;
     }
     return null;
@@ -349,8 +340,8 @@ test "detection on this host finds what the build host's CPU has" {
     try testing.expectEqual(null, missed_feature(codec.Features.detect()));
     // With nothing detected, every feature the host has is missed.
     const host_has_any = host_features.pclmul or host_features.avx2 or host_features.vpclmul or
-        host_features.avx512 or host_features.vnni or host_features.crc32 or host_features.pmull or
-        host_features.dotprod;
+        host_features.avx512 or host_features.vnni or host_features.vpmullq_fast or host_features.crc32 or
+        host_features.pmull or host_features.dotprod;
     try testing.expectEqual(host_has_any, missed_feature(.{}) != null);
 }
 

@@ -27,6 +27,10 @@ pub const Features = struct {
     vpclmul: bool = false,
     /// x86-64: AVX512_VNNI's VPDPBUSD, dot products of octets, with the ZMM registers saved.
     vnni: bool = false,
+    /// x86-64: VPMULLQ, AVX-512 DQ's multiply of 64-bit lanes, as fast as a scalar multiply. It
+    /// chooses a path rather than naming an instruction: an AMD CPU with AVX-512, Zen 4 or later,
+    /// takes 3 cycles, and Intel's take about 15 (design §8 step 10, decision 21).
+    vpmullq_fast: bool = false,
     /// aarch64: the CRC32 instructions, whose polynomial is gzip's (RFC 1952 §8).
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
@@ -83,7 +87,8 @@ fn from_target(cpu: std.Target.Cpu) Features {
         .x86_64 => .{
             .pclmul = has_x86(cpu, .pclmul) and has_x86(cpu, .sse4_1),
             .avx2 = has_x86(cpu, .avx2),
-            .avx512 = has_x86(cpu, .avx512f) and has_x86(cpu, .avx512bw) and has_x86(cpu, .avx512dq) and has_x86(cpu, .avx512vl),
+            .avx512 = has_avx512(cpu),
+            .vpmullq_fast = has_avx512(cpu) and std.mem.startsWith(u8, cpu.model.name, amd_model_prefix),
             .vpclmul = has_x86(cpu, .vpclmulqdq),
             .vnni = has_x86(cpu, .avx512vnni),
         },
@@ -100,8 +105,20 @@ fn has_x86(cpu: std.Target.Cpu, feature: std.Target.x86.Feature) bool {
     return std.Target.x86.featureSetHas(cpu.features, feature);
 }
 
+fn has_avx512(cpu: std.Target.Cpu) bool {
+    return has_x86(cpu, .avx512f) and has_x86(cpu, .avx512bw) and has_x86(cpu, .avx512dq) and has_x86(cpu, .avx512vl);
+}
+
+/// The prefix of Zig's names for AMD's Zen cores, the only x86-64 models a target names by vendor.
+const amd_model_prefix = "znver";
+
 /// The bits of CPUID and XCR0 that detection reads, as the Intel and AMD manuals number them.
 const x86 = struct {
+    const leaf_vendor = 0;
+    // Leaf 0's vendor string, "AuthenticAMD", four octets to EBX, EDX and ECX in that order.
+    const vendor_amd_ebx = 0x6874_7541;
+    const vendor_amd_edx = 0x6974_6e65;
+    const vendor_amd_ecx = 0x444d_4163;
     const leaf_features = 1;
     const leaf_extended_features = 7;
     // Leaf 1, ECX: bits 1, 19, 27 and 28.
@@ -158,10 +175,12 @@ fn all(value: u32, bits: u32) bool {
 
 fn detect_x86_64() Features {
     if (builtin.cpu.arch != .x86_64) unreachable;
+    const vendor = cpuid(x86.leaf_vendor, 0);
     const basic = cpuid(x86.leaf_features, 0);
     const saves_registers = all(basic.ecx, x86.ecx_osxsave | x86.ecx_avx);
     const extended = cpuid(x86.leaf_extended_features, 0);
     return from_x86(.{
+        .vendor_amd = vendor.ebx == x86.vendor_amd_ebx and vendor.edx == x86.vendor_amd_edx and vendor.ecx == x86.vendor_amd_ecx,
         .leaf_1_ecx = basic.ecx,
         .leaf_7_ebx = extended.ebx,
         .leaf_7_ecx = extended.ecx,
@@ -170,9 +189,9 @@ fn detect_x86_64() Features {
     });
 }
 
-/// The registers x86-64 detection reads: CPUID leaf 1's ECX, leaf 7's EBX and ECX, and XCR0,
-/// which is 0 when the operating system saves no extended registers.
-const X86Registers = struct { leaf_1_ecx: u32, leaf_7_ebx: u32, leaf_7_ecx: u32, xcr0: u64 };
+/// The registers x86-64 detection reads: whether CPUID leaf 0 names AMD, leaf 1's ECX, leaf 7's
+/// EBX and ECX, and XCR0, which is 0 when the operating system saves no extended registers.
+const X86Registers = struct { vendor_amd: bool, leaf_1_ecx: u32, leaf_7_ebx: u32, leaf_7_ecx: u32, xcr0: u64 };
 
 /// The features the registers report. AVX2, AVX-512 and VPCLMULQDQ need the operating system to
 /// save the registers they use, which XCR0 reports.
@@ -180,10 +199,12 @@ fn from_x86(registers: X86Registers) Features {
     const ymm = registers.xcr0 & x86.xcr0_ymm == x86.xcr0_ymm;
     const zmm = ymm and registers.xcr0 & x86.xcr0_zmm == x86.xcr0_zmm;
     const avx512_bits = x86.ebx_avx512f | x86.ebx_avx512bw | x86.ebx_avx512dq | x86.ebx_avx512vl;
+    const avx512 = zmm and all(registers.leaf_7_ebx, avx512_bits);
     return .{
         .pclmul = all(registers.leaf_1_ecx, x86.ecx_pclmulqdq | x86.ecx_sse4_1),
         .avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2),
-        .avx512 = zmm and all(registers.leaf_7_ebx, avx512_bits),
+        .avx512 = avx512,
+        .vpmullq_fast = avx512 and registers.vendor_amd,
         .vpclmul = ymm and all(registers.leaf_7_ecx, x86.ecx_vpclmulqdq),
         .vnni = zmm and all(registers.leaf_7_ecx, x86.ecx_avx512_vnni),
     };
@@ -245,15 +266,20 @@ test "none holds nothing, and intersect and with combine field by field" {
 
 test "the x86-64 registers map each feature, and XCR0 gates the vector registers" {
     const every: X86Registers = .{
+        .vendor_amd = true,
         .leaf_1_ecx = 0x0000_0002 | 0x0008_0000,
         .leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x4000_0000 | 0x8000_0000,
         .leaf_7_ecx = 0x0000_0400 | 0x0000_0800,
         .xcr0 = 0b1110_0111,
     };
-    const all_x86: Features = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true };
+    const all_x86: Features = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .vpmullq_fast = true };
     try testing.expectEqual(all_x86, from_x86(every));
+    // The same features on an Intel CPU, whose VPMULLQ is slow.
+    var intel = every;
+    intel.vendor_amd = false;
+    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true }, from_x86(intel));
     // VPCLMULQDQ without VNNI, as on the first CPUs with both AVX-512 and VPCLMULQDQ.
-    var no_vnni = every;
+    var no_vnni = intel;
     no_vnni.leaf_7_ecx = 0x0000_0400;
     try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true }, from_x86(no_vnni));
     // No YMM state saved: nothing that uses YMM or ZMM, whatever CPUID says.

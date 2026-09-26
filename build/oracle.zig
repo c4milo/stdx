@@ -297,6 +297,8 @@ fn host_features(b: *std.Build) *std.Build.Step.Options {
     options.addOption(bool, "vpclmul", is_x86_64 and x86.featureSetHasAll(cpu.features, .{ .vpclmulqdq, .avx2 }));
     options.addOption(bool, "avx512", is_x86_64 and x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl }));
     options.addOption(bool, "vnni", is_x86_64 and x86.featureSetHas(cpu.features, .avx512vnni));
+    options.addOption(bool, "vpmullq_fast", is_x86_64 and x86.featureSetHasAll(cpu.features, .{ .avx512f, .avx512bw, .avx512dq, .avx512vl }) and
+        std.mem.startsWith(u8, cpu.model.name, "znver"));
     options.addOption(bool, "crc32", is_aarch64 and aarch64.featureSetHas(cpu.features, .crc));
     options.addOption(bool, "pmull", is_aarch64 and aarch64.featureSetHas(cpu.features, .aes));
     options.addOption(bool, "dotprod", is_aarch64 and aarch64.featureSetHas(cpu.features, .dotprod));
