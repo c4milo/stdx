@@ -96,6 +96,7 @@ extern fn oracle_wuffs_adler32(input: [*]const u8, input_len: usize) u32;
 extern fn oracle_rfc1952_update_crc(crc: u32, input: [*]const u8, input_len: usize) u32;
 extern fn oracle_rfc1950_update_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
 extern fn oracle_zstd_bound(input_len: usize) usize;
+extern fn oracle_zstd_xxh64(input: [*]const u8, input_len: usize, seed: u64) u64;
 extern fn oracle_zstd_content_checksum(input: [*]const u8, input_len: usize, frame: [*]u8, frame_len: usize, checksum: *u32) c_int;
 
 /// The most octets zlib writes when it encodes `input_len` octets in `container`, at any level and
@@ -170,6 +171,11 @@ pub fn wuffs_decode(container: Container, input: []const u8, output: []u8) Resul
 /// zlib's crc32_z: the CRC-32 after `input`, from `crc`.
 pub fn zlib_crc32(crc: u32, input: []const u8) u32 {
     return oracle_zlib_crc32(crc, input.ptr, input.len);
+}
+
+/// libzstd's copy of xxHash's XXH64 of `input` from `seed`, all 64 bits.
+pub fn zstd_xxh64(seed: u64, input: []const u8) u64 {
+    return oracle_zstd_xxh64(input.ptr, input.len, seed);
 }
 
 /// The most octets one libzstd frame of `input_len` octets takes.
@@ -294,6 +300,15 @@ test "libzstd's Content_Checksum binding repeats for one input, differs for anot
     try testing.expect(empty != letter);
     try testing.expect(zstd_bound(3) <= frame.len);
     try testing.expectEqual(null, zstd_content_checksum("abc", frame[0..3]));
+}
+
+test "libzstd's XXH64 gives its Content_Checksum in the low 32 bits, and takes the seed" {
+    var frame: [256]u8 = undefined;
+    for ([_][]const u8{ "", "a", "abcdefghijklmnopqrstuvwxyz0123456789" }) |input| {
+        const checksum = zstd_content_checksum(input, &frame) orelse return error.TestUnexpectedResult;
+        try testing.expectEqual(checksum, @as(u32, @truncate(zstd_xxh64(0, input))));
+        try testing.expect(zstd_xxh64(0, input) != zstd_xxh64(1, input));
+    }
 }
 
 test "flush points of every kind leave a stream both oracles decode" {

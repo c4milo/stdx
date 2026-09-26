@@ -1,8 +1,10 @@
 //! differential-checksum's XXH64 part (design §8 step 10, decision 18). A Zstandard frame carries
-//! only the low 32 bits of XXH64 with seed 0, its Content_Checksum (RFC 8878 §3.1.1), so libzstd
-//! checks those bits. For every corpus file, and every XXH64 path of stdx's this CPU runs:
+//! only the low 32 bits of XXH64 with seed 0, its Content_Checksum (RFC 8878 §3.1.1). libzstd also
+//! exports its copy of xxHash's XXH64, which gives all 64 bits from any seed. For every corpus
+//! file, and every XXH64 path of stdx's this CPU runs:
 //! - at every length from 0 to `Limits.len_max`, at an offset the file's seed draws, the path's
-//!   `xxh64` against the Content_Checksum of libzstd's frame of those octets;
+//!   `xxh64` against the Content_Checksum of libzstd's frame of those octets, and against all 64
+//!   bits of libzstd's XXH64 from seed 0 and from a seed the file's seed draws;
 //! - the whole file, the same way;
 //! - the path's state fed the whole file in the pieces a seeded split draws, against its `xxh64` of
 //!   the whole file, all 64 bits.
@@ -58,7 +60,10 @@ pub fn check_file(by: Candidate, frame: []u8, name: []const u8, input: []const u
     var generator = codec.split.Generator.init(seed);
     for (0..@min(input.len, limits.len_max) + 1) |len| {
         const offset: usize = @intCast(generator.below(input.len - len + 1));
-        compare_with_libzstd(by, frame, &counts, .{ .file = name, .offset = offset, .len = len }, input[offset..][0..len]);
+        const case: Case = .{ .file = name, .offset = offset, .len = len };
+        compare_with_libzstd(by, frame, &counts, case, input[offset..][0..len]);
+        compare_all_bits(by, &counts, case, zstd_seed, input[offset..][0..len]);
+        compare_all_bits(by, &counts, case, generator.next(), input[offset..][0..len]);
     }
     compare_with_libzstd(by, frame, &counts, .{ .file = name, .offset = 0, .len = input.len }, input);
     compare_split(by, &counts, name, input, limits, seed);
@@ -83,6 +88,18 @@ fn compare_with_libzstd(by: Candidate, frame: []u8, counts: *Counts, case: Case,
     if (builtin.is_test) return;
     std.debug.print("differential-checksum FAILED: {s}: XXH64 by {s}, offset {d} length {d}: low 32 bits " ++
         "0x{x:0>8}, libzstd's Content_Checksum {?x}\n", .{ case.file, by.name, case.offset, case.len, got, wanted });
+}
+
+/// Every bit of the candidate's hash over `octets` from `seed` against libzstd's XXH64.
+fn compare_all_bits(by: Candidate, counts: *Counts, case: Case, seed: u64, octets: []const u8) void {
+    counts.compared += 1;
+    const wanted = oracle.zstd_xxh64(seed, octets);
+    const got = by.hash(seed, octets);
+    if (wanted == got) return;
+    counts.failures += 1;
+    if (builtin.is_test) return;
+    std.debug.print("differential-checksum FAILED: {s}: XXH64 by {s} from seed 0x{x:0>16}, offset {d} length {d}: " ++
+        "0x{x:0>16}, libzstd's XXH64 0x{x:0>16}\n", .{ case.file, by.name, seed, case.offset, case.len, got, wanted });
 }
 
 /// The candidate's state fed `input` in seeded pieces, against its hash of the whole input.
@@ -122,8 +139,8 @@ test "stdx and libzstd agree over a sample, and every length is compared" {
     var frame: [test_limits.len_max + 1024]u8 = undefined;
     const counts = check_file(candidate(.scalar), &frame, "sample", &input, test_limits, 1);
     try testing.expectEqual(0, counts.failures);
-    // Every length, then the whole input, then the split.
-    try testing.expectEqual(test_limits.len_max + 1 + 2, counts.compared);
+    // Every length three ways, then the whole input, then the split.
+    try testing.expectEqual(3 * (test_limits.len_max + 1) + 2, counts.compared);
 }
 
 fn wrong_hash(seed: u64, octets: []const u8) u64 {
@@ -139,9 +156,10 @@ test "an XXH64 wrong at one length fails the check, and wrong high bits fail the
     var input: [test_limits.len_max + 100]u8 = undefined;
     sample(&input);
     var frame: [test_limits.len_max + 1024]u8 = undefined;
+    // Wrong at one length: the frame and both seeds of libzstd's XXH64 see it.
     const wrong: Candidate = .{ .name = "wrong", .hash = wrong_hash, .path = .scalar };
-    try testing.expectEqual(1, check_file(wrong, &frame, "sample", &input, test_limits, 1).failures);
-    // libzstd sees only the low 32 bits; the split compares all 64.
+    try testing.expectEqual(3, check_file(wrong, &frame, "sample", &input, test_limits, 1).failures);
+    // A frame carries only the low 32 bits; libzstd's XXH64 and the split compare all 64.
     const high: Candidate = .{ .name = "wrong high bits", .hash = wrong_high_bits, .path = .scalar };
-    try testing.expectEqual(1, check_file(high, &frame, "sample", &input, test_limits, 1).failures);
+    try testing.expectEqual(2 * (test_limits.len_max + 1) + 1, check_file(high, &frame, "sample", &input, test_limits, 1).failures);
 }

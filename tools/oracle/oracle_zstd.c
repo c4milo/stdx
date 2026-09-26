@@ -16,6 +16,17 @@ enum { ORACLE_ZSTD_CHECKSUM_LEVEL = 1 };
 // The octets of a frame's Content_Checksum, the last of the frame (RFC 8878 §3.1.1).
 enum { ORACLE_ZSTD_CONTENT_CHECKSUM_LEN = 4 };
 
+// libzstd carries xxHash's own implementation for its checksums, and its compiled library exports
+// xxHash's one-shot XXH64 under libzstd's ZSTD_ prefix, as the library's symbol table shows. zstd.h
+// does not declare it, so this does, with the interface xxHash documents: the octets, their length,
+// and a 64-bit seed. Its binding's test checks it against libzstd's Content_Checksum.
+unsigned long long ZSTD_XXH64(const void* input, size_t length, unsigned long long seed);
+
+// libzstd's XXH64 of `input` from `seed`: every 64 bits, where a frame carries the low 32.
+uint64_t oracle_zstd_xxh64(const uint8_t* input, size_t input_len, uint64_t seed) {
+  return (uint64_t)ZSTD_XXH64(input, input_len, seed);
+}
+
 // The most octets one libzstd frame of `input_len` octets takes.
 size_t oracle_zstd_bound(size_t input_len) { return ZSTD_compressBound(input_len); }
 
