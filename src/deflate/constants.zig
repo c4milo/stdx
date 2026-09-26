@@ -209,6 +209,12 @@ pub const Level = struct {
     candidates_max: u16,
     nice_len: u16,
     lazy_len: u16,
+    /// The lazy step's search tries at most `cut_candidates_max` candidates when the match waiting
+    /// from the position before is at least `cut_len` long, as a longer match then saves less.
+    /// Measured at design §8 step 9: at level 6, 8 and 32 try 35% fewer candidates on json-1m and
+    /// 63% fewer on kennedy.xls, for at most 0.5% of the ratio.
+    cut_len: u16,
+    cut_candidates_max: u16,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
 };
@@ -219,11 +225,20 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 128, .nice_len = 128, .lazy_len = 32, .state_budget_len = 259 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .state_budget_len = 259 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 128, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 32, .state_budget_len = 259 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .state_budget_len = 259 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
+}
+
+comptime {
+    // A cut search still tries a candidate, and never more than the full search.
+    for (encoder_levels) |number| {
+        const chosen = level(number);
+        assert(chosen.cut_candidates_max >= 1 and chosen.cut_candidates_max <= chosen.candidates_max);
+        assert(chosen.cut_len >= match_len_taken_min);
+    }
 }
 
 /// Each length code's least length and extra bits, codes 257 to 285 (RFC 1951 §3.2.5).

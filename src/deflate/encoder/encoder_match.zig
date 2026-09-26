@@ -165,12 +165,17 @@ fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: 
 }
 
 /// The longest match at `position` among `candidates_max` earlier positions with its hash, the
-/// nearest first, up to `len_max` octets; a search ends early at `nice_len`.
+/// nearest first, up to `len_max` octets; a search ends early at `nice_len`. When the match waiting
+/// from the position before is at least `cut_len` long, the search tries `cut_candidates_max`.
 fn best(comptime level: constants.Level, self: *const Matcher(level), len_max: usize) Match {
     var found: Match = .{};
     if (self.position + constants.hash_len > self.filled) return found;
+    // No match waits without the lazy step's position before (`take_previous` clears it).
+    assert(self.waiting or self.previous.len == 0);
+    const cut = self.previous.len >= level.cut_len;
+    const candidates_max = if (cut) level.cut_candidates_max else level.candidates_max;
     var candidate = self.chain[self.position % constants.window_len];
-    for (0..level.candidates_max) |_| {
+    for (0..candidates_max) |_| {
         if (candidate == 0 or self.position - candidate > constants.encoder_distance_max) break;
         found = try_candidate(level, self, candidate, len_max, found);
         if (found.len >= level.nice_len) break;

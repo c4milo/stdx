@@ -210,7 +210,7 @@ test "each level's output for a seeded input is the one recorded here" {
     // Any change to what the encoder decides changes these; a change meant to must record new ones.
     const recorded = [_]struct { usize, u64 }{
         .{ 49533, 0x0e2a4aaf8b9007a9 },
-        .{ 45844, 0x7fef9a3056a94fb9 },
+        .{ 45857, 0x48a59473a824db0a },
         .{ 45748, 0x390bb9aacdb8e0ab },
     };
     var input: [120 * 1024]u8 = undefined;
@@ -222,3 +222,26 @@ test "each level's output for a seeded input is the one recorded here" {
         try testing.expectEqual(expected[1], std.hash.Wyhash.hash(0, output[0..written]));
     }
 }
+
+test "each level's output for two seeded letters, whose chains run long, is the one recorded here" {
+    // Two letters make 16 strings of 4 octets, so the chains run long: level 9's cut searches here
+    // try all `cut_candidates_max` candidates hundreds of times.
+    const recorded = [_]struct { usize, u64 }{
+        .{ 6026, 0xed9e40967cddbb1d },
+        .{ 3974, 0x0cc72cd22fbd5b30 },
+        .{ 4040, 0x751006431eb75e28 },
+    };
+    var input: [letters_len]u8 = undefined;
+    var generator = codec.split.Generator.init(17);
+    for (&input) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(letters)));
+    var output: [input.len + 1024]u8 = undefined;
+    inline for (levels, recorded) |level, expected| {
+        const written = try encode_whole(level, &input, &output);
+        try testing.expectEqual(expected[0], written);
+        try testing.expectEqual(expected[1], std.hash.Wyhash.hash(0, output[0..written]));
+    }
+}
+
+/// The octets of the seeded letters the second recorded output encodes, and how many letters.
+const letters_len = 24_576;
+const letters = 2;
