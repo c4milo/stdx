@@ -108,13 +108,15 @@ const Loop = struct {
     literal_length_mask: lookup.LiteralLengthTable.Index,
     distance_mask: lookup.DistanceTable.Index,
     decoded: usize = 0,
-    /// The entry of the next symbol, when a literal run already looked it up: a refill leaves the
-    /// bits it came from in place.
-    pending: ?lookup.Entry = null,
     /// The last input and output positions the wide loop's margins allow, set when it starts, so
     /// each iteration compares against them with no subtraction.
     input_limit: usize = 0,
     output_limit: usize = 0,
+
+    /// The literal/length entry of the code the buffer starts with.
+    inline fn look_up(self: *const Loop, table: *const lookup.LiteralLengthTable) lookup.Entry {
+        return table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(self.buffer)) & self.literal_length_mask];
+    }
 
     inline fn has_margin(self: *const Loop) bool {
         return self.input.len - self.position >= input_slack and self.output.len - self.written >= output_slack;
@@ -237,15 +239,29 @@ inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
     // iteration uses a bit or more, so every later refill finds 63 bits or fewer. The margins are
     // checked before each refill, which ends every iteration.
     if (loop.count < refill_bits) loop.refill();
+    var entry = loop.look_up(codes.literal_length_table);
     // Each iteration consumes at least a bit, or ends the loop.
     const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
     for (0..iterations_max) |_| {
-        const next = step(.wide, loop, codes, history);
+        const next = step(.wide, loop, codes, history, entry);
         if (next != .go_on) return next.end();
         if (loop.position > loop.input_limit or loop.written > loop.output_limit) return .margin;
-        loop.refill();
+        entry = refill_and_look_up(loop, codes);
     }
     unreachable;
+}
+
+/// Refills, and looks up the next symbol's entry. When the bits before the refill hold a whole
+/// table code, the lookup reads them, which the refill leaves in place, so the lookup need not
+/// wait for the refill.
+inline fn refill_and_look_up(loop: *Loop, codes: Codes) lookup.Entry {
+    if (loop.count >= constants.literal_length_table_bits) {
+        const entry = loop.look_up(codes.literal_length_table);
+        loop.refill();
+        return entry;
+    }
+    loop.refill();
+    return loop.look_up(codes.literal_length_table);
 }
 
 /// The tail: a symbol at a time, while the input holds a whole pair's bits.
@@ -256,17 +272,16 @@ inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
         loop.refill_exact();
         // Near the input's end, the checked path decodes what is left, and asks for more.
         if (loop.count < constants.pair_bits_max) return .checked;
-        const next = step(.tail, loop, codes, history);
+        const next = step(.tail, loop, codes, history, loop.look_up(codes.literal_length_table));
         if (next != .go_on) return next.end();
     }
     unreachable;
 }
 
-/// Decodes one literal/length symbol, and the distance a length takes, or a run of literals.
-/// Returns why the loop stops, or `go_on`.
-inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History) Next {
-    var entry = loop.pending orelse codes.literal_length_table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(loop.buffer)) & loop.literal_length_mask];
-    loop.pending = null;
+/// Decodes one literal/length symbol, whose table entry is `first`, and the distance a length
+/// takes, or a run of literals. Returns why the loop stops, or `go_on`.
+inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, first: lookup.Entry) Next {
+    var entry = first;
     if (entry.kind == .long) entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
     switch (entry.kind) {
         .literal, .literal_pair => return step_literals(mode, loop, codes, entry),
@@ -293,11 +308,9 @@ inline fn step_literals(comptime mode: Mode, loop: *Loop, codes: Codes, entry: l
     // code.
     for (1..literals_per_refill) |_| {
         if (loop.count < constants.literal_length_table_bits) return .go_on;
-        const next = codes.literal_length_table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(loop.buffer)) & loop.literal_length_mask];
-        if (next.kind != .literal and next.kind != .literal_pair) {
-            loop.pending = next;
-            return .go_on;
-        }
+        const next = loop.look_up(codes.literal_length_table);
+        // The next iteration looks the entry up again, from the same bits.
+        if (next.kind != .literal and next.kind != .literal_pair) return .go_on;
         write_literals(loop, next);
     }
     return .go_on;

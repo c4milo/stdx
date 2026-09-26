@@ -162,6 +162,45 @@ test "codes longer than the fast path's tables decode alike, literals, lengths a
     try decoder_test.expect_decodes(stream.slice(), "abcdefghijklmnmnmmmmn" ++ run ** 16);
 }
 
+/// The literals of the test below: 0 to 127 take `narrow_literal_bits`, and 128 to 255
+/// `wide_literal_bits`.
+const narrow_literal_bits = 10;
+const wide_literal_bits = 11;
+const wide_literal_first = 128;
+const wide_literals_len = 600;
+/// The seeded sequences of those literals the test decodes.
+const wide_literal_seeds = 16;
+
+test "runs of 10- and 11-bit literals decode alike at every alignment of the refill" {
+    // End-of-block takes 1 bit, and length codes 257 and 258 take 2 and 4, so with the literals
+    // 128/1024 + 128/2048 + 1/2 + 1/4 + 1/16 = 1, a complete code (RFC 1951 §3.2.2).
+    var block: Dynamic = .{ .literal_count = constants.first_length_symbol + 2, .distance_count = constants.hdist_base + 1 };
+    for (0..wide_literal_first) |symbol| block.literal_lengths[symbol] = narrow_literal_bits;
+    for (wide_literal_first..constants.end_of_block) |symbol| block.literal_lengths[symbol] = wide_literal_bits;
+    block.literal_lengths[constants.end_of_block] = 1;
+    block.literal_lengths[constants.first_length_symbol] = 2;
+    block.literal_lengths[constants.first_length_symbol + 1] = 4;
+    block.distance_lengths[0] = 1;
+    block.distance_lengths[1] = 1;
+    for (0..wide_literal_seeds) |seed| try expect_literals_decode(&block, seed);
+}
+
+/// Requires a seeded sequence of `block`'s literals to decode. A run of these literals leaves
+/// fewer bits than a table code takes at some alignments of the refill, and there the next lookup
+/// waits for the refill.
+fn expect_literals_decode(block: *const Dynamic, seed: u64) !void {
+    var stream: Stream = .{};
+    block.header(&stream, true);
+    var expected: [wide_literals_len]u8 = undefined;
+    var generator = codec.split.Generator.init(seed);
+    for (&expected) |*octet| {
+        octet.* = @intCast(generator.below(constants.end_of_block));
+        block.literal(&stream, octet.*);
+    }
+    block.literal(&stream, constants.end_of_block);
+    try decoder_test.expect_decodes(stream.slice(), &expected);
+}
+
 test "a call that ends in a dynamic header leaves the fast path's octets in the window" {
     // A fixed block of 300 literals, which the fast path and its tail decode whole when the input
     // goes on, then a dynamic block whose match reaches back to the first literal. At some cut the
