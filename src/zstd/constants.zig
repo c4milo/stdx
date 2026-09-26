@@ -40,6 +40,15 @@ pub const content_size_field_lens = [_]u8{ 0, 2, 4, 8 };
 pub const content_size_two_octet_offset = 256;
 pub const content_size_offset_field_len = 2;
 
+/// What the decoder holds besides its window: a gathered block and its literals, each
+/// Block_Maximum_Size, and 32 KiB for its Huffman and FSE tables (decision 12).
+pub const decoder_state_extra_len = 2 * block_len_max + 32 * 1024;
+
+/// A decoding call's steps: a few per octet it reads or writes, as a step reads or writes an octet
+/// or moves to the next part, plus a few to end a frame.
+pub const decoder_steps_per_octet = 4;
+pub const decoder_steps_floor = 16;
+
 /// The passes one call of a block's execution takes at most: each copies an octet or decodes a
 /// sequence, and a block holds at most Block_Maximum_Size of each.
 pub const block_execute_passes_max = 2 * block_len_max + 2;
