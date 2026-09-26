@@ -96,6 +96,10 @@ const Loop = struct {
     /// The entry of the next symbol, when a literal run already looked it up: a refill leaves the
     /// bits it came from in place.
     pending: ?lookup.Entry = null,
+    /// The last input and output positions the wide loop's margins allow, set when it starts, so
+    /// each iteration compares against them with no subtraction.
+    input_limit: usize = 0,
+    output_limit: usize = 0,
 
     inline fn has_margin(self: *const Loop) bool {
         return self.input.len - self.position >= input_slack and self.output.len - self.written >= output_slack;
@@ -197,6 +201,9 @@ inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *c
 
 /// The loop itself, entered with its margins held.
 inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
+    assert(loop.has_margin());
+    loop.input_limit = loop.input.len - input_slack;
+    loop.output_limit = loop.output.len - output_slack;
     // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
     // iteration uses a bit or more, so every later refill finds 63 bits or fewer. The margins are
     // checked before each refill, which ends every iteration.
@@ -205,7 +212,7 @@ inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
     const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
     for (0..iterations_max) |_| {
         if (step(.wide, loop, codes, history)) |ended| return ended;
-        if (!loop.has_margin()) return .margin;
+        if (loop.position > loop.input_limit or loop.written > loop.output_limit) return .margin;
         loop.refill();
     }
     unreachable;
@@ -363,11 +370,15 @@ const chunks_unconditional = 2;
 /// Copies `len` octets in chunks of `chunk_len`: the first `chunks_unconditional` whatever the
 /// length, and the rest in a loop.
 fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, source: usize, len: usize) void {
+    // The first chunks' target and source, each bounded once: the chunks inside them sit at
+    // offsets known at compile time, so their bounds need no check.
+    const head_len = chunks_unconditional * chunk_len;
+    const head_target = output[target..][0..head_len];
+    const head_source = output[source..][0..head_len];
     inline for (0..chunks_unconditional) |chunk| {
-        const offset = chunk * chunk_len;
-        output[target + offset ..][0..chunk_len].* = output[source + offset ..][0..chunk_len].*;
+        head_target[chunk * chunk_len ..][0..chunk_len].* = head_source[chunk * chunk_len ..][0..chunk_len].*;
     }
-    if (len <= chunks_unconditional * chunk_len) return;
+    if (len <= head_len) return;
     const chunks = std.math.divCeil(usize, len, chunk_len) catch unreachable;
     for (chunks_unconditional..chunks) |chunk| {
         const offset = chunk * chunk_len;
