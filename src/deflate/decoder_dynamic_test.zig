@@ -8,6 +8,7 @@ const constants = @import("constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
 const Stream = decoder_test.Stream;
+const test_stream = @import("test_stream.zig");
 
 /// A complete code for the code length alphabet: 13 symbols of 4 bits and 6 of 5, since
 /// 13/16 + 6/32 = 1 (RFC 1951 §3.2.2). The long codes go to the last six symbols of
@@ -133,6 +134,19 @@ test "a dynamic block's codes, from lengths that use every repeat symbol" {
 }
 
 test "codes longer than the fast path's tables decode alike, literals, lengths and distances" {
+    var stream: Stream = .{};
+    long_codes_stream(&stream);
+    try decoder_test.expect_decodes(stream.slice(), long_codes_output);
+}
+
+/// What `long_codes_stream` decodes to: 14 literals, two matches of 3, a literal, and
+/// `long_codes_runs` runs.
+const long_codes_run = "nkkkk";
+const long_codes_runs = 16;
+const long_codes_output = "abcdefghijklmnmnmmmmn" ++ long_codes_run ** long_codes_runs;
+
+/// A stream whose literal/length and distance codes run from 1 bit to 15, past both tables.
+fn long_codes_stream(stream: *Stream) void {
     // Literals 'a' to 'n' take 1 to 14 bits, and end-of-block and length code 257 take the two
     // 15-bit codes left: a complete code (RFC 1951 §3.2.2).
     var block: Dynamic = .{ .literal_count = constants.literal_length_used, .distance_count = constants.distance_used };
@@ -144,22 +158,40 @@ test "codes longer than the fast path's tables decode alike, literals, lengths a
     const distance_symbols = constants.code_len_max - 1;
     for (0..distance_symbols) |index| block.distance_lengths[index] = @intCast(distance_symbols - index);
     block.distance_lengths[distance_symbols] = distance_symbols;
-    var stream: Stream = .{};
-    block.header(&stream, true);
-    for ("abcdefghijklmn") |symbol| block.literal(&stream, symbol);
+    block.header(stream, true);
+    for ("abcdefghijklmn") |symbol| block.literal(stream, symbol);
     // Length 3 at distance 2, then at distance 1.
-    block.literal(&stream, constants.first_length_symbol);
-    block.distance(&stream, 1);
-    block.literal(&stream, constants.first_length_symbol);
-    block.distance(&stream, 0);
-    block.literal(&stream, 'n');
+    block.literal(stream, constants.first_length_symbol);
+    block.distance(stream, 1);
+    block.literal(stream, constants.first_length_symbol);
+    block.distance(stream, 0);
+    block.literal(stream, 'n');
     // Runs of literals that start with a long code: 14 bits, then four of 11.
-    const run = "nkkkk";
-    for (0..16) |_| {
-        for (run) |symbol| block.literal(&stream, symbol);
+    for (0..long_codes_runs) |_| {
+        for (long_codes_run) |symbol| block.literal(stream, symbol);
     }
-    block.literal(&stream, constants.end_of_block);
-    try decoder_test.expect_decodes(stream.slice(), "abcdefghijklmnmnmmmmn" ++ run ** 16);
+    block.literal(stream, constants.end_of_block);
+}
+
+test "S2's count tells a table's symbols from the canonical decode's and the checked path's" {
+    var stream: Stream = .{};
+    long_codes_stream(&stream);
+    // Padded, so the fast path's margins hold to the stream's end.
+    var input: [test_stream.stream_len_max + test_stream.stream_len_max]u8 = @splat(0);
+    @memcpy(input[0..stream.slice().len], stream.slice());
+    var output: [long_codes_output.len]u8 = undefined;
+    var decoder: deflate.Decoder = undefined;
+    var lookups: deflate.Lookups = .{};
+    deflate.init(&decoder, .{});
+    _ = try deflate.decode_counting(.{}, &decoder, &input, &output, &lookups);
+    try testing.expectEqualSlices(u8, long_codes_output, &output);
+    // Of the 100 symbols, 25 take codes past the tables: 'l', 'm' and the 17 'n's, both lengths
+    // and both distances, and end-of-block. The 64 'k's and the rest take one lookup.
+    try testing.expectEqual(deflate.Lookups{ .table = 75, .canonical = 25, .checked = 0 }, lookups);
+    var checked: deflate.Lookups = .{};
+    deflate.init(&decoder, .{});
+    _ = try deflate.decode_counting(.{ .fast_paths = false }, &decoder, &input, &output, &checked);
+    try testing.expectEqual(deflate.Lookups{ .table = 0, .canonical = 0, .checked = 100 }, checked);
 }
 
 /// The literals of the test below: 0 to 127 take `narrow_literal_bits`, and 128 to 255

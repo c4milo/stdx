@@ -18,6 +18,9 @@ const lookup = @import("lookup.zig");
 const fast = @import("fast.zig");
 const header = @import("decoder_header.zig");
 const Claims = @import("claims.zig").Claims;
+const options_module = @import("options.zig");
+pub const Lookups = options_module.Lookups;
+const Counter = options_module.Counter;
 
 /// Every way a stream breaks RFC 1951.
 pub const Corrupt = error{
@@ -138,12 +141,7 @@ pub fn count_work(decoder: *Decoder, work: usize) void {
 }
 
 /// What a decode may use. Tests and the fuzzer build both settings and compare them (decision 16).
-pub const Options = struct {
-    /// The fast path of decision 16, for the symbols of a block while the margins hold.
-    fast_paths: bool = true,
-    /// Decision 14's claims, which the benchmark switches off one at a time (claims.zig).
-    claims: Claims = .{},
-};
+pub const Options = options_module.Options;
 
 /// Decodes as much of `input` into `output` as both allow (decision 11).
 pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
@@ -152,13 +150,29 @@ pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Pr
 
 /// `decode`, with the paths `options` names.
 pub fn decode_with(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
+    comptime assert(!options.count_lookups);
+    return decode_counted(options, decoder, input, output, {});
+}
+
+/// `decode_with`, adding to `lookups` how the call took each symbol: S2's test (decision 14),
+/// which the benchmark runs over the corpora (design §8 step 7).
+pub fn decode_counting(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8, lookups: *Lookups) Error!codec.Progress {
+    const counting = comptime counting: {
+        var counting = options;
+        counting.count_lookups = true;
+        break :counting counting;
+    };
+    return decode_counted(counting, decoder, input, output, lookups);
+}
+
+fn decode_counted(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8, lookups: Counter(options)) Error!codec.Progress {
     codec.check_entry(input, output);
     // A call after `done` or after a refusal, without `init`, is a programmer error (decision 11).
     assert(decoder.phase != .done and decoder.phase != .refused);
     var bits = codec.BitReader.init(input, decoder.bits);
     var writer = codec.Writer.init(output);
     decoder.window_synced = 0;
-    const status = run(options, decoder, &bits, &writer, input.len, output.len) catch |err| {
+    const status = run(options, decoder, &bits, &writer, input.len, output.len, lookups) catch |err| {
         decoder.phase = .refused;
         return err;
     };
@@ -173,18 +187,18 @@ pub fn decode_with(comptime options: Options, decoder: *Decoder, input: []const 
     return progress;
 }
 
-fn run(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, input_len: usize, output_len: usize) Error!codec.Status {
+fn run(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, input_len: usize, output_len: usize, lookups: Counter(options)) Error!codec.Status {
     const units = @bitSizeOf(u8) * input_len + codec.constants.bit_buffer_bits + output_len;
     const steps_max = constants.steps_per_unit * units + constants.steps_floor;
     for (0..steps_max) |_| {
-        if (try step(options, decoder, bits, writer)) |status| return status;
+        if (try step(options, decoder, bits, writer, lookups)) |status| return status;
     }
     // Every step takes a bit or writes an octet, or is followed by one that does.
     unreachable;
 }
 
 /// One step, and the status that ends the call, or null to go on.
-fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
     return switch (decoder.phase) {
         .block_header => try read_block_header(options.claims, decoder, bits),
         .stored_header => try read_stored_header(decoder, bits),
@@ -192,7 +206,7 @@ fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, wr
         .table_counts => try header.read_table_counts(decoder, bits),
         .code_length_code => try header.read_code_length_code(decoder, bits),
         .code_lengths => try header.read_code_lengths(options.claims, decoder, bits),
-        .symbols => if (options.fast_paths) try read_symbols_fast(options.claims, decoder, bits, writer) else try read_symbol(decoder, bits, writer),
+        .symbols => if (options.fast_paths) try read_symbols_fast(options, decoder, bits, writer, lookups) else try read_symbol(options, decoder, bits, writer, lookups),
         .copy => copy_match(decoder, writer),
         .done, .refused => unreachable,
     };
@@ -294,7 +308,8 @@ fn copy_stored(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReade
 }
 
 /// Runs the fast path while its margins hold, then reads one symbol through the checked path.
-fn read_symbols_fast(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+fn read_symbols_fast(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
+    const claims = options.claims;
     const Fixed = lookup.Fixed(claims.literal_length_table_bits, claims.distance_table_bits);
     const comptime_fixed = decoder.fixed_codes and claims.comptime_fixed_tables;
     const codes: fast.Codes = .{
@@ -308,16 +323,17 @@ fn read_symbols_fast(comptime claims: Claims, decoder: *Decoder, bits: *codec.Bi
         .synced = decoder.window_synced,
         .distance_max = decoder.distance_max,
         .work = &decoder.work,
+        .lookups = if (options.count_lookups) lookups else null,
     };
-    const end = switch (fast.run(claims, codes, history, bits, writer)) {
-        .margin => fast.run_tail(claims, codes, history, bits, writer),
+    const end = switch (fast.run(options, codes, history, bits, writer)) {
+        .margin => fast.run_tail(options, codes, history, bits, writer),
         .end_of_block, .checked => |end| end,
     };
     return switch (end) {
         .end_of_block => end_block(decoder),
         .margin, .checked => {
             sync_window(claims, decoder, writer);
-            return read_symbol(decoder, bits, writer);
+            return read_symbol(options, decoder, bits, writer, lookups);
         },
     };
 }
@@ -331,7 +347,7 @@ fn block_distance_code(decoder: *const Decoder) *const huffman.Code(constants.di
 }
 
 /// Reads one literal/length symbol, and a length's distance with it.
-fn read_symbol(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+fn read_symbol(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
     _ = bits.ensure(constants.pair_bits_max);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);
@@ -346,10 +362,12 @@ fn read_symbol(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer)
         if (writer.room_len() == 0) return .needs_room;
         bits.consume(symbol.len);
         emit(decoder, writer, @intCast(symbol.value));
+        if (options.count_lookups) lookups.checked += 1;
         return null;
     }
     if (symbol.value == constants.end_of_block) {
         bits.consume(symbol.len);
+        if (options.count_lookups) lookups.checked += 1;
         return end_block(decoder);
     }
     count_work(decoder, 1);
@@ -361,6 +379,8 @@ fn read_symbol(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer)
     // past it, on which the RFC states no rule.
     if (pair.distance > decoder.distance_max) return error.DistanceTooFar;
     bits.consume(symbol.len + pair.bits);
+    // A length and its distance: the two symbols a step decodes at most.
+    if (options.count_lookups) lookups.checked += constants.decodes_per_step_max;
     decoder.copy_len = pair.len;
     decoder.copy_distance = pair.distance;
     decoder.phase = .copy;

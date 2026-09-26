@@ -34,7 +34,9 @@ pub const Entry = packed struct(u32) {
     /// The bits the code alone takes, when it fits the table.
     code_bits: u4,
     kind: Kind,
-    padding: u1 = 0,
+    /// Set on an entry the canonical decode built, for a code longer than the table, so S2's
+    /// count tells it from a table's (options.zig).
+    canonical: bool = false,
     /// A literal's octet, or a length's or distance's base.
     value: u16,
 
