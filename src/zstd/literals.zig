@@ -10,6 +10,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
+const work_module = @import("work.zig");
+const Work = work_module.Work;
 const huffman = @import("huffman.zig");
 
 /// Where a block's literals are.
@@ -33,6 +35,8 @@ pub const Section = struct {
     octet: u8,
     /// The octets of the block the section takes, header included.
     section_len: u32,
+    /// Invariant 17's count: the tree the section read, if it read one, and its literals decoded.
+    work: Work = work_module.zero,
 };
 
 /// Every way a Literals_Section breaks RFC 8878 §3.1.1.3.1.
@@ -126,9 +130,11 @@ fn read_compressed(reader: *codec.Reader, first: u8, format: u8, kind: Kind, lit
     // RFC 8878 §3.1.1.3.1.1: Compressed_Size octets follow the header.
     const content = reader.take(compressed_len) catch return error.LiteralsTruncated;
     var content_reader = codec.Reader.init(content);
+    var work = work_module.of(len);
     if (kind == .compressed) {
         const tree_len = try huffman.read_tree(content, tables.table);
         tables.table_valid.* = true;
+        work_module.add(&work, tables.table.work);
         _ = content_reader.take(tree_len) catch unreachable;
     } else if (!tables.table_valid.*) {
         // RFC 8878 §3.1.1.3.1.1: a treeless section with no earlier tree in the frame is corrupt.
@@ -141,7 +147,7 @@ fn read_compressed(reader: *codec.Reader, first: u8, format: u8, kind: Kind, lit
     } else {
         try decode_four(tables.table, streams, output);
     }
-    return .{ .source = .buffer, .len = len, .offset = 0, .octet = 0, .section_len = @intCast(header_len + compressed_len) };
+    return .{ .source = .buffer, .len = len, .offset = 0, .octet = 0, .section_len = @intCast(header_len + compressed_len), .work = work };
 }
 
 /// The first `len` octets of the literals buffer, `len` checked against Block_Maximum_Size.

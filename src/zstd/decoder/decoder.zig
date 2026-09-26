@@ -18,6 +18,8 @@ const frame = @import("../frame.zig");
 const block = @import("../block.zig");
 const huffman = @import("../huffman.zig");
 const sequences = @import("../sequences.zig");
+const work_module = @import("../work.zig");
+const Work = work_module.Work;
 
 pub const DecoderOptions = struct {
     /// The largest Window_Size the decoder takes, a power of two: 2^23, RFC 9659 §3's for HTTP, or
@@ -103,6 +105,8 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         repeated: u8,
         /// A skippable frame's octets still to skip.
         skip_left: u32,
+        /// Invariant 17's count since `init`, in a test build.
+        work: Work,
 
         comptime {
             assert(@sizeOf(Self) <= options.window_len_max + constants.decoder_state_extra_len);
@@ -111,6 +115,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         /// Starts a stream. Writes no octet of the window (decision 11).
         pub fn init(self: *Self, features: codec.Features) void {
             self.hash_path = checksum.Xxh64Path.fastest(checksum.Features.from(features));
+            self.work = work_module.zero;
             self.start();
         }
 
@@ -186,6 +191,7 @@ test {
     _ = @import("decoder_phases.zig");
     _ = @import("decoder_test.zig");
     _ = @import("decoder_fuzz_test.zig");
+    _ = @import("decoder_work_test.zig");
 }
 
 const phases = @import("decoder_phases.zig");

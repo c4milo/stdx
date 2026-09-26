@@ -6,8 +6,10 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("constants.zig");
+const fse = @import("fse.zig");
 const huffman = @import("huffman.zig");
-const StreamWriter = @import("test_writer.zig").StreamWriter;
+const test_writer = @import("test_writer.zig");
+const StreamWriter = test_writer.StreamWriter;
 
 test "RFC 8878 §4.2.1's weights give Table 25's codes" {
     // Tables 23 and 24: literals 0 to 4 weigh 4, 3, 2, 0 and 1; literal 5's weight of 1 is deduced.
@@ -23,6 +25,38 @@ test "RFC 8878 §4.2.1's weights give Table 25's codes" {
         try testing.expectEqual(code[0], cell.symbol);
         try testing.expectEqual(code[2], cell.bits);
     }
+}
+
+test "FSE-compressed weights give their tree, and the count holds the table that decoded them" {
+    // Weights 0 to 2 at 0, 31 and 1 of 32 cells (Accuracy_Log 5). The first cell is weight 1 and
+    // reads one bit for its next state (RFC 8878 §4.1.1).
+    var distribution: fse.Distribution = .{ .probabilities = undefined, .symbol_count = 3, .accuracy_log = 5 };
+    distribution.probabilities[0] = 0;
+    distribution.probabilities[1] = 31;
+    distribution.probabilities[2] = 1;
+    var description: test_writer.DescriptionWriter = .{};
+    description.write(&distribution);
+    const description_len = (description.bits_written + 7) / 8;
+    // State1 and State2 both 0, weight 1; State1's next state then reads past the stream's start,
+    // so State2's weight is the last (RFC 8878 §4.2.1.2). Literal 2's weight of 2 is deduced.
+    var bits: test_writer.BitWriter = .{};
+    bits.put(0, 5);
+    bits.put(0, 5);
+    const stream = bits.finish();
+    var tree: [64]u8 = undefined;
+    tree[0] = @intCast(description_len + stream.len);
+    @memcpy(tree[1..][0..description_len], description.octets[0..description_len]);
+    @memcpy(tree[1 + description_len ..][0..stream.len], stream);
+    const tree_len = 1 + description_len + stream.len;
+    var table: huffman.Table = undefined;
+    try testing.expectEqual(tree_len, try huffman.read_tree(tree[0..tree_len], &table));
+    try testing.expectEqual(2, table.bits_max);
+    // Codes: literal 2 is 1, literal 0 is 00 and literal 1 is 01.
+    try testing.expectEqual(2, table.cells[0b10].symbol);
+    try testing.expectEqual(0, table.cells[0b00].symbol);
+    try testing.expectEqual(1, table.cells[0b01].symbol);
+    // Invariant 17: 4 cells and 3 weights, and the FSE table's 32 cells and 3 symbols.
+    try testing.expectEqual(4 + 3 + 32 + 3, table.work);
 }
 
 /// A seeded weight is below this, so the sum of up to 100 of them stays within 11 bits.

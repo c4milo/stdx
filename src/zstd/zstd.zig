@@ -22,5 +22,6 @@ test {
     _ = @import("sequences.zig");
     _ = @import("frame.zig");
     _ = @import("block.zig");
+    _ = @import("work.zig");
     _ = decoder;
 }

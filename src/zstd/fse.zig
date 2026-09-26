@@ -9,6 +9,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
+const work_module = @import("work.zig");
+const Work = work_module.Work;
 
 /// One cell: the symbol a state decodes, and the bits and Baseline that give the next state.
 pub const Entry = packed struct(u32) {
@@ -22,6 +24,8 @@ pub fn Table(comptime log_max: u4) type {
     return struct {
         cells: [1 << log_max]Entry,
         accuracy_log: u4,
+        /// Invariant 17's count for the last build: its cells and its distribution's symbols.
+        work: Work,
 
         pub fn entries(self: *const @This()) []const Entry {
             return self.cells[0 .. @as(usize, 1) << self.accuracy_log];
@@ -144,6 +148,7 @@ pub fn build(comptime log_max: u4, table: *Table(log_max), distribution: *const 
     }
     try spread(log_max, table, probabilities, high);
     assign_baselines(log_max, table, probabilities);
+    table.work = work_module.of(table_len + probabilities.len);
 }
 
 /// The step of RFC 8878 §4.1.1's spread for a table of `table_len` cells.
@@ -195,6 +200,7 @@ fn assign_baselines(comptime log_max: u4, table: *Table(log_max), probabilities:
 pub fn build_rle(comptime log_max: u4, table: *Table(log_max), symbol: u8) void {
     table.accuracy_log = 0;
     table.cells[0] = .{ .symbol = symbol, .bits = 0, .baseline = 0 };
+    table.work = work_module.of(1);
 }
 
 /// The table of a default distribution, built at comptime (RFC 8878 §3.1.1.3.2.2).

@@ -176,6 +176,7 @@ fn context(comptime options: DecoderOptions, self: *Self(options)) block.Context
         .repeats = &self.repeats,
         .block_len_max = self.block_len_max,
         .window_len = self.header.window_len,
+        .work = &self.work,
     };
 }
 
