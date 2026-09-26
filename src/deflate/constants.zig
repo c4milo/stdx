@@ -103,10 +103,9 @@ pub const copy_chunk_len = 16;
 pub const copy_word_len = @sizeOf(u64);
 
 /// Invariant 17's count for one lookup table's build, at most: every entry once as the table
-/// doubles, and one more for each code. It allows every entry a second write, which the pairs of
-/// literals took until design §8 step 7 removed them (decision 14, S3).
+/// doubles, and one more for each code.
 pub fn table_build_work_max(table_bits: u4, symbols: usize) usize {
-    return 2 * (@as(usize, 1) << table_bits) + symbols;
+    return (@as(usize, 1) << table_bits) + symbols;
 }
 
 /// Invariant 17's count for one code build, at most: the build reads each code length twice, to

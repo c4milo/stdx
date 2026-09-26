@@ -91,7 +91,10 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
         /// `build`, at most `width` bits wide, for S2's A/B (claims.zig).
         pub fn build_shaped(self: *Self, comptime width: u4, counts: *const Counts, symbols: []const u16) usize {
             comptime assert(width <= bits_max);
-            return build_table(&self.entries, &self.bits, width, counts, symbols, entry_of);
+            const written = build_table(&self.entries, &self.bits, width, counts, symbols, entry_of);
+            // Invariant 17: the build stays within the bound its count is priced at.
+            assert(written <= constants.table_build_work_max(width, symbols.len));
+            return written;
         }
 
         /// The entry the next bits of the stream select.
