@@ -542,6 +542,20 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
     The alternative refused: tuning before the checked path exists and is proved. Every claim
     above is measured against a correct path, never against a guess.
 
+    **What design §8 step 7 found.** Recorded on 2026-09-26; step 7's entry holds the runs.
+    - S1, S2, S4, S5 and S7 beat the noise on both runners and stay. S3 did not: with the pairs
+      off, the median was 1.00 on both runners, and the 1 KiB bodies ran faster, so the pairs
+      left with their code.
+    - S10 beats the noise on the N2 and ties on the EPYC 7763. It stays, since a container sees
+      one call's output at a time, and a checksum after the stream is the caller's to run.
+    - S7's test as written finds nothing to time: zlib at level 6 writes no fixed block for the
+      HTTP corpus. Step 7 times S7 over zlib's fixed strategy instead.
+    - S4's repeated pattern for distances under 8 is not written: few matches take such a
+      distance.
+    - The predictions: the 1 KiB bodies beat zlib, libdeflate and Wuffs on the N2 but lose to
+      zlib-ng, and 1 MiB decoding stays behind libdeflate, at a median of 0.69 of its speed on
+      the N2 and 0.66 on the EPYC 7763.
+
 15. **The checks.** Proposed on 2026-09-25, the fifth decision record the owner asked for. Ruled by
     the owner on 2026-09-25, after a review of the proposal. The owner chose to fail closed where an
     RFC lets a decoder choose, and let a verdict entry land when it cites its RFC section and
@@ -704,13 +718,14 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
       reader, the writer and the functions below, it refuses an index or a slice bound derived
       from a value the reader produced, as colibri's `peer-index` rule does for peer input.
 
-    **The fast paths, with the measurement each must show.** None exists yet. Each row's numbers
-    are filled in by the step that writes it, and a row whose A/B does not beat the checked path
-    by more than the noise is deleted with its code.
+    **The fast paths, with the measurement each must show.** The DEFLATE rows exist since design
+    §8 step 7, which records their A/Bs. Each row's numbers are filled in by the step that writes
+    it, and a row whose A/B does not beat the checked path by more than the noise is deleted with
+    its code.
 
     | Function | Step | Input slack | Output slack | Measurement that admits it |
     |---|---|---|---|---|
-    | DEFLATE symbol loop (S1 to S3) | 7 | 8 octets per refill, at most 2 refills per iteration | 258 plus 16 | Throughput against the checked path on all three corpora |
+    | DEFLATE symbol loop (S1, S2) | 7 | 8 octets, one refill per iteration | 258 plus 16 | Throughput against the checked path on all three corpora: a median of 11.68 times on the N2 and 9.29 on the EPYC 7763 in step 7 |
     | DEFLATE and brotli match copy (S4) | 7, 12 | none | 258 plus 16 for DEFLATE; `chunk_len_max` plus 16 for brotli | As above |
     | Zstandard literal decoding, four streams (Z1, Z2) | 11 | 8 octets before each stream's position, read backward | none: literals go to the state's literal buffer, whose size is fixed | As above |
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |

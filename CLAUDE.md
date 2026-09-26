@@ -241,8 +241,8 @@ Change this section when a step adds or renames a command.
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
   `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
-  libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, and
-  zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one
+  libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, each claim
+  of decision 14 off against all on, and zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one
   run, the median of five runs with the spread. A second program then repeats the raw A/B with
   stdx built ReleaseFast, decision 17's measure of what the safety checks cost. `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a

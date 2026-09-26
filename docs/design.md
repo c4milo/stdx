@@ -480,6 +480,91 @@ to 12 are reordered and nothing else changes.
   - The benchmark against zlib, zlib-ng, libdeflate and Wuffs: median of
     five with spread, the losses included.
 
+  **Checked 2026-09-26; one count open.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both
+  hosted runners.
+  - The fast path: `fast.zig` decodes a block's symbols while decision 16's margins hold, 8 octets
+    of input and 274 of output, and a tail loop decodes what the margins leave out (f2373f6,
+    225077a). It refills a 64-bit buffer with one 8-octet load (S1), looks each code up in
+    `lookup.zig`'s tables of 11 and 8 bits (S2), copies a match 16 or 8 octets at a time (S4), and
+    writes into the caller's output, which the window takes once per call (S5). The tables build
+    by doubling (d0be894). Commits 656975b to 1e1239f cut the work per match, each with its
+    `bench-profile` run on the N2 in its body.
+  - Equality: CI run [36251966448](https://github.com/c4milo/stdx/actions/runs/36251966448) passed
+    `differential-deflate` on both runners at 6988cf5, with the same counts on each: 5,769
+    streams of 1,657,954,773 octets and 1,659,548 corruptions, 0 failed, and 2,690 disagreements
+    that step 6's five verdict entries match. The `fuzz` workflow's run
+    [36251966069](https://github.com/c4milo/stdx/actions/runs/36251966069) ran deflate's split
+    property 2,003,687 times on x86-64 and 2,003,783 on aarch64, and gzip's and zlib's about 2
+    million times each, with no failure. The unit
+    tests and the fuzzer also decode with each claim off and require the octets that all on
+    writes (8e72bb7).
+  - Each claim's A/B, from `bench-deflate` run
+    [36251111348](https://github.com/c4milo/stdx/actions/runs/36251111348), whose reports are in
+    `bench/results/`. The medians are over the 38 corpus files, of the throughput with the claim
+    off over the throughput with all on. The counts are the files where on beats off, and off
+    beats on, by more than the larger of the two spreads.
+
+    | Claim | Median, N2 | Median, EPYC 7763 | On beats off, N2 and EPYC | Off beats on, N2 and EPYC | Verdict |
+    |---|---|---|---|---|---|
+    | S1 | 0.84 | 0.82 | 38 and 34 | 0 and 1 | Kept |
+    | S2, against tables of 9 and 6 bits | 0.92 | 0.91 | 34 and 35 | 0 and 1 | Kept |
+    | S3, in run [36225220197](https://github.com/c4milo/stdx/actions/runs/36225220197) | 1.00 | 1.00 | 6 and 4 | 14 and 10 | Removed (89316d9) |
+    | S4 | 0.65 | 0.68 | 38 and 35 | 0 and 1 | Kept |
+    | S5 | 0.98 | 0.99 | 25 and 18 | 3 and 1 | Kept |
+    | S7, over zlib's fixed strategy | 0.99 | 0.99 | 19 and 25 | 0 and 0 | Kept |
+    | S10, in calls of 64 KiB | 0.99 | 1.00 | 26 and 8 | 0 and 2 | Kept: a tie on the EPYC, see decision 14 |
+
+    - S7: zlib at level 6 writes no fixed block for any of the HTTP corpus's bodies, so S7's A/B
+      over those streams times nothing. Over zlib's fixed strategy, building the fixed tables for
+      each block makes the 1 KiB bodies run at 0.72 to 0.82 of the speed with S7 on the N2, and
+      0.62 to 0.75 on the EPYC.
+    - S6: on the N2, stdx decodes the 1 KiB bodies at 1.31 to 1.43 of zlib's speed, 1.44 to 1.82
+      of libdeflate's, 1.01 to 1.08 of Wuffs's and 0.65 to 0.82 of zlib-ng's. On the EPYC, at
+      1.07 to 1.13 of zlib's, 0.99 to 1.14 of libdeflate's, 0.98 to 1.06 of Wuffs's and 0.64 to
+      0.83 of zlib-ng's. The libdeflate baseline allocates its decompressor for each stream, which
+      is its reset (`bench/baselines/baselines.c`).
+    - S8: invariant 17's test holds 48 minimal dynamic blocks at 151.9 units of work per octet
+      consumed, within the bound of 1,717. Tables as wide as their alphabets would write 2,304
+      entries a block, 195 more per octet.
+    - S2's other test, the fraction of symbols one lookup decodes on each corpus file, did not
+      run. It asks for a count in a test build, and no test build reads the corpora.
+    - S9 is step 4's.
+  - Decision 17: the same program built ReleaseFast runs the fast path at a median of 1.012 of its
+    ReleaseSafe speed on the N2 (1.003 to 1.094) and 0.997 on the EPYC (0.981 to 1.067). The
+    safety checks cost about 1%.
+  - The benchmark, gzip at level 6, in the same run: stdx decodes at a median of 1.53 of zlib's
+    speed on the N2 and 1.54 on the EPYC, 0.96 and 0.80 of zlib-ng's, 0.69 and 0.66 of
+    libdeflate's, and 1.04 and 1.02 of Wuffs's. Of the 38 files, it is faster than zlib on 38 and
+    32, than Wuffs on 29 and 20, than libdeflate on 7 and 3, and than zlib-ng on 7 and 0. The
+    fast path runs at a median of 11.68 and 9.29 times the checked path's speed.
+  - Findings that changed the code:
+    - Timing on the Mac disagreed with the N2 in both directions, so the N2's `bench-profile`
+      judged every change. The bodies of 656975b to 1e1239f compare stdx's cycles across jobs.
+      As ratios to libdeflate's cycles within each job, as decision 20 asks, each step holds to
+      within 0.01 but one: 4a8d599's is 1.003, within the noise, and not the 0.996 its body
+      gives.
+    - The largest cuts shortened the chain of loads each match waits on, not the instructions.
+      Looking the next symbol up before the refill (26b5257) took 6% of the cycles with 2% more
+      instructions.
+    - Compiled beside the claims' variants, the fast loop called `copy_within` for each match
+      instead of inlining it, and stdx fell 9% while no baseline moved (runs
+      [36249745834](https://github.com/c4milo/stdx/actions/runs/36249745834) and
+      [36250438836](https://github.com/c4milo/stdx/actions/runs/36250438836)). The copies are
+      inline now (6988cf5).
+    - Measured on the N2 and not kept: the refill's word read where the input margin is checked
+      (2.8% more cycles, run [36224683434](https://github.com/c4milo/stdx/actions/runs/36224683434)),
+      and a literal's two octets written with no branch (0.999, run
+      [36224455737](https://github.com/c4milo/stdx/actions/runs/36224455737)).
+    - S4's repeated pattern for distances under 8 is not written: of zlib's level-6 matches, 3%
+      of x-ray's and 0.06% of dickens's take such a distance.
+  - Mutations are listed in each commit's body. Each NOT CAUGHT is an equivalent mutant, with its
+    reason in the body, and each other gap found a test that was then written.
+  - Open, waiting on the owner:
+    - S2's count of one-lookup symbols per corpus file, which needs a counting hook in the decoder
+      or a test build that reads the corpora.
+    - `constants.table_build_work_max` still allows each entry a second write, which S3's pairs
+      took. Tightening it changes a named limit.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.

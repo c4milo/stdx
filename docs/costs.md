@@ -51,8 +51,8 @@ What the table says for the claims that price against it:
   into a bit mask, which x86-64 does in one instruction and NEON, 128 bits wide, cannot. A SIMD path
   of decision 21 that uses the idiom must use NEON's own way to reach a mask on aarch64, and prove
   it there, not assume the x86-64 number.
-- A mispredict costs about five L1 hits on x86-64 and three on aarch64, so claims S2 and S3, which
-  remove a data-dependent branch per symbol, are priced at the larger of the two.
+- A mispredict costs about five L1 hits on x86-64 and three on aarch64, so claim S2, which removes
+  a data-dependent branch per symbol, is priced at the larger of the two.
 
 ## How each row is measured
 

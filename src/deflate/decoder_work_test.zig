@@ -82,8 +82,7 @@ fn minimal_block(stream: *Stream, last: bool, shape: Shape, literal_count: usize
     for (0..literal_count) |_| stream.code(0, 1);
     stream.code(1, 1);
     // The lookup tables of one-bit codes hold two entries, both cleared, then a write for each
-    // code: literal 0 and end-of-block, and the distance code's one code, if any. No two codes
-    // fit one bit together, so no pair is placed.
+    // code: literal 0 and end-of-block, and the distance code's one code, if any.
     const table_entries = 2;
     const literal_length_codes = 2;
     const literal_length_table_work = table_entries + literal_length_codes;
