@@ -10,8 +10,9 @@
 //!   (`bench/deflate/deflate.zig`).
 //! - `zig build bench-checksum -Doracles` times CRC-32 and Adler-32 against zlib, Wuffs,
 //!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
-//! - `zig build differential-deflate -Doracles` requires the DEFLATE decoder to agree with zlib and
-//!   Wuffs over the corpora, and on seeded corruptions (`tools/differential/deflate.zig`).
+//! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
+//!   agree with zlib and Wuffs over the corpora, and on seeded corruptions
+//!   (`tools/differential/deflate.zig`).
 //! - `zig build differential-checksum -Doracles` requires stdx's CRC-32 and Adler-32 to equal the
 //!   RFCs' sample code, zlib and Wuffs over the corpora (`tools/differential/checksum.zig`).
 //!
@@ -150,6 +151,8 @@ pub fn add(b: *std.Build, options: Options) void {
     deflate_module.addImport("corpus", corpus_names);
     deflate_module.addImport("codec", graph.codec);
     deflate_module.addImport("deflate", graph.deflate);
+    deflate_module.addImport("zlib", graph.zlib);
+    deflate_module.addImport("gzip", graph.gzip);
     deflate_module.addImport("verdicts", verdicts);
     const deflate_check = b.addExecutable(.{ .name = "differential_deflate", .root_module = deflate_module });
     const deflate_run = b.addRunArtifact(deflate_check);
