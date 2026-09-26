@@ -1,6 +1,6 @@
 //! bench-checksum: CRC-32 and Adler-32 throughput, for design §8 step 4 and decision 14's claim
-//! S9. The timing is bench/timing/timing.zig's: every candidate of a row interleaved in one run,
-//! the median of five runs with the spread, and the losses shown.
+//! S9, and XXH64's, for step 10. The timing is bench/timing/timing.zig's: every candidate of a row
+//! interleaved in one run, the median of five runs with the spread, and the losses shown.
 //!
 //! The candidates:
 //! - every path of stdx's checksum module this CPU runs, as `codec.Features.detect()` finds it,
@@ -8,6 +8,9 @@
 //!   binary builds it (decisions 17 and 21);
 //! - zlib, Wuffs, libdeflate and zlib-ng, each built ReleaseFast for the host with its own
 //!   run-time dispatch.
+//! - XXH64 has no baseline among decision 8's, as libzstd computes it only inside a frame. It is
+//!   timed beside stdx's fastest CRC-32 path, the check a gzip decoder pays, so the two checks'
+//!   costs compare within one run.
 //!
 //! The sizes run from 64 octets to 1 MiB: a decoder hands its checksum each call's output, which
 //! is as small or as large as the caller's buffer. No candidate's speed depends on the octets'
@@ -146,11 +149,73 @@ pub fn main(init: std.process.Init) !void {
         .pmull = features.pmull,
         .dotprod = features.dotprod,
     };
-    for (build_checks(wanted)) |check| {
+    const checks = build_checks(wanted);
+    for (checks) |check| {
         try check_agrees(check, input);
         try report_check(io, out, check, input);
     }
+    try report_xxh64(io, out, checks[0], wanted, input);
     try out.flush();
+}
+
+/// One timed XXH64 of one input by one path, from seed 0.
+const Xxh64Call = struct {
+    input: []const u8,
+    path: checksum.Xxh64Path,
+
+    fn run_once(context: *const anyopaque) void {
+        const self: *const Xxh64Call = @ptrCast(@alignCast(context));
+        std.mem.doNotOptimizeAway(checksum.xxh64(self.path, 0, self.input));
+    }
+};
+
+/// The XXH64 paths and the CRC-32 path one row times.
+const xxh64_candidates_max = std.enums.values(checksum.Xxh64Path).len + 1;
+
+/// XXH64 at every size by every path this CPU runs, interleaved with the fastest stdx path of
+/// `crc32`. The last column is decision 21's A/B: the fastest path over the scalar path.
+fn report_xxh64(io: std.Io, out: *std.Io.Writer, crc32: Check, features: checksum.Features, input: []const u8) !void {
+    const fastest_crc32 = for (crc32.candidates()) |candidate| {
+        if (std.mem.eql(u8, candidate.name, crc32.fastest)) break candidate;
+    } else unreachable;
+    var paths: [xxh64_candidates_max]checksum.Xxh64Path = undefined;
+    var paths_len: usize = 0;
+    for (std.enums.values(checksum.Xxh64Path)) |path| {
+        if (!path.runs_on(features)) continue;
+        if (checksum.xxh64(path, 0, input) != checksum.xxh64(.scalar, 0, input)) return error.CandidatesDisagree;
+        paths[paths_len] = path;
+        paths_len += 1;
+    }
+    const fastest = checksum.Xxh64Path.fastest(features);
+    try out.print("## XXH64, GB/s\n\n| Octets |", .{});
+    for (paths[0..paths_len]) |path| try out.print(" stdx {s} |", .{@tagName(path)});
+    try out.print(" CRC-32 by {s} | {s} / scalar | {s} / CRC-32 |\n|---|", .{ fastest_crc32.name, @tagName(fastest), @tagName(fastest) });
+    for (0..paths_len + 3) |_| try out.print("---|", .{});
+    try out.print("\n", .{});
+    for (sizes) |size| try report_xxh64_size(io, out, paths[0..paths_len], fastest, fastest_crc32, crc32.initial, input[0..size]);
+    try out.print("\n", .{});
+}
+
+fn report_xxh64_size(io: std.Io, out: *std.Io.Writer, paths: []const checksum.Xxh64Path, fastest: checksum.Xxh64Path, crc32: Candidate, crc32_initial: u32, input: []const u8) !void {
+    var calls: [xxh64_candidates_max]Xxh64Call = undefined;
+    var operations: [xxh64_candidates_max]timing.Operation = undefined;
+    for (paths, 0..) |path, index| {
+        calls[index] = .{ .input = input, .path = path };
+        operations[index] = .{ .context = &calls[index], .run_once = Xxh64Call.run_once };
+    }
+    const crc: Call = .{ .candidate = crc32, .input = input, .initial = crc32_initial };
+    operations[paths.len] = .{ .context = &crc, .run_once = Call.run_once };
+    var runs: [xxh64_candidates_max][timing.run_count]f64 = undefined;
+    timing.time_interleaved(io, operations[0 .. paths.len + 1], runs[0 .. paths.len + 1]);
+    var rates: [xxh64_candidates_max]f64 = undefined;
+    try out.print("| {d} |", .{input.len});
+    for (runs[0 .. paths.len + 1], rates[0 .. paths.len + 1]) |candidate_runs, *rate| {
+        const summary = timing.summarize(candidate_runs);
+        rate.* = timing.gigabytes_per_second(input.len, summary.median);
+        try out.print(" {d:.2} ± {d:.1}% |", .{ rate.*, summary.spread * 100 });
+    }
+    const fastest_index = std.mem.indexOfScalar(checksum.Xxh64Path, paths, fastest).?;
+    try out.print(" {d:.2} | {d:.2} |\n", .{ rates[fastest_index] / rates[0], rates[fastest_index] / rates[paths.len] });
 }
 
 /// Refuses to time candidates that disagree: a fast wrong answer is not a result.
