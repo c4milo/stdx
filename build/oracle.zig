@@ -101,9 +101,10 @@ pub fn add(b: *std.Build, options: Options) void {
     const checksum_step = b.step("differential-checksum", "Require CRC-32 and Adler-32 to equal the oracles (-Doracles)");
     const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
     const encode_step = b.step("differential-encode", "Require the encoders' output to decode through the oracles (-Doracles)");
+    const zstd_step = b.step("differential-zstd", "Require the Zstandard decoder to agree with libzstd (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip decoder (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, profile_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -234,6 +235,21 @@ pub fn add(b: *std.Build, options: Options) void {
     add_corpus_args(b, encode_run, corpus);
     encode_step.dependOn(&encode_run.step);
 
+    const zstd_module = b.createModule(.{
+        .root_source_file = b.path("tools/differential/zstd.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    zstd_module.addImport("oracle", oracle);
+    zstd_module.addImport("corpus", corpus_names);
+    zstd_module.addImport("codec", graph.codec);
+    zstd_module.addImport("zstd", graph.zstd);
+    const zstd_check = b.addExecutable(.{ .name = "differential_zstd", .root_module = zstd_module });
+    const zstd_run = b.addRunArtifact(zstd_check);
+    zstd_run.has_side_effects = true;
+    add_corpus_args(b, zstd_run, corpus);
+    zstd_step.dependOn(&zstd_run.step);
+
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
     bench_module.addImport("baselines", baselines_module);
@@ -269,7 +285,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
-    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, profile_module };
+    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, zstd_module, profile_module };
     inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
