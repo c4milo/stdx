@@ -59,6 +59,21 @@ test "FSE-compressed weights give their tree, and the count holds the table that
     try testing.expectEqual(4 + 3 + 32 + 3, table.work);
 }
 
+test "Table 26's literals \"0145\" decode from the bitstream erratum 8195 corrects" {
+    // RFC 8878 §4.2.2's Table 26 gives literals 4 and 5 each other's codes from Table 25; erratum
+    // 8195 (reported) makes it agree, and the bitstream is 00000001 00001101. Read backward: the
+    // final bit, then 1 (literal 0), 01 (1), 0000 (4) and 0001 (5).
+    const description = [_]u8{ constants.huffman_direct_symbols_offset + 5, 0x43, 0x20, 0x10 };
+    var table: huffman.Table = undefined;
+    _ = try huffman.read_tree(&description, &table);
+    var decoded: [4]u8 = undefined;
+    try huffman.decode_stream(&table, &.{ 0b0000_0001, 0b0000_1101 }, &decoded);
+    try testing.expectEqualSlices(u8, &.{ 0, 1, 4, 5 }, &decoded);
+    // The bitstream as the RFC prints it decodes to 0, 1, 5 and 4.
+    try huffman.decode_stream(&table, &.{ 0b0001_0000, 0b0000_1101 }, &decoded);
+    try testing.expectEqualSlices(u8, &.{ 0, 1, 5, 4 }, &decoded);
+}
+
 /// A seeded weight is below this, so the sum of up to 100 of them stays within 11 bits.
 const seeded_weight_limit = 6;
 
