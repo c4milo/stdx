@@ -1,5 +1,6 @@
 //! `zig build differential-checksum -Doracles`: design §8 step 4's check that stdx's CRC-32 and
-//! Adler-32 give the values of the RFCs' own sample code, zlib and Wuffs.
+//! Adler-32 give the values of the RFCs' own sample code, zlib and Wuffs, and step 10's check that
+//! the low 32 bits of stdx's XXH64 equal libzstd's Content_Checksum (checksum_xxh64.zig).
 //!
 //! The implementations compared:
 //! - every path of stdx's checksum module this CPU runs, as `codec.Features.detect()` finds it;
@@ -28,6 +29,7 @@ const corpus = @import("corpus");
 const codec = @import("codec");
 const checksum = @import("checksum");
 const host_features = @import("host_features");
+const checksum_xxh64 = @import("checksum_xxh64.zig");
 
 /// The longest piece checked at every length (design §8 step 4).
 pub const len_max = 4096;
@@ -221,13 +223,23 @@ pub fn main(init: std.process.Init) !void {
         .dotprod = features.dotprod,
     };
     const checks = build_checks(wanted);
-    std.debug.print("differential-checksum: CRC-32 paths {s}; Adler-32 paths {s}\n", .{
-        path_names(arena, checks[0].paths()), path_names(arena, checks[1].paths()),
+    std.debug.print("differential-checksum: CRC-32 paths {s}; Adler-32 paths {s}; XXH64 paths {s}\n", .{
+        path_names(arena, checks[0].paths()), path_names(arena, checks[1].paths()), xxh64_path_names(arena, wanted),
     });
     var total: Tally = .{};
     for (args[1..], names.items) |argument, name| {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, argument[name.len + 1 ..], arena, .unlimited);
-        const tally = check_file(&checks, name, input);
+        var tally = check_file(&checks, name, input);
+        const frame = try arena.alloc(u8, oracle.zstd_bound(input.len));
+        const limits: checksum_xxh64.Limits = .{ .len_max = len_max, .split_calls_max = split_calls_max };
+        inline for (comptime std.enums.values(checksum.Xxh64Path)) |path| {
+            if (path.runs_on(wanted)) {
+                const xxh64 = checksum_xxh64.check_file(checksum_xxh64.candidate(path), frame, name, input, limits, std.hash.Wyhash.hash(0, name));
+                tally.compared += xxh64.compared;
+                tally.failures += xxh64.failures;
+            }
+        }
+        arena.free(frame);
         std.debug.print("differential-checksum: {s}: {d} octets, {d} values compared, {d} failed\n", .{
             name, input.len, tally.compared, tally.failures,
         });
@@ -274,6 +286,17 @@ fn build_checks(features: checksum.Features) [2]Check {
         if (path.runs_on(features)) adler32.add_path(adler32_path(path));
     }
     return .{ crc32, adler32 };
+}
+
+fn xxh64_path_names(arena: std.mem.Allocator, features: checksum.Features) []const u8 {
+    var names: std.ArrayList(u8) = .empty;
+    inline for (comptime std.enums.values(checksum.Xxh64Path)) |path| {
+        if (path.runs_on(features)) {
+            if (names.items.len > 0) names.appendSlice(arena, ", ") catch return "?";
+            names.appendSlice(arena, @tagName(path)) catch return "?";
+        }
+    }
+    return names.items;
 }
 
 fn path_names(arena: std.mem.Allocator, paths: []const Path) []const u8 {
@@ -360,4 +383,8 @@ test "a path that is wrong at one length fails the check" {
     // From the initial value and from the drawn start, and in the split if it cuts that length.
     try testing.expect(tally.failures >= 2);
     try testing.expect(tally.failures <= 3);
+}
+
+test {
+    _ = checksum_xxh64;
 }
