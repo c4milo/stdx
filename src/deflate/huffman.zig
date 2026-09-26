@@ -8,8 +8,16 @@
 //! order, so the matching code's place among its length's codes names its symbol.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+
+/// Invariant 17's count, which test builds alone keep: every build adds the table entries it
+/// touches, at most `constants.build_work_max`. In any other build the count has no size.
+pub const Work = if (builtin.is_test) u64 else void;
+
+/// A count that starts at zero.
+pub const work_zero: Work = if (builtin.is_test) 0 else {};
 
 /// How a set of code lengths fails to form a code the decoder accepts.
 pub const BuildError = error{
@@ -52,9 +60,11 @@ pub fn Code(comptime alphabet_len: usize) type {
         /// The symbols with a code, in code order: by length, then by symbol.
         symbols: [alphabet_len]u16,
 
-        /// The code the lengths define, one length per symbol, 0 for a symbol with no code.
-        pub fn build(self: *Self, lengths: []const u8, completeness: Completeness) BuildError!void {
+        /// The code the lengths define, one length per symbol, 0 for a symbol with no code. The
+        /// build adds its table entries to `work`.
+        pub fn build(self: *Self, lengths: []const u8, completeness: Completeness, work: *Work) BuildError!void {
             assert(lengths.len <= alphabet_len);
+            if (builtin.is_test) work.* += constants.build_work_max(lengths.len);
             try build_code(&self.counts, &self.symbols, lengths, completeness);
             self.code_count = 0;
             for (self.counts[1..]) |count| self.code_count += count;
@@ -132,13 +142,15 @@ fn decode_code(counts: *const Counts, symbols: []const u16, code_count: u16, bit
 pub const fixed_literal_length: Code(constants.literal_length_alphabet_len) = fixed: {
     @setEvalBranchQuota(fixed_build_quota);
     var code: Code(constants.literal_length_alphabet_len) = undefined;
-    code.build(&constants.fixed_literal_length_lengths, .complete) catch unreachable;
+    var work = work_zero;
+    code.build(&constants.fixed_literal_length_lengths, .complete, &work) catch unreachable;
     break :fixed code;
 };
 pub const fixed_distance: Code(constants.distance_alphabet_len) = fixed: {
     @setEvalBranchQuota(fixed_build_quota);
     var code: Code(constants.distance_alphabet_len) = undefined;
-    code.build(&constants.fixed_distance_lengths, .complete) catch unreachable;
+    var work = work_zero;
+    code.build(&constants.fixed_distance_lengths, .complete, &work) catch unreachable;
     break :fixed code;
 };
 
@@ -156,8 +168,9 @@ fn packed_code(code: u16, len: u4) u64 {
 }
 
 test "RFC 1951 section 3.2.2's example: lengths (3, 3, 3, 3, 3, 2, 4, 4)" {
+    var work: Work = 0;
     var code: Code(8) = undefined;
-    try code.build(&.{ 3, 3, 3, 3, 3, 2, 4, 4 }, .complete);
+    try code.build(&.{ 3, 3, 3, 3, 3, 2, 4, 4 }, .complete, &work);
     // The codes the RFC lists: A 010, B 011, C 100, D 101, E 110, F 00, G 1110, H 1111.
     const expected = [_]struct { u16, u4 }{ .{ 0b010, 3 }, .{ 0b011, 3 }, .{ 0b100, 3 }, .{ 0b101, 3 }, .{ 0b110, 3 }, .{ 0b00, 2 }, .{ 0b1110, 4 }, .{ 0b1111, 4 } };
     for (expected, 0..) |pair, symbol| {
@@ -177,30 +190,33 @@ test "the fixed literal/length code gives RFC 1951 section 3.2.6's codes" {
 }
 
 test "a code too short for its bits waits, and an unused value is invalid" {
+    var work: Work = 0;
     try testing.expectEqual(Decoded.needs_bits, fixed_literal_length.decode(packed_code(0b110010000, 9), 8));
     var code: Code(constants.distance_alphabet_len) = undefined;
-    try code.build(&.{ 0, 1 }, .distance);
+    try code.build(&.{ 0, 1 }, .distance, &work);
     try testing.expectEqual(@as(u16, 1), code.decode(0, 15).symbol.value);
     try testing.expectEqual(Decoded.invalid, code.decode(1, 15));
 }
 
 test "an unused value is invalid as soon as its bits are read, not after the longest code's" {
+    var work: Work = 0;
     var code: Code(constants.distance_alphabet_len) = undefined;
-    try code.build(&.{ 0, 0 }, .distance);
+    try code.build(&.{ 0, 0 }, .distance, &work);
     try testing.expectEqual(Decoded.invalid, code.decode(0, 0));
-    try code.build(&.{ 0, 1 }, .distance);
+    try code.build(&.{ 0, 1 }, .distance, &work);
     try testing.expectEqual(Decoded.invalid, code.decode(1, 1));
     try testing.expectEqual(Decoded.needs_bits, code.decode(0, 0));
 }
 
 test "over-subscribed and incomplete codes are refused, but for RFC 1951 section 3.2.7's cases" {
+    var work: Work = 0;
     var code: Code(constants.distance_alphabet_len) = undefined;
-    try testing.expectError(error.OverSubscribedCode, code.build(&.{ 1, 1, 1 }, .complete));
-    try testing.expectError(error.IncompleteCode, code.build(&.{ 1, 2 }, .complete));
-    try testing.expectError(error.IncompleteCode, code.build(&.{ 1, 0 }, .complete));
-    try testing.expectError(error.IncompleteCode, code.build(&.{ 2, 0 }, .distance));
-    try testing.expectError(error.IncompleteCode, code.build(&.{ 1, 2 }, .distance));
-    try code.build(&.{ 0, 0, 0 }, .distance);
-    try code.build(&.{ 0, 1, 0 }, .distance);
-    try code.build(&.{ 1, 1 }, .complete);
+    try testing.expectError(error.OverSubscribedCode, code.build(&.{ 1, 1, 1 }, .complete, &work));
+    try testing.expectError(error.IncompleteCode, code.build(&.{ 1, 2 }, .complete, &work));
+    try testing.expectError(error.IncompleteCode, code.build(&.{ 1, 0 }, .complete, &work));
+    try testing.expectError(error.IncompleteCode, code.build(&.{ 2, 0 }, .distance, &work));
+    try testing.expectError(error.IncompleteCode, code.build(&.{ 1, 2 }, .distance, &work));
+    try code.build(&.{ 0, 0, 0 }, .distance, &work);
+    try code.build(&.{ 0, 1, 0 }, .distance, &work);
+    try code.build(&.{ 1, 1 }, .complete, &work);
 }

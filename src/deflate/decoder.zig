@@ -9,6 +9,7 @@
 //! holds half of one.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
@@ -82,6 +83,10 @@ pub const Decoder = struct {
     distance_code: huffman.Code(constants.distance_alphabet_len),
     /// The caller's CPU features (decision 21), which the fast path of design §8 step 7 reads.
     features: codec.Features,
+    /// Invariant 17's count, which test builds alone keep: the table entries the decoder has
+    /// touched and the symbols it has decoded since `init`, one per entry and one per decode, and
+    /// at most `constants.build_work_max` per code built.
+    work: huffman.Work,
 };
 
 comptime {
@@ -99,6 +104,12 @@ pub fn init(decoder: *Decoder, features: codec.Features) void {
     decoder.copy_len = 0;
     decoder.copy_distance = 0;
     decoder.features = features;
+    decoder.work = huffman.work_zero;
+}
+
+/// Adds to invariant 17's count, in a test build.
+fn count_work(decoder: *Decoder, work: usize) void {
+    if (builtin.is_test) decoder.work += work;
 }
 
 /// Decodes as much of `input` into `output` as both allow (decision 11).
@@ -214,6 +225,7 @@ fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Sta
     if (literal_length_count > constants.literal_length_used) return error.TooManyLiteralLengthCodes;
     decoder.literal_length_count = literal_length_count;
     decoder.lengths = @splat(0);
+    count_work(decoder, decoder.lengths.len);
     decoder.header_index = 0;
     decoder.phase = .code_length_code;
     return null;
@@ -222,13 +234,14 @@ fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Sta
 /// Reads one 3-bit code length of the code length alphabet, or builds that code after the last.
 fn read_code_length_code(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     if (decoder.header_index == decoder.code_length_count) {
-        try decoder.code_length_code.build(decoder.lengths[0..constants.code_length_alphabet_len], .complete);
+        try decoder.code_length_code.build(decoder.lengths[0..constants.code_length_alphabet_len], .complete, &decoder.work);
         decoder.header_index = 0;
         decoder.phase = .code_lengths;
         return null;
     }
     const len = bits.read(constants.code_length_code_bits) orelse return .needs_input;
     decoder.lengths[constants.code_length_order[decoder.header_index]] = @intCast(len);
+    count_work(decoder, 1);
     decoder.header_index += 1;
     return null;
 }
@@ -246,6 +259,7 @@ fn read_code_lengths(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Sta
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);
     const decoded = decoder.code_length_code.decode(buffer, available);
+    count_work(decoder, 1);
     const symbol = switch (decoded) {
         .symbol => |symbol| symbol,
         .needs_bits => return .needs_input,
@@ -257,6 +271,7 @@ fn read_code_lengths(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Sta
     // repeat may cross but not pass.
     if (decoder.header_index + repeat.count > total) return error.RepeatPastEnd;
     fill_lengths(&decoder.lengths, decoder.header_index, repeat.count, repeat.len);
+    count_work(decoder, repeat.count);
     decoder.header_index += repeat.count;
     bits.consume(symbol.len + repeat.extra_bits);
     return null;
@@ -288,9 +303,9 @@ fn build_block_codes(decoder: *Decoder) Error!void {
     const literal_lengths = decoder.lengths[0..decoder.literal_length_count];
     // RFC 1951 §3.2.7: every block ends with symbol 256, so its code must have a length.
     if (literal_lengths[constants.end_of_block] == 0) return error.MissingEndOfBlock;
-    try decoder.literal_length_code.build(literal_lengths, .complete);
+    try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
-    try decoder.distance_code.build(distance_lengths, .distance);
+    try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
 }
 
 fn block_literal_length_code(decoder: *const Decoder) *const huffman.Code(constants.literal_length_alphabet_len) {
@@ -306,6 +321,7 @@ fn read_symbol(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer)
     _ = bits.ensure(constants.pair_bits_max);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);
+    count_work(decoder, 1);
     const symbol = switch (block_literal_length_code(decoder).decode(buffer, available)) {
         .symbol => |symbol| symbol,
         .needs_bits => return .needs_input,
@@ -322,6 +338,7 @@ fn read_symbol(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer)
         bits.consume(symbol.len);
         return end_block(decoder);
     }
+    count_work(decoder, 1);
     const pair = try read_pair(symbol.value, buffer >> @intCast(symbol.len), available - symbol.len, block_distance_code(decoder)) orelse return .needs_input;
     // RFC 1951 §3.2.3: a distance cannot refer past the beginning of the output stream. This stream
     // began at `init`, so the window's octets from before it are out of reach (invariant 10).

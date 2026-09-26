@@ -2,6 +2,7 @@
 //! comptime from the rule RFC 1951's own tables follow, and asserted against those tables' values.
 const std = @import("std");
 const assert = std.debug.assert;
+const codec = @import("codec");
 
 /// The farthest a back-reference reaches, and so the history a decoder keeps: a distance is drawn
 /// from 1 to 32,768 (RFC 1951 §3.2.5). A compliant decoder accepts the whole range (§3.3).
@@ -82,6 +83,53 @@ pub const code_length_symbol_bits_max: u7 = code_len_max + 7;
 pub const steps_per_unit = 2;
 pub const steps_floor = 16;
 
+/// Invariant 17's count for one code build, at most: the build reads each code length twice, to
+/// count the lengths and to place the symbols, and writes at most one symbol per length. It also
+/// makes five passes over its counts, one entry per code length value: it clears them, checks them
+/// for over-subscription, checks them for completeness, sums them, and turns them into offsets.
+pub fn build_work_max(lengths_len: usize) usize {
+    return 3 * lengths_len + 5 * (code_len_max + 1);
+}
+
+/// The code lengths a dynamic block's header writes: the code length code's and the block's own.
+pub const code_lengths_len = literal_length_alphabet_len + distance_alphabet_len;
+
+/// Invariant 17's count for one dynamic block's header, at most: every code length cleared, each
+/// of the code length code's written, each of the block's written, and the three codes built.
+pub const block_table_work_max = code_lengths_len + code_length_alphabet_len +
+    (literal_length_used + distance_alphabet_len) + build_work_max(code_length_alphabet_len) +
+    build_work_max(literal_length_used) + build_work_max(distance_alphabet_len);
+
+/// The fewest bits a code of a code the decoder accepts takes. A complete code has at least two
+/// codes, so none takes less than a bit.
+pub const code_bits_min = 1;
+
+/// The fewest code length symbols that write a dynamic block's code lengths: at least 257 + 1,
+/// and one symbol writes at most 138 (RFC 1951 §3.2.7).
+pub const code_length_symbols_min = std.math.divCeil(usize, hlit_base + hdist_base, repeat_count_max[repeat_zero_long - repeat_previous]) catch unreachable;
+
+/// The fewest bits a dynamic block the decoder accepts can take (RFC 1951 §3.2.7): BFINAL, BTYPE,
+/// HLIT, HDIST and HCLEN; the four shortest code length code lengths HCLEN allows; the fewest code
+/// length symbols; and an end-of-block code.
+pub const dynamic_block_bits_min = final_bits + type_bits + hlit_bits + hdist_bits + hclen_bits +
+    hclen_base * code_length_code_bits + code_length_symbols_min * code_bits_min + code_bits_min;
+
+/// A dynamic block's table work spread over its fewest octets.
+pub const table_work_per_octet_max = std.math.divCeil(usize, block_table_work_max * @bitSizeOf(u8), dynamic_block_bits_min) catch unreachable;
+
+/// Invariant 17's bound per octet consumed: the table work, and one symbol decoded per bit, since
+/// every symbol the decoder accepts takes a bit.
+pub const work_per_octet_max = table_work_per_octet_max + @bitSizeOf(u8);
+
+/// The most symbols one step decodes: a literal/length symbol and a distance.
+pub const decodes_per_step_max = 2;
+
+/// Invariant 17's bound per call, beyond `work_per_octet_max` per octet consumed: a call can
+/// finish the table work of a block whose bits an earlier call consumed and start the next one's,
+/// decode a symbol per bit the state carried in, and decode the symbols of a step it ends on for
+/// want of bits.
+pub const work_per_call_max = 2 * block_table_work_max + codec.constants.bit_buffer_bits + decodes_per_step_max;
+
 /// Each length code's least length and extra bits, codes 257 to 285 (RFC 1951 §3.2.5).
 pub const length_base: [literal_length_used - first_length_symbol]u16 = length_table().base;
 pub const length_extra_bits: [literal_length_used - first_length_symbol]u7 = length_table().extra;
@@ -152,6 +200,8 @@ comptime {
     // The last distance code reaches the window's whole length.
     assert(distance_base[29] + (1 << 13) - 1 == window_len);
     assert(pair_bits_max == 48);
+    assert(code_length_symbols_min == 2);
+    assert(dynamic_block_bits_min == 32);
     for (repeat_extra_bits, repeat_count_min, repeat_count_max) |extra, min, max| {
         assert(max == min + (1 << extra) - 1);
     }

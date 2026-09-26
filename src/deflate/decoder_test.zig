@@ -294,4 +294,5 @@ test "invariant 10: a distance past the stream's start is refused, and the old w
 test {
     _ = @import("decoder_dynamic_test.zig");
     _ = @import("decoder_fuzz_test.zig");
+    _ = @import("decoder_work_test.zig");
 }
