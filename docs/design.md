@@ -382,6 +382,46 @@ to 12 are reordered and nothing else changes.
   corruption verdicts with every disagreement recorded, the state copied mid-stream, the
   worst-case count of invariant 17; fuzzing on Linux with the time it ran recorded; mutations.
 
+  **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted runners.
+  - The decoder reads stored, fixed and dynamic blocks one step at a time, through
+    `codec.BitReader`, `codec.Writer` and `codec.Window`, and reads each length/distance pair whole
+    or not at all (047e77f).
+  - `zig build differential-deflate -Doracles` passed on both runners in CI run
+    [36210615367](https://github.com/c4milo/stdx/actions/runs/36210615367), with the same counts
+    on each. 1,923 streams of 552,651,591 octets decode to the same octets through stdx, zlib and
+    Wuffs, 0 failed. stdx decodes each under a seeded split that copies the state to another slot
+    between calls (invariant 12). The streams are zlib's encodings of each corpus file's first 256
+    KiB at every level and strategy, with seeded window bits, memory levels and up to 8 flush
+    points of every kind, and of each longer file whole at level 6.
+  - The corruptions: 544,582 inputs, each a cut, flipped bits or appended octets in one of seven
+    encodings of each file's first 4 KiB, or BTYPE 11, HLIT or HDIST set at its edge. Every verdict
+    agrees but four, which `tools/oracle/verdicts.zig` records. They are canterbury/ptt5 streams
+    whose HDIST declares 31 or 32 distance codes. RFC 1951 §3.2.7 allows HDIST up to 32, and §3.3
+    requires a decoder to accept every conforming stream, so stdx reads on until its input ends;
+    zlib and Wuffs refuse at the third octet. The entry matches by the input's shape as well as by
+    the verdicts.
+  - Invariant 17: test builds count the table entries the decoder touches and the symbols it
+    decodes. The bound spreads a dynamic block's table work over the 32 bits the smallest one
+    takes: 485 per octet consumed, plus 3,882 per call. Minimal dynamic blocks measure 151 per
+    octet, and a block of one-bit literals 11. `zig build test` holds the count exact and within
+    the bound, for a stream decoded whole and an octet per call (c175412).
+  - Fuzzing: the `fuzz` workflow's run
+    [36210625816](https://github.com/c4milo/stdx/actions/runs/36210625816) ran the deflate
+    module's split property 2,002,177 times in 108 s on x86-64 and 2,001,726 times in 113 s on
+    aarch64, with no failure. `tools/ci.sh` runs 20,000 on every push.
+  - Findings that changed the code:
+    - A flipped bit in a canterbury-large/E.coli stream: after a distance value that no code
+      names, stdx waited for input until fifteen bits were present, where zlib and Wuffs refuse. A
+      decode now reports the value invalid as soon as no longer code remains (4511413).
+    - The Wuffs binding marked its input closed, so a cut stream counted as refused, not
+      incomplete, and 529,965 corruptions disagreed. The binding now leaves its input open, as a
+      streaming caller's is.
+    - The binding's check that flush points ascend went NOT CAUGHT in C, where a missing check
+      reads past the input and fails on the next check anyway. It is now a Zig error that its test
+      catches.
+  - Mutations are listed in each commit's body, all CAUGHT: 20 in 047e77f, 3 in 4511413, 9 in
+    c175412 and 15 in 068927a.
+
 - **Step 6: the zlib and gzip decoders.** RFC 1950 and RFC 1952 around step 5's decoder, with
   multi-member gzip.
   **Check:** as step 5, over all three containers, with the verdict entries for RFC 1950 §2.3 and
