@@ -607,6 +607,73 @@ to 12 are reordered and nothing else changes.
   (invariant 5); `encoded_len_max` holds; the ratio and speed per level against zlib, zlib-ng and
   libdeflate; mutations.
 
+  **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted
+  runners.
+  - The encoder is `deflate.Encoder(.{ .level = 1 })`, 6 or 9, one type per level (E2), with
+    `init`, `encode`, `encode_all` and `encoded_len_max` (1d28c05). zlib's encoder (aec08d6) and
+    gzip's (b01b6da) wrap it. `codec` gained the bit writer and the encoders' split driver
+    (9232063).
+    - A block ends at `block_symbols_max` symbols, before the window slides, at a flush and at the
+      end. Its input is then still in the window, so each block takes the cheapest of stored,
+      fixed and dynamic, priced to the bit (E3).
+    - Level 1 takes the first candidate's match. Levels 6 and 9 try 128 and 4,096 candidates and
+      defer each match by one position when the next one finds a longer match. Candidates come
+      from a hash of 4 octets, and match lengths from compares of 8 octets (E1).
+    - Code lengths come from Huffman's tree, and from package-merge when a length passes the
+      limit (10b90db).
+  - Decision 15 for encoders: `differential-encode` (d7b1605) passed on both runners in CI run
+    [36262709219](https://github.com/c4milo/stdx/actions/runs/36262709219) at 10b90db: 38 files,
+    798 checks, 0 failed. A check encodes a corpus file whole as raw DEFLATE, or its first 256 KiB
+    in a container, at one level. The output must fit
+    `encoded_len_max`, decode to its input through stdx, zlib and Wuffs, and have the SHA-256
+    recorded in `tools/differential/encode_hashes.zig`, which was recorded on macOS in
+    ReleaseSafe. The same list held on macOS with `-Dencode-optimize=Debug`, 798 checks, 0 failed.
+  - Splits and flushes: seeded flush points and two seeded splits must give the same octets, in
+    `differential-encode` and in the fuzz test (03444f0). The fuzz test's short pass ran 41,636
+    cases on macOS, and 41,607 and 41,558 on the runners in the CI run above, with no failure.
+  - Ratio and speed: bench run
+    [36262707708](https://github.com/c4milo/stdx/actions/runs/36262707708) at 10b90db, whose
+    reports are `bench/results/2026-09-26-deflate-encoder-*.md`. Each cell is stdx over the
+    baseline at the same level: the geometric mean over the 38 corpus files, then the least and
+    the greatest. Speed ran on an AMD EPYC 7763 and a Neoverse-N2. The ratios are the same on both
+    hosts, as the output is.
+
+    | Level | stdx over | zlib | zlib-ng | libdeflate |
+    |---|---|---|---|---|
+    | 1 | Speed, x86-64 | 1.04 (0.82 to 1.43) | 0.56 (0.37 to 1.91) | 0.50 (0.32 to 0.76) |
+    | 1 | Speed, aarch64 | 1.00 (0.81 to 1.23) | 0.67 (0.41 to 2.65) | 0.47 (0.36 to 0.61) |
+    | 1 | Ratio | 0.97 (0.89 to 1.04) | 1.21 (1.06 to 1.51) | 0.91 (0.82 to 0.99) |
+    | 6 | Speed, x86-64 | 0.98 (0.51 to 1.56) | 0.51 (0.13 to 1.45) | 0.39 (0.14 to 0.57) |
+    | 6 | Speed, aarch64 | 0.89 (0.44 to 1.36) | 0.51 (0.12 to 1.79) | 0.36 (0.16 to 0.48) |
+    | 6 | Ratio | 1.01 (0.97 to 1.11) | 1.01 (0.98 to 1.08) | 0.99 (0.93 to 1.02) |
+    | 9 | Speed, x86-64 | 1.17 (0.50 to 3.92) | 0.71 (0.16 to 2.61) | 0.58 (0.08 to 1.74) |
+    | 9 | Speed, aarch64 | 1.05 (0.45 to 3.88) | 0.70 (0.14 to 2.70) | 0.51 (0.07 to 1.51) |
+    | 9 | Ratio | 1.00 (0.97 to 1.03) | 1.00 (0.95 to 1.04) | 0.98 (0.90 to 1.01) |
+
+    - On the four 1 KiB payloads stdx runs at 1.04 and 1.13 of zlib's speed at level 1, and 0.82
+      to 0.84 at levels 6 and 9. Before 10b90db, bench run
+      [36260140557](https://github.com/c4milo/stdx/actions/runs/36260140557) gave 0.63 to 0.76:
+      package-merge ran for every block, and a stream of 1 KiB is one block.
+    - stdx loses on speed to zlib-ng and libdeflate at every level. At level 6 it runs at 0.44
+      to 0.59 of zlib on kennedy.xls, json-16k and json-1m. The search does not grow there: on
+      json-1m level 6 tries 3.1 candidates per input octet, against 2.9 on html-1m and 5.8 on
+      dickens's first MiB, counted on macOS. Where the time goes is not measured.
+    - Level 1's ratio is 0.889 of zlib's on E.coli, and 0.924 on x-ray and reymont. stdx hashes 4
+      octets, so it finds no match of 3, the shortest RFC 1951 §3.2.5 allows. How much of the
+      difference that accounts for is not measured.
+  - Mutations are listed in each commit's body. One is NOT CAUGHT: `encoded_len_max` without its
+    term for the window's slides. A slide adds a block only when a match carries the position past
+    the slide's threshold, and the block holding that match then prices below its stored form. A
+    seeded search of 180 inputs of 400 KiB, random octets with a match across each threshold, came
+    no closer than 13 octets under the bound without the term. The term stays until a proof
+    removes it.
+  - Open:
+    - `init` clears the hash heads, 32 KiB at level 1 and 64 KiB at levels 6 and 9. Decision 11
+      says `init` clears no table. Without the clear, a candidate could come from a position the
+      previous stream left in the heads, and the output would depend on it (invariant 5). The
+      owner rules between amending decision 11 for encoders and a start that clears nothing.
+    - E4 and E5 are not written, and E1's and E2's A/Bs have not run.
+
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
   SHA-256 (decision 18).
   **Check:** the ruled specification's test values; equal to libzstd's checksums through the

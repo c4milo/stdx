@@ -231,6 +231,12 @@ Change this section when a step adds or renames a command.
   split and through its whole-buffer `decode_all`. It then corrupts streams of each file's first 4 KiB, the containers' fields included,
   and requires stdx's verdict to equal both oracles' or to match an entry of
   `tools/oracle/verdicts.zig`.
+  `zig build differential-encode -Doracles` encodes every corpus file whole as raw DEFLATE, and its
+  first 256 KiB in all three containers, at levels 1, 6 and 9. Each output must fit
+  `encoded_len_max`, decode to its input through stdx, zlib and Wuffs, and have the SHA-256
+  recorded in `tools/differential/encode_hashes.zig` (invariant 5); seeded flush points and splits
+  must give the same octets. `-Dencode-optimize=Debug` builds stdx in another mode, to show the
+  hashes hold there. Passing `-- --record` prints a new list, for a change meant to alter output.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
   installs every corpus file under `zig-out/corpus/`.
 - Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a
@@ -242,12 +248,11 @@ Change this section when a step adds or renames a command.
   `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
   libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, each claim
-  of decision 14 off against all on, and zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one
-  run, the median of five runs with the spread. A second program then repeats the raw A/B with
+  of decision 14 off against all on, and the gzip encoders of zlib, zlib-ng, libdeflate and stdx
+  at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one run, the median of five runs with the spread. A second program then repeats the raw A/B with
   stdx built ReleaseFast, decision 17's measure of what the safety checks cost. `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
-  person asks (decision 20). stdx's encoder joins the candidates in design §8 step 9. Each
-  published report is committed under `bench/results/`, as the workflow wrote it.
+  person asks (decision 20). Each published report is committed under `bench/results/`, as the workflow wrote it.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder over every corpus file, through Linux's
