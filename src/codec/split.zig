@@ -147,10 +147,11 @@ pub fn drive(
 
 /// Drives an encoder's `step(state, input_piece, output_piece, flush)` over all of `input` and
 /// `output`, with the pieces `seed` draws, until the stream is done or the output has no more room.
-/// A piece never crosses the next of `flush_points`, which ascend: the call whose piece reaches one
-/// passes `flush`, and so does every call after it until one returns `needs_input` there. The call
-/// whose piece reaches the input's end passes `finish`, and so does every call after it (decision
-/// 11). The state moves between the two slots as `drive` moves it.
+/// A piece never crosses the next of `flush_points`, which ascend and lie before the input's end,
+/// where `finish` falls: the call whose piece reaches one passes `flush`, and so does every call
+/// after it until one returns `needs_input` there. The call whose piece reaches the input's end
+/// passes `finish`, and so does every call after it (decision 11). The state moves between the two
+/// slots as `drive` moves it.
 pub fn drive_encoder(
     comptime State: type,
     states: *[state_slots]State,
@@ -190,7 +191,7 @@ pub fn drive_encoder(
 /// `points` the flush points still ahead.
 fn encoder_call(schedule: *Schedule, input: []const u8, consumed: usize, points: []const usize, finishing: *bool) struct { []const u8, Flush } {
     const limit = if (points.len > 0) points[0] else input.len;
-    assert(limit >= consumed and limit <= input.len);
+    assert(limit >= consumed and (points.len == 0 or limit < input.len));
     // After `finish`, every call passes all the input not yet taken (decision 11).
     const piece_len = if (finishing.*) input.len - consumed else schedule.piece_len(limit - consumed);
     const reaches = consumed + piece_len == limit;

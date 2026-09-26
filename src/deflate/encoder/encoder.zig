@@ -202,4 +202,5 @@ fn encoded_len_bound(input_len: usize) usize {
 
 test {
     _ = @import("encoder_test.zig");
+    _ = @import("encoder_fuzz_test.zig");
 }
