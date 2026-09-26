@@ -17,6 +17,14 @@ pub const frame_magic: u32 = 0xFD2FB528;
 pub const skippable_magic_first: u32 = 0x184D2A50;
 pub const skippable_magic_last: u32 = 0x184D2A5F;
 
+/// The bits of a skippable frame's Magic_Number that vary, all in its first octet (RFC 8878
+/// §3.1.2).
+pub const skippable_magic_variable_mask: u8 = 0x0F;
+
+comptime {
+    assert(skippable_magic_last - skippable_magic_first == skippable_magic_variable_mask);
+}
+
 /// The octets of a Magic_Number, and of a skippable frame's Frame_Size (RFC 8878 §3.1.2).
 pub const magic_len = 4;
 pub const skippable_size_len = 4;
