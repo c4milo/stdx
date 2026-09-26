@@ -1,6 +1,7 @@
 //! The fields RFC 1952 fixes for every gzip member.
 const std = @import("std");
 const assert = std.debug.assert;
+const deflate_constants = @import("deflate").constants;
 
 /// ID1, ID2, CM, FLG, MTIME, XFL and OS: the part of the header every member has (RFC 1952 §2.3).
 pub const fixed_header_len = 10;
@@ -35,6 +36,18 @@ pub const field_terminator: u8 = 0;
 /// CRC32 and ISIZE, four octets each, least significant first (RFC 1952 §2.1, §2.3).
 pub const trailer_len = 8;
 pub const trailer_crc32_len = 4;
+
+/// The octets of the shortest DEFLATE stream: one final block of the fixed codes that holds
+/// end-of-block alone, 3 bits of header and a 7-bit code (RFC 1951 §3.2.3, §3.2.6).
+pub const deflate_stream_len_min = std.math.divCeil(
+    usize,
+    deflate_constants.final_bits + deflate_constants.type_bits + deflate_constants.fixed_literal_length_lengths[deflate_constants.end_of_block],
+    @bitSizeOf(u8),
+) catch unreachable;
+
+/// The fewest octets a member takes: the fixed header, the shortest DEFLATE stream, and the
+/// trailer (RFC 1952 §2.3).
+pub const member_len_min = fixed_header_len + deflate_stream_len_min + trailer_len;
 
 /// The CRC-32 of no octets (RFC 1952 §8).
 pub const crc32_initial: u32 = 0;

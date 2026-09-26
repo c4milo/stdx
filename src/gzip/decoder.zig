@@ -106,6 +106,24 @@ pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Pr
     return progress;
 }
 
+/// Decodes every member of a gzip file, one after another (RFC 1952 §2.2), from a decoder `init`
+/// started (decision 11). The input ending inside a member is `error.Truncated`, and the output
+/// filling first is `error.NoSpaceLeft`. Octets after a member that do not start another fail that
+/// member's header check (decision 15).
+pub fn decode_all(decoder: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
+    var total: codec.Whole = .{ .consumed = 0, .written = 0 };
+    // Each member takes at least `member_len_min` octets, so this many calls end the input.
+    for (0..input.len / constants.member_len_min + 1) |_| {
+        const member = try codec.whole(try decode(decoder, input[total.consumed..], output[total.written..]));
+        assert(member.consumed >= constants.member_len_min);
+        total.consumed += member.consumed;
+        total.written += member.written;
+        if (total.consumed == input.len) return total;
+        init(decoder, decoder.stream.features);
+    }
+    unreachable;
+}
+
 fn run(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cursor) Error!codec.Status {
     for (0..constants.phases_per_call_max) |_| {
         const status = switch (decoder.phase) {

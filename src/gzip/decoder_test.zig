@@ -128,6 +128,46 @@ fn expect_refused(input: []const u8, expected: gzip.Error) !void {
 
 const text = "a gzip member around a stored block, a gzip member around a stored block";
 
+test "decode_all decodes every member, and refuses what follows the last unless it starts one" {
+    var stream: Stream = .{};
+    stored_member(&stream, .{}, "first ");
+    stored_member(&stream, .{ .name = "second" }, "second");
+    const members_len = stream.slice().len;
+    var output: [output_len_max]u8 = undefined;
+    var decoder: Decoder = undefined;
+    gzip.init(&decoder, .{});
+    const whole = try gzip.decode_all(&decoder, stream.slice(), &output);
+    try testing.expectEqual(codec.Whole{ .consumed = members_len, .written = 12 }, whole);
+    try testing.expectEqualSlices(u8, "first second", output[0..whole.written]);
+    // The second member cut short, and room for the first member alone.
+    gzip.init(&decoder, .{});
+    try testing.expectError(error.Truncated, gzip.decode_all(&decoder, stream.slice()[0 .. members_len - 1], &output));
+    gzip.init(&decoder, .{});
+    try testing.expectError(error.NoSpaceLeft, gzip.decode_all(&decoder, stream.slice(), output[0..8]));
+    // RFC 1952 §2.3.1: a member starts with ID1 and ID2, so ten zero octets start none.
+    stream.append(&(.{0} ** constants.fixed_header_len));
+    gzip.init(&decoder, .{});
+    try testing.expectError(error.InvalidIdentification, gzip.decode_all(&decoder, stream.slice(), &output));
+    // Two of the shortest members: a fixed block holding end-of-block alone, and no octet decoded.
+    stream = .{};
+    for (0..2) |_| {
+        header(&stream, .{});
+        stream.block_header(true, .fixed);
+        stream.fixed_literal(deflate.constants.end_of_block);
+        stream.align_to_octet();
+        trailer(&stream, "");
+    }
+    try testing.expectEqual(2 * constants.member_len_min, stream.slice().len);
+    gzip.init(&decoder, .{});
+    try testing.expectEqual(codec.Whole{ .consumed = stream.slice().len, .written = 0 }, try gzip.decode_all(&decoder, stream.slice(), &output));
+    // ID1 alone may start a member, which then needs input.
+    stream = .{};
+    stored_member(&stream, .{}, "first ");
+    stream.append(&.{constants.identification_1});
+    gzip.init(&decoder, .{});
+    try testing.expectError(error.Truncated, gzip.decode_all(&decoder, stream.slice(), &output));
+}
+
 /// The fields a member shape may hold, one bit of the shape's index each.
 const Optional = enum { text, extra, name, comment, header_crc };
 
@@ -167,7 +207,7 @@ test "empty optional fields and an empty member" {
 test "members follow one another, each done at its end" {
     var stream: Stream = .{};
     stored_member(&stream, .{ .name = "first" }, "first member");
-    const first_len = stream.slice().len;
+    const members_len = stream.slice().len;
     stored_member(&stream, .{ .header_crc = true }, "second member");
     const input = stream.slice();
     var output: [output_len_max]u8 = undefined;
@@ -175,7 +215,7 @@ test "members follow one another, each done at its end" {
     gzip.init(&decoder, .{});
     const first = try gzip.decode(&decoder, input, &output);
     try testing.expectEqual(codec.Status.done, first.status);
-    try testing.expectEqual(first_len, first.consumed);
+    try testing.expectEqual(members_len, first.consumed);
     gzip.init(&decoder, .{});
     const second = try gzip.decode(&decoder, input[first.consumed..], output[first.written..]);
     try testing.expectEqual(codec.Status.done, second.status);

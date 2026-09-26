@@ -13,6 +13,7 @@ pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
 pub const init = decoder.init;
 pub const decode = decoder.decode;
+pub const decode_all = decoder.decode_all;
 pub const refusal = decoder.refusal;
 
 test {
