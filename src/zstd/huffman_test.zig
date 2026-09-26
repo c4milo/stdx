@@ -31,11 +31,12 @@ const seeded_weight_limit = 6;
 /// The draws a seeded literal takes at most to land on one with a nonzero weight.
 const literal_draws_max = 1000;
 
-/// Seeded weights for `count` literals, each 0 to 5, then the weights that bring the sum of
-/// 2^(Weight-1) within one power of 2 of the next power of 2, which the deduced last weight fills.
+/// Seeded weights for `count` literals, each 0 to 5 but the first, which is 1 so the tree reaches
+/// Max_Number_of_Bits; then the weights that bring the sum of 2^(Weight-1) within one power of 2 of
+/// the next power of 2, which the deduced last weight fills.
 fn seeded_weights(generator: *codec.split.Generator, count: u16, weights: *huffman.Weights) void {
     for (weights.values[0..count]) |*weight| weight.* = @intCast(generator.below(seeded_weight_limit));
-    weights.values[0] = 1 + weights.values[0];
+    weights.values[0] = 1;
     weights.written = count;
     var sum: u32 = 0;
     for (weights.values[0..count]) |weight| sum += if (weight > 0) @as(u32, 1) << @intCast(weight - 1) else 0;
@@ -105,6 +106,11 @@ test "weights that give a code past 11 bits, or no power of 2, and a last octet 
     odd.values[0] = 3;
     odd.values[1] = 1;
     try testing.expectError(error.HuffmanWeightsInvalid, huffman.build(&odd, &table));
+    // Weights 3 and 2 sum to 6, and the last is 2: Max_Number_of_Bits 3, yet no code is 3 bits.
+    var shallow: huffman.Weights = .{ .values = undefined, .written = 2 };
+    shallow.values[0] = 3;
+    shallow.values[1] = 2;
+    try testing.expectError(error.HuffmanWeightsInvalid, huffman.build(&shallow, &table));
     try testing.expectError(error.HuffmanStreamUnterminated, huffman.decode_stream(&table, &.{ 0x12, 0 }, &.{}));
     try testing.expectError(error.HuffmanTreeTruncated, huffman.read_tree(&.{ constants.huffman_direct_symbols_offset + 5, 0x43 }, &table));
 }

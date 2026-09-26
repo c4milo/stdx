@@ -146,6 +146,8 @@ pub fn build(weights: *Weights, table: *Table) Error!void {
     // The last weight must complete the sum to a power of 2 (RFC 8878 §4.2.1).
     if (!std.math.isPowerOfTwo(rest)) return error.HuffmanWeightsInvalid;
     weights.values[weights.written] = std.math.log2_int(u32, rest) + 1;
+    // RFC 8878 §4.2.1: Max_Number_of_Bits is the tree's depth, which only literals of weight 1 reach.
+    if (std.mem.indexOfScalar(u8, weights.values[0 .. weights.written + 1], 1) == null) return error.HuffmanWeightsInvalid;
     table.bits_max = @intCast(bits_max);
     fill(weights.values[0 .. weights.written + 1], table);
 }
