@@ -356,7 +356,10 @@ fn resolve_distance(codes: Codes, entry: lookup.Entry, buffer: u64) ?lookup.Entr
 inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) Next {
     const len = length.value + extra_value(loop.buffer, length);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
-    if (len == constants.match_len_max and length.used_bits != length.code_bits) return .checked;
+    if (len == constants.match_len_max) {
+        @branchHint(.unlikely);
+        if (length.used_bits != length.code_bits) return .checked;
+    }
     const after_length = past(loop.buffer, length);
     var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(after_length)) & loop.distance_mask];
     if (distance_entry.kind != .distance) {
