@@ -46,13 +46,28 @@ comptime {
 const Mode = enum { wide, tail };
 
 /// Why the loop stopped.
-pub const End = enum {
+pub const End = enum(u2) {
     /// Too little input or output room was left for an iteration.
     margin,
     /// It used a block's end-of-block symbol.
     end_of_block,
     /// The next symbol is one the checked path decodes, or refuses.
     checked,
+};
+
+/// What a step says: go on, or why the loop stops, numbered as `End` numbers it. A step returns
+/// this rather than an optional `End`, which the compiler builds in memory.
+const Next = enum(u2) {
+    margin = @intFromEnum(End.margin),
+    end_of_block = @intFromEnum(End.end_of_block),
+    checked = @intFromEnum(End.checked),
+    go_on,
+
+    /// The end a step other than `go_on` says.
+    fn end(next: Next) End {
+        assert(next != .go_on);
+        return @enumFromInt(@intFromEnum(next));
+    }
 };
 
 /// The block's codes, as tables and as the canonical codes a long code falls back to.
@@ -225,7 +240,8 @@ inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
     // Each iteration consumes at least a bit, or ends the loop.
     const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
     for (0..iterations_max) |_| {
-        if (step(.wide, loop, codes, history)) |ended| return ended;
+        const next = step(.wide, loop, codes, history);
+        if (next != .go_on) return next.end();
         if (loop.position > loop.input_limit or loop.written > loop.output_limit) return .margin;
         loop.refill();
     }
@@ -240,14 +256,15 @@ inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
         loop.refill_exact();
         // Near the input's end, the checked path decodes what is left, and asks for more.
         if (loop.count < constants.pair_bits_max) return .checked;
-        if (step(.tail, loop, codes, history)) |ended| return ended;
+        const next = step(.tail, loop, codes, history);
+        if (next != .go_on) return next.end();
     }
     unreachable;
 }
 
 /// Decodes one literal/length symbol, and the distance a length takes, or a run of literals.
-/// Returns why the loop stops, or null to go on.
-inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History) ?End {
+/// Returns why the loop stops, or `go_on`.
+inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History) Next {
     var entry = loop.pending orelse codes.literal_length_table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(loop.buffer)) & loop.literal_length_mask];
     loop.pending = null;
     if (entry.kind == .long) entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
@@ -264,27 +281,30 @@ inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History)
 
 /// Writes a literal entry, and in the wide loop the literal entries after it while the buffer
 /// holds their codes.
-inline fn step_literals(comptime mode: Mode, loop: *Loop, codes: Codes, entry: lookup.Entry) ?End {
+inline fn step_literals(comptime mode: Mode, loop: *Loop, codes: Codes, entry: lookup.Entry) Next {
     // The tail writes one entry an iteration, into room it checks first.
-    if (mode == .tail) return if (loop.room() < @sizeOf(u16)) .margin else write_literals(loop, entry);
-    _ = write_literals(loop, entry);
+    if (mode == .tail) {
+        if (loop.room() < @sizeOf(u16)) return .margin;
+        write_literals(loop, entry);
+        return .go_on;
+    }
+    write_literals(loop, entry);
     // More literals while the buffer holds a whole table code: the first may have been a long
     // code.
     for (1..literals_per_refill) |_| {
-        if (loop.count < constants.literal_length_table_bits) return null;
+        if (loop.count < constants.literal_length_table_bits) return .go_on;
         const next = codes.literal_length_table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(loop.buffer)) & loop.literal_length_mask];
         if (next.kind != .literal and next.kind != .literal_pair) {
             loop.pending = next;
-            return null;
+            return .go_on;
         }
-        _ = write_literals(loop, next);
+        write_literals(loop, next);
     }
-    return null;
+    return .go_on;
 }
 
-/// Writes a literal, or a pair's two octets, the first from the value's low octet. Returns null,
-/// for the loop to go on.
-inline fn write_literals(loop: *Loop, entry: lookup.Entry) ?End {
+/// Writes a literal, or a pair's two octets, the first from the value's low octet.
+inline fn write_literals(loop: *Loop, entry: lookup.Entry) void {
     if (entry.kind == .literal_pair) {
         std.mem.writeInt(u16, loop.output[loop.written..][0..@sizeOf(u16)], entry.value, .little);
         loop.written += @sizeOf(u16);
@@ -294,7 +314,6 @@ inline fn write_literals(loop: *Loop, entry: lookup.Entry) ?End {
         loop.written += 1;
     }
     loop.consume_entry(entry);
-    return null;
 }
 
 fn resolve_literal_length(codes: Codes, buffer: u64) ?lookup.Entry {
@@ -313,7 +332,7 @@ fn resolve_distance(codes: Codes, buffer: u64) ?lookup.Entry {
 
 /// Reads a length's extra bits and its distance, and copies the match, or stops before using any
 /// bit of the pair when the checked path must see it.
-inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) ?End {
+inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) Next {
     const len = length.value + extra_value(loop.buffer, length);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
     if (len == constants.match_len_max and length.used_bits != length.code_bits) return .checked;
@@ -341,7 +360,7 @@ inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: His
         loop.written += @intCast(len);
     }
     if (builtin.is_test) loop.decoded += 1;
-    return null;
+    return .go_on;
 }
 
 /// Copies a match that reaches before this call's output: its first octets from the window, the
