@@ -17,12 +17,12 @@
 //! - Decision 17's measurement: `bench_deflate_release_fast`, this program with stdx built
 //!   ReleaseFast, prints the same A/B after it. The difference bounds what the safety checks
 //!   cost; ReleaseFast is never offered to a caller.
-//! - Encoding: zlib's gzip encoder at levels 1, 6 and 9, the levels decision 13 gives stdx's
-//!   encoder. Throughput counts input octets, and the ratio is input octets over encoded octets.
+//! - Encoding: the gzip encoders of zlib, zlib-ng, libdeflate and stdx at levels 1, 6 and 9, the
+//!   levels decision 13 gives stdx's encoder: deflate_encode.zig.
 //!
-//! stdx's decoder is a candidate from design §8 step 6, and its fast path from step 7; its encoder
-//! joins at step 9. stdx picks its checksum path from the CPU's features, as a caller does
-//! (decision 21).
+//! stdx's decoder is a candidate from design §8 step 6, its fast path from step 7, and its encoder
+//! from step 9. stdx picks its checksum path from the CPU's features, as a caller does (decision
+//! 21).
 //!
 //! The candidates' C is built ReleaseFast. This program is built ReleaseSafe, stdx's production
 //! mode, so stdx's candidates will be measured as callers run them (decision 17).
@@ -38,15 +38,13 @@ const gzip = @import("gzip");
 const baselines = @import("baselines");
 const bench_options = @import("bench_options");
 const checksum = @import("checksum");
+const deflate_encode = @import("deflate_encode.zig");
 
 /// The output each call of S10's A/B takes: a caller's buffer of a common size.
 const split_output_len = 64 * 1024;
 
 /// The zlib level whose streams the decoders are timed on.
 const decode_level: c_int = 6;
-
-/// The levels the encoder is timed at.
-const encode_levels = [_]c_int{ 1, 6, 9 };
 
 /// A decode of one gzip stream by one oracle, into a buffer sized for its output.
 const Decode = struct {
@@ -106,19 +104,6 @@ fn RawDecode(comptime options: deflate.Options) type {
     };
 }
 
-/// An encode of one input by zlib at one level.
-const Encode = struct {
-    input: []const u8,
-    output: []u8,
-    level: c_int,
-
-    fn run_once(context: *const anyopaque) void {
-        const self: *const Encode = @ptrCast(@alignCast(context));
-        const encoding: oracle.Encoding = .{ .container = .gzip, .level = self.level, .strategy = .default };
-        std.debug.assert(oracle.zlib_encode(encoding, self.input, self.output).verdict == .ok);
-    }
-};
-
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
@@ -162,11 +147,7 @@ pub fn main(init: std.process.Init) !void {
     try out.print("\n## S10: the checksum over each call's output against one pass after the stream, calls of {d} octets\n\n", .{split_output_len});
     try out.print("| File | Octets | Per call, MB/s | After the stream, MB/s | After / per call |\n|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_checksum_order(arena, io, out, file);
-    try out.print("\n## Encoding, gzip\n\n", .{});
-    try out.print("| File | Octets | Level | zlib, MB/s | Ratio |\n|---|---|---|---|---|\n", .{});
-    for (files.items) |file| {
-        for (encode_levels) |level| try report_encode(arena, io, out, file, level);
-    }
+    try deflate_encode.report(arena, io, out, files.items);
     try out.flush();
 }
 
@@ -247,21 +228,6 @@ fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file:
     try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
         file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
-    });
-}
-
-fn report_encode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File, level: c_int) !void {
-    const output = try arena.alloc(u8, oracle.zlib_bound(.gzip, file.input.len));
-    const encode: Encode = .{ .input = file.input, .output = output, .level = level };
-    var runs: [1][timing.run_count]f64 = undefined;
-    timing.time_interleaved(io, &.{.{ .context = &encode, .run_once = Encode.run_once }}, &runs);
-    const summary = timing.summarize(runs[0]);
-    const encoding: oracle.Encoding = .{ .container = .gzip, .level = level, .strategy = .default };
-    const encoded_len = oracle.zlib_encode(encoding, file.input, output).written;
-    const ratio = @as(f64, @floatFromInt(file.input.len)) / @as(f64, @floatFromInt(encoded_len));
-    try out.print("| {s} | {d} | {d} | {d:.1} ± {d:.1}% | {d:.3} |\n", .{
-        file.name,                                                   file.input.len,       level,
-        timing.megabytes_per_second(file.input.len, summary.median), summary.spread * 100, ratio,
     });
 }
 

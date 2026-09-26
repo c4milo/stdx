@@ -12,6 +12,9 @@ extern fn baseline_zlib_ng_crc32(crc: u32, input: [*]const u8, input_len: usize)
 extern fn baseline_zlib_ng_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
 extern fn baseline_libdeflate_gzip_decode(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
 extern fn baseline_zlib_ng_gzip_decode(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
+extern fn baseline_libdeflate_gzip_encode(level: c_int, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
+extern fn baseline_libdeflate_gzip_bound(input_len: usize) usize;
+extern fn baseline_zlib_ng_gzip_encode(level: c_int, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
 
 /// libdeflate_crc32: the CRC-32 after `input`, from `crc`.
 pub fn libdeflate_crc32(crc: u32, input: []const u8) u32 {
@@ -44,6 +47,25 @@ pub fn libdeflate_gzip_decode(input: []const u8, output: []u8) ?usize {
 /// octets written, or null when zlib-ng refused the input or did not reach its end.
 pub fn zlib_ng_gzip_decode(input: []const u8, output: []u8) ?usize {
     const written = baseline_zlib_ng_gzip_decode(input.ptr, input.len, output.ptr, output.len);
+    return if (written == std.math.maxInt(usize)) null else written;
+}
+
+/// libdeflate_gzip_compress at `level`: encodes `input` as one gzip member into `output`. Returns
+/// the octets written, or null when `output` held less than the member.
+pub fn libdeflate_gzip_encode(level: c_int, input: []const u8, output: []u8) ?usize {
+    const written = baseline_libdeflate_gzip_encode(level, input.ptr, input.len, output.ptr, output.len);
+    return if (written == std.math.maxInt(usize)) null else written;
+}
+
+/// The most octets `libdeflate_gzip_encode` writes for `input_len` octets, at any level.
+pub fn libdeflate_gzip_bound(input_len: usize) usize {
+    return baseline_libdeflate_gzip_bound(input_len);
+}
+
+/// zng_deflate with the gzip container at `level`: encodes `input` as one gzip member into
+/// `output`. Returns the octets written, or null when `output` held less than the member.
+pub fn zlib_ng_gzip_encode(level: c_int, input: []const u8, output: []u8) ?usize {
+    const written = baseline_zlib_ng_gzip_encode(level, input.ptr, input.len, output.ptr, output.len);
     return if (written == std.math.maxInt(usize)) null else written;
 }
 
@@ -87,5 +109,23 @@ test "both gzip decoders decode a stored member, and refuse it with a wrong CRC3
         var corrupt = member;
         corrupt[15 + text.len] ^= 1;
         try testing.expectEqual(null, decode(&corrupt, &output));
+    }
+}
+
+test "both gzip encoders write members both decoders take back to the input, at every level" {
+    var input: [4096]u8 = undefined;
+    for (&input, 0..) |*octet, index| octet.* = @truncate(index % 251 *% 7);
+    var member: [4096 + 256]u8 = undefined;
+    var output: [input.len]u8 = undefined;
+    for ([_]c_int{ 1, 6, 9 }) |level| {
+        for ([_]*const fn (c_int, []const u8, []u8) ?usize{ libdeflate_gzip_encode, zlib_ng_gzip_encode }) |encode| {
+            const member_len = encode(level, &input, &member) orelse return error.TestUnexpectedResult;
+            try testing.expect(member_len <= libdeflate_gzip_bound(input.len));
+            for ([_]*const fn ([]const u8, []u8) ?usize{ libdeflate_gzip_decode, zlib_ng_gzip_decode }) |decode| {
+                try testing.expectEqual(input.len, decode(member[0..member_len], &output));
+                try testing.expectEqualSlices(u8, &input, &output);
+            }
+            try testing.expectEqual(null, encode(level, &input, member[0..4]));
+        }
     }
 }
