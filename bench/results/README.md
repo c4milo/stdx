@@ -14,3 +14,4 @@ one file with a number in another.
 |---|---|---|---|---|
 | 2026-09-25 | DEFLATE | [report](2026-09-25-deflate-x86_64.md) | [report](2026-09-25-deflate-aarch64.md) | zlib and Wuffs decoding, zlib encoding at levels 1, 6 and 9: the baselines before stdx's first codec |
 | 2026-09-26 | Checksums | [report](2026-09-26-checksum-x86_64.md) | [report](2026-09-26-checksum-aarch64.md) | Every CRC-32 and Adler-32 path of stdx against zlib, Wuffs, libdeflate and zlib-ng, from 64 octets to 1 MiB: design §8 step 4 |
+| 2026-09-26 | DEFLATE | [report](2026-09-26-deflate-checked-x86_64.md) | [report](2026-09-26-deflate-checked-aarch64.md) | stdx's gzip decoder on its checked path alone, beside zlib and Wuffs: design §8 step 6, the baseline step 7's fast path is priced against |

@@ -428,6 +428,48 @@ to 12 are reordered and nothing else changes.
   RFC 1952 §2.3.1.2 that decision 15 lists; `done` never before the trailer is checked (invariant
   11); mutations.
 
+  **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted runners.
+  - The decoders: zlib (fddeead) and gzip (c3fd932) around step 5's decoder. `codec.Field` reads a
+    header or trailer field split anywhere (6e2e5cb). `checksum.Features.from` picks each
+    checksum path from the caller's `codec.Features` (bff6c14), and `deflate.limit_window` holds
+    a stream to the window CINFO declares (ba7cd14).
+  - `zig build differential-deflate -Doracles` passed on both runners in CI run
+    [36214438697](https://github.com/c4milo/stdx/actions/runs/36214438697), with the same counts
+    on each. Step 5's matrix and corruptions now run over raw DEFLATE, zlib and gzip: 5,769
+    streams of 1,657,954,773 octets, 0 failed. The containers' own fields are corrupted too, and
+    a rewrite that stays valid must decode. Of 1,659,548 corruptions, 0 failed and 2,690
+    disagreements match an entry of `tools/oracle/verdicts.zig`:
+    - 2,128: a CRC16 that does not match, which Wuffs skips, as decision 15 foresaw.
+    - 541: a CINFO below the window the encoder used. Decision 12 asked step 6 to record the
+      oracles' verdicts: zlib and Wuffs both decode the distances past the declared window, and
+      stdx refuses them.
+    - 14: a CRC32 that does not match, with the input ending before ISIZE. stdx and zlib refuse
+      as soon as CRC32 is in, and Wuffs waits for ISIZE.
+    - 5: HDIST 31 or 32, now in any block of any container, matched by where stdx stopped.
+    - 2: a reserved FLG bit with FEXTRA, which Wuffs skips past before it refuses.
+  - Invariant 11: zlib's and gzip's decoders assert at `done` that the trailer matched, and the
+    unit tests cut every stream at every octet and flip every trailer octet.
+  - Fuzzing: the `fuzz` workflow's run
+    [36214438762](https://github.com/c4milo/stdx/actions/runs/36214438762), no failure: zlib's
+    split property 2,001,680 times in 80 s on x86-64 and 2,001,123 times in 99 s on aarch64, and
+    gzip's 2,000,193 times in 58 s and 2,000,220 times in 79 s.
+  - The baseline: the `bench` workflow's run
+    [36214460469](https://github.com/c4milo/stdx/actions/runs/36214460469), whose reports are in
+    `bench/results/`, times stdx's gzip decoder on its checked path alone. It decodes at 0.10 to
+    0.33 of zlib's speed on the AMD EPYC 7763 runner and 0.08 to 0.37 on the Neoverse N2, and at
+    0.05 to 0.31 of Wuffs's. Step 7's fast path is priced against it.
+  - Findings that changed the code:
+    - A corrupted member whose DEFLATE stream ended with fewer than eight octets after it: zlib
+      refused the wrong CRC32 as soon as its four octets were in, while stdx waited for ISIZE.
+      gzip now compares CRC32 first (2db9fcf).
+    - The HDIST entry matched only a first block. A flipped BFINAL made a zlib stream's ADLER32
+      read as a dynamic block header with HDIST 31, so entries now match on where stdx's decoder
+      stopped, which the differential check reads from its state.
+  - Mutations are listed in each commit's body, all CAUGHT: 5 in 6e2e5cb, 1 in bff6c14, 4 in
+    ba7cd14, 14 in fddeead, 19 in c3fd932, 2 in 2db9fcf and 16 in 1c396cd. One NOT CAUGHT showed
+    a missing test and it was written: nothing copied from past 16 KiB of history until a test
+    copied from the whole window.
+
 - **Step 7: the DEFLATE decoder, fast path.** Claims S1 to S8 and S10 of decision 14, each under
   decision 16's rules.
   **Check:**
