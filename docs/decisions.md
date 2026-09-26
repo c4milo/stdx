@@ -7,7 +7,7 @@ Entries marked **owner** wait on a ruling and are not settled. Everything else i
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
-and 20 came out of that review, and entry 21 out of design §8 step 2.
+and 20 came out of that review, entry 21 out of design §8 step 2, and entry 22 out of step 11.
 
 ## Scope and shape
 
@@ -956,3 +956,38 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
     The alternatives refused:
     - XXH64 scalar everywhere, which gives up the 27% on AMD.
     - The AVX-512 path kept for callers that name it, with `fastest` always scalar.
+
+22. **An offset equal to Window_Size is accepted.** Ruled by the owner on 2026-09-26, during design
+    §8 step 11. RFC 8878 §3.1.1.4 says that "all offsets leading to previously decoded data must be
+    smaller than Window_Size". libzstd 1.5.7 writes offsets equal to Window_Size. The differential
+    check found 38 such frames among 669. Each was encoded at level 9 or 19 with a window log of 10,
+    and each held an offset of 1024 in a window of 1024.
+    - stdx's decoder refuses an offset larger than Window_Size as `error.OffsetTooFar`, and accepts
+      one equal to it.
+    - Invariant 10 holds. An offset still reaches no octet written before the frame's first.
+      `codec.Window` keeps the last `capacity` octets, and Window_Size is at most `capacity`, so an
+      offset equal to Window_Size reads the oldest octet the window holds.
+    - The evidence the owner weighed:
+      - libzstd's maintainers say that its decoder accepts any offset inside its history buffer,
+        even past Window_Size, because the check costs speed
+        ([facebook/zstd#3482](https://github.com/facebook/zstd/issues/3482),
+        [facebook/zstd#3151](https://github.com/facebook/zstd/issues/3151)). In the first of the
+        two, they also say that a conforming compressor sends only what the format allows. By that
+        rule, these frames come from a defect in libzstd's encoder.
+      - Since [facebook/zstd#1624](https://github.com/facebook/zstd/pull/1624), libzstd's
+        strategies from greedy up take match candidates up to the maximum window size. Levels 9
+        and 19 use those strategies, and levels 1 and 3 do not, which fits where the frames came
+        from.
+      - RFC 8878 §5 lets a frame reach its dictionary "as long as the amount of data decoded from
+        this frame is less than or equal to Window_Size". That sentence treats Window_Size as
+        inclusive.
+
+    Cost: stdx accepts frames that RFC 8878 §3.1.1.4 calls invalid, by one octet of distance. Gain:
+    stdx decodes what libzstd writes at level 9 and above for any input longer than its window.
+
+    The alternatives refused:
+    - Refusing an offset equal to Window_Size, as RFC 8878 §3.1.1.4 says. stdx would refuse frames
+      the reference encoder writes, which libzstd's own decoder accepts.
+    - Accepting any offset inside the window's `capacity`, as libzstd's decoder does. It decodes no
+      more of the frames libzstd writes, and it lets a frame reach octets past the Window_Size it
+      declared.
