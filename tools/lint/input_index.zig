@@ -19,8 +19,10 @@
 //! `name.len` does not read `name`. A slice the reader returned is bounded by the memory it covers,
 //! so its length is not a value the input chose. `test` blocks are not read.
 //!
-//! Decision 16 lets the fast paths it names leave the checked reader and writer. None exists yet;
-//! the step that writes the first adds its function to this rule's exemptions, with a fixture.
+//! Decision 16 lets the fast paths it names leave the checked reader and writer. Each lives in a
+//! file of its own, which this rule does not read: `src/deflate/fast.zig`, the DEFLATE symbol loop
+//! and match copy of design §8 step 7. A fast path's margins, checked once per iteration, bound
+//! every index it takes, and ReleaseSafe's bounds checks stay on inside it.
 //!
 //! What the rule cannot see. It follows names within one function, so an input-derived value passed
 //! to another function arrives there clean. It does not follow scopes, so a name reused in a later
@@ -46,7 +48,13 @@ pub const name = "input-index";
 pub const scope: Scope = .{
     .extensions = &.{lint.paths.zig_extension},
     .include_directories = &.{"src"},
-    .exclude_paths = &.{ "src/codec/reader.zig", "src/codec/writer.zig", "src/codec/bit_reader.zig" },
+    .exclude_paths = &.{
+        "src/codec/reader.zig",
+        "src/codec/writer.zig",
+        "src/codec/bit_reader.zig",
+        // Decision 16's fast paths.
+        "src/deflate/fast.zig",
+    },
 };
 
 /// The types whose values the rule follows, and the call that makes one.

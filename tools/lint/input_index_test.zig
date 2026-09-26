@@ -113,8 +113,10 @@ test "input-index reads each function, a nested one too, with only its own names
     , &.{message("len")});
 }
 
-test "input-index reads src/ but not the reader, the bit reader, the writer or the tools" {
+test "input-index reads src/ but not the reader, the bit reader, the writer, the fast paths or the tools" {
     try expect_findings("src/zstd/frame.zig", length_fixture, &.{message("len")});
+    try expect_findings("src/deflate/decoder.zig", length_fixture, &.{message("len")});
+    try expect_findings("src/deflate/fast.zig", length_fixture, &.{});
     try expect_findings("src/codec/split.zig", length_fixture, &.{message("len")});
     try expect_findings("src/codec/reader.zig", length_fixture, &.{});
     try expect_findings("src/codec/bit_reader.zig", length_fixture, &.{});

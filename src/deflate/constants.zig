@@ -83,6 +83,20 @@ pub const code_length_symbol_bits_max: u7 = code_len_max + 7;
 pub const steps_per_unit = 2;
 pub const steps_floor = 16;
 
+/// The bits the fast path's tables take of a literal/length code and of a distance code (decision
+/// 14, S2): one lookup decodes every code up to this long.
+pub const literal_length_table_bits = 11;
+pub const distance_table_bits = 8;
+
+/// The octets the fast path's match copy moves at once (decision 14, S4): a 128-bit vector.
+pub const copy_chunk_len = 16;
+
+/// Invariant 17's count for one lookup table's build, at most: a clear of every entry when the
+/// code is incomplete, every entry once, and one more for each code longer than the table.
+pub fn table_build_work_max(table_bits: u4, symbols: usize) usize {
+    return 2 * (@as(usize, 1) << table_bits) + symbols;
+}
+
 /// Invariant 17's count for one code build, at most: the build reads each code length twice, to
 /// count the lengths and to place the symbols, and writes at most one symbol per length. It also
 /// makes five passes over its counts, one entry per code length value: it clears them, checks them
@@ -95,10 +109,13 @@ pub fn build_work_max(lengths_len: usize) usize {
 pub const code_lengths_len = literal_length_alphabet_len + distance_alphabet_len;
 
 /// Invariant 17's count for one dynamic block's header, at most: every code length cleared, each
-/// of the code length code's written, each of the block's written, and the three codes built.
+/// of the code length code's written, each of the block's written, the three codes built, and the
+/// fast path's two lookup tables.
 pub const block_table_work_max = code_lengths_len + code_length_alphabet_len +
     (literal_length_used + distance_alphabet_len) + build_work_max(code_length_alphabet_len) +
-    build_work_max(literal_length_used) + build_work_max(distance_alphabet_len);
+    build_work_max(literal_length_used) + build_work_max(distance_alphabet_len) +
+    table_build_work_max(literal_length_table_bits, literal_length_used) +
+    table_build_work_max(distance_table_bits, distance_alphabet_len);
 
 /// The fewest bits a code of a code the decoder accepts takes. A complete code has at least two
 /// codes, so none takes less than a bit.

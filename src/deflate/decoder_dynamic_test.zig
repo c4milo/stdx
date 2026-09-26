@@ -132,6 +132,31 @@ test "a dynamic block's codes, from lengths that use every repeat symbol" {
     try decoder_test.expect_decodes(stream.slice(), "abcdcdcccccc");
 }
 
+test "codes longer than the fast path's tables decode alike, literals, lengths and distances" {
+    // Literals 'a' to 'n' take 1 to 14 bits, and end-of-block and length code 257 take the two
+    // 15-bit codes left: a complete code (RFC 1951 §3.2.2).
+    var block: Dynamic = .{ .literal_count = constants.literal_length_used, .distance_count = constants.distance_used };
+    for (0..constants.code_len_max - 1) |index| block.literal_lengths['a' + index] = @intCast(index + 1);
+    block.literal_lengths[constants.end_of_block] = constants.code_len_max;
+    block.literal_lengths[constants.first_length_symbol] = constants.code_len_max;
+    // Distance codes 0 to 13 take 14 bits down to 1, and code 14 the second 14-bit code, so
+    // distances 1 and 2 take codes longer than the distance table.
+    const distance_symbols = constants.code_len_max - 1;
+    for (0..distance_symbols) |index| block.distance_lengths[index] = @intCast(distance_symbols - index);
+    block.distance_lengths[distance_symbols] = distance_symbols;
+    var stream: Stream = .{};
+    block.header(&stream, true);
+    for ("abcdefghijklmn") |symbol| block.literal(&stream, symbol);
+    // Length 3 at distance 2, then at distance 1.
+    block.literal(&stream, constants.first_length_symbol);
+    block.distance(&stream, 1);
+    block.literal(&stream, constants.first_length_symbol);
+    block.distance(&stream, 0);
+    block.literal(&stream, 'n');
+    block.literal(&stream, constants.end_of_block);
+    try decoder_test.expect_decodes(stream.slice(), "abcdefghijklmnmnmmmmn");
+}
+
 test "RFC 1951 section 3.2.7: a single one-bit distance code, and no distance code at all" {
     var single = small_block();
     single.distance_lengths[1] = 0;

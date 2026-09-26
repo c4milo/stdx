@@ -81,9 +81,13 @@ fn minimal_block(stream: *Stream, last: bool, shape: Shape, literal_count: usize
     }
     for (0..literal_count) |_| stream.code(0, 1);
     stream.code(1, 1);
+    // The lookup tables of one-bit codes hold two entries. The distance table is cleared first,
+    // because a code of one code or none is incomplete, and its one code, if any, written after.
+    const table_entries = 2;
+    const distance_table_work: u64 = table_entries + @as(u64, @intFromBool(rest == 1));
     return constants.code_lengths_len + code_length_count + constants.build_work_max(constants.code_length_alphabet_len) +
         code_length_symbols + literal_length_count + distance_count + constants.build_work_max(literal_length_count) +
-        constants.build_work_max(distance_count) + literal_count + 1;
+        constants.build_work_max(distance_count) + table_entries + distance_table_work + literal_count + 1;
 }
 
 /// `block_count` minimal blocks at both ends of HLIT and HDIST, the last holding `literal_count`

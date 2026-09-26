@@ -36,14 +36,35 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) deflate.Error!codec.
     return deflate.decode(decoder, input, output);
 }
 
-/// Requires the stream to decode to `expected`, ending exactly at its last octet, in one call and
-/// under every seed's split.
+/// The octets appended after a stream, so the fast path's input margin holds at the stream's last
+/// symbols, and the most octets a padded stream takes.
+const padding_len = 16;
+const padded_len_max = test_stream.stream_len_max + padding_len;
+
+/// `input` with `padding_len` zero octets after it.
+fn padded(input: []const u8, buffer: *[padded_len_max]u8) []const u8 {
+    @memcpy(buffer[0..input.len], input);
+    @memset(buffer[input.len..][0..padding_len], 0);
+    return buffer[0 .. input.len + padding_len];
+}
+
+/// Requires the stream to decode to `expected`, ending exactly at its last octet: in one call,
+/// padded, through the checked path alone, and under every seed's split.
 pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
     var output: [output_len_max]u8 = undefined;
     const whole = try decode_whole(input, &output);
     try testing.expectEqual(codec.Status.done, whole.status);
     try testing.expectEqual(input.len, whole.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..whole.written]);
+    var buffer: [padded_len_max]u8 = undefined;
+    const with_padding = try decode_whole(padded(input, &buffer), &output);
+    try testing.expectEqual(codec.Status.done, with_padding.status);
+    try testing.expectEqual(input.len, with_padding.consumed);
+    try testing.expectEqualSlices(u8, expected, output[0..with_padding.written]);
+    var decoder = fresh();
+    const checked = try deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output);
+    try testing.expectEqual(whole, checked);
+    try testing.expectEqualSlices(u8, expected, output[0..checked.written]);
     for (0..split_seeds) |seed| {
         var states: [codec.split.state_slots]Decoder = undefined;
         deflate.init(&states[0], .{});
@@ -55,10 +76,15 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
     }
 }
 
-/// Requires the stream to be refused with `expected`, in one call and under every seed's split.
+/// Requires the stream to be refused with `expected`: in one call, padded, through the checked
+/// path alone, and under every seed's split.
 pub fn expect_refused(input: []const u8, expected: deflate.Error) !void {
     var output: [output_len_max]u8 = undefined;
     try testing.expectError(expected, decode_whole(input, &output));
+    var buffer: [padded_len_max]u8 = undefined;
+    try testing.expectError(expected, decode_whole(padded(input, &buffer), &output));
+    var decoder = fresh();
+    try testing.expectError(expected, deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output));
     try testing.expectEqual(codec.Refusal.corrupt, deflate.refusal(expected));
     for (0..split_seeds) |seed| {
         var states: [codec.split.state_slots]Decoder = undefined;
@@ -234,9 +260,38 @@ test "a distance past the window a container declares is refused, and one at its
     deflate.init(&decoder, .{});
     deflate.limit_window(&decoder, 256);
     try testing.expectError(error.DistanceTooFar, deflate.decode(&decoder, past_edge.slice(), &output));
+    // Padded, so the fast path meets the pair with its margins held.
+    var buffer: [padded_len_max]u8 = undefined;
+    deflate.init(&decoder, .{});
+    deflate.limit_window(&decoder, 256);
+    try testing.expectError(error.DistanceTooFar, deflate.decode(&decoder, padded(past_edge.slice(), &buffer), &output));
     // Without the limit, the whole window is in reach.
     deflate.init(&decoder, .{});
     try testing.expectEqual(codec.Status.done, (try deflate.decode(&decoder, past_edge.slice(), &output)).status);
+}
+
+test "long pairs back to back keep the fast path's bit buffer full" {
+    // 300 literals of history, then 30 pairs of 25 bits each: length 227, code 284 and 5 extra
+    // bits, at distance 300, code 16 and 7 extra bits (RFC 1951 §3.2.5, §3.2.6).
+    var stream: Stream = .{};
+    stream.block_header(true, .fixed);
+    var expected: [300 + 30 * 227]u8 = undefined;
+    for (expected[0..300], 0..) |*octet, index| {
+        octet.* = @truncate(index *% 7);
+        stream.fixed_literal(octet.*);
+    }
+    for (0..30) |pair| {
+        stream.fixed_pair(227, 300);
+        const at = 300 + pair * 227;
+        for (expected[at..][0..227], 0..) |*octet, index| octet.* = expected[at + index - 300];
+    }
+    stream.fixed_literal(constants.end_of_block);
+    var output: [expected.len]u8 = undefined;
+    var buffer: [padded_len_max]u8 = undefined;
+    var decoder = fresh();
+    const progress = try deflate.decode(&decoder, padded(stream.slice(), &buffer), &output);
+    try testing.expectEqual(codec.Status.done, progress.status);
+    try testing.expectEqualSlices(u8, &expected, output[0..progress.written]);
 }
 
 test "a distance of 32,768, the whole window, is in reach without a limit (RFC 1951 section 3.3)" {

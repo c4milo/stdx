@@ -1,7 +1,8 @@
 //! The DEFLATE decoder's split property, over inputs the fuzzer or a seed draws: any input, valid
 //! or not, decoded in one call and under a seeded split that moves the state between calls, gives
 //! the same octets, the same verdict and the same `consumed` (decision 11; invariants 5, 12 and 13).
-//! No input may reach a panic.
+//! The checked path alone gives them too, so the fast path writes what the checked path writes
+//! (decision 16). No input may reach a panic.
 
 const std = @import("std");
 const testing = std.testing;
@@ -35,12 +36,18 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) deflate.Error!codec.
     return deflate.decode(decoder, input, output);
 }
 
-/// Decodes `input` in one call and under `seed`'s split, and requires the two to agree.
+/// Decodes `input` in one call and under `seed`'s split, and in one call through the checked path
+/// alone, and requires the three to agree.
 fn check_split(input: []const u8, seed: u64) !void {
     var whole_output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
     deflate.init(&decoder, .{});
     const whole = verdict_of(deflate.decode(&decoder, input, &whole_output));
+    var checked_output: [output_len_max]u8 = undefined;
+    deflate.init(&decoder, .{});
+    const checked = verdict_of(deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &checked_output));
+    try testing.expectEqual(checked, whole);
+    if (whole == .progress) try testing.expectEqualSlices(u8, checked_output[0..whole.progress.written], whole_output[0..whole.progress.written]);
     var states: [codec.split.state_slots]Decoder = undefined;
     deflate.init(&states[0], .{});
     var split_output: [output_len_max]u8 = undefined;

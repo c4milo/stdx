@@ -14,6 +14,8 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
+const lookup = @import("lookup.zig");
+const fast = @import("fast.zig");
 
 /// Every way a stream breaks RFC 1951.
 pub const Corrupt = error{
@@ -84,6 +86,9 @@ pub const Decoder = struct {
     code_length_code: huffman.Code(constants.code_length_alphabet_len),
     literal_length_code: huffman.Code(constants.literal_length_alphabet_len),
     distance_code: huffman.Code(constants.distance_alphabet_len),
+    /// The dynamic block's codes as the fast path's lookup tables (decision 14, S2).
+    literal_length_table: lookup.LiteralLengthTable,
+    distance_table: lookup.DistanceTable,
     /// The caller's CPU features (decision 21), which the fast path of design §8 step 7 reads.
     features: codec.Features,
     /// Invariant 17's count, which test builds alone keep: the table entries the decoder has
@@ -125,14 +130,25 @@ fn count_work(decoder: *Decoder, work: usize) void {
     if (builtin.is_test) decoder.work += work;
 }
 
+/// What a decode may use. Tests and the fuzzer build both settings and compare them (decision 16).
+pub const Options = struct {
+    /// The fast path of decision 16, for the symbols of a block while the margins hold.
+    fast_paths: bool = true,
+};
+
 /// Decodes as much of `input` into `output` as both allow (decision 11).
 pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
+    return decode_with(.{}, decoder, input, output);
+}
+
+/// `decode`, with the paths `options` names.
+pub fn decode_with(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
     codec.check_entry(input, output);
     // A call after `done` or after a refusal, without `init`, is a programmer error (decision 11).
     assert(decoder.phase != .done and decoder.phase != .refused);
     var bits = codec.BitReader.init(input, decoder.bits);
     var writer = codec.Writer.init(output);
-    const status = run(decoder, &bits, &writer, input.len, output.len) catch |err| {
+    const status = run(options, decoder, &bits, &writer, input.len, output.len) catch |err| {
         decoder.phase = .refused;
         return err;
     };
@@ -145,18 +161,18 @@ pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Pr
     return progress;
 }
 
-fn run(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, input_len: usize, output_len: usize) Error!codec.Status {
+fn run(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, input_len: usize, output_len: usize) Error!codec.Status {
     const units = @bitSizeOf(u8) * input_len + codec.constants.bit_buffer_bits + output_len;
     const steps_max = constants.steps_per_unit * units + constants.steps_floor;
     for (0..steps_max) |_| {
-        if (try step(decoder, bits, writer)) |status| return status;
+        if (try step(options, decoder, bits, writer)) |status| return status;
     }
     // Every step takes a bit or writes an octet, or is followed by one that does.
     unreachable;
 }
 
 /// One step, and the status that ends the call, or null to go on.
-fn step(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
     return switch (decoder.phase) {
         .block_header => try read_block_header(decoder, bits),
         .stored_header => try read_stored_header(decoder, bits),
@@ -164,7 +180,7 @@ fn step(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!
         .table_counts => try read_table_counts(decoder, bits),
         .code_length_code => try read_code_length_code(decoder, bits),
         .code_lengths => try read_code_lengths(decoder, bits),
-        .symbols => try read_symbol(decoder, bits, writer),
+        .symbols => if (options.fast_paths) try read_symbols_fast(decoder, bits, writer) else try read_symbol(decoder, bits, writer),
         .copy => copy_match(decoder, writer),
         .done, .refused => unreachable,
     };
@@ -319,6 +335,23 @@ fn build_block_codes(decoder: *Decoder) Error!void {
     try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
     try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
+    count_work(decoder, decoder.literal_length_table.build(literal_lengths));
+    count_work(decoder, decoder.distance_table.build(distance_lengths));
+}
+
+/// Runs the fast path while its margins hold, then reads one symbol through the checked path.
+fn read_symbols_fast(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer) Error!?codec.Status {
+    const codes: fast.Codes = .{
+        .literal_length_table = if (decoder.fixed_codes) &lookup.fixed_literal_length else &decoder.literal_length_table,
+        .distance_table = if (decoder.fixed_codes) &lookup.fixed_distance else &decoder.distance_table,
+        .literal_length_code = block_literal_length_code(decoder),
+        .distance_code = block_distance_code(decoder),
+    };
+    const history: fast.History = .{ .window = &decoder.window, .distance_max = decoder.distance_max, .work = &decoder.work };
+    return switch (fast.run(codes, history, bits, writer)) {
+        .end_of_block => end_block(decoder),
+        .margin, .checked => read_symbol(decoder, bits, writer),
+    };
 }
 
 fn block_literal_length_code(decoder: *const Decoder) *const huffman.Code(constants.literal_length_alphabet_len) {
