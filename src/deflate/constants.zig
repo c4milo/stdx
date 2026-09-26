@@ -158,6 +158,74 @@ pub const decodes_per_step_max = 2;
 /// want of bits.
 pub const work_per_call_max = 2 * block_table_work_max + codec.constants.bit_buffer_bits + decodes_per_step_max;
 
+/// The encoder's window: the 32 KiB of history its matches reach, and 32 KiB of input ahead of the
+/// position it encodes (decision 12).
+pub const encoder_window_len = 2 * window_len;
+
+/// The octets the encoder's hash reads at a position (decision 14, E1).
+pub const hash_len = 4;
+
+/// The input ahead of a position the encoder needs before it decides that position's symbol: a
+/// longest match, and the hash of the last position the match covers. With less, it waits for input
+/// unless the caller flushes or finishes, so how the caller splits its input changes no output
+/// octet (invariant 5).
+pub const lookahead_min = match_len_max + hash_len;
+
+/// The farthest distance the encoder takes: the window, less the `lookahead_min` of history a slide
+/// of the window can drop. Every candidate this near stays in the window wherever a slide falls, so
+/// the slides change no match (invariant 5).
+pub const encoder_distance_max = window_len - lookahead_min;
+
+/// The multiplier of the encoder's hash of 4 octets: 2^32 over the golden ratio, whose product
+/// spreads the octets' bits across the high bits the hash keeps (decision 14, E1).
+pub const hash_multiplier: u32 = 0x9e37_79b1;
+
+/// The shortest match the encoder takes: the octets its hash covers. A shorter one comes only from
+/// a hash collision, and three literals cost about what it does.
+pub const match_len_taken_min = hash_len;
+
+/// The symbols a block holds before the encoder ends it (decision 12).
+pub const block_symbols_max = 16384;
+
+/// The bound on an encoder call's steps (invariant 9): each step takes input, writes output,
+/// decides positions into the block, or ends a block, and a call ends at most a few blocks of the
+/// input its window already held.
+pub const encoder_steps_per_octet = 8;
+pub const encoder_steps_floor = 64;
+
+/// The longest code of the code length code (RFC 1951 §3.2.7).
+pub const code_length_code_len_max = 7;
+
+/// The most octets one stored block holds: LEN takes 16 bits (RFC 1951 §3.2.4).
+pub const stored_len_max = std.math.maxInt(u16);
+
+/// A level's match finder (decisions 12 and 13): the bits of its hash; whether it keeps a chain of
+/// the earlier positions with the same hash; how many candidates it tries at a position; the match
+/// length that ends its search; and the match length at or above which it takes a match at once,
+/// rather than trying the next position first (its lazy step). A level without chains is greedy.
+pub const Level = struct {
+    hash_bits: u5,
+    chains: bool,
+    candidates_max: u16,
+    nice_len: u16,
+    lazy_len: u16,
+    /// What decision 12 budgets for the encoder's state at this level.
+    state_budget_len: usize,
+};
+
+/// The levels of decision 13.
+pub const encoder_levels = [_]u4{ 1, 6, 9 };
+
+/// A level's parameters.
+pub fn level(comptime number: u4) Level {
+    return switch (number) {
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 128, .nice_len = 128, .lazy_len = 32, .state_budget_len = 259 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .state_budget_len = 259 * 1024 },
+        else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
+    };
+}
+
 /// Each length code's least length and extra bits, codes 257 to 285 (RFC 1951 §3.2.5).
 pub const length_base: [literal_length_used - first_length_symbol]u16 = length_table().base;
 pub const length_extra_bits: [literal_length_used - first_length_symbol]u7 = length_table().extra;
@@ -228,6 +296,9 @@ comptime {
     // The last distance code reaches the window's whole length.
     assert(distance_base[29] + (1 << 13) - 1 == window_len);
     assert(pair_bits_max == 48);
+    // A block ending at a slide holds at most the window's input, which one stored block holds.
+    assert(encoder_window_len - lookahead_min <= stored_len_max);
+    assert(block_symbols_max * @sizeOf(u32) + encoder_window_len <= level(1).state_budget_len);
     assert(code_length_symbols_min == 2);
     assert(dynamic_block_bits_min == 32);
     for (repeat_extra_bits, repeat_count_min, repeat_count_max) |extra, min, max| {

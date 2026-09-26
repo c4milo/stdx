@@ -23,6 +23,10 @@ pub const claims = @import("claims.zig");
 pub const Claims = claims.Claims;
 pub const refusal = decoder.refusal;
 
+const encoder = @import("encoder/encoder.zig");
+pub const Encoder = encoder.Encoder;
+pub const EncoderOptions = encoder.EncoderOptions;
+
 /// A bit writer that builds DEFLATE streams for tests, this module's and its containers'.
 pub const TestStream = @import("test_stream.zig").Stream;
 
@@ -32,4 +36,7 @@ test {
     _ = @import("lookup.zig");
     _ = decoder;
     _ = @import("test_stream.zig");
+    _ = @import("encoder/encoder_code.zig");
+    _ = @import("encoder/encoder_block.zig");
+    _ = encoder;
 }
