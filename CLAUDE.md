@@ -244,6 +244,9 @@ Change this section when a step adds or renames a command.
   checksum and content-size flags seeded. stdx's HTTP decoder must decode each frame whole and
   under a seeded split, and libzstd must decode it too, all to the input. Longer files also run
   whole at level 3, and two frames with a skippable frame between them must decode to both inputs.
+  It then corrupts frames of each file's first 4 KiB, the frame header's fields included, and
+  requires stdx's verdict to equal that of libzstd's streaming decoder, limited to the same 2^23
+  window, or to match an entry of `tools/oracle/verdicts.zig`.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
   installs every corpus file under `zig-out/corpus/`.
 - Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a

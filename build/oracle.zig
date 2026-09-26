@@ -244,6 +244,7 @@ pub fn add(b: *std.Build, options: Options) void {
     zstd_module.addImport("corpus", corpus_names);
     zstd_module.addImport("codec", graph.codec);
     zstd_module.addImport("zstd", graph.zstd);
+    zstd_module.addImport("verdicts", verdicts);
     const zstd_check = b.addExecutable(.{ .name = "differential_zstd", .root_module = zstd_module });
     const zstd_run = b.addRunArtifact(zstd_check);
     zstd_run.has_side_effects = true;

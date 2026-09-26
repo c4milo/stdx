@@ -6,7 +6,8 @@
 //! a seed draws. stdx's HTTP instance decodes each frame whole and under a seeded split that moves
 //! the state between calls (invariant 12); libzstd decodes it too; both must give back the input.
 //! A file longer than the prefix also runs whole at libzstd's default level. Then two frames and a
-//! skippable one between them, concatenated, must decode to both inputs.
+//! skippable one between them, concatenated, must decode to both inputs. Last come the corruptions
+//! of zstd_corrupt.zig, judged against libzstd's verdicts.
 //!
 //! The seeds come from the file's name, so a failure replays on every host.
 //!
@@ -18,6 +19,8 @@ const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
 const zstd = @import("zstd");
+const zstd_corrupt = @import("zstd_corrupt.zig");
+const verdicts = @import("verdicts");
 
 /// The prefix of each file the matrix runs over: a quarter MiB.
 pub const matrix_input_len_max = 256 * 1024;
@@ -128,7 +131,16 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
     const decoders = try arena.create([codec.split.state_slots]Decoder);
+    const base_len = oracle.zstd_bound(zstd_corrupt.base_input_len_max);
+    const corrupt_buffers: zstd_corrupt.Buffers = .{
+        .base = try arena.alloc(u8, base_len),
+        .corrupted = try arena.alloc(u8, zstd_corrupt.corrupted_len(base_len)),
+        .output = try arena.alloc(u8, zstd_corrupt.output_len_max),
+        .oracle_output = try arena.alloc(u8, zstd_corrupt.output_len_max),
+        .decoder = &decoders[0],
+    };
     var total: Tally = .{};
+    var corrupt_total: zstd_corrupt.Tally = .{};
     for (names.items, paths.items) |name, path| {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, path, arena, .unlimited);
         const buffers: Buffers = .{
@@ -139,11 +151,21 @@ pub fn main(init: std.process.Init) !void {
         };
         var tally: Tally = .{};
         check_file(&tally, buffers, name, input);
-        std.debug.print("differential-zstd: {s}: {d} frames, {d} failed\n", .{ name, tally.frames, tally.failures });
+        const corrupt_tally = zstd_corrupt.check_file(name, input, corrupt_buffers);
+        corrupt_total.add(corrupt_tally);
+        std.debug.print("differential-zstd: {s}: {d} frames, {d} failed; {d} corrupted inputs, {d} allowed, {d} failed\n", .{
+            name, tally.frames, tally.failures, corrupt_tally.inputs, corrupt_tally.allowed, corrupt_tally.failures,
+        });
         total.frames += tally.frames;
         total.octets += tally.octets;
         total.failures += tally.failures;
     }
-    std.debug.print("differential-zstd: {d} files, {d} frames, {d} failed\n", .{ names.items.len, total.frames, total.failures });
-    if (total.failures != 0) std.process.exit(1);
+    for (verdicts.zstd_entries, corrupt_total.allowed_by) |entry, allowed| {
+        std.debug.print("differential-zstd: {d} allowed: {s}\n", .{ allowed, entry.shape });
+    }
+    std.debug.print("differential-zstd: corruptions: {d} inputs, {d} allowed by verdict entries, {d} failed\n", .{
+        corrupt_total.inputs, corrupt_total.allowed, corrupt_total.failures,
+    });
+    std.debug.print("differential-zstd: {d} files, {d} frames, {d} failed\n", .{ names.items.len, total.frames, total.failures + corrupt_total.failures });
+    if (total.failures != 0 or corrupt_total.failures != 0) std.process.exit(1);
 }
