@@ -13,11 +13,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const checksum = @import("checksum");
-const constants = @import("constants.zig");
-const frame = @import("frame.zig");
-const block = @import("block.zig");
-const huffman = @import("huffman.zig");
-const sequences = @import("sequences.zig");
+const constants = @import("../constants.zig");
+const frame = @import("../frame.zig");
+const block = @import("../block.zig");
+const huffman = @import("../huffman.zig");
+const sequences = @import("../sequences.zig");
 
 pub const DecoderOptions = struct {
     /// The largest Window_Size the decoder takes, a power of two: 2^23, RFC 9659 §3's for HTTP, or

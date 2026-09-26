@@ -7,11 +7,11 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const checksum = @import("checksum");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const decoder_module = @import("decoder.zig");
-const huffman = @import("huffman.zig");
-const BitWriter = @import("test_writer.zig").BitWriter;
-const StreamWriter = @import("test_writer.zig").StreamWriter;
+const huffman = @import("../huffman.zig");
+const BitWriter = @import("../test_writer.zig").BitWriter;
+const StreamWriter = @import("../test_writer.zig").StreamWriter;
 
 /// A decoder small enough for a test's stack: a window of one Block_Maximum_Size.
 const Decoder = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max });
