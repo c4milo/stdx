@@ -23,6 +23,27 @@ pub const Progress = struct {
     status: Status,
 };
 
+/// What a whole-buffer helper did (decision 11): the octets of the input its stream took, and the
+/// octets it wrote from the output's start.
+pub const Whole = struct {
+    consumed: usize,
+    written: usize,
+};
+
+/// The operational errors of a whole-buffer helper (decision 11): the input ended before the stream
+/// did, or the output filled before the stream ended.
+pub const Incomplete = error{ Truncated, NoSpaceLeft };
+
+/// The whole-buffer form of a streaming call's progress, when that call had all the input and all
+/// the output: its counts at `done`, and an error for a status that asks for more.
+pub fn whole(progress: Progress) Incomplete!Whole {
+    return switch (progress.status) {
+        .done => .{ .consumed = progress.consumed, .written = progress.written },
+        .needs_input => error.Truncated,
+        .needs_room => error.NoSpaceLeft,
+    };
+}
+
 /// What an encoder's caller says about the input it passes (decision 11).
 pub const Flush = enum {
     /// More input follows; the encoder may hold input back to find matches.
@@ -104,6 +125,12 @@ test "violation names each way a call's exit breaks invariant 7" {
     try testing.expectEqual(.needs_room_with_room_left, violation(4, 4, .{ .consumed = 0, .written = 3, .status = .needs_room }).?);
     try testing.expectEqual(.needs_room_with_room_left, violation(4, 4, .{ .consumed = 0, .written = 0, .status = .needs_room }).?);
     try testing.expectEqual(.needs_input_with_input_left, violation(4, 4, .{ .consumed = 0, .written = 0, .status = .needs_input }).?);
+}
+
+test "whole gives the counts at done, and an error for each status that asks for more" {
+    try testing.expectEqual(Whole{ .consumed = 3, .written = 7 }, try whole(.{ .consumed = 3, .written = 7, .status = .done }));
+    try testing.expectError(error.Truncated, whole(.{ .consumed = 3, .written = 7, .status = .needs_input }));
+    try testing.expectError(error.NoSpaceLeft, whole(.{ .consumed = 3, .written = 7, .status = .needs_room }));
 }
 
 test "overlap finds a shared octet, and not an adjacent or an empty slice" {
