@@ -240,13 +240,13 @@ Change this section when a step adds or renames a command.
   every night on both runners, keeping each runner's corpus between runs (decision 20).
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
   `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
-- DEFLATE benchmark: `zig build bench-deflate -Doracles` times stdx's, zlib's and Wuffs's gzip
-  decoders, and zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate
-  interleaved in one run, the median of five runs with the spread. `bench/run.sh <report.md>
-  bench-deflate -Doracles` pins and records it. The `bench` workflow runs either benchmark on both
-  hosted runners when a person asks (decision 20). stdx's fast path joins the candidates in design
-  §8 step 7, and its encoder in step 9. Each published report is committed under
-  `bench/results/`, as the workflow wrote it.
+- DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
+  libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, and
+  zlib's encoder at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one
+  run, the median of five runs with the spread. `bench/run.sh <report.md> bench-deflate -Doracles`
+  pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
+  person asks (decision 20). stdx's encoder joins the candidates in design §8 step 9. Each
+  published report is committed under `bench/results/`, as the workflow wrote it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, from 64 octets to 1 MiB, with the
   timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins

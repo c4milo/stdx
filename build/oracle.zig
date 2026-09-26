@@ -113,6 +113,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_module.addImport("oracle", oracle);
     bench_module.addImport("timing", timing);
     bench_module.addImport("codec", graph.codec);
+    bench_module.addImport("deflate", graph.deflate);
     bench_module.addImport("gzip", graph.gzip);
     const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
     b.installArtifact(bench);
@@ -163,6 +164,7 @@ pub fn add(b: *std.Build, options: Options) void {
 
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
+    bench_module.addImport("baselines", baselines_module);
     const bench_checksum_module = b.createModule(.{
         .root_source_file = b.path("bench/checksum/checksum.zig"),
         .target = baseline,
