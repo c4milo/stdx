@@ -71,6 +71,9 @@ pub const Decoder = struct {
     /// The octets a length/distance pair has left to copy, and how far back.
     copy_len: u16,
     copy_distance: u16,
+    /// The farthest distance the stream may take: the window, or the smaller window a container
+    /// declares (`limit_window`).
+    distance_max: u16,
     /// A dynamic block's HLIT + 257, HDIST + 1 and HCLEN + 4 (RFC 1951 §3.2.7), and how many of
     /// its code lengths have been read.
     literal_length_count: u16,
@@ -103,8 +106,18 @@ pub fn init(decoder: *Decoder, features: codec.Features) void {
     decoder.stored_left = 0;
     decoder.copy_len = 0;
     decoder.copy_distance = 0;
+    decoder.distance_max = constants.window_len;
     decoder.features = features;
     decoder.work = huffman.work_zero;
+}
+
+/// Refuses distances past `window_len`, the window a container declares for the stream (decision
+/// 12). The caller calls it after `init` and before the first `decode`.
+pub fn limit_window(decoder: *Decoder, window_len: usize) void {
+    assert(std.math.isPowerOfTwo(window_len));
+    assert(window_len <= constants.window_len);
+    assert(decoder.phase == .block_header and decoder.window.reach() == 0);
+    decoder.distance_max = @intCast(window_len);
 }
 
 /// Adds to invariant 17's count, in a test build.
@@ -343,6 +356,9 @@ fn read_symbol(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer)
     // RFC 1951 §3.2.3: a distance cannot refer past the beginning of the output stream. This stream
     // began at `init`, so the window's octets from before it are out of reach (invariant 10).
     if (pair.distance > decoder.window.reach()) return error.DistanceTooFar;
+    // RFC 1950 §2.2: CINFO gives the window the encoder used, and decision 12 refuses a distance
+    // past it, on which the RFC states no rule.
+    if (pair.distance > decoder.distance_max) return error.DistanceTooFar;
     bits.consume(symbol.len + pair.bits);
     decoder.copy_len = pair.len;
     decoder.copy_distance = pair.distance;

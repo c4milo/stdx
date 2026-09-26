@@ -12,11 +12,16 @@ pub const Corrupt = decoder.Corrupt;
 pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
 pub const init = decoder.init;
+pub const limit_window = decoder.limit_window;
 pub const decode = decoder.decode;
 pub const refusal = decoder.refusal;
+
+/// A bit writer that builds DEFLATE streams for tests, this module's and its containers'.
+pub const TestStream = @import("test_stream.zig").Stream;
 
 test {
     _ = constants;
     _ = @import("huffman.zig");
     _ = decoder;
+    _ = @import("test_stream.zig");
 }
