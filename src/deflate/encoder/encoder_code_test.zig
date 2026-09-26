@@ -1,5 +1,5 @@
-//! Tests for the encoder's codes: package-merge's lengths against a plain Huffman build where the
-//! limit does not bind, every code complete by the decoder's own check, each canonical code
+//! Tests for the encoder's codes: the lengths of both builders against Huffman's coded size where
+//! the limit does not bind, every code complete by the decoder's own check, each canonical code
 //! decoded back to its symbol, and the code length symbols expanded back to the lengths.
 
 const std = @import("std");
@@ -52,7 +52,7 @@ fn expect_complete(comptime alphabet_len: usize, lengths: []const u8, len_max: u
     try decoder_code.build(lengths, .complete, &work);
 }
 
-test "package-merge gives Huffman's coded size where 15 bits do not bind" {
+test "both builders give Huffman's coded size where 15 bits do not bind" {
     for (0..100) |seed| {
         var generator = codec.split.Generator.init(seed);
         var counts: [constants.literal_length_used]u16 = @splat(0);
@@ -62,9 +62,11 @@ test "package-merge gives Huffman's coded size where 15 bits do not bind" {
         counts[0] += 1;
         counts[1] += 1;
         var lengths: [counts.len]u8 = undefined;
-        code.build_lengths(&counts, constants.code_len_max, &lengths);
-        try expect_complete(constants.literal_length_alphabet_len, &lengths, constants.code_len_max);
-        try testing.expectEqual(huffman_bits(&counts), coded_bits(&counts, &lengths));
+        inline for (.{ code.build_lengths, code.build_lengths_package_merge }) |build| {
+            build(&counts, constants.code_len_max, &lengths);
+            try expect_complete(constants.literal_length_alphabet_len, &lengths, constants.code_len_max);
+            try testing.expectEqual(huffman_bits(&counts), coded_bits(&counts, &lengths));
+        }
     }
 }
 

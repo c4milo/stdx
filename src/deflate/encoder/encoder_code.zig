@@ -1,8 +1,12 @@
 //! The encoder's Huffman codes (RFC 1951 §3.2.2): code lengths for a block's symbol counts, at most
-//! 15 bits long, or 7 for the code length code (§3.2.7), by the package-merge algorithm, which gives
-//! the least coded size under the limit; the canonical codes of those lengths, bit-reversed for a
-//! stream packed least significant bit first (§3.1.1); and the run-length coding of a dynamic
-//! block's code lengths with symbols 16, 17 and 18 (§3.2.7).
+//! 15 bits long, or 7 for the code length code (§3.2.7); the canonical codes of those lengths,
+//! bit-reversed for a stream packed least significant bit first (§3.1.1); and the run-length coding
+//! of a dynamic block's code lengths with symbols 16, 17 and 18 (§3.2.7).
+//!
+//! The lengths come from Huffman's tree, built in one pass over the sorted counts. When a length
+//! passes the limit, the package-merge algorithm builds them again: it gives the least coded size
+//! under the limit, but costs a pass per bit of the limit, which a block of a few hundred octets
+//! would pay once per block.
 //!
 //! Every choice here breaks ties by symbol, so the codes are a function of the counts alone
 //! (invariant 5).
@@ -24,6 +28,9 @@ const level_len_max = package_arity * symbols_max;
 /// The fewest symbols a code gives a length, so that the code is complete (RFC 1951 §3.2.2).
 const coded_symbols_min = 2;
 
+/// The nodes Huffman's tree joins into one: two, as a code of bits is binary.
+const tree_arity = 2;
+
 /// Sets `lengths` for `counts`: 0 for a symbol that does not occur, and otherwise the length of
 /// its code in the code of least coded size whose lengths stay at or under `len_max`. When fewer
 /// than two symbols occur, the first that do not stand in for the missing ones, so the code is
@@ -34,17 +41,96 @@ pub fn build_lengths(counts: []const u16, comptime len_max: u4, lengths: []u8) v
     @memset(lengths, 0);
     var order: [symbols_max]u16 = undefined;
     const used = sorted_symbols(counts, &order);
+    if (huffman_lengths(counts, order[0..used], len_max, lengths)) return;
+    package_merge(counts, order[0..used], len_max, lengths);
+}
+
+/// `build_lengths` by package-merge alone, for the tests that check it where the limit does not
+/// bind.
+pub fn build_lengths_package_merge(counts: []const u16, comptime len_max: u4, lengths: []u8) void {
+    assert(counts.len == lengths.len and counts.len <= symbols_max);
+    assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
+    @memset(lengths, 0);
+    var order: [symbols_max]u16 = undefined;
+    const used = sorted_symbols(counts, &order);
+    package_merge(counts, order[0..used], len_max, lengths);
+}
+
+/// Sets the lengths of the symbols of `order`, lightest first, to the depths of their leaves in
+/// Huffman's tree: the two lightest nodes join, a leaf before a joined node of the same weight,
+/// until one node remains. Returns false when a depth passes `len_max`, leaving `lengths` as they
+/// were.
+fn huffman_lengths(counts: []const u16, order: []const u16, len_max: u4, lengths: []u8) bool {
+    assert(order.len >= coded_symbols_min and order.len <= symbols_max);
+    // Leaf i is node i; joined node j is node `order.len + j`. Each node records its parent's
+    // joined index, and each joined node its weight.
+    var parent: [tree_arity * symbols_max]u16 = undefined;
+    var joined_weights: [symbols_max]u32 = undefined;
+    var queues: Queues = .{};
+    const joined_count = order.len - 1;
+    for (0..joined_count) |joined| {
+        joined_weights[joined] = 0;
+        for (0..tree_arity) |_| {
+            const node = queues.take_lightest(counts, order, joined_weights[0..joined]);
+            parent[node] = @intCast(joined);
+            joined_weights[joined] += node_weight(counts, order, &joined_weights, node);
+        }
+    }
+    // Each joined node's parent comes after it, and the last is the root, at depth 0.
+    var depths: [symbols_max]u16 = undefined;
+    var joined = joined_count - 1;
+    depths[joined] = 0;
+    for (0..joined_count - 1) |_| {
+        joined -= 1;
+        depths[joined] = depths[parent[order.len + joined]] + 1;
+    }
+    var depth_max: u16 = 0;
+    for (parent[0..order.len]) |leaf_parent| depth_max = @max(depth_max, depths[leaf_parent] + 1);
+    if (depth_max > len_max) return false;
+    for (order, parent[0..order.len]) |symbol, leaf_parent| lengths[symbol] = @intCast(depths[leaf_parent] + 1);
+    return true;
+}
+
+/// The fronts of Huffman's two queues: the leaves, lightest first, and the joined nodes, which
+/// come out lightest first because each joins two nodes no lighter than the one before.
+const Queues = struct {
+    leaf: usize = 0,
+    joined: usize = 0,
+
+    /// Takes the lightest node at either front, a leaf when the weights tie. Returns its node
+    /// number.
+    fn take_lightest(queues: *Queues, counts: []const u16, order: []const u16, joined_weights: []const u32) usize {
+        const leaf_left = queues.leaf < order.len;
+        const joined_left = queues.joined < joined_weights.len;
+        assert(leaf_left or joined_left);
+        if (leaf_left and (!joined_left or weight(counts[order[queues.leaf]]) <= joined_weights[queues.joined])) {
+            queues.leaf += 1;
+            return queues.leaf - 1;
+        }
+        queues.joined += 1;
+        return order.len + queues.joined - 1;
+    }
+};
+
+/// The weight of `node`: its symbol's for a leaf, the sum of its two for a joined node.
+fn node_weight(counts: []const u16, order: []const u16, joined_weights: []const u32, node: usize) u32 {
+    return if (node < order.len) weight(counts[order[node]]) else joined_weights[node - order.len];
+}
+
+/// Sets the lengths of the symbols of `order`, lightest first, by package-merge.
+fn package_merge(counts: []const u16, order: []const u16, comptime len_max: u4, lengths: []u8) void {
+    const used = order.len;
     // Level 0 holds the leaves alone; each level above merges them with the packages of the level
     // below, and remembers which of its items are packages.
     var packages: [len_max]std.StaticBitSet(level_len_max) = undefined;
     var level_len: [len_max]usize = undefined;
     var below: [level_len_max]u32 = undefined;
     var above: [level_len_max]u32 = undefined;
-    for (order[0..used], 0..) |symbol, index| below[index] = weight(counts[symbol]);
+    for (order, 0..) |symbol, index| below[index] = weight(counts[symbol]);
     packages[0] = .initEmpty();
     level_len[0] = used;
     for (1..len_max) |level| {
-        level_len[level] = merge(counts, order[0..used], below[0..level_len[level - 1]], &above, &packages[level]);
+        level_len[level] = merge(counts, order, below[0..level_len[level - 1]], &above, &packages[level]);
         below = above;
     }
     // The 2n - 2 lightest items of the top level choose the lengths: each leaf among them, at any
