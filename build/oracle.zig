@@ -10,6 +10,8 @@
 //!   (`bench/deflate/deflate.zig`).
 //! - `zig build bench-checksum -Doracles` times CRC-32 and Adler-32 against zlib, Wuffs,
 //!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
+//! - `zig build bench-zstd -Doracles` times Zstandard decoding against libzstd over the corpora
+//!   (`bench/zstd/zstd.zig`).
 //! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
 //!   decoder, where the host exposes the counters (`bench/profile/profile.zig`).
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
@@ -102,9 +104,10 @@ pub fn add(b: *std.Build, options: Options) void {
     const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
     const encode_step = b.step("differential-encode", "Require the encoders' output to decode through the oracles (-Doracles)");
     const zstd_step = b.step("differential-zstd", "Require the Zstandard decoder to agree with libzstd (-Doracles)");
+    const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip decoder (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, profile_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, bench_zstd_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -250,6 +253,18 @@ pub fn add(b: *std.Build, options: Options) void {
     zstd_run.has_side_effects = true;
     add_corpus_args(b, zstd_run, corpus);
     zstd_step.dependOn(&zstd_run.step);
+
+    const bench_zstd_module = b.createModule(.{ .root_source_file = b.path("bench/zstd/zstd.zig"), .target = baseline, .optimize = .ReleaseSafe });
+    bench_zstd_module.addImport("oracle", oracle);
+    bench_zstd_module.addImport("timing", timing);
+    bench_zstd_module.addImport("codec", graph.codec);
+    bench_zstd_module.addImport("zstd", graph.zstd);
+    const bench_zstd = b.addExecutable(.{ .name = "bench_zstd", .root_module = bench_zstd_module });
+    b.installArtifact(bench_zstd);
+    const bench_zstd_run = b.addRunArtifact(bench_zstd);
+    bench_zstd_run.has_side_effects = true;
+    add_corpus_args(b, bench_zstd_run, corpus);
+    bench_zstd_step.dependOn(&bench_zstd_run.step);
 
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
