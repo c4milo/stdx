@@ -228,10 +228,15 @@ fn decode_stream(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cu
     return null;
 }
 
+/// Reads CRC32 and ISIZE, and compares each as soon as its octets are in, so a member whose CRC32
+/// is wrong is refused before its ISIZE arrives.
 fn read_trailer(decoder: *Decoder, input: []const u8, cursor: *Cursor) Error!?codec.Status {
-    if (!read_field(decoder, input, cursor, constants.trailer_len)) return .needs_input;
-    // The decoder checks CRC32 and ISIZE, which RFC 1952 §2.3.1.2 lets it skip (decision 15).
-    if (held_trailer_int(decoder, 0) != decoder.crc32) return error.ChecksumMismatch;
+    const whole = read_field(decoder, input, cursor, constants.trailer_len);
+    if (decoder.field.held().len >= constants.trailer_crc32_len) {
+        // The decoder checks CRC32 and ISIZE, which RFC 1952 §2.3.1.2 lets it skip (decision 15).
+        if (held_trailer_int(decoder, 0) != decoder.crc32) return error.ChecksumMismatch;
+    }
+    if (!whole) return .needs_input;
     // RFC 1952 §2.3.1: ISIZE is the decoded length modulo 2^32, checked as decision 15 rules.
     if (held_trailer_int(decoder, 1) != decoder.size) return error.SizeMismatch;
     decoder.phase = .done;
@@ -241,8 +246,8 @@ fn read_trailer(decoder: *Decoder, input: []const u8, cursor: *Cursor) Error!?co
 /// CRC32, the trailer's first number, or ISIZE, its second, least significant octet first (RFC
 /// 1952 §2.1, §2.3).
 fn held_trailer_int(decoder: *const Decoder, index: usize) u32 {
-    assert(decoder.field.held().len == constants.trailer_len);
     assert(index * constants.trailer_crc32_len < constants.trailer_len);
+    assert(decoder.field.held().len >= (index + 1) * constants.trailer_crc32_len);
     const octets = decoder.field.held()[index * constants.trailer_crc32_len ..][0..constants.trailer_crc32_len];
     return std.mem.readInt(u32, octets, .little);
 }

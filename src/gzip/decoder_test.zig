@@ -244,6 +244,23 @@ test "a wrong CRC32 or ISIZE is refused, whichever octet differs" {
     }
 }
 
+test "a wrong CRC32 is refused as soon as its four octets are in, before ISIZE" {
+    var stream: Stream = .{};
+    stored_member(&stream, .{}, text);
+    const len = stream.slice().len;
+    stream.octets[len - constants.trailer_len] ^= 0x01;
+    const cut = stream.slice()[0 .. len - constants.trailer_len + constants.trailer_crc32_len];
+    try expect_refused(cut, error.ChecksumMismatch);
+    // With CRC32 right, the same cut needs ISIZE.
+    var valid: Stream = .{};
+    stored_member(&valid, .{}, text);
+    var output: [output_len_max]u8 = undefined;
+    var decoder: Decoder = undefined;
+    gzip.init(&decoder, .{});
+    const progress = try gzip.decode(&decoder, valid.slice()[0..cut.len], &output);
+    try testing.expectEqual(codec.Status.needs_input, progress.status);
+}
+
 test "the DEFLATE stream's refusals pass through" {
     var stream: Stream = .{};
     header(&stream, .{});
