@@ -39,6 +39,7 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         /// Starts a stream. The heads are cleared, so no position of an earlier stream becomes a
         /// candidate, and the output is a function of this stream's input alone (invariant 5).
+        /// Decision 11 allows an encoder's `init` this clear, and no other.
         pub fn init(self: *Self) void {
             @memset(&self.heads, 0);
             self.filled = 0;

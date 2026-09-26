@@ -159,7 +159,8 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
 11. **The streaming contract every codec shares.** Proposed on 2026-09-25, the first decision record
     the owner asked for. Ruled by the owner on 2026-09-25, after a review of the proposal. The owner
     accepted the `codec` module, the overrun into the caller's output past `written`, and an
-    assertion for a call after `done`.
+    assertion for a call after `done`. Amended by the owner on 2026-09-26, at design §8 step 9: an
+    encoder's `init` clears its hash heads (under **State and sizes**).
 
     **A seventh module, `codec`.** Decision 6 names six modules. The status a call ends with, the
     counts it reports and the checked reader and writer are the same for all five codecs, so they
@@ -255,11 +256,25 @@ and 20 came out of that review, and entry 21 out of design §8 step 2.
     comptime std.debug.assert(@sizeOf(Http) <= 9 * 1024 * 1024);
     ```
 
-    `init` costs a constant. It writes the few dozen octets of state a stream starts from and does
-    not clear the window or any table. No octet of history is read before this stream writes it
-    (invariant 10), so neither uninitialised memory nor the octets of a previous stream in the
-    same state is ever observed. That comparison is what makes a pool of decoders safe to share
-    between messages from different peers, so invariant 10 tests it on every copy path.
+    A decoder's `init` costs a constant. It writes the few dozen octets of state a stream starts
+    from and does not clear the window or any table. No octet of history is read before this
+    stream writes it (invariant 10), so neither uninitialised memory nor the octets of a previous
+    stream in the same state is ever observed. That comparison is what makes a pool of decoders
+    safe to share between messages from different peers, so invariant 10 tests it on every copy
+    path.
+
+    An encoder's `init` also clears its hash heads: `1 << hash_bits` positions of 2 octets, 32 KiB
+    at level 1 and 64 KiB at levels 6 and 9. A head holds the last position with its hash, and each
+    search for a match starts there. A head left by a previous stream, or never written, can name
+    a position this stream has written, so the search would try it, and the output would depend
+    on more than this stream's input (invariant 5). The clear is estimated at about one copy of
+    32 KiB in docs/costs.md, 568 ns on x86-64 and 393 ns on aarch64, and has not been measured on
+    its own. The alternatives it beat:
+
+    - A sparse set recording which heads this stream wrote, so that `init` clears nothing: a second
+      dependent load for each search, and a second table as large as the heads.
+    - A head checked against the current position alone: a stale head below the position passes
+      the check, so the search still depends on it.
 
     **Whole-buffer helpers.** Each codec builds these on the streaming call:
 

@@ -621,6 +621,8 @@ to 12 are reordered and nothing else changes.
       from a hash of 4 octets, and match lengths from compares of 8 octets (E1).
     - Code lengths come from Huffman's tree, and from package-merge when a length passes the
       limit (10b90db).
+    - `init` clears the hash heads, 32 KiB at level 1 and 64 KiB at levels 6 and 9, as the owner's
+      amendment of decision 11 on 2026-09-26 allows.
   - Decision 15 for encoders: `differential-encode` (d7b1605) passed on both runners in CI run
     [36262709219](https://github.com/c4milo/stdx/actions/runs/36262709219) at 10b90db: 38 files,
     798 checks, 0 failed. A check encodes a corpus file whole as raw DEFLATE, or its first 256 KiB
@@ -667,12 +669,7 @@ to 12 are reordered and nothing else changes.
     seeded search of 180 inputs of 400 KiB, random octets with a match across each threshold, came
     no closer than 13 octets under the bound without the term. The term stays until a proof
     removes it.
-  - Open:
-    - `init` clears the hash heads, 32 KiB at level 1 and 64 KiB at levels 6 and 9. Decision 11
-      says `init` clears no table. Without the clear, a candidate could come from a position the
-      previous stream left in the heads, and the output would depend on it (invariant 5). The
-      owner rules between amending decision 11 for encoders and a start that clears nothing.
-    - E4 and E5 are not written, and E1's and E2's A/Bs have not run.
+  - Open: E4 and E5 are not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
   SHA-256 (decision 18).
