@@ -88,3 +88,67 @@ size_t oracle_zstd_decode(const uint8_t* input, size_t input_len, uint8_t* outpu
   ZSTD_freeDCtx(context);
   return ZSTD_isError(result) ? SIZE_MAX : result;
 }
+
+// The verdicts and the result, in the order and layout tools/oracle/oracle.zig's `Verdict` and
+// `Result` give them, as tools/oracle/oracle.c defines them for zlib and Wuffs.
+enum {
+  ORACLE_ZSTD_OK = 0,          // the input ended where a frame did, and every check passed
+  ORACLE_ZSTD_REFUSED = 1,     // libzstd refused the input
+  ORACLE_ZSTD_INCOMPLETE = 2,  // the input ended inside a frame
+  ORACLE_ZSTD_NO_ROOM = 3,     // the output filled before the frames ended
+  ORACLE_ZSTD_FAILED = 4,      // libzstd could not run: an allocation or an argument failed
+};
+
+typedef struct {
+  int verdict;
+  size_t consumed;
+  size_t written;
+} oracle_zstd_result;
+
+// The verdict after the calls ended: `status` is the last call's return, an error code or the
+// hint, 0 once a frame has ended. A full output is no room even where the input ended too. Every
+// error is a refusal: the streaming decoder writes into the caller's output as it has room, so
+// its dstSize_tooSmall means a block past its own block buffer.
+static int oracle_zstd_verdict(size_t status, const ZSTD_inBuffer* in, const ZSTD_outBuffer* out) {
+  if (ZSTD_isError(status)) return ORACLE_ZSTD_REFUSED;
+  if (in->pos == in->size && status == 0) return ORACLE_ZSTD_OK;
+  if (out->pos == out->size) return ORACLE_ZSTD_NO_ROOM;
+  return ORACLE_ZSTD_INCOMPLETE;
+}
+
+// Decodes every frame of `input`, skippable ones skipped, into `output` through libzstd's
+// streaming decoder, which refuses a window past 2^`window_log_max`. The calls go on while they
+// consume or write, one more than the input and the output can need. The verdict reads the last
+// call that consumed or wrote: a call after a frame's end asks for the next frame's header.
+oracle_zstd_result oracle_zstd_decode_verdict(const uint8_t* input, size_t input_len,
+                                              uint8_t* output, size_t output_len,
+                                              int window_log_max) {
+  oracle_zstd_result result = {ORACLE_ZSTD_FAILED, 0, 0};
+  ZSTD_DCtx* context = ZSTD_createDCtx();
+  if (context == NULL) return result;
+  size_t status = ZSTD_DCtx_setParameter(context, ZSTD_d_windowLogMax, window_log_max);
+  if (ZSTD_isError(status)) {
+    ZSTD_freeDCtx(context);
+    return result;
+  }
+  ZSTD_inBuffer in = {input, input_len, 0};
+  ZSTD_outBuffer out = {output, output_len, 0};
+  // Nonzero: no frame has ended before the first call.
+  status = 1;
+  for (size_t call = 0; call <= input_len + output_len + 1; call++) {
+    size_t consumed = in.pos;
+    size_t written = out.pos;
+    size_t call_status = ZSTD_decompressStream(context, &out, &in);
+    if (ZSTD_isError(call_status)) {
+      status = call_status;
+      break;
+    }
+    if (in.pos == consumed && out.pos == written) break;
+    status = call_status;
+  }
+  result.verdict = oracle_zstd_verdict(status, &in, &out);
+  result.consumed = in.pos;
+  result.written = out.pos;
+  ZSTD_freeDCtx(context);
+  return result;
+}

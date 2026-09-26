@@ -159,6 +159,112 @@ pub fn find(codec: []const u8, facts: Facts, stdx: Kind, stdx_error: []const u8,
     return null;
 }
 
+/// What the Zstandard check knows about an input: its octets.
+pub const ZstdFacts = struct {
+    input: []const u8,
+};
+
+/// A verdict entry of the Zstandard decoder, whose one oracle is libzstd's streaming decoder
+/// limited to the same window.
+pub const ZstdEntry = struct {
+    shape: []const u8,
+    /// Whether an input has the shape.
+    holds: *const fn (facts: ZstdFacts) bool,
+    stdx: Kind,
+    /// The name of stdx's error, when it refused.
+    stdx_error: []const u8 = "",
+    libzstd: Kind,
+    rfc: []const u8,
+    decision: []const u8,
+};
+
+pub const zstd_entries = [_]ZstdEntry{
+    .{
+        .shape = "Window_Descriptor declares a window past 2^23, and Frame_Content_Size is at most 2^23",
+        .holds = window_past_http_with_small_content,
+        .stdx = .refused,
+        .stdx_error = "WindowTooLarge",
+        .libzstd = .ok,
+        .rfc = "RFC 9659 §3: encoders must not generate frames requiring a Window_Size over 8 MB, and " ++
+            "§4 has decoders fail such frames; RFC 8878 §3.1.1.1.2 lets a decoder refuse a window past its limit",
+        .decision = "decision 12: the HTTP instance refuses a declared Window_Size past 2^23, whatever the " ++
+            "Frame_Content_Size; libzstd bounds the window it needs by Frame_Content_Size",
+    },
+    .{
+        .shape = "a Huffman-coded literals stream is not read exactly to its first bit, in a frame " ++
+            "without Content_Checksum",
+        .holds = frame_without_checksum,
+        .stdx = .refused,
+        .stdx_error = "HuffmanStreamNotConsumed",
+        .libzstd = .ok,
+        .rfc = "RFC 8878 §4.2.2: if a stream is not entirely and exactly consumed, the decoding process " ++
+            "is considered faulty",
+        .decision = "decision 15: where the RFC says must, stdx does what it says; libzstd decodes such a " ++
+            "stream, and with no Content_Checksum nothing else refuses the frame",
+    },
+};
+
+/// A Zstandard frame's Magic_Number, least significant octet first, and where its
+/// Frame_Header_Descriptor lies (RFC 8878 §3.1.1).
+const zstd_magic = [_]u8{ 0x28, 0xb5, 0x2f, 0xfd };
+const zstd_descriptor_offset = 4;
+
+/// Frame_Header_Descriptor's fields, and the field lengths its flags give (RFC 8878 §3.1.1.1.1).
+const zstd_single_segment: u8 = 0x20;
+const zstd_checksum_flag: u8 = 0x04;
+const zstd_dictionary_mask: u8 = 0x03;
+const zstd_content_size_shift = 6;
+const zstd_dictionary_lens = [_]usize{ 0, 1, 2, 4 };
+const zstd_content_size_lens = [_]usize{ 0, 2, 4, 8 };
+const zstd_content_size_two_octet_offset = 256;
+
+/// Window_Descriptor's Exponent and Mantissa (RFC 8878 §3.1.1.1.2), and the HTTP instance's limit.
+const zstd_window_log_min = 10;
+const zstd_exponent_shift = 3;
+const zstd_mantissa_mask: u8 = 0x07;
+const zstd_http_window_len: u64 = 1 << 23;
+
+fn zstd_descriptor(input: []const u8) ?u8 {
+    if (input.len <= zstd_descriptor_offset or !std.mem.startsWith(u8, input, &zstd_magic)) return null;
+    return input[zstd_descriptor_offset];
+}
+
+fn zstd_window_len(descriptor: u8) u64 {
+    const base = @as(u64, 1) << @intCast(zstd_window_log_min + (descriptor >> zstd_exponent_shift));
+    return base + (base >> zstd_exponent_shift) * (descriptor & zstd_mantissa_mask);
+}
+
+fn window_past_http_with_small_content(facts: ZstdFacts) bool {
+    const descriptor = zstd_descriptor(facts.input) orelse return false;
+    const flag = descriptor >> zstd_content_size_shift;
+    if (descriptor & zstd_single_segment != 0 or flag == 0) return false;
+    const window_at = zstd_descriptor_offset + 1;
+    const content_at = window_at + 1 + zstd_dictionary_lens[descriptor & zstd_dictionary_mask];
+    const content_field_len = zstd_content_size_lens[flag];
+    if (facts.input.len < content_at + content_field_len) return false;
+    // Frame_Content_Size, least significant octet first (RFC 8878 §3.1.1.1.4).
+    var content_len: u64 = 0;
+    for (facts.input[content_at..][0..content_field_len], 0..) |octet, index| content_len |= @as(u64, octet) << @intCast(8 * index);
+    if (content_field_len == 2) content_len += zstd_content_size_two_octet_offset;
+    return zstd_window_len(facts.input[window_at]) > zstd_http_window_len and content_len <= zstd_http_window_len;
+}
+
+fn frame_without_checksum(facts: ZstdFacts) bool {
+    const descriptor = zstd_descriptor(facts.input) orelse return false;
+    return descriptor & zstd_checksum_flag == 0;
+}
+
+/// The index in `zstd_entries` of the entry that allows the disagreement, if one does.
+pub fn find_zstd(facts: ZstdFacts, stdx: Kind, stdx_error: []const u8, libzstd: Kind) ?usize {
+    for (zstd_entries, 0..) |entry, index| {
+        if (entry.stdx != stdx or entry.libzstd != libzstd) continue;
+        if (!std.mem.eql(u8, entry.stdx_error, stdx_error)) continue;
+        if (!entry.holds(facts)) continue;
+        return index;
+    }
+    return null;
+}
+
 fn names(codecs: []const []const u8, codec: []const u8) bool {
     for (codecs) |name| {
         if (std.mem.eql(u8, name, codec)) return true;
@@ -172,6 +278,12 @@ test "every entry cites an RFC section and a decision" {
         try std.testing.expect(std.mem.indexOf(u8, entry.rfc, "§") != null);
         try std.testing.expect(entry.decision.len > 0);
         try std.testing.expect(entry.codecs.len > 0);
+        try std.testing.expect((entry.stdx == .refused) == (entry.stdx_error.len > 0));
+    }
+    for (zstd_entries) |entry| {
+        try std.testing.expect(std.mem.indexOf(u8, entry.rfc, "RFC ") != null);
+        try std.testing.expect(std.mem.indexOf(u8, entry.rfc, "§") != null);
+        try std.testing.expect(entry.decision.len > 0);
         try std.testing.expect((entry.stdx == .refused) == (entry.stdx_error.len > 0));
     }
 }
@@ -221,4 +333,27 @@ test "the CRC32 entry holds while ISIZE is still missing, and not once it is in"
         const facts: Facts = .{ .input = "", .trailer_held_len = held };
         try std.testing.expect(find("gzip", facts, .refused, "ChecksumMismatch", .refused, .incomplete) == null);
     }
+}
+
+test "the Zstandard window entry holds past 2^23 with a Frame_Content_Size within it, and not otherwise" {
+    // Frame_Content_Size_Flag 1: 256 + 0x0f00 = 4096 octets; Window_Descriptor 13 << 3 | 1.
+    const past: ZstdFacts = .{ .input = &.{ 0x28, 0xb5, 0x2f, 0xfd, 0x40, 0x69, 0x00, 0x0f } };
+    try std.testing.expect(find_zstd(past, .refused, "WindowTooLarge", .ok) != null);
+    try std.testing.expect(find_zstd(past, .refused, "WindowTooLarge", .refused) == null);
+    // Exactly 2^23; no Frame_Content_Size; one past 2^23 in 4 octets.
+    const exact: ZstdFacts = .{ .input = &.{ 0x28, 0xb5, 0x2f, 0xfd, 0x40, 0x68, 0x00, 0x0f } };
+    const unsized: ZstdFacts = .{ .input = &.{ 0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x69 } };
+    const large: ZstdFacts = .{ .input = &.{ 0x28, 0xb5, 0x2f, 0xfd, 0x80, 0x69, 0x01, 0x00, 0x80, 0x00 } };
+    for ([_]ZstdFacts{ exact, unsized, large, .{ .input = "" } }) |facts| {
+        try std.testing.expect(find_zstd(facts, .refused, "WindowTooLarge", .ok) == null);
+    }
+}
+
+test "the Zstandard Huffman entry holds in a frame without Content_Checksum alone" {
+    const without: ZstdFacts = .{ .input = &.{ 0x28, 0xb5, 0x2f, 0xfd, 0x00 } };
+    const with: ZstdFacts = .{ .input = &.{ 0x28, 0xb5, 0x2f, 0xfd, 0x04 } };
+    try std.testing.expect(find_zstd(without, .refused, "HuffmanStreamNotConsumed", .ok) != null);
+    try std.testing.expect(find_zstd(with, .refused, "HuffmanStreamNotConsumed", .ok) == null);
+    try std.testing.expect(find_zstd(without, .refused, "HuffmanStreamUnterminated", .ok) == null);
+    try std.testing.expect(find_zstd(.{ .input = "\x28\xb5" }, .refused, "HuffmanStreamNotConsumed", .ok) == null);
 }

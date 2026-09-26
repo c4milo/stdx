@@ -99,6 +99,7 @@ extern fn oracle_zstd_bound(input_len: usize) usize;
 extern fn oracle_zstd_xxh64(input: [*]const u8, input_len: usize, seed: u64) u64;
 extern fn oracle_zstd_encode(level: c_int, window_log: c_int, with_checksum: c_int, with_content_size: c_int, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
 extern fn oracle_zstd_decode(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) usize;
+extern fn oracle_zstd_decode_verdict(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize, window_log_max: c_int) Result;
 extern fn oracle_zstd_content_checksum(input: [*]const u8, input_len: usize, frame: [*]u8, frame_len: usize, checksum: *u32) c_int;
 
 /// The most octets zlib writes when it encodes `input_len` octets in `container`, at any level and
@@ -195,6 +196,13 @@ pub fn zstd_encode(encoding: ZstdEncoding, input: []const u8, output: []u8) ?usi
 pub fn zstd_decode(input: []const u8, output: []u8) ?usize {
     const written = oracle_zstd_decode(input.ptr, input.len, output.ptr, output.len);
     return if (written == std.math.maxInt(usize)) null else written;
+}
+
+/// libzstd's verdict on `input` through its streaming decoder, which refuses a window past
+/// 2^`window_log_max`: ok when the input ends where a frame does, incomplete when it ends inside
+/// one.
+pub fn zstd_decode_verdict(input: []const u8, output: []u8, window_log_max: c_int) Result {
+    return oracle_zstd_decode_verdict(input.ptr, input.len, output.ptr, output.len, window_log_max);
 }
 
 /// libzstd's copy of xxHash's XXH64 of `input` from `seed`, all 64 bits.
@@ -337,6 +345,32 @@ test "libzstd decodes what it encodes, with and without the checksum and the con
         frame[frame_len - 1] ^= 0x80;
         try testing.expectEqual(null, zstd_decode(frame[0..frame_len], &output));
     }
+}
+
+test "libzstd's streaming verdict: ok, refused, incomplete and no room" {
+    const text = "zstd frames, zstd frames, zstd frames, and more zstd frames";
+    var frame: [256]u8 = undefined;
+    var output: [text.len]u8 = undefined;
+    const frame_len = zstd_encode(.{ .level = 3 }, text, &frame) orelse return error.TestUnexpectedResult;
+    // libzstd's streaming decoder reads the Content_Checksum only while the output has room.
+    var roomy: [text.len + 1]u8 = undefined;
+    const whole = zstd_decode_verdict(frame[0..frame_len], &roomy, 23);
+    try testing.expectEqual(Result{ .verdict = .ok, .consumed = frame_len, .written = text.len }, whole);
+    try testing.expectEqualStrings(text, roomy[0..text.len]);
+    try testing.expectEqual(.incomplete, zstd_decode_verdict(frame[0 .. frame_len - 1], &roomy, 23).verdict);
+    try testing.expectEqual(.incomplete, zstd_decode_verdict("", &roomy, 23).verdict);
+    try testing.expectEqual(.no_room, zstd_decode_verdict(frame[0..frame_len], output[0..10], 23).verdict);
+    // Without a Content_Checksum, a frame ends when its last octet is written, even into an output
+    // of exactly its size.
+    const bare_len = zstd_encode(.{ .level = 3, .checksum = false }, text, &frame) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(.ok, zstd_decode_verdict(frame[0..bare_len], &output, 23).verdict);
+    _ = zstd_encode(.{ .level = 3 }, text, &frame) orelse return error.TestUnexpectedResult;
+    frame[frame_len - 1] ^= 0x80;
+    try testing.expectEqual(.refused, zstd_decode_verdict(frame[0..frame_len], &output, 23).verdict);
+    // Window_Descriptor 2^23 plus an eighth: past a limit of 2^23, within 2^24.
+    const large = [_]u8{ 0x28, 0xb5, 0x2f, 0xfd, 0x00, 13 << 3 | 1, 0x01, 0x00, 0x00 };
+    try testing.expectEqual(.refused, zstd_decode_verdict(&large, &output, 23).verdict);
+    try testing.expectEqual(.ok, zstd_decode_verdict(&large, &output, 24).verdict);
 }
 
 test "libzstd's XXH64 gives its Content_Checksum in the low 32 bits, and takes the seed" {
