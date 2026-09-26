@@ -184,9 +184,23 @@ fn try_candidate(comptime level: constants.Level, self: *const Matcher(level), c
     if (candidate == 0 or candidate >= self.position) return found;
     const distance = self.position - candidate;
     if (distance > constants.encoder_distance_max) return found;
-    const len = match_len(self.window[0..self.filled], candidate, self.position, len_max);
+    // A match longer than `found` agrees on the 4 octets that end where `found` stops, and no
+    // match under `match_len_taken_min` is taken, so while `found` is shorter the first 4 decide.
+    // One compare of those 4 turns away most candidates before `match_len` compares from the
+    // start, and a candidate rarely passes it by chance, so its branch stays predictable.
+    const window = self.window[0..self.filled];
+    if (found.len >= len_max) return found;
+    const tail = @max(found.len + 1, constants.match_len_taken_min) - constants.match_len_taken_min;
+    if (tail_octets(window, candidate + tail) != tail_octets(window, self.position + tail)) return found;
+    const len = match_len(window, candidate, self.position, len_max);
     if (len <= found.len) return found;
     return .{ .len = @intCast(len), .distance = @intCast(distance) };
+}
+
+/// The `match_len_taken_min` octets at `at`, least significant first.
+fn tail_octets(window: []const u8, at: usize) u32 {
+    comptime assert(constants.match_len_taken_min == @sizeOf(u32));
+    return std.mem.readInt(u32, window[at..][0..constants.match_len_taken_min], .little);
 }
 
 /// Adds `at` to its hash's chain.
