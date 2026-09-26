@@ -39,6 +39,12 @@ comptime {
     assert(2 * literals_per_refill <= output_slack);
 }
 
+/// The two loops: the wide one, which the margins let read 8 octets at a time and write chunks
+/// past a match's end, and the tail, which takes octets one at a time through the input's end and
+/// checks the room each symbol writes, so the octets of a call that the margins leave out need
+/// not go through the checked path.
+const Mode = enum { wide, tail };
+
 /// Why the loop stopped.
 pub const End = enum {
     /// Too little input or output room was left for an iteration.
@@ -84,6 +90,9 @@ const Loop = struct {
     literal_length_mask: u64,
     distance_mask: u64,
     decoded: usize = 0,
+    /// The entry of the next symbol, when a literal run already looked it up: a refill leaves the
+    /// bits it came from in place.
+    pending: ?lookup.Entry = null,
 
     inline fn has_margin(self: *const Loop) bool {
         return self.input.len - self.position >= input_slack and self.output.len - self.written >= output_slack;
@@ -98,6 +107,22 @@ const Loop = struct {
         self.position += (@bitSizeOf(u64) - 1 - self.count) / @bitSizeOf(u8);
         // The count gains the whole octets taken: 56 plus the bits of a partly used octet.
         self.count = refill_bits + self.count % @bitSizeOf(u8);
+    }
+
+    /// Takes whole octets, one at a time, while they fit the buffer and the input has them. The
+    /// bits above `count` stay zero.
+    inline fn refill_exact(self: *Loop) void {
+        for (0..@sizeOf(u64)) |_| {
+            if (self.count > refill_bits or self.position == self.input.len) return;
+            self.buffer |= @as(u64, self.input[self.position]) << @intCast(self.count);
+            self.position += 1;
+            self.count += @bitSizeOf(u8);
+        }
+    }
+
+    /// The room left in the output.
+    inline fn room(self: *const Loop) usize {
+        return self.output.len - self.written;
     }
 
     inline fn consume(self: *Loop, count: u32) void {
@@ -128,6 +153,16 @@ inline fn low_bits(value: u64, count: u32) u64 {
 /// Decodes symbols from `bits` into `writer` until a margin, a block's end, or a symbol for the
 /// checked path, and hands the bit buffer, the input position and the output position back.
 pub noinline fn run(codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+    return run_loop(.wide, codes, history, bits, writer);
+}
+
+/// As `run`, symbol by symbol through the end of the input and of the output, for what the wide
+/// loop's margins leave out.
+pub noinline fn run_tail(codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+    return run_loop(.tail, codes, history, bits, writer);
+}
+
+inline fn run_loop(comptime mode: Mode, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
     var loop: Loop = .{
         .input = bits.reader.octets,
         .position = bits.reader.position,
@@ -141,17 +176,10 @@ pub noinline fn run(codes: Codes, history: History, bits: *codec.BitReader, writ
         .distance_mask = (@as(u64, 1) << codes.distance_table.bits) - 1,
     };
     assert(loop.count <= @bitSizeOf(u64));
-    // Each iteration consumes at least a bit, or ends the loop.
-    const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
-    // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
-    // iteration uses a bit or more, so every later refill finds 63 bits or fewer.
-    if (loop.count < refill_bits and loop.has_margin()) loop.refill();
-    const end: End = for (0..iterations_max) |_| {
-        if (!loop.has_margin()) break .margin;
-        if (step(&loop, codes, history)) |ended| break ended;
-        if (!loop.has_margin()) break .margin;
-        loop.refill();
-    } else unreachable;
+    const end: End = switch (mode) {
+        .wide => if (loop.has_margin()) decode_symbols(&loop, codes, history) else .margin,
+        .tail => decode_tail(&loop, codes, history),
+    };
     assert(loop.written <= loop.output.len and loop.position <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
     bits.bits = .{
@@ -165,35 +193,75 @@ pub noinline fn run(codes: Codes, history: History, bits: *codec.BitReader, writ
     return end;
 }
 
+/// The loop itself, entered with its margins held.
+inline fn decode_symbols(loop: *Loop, codes: Codes, history: History) End {
+    // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
+    // iteration uses a bit or more, so every later refill finds 63 bits or fewer. The margins are
+    // checked before each refill, which ends every iteration.
+    if (loop.count < refill_bits) loop.refill();
+    // Each iteration consumes at least a bit, or ends the loop.
+    const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
+    for (0..iterations_max) |_| {
+        if (step(.wide, loop, codes, history)) |ended| return ended;
+        if (!loop.has_margin()) return .margin;
+        loop.refill();
+    }
+    unreachable;
+}
+
+/// The tail: a symbol at a time, while the input holds a whole pair's bits.
+inline fn decode_tail(loop: *Loop, codes: Codes, history: History) End {
+    // Each iteration consumes at least a bit, or ends the loop.
+    const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
+    for (0..iterations_max) |_| {
+        loop.refill_exact();
+        // Near the input's end, the checked path decodes what is left, and asks for more.
+        if (loop.count < constants.pair_bits_max) return .checked;
+        if (step(.tail, loop, codes, history)) |ended| return ended;
+    }
+    unreachable;
+}
+
 /// Decodes one literal/length symbol, and the distance a length takes, or a run of literals.
 /// Returns why the loop stops, or null to go on.
-inline fn step(loop: *Loop, codes: Codes, history: History) ?End {
-    var entry = codes.literal_length_table.entries[@intCast(loop.buffer & loop.literal_length_mask)];
+inline fn step(comptime mode: Mode, loop: *Loop, codes: Codes, history: History) ?End {
+    var entry = loop.pending orelse codes.literal_length_table.entries[@intCast(loop.buffer & loop.literal_length_mask)];
+    loop.pending = null;
     if (entry.kind == .long) entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
     switch (entry.kind) {
-        .literal, .literal_pair => {
-            write_literals(loop, entry);
-            // More literals while the buffer holds a whole table code: the first may have been a
-            // long code.
-            for (1..literals_per_refill) |_| {
-                if (loop.count < constants.literal_length_table_bits) return null;
-                const next = codes.literal_length_table.entries[@intCast(loop.buffer & loop.literal_length_mask)];
-                if (next.kind != .literal and next.kind != .literal_pair) return null;
-                write_literals(loop, next);
-            }
-            return null;
-        },
+        .literal, .literal_pair => return step_literals(mode, loop, codes, entry),
         .end_of_block => {
             loop.consume(entry.code_bits);
             return .end_of_block;
         },
-        .length => return copy_pair(loop, codes, history, entry),
+        .length => return copy_pair(mode, loop, codes, history, entry),
         .distance, .long, .invalid => return .checked,
     }
 }
 
-/// Writes a literal, or a pair's two octets, the first from the value's low octet.
-inline fn write_literals(loop: *Loop, entry: lookup.Entry) void {
+/// Writes a literal entry, and in the wide loop the literal entries after it while the buffer
+/// holds their codes.
+inline fn step_literals(comptime mode: Mode, loop: *Loop, codes: Codes, entry: lookup.Entry) ?End {
+    // The tail writes one entry an iteration, into room it checks first.
+    if (mode == .tail) return if (loop.room() < @sizeOf(u16)) .margin else write_literals(loop, entry);
+    _ = write_literals(loop, entry);
+    // More literals while the buffer holds a whole table code: the first may have been a long
+    // code.
+    for (1..literals_per_refill) |_| {
+        if (loop.count < constants.literal_length_table_bits) return null;
+        const next = codes.literal_length_table.entries[@intCast(loop.buffer & loop.literal_length_mask)];
+        if (next.kind != .literal and next.kind != .literal_pair) {
+            loop.pending = next;
+            return null;
+        }
+        _ = write_literals(loop, next);
+    }
+    return null;
+}
+
+/// Writes a literal, or a pair's two octets, the first from the value's low octet. Returns null,
+/// for the loop to go on.
+inline fn write_literals(loop: *Loop, entry: lookup.Entry) ?End {
     if (entry.kind == .literal_pair) {
         std.mem.writeInt(u16, loop.output[loop.written..][0..@sizeOf(u16)], entry.value, .little);
         loop.written += @sizeOf(u16);
@@ -203,6 +271,7 @@ inline fn write_literals(loop: *Loop, entry: lookup.Entry) void {
         loop.written += 1;
     }
     loop.consume_entry(entry);
+    return null;
 }
 
 fn resolve_literal_length(codes: Codes, buffer: u64) ?lookup.Entry {
@@ -221,7 +290,7 @@ fn resolve_distance(codes: Codes, buffer: u64) ?lookup.Entry {
 
 /// Reads a length's extra bits and its distance, and copies the match, or stops before using any
 /// bit of the pair when the checked path must see it.
-inline fn copy_pair(loop: *Loop, codes: Codes, history: History, length: lookup.Entry) ?End {
+inline fn copy_pair(comptime mode: Mode, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) ?End {
     var used: u32 = length.code_bits;
     const len = length.value + low_bits(loop.buffer >> @intCast(used), length.extra_bits);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
@@ -235,15 +304,17 @@ inline fn copy_pair(loop: *Loop, codes: Codes, history: History, length: lookup.
     used += distance_entry.extra_bits;
     // A distance past the history or the container's window is the checked path's to refuse.
     if (distance > loop.reach() or distance > history.distance_max) return .checked;
+    // The tail copies a match whole or leaves it to the checked path, which copies what fits.
+    if (mode == .tail and loop.room() < len) return .margin;
     loop.consume(used);
     if (builtin.is_test) loop.decoded += 1;
-    copy_match(loop, history.window, @intCast(distance), @intCast(len));
+    copy_match(mode, loop, history.window, @intCast(distance), @intCast(len));
     return null;
 }
 
 /// Copies `len` octets from `distance` back: first what lies before this call's output, from the
 /// window, then from the output itself.
-fn copy_match(loop: *Loop, window: *const codec.Window(constants.window_len), distance: usize, len: usize) void {
+fn copy_match(comptime mode: Mode, loop: *Loop, window: *const codec.Window(constants.window_len), distance: usize, len: usize) void {
     var copied: usize = 0;
     if (distance > loop.written) {
         const from_window = @min(len, distance - loop.written);
@@ -251,8 +322,20 @@ fn copy_match(loop: *Loop, window: *const codec.Window(constants.window_len), di
         window.copy_back(distance - loop.written + loop.start, loop.output[loop.written..][0..from_window]);
         copied = from_window;
     }
-    if (copied < len) copy_within(loop.output, loop.written + copied, distance, len - copied);
+    if (copied < len) {
+        switch (mode) {
+            .wide => copy_within(loop.output, loop.written + copied, distance, len - copied),
+            .tail => copy_exact(loop.output, loop.written + copied, distance, len - copied),
+        }
+    }
     loop.written += len;
+}
+
+/// Copies `len` octets to `target` from `distance` before it, octet by octet, so the copy reads
+/// what it wrote when the match overlaps itself, and writes nothing past `len`.
+fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
+    const source = target - distance;
+    for (0..len) |index| output[target + index] = output[source + index];
 }
 
 /// Copies `len` octets to `target` from `distance` before it: in chunks of `copy_chunk_len` or

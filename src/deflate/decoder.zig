@@ -349,7 +349,11 @@ fn read_symbols_fast(decoder: *Decoder, bits: *codec.BitReader, writer: *codec.W
         .distance_code = block_distance_code(decoder),
     };
     const history: fast.History = .{ .window = &decoder.window, .distance_max = decoder.distance_max, .work = &decoder.work };
-    return switch (fast.run(codes, history, bits, writer)) {
+    const end = switch (fast.run(codes, history, bits, writer)) {
+        .margin => fast.run_tail(codes, history, bits, writer),
+        .end_of_block, .checked => |end| end,
+    };
+    return switch (end) {
         .end_of_block => end_block(decoder),
         .margin, .checked => read_symbol(decoder, bits, writer),
     };
