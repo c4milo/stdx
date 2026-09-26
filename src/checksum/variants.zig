@@ -14,6 +14,7 @@ comptime {
         .x86_64_avx512 => {
             _ = @import("variants/crc32_avx512.zig");
             _ = @import("variants/adler32_avx512.zig");
+            _ = @import("variants/xxh64_avx512.zig");
         },
         .x86_64_avx2 => _ = @import("variants/adler32_avx2.zig"),
         .x86_64_avx512_vnni => _ = @import("variants/adler32_vnni.zig"),

@@ -1,5 +1,6 @@
-//! The constants of the three checks: CRC-32 (RFC 1952 §8), Adler-32 (RFC 1950 §2.2, §8.2, §9)
-//! and the sizes of their paths.
+//! The constants of the three checks: CRC-32 (RFC 1952 §8), Adler-32 (RFC 1950 §2.2, §8.2, §9),
+//! XXH64 (docs/specs/xxhash_spec.md, "XXH64 Algorithm Description", decision 18) and the sizes of
+//! their paths.
 const std = @import("std");
 
 /// CRC-32's generator polynomial, bit-reversed as RFC 1952 §8's make_crc_table writes it:
@@ -92,7 +93,42 @@ pub fn adler32_deferral_holds(len: u64) bool {
     return worst <= std.math.maxInt(u32);
 }
 
+/// XXH64's five primes (xxhash_spec.md, XXH64 "Overview").
+pub const xxh64_prime_1: u64 = 0x9E3779B185EBCA87;
+pub const xxh64_prime_2: u64 = 0xC2B2AE3D27D4EB4F;
+pub const xxh64_prime_3: u64 = 0x165667B19E3779F9;
+pub const xxh64_prime_4: u64 = 0x85EBCA77C2B2AE63;
+pub const xxh64_prime_5: u64 = 0x27D4EB2F165667C5;
+
+/// The octets of an XXH64 stripe, the lanes it divides into, and the octets of a lane, each read
+/// least significant octet first (xxhash_spec.md, XXH64 Step 2).
+pub const xxh64_stripe_len = 32;
+pub const xxh64_lanes = 4;
+pub const xxh64_lane_len = 8;
+
+/// The octets of the 32-bit word Step 5 reads after the whole lanes of the remaining input.
+pub const xxh64_word_len = 4;
+
+/// The left rotation of Step 2's round.
+pub const xxh64_round_rotation = 31;
+
+/// The left rotation of each accumulator before Step 3 adds them, in lane order.
+pub const xxh64_convergence_rotations = [xxh64_lanes]u6{ 1, 7, 12, 18 };
+
+/// Step 5's left rotations after a lane, a 32-bit word and an octet of the remaining input.
+pub const xxh64_lane_rotation = 27;
+pub const xxh64_word_rotation = 23;
+pub const xxh64_octet_rotation = 11;
+
+/// Step 6's final mix: for each shift, the accumulator takes the exclusive-or of itself shifted
+/// right, then is multiplied by the prime; then one last shift and exclusive-or.
+pub const xxh64_avalanche_shifts = [_]u6{ 33, 29 };
+pub const xxh64_avalanche_primes = [_]u64{ xxh64_prime_2, xxh64_prime_3 };
+pub const xxh64_avalanche_last_shift = 32;
+
 comptime {
+    std.debug.assert(xxh64_lanes * xxh64_lane_len == xxh64_stripe_len);
+    std.debug.assert(xxh64_word_len * 2 == xxh64_lane_len);
     // RFC 1950 §8.2's bound is the largest that holds.
     std.debug.assert(adler32_deferral_holds(adler32_deferral_len));
     std.debug.assert(!adler32_deferral_holds(adler32_deferral_len + 1));
