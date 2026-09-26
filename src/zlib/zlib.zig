@@ -15,7 +15,11 @@ pub const decode = decoder.decode;
 pub const decode_all = decoder.decode_all;
 pub const refusal = decoder.refusal;
 
+const encoder = @import("encoder.zig");
+pub const Encoder = encoder.Encoder;
+
 test {
     _ = constants;
     _ = decoder;
+    _ = encoder;
 }

@@ -24,6 +24,18 @@ pub const header_check_divisor = 31;
 /// FDICT, bit 5 of FLG (RFC 1950 §2.2).
 pub const preset_dictionary_flag: u8 = 1 << 5;
 
+/// FLEVEL, bits 6 and 7 of FLG: the compressor's level, which a decompressor does not need (RFC
+/// 1950 §2.2). The encoder's levels 1, 6 and 9 take 0 (fastest), 2 (default) and 3 (maximum).
+pub const level_shift = 6;
+pub fn level_field(comptime level: u4) u8 {
+    return switch (level) {
+        1 => 0,
+        6 => 2,
+        9 => 3,
+        else => @compileError("the zlib encoder's levels are 1, 6 and 9 (decision 13)"),
+    };
+}
+
 /// ADLER32, most significant octet first (RFC 1950 §2.1, §2.2).
 pub const trailer_len = 4;
 
