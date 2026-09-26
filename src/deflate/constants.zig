@@ -88,13 +88,16 @@ pub const steps_floor = 16;
 pub const literal_length_table_bits = 11;
 pub const distance_table_bits = 8;
 
-/// The octets the fast path's match copy moves at once (decision 14, S4): a 128-bit vector.
+/// The octets the fast path's match copy moves at once (decision 14, S4): a 128-bit vector, or a
+/// 64-bit word for a distance shorter than the vector but at least as long as the word.
 pub const copy_chunk_len = 16;
+pub const copy_word_len = @sizeOf(u64);
 
 /// Invariant 17's count for one lookup table's build, at most: a clear of every entry when the
-/// code is incomplete, every entry once, and one more for each code longer than the table.
+/// code is incomplete, every entry once, one more for each code longer than the table, and a pass
+/// over every entry that pairs literals.
 pub fn table_build_work_max(table_bits: u4, symbols: usize) usize {
-    return 2 * (@as(usize, 1) << table_bits) + symbols;
+    return 3 * (@as(usize, 1) << table_bits) + symbols;
 }
 
 /// Invariant 17's count for one code build, at most: the build reads each code length twice, to

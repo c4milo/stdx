@@ -14,16 +14,28 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 
 /// What a table entry stands for.
-pub const Kind = enum(u3) { literal, end_of_block, length, distance, long, invalid };
+pub const Kind = enum(u3) {
+    literal,
+    /// Two literals whose codes together fit the table (decision 14, S3).
+    literal_pair,
+    end_of_block,
+    length,
+    distance,
+    long,
+    invalid,
+};
 
 pub const Entry = packed struct(u32) {
-    /// The bits the code takes, when it fits the table.
-    code_bits: u4,
+    /// The bits the code takes, when it fits the table. It fills the entry's low octet, so the
+    /// fast path shifts its bit buffer by the whole entry: a 64-bit shift uses only the low six
+    /// bits of its amount.
+    code_bits: u8,
     /// The extra bits after the code, for a length or a distance (RFC 1951 §3.2.5).
     extra_bits: u4,
     kind: Kind,
-    padding: u5 = 0,
-    /// A literal's octet, or a length's or distance's base.
+    padding: u1 = 0,
+    /// A literal's octet; two literals' octets, the first in the low octet; or a length's or
+    /// distance's base.
     value: u16,
 
     const invalid: Entry = .{ .code_bits = 0, .extra_bits = 0, .kind = .invalid, .value = 0 };
@@ -70,6 +82,12 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
             return build_table(&self.entries, &self.bits, bits_max, lengths, entry_of);
         }
 
+        /// Turns each literal whose index also holds the next literal's whole code into a pair
+        /// (decision 14, S3). Returns the entries it read.
+        pub fn pair_literals(self: *Self) usize {
+            return pair_table_literals(self.entries[0 .. @as(usize, 1) << self.bits], self.bits);
+        }
+
         /// The entry the next bits of the stream select.
         pub fn lookup(self: *const Self, bits: u64) Entry {
             return self.entries[@intCast(bits & ((@as(u64, 1) << self.bits) - 1))];
@@ -99,6 +117,27 @@ fn build_table(entries: []Entry, table_bits: *u4, bits_max: u4, lengths: []const
         written += place(entries[0..size], bits, entry, @intCast(len), code);
     }
     return written;
+}
+
+fn pair_table_literals(entries: []Entry, bits: u4) usize {
+    // From the last index down, so the literal an index pairs with, at a smaller index, is still
+    // single when it is read.
+    var index = entries.len;
+    for (0..entries.len) |_| {
+        index -= 1;
+        const first = entries[index];
+        if (first.kind != .literal or first.code_bits >= bits) continue;
+        // The bits after the first code, of which `bits - code_bits` are known.
+        const second = entries[index >> @intCast(first.code_bits)];
+        if (second.kind != .literal or second.code_bits > bits - first.code_bits) continue;
+        entries[index] = .{
+            .code_bits = first.code_bits + second.code_bits,
+            .extra_bits = 0,
+            .kind = .literal_pair,
+            .value = first.value | second.value << @bitSizeOf(u8),
+        };
+    }
+    return entries.len;
 }
 
 /// The longest code's length.
@@ -160,6 +199,7 @@ pub const fixed_literal_length: LiteralLengthTable = fixed: {
     @setEvalBranchQuota(fixed_build_quota);
     var table: LiteralLengthTable = undefined;
     _ = table.build(&constants.fixed_literal_length_lengths);
+    _ = table.pair_literals();
     break :fixed table;
 };
 pub const fixed_distance: DistanceTable = fixed: {

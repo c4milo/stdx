@@ -336,6 +336,7 @@ fn build_block_codes(decoder: *Decoder) Error!void {
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
     try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
     count_work(decoder, decoder.literal_length_table.build(literal_lengths));
+    count_work(decoder, decoder.literal_length_table.pair_literals());
     count_work(decoder, decoder.distance_table.build(distance_lengths));
 }
 

@@ -153,8 +153,13 @@ test "codes longer than the fast path's tables decode alike, literals, lengths a
     block.literal(&stream, constants.first_length_symbol);
     block.distance(&stream, 0);
     block.literal(&stream, 'n');
+    // Runs of literals that start with a long code: 14 bits, then four of 11.
+    const run = "nkkkk";
+    for (0..16) |_| {
+        for (run) |symbol| block.literal(&stream, symbol);
+    }
     block.literal(&stream, constants.end_of_block);
-    try decoder_test.expect_decodes(stream.slice(), "abcdefghijklmnmnmmmmn");
+    try decoder_test.expect_decodes(stream.slice(), "abcdefghijklmnmnmmmmn" ++ run ** 16);
 }
 
 test "RFC 1951 section 3.2.7: a single one-bit distance code, and no distance code at all" {

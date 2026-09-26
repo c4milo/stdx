@@ -109,3 +109,36 @@ fn shuffle(generator: *codec.split.Generator, lengths: []u8) void {
         std.mem.swap(u8, &lengths[index], &lengths[other]);
     }
 }
+
+test "a pair holds the two literals the canonical decode reads, and nothing else pairs" {
+    // Length code 257 takes 1 bit, literals 'a' to 'd' take 2 to 5, and literal 'e' and
+    // end-of-block the last two codes of 6.
+    var lengths: [constants.literal_length_alphabet_len]u8 = @splat(0);
+    for ("abcd", 2..) |symbol, len| lengths[symbol] = @intCast(len);
+    lengths['e'] = 6;
+    lengths[constants.end_of_block] = 6;
+    lengths[constants.first_length_symbol] = 1;
+    var table: lookup.LiteralLengthTable = undefined;
+    _ = table.build(&lengths);
+    try testing.expectEqual(1 << 6, table.pair_literals());
+    var code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
+    var work: huffman.Work = 0;
+    try code.build(&lengths, .complete, &work);
+    var pairs: usize = 0;
+    for (0..@as(usize, 1) << table.bits) |index| {
+        const entry = table.lookup(index);
+        const first = code.decode(index, table.bits).symbol;
+        if (entry.kind != .literal_pair) {
+            try testing.expectEqual(lookup.literal_length_entry(first.value, @intCast(first.len)), entry);
+            continue;
+        }
+        pairs += 1;
+        const second = code.decode(index >> @intCast(first.len), table.bits - first.len).symbol;
+        try testing.expect(first.value < constants.end_of_block and second.value < constants.end_of_block);
+        try testing.expectEqual(first.len + second.len, entry.code_bits);
+        try testing.expectEqual(first.value | second.value << 8, entry.value);
+    }
+    // In the 4 bits after 'a', 'a', 'b' and 'c' fit in 4, 2 and 1 indexes; in the 3 after 'b',
+    // 'a' and 'b' in 2 and 1; in the 2 after 'c', 'a' in 1. The length code takes half of each.
+    try testing.expectEqual(4 + 2 + 1 + 2 + 1 + 1, pairs);
+}
