@@ -34,6 +34,27 @@ const zlib_sources = [_][]const u8{
     "inflate.c", "inftrees.c", "trees.c", "uncompr.c", "zutil.c",
 };
 
+/// The libzstd sources the oracle compiles, as libzstd's lib/README.md describes a modular build:
+/// lib/common, lib/compress and lib/decompress, without the dictionary builder or the legacy
+/// formats (design §8 step 10).
+const zstd_sources = [_][]const u8{
+    "common/debug.c",                    "common/entropy_common.c",            "common/error_private.c",
+    "common/fse_decompress.c",           "common/pool.c",                      "common/threading.c",
+    "common/xxhash.c",                   "common/zstd_common.c",               "compress/fse_compress.c",
+    "compress/hist.c",                   "compress/huf_compress.c",            "compress/zstd_compress.c",
+    "compress/zstd_compress_literals.c", "compress/zstd_compress_sequences.c", "compress/zstd_compress_superblock.c",
+    "compress/zstd_double_fast.c",       "compress/zstd_fast.c",               "compress/zstd_lazy.c",
+    "compress/zstd_ldm.c",               "compress/zstd_opt.c",                "compress/zstd_preSplit.c",
+    "compress/zstdmt_compress.c",        "decompress/huf_decompress.c",        "decompress/zstd_ddict.c",
+    "decompress/zstd_decompress.c",      "decompress/zstd_decompress_block.c",
+};
+
+/// The assembly of libzstd's Huffman decoding loops, which x86-64 builds link.
+const zstd_x86_64_assembly = "decompress/huf_decompress_amd64.S";
+
+/// libzstd without its legacy formats, whose sources the oracle leaves out (lib/README.md).
+const zstd_flags = [_][]const u8{"-DZSTD_LEGACY_SUPPORT=0"};
+
 /// The directory of the Wuffs package that holds `wuffs-v0.4.c`.
 const wuffs_directory = "release/c";
 
@@ -287,12 +308,13 @@ fn add_corpus_args(b: *std.Build, run: *std.Build.Step.Run, corpus: Corpus) void
     for (corpus.files) |file| run.addPrefixedFileArg(b.fmt("{s}=", .{file.name}), file.path);
 }
 
-/// The `oracle` module: tools/oracle/oracle.zig over zlib and Wuffs, compiled for the host. The C
-/// is built ReleaseFast: it is the oracles' code, not stdx's, and it runs over hundreds of
-/// megabytes. Null until the packages are fetched.
+/// The `oracle` module: tools/oracle/oracle.zig over zlib, Wuffs and libzstd, compiled for the
+/// host. The C is built ReleaseFast: it is the oracles' code, not stdx's, and it runs over hundreds
+/// of megabytes. Null until the packages are fetched.
 fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
     const zlib = b.lazyDependency("madler_zlib", .{}) orelse return null;
     const wuffs = b.lazyDependency("wuffs", .{}) orelse return null;
+    const zstd = b.lazyDependency("libzstd", .{}) orelse return null;
     const library = b.addLibrary(.{
         .name = "oracle_c",
         .linkage = .static,
@@ -305,7 +327,13 @@ fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
     library.root_module.addIncludePath(zlib.path(""));
     library.root_module.addIncludePath(wuffs.path(wuffs_directory));
     library.root_module.addCSourceFiles(.{ .root = zlib.path(""), .files = &zlib_sources });
+    library.root_module.addIncludePath(zstd.path("lib"));
+    library.root_module.addCSourceFiles(.{ .root = zstd.path("lib"), .files = &zstd_sources, .flags = &zstd_flags });
+    if (b.graph.host.result.cpu.arch == .x86_64) {
+        library.root_module.addAssemblyFile(zstd.path(b.pathJoin(&.{ "lib", zstd_x86_64_assembly })));
+    }
     library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/oracle.c") });
+    library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/oracle_zstd.c") });
     library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/rfc_samples.c") });
     const module = host_module(b, "tools/oracle/oracle.zig");
     module.link_libc = true;

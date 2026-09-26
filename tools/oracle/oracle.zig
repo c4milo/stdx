@@ -95,6 +95,8 @@ extern fn oracle_wuffs_crc32(input: [*]const u8, input_len: usize) u32;
 extern fn oracle_wuffs_adler32(input: [*]const u8, input_len: usize) u32;
 extern fn oracle_rfc1952_update_crc(crc: u32, input: [*]const u8, input_len: usize) u32;
 extern fn oracle_rfc1950_update_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
+extern fn oracle_zstd_bound(input_len: usize) usize;
+extern fn oracle_zstd_content_checksum(input: [*]const u8, input_len: usize, frame: [*]u8, frame_len: usize, checksum: *u32) c_int;
 
 /// The most octets zlib writes when it encodes `input_len` octets in `container`, at any level and
 /// strategy.
@@ -168,6 +170,20 @@ pub fn wuffs_decode(container: Container, input: []const u8, output: []u8) Resul
 /// zlib's crc32_z: the CRC-32 after `input`, from `crc`.
 pub fn zlib_crc32(crc: u32, input: []const u8) u32 {
     return oracle_zlib_crc32(crc, input.ptr, input.len);
+}
+
+/// The most octets one libzstd frame of `input_len` octets takes.
+pub fn zstd_bound(input_len: usize) usize {
+    return oracle_zstd_bound(input_len);
+}
+
+/// The Content_Checksum libzstd writes when it compresses `input` into one frame in `frame`: the
+/// low 32 bits of XXH64 of `input` with seed 0 (RFC 8878 §3.1.1). Null when libzstd failed or
+/// `frame` holds less than `zstd_bound(input.len)`.
+pub fn zstd_content_checksum(input: []const u8, frame: []u8) ?u32 {
+    var checksum: u32 = undefined;
+    if (oracle_zstd_content_checksum(input.ptr, input.len, frame.ptr, frame.len, &checksum) != 0) return null;
+    return checksum;
 }
 
 /// zlib's adler32_z: the Adler-32 after `input`, from `adler`.
@@ -268,6 +284,16 @@ test "every checksum binding gives the check values" {
     // A running value carries across calls.
     try testing.expectEqual(0xcbf43926, rfc1952_update_crc(rfc1952_update_crc(0, check[0..4]), check[4..]));
     try testing.expectEqual(0xcbf43926, zlib_crc32(zlib_crc32(0, check[0..4]), check[4..]));
+}
+
+test "libzstd's Content_Checksum binding repeats for one input, differs for another, and needs room" {
+    var frame: [256]u8 = undefined;
+    const empty = zstd_content_checksum("", &frame) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(empty, zstd_content_checksum("", &frame));
+    const letter = zstd_content_checksum("a", &frame) orelse return error.TestUnexpectedResult;
+    try testing.expect(empty != letter);
+    try testing.expect(zstd_bound(3) <= frame.len);
+    try testing.expectEqual(null, zstd_content_checksum("abc", frame[0..3]));
 }
 
 test "flush points of every kind leave a stream both oracles decode" {

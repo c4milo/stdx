@@ -67,6 +67,12 @@
             .hash = "N-V-__8AABTtoQyteKi1AL0OUreAhQnDUMebvAFWz2P-oFvH",
             .lazy = true,
         },
+        // The Zstandard oracle of decision 8, from design §8 step 10: libzstd 1.5.7.
+        .libzstd = .{
+            .url = "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
+            .hash = "N-V-__8AAPZ7fwBg4JoCzM_0o2A8wxH2hsUUeiU1iuZv53L5",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
