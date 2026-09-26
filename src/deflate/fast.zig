@@ -413,7 +413,7 @@ noinline fn copy_from_window(output: []u8, written: usize, start: usize, reach_b
 
 /// Copies `len` octets to `target` from `distance` before it, octet by octet, so the copy reads
 /// what it wrote when the match overlaps itself, and writes nothing past `len`.
-fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
     const source = target - distance;
     for (0..len) |index| output[target + index] = output[source + index];
 }
@@ -422,7 +422,7 @@ fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
 /// `copy_word_len` octets where the distance leaves room for one, a fill for a distance of 1, and
 /// octet by octet otherwise. A chunk may write up to its length less one past `len`, into the
 /// margin, and reads only octets written before.
-fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
     const source = target - distance;
     if (distance >= constants.copy_chunk_len) {
         copy_chunks(constants.copy_chunk_len, output, target, distance, len);
@@ -440,7 +440,7 @@ const chunks_unconditional = 2;
 
 /// Copies `len` octets in chunks of `chunk_len`: the first `chunks_unconditional` whatever the
 /// length, and the rest in a loop.
-fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
     // The first chunks' source and target lie in one span, bounded once: the chunks inside it
     // sit at offsets its length covers, so their bounds need no check.
     const head_len = chunks_unconditional * chunk_len;
@@ -458,7 +458,7 @@ fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance:
 }
 
 /// Writes `len` copies of `octet`, a chunk at a time.
-fn fill(output: []u8, target: usize, octet: u8, len: usize) void {
+inline fn fill(output: []u8, target: usize, octet: u8, len: usize) void {
     const chunk_len = constants.copy_chunk_len;
     const chunk: [chunk_len]u8 = @splat(octet);
     const chunks = std.math.divCeil(usize, len, chunk_len) catch unreachable;
