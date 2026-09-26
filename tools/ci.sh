@@ -34,20 +34,24 @@ run_check() {
   fi
 }
 
-# Checks that docs/rfcs/ holds the RFCs unmodified, with sha256sum on Linux and shasum on macOS.
-check_rfcs() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd docs/rfcs && sha256sum --check --quiet SHA256SUMS)
-  else
-    (cd docs/rfcs && shasum -a 256 --check --quiet SHA256SUMS)
-  fi
+# Checks that docs/rfcs/ and docs/specs/ hold the RFCs and the specifications unmodified, with
+# sha256sum on Linux and shasum on macOS.
+check_copies() {
+  local directory
+  for directory in docs/rfcs docs/specs; do
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$directory" && sha256sum --check --quiet SHA256SUMS) || return 1
+    else
+      (cd "$directory" && shasum -a 256 --check --quiet SHA256SUMS) || return 1
+    fi
+  done
 }
 
 # Every package, lazy ones included, is fetched before any check runs, with retries, so a host that
 # drops one connection does not fail a check that has nothing to do with the network.
 run_check "fetch" tools/fetch_packages.sh
 run_check "format" zig fmt --check build.zig bench build src tools
-run_check "rfcs" check_rfcs
+run_check "rfcs and specs" check_copies
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "test" zig build test
 run_check "oracle tests" zig build test-oracle -Doracles
