@@ -37,6 +37,21 @@ pub const Result = extern struct {
 /// zlib's strategies, as zlib.h numbers them.
 pub const Strategy = enum(c_int) { default = 0, filtered = 1, huffman_only = 2, rle = 3, fixed = 4 };
 
+/// The ways zlib's deflate flushes mid-stream, as zlib.h numbers them. Each puts an end to the
+/// block or a marker where it happens: an empty stored block for `sync` and `full`, a short empty
+/// fixed block for `partial`, and a block boundary for `block`.
+pub const Flush = enum(c_int) { none = 0, partial = 1, sync = 2, full = 3, block = 5 };
+
+/// One flush point: after the first `position` octets of the input, `flush`.
+pub const FlushPoint = struct { position: usize, flush: Flush };
+
+/// The most flush points one encode takes.
+pub const flush_points_max = 64;
+
+/// The most octets the flush points add to an encoding: each ends a block and may write an empty
+/// stored block of 5 octets.
+pub const flush_overhead_len_max = 16;
+
 /// zlib's levels: 0, stored, to 9.
 pub const level_max: c_int = 9;
 
@@ -59,6 +74,20 @@ extern fn oracle_zlib_encode(
     output_len: usize,
 ) Result;
 extern fn oracle_zlib_decode(container: Container, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) Result;
+extern fn oracle_zlib_encode_flushing(
+    container: Container,
+    level: c_int,
+    strategy: Strategy,
+    window_bits: c_int,
+    mem_level: c_int,
+    input: [*]const u8,
+    input_len: usize,
+    output: [*]u8,
+    output_len: usize,
+    positions: [*]const usize,
+    flushes: [*]const Flush,
+    flush_count: usize,
+) Result;
 extern fn oracle_wuffs_decode(container: Container, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) Result;
 extern fn oracle_zlib_crc32(crc: u32, input: [*]const u8, input_len: usize) u32;
 extern fn oracle_zlib_adler32(adler: u32, input: [*]const u8, input_len: usize) u32;
@@ -93,6 +122,38 @@ pub fn zlib_encode(encoding: Encoding, input: []const u8, output: []u8) Result {
         input.len,
         output.ptr,
         output.len,
+    );
+}
+
+/// Flush points that descend or pass the input's end.
+pub const FlushPointsError = error{FlushPointsOutOfOrder};
+
+/// A zlib encode with the flush points given, ascending by position, then Z_FINISH.
+pub fn zlib_encode_flushing(encoding: Encoding, input: []const u8, output: []u8, points: []const FlushPoint) FlushPointsError!Result {
+    std.debug.assert(points.len <= flush_points_max);
+    var positions: [flush_points_max]usize = undefined;
+    var flushes: [flush_points_max]Flush = undefined;
+    var given: usize = 0;
+    for (points, 0..) |point, index| {
+        // The encode reads the input up to each position in turn.
+        if (point.position < given or point.position > input.len) return error.FlushPointsOutOfOrder;
+        given = point.position;
+        positions[index] = point.position;
+        flushes[index] = point.flush;
+    }
+    return oracle_zlib_encode_flushing(
+        encoding.container,
+        encoding.level,
+        encoding.strategy,
+        encoding.window_bits,
+        encoding.mem_level,
+        input.ptr,
+        input.len,
+        output.ptr,
+        output.len,
+        &positions,
+        &flushes,
+        points.len,
     );
 }
 
@@ -183,9 +244,10 @@ test "both oracles report a cut input, a full output and a wrong checksum" {
     const encoded_len = try encode_sample(.gzip, &encoded);
     var decoded: [256]u8 = undefined;
     for ([_]*const fn (Container, []const u8, []u8) Result{ zlib_decode, wuffs_decode }) |decode| {
-        const cut = decode(.gzip, encoded[0 .. encoded_len - 1], &decoded);
-        try testing.expect(cut.verdict == .incomplete or cut.verdict == .refused);
-        try testing.expect(cut.verdict != .ok);
+        // An input that ends before the stream does is incomplete, not refused: each binding
+        // leaves its input open, as a streaming caller's is.
+        try testing.expectEqual(Verdict.incomplete, decode(.gzip, encoded[0 .. encoded_len - 1], &decoded).verdict);
+        try testing.expectEqual(Verdict.incomplete, decode(.raw, encoded[0..0], &decoded).verdict);
         try testing.expectEqual(Verdict.no_room, decode(.gzip, encoded[0..encoded_len], decoded[0..8]).verdict);
         // RFC 1952 §2.3.1: CRC32 is the first of the eight trailer octets.
         var corrupt = encoded;
@@ -206,6 +268,45 @@ test "every checksum binding gives the check values" {
     // A running value carries across calls.
     try testing.expectEqual(0xcbf43926, rfc1952_update_crc(rfc1952_update_crc(0, check[0..4]), check[4..]));
     try testing.expectEqual(0xcbf43926, zlib_crc32(zlib_crc32(0, check[0..4]), check[4..]));
+}
+
+test "flush points of every kind leave a stream both oracles decode" {
+    var encoded: [512]u8 = undefined;
+    const points = [_]FlushPoint{
+        .{ .position = 5, .flush = .sync },  .{ .position = 9, .flush = .partial },
+        .{ .position = 20, .flush = .full }, .{ .position = 30, .flush = .block },
+        .{ .position = 30, .flush = .sync },
+    };
+    for ([_]Container{ .raw, .zlib, .gzip }) |container| {
+        const encoding: Encoding = .{ .container = container, .level = 6, .strategy = .default, .window_bits = 9, .mem_level = 1 };
+        const result = try zlib_encode_flushing(encoding, sample, &encoded, &points);
+        try testing.expectEqual(Verdict.ok, result.verdict);
+        try testing.expectEqual(sample.len, result.consumed);
+        // RFC 1951 §3.2.4: a sync flush ends in an empty stored block, LEN 0 and NLEN 0xffff.
+        const marker = [_]u8{ 0, 0, 0xff, 0xff };
+        const flushed_len = (std.mem.indexOf(u8, encoded[0..result.written], &marker) orelse return error.TestUnexpectedResult) + marker.len;
+        var decoded: [256]u8 = undefined;
+        for ([_]*const fn (Container, []const u8, []u8) Result{ zlib_decode, wuffs_decode }) |decode| {
+            const decode_result = decode(container, encoded[0..result.written], &decoded);
+            try testing.expectEqual(Verdict.ok, decode_result.verdict);
+            try testing.expectEqualStrings(sample, decoded[0..decode_result.written]);
+            // The output up to the first sync flush holds the input up to its position.
+            const flushed = decode(container, encoded[0..flushed_len], &decoded);
+            try testing.expectEqual(Verdict.incomplete, flushed.verdict);
+            try testing.expectEqualStrings(sample[0..points[0].position], decoded[0..flushed.written]);
+        }
+    }
+}
+
+test "flush points that descend or pass the input's end are refused before the encode" {
+    var encoded: [512]u8 = undefined;
+    const encoding: Encoding = .{ .container = .raw, .level = 6, .strategy = .default };
+    const descending = [_]FlushPoint{ .{ .position = 9, .flush = .sync }, .{ .position = 5, .flush = .sync } };
+    try testing.expectError(error.FlushPointsOutOfOrder, zlib_encode_flushing(encoding, sample, &encoded, &descending));
+    const past_end = [_]FlushPoint{.{ .position = sample.len + 1, .flush = .sync }};
+    try testing.expectError(error.FlushPointsOutOfOrder, zlib_encode_flushing(encoding, sample, &encoded, &past_end));
+    const repeated_at_end = [_]FlushPoint{ .{ .position = sample.len, .flush = .sync }, .{ .position = sample.len, .flush = .full } };
+    try testing.expectEqual(Verdict.ok, (try zlib_encode_flushing(encoding, sample, &encoded, &repeated_at_end)).verdict);
 }
 
 test "the bound covers the largest stored encoding" {

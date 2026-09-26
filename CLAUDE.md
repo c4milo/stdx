@@ -225,6 +225,11 @@ Change this section when a step adds or renames a command.
   file, at every length from 0 to 4096 at seeded offsets and starts, and whole under a seeded
   split. It builds stdx for the architecture's baseline CPU, so each SIMD path runs because
   detection found its instructions.
+  `zig build differential-deflate -Doracles` requires stdx, zlib and Wuffs to decode the same
+  octets from raw DEFLATE streams zlib encodes from every corpus file: every level and strategy,
+  with seeded window bits, memory levels and flush points, stdx under a seeded split. It then
+  corrupts streams of each file's first 4 KiB, and requires stdx's verdict to equal both oracles'
+  or to match an entry of `tools/oracle/verdicts.zig`.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB and
   installs every corpus file under `zig-out/corpus/`.
 - Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a

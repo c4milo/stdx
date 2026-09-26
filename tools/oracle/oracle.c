@@ -86,6 +86,43 @@ oracle_result oracle_zlib_encode(int container, int level, int strategy, int win
   return result;
 }
 
+// One zlib encode that calls deflate with `flushes[i]` once the first `positions[i]` octets of the
+// input are in, and with Z_FINISH after the last octet. The flush kinds are zlib.h's: Z_NO_FLUSH,
+// Z_PARTIAL_FLUSH, Z_SYNC_FLUSH, Z_FULL_FLUSH and Z_BLOCK. The positions ascend and stay within
+// the input, as the Zig binding checks before it calls.
+oracle_result oracle_zlib_encode_flushing(int container, int level, int strategy, int window_bits,
+                                          int mem_level, const uint8_t* input, size_t input_len,
+                                          uint8_t* output, size_t output_len,
+                                          const size_t* positions, const int* flushes,
+                                          size_t flush_count) {
+  oracle_result result = {ORACLE_FAILED, 0, 0};
+  z_stream stream;
+  memset(&stream, 0, sizeof stream);
+  int status = deflateInit2(&stream, level, Z_DEFLATED, zlib_window_bits(container, window_bits),
+                            mem_level, strategy);
+  if (status != Z_OK) return result;
+  stream.next_in = (Bytef*)input;
+  stream.next_out = output;
+  stream.avail_out = (uInt)output_len;
+  size_t given = 0;
+  for (size_t index = 0; index < flush_count; index++) {
+    stream.avail_in = (uInt)(positions[index] - given);
+    given = positions[index];
+    status = deflate(&stream, flushes[index]);
+    if ((status != Z_OK && status != Z_BUF_ERROR) || stream.avail_in != 0 || stream.avail_out == 0) {
+      deflateEnd(&stream);
+      return result;
+    }
+  }
+  stream.avail_in = (uInt)(input_len - given);
+  status = deflate(&stream, Z_FINISH);
+  result.consumed = stream.total_in;
+  result.written = stream.total_out;
+  result.verdict = (status == Z_STREAM_END) ? ORACLE_OK : ORACLE_NO_ROOM;
+  deflateEnd(&stream);
+  return result;
+}
+
 oracle_result oracle_zlib_decode(int container, const uint8_t* input, size_t input_len,
                                  uint8_t* output, size_t output_len) {
   oracle_result result = {ORACLE_FAILED, 0, 0};
@@ -112,7 +149,9 @@ oracle_result oracle_zlib_decode(int container, const uint8_t* input, size_t inp
   return result;
 }
 
-// One Wuffs decode of a whole input, for the decoder type the macro arguments name.
+// One Wuffs decode of a whole input, for the decoder type the macro arguments name. The input is
+// left open, so an input that ends before the stream does suspends for more (short read), which is
+// an incomplete input as zlib reports it, and not an error.
 #define WUFFS_DECODE(prefix, input, input_len, output, output_len, result)                     \
   do {                                                                                       \
     prefix##__decoder* decoder = (prefix##__decoder*)malloc(sizeof__##prefix##__decoder()); \
@@ -133,7 +172,7 @@ oracle_result oracle_zlib_decode(int container, const uint8_t* input, size_t inp
     }                                                                                        \
     wuffs_base__io_buffer dst = wuffs_base__ptr_u8__writer(output, output_len);              \
     wuffs_base__io_buffer src =                                                              \
-        wuffs_base__ptr_u8__reader((uint8_t*)input, input_len, true);                        \
+        wuffs_base__ptr_u8__reader((uint8_t*)input, input_len, false);                       \
     status = prefix##__decoder__transform_io(decoder, &dst, &src,                            \
                                              wuffs_base__make_slice_u8(workbuf, workbuf_len)); \
     (result).consumed = src.meta.ri;                                                         \

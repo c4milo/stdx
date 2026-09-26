@@ -10,6 +10,8 @@
 //!   (`bench/deflate/deflate.zig`).
 //! - `zig build bench-checksum -Doracles` times CRC-32 and Adler-32 against zlib, Wuffs,
 //!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
+//! - `zig build differential-deflate -Doracles` requires the DEFLATE decoder to agree with zlib and
+//!   Wuffs over the corpora, and on seeded corruptions (`tools/differential/deflate.zig`).
 //! - `zig build differential-checksum -Doracles` requires stdx's CRC-32 and Adler-32 to equal the
 //!   RFCs' sample code, zlib and Wuffs over the corpora (`tools/differential/checksum.zig`).
 //!
@@ -70,8 +72,9 @@ pub fn add(b: *std.Build, options: Options) void {
     const test_step = b.step("test-oracle", "Run the tests of the oracle bindings and the self-test (-Doracles)");
     const bench_step = b.step("bench-deflate", "Time DEFLATE decoding and encoding over the corpora (-Doracles)");
     const checksum_step = b.step("differential-checksum", "Require CRC-32 and Adler-32 to equal the oracles (-Doracles)");
+    const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -137,6 +140,22 @@ pub fn add(b: *std.Build, options: Options) void {
     add_corpus_args(b, checksum_run, corpus);
     checksum_step.dependOn(&checksum_run.step);
 
+    const verdicts = host_module(b, "tools/oracle/verdicts.zig");
+    const deflate_module = b.createModule(.{
+        .root_source_file = b.path("tools/differential/deflate.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    deflate_module.addImport("oracle", oracle);
+    deflate_module.addImport("corpus", corpus_names);
+    deflate_module.addImport("codec", graph.codec);
+    deflate_module.addImport("deflate", graph.deflate);
+    deflate_module.addImport("verdicts", verdicts);
+    const deflate_check = b.addExecutable(.{ .name = "differential_deflate", .root_module = deflate_module });
+    const deflate_run = b.addRunArtifact(deflate_check);
+    add_corpus_args(b, deflate_run, corpus);
+    deflate_step.dependOn(&deflate_run.step);
+
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
     const bench_checksum_module = b.createModule(.{
@@ -155,7 +174,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
-    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module };
+    const tested = .{ oracle, corpus_names, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module };
     inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
