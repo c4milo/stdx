@@ -25,11 +25,57 @@ pub fn slot(code: Code) usize {
 /// Where a code's table comes from: a default distribution's comptime table, or the state's own.
 pub const Source = enum(u8) { default, built };
 
+/// A sequence table's cell: the code's value before its extra bits, and their count, from RFC 8878
+/// §3.1.1.3.2.1.1's tables (for an offset code, 2^code and the code), then the next state's
+/// baseline and bits (§4.1). One load gives all a sequence reads of a code.
+pub const Cell = extern struct {
+    base: u32,
+    baseline: u16,
+    bits: u8,
+    extra_bits: u8,
+};
+
+/// The cell an FSE table's entry gives for `code`.
+fn cell_of_entry(comptime code: Code, entry: fse.Entry) Cell {
+    return switch (code) {
+        .literals_length => .{ .base = constants.literals_length_baselines[entry.symbol], .extra_bits = constants.literals_length_extra_bits[entry.symbol], .baseline = entry.baseline, .bits = entry.bits },
+        .match_length => .{ .base = constants.match_length_baselines[entry.symbol], .extra_bits = constants.match_length_extra_bits[entry.symbol], .baseline = entry.baseline, .bits = entry.bits },
+        .offset => .{ .base = @as(u32, 1) << @intCast(entry.symbol), .extra_bits = entry.symbol, .baseline = entry.baseline, .bits = entry.bits },
+    };
+}
+
+/// A code's largest accuracy log (RFC 8878 §3.1.1.3.2.1).
+fn log_max_of(comptime code: Code) u4 {
+    return switch (code) {
+        .literals_length => constants.literals_length_accuracy_log_max,
+        .offset => constants.offset_accuracy_log_max,
+        .match_length => constants.match_length_accuracy_log_max,
+    };
+}
+
+/// The cells of a code's FSE table.
+fn derive(comptime code: Code, table: *const fse.Table(log_max_of(code)), cells: []Cell) void {
+    for (table.entries(), cells[0..table.entries().len]) |entry, *cell| cell.* = cell_of_entry(code, entry);
+}
+
+/// The cells of a code's default table, at comptime (decision 14, Z3).
+fn default_cells(comptime code: Code, comptime table: fse.Table(log_max_of(code))) [table.entries().len]Cell {
+    @setEvalBranchQuota(default_cells_eval_quota);
+    var cells: [table.entries().len]Cell = undefined;
+    derive(code, &table, &cells);
+    return cells;
+}
+
+/// The comptime branches deriving the default tables' cells take.
+const default_cells_eval_quota = 10_000;
+
 /// The tables of the three codes, kept across blocks for Repeat_Mode (RFC 8878 §3.1.1.3.2.1).
 pub const Tables = struct {
-    literals_length: fse.Table(constants.literals_length_accuracy_log_max),
-    offset: fse.Table(constants.offset_accuracy_log_max),
-    match_length: fse.Table(constants.match_length_accuracy_log_max),
+    literals_length: [1 << constants.literals_length_accuracy_log_max]Cell,
+    offset: [1 << constants.offset_accuracy_log_max]Cell,
+    match_length: [1 << constants.match_length_accuracy_log_max]Cell,
+    /// The accuracy logs of the tables built in `literals_length`, `offset` and `match_length`.
+    accuracy_logs: [codes.len]u4,
     sources: [codes.len]Source,
     /// Whether a block with sequences set the tables, which Repeat_Mode needs.
     valid: bool,
@@ -41,21 +87,25 @@ pub const Tables = struct {
         self.work = work_module.zero;
     }
 
-    pub fn cells(self: *const Tables, code: Code) []const fse.Entry {
+    pub fn cells(self: *const Tables, code: Code) []const Cell {
+        const len = @as(usize, 1) << self.accuracy_logs[slot(code)];
         return switch (code) {
-            .literals_length => if (self.sources[slot(code)] == .default) default_literals_length.entries() else self.literals_length.entries(),
-            .offset => if (self.sources[slot(code)] == .default) default_offset.entries() else self.offset.entries(),
-            .match_length => if (self.sources[slot(code)] == .default) default_match_length.entries() else self.match_length.entries(),
+            .literals_length => if (self.sources[slot(code)] == .default) &default_literals_length else self.literals_length[0..len],
+            .offset => if (self.sources[slot(code)] == .default) &default_offset else self.offset[0..len],
+            .match_length => if (self.sources[slot(code)] == .default) &default_match_length else self.match_length[0..len],
         };
     }
 
-    /// The count of the last build of a code's own table.
-    fn built_work(self: *const Tables, code: Code) Work {
-        return switch (code) {
-            .literals_length => self.literals_length.work,
-            .offset => self.offset.work,
-            .match_length => self.match_length.work,
-        };
+    /// Takes a code's table as `table` gives it.
+    fn take(self: *Tables, comptime code: Code, table: *const fse.Table(log_max_of(code))) void {
+        switch (code) {
+            .literals_length => derive(code, table, &self.literals_length),
+            .offset => derive(code, table, &self.offset),
+            .match_length => derive(code, table, &self.match_length),
+        }
+        self.accuracy_logs[slot(code)] = table.accuracy_log;
+        self.sources[slot(code)] = .built;
+        work_module.add(&self.work, table.work);
     }
 
     fn accuracy_log(self: *const Tables, code: Code) u6 {
@@ -64,9 +114,9 @@ pub const Tables = struct {
 };
 
 /// The default distributions' tables (RFC 8878 §3.1.1.3.2.2), built at comptime (decision 14, Z3).
-const default_literals_length = fse.default_table(constants.literals_length_accuracy_log_max, constants.literals_length_default_accuracy_log, &constants.literals_length_default);
-const default_offset = fse.default_table(constants.offset_accuracy_log_max, constants.offset_default_accuracy_log, &constants.offset_default);
-const default_match_length = fse.default_table(constants.match_length_accuracy_log_max, constants.match_length_default_accuracy_log, &constants.match_length_default);
+const default_literals_length = default_cells(.literals_length, fse.default_table(constants.literals_length_accuracy_log_max, constants.literals_length_default_accuracy_log, &constants.literals_length_default));
+const default_offset = default_cells(.offset, fse.default_table(constants.offset_accuracy_log_max, constants.offset_default_accuracy_log, &constants.offset_default));
+const default_match_length = default_cells(.match_length, fse.default_table(constants.match_length_accuracy_log_max, constants.match_length_default_accuracy_log, &constants.match_length_default));
 
 /// Every way a Sequences_Section breaks RFC 8878 §3.1.1.3.2.
 pub const Error = fse.Error || error{
@@ -137,14 +187,9 @@ fn read_table(octets: []const u8, code: Code, mode: Mode, tables: *Tables) Error
             // RFC 8878 §3.1.1.3.2.1: RLE_Mode's description is the one symbol.
             if (octets.len == 0) return error.SequencesTruncated;
             try build_repeated(tables, code, octets[0]);
-            tables.sources[index] = .built;
             return 1;
         },
-        .compressed => {
-            const read = try read_distribution(tables, code, octets);
-            tables.sources[index] = .built;
-            return read;
-        },
+        .compressed => return read_distribution(tables, code, octets),
     }
     return 0;
 }
@@ -153,11 +198,12 @@ fn build_repeated(tables: *Tables, code: Code, symbol: u8) Error!void {
     // RFC 8878 §3.1.1.3.2.1.1: the symbol is a code of the alphabet.
     if (symbol >= symbol_limit(code)) return error.RepeatSymbolInvalid;
     switch (code) {
-        .literals_length => fse.build_rle(constants.literals_length_accuracy_log_max, &tables.literals_length, symbol),
-        .offset => fse.build_rle(constants.offset_accuracy_log_max, &tables.offset, symbol),
-        .match_length => fse.build_rle(constants.match_length_accuracy_log_max, &tables.match_length, symbol),
+        inline else => |known| {
+            var table: fse.Table(log_max_of(known)) = undefined;
+            fse.build_rle(log_max_of(known), &table, symbol);
+            tables.take(known, &table);
+        },
     }
-    work_module.add(&tables.work, tables.built_work(code));
 }
 
 fn read_distribution(tables: *Tables, code: Code, octets: []const u8) Error!usize {
@@ -168,11 +214,12 @@ fn read_distribution(tables: *Tables, code: Code, octets: []const u8) Error!usiz
         .match_length => try fse.read_distribution(octets, constants.match_length_symbols, constants.match_length_accuracy_log_max, &distribution),
     };
     switch (code) {
-        .literals_length => try fse.build(constants.literals_length_accuracy_log_max, &tables.literals_length, &distribution),
-        .offset => try fse.build(constants.offset_accuracy_log_max, &tables.offset, &distribution),
-        .match_length => try fse.build(constants.match_length_accuracy_log_max, &tables.match_length, &distribution),
+        inline else => |known| {
+            var table: fse.Table(log_max_of(known)) = undefined;
+            try fse.build(log_max_of(known), &table, &distribution);
+            tables.take(known, &table);
+        },
     }
-    work_module.add(&tables.work, tables.built_work(code));
     return read;
 }
 
@@ -232,10 +279,9 @@ pub fn next(stream: *Stream, octets: []const u8, tables: *const Tables) Error!Se
     const literals_length = cell_of(tables, .literals_length, stream.states[slot(.literals_length)]);
     const offset = cell_of(tables, .offset, stream.states[slot(.offset)]);
     const match_length = cell_of(tables, .match_length, stream.states[slot(.match_length)]);
-    const offset_code: u5 = @intCast(offset.symbol);
-    const offset_value = (@as(u32, 1) << offset_code) + @as(u32, @intCast(reader.read(offset_code)));
-    const match_len = constants.match_length_baselines[match_length.symbol] + @as(u32, @intCast(reader.read(constants.match_length_extra_bits[match_length.symbol])));
-    const literals_len = constants.literals_length_baselines[literals_length.symbol] + @as(u32, @intCast(reader.read(constants.literals_length_extra_bits[literals_length.symbol])));
+    const offset_value = offset.base + @as(u32, @intCast(reader.read(@intCast(offset.extra_bits))));
+    const match_len = match_length.base + @as(u32, @intCast(reader.read(@intCast(match_length.extra_bits))));
+    const literals_len = literals_length.base + @as(u32, @intCast(reader.read(@intCast(literals_length.extra_bits))));
     stream.left -= 1;
     if (stream.left > 0) {
         stream.states[slot(.literals_length)] = @intCast(literals_length.baseline + reader.read(@intCast(literals_length.bits)));
@@ -250,7 +296,7 @@ pub fn next(stream: *Stream, octets: []const u8, tables: *const Tables) Error!Se
 }
 
 /// The cell of `state` in a code's table, which a state its table's widths gave never passes.
-fn cell_of(tables: *const Tables, code: Code, state: u16) fse.Entry {
+fn cell_of(tables: *const Tables, code: Code, state: u16) Cell {
     const cells = tables.cells(code);
     assert(state < cells.len);
     return cells[state];

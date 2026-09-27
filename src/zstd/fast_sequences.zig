@@ -15,7 +15,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
-const fse = @import("fse.zig");
 const sequences = @import("sequences.zig");
 const block = @import("block.zig");
 const Claims = @import("claims.zig").Claims;
@@ -25,7 +24,7 @@ const fast_literals = @import("fast_literals.zig");
 /// What the loop reads for every sequence of a block, found once per call: the three codes' tables,
 /// which change only between blocks, and the sequence stream's octets.
 const Block = struct {
-    cells: [codes.len][]const fse.Entry,
+    cells: [codes.len][]const sequences.Cell,
     stream: []const u8,
     head: u64,
 };
@@ -194,11 +193,10 @@ inline fn decode(reader: *Reader, found: *const Block, states: [codes.len]u16, l
     const literals_length = found.cells[sequences.slot(.literals_length)][states[sequences.slot(.literals_length)]];
     const offset = found.cells[sequences.slot(.offset)][states[sequences.slot(.offset)]];
     const match_length = found.cells[sequences.slot(.match_length)][states[sequences.slot(.match_length)]];
-    const offset_code: u5 = @truncate(offset.symbol);
     var decoded: Decoded = undefined;
-    decoded.offset_value = (@as(u32, 1) << offset_code) + @as(u32, @truncate(reader.read(offset_code)));
-    decoded.match_len = constants.match_length_baselines[match_length.symbol] + @as(u32, @truncate(reader.read(constants.match_length_extra_bits[match_length.symbol])));
-    decoded.literals_len = constants.literals_length_baselines[literals_length.symbol] + @as(u32, @truncate(reader.read(constants.literals_length_extra_bits[literals_length.symbol])));
+    decoded.offset_value = offset.base + @as(u32, @truncate(reader.read(@truncate(offset.extra_bits))));
+    decoded.match_len = match_length.base + @as(u32, @truncate(reader.read(@truncate(match_length.extra_bits))));
+    decoded.literals_len = literals_length.base + @as(u32, @truncate(reader.read(@truncate(literals_length.extra_bits))));
     decoded.states = states;
     if (last) return decoded;
     decoded.states[sequences.slot(.literals_length)] = @truncate(literals_length.baseline + reader.read(@truncate(literals_length.bits)));
@@ -319,13 +317,21 @@ fn next_sequence(run: *block.Run, context: block.Context, found: *const Block, r
 /// gives them (RFC 8878 §3.1.1.5), or null for the offset of 0 the checked path refuses. A new
 /// offset, the common case, shifts the three; a repeated one takes the checked function on a copy.
 inline fn resolve(repeats: [constants.repeated_offsets_initial.len]u32, offset_value: u32, literals_len: u32) ?struct { u32, [constants.repeated_offsets_initial.len]u32 } {
+    const first, const second, const third = repeats;
     if (offset_value > constants.repeat_offset_values) {
         const offset = offset_value - constants.repeat_offset_values;
-        return .{ offset, .{ offset, repeats[0], repeats[1] } };
+        return .{ offset, .{ offset, first, second } };
     }
-    var after = repeats;
-    const offset = sequences.resolve_offset(&after, offset_value, literals_len) catch return null;
-    return .{ offset, after };
+    // Offset_Value 1 to 3 names a Repeated_Offset, the next one when the literals length is 0, and
+    // the fourth is Repeated_Offset1 - 1 (RFC 8878 §3.1.1.5); the checked path refuses an offset
+    // of 0.
+    const index = offset_value - 1 + @intFromBool(literals_len == 0);
+    const candidates = [_]u32{ first, second, third, first -% 1 };
+    const offset = candidates[index];
+    if (offset == 0) return null;
+    if (index == 0) return .{ offset, repeats };
+    if (index == 1) return .{ offset, .{ offset, first, third } };
+    return .{ offset, .{ offset, first, second } };
 }
 
 /// Copies up to `chunk_len_max` of the sequence's literals.
@@ -344,14 +350,17 @@ fn copy_literals(comptime Window: type, comptime claims: Claims, run: *block.Run
 /// Copies `len` octets of `source` to `target`: in chunks of `copy_chunk_len` when the source holds
 /// whole chunks, overrunning `len` by less than one, and exactly otherwise.
 inline fn copy_forward(comptime claims: Claims, output: []u8, target: usize, source: []const u8, len: usize) void {
-    const chunked_len = std.mem.alignForward(usize, len, constants.copy_chunk_len);
-    if (!claims.chunk_copies or source.len < chunked_len) {
+    const chunk_len = constants.copy_chunk_len;
+    if (len == 0) return;
+    if (!claims.chunk_copies or source.len < len + chunk_len) {
         @memcpy(output[target..][0..len], source[0..len]);
         return;
     }
-    for (0..chunked_len / constants.copy_chunk_len) |chunk| {
-        const at = chunk * constants.copy_chunk_len;
-        output[target + at ..][0..constants.copy_chunk_len].* = source[at..][0..constants.copy_chunk_len].*;
+    // Most runs fit the first chunk.
+    output[target..][0..chunk_len].* = source[0..chunk_len].*;
+    for (1..std.math.divCeil(usize, len, chunk_len) catch unreachable) |chunk| {
+        const at = chunk * chunk_len;
+        output[target + at ..][0..chunk_len].* = source[at..][0..chunk_len].*;
     }
 }
 
@@ -379,25 +388,34 @@ inline fn advance(comptime Window: type, sink: *block.Sink(Window), len: usize) 
     if (sink.window_each) sink.sync();
 }
 
-/// Copies `len` octets to `target` from `distance` before it: in chunks of `copy_chunk_len` where
-/// the distance leaves room for one, a fill for a distance of 1, and octet by octet otherwise. A
-/// chunk may write less than its length past `len`, into the margin, and reads only octets written
-/// before.
+/// Copies `len` octets to `target` from `distance` before it: in chunks of `copy_chunk_len` or
+/// `copy_word_len` where the distance leaves room for one, a fill for a distance of 1, and octet by
+/// octet otherwise. A chunk may write less than its length past `len`, into the margin, and reads
+/// only octets written before.
 inline fn copy_within(comptime claims: Claims, output: []u8, target: usize, distance: usize, len: usize) void {
     assert(distance > 0);
     const source = target - distance;
     if (claims.chunk_copies and distance >= constants.copy_chunk_len) {
-        const chunks = std.math.divCeil(usize, len, constants.copy_chunk_len) catch unreachable;
-        for (0..chunks) |chunk| {
-            const at = chunk * constants.copy_chunk_len;
-            output[target + at ..][0..constants.copy_chunk_len].* = output[source + at ..][0..constants.copy_chunk_len].*;
-        }
+        copy_chunks(constants.copy_chunk_len, output, target, source, len);
+    } else if (claims.chunk_copies and distance >= constants.copy_word_len) {
+        copy_chunks(constants.copy_word_len, output, target, source, len);
     } else if (distance >= len) {
         @memcpy(output[target..][0..len], output[source..][0..len]);
     } else if (distance == 1) {
         @memset(output[target..][0..len], output[source]);
     } else {
         for (0..len) |index| output[target + index] = output[source + index];
+    }
+}
+
+/// Copies `len` octets from `source` to `target` in chunks of `chunk_len`, the first whatever the
+/// length: `source` lies at least `chunk_len` before `target`, so each chunk reads octets written.
+inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, source: usize, len: usize) void {
+    assert(len > 0);
+    output[target..][0..chunk_len].* = output[source..][0..chunk_len].*;
+    for (1..std.math.divCeil(usize, len, chunk_len) catch unreachable) |chunk| {
+        const at = chunk * chunk_len;
+        output[target + at ..][0..chunk_len].* = output[source + at ..][0..chunk_len].*;
     }
 }
 
