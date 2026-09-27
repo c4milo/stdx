@@ -9,6 +9,7 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const fast_literals = @import("fast_literals.zig");
+const literals_section = @import("literals.zig");
 const test_writer = @import("test_writer.zig");
 
 /// The most literals of a stream, and the seeds each test takes. Each stream draws its count, so a
@@ -78,8 +79,8 @@ fn expect_alike(comptime count: usize, comptime claims: @import("claims.zig").Cl
         fast.* = fast_buffer[0..literals];
         checked.* = checked_buffer[0..literals];
     }
-    const fast = fast_literals.decode(count, claims, table, octets, fast_outputs);
-    var checked: huffman.Error!void = {};
+    const fast = literals_section.decode_streams(.{ .claims = claims }, count, table, octets, fast_outputs);
+    var checked: literals_section.Error!void = {};
     for (octets, checked_outputs) |stream, output| {
         checked = huffman.decode_stream(table, stream, output);
         if (checked) |_| {} else |_| break;
@@ -135,6 +136,29 @@ fn deepening_tree(bits_max: u4, octets: *[deepening_tree_len_max]u8) []const u8 
         octets[1 + literal / per_octet] |= if (literal % per_octet == 0) weight << constants.huffman_weight_bits else weight;
     }
     return octets[0 .. 1 + (bits_max + per_octet - 1) / per_octet];
+}
+
+test "the fast path leaves no literal of a valid stream to the checked decoder" {
+    for (trees) |tree| {
+        var table: huffman.Table = undefined;
+        _ = try huffman.read_tree(tree, &table);
+        for (0..seeds) |seed| {
+            var generator = codec.split.Generator.init(seed);
+            var set: Streams = .{};
+            set.write(&generator, &table);
+            inline for ([_]@import("claims.zig").Claims{ .{}, .{ .interleaved_streams = false } }) |claims| {
+                var buffers: [streams][stream_literals]u8 = undefined;
+                var outputs: [streams][]u8 = undefined;
+                var readers: [streams]codec.BackwardBitReader = undefined;
+                for (&outputs, &buffers, set.counts, &readers, set.octets) |*output, *buffer, count, *reader, octets| {
+                    output.* = buffer[0..count];
+                    reader.* = codec.BackwardBitReader.init(octets).?;
+                }
+                try testing.expectEqual(set.counts, fast_literals.decode(streams, claims, &table, four_of(&set), outputs, &readers));
+                for (readers) |reader| try testing.expect(reader.finished());
+            }
+        }
+    }
 }
 
 test "every longest code from 1 to 11 bits decodes alike on each path, each its own loop" {

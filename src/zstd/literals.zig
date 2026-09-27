@@ -151,11 +151,7 @@ fn read_compressed(comptime paths: Paths, reader: *codec.Reader, first: u8, form
     const output = literals_output(tables.buffer, len);
     if (constants.literals_compressed_streams[format] > 1) {
         try decode_four(paths, tables.table, streams, output);
-    } else if (paths.fast_paths) {
-        try fast_literals.decode(1, paths.claims, tables.table, .{streams}, .{output});
-    } else {
-        try huffman.decode_stream(tables.table, streams, output);
-    }
+    } else try decode_streams(paths, 1, tables.table, .{streams}, .{output});
     return .{ .source = .buffer, .len = len, .offset = 0, .octet = 0, .section_len = @intCast(header_len + compressed_len), .work = work };
 }
 
@@ -190,8 +186,24 @@ fn decode_four(comptime paths: Paths, table: *const huffman.Table, streams: []co
         const end = if (index == constants.literal_streams - 1) output.len else start + segment_len;
         segment.* = output[start..end];
     }
-    if (paths.fast_paths) return fast_literals.decode(constants.literal_streams, paths.claims, table, stream_octets, outputs);
-    for (stream_octets, outputs) |stream, segment| try huffman.decode_stream(table, stream, segment);
+    return decode_streams(paths, constants.literal_streams, table, stream_octets, outputs);
+}
+
+/// Decodes `outputs[i].len` literals from each of `streams`, one or four: the fast path of decision
+/// 16 as far as it goes, then the checked decoder from where each stream stopped, stream after
+/// stream, requiring each to end exactly at its first bit (RFC 8878 §4.2.2). A stream whose last
+/// octet is 0 sends every stream to the checked decoder whole, so each refusal comes in the order
+/// the checked path gives it.
+pub fn decode_streams(comptime paths: Paths, comptime count: usize, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8) Error!void {
+    var readers: [count]codec.BackwardBitReader = undefined;
+    for (&readers, streams) |*reader, stream| {
+        reader.* = codec.BackwardBitReader.init(stream) orelse {
+            for (streams, outputs) |each, output| try huffman.decode_stream(table, each, output);
+            unreachable;
+        };
+    }
+    const done: [count]usize = if (paths.fast_paths) fast_literals.decode(count, paths.claims, table, streams, outputs, &readers) else @splat(0);
+    for (&readers, outputs, done) |*reader, output, decoded| try huffman.decode_rest(table, reader, output[decoded..]);
 }
 
 test {

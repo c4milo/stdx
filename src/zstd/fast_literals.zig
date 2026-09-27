@@ -6,76 +6,105 @@
 //! longest code: each takes the cell the word's top `bits_max` bits index, and shifts its code out.
 //! Four streams decode in one loop, a literal of each in turn, so the lookups of one stream do not
 //! wait on another's (Z1). Literals go to the state's literal buffer, whose size is fixed, so the
-//! loop needs no output margin. Each stream's last literals then decode one at a time, reading the
-//! stream's first 8 octets where fewer lie before the position; the checked decoder takes each
-//! stream from where they stop, in stream order, and requires it to end exactly at its first bit.
-//!
-//! A stream whose last octet is 0 sends every stream to the checked decoder whole, so each
-//! refusal comes in the order the checked path gives it (decision 16).
+//! loop needs no output margin. The streams' last literals then decode in turns as well, a load's
+//! of each stream a pass, each read against the bits its stream has left, from the stream's first
+//! 8 octets where fewer lie before the position; the checked decoder takes each stream from where
+//! they stop, in stream order, and requires it to end exactly at its first bit.
 
 const std = @import("std");
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const Claims = @import("claims.zig").Claims;
+const fast_reader = @import("fast_reader.zig");
 
-/// Decodes `outputs[i].len` literals from each of `streams`, one stream or four, as the checked
-/// decoder would, stream after stream.
-pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8) huffman.Error!void {
-    var readers: [count]codec.BackwardBitReader = undefined;
-    for (&readers, streams) |*reader, stream| {
-        reader.* = codec.BackwardBitReader.init(stream) orelse return decode_checked(count, table, streams, outputs);
-    }
+/// Decodes what it can of each of `streams`, one or four, from where `readers` stand, as the
+/// checked decoder would, and returns how many literals of each it wrote: the checked decoder takes
+/// each stream from there.
+pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
     var done: [count]usize = @splat(0);
     // The table's longest code fixes the loop's shifts and its literals per load.
     switch (table.bits_max) {
         inline 1...constants.huffman_bits_max => |bits_max| {
             if (claims.interleaved_streams) {
-                done = @splat(decode_loads(count, bits_max, table, streams, outputs, &readers));
+                done = @splat(decode_loads(count, bits_max, table, streams, outputs, readers));
+                decode_tails(count, bits_max, table, streams, outputs, readers, &done);
             } else {
-                for (&done, streams, outputs, &readers) |*decoded, stream, output, *reader| {
+                for (&done, streams, outputs, readers) |*decoded, stream, output, *reader| {
                     decoded.* = decode_loads(1, bits_max, table, .{stream}, .{output}, reader[0..1]);
+                    var one: [1]usize = .{decoded.*};
+                    decode_tails(1, bits_max, table, .{stream}, .{output}, reader[0..1], &one);
+                    decoded.* = one[0];
                 }
             }
         },
         // huffman.build gives a Max_Number_of_Bits from 1 to 11.
         else => unreachable,
     }
-    for (&readers, streams, outputs, &done) |*reader, stream, output, *decoded| {
-        decode_tail(table, stream, reader, output, decoded);
-        try huffman.decode_rest(table, reader, output[decoded.*..]);
-    }
+    return done;
 }
 
-pub const head_of = @import("fast_reader.zig").head_of;
+pub const head_of = fast_reader.head_of;
 
-/// Decodes the literals the loads left, one at a time: each from the 8 octets that end at the
-/// position's octet, or from the stream's first 8 when fewer lie before it, the bits before the
-/// stream's first reading as zeros, as the checked decoder reads them (RFC 8878 §4.2.2). A code
-/// longer than the bits left is the checked decoder's to refuse.
-fn decode_tail(table: *const huffman.Table, stream: []const u8, reader: *codec.BackwardBitReader, output: []u8, done: *usize) void {
-    const head = head_of(stream);
-    const mask = (@as(u64, 1) << table.bits_max) - 1;
-    for (output[done.*..]) |*literal| {
-        const at = reader.position;
-        const end = std.math.divCeil(usize, at, @bitSizeOf(u8)) catch unreachable;
-        const start = if (end >= @sizeOf(u64)) end - @sizeOf(u64) else 0;
-        const word = if (end >= @sizeOf(u64)) std.mem.readInt(u64, stream[start..][0..@sizeOf(u64)], .little) else head;
-        const bits_left = at - start * @bitSizeOf(u8);
-        const index = if (bits_left >= table.bits_max)
-            (word >> @intCast(bits_left - table.bits_max)) & mask
-        else
-            (word & ((@as(u64, 1) << @intCast(bits_left)) - 1)) << @intCast(table.bits_max - bits_left);
-        const cell = table.cells[@intCast(index)];
-        if (cell.bits > at) return;
-        literal.* = cell.symbol;
-        reader.position = at - cell.bits;
-        done.* += 1;
+/// One stream's last literals, as `decode_tails` takes them.
+const Tail = struct {
+    stream: []const u8,
+    head: u64,
+    position: usize,
+    output: []u8,
+    done: usize,
+    /// Whether a code was longer than the bits left, which the checked decoder refuses.
+    stopped: bool,
+
+    fn active(self: *const Tail) bool {
+        return !self.stopped and self.done < self.output.len;
     }
-}
 
-fn decode_checked(comptime count: usize, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8) huffman.Error!void {
-    for (streams, outputs) |stream, output| try huffman.decode_stream(table, stream, output);
+    /// Decodes up to `per_load` literals from one load: the 8 octets that end at the position's
+    /// octet, holding a load's literals' bits, or the stream's first 8 within its first 64 bits,
+    /// the bits before its first reading as zeros, as the checked decoder reads them (RFC 8878
+    /// §4.2.2). A code longer than the bits left stops the stream.
+    inline fn pass(self: *Tail, comptime bits_max: u4, comptime per_load: usize, table: *const huffman.Table) void {
+        if (!self.active()) return;
+        var word = fast_reader.leading(self.stream, self.head, self.position);
+        inline for (0..per_load) |_| {
+            if (self.done == self.output.len) return;
+            // As in `decode_pass`, the top `bits_max` bits index the table, and a code's length is
+            // at most 11.
+            const cell = table.cells[@as(u11, @truncate(word >> (@bitSizeOf(u64) - @as(u7, bits_max))))];
+            if (cell.bits > self.position) {
+                self.stopped = true;
+                return;
+            }
+            self.output[self.done] = cell.symbol;
+            self.done += 1;
+            word <<= @as(u6, @truncate(cell.bits));
+            self.position -= cell.bits;
+        }
+    }
+};
+
+/// Decodes the literals the loads left, a load's of each stream in turn, so one stream's lookups
+/// do not wait on another's, until every stream is done or stopped.
+fn decode_tails(comptime count: usize, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, done: *[count]usize) void {
+    const per_load = comptime literals_per_load(bits_max);
+    var tails: [count]Tail = undefined;
+    var longest: usize = 0;
+    for (&tails, streams, outputs, readers, done) |*tail, stream, output, *reader, decoded| {
+        tail.* = .{ .stream = stream, .head = head_of(stream), .position = reader.position, .output = output, .done = decoded, .stopped = false };
+        longest = @max(longest, output.len - decoded);
+    }
+    defer for (&tails, readers, done) |tail, *reader, *decoded| {
+        reader.position = tail.position;
+        decoded.* = tail.done;
+    };
+    // A pass decodes a literal of every active stream at least, or stops it.
+    for (0..longest) |_| {
+        inline for (&tails) |*tail| tail.pass(bits_max, per_load, table);
+        var active = false;
+        for (&tails) |*tail| active = active or tail.active();
+        if (!active) return;
+    }
 }
 
 /// The literals one load decodes: as many codes of the table's longest as the load's bits hold, at
