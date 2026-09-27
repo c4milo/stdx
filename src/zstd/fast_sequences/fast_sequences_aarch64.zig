@@ -177,6 +177,8 @@ const template = std.fmt.comptimePrint(
     \\    ldp x16, x17, [x0, #{[states]}]
     \\    ldr x19, [x0, #{[state3]}]
     \\    cbz x12, 9f
+    \\    // The loop starts a fetch line of its own, wherever the code before it ends.
+    \\    .p2align 6
     \\1:
     \\    // The load's bits before the position.
     \\    tbnz x11, #63, 9f
@@ -332,6 +334,7 @@ const template = std.fmt.comptimePrint(
     \\    add x24, x8, #{[pair]}
     \\    add x27, x7, #{[pair]}
     \\    add x6, x7, x30
+    \\    .p2align 4
     \\12:
     \\    ldp q0, q1, [x24], #{[pair]}
     \\    stp q0, q1, [x27], #{[pair]}
@@ -346,12 +349,14 @@ const template = std.fmt.comptimePrint(
     \\    add x20, x23, x28
     \\    cmp x26, #{[pair]}
     \\    b.lo 15f
+    \\    .p2align 4
     \\13:
     \\    ldp q0, q1, [x24], #{[pair]}
     \\    stp q0, q1, [x27], #{[pair]}
     \\    cmp x27, x20
     \\    b.lo 13b
     \\    b 8b
+    \\    .p2align 4
     \\15:
     \\    ldr q0, [x24], #{[chunk]}
     \\    str q0, [x27], #{[chunk]}
