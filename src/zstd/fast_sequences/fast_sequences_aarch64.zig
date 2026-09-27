@@ -84,9 +84,7 @@ pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, 
     run.stream.position = loop.position;
     run.stream.left -= @intCast(taken);
     for (context.repeats, loop.repeats) |*repeat, held| repeat.* = @intCast(held);
-    // A state the assembly wrote holds its table's baseline and the cell's other fields above bit
-    // 16, which the table's index never reads.
-    for (&run.stream.states, loop.states) |*state, held| state.* = @truncate(held);
+    for (&run.stream.states, loop.states) |*state, held| state.* = @intCast(held);
     run.literals_used = @intCast(literals_end - loop.literals_room);
     run.promised_len = @intCast(context.block_len_max - loop.promised_room);
     sink.written = @intFromPtr(loop.output) - @intFromPtr(output.ptr);
@@ -134,11 +132,6 @@ noinline fn execute(loop: *Loop) usize {
         });
 }
 
-/// The index masks of the three tables: each array's length less one.
-const literals_length_mask = (1 << constants.literals_length_accuracy_log_max) - 1;
-const offset_mask = (1 << constants.offset_accuracy_log_max) - 1;
-const match_length_mask = (1 << constants.match_length_accuracy_log_max) - 1;
-
 comptime {
     const repeats_len = constants.repeated_offsets_initial.len;
     assert(repeats_len == sequences.slot(.match_length) + 1);
@@ -148,9 +141,11 @@ comptime {
     assert(@offsetOf(Loop, "match_length") == @offsetOf(Loop, "offset") + @sizeOf(u64));
     assert(@offsetOf(Loop, "output_max") == @offsetOf(Loop, "output") + @sizeOf(u64));
     assert(@offsetOf(Loop, "promised_room") == @offsetOf(Loop, "literals_room") + @sizeOf(u64));
-    // A cell's fields, first least significant: base, baseline, bits, extra bits.
-    assert(@bitOffsetOf(sequences.Cell, "baseline") == 32 and @bitOffsetOf(sequences.Cell, "bits") == 48);
-    assert(@bitOffsetOf(sequences.Cell, "extra_bits") == 56);
+    // A cell's base is its low 32 bits, its bits and extra bits an octet each, and its baseline
+    // the rest, which one shift gives alone.
+    assert(@bitOffsetOf(sequences.Cell, "base") == 0 and @bitSizeOf(@FieldType(sequences.Cell, "base")) == @bitSizeOf(u32));
+    assert(@bitSizeOf(@FieldType(sequences.Cell, "bits")) == @bitSizeOf(u8) and @bitSizeOf(@FieldType(sequences.Cell, "extra_bits")) == @bitSizeOf(u8));
+    assert(@bitOffsetOf(sequences.Cell, "baseline") + @bitSizeOf(@FieldType(sequences.Cell, "baseline")) == @bitSizeOf(u64));
     // One sequence's lengths stay below `chunk_len_max`, so its chunks stay inside the margin.
     assert(std.math.isPowerOfTwo(constants.chunk_len_max) and constants.copy_chunk_len == @sizeOf(u128));
 }
@@ -161,7 +156,8 @@ const chunk_len_log = std.math.log2_int(usize, constants.chunk_len_max);
 
 /// The loop. Registers: x0 the loop's state; x1 the stream; x2, x3 and x4 the literals length,
 /// offset and match length cells; x5 the last place a sequence may start; x7 the output; x8 the
-/// literals; x9 the literals room; x10 the promised room; x11 the position; x12 the sequences left;
+/// literals; x9 the literals room; x10 the promised room; x11 the position less the 57 bits a load
+/// needs before it, negative when the load has not them; x12 the sequences left;
 /// x13, x14 and x15 the repeats; x16, x17 and x19 the states of literals length, offset and match
 /// length. x6 and x20 to x28 and x30 hold each sequence's values. The numbered labels: 1 a
 /// sequence, 2 a repeated offset, 3 the checks, 4 more literals, 5 the match, 6 a distance below a
@@ -173,6 +169,7 @@ const template = std.fmt.comptimePrint(
     \\    ldr x8, [x0, #{[literals]}]
     \\    ldp x9, x10, [x0, #{[literals_room]}]
     \\    ldr x11, [x0, #{[position]}]
+    \\    sub x11, x11, #{[read_min]}
     \\    ldr x12, [x0, #{[count]}]
     \\    ldp x13, x14, [x0, #{[repeats]}]
     \\    ldr x15, [x0, #{[repeat3]}]
@@ -181,72 +178,68 @@ const template = std.fmt.comptimePrint(
     \\    cbz x12, 9f
     \\1:
     \\    // The margins: the load's bits before the position, and room past the output.
-    \\    cmp x11, #{[read_min]}
-    \\    ccmp x7, x5, #2, hs
+    \\    cmp x11, #0
+    \\    ccmp x7, x5, #2, ge
     \\    b.hi 9f
-    \\    // The cells of the three states.
-    \\    and x20, x16, #{[literals_length_mask]}
-    \\    ldr x20, [x2, x20, lsl #3]
-    \\    and x21, x17, #{[offset_mask]}
-    \\    ldr x21, [x3, x21, lsl #3]
-    \\    and x22, x19, #{[match_length_mask]}
-    \\    ldr x22, [x4, x22, lsl #3]
+    \\    // The cells of the three states. A state is below its table's length: its cell's
+    \\    // baseline and the bits it read (RFC 8878 §4.1).
+    \\    ldr x20, [x2, x16, lsl #3]
+    \\    ldr x21, [x3, x17, lsl #3]
+    \\    ldr x22, [x4, x19, lsl #3]
     \\    // The 8 octets whose last holds the position's bit, least significant first, shifted so
     \\    // that bit leads (RFC 8878 §4.1); x23 the bits they hold below the position.
-    \\    sub x23, x11, #{[read_min]}
-    \\    lsr x24, x23, #3
+    \\    lsr x24, x11, #3
     \\    ldr x24, [x1, x24]
-    \\    mvn x25, x23
+    \\    mvn x25, x11
     \\    and x25, x25, #7
     \\    lsl x24, x24, x25
-    \\    and x23, x23, #7
+    \\    and x23, x11, #7
     \\    add x23, x23, #{[read_min]}
     \\    // RFC 8878 §3.1.1.3.2.1.2: the offset, match length and literals length bits, then the
     \\    // states of literals length, match length and offset, each from the top of what the
     \\    // fields before it leave. A field of `count` bits: shifted past the bits before it, by
     \\    // one, then by 63 - `count`, so a field of none is 0. x25 counts the bits before it.
-    \\    lsr x25, x21, #56
+    \\    ubfx x25, x21, #{[extra_at]}, #8
     \\    lsr x26, x24, #1
     \\    mvn x27, x25
     \\    lsr x26, x26, x27
     \\    add x26, x26, w21, uxtw
-    \\    lsr x27, x22, #56
+    \\    ubfx x27, x22, #{[extra_at]}, #8
     \\    lsl x28, x24, x25
     \\    lsr x28, x28, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x28, x28, x27
     \\    add x28, x28, w22, uxtw
-    \\    lsr x27, x20, #56
+    \\    ubfx x27, x20, #{[extra_at]}, #8
     \\    lsl x30, x24, x25
     \\    lsr x30, x30, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x30, x30, x27
     \\    add x30, x30, w20, uxtw
-    \\    // The next states: each field plus its cell's baseline, at bit 32; the cell's other
-    \\    // fields land above bit 16, where no index reads.
-    \\    ubfx x27, x20, #48, #8
+    \\    // The next states: each field plus its cell's baseline, the cell's top 16 bits.
+    \\    ubfx x27, x20, #{[bits_at]}, #8
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
-    \\    add x20, x6, x20, lsr #32
-    \\    ubfx x27, x22, #48, #8
+    \\    add x20, x6, x20, lsr #{[baseline_at]}
+    \\    ubfx x27, x22, #{[bits_at]}, #8
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
-    \\    add x22, x6, x22, lsr #32
-    \\    ubfx x27, x21, #48, #8
+    \\    add x22, x6, x22, lsr #{[baseline_at]}
+    \\    ubfx x27, x21, #{[bits_at]}, #8
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
-    \\    add x21, x6, x21, lsr #32
+    \\    add x21, x6, x21, lsr #{[baseline_at]}
     \\    // x25 the bits the sequence reads, x26 Offset_Value, x28 the match length, x30 the
     \\    // literals length. An Offset_Value above 3 is a new offset (RFC 8878 §3.1.1.5), and the
     \\    // repeats become it, the first and the second: x26 the distance, x24 and x27 the second
@@ -369,18 +362,18 @@ const template = std.fmt.comptimePrint(
     \\    b.lo 15b
     \\    b 8b
     \\14:
-    \\    // Below 8: the first 8 octets one at a time, each the octet the distance before it; past
-    \\    // them the octets repeat every multiple of the distance, so the rest go 8 at a time from
-    \\    // the least multiple at least 8 back, in x27.
+    \\    // Below 8: up to the first 8 octets one at a time, each the octet the distance before it;
+    \\    // past them the octets repeat every multiple of the distance, so the rest go 8 at a time
+    \\    // from the least multiple at least 8 back, in x27.
     \\    mov x24, #0
     \\16:
     \\    ldrb w27, [x6, x24]
     \\    strb w27, [x23, x24]
     \\    add x24, x24, #1
+    \\    cmp x24, x28
+    \\    b.hs 8b
     \\    cmp x24, #{[word]}
     \\    b.lo 16b
-    \\    cmp x28, #{[word]}
-    \\    b.ls 8b
     \\    mov x27, x26
     \\17:
     \\    cmp x27, #{[word]}
@@ -401,6 +394,7 @@ const template = std.fmt.comptimePrint(
     \\    str x7, [x0, #{[output]}]
     \\    str x8, [x0, #{[literals]}]
     \\    stp x9, x10, [x0, #{[literals_room]}]
+    \\    add x11, x11, #{[read_min]}
     \\    str x11, [x0, #{[position]}]
     \\    ldr x6, [x0, #{[count]}]
     \\    sub x6, x6, x12
@@ -424,9 +418,9 @@ const template = std.fmt.comptimePrint(
     .states = @offsetOf(Loop, "states"),
     .state3 = @offsetOf(Loop, "states") + sequences.slot(.match_length) * @sizeOf(u64),
     .read_min = constants.fast_read_position_min,
-    .literals_length_mask = literals_length_mask,
-    .offset_mask = offset_mask,
-    .match_length_mask = match_length_mask,
+    .bits_at = @bitOffsetOf(sequences.Cell, "bits"),
+    .extra_at = @bitOffsetOf(sequences.Cell, "extra_bits"),
+    .baseline_at = @bitOffsetOf(sequences.Cell, "baseline"),
     .repeat_values = constants.repeat_offset_values,
     .chunk_len_log = chunk_len_log,
     .chunk = constants.copy_chunk_len,

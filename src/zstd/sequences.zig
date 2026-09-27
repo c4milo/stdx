@@ -22,15 +22,16 @@ pub fn slot(code: Code) usize {
     return @intFromEnum(code);
 }
 
-/// A sequence table's cell: the code's value before its extra bits, and their count, from RFC 8878
-/// §3.1.1.3.2.1.1's tables (for an offset code, 2^code and the code), then the next state's
-/// baseline and bits (§4.1). One load gives all a sequence reads of a code: the fields pack into
-/// 64 bits, the first least significant, whatever the host's octet order.
+/// A sequence table's cell: the code's value before its extra bits, from RFC 8878 §3.1.1.3.2.1.1's
+/// tables (for an offset code, 2^code), the next state's bits, the code's extra bits (for an offset
+/// code, the code), and the next state's baseline (§4.1). One load gives all a sequence reads of a
+/// code: the fields pack into 64 bits, the first least significant, whatever the host's octet
+/// order. The baseline comes last, so one shift of the cell gives it alone.
 pub const Cell = packed struct(u64) {
     base: u32,
-    baseline: u16,
     bits: u8,
     extra_bits: u8,
+    baseline: u16,
 };
 
 /// The cell an FSE table's entry gives for `code`.
