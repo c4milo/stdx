@@ -369,13 +369,33 @@ const template = std.fmt.comptimePrint(
     \\    b.lo 15b
     \\    b 8b
     \\14:
+    \\    // Below 8: the first 8 octets one at a time, each the octet the distance before it; past
+    \\    // them the octets repeat every multiple of the distance, so the rest go 8 at a time from
+    \\    // the least multiple at least 8 back, in x27.
     \\    mov x24, #0
     \\16:
     \\    ldrb w27, [x6, x24]
     \\    strb w27, [x23, x24]
     \\    add x24, x24, #1
-    \\    cmp x24, x28
+    \\    cmp x24, #{[word]}
     \\    b.lo 16b
+    \\    cmp x28, #{[word]}
+    \\    b.ls 8b
+    \\    mov x27, x26
+    \\17:
+    \\    cmp x27, #{[word]}
+    \\    b.hs 18f
+    \\    add x27, x27, x26
+    \\    b 17b
+    \\18:
+    \\    sub x6, x23, x27
+    \\    mov x24, #{[word]}
+    \\19:
+    \\    ldr x20, [x6, x24]
+    \\    str x20, [x23, x24]
+    \\    add x24, x24, #{[word]}
+    \\    cmp x24, x28
+    \\    b.lo 19b
     \\    b 8b
     \\9:
     \\    str x7, [x0, #{[output]}]
