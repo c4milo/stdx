@@ -97,7 +97,10 @@ pub fn build(b: *std.Build) void {
         .{ .name = "brotli", .module = graph.brotli },
     };
     for (unit_test_modules) |entry| {
-        const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module });
+        // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast
+        // paths' assembly (decision 23), and Zig's own x86-64 backend, the Debug default there,
+        // takes none, which would leave that assembly untested.
+        const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module, .use_llvm = true });
         install_step.dependOn(&unit_tests.step);
         const run = &b.addRunArtifact(unit_tests).step;
         test_step.dependOn(run);

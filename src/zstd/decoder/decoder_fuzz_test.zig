@@ -52,7 +52,8 @@ fn check_paths(comptime paths: claims.Paths, input: []const u8, whole: Verdict, 
 }
 
 /// Decodes `input` in one call and under `seed`'s split, and in one call through the checked path
-/// alone and with each claim off, and requires all to agree.
+/// alone and with each claim off, and requires all to agree. The split decode takes the CPU's
+/// features, so where the CPU runs the assembly it meets the Zig loop (decision 23).
 fn check_split(input: []const u8, seed: u64) !void {
     var states: [codec.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
@@ -60,7 +61,7 @@ fn check_split(input: []const u8, seed: u64) !void {
     const whole = verdict_of(states[0].decode(input, &whole_output));
     try check_paths(.{ .fast_paths = false }, input, whole, &whole_output);
     inline for (claims.each_off) |off| try check_paths(.{ .claims = off }, input, whole, &whole_output);
-    states[0].init(.{});
+    states[0].init(codec.Features.detect());
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);

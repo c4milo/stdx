@@ -111,6 +111,8 @@ pub const Context = struct {
     window_len: u64,
     /// Invariant 17's count for the frame's decoder.
     work: *Work,
+    /// Whether the CPU runs the x86-64 assembly of the fast paths (decision 23).
+    assembly: bool,
 };
 
 /// Reads the block's literals section and sequences header, and starts its sequences (RFC 8878

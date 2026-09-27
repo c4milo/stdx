@@ -1,0 +1,300 @@
+//! The Zstandard sequence execution fast path in x86-64 assembly (decision 23, which amends
+//! decision 16 for this loop): `fast_sequences.run_loop` with its state in registers the assembly
+//! allots, taking the sequences the Zig loop takes and writing the same octets.
+//!
+//! It is the aarch64 loop's port, which `fast_sequences_aarch64.zig` describes: the same claims,
+//! checks and copies, on a CPU with BMI2 and SSSE3. BMI2's SHRX and BZHI read a field whatever its
+//! width, and SSSE3's PSHUFB builds a short distance's first chunk. With 14 registers to aarch64's
+//! 29, it keeps the repeats, the rooms and the limits in `Loop`, which x86-64 reads in place.
+//!
+//! Its reads and writes go by address, without Zig's bounds checks. The checks it makes of each
+//! sequence, those of the checked path and the output's room, keep them inside the stream, the
+//! tables, the literals and the output.
+
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const codec = @import("codec");
+const constants = @import("../constants.zig");
+const sequences = @import("../sequences.zig");
+const block = @import("../block.zig");
+const Claims = @import("../claims.zig").Claims;
+const work_module = @import("../work.zig");
+const test_writer = @import("../test_writer.zig");
+const loop_text = @import("fast_sequences_x86_64_template.zig");
+
+/// Whether the compiler assembles the x86-64 assembly: LLVM does, and Zig's own x86-64 backend, the
+/// Debug default there, takes none of its directives, so a build through it keeps the Zig loops.
+pub const assembles = builtin.zig_backend == .stage2_llvm;
+
+/// Whether a CPU with `features` runs the x86-64 assembly: an x86-64 CPU with BMI2 and SSSE3.
+pub fn runs(features: codec.Features) bool {
+    return builtin.cpu.arch == .x86_64 and features.bmi2;
+}
+
+/// Whether the assembly takes the loop: an x86-64 target whose compiler assembles it, the claims all
+/// on, and literals from a slice. The CPU's BMI2 is checked when a block runs, as `runs` gives it.
+pub fn takes(comptime from_slice: bool, comptime claims: Claims) bool {
+    return assembles and builtin.cpu.arch == .x86_64 and from_slice and claims.chunk_copies and claims.window_once;
+}
+
+/// The loop's state, as the assembly reads and writes it: every field 8 octets, at the offsets the
+/// template names. `literals_length` is the tables' first octet, from which the offset and match
+/// length cells lie at fixed distances.
+const Loop = extern struct {
+    stream: [*]const u8,
+    literals_length: [*]const u64,
+    offset: [*]const u64,
+    match_length: [*]const u64,
+    /// Where the next sequence's literals go.
+    output: [*]u8,
+    /// The output's end less `copy_overrun_len`: the last place a sequence's octets may end.
+    output_limit: [*]const u8,
+    /// The call's first octet the window has not taken.
+    synced: [*]const u8,
+    /// The next literal, and the literals the loop may still take.
+    literals: [*]const u8,
+    literals_room: usize,
+    /// The match octets the block may still promise against Block_Maximum_Size.
+    promised_room: usize,
+    window_len: u64,
+    position: usize,
+    /// The sequences the loop may take, and those left to take, which the loop counts in memory.
+    count: usize,
+    repeats: [constants.repeated_offsets_initial.len]u64,
+    states: [constants.repeated_offsets_initial.len]u64,
+    /// `repeat_indices`, which the assembly reads a match of a distance below a chunk through.
+    patterns: *const [constants.copy_chunk_len][constants.copy_chunk_len]u8,
+    left: usize,
+};
+
+/// For each distance below a chunk, the index of each octet of a match's first chunk among the
+/// distance's octets before the match: the octet's place modulo the distance, as each octet is the
+/// one the distance before it.
+const repeat_indices: [constants.copy_chunk_len][constants.copy_chunk_len]u8 = indices: {
+    var indices: [constants.copy_chunk_len][constants.copy_chunk_len]u8 = @splat(@splat(0));
+    for (indices[1..], 1..) |*row, distance| {
+        for (row, 0..) |*index, place| index.* = place % distance;
+    }
+    break :indices indices;
+};
+
+/// The most a sequence's copies write past its octets, and read past its literals: two chunks.
+const copy_overrun_len = constants.copy_chunk_len + constants.copy_chunk_len;
+
+/// Which way the loop takes a sequence's offset: through branches, for a block whose offsets are
+/// nearly all new, which a branch predicts; or through selects, for a block whose offsets repeat
+/// often enough that a branch would mispredict.
+const Offsets = enum { branches, selects };
+
+/// The way `tables` has the loop take the block's offsets.
+fn offsets_of(tables: *const sequences.Tables) Offsets {
+    return if (tables.offset_repeat_share() >= constants.offset_selects_cells_min) .selects else .branches;
+}
+
+/// Runs the loop over `run` as `fast_sequences.run_loop` does, for a caller that checked `takes` and
+/// that the CPU runs the assembly.
+pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, stream: []const u8, tables: *const sequences.Tables, sink: *block.Sink(Window), literal_source: []const u8) void {
+    const output = sink.output;
+    if (output.len < copy_overrun_len or literal_source.len < copy_overrun_len) return;
+    // The literals the loop may take: each run's copies read up to `copy_overrun_len` past it.
+    const literals_end = @min(run.section.len, literal_source.len - copy_overrun_len);
+    if (run.literals_used > literals_end) return;
+    assert(run.promised_len <= context.block_len_max and run.stream.left > 1);
+    var loop: Loop = .{
+        .stream = stream.ptr,
+        .literals_length = @ptrCast(&tables.literals_length),
+        .offset = @ptrCast(&tables.offset),
+        .match_length = @ptrCast(&tables.match_length),
+        .output = output[sink.written..].ptr,
+        .output_limit = output[output.len - copy_overrun_len ..].ptr,
+        .synced = output[sink.synced.*..].ptr,
+        .literals = literal_source[run.literals_used..].ptr,
+        .literals_room = literals_end - run.literals_used,
+        .promised_room = context.block_len_max - run.promised_len,
+        .window_len = context.window_len,
+        .position = run.stream.position,
+        // The block's last sequence reads no states, and `step` takes it.
+        .count = run.stream.left - 1,
+        .repeats = undefined,
+        .states = undefined,
+        .patterns = &repeat_indices,
+        .left = run.stream.left - 1,
+    };
+    for (&loop.repeats, context.repeats) |*held, repeat| held.* = repeat;
+    for (&loop.states, run.stream.states) |*held, state| held.* = state;
+    const taken = switch (offsets_of(tables)) {
+        inline else => |offsets| execute(offsets, &loop),
+    };
+    assert(taken < run.stream.left);
+    run.stream.position = loop.position;
+    run.stream.left -= @intCast(taken);
+    for (context.repeats, loop.repeats) |*repeat, held| repeat.* = @intCast(held);
+    for (&run.stream.states, loop.states) |*state, held| state.* = @intCast(held);
+    run.literals_used = @intCast(literals_end - loop.literals_room);
+    run.promised_len = @intCast(context.block_len_max - loop.promised_room);
+    sink.written = @intFromPtr(loop.output) - @intFromPtr(output.ptr);
+    work_module.add(context.work, work_module.of(taken));
+}
+
+/// Takes sequences until the margins fail or one is left, as `Loop` describes, and returns how many
+/// it took.
+noinline fn execute(comptime offsets: Offsets, loop: *Loop) usize {
+    return asm volatile (template(offsets)
+        : [taken] "={rax}" (-> usize),
+        : [loop] "{rdi}" (loop),
+        : .{
+          .memory = true,
+          .cc = true,
+          .xmm0 = true,
+          .xmm1 = true,
+          .rbx = true,
+          .rcx = true,
+          .rdx = true,
+          .rsi = true,
+          .r8 = true,
+          .r9 = true,
+          .r10 = true,
+          .r11 = true,
+          .r12 = true,
+          .r13 = true,
+          .r14 = true,
+          .r15 = true,
+        });
+}
+
+comptime {
+    assert(constants.repeated_offsets_initial.len == sequences.slot(.match_length) + 1);
+    assert(@sizeOf(sequences.Cell) == @sizeOf(u64));
+    // A chunk is one vector register.
+    assert(constants.copy_chunk_len == @sizeOf(u128));
+    // A cell's base is its low 32 bits, then its bits and extra bits an octet each, and its
+    // baseline 16 bits, each read in place by its octet.
+    assert(@bitOffsetOf(sequences.Cell, "base") == 0 and @bitSizeOf(@FieldType(sequences.Cell, "base")) == @bitSizeOf(u32));
+    assert(@bitSizeOf(@FieldType(sequences.Cell, "bits")) == @bitSizeOf(u8) and @bitSizeOf(@FieldType(sequences.Cell, "extra_bits")) == @bitSizeOf(u8));
+    assert(@bitSizeOf(@FieldType(sequences.Cell, "baseline")) == @bitSizeOf(u16));
+    assert(@bitOffsetOf(sequences.Cell, "bits") % @bitSizeOf(u8) == 0 and @bitOffsetOf(sequences.Cell, "extra_bits") % @bitSizeOf(u8) == 0);
+    // The three tables sit in one `sequences.Tables`, the literals length cells first.
+    assert(@offsetOf(sequences.Tables, "literals_length") == 0);
+    assert(@offsetOf(sequences.Tables, "offset") > 0 and @offsetOf(sequences.Tables, "match_length") > 0);
+}
+
+/// The loop's text, its offsets taken as `offsets` says, with the offsets and constants it names
+/// filled in.
+fn template(comptime offsets: Offsets) []const u8 {
+    return std.fmt.comptimePrint(switch (offsets) {
+        .branches => joined(&.{ loop_text.decode, loop_text.offsets_by_branches, loop_text.checks, loop_text.window_by_branches, loop_text.copies, loop_text.repeats_by_branches, loop_text.tail }),
+        .selects => joined(&.{ loop_text.decode, loop_text.offsets_by_selects, loop_text.checks, loop_text.window_by_selects, loop_text.copies, loop_text.tail }),
+    }, template_arguments);
+}
+
+/// `pieces` one after another, each ending its last line.
+fn joined(comptime pieces: []const []const u8) []const u8 {
+    comptime var text: []const u8 = "";
+    inline for (pieces) |piece| text = text ++ piece ++ "\n";
+    return text;
+}
+
+const octet_bits = @bitSizeOf(u8);
+
+const template_arguments = .{
+    .stream = @offsetOf(Loop, "stream"),
+    .literals_length = @offsetOf(Loop, "literals_length"),
+    .output = @offsetOf(Loop, "output"),
+    .output_limit = @offsetOf(Loop, "output_limit"),
+    .synced = @offsetOf(Loop, "synced"),
+    .literals = @offsetOf(Loop, "literals"),
+    .literals_room = @offsetOf(Loop, "literals_room"),
+    .promised_room = @offsetOf(Loop, "promised_room"),
+    .window_len = @offsetOf(Loop, "window_len"),
+    .position = @offsetOf(Loop, "position"),
+    .count = @offsetOf(Loop, "count"),
+    .left = @offsetOf(Loop, "left"),
+    .patterns = @offsetOf(Loop, "patterns"),
+    .repeat_first = @offsetOf(Loop, "repeats"),
+    .repeat_second = @offsetOf(Loop, "repeats") + @sizeOf(u64),
+    .repeat_third = @offsetOf(Loop, "repeats") + (constants.repeated_offsets_initial.len - 1) * @sizeOf(u64),
+    .literals_length_state = @offsetOf(Loop, "states") + sequences.slot(.literals_length) * @sizeOf(u64),
+    .offset_state = @offsetOf(Loop, "states") + sequences.slot(.offset) * @sizeOf(u64),
+    .match_length_state = @offsetOf(Loop, "states") + sequences.slot(.match_length) * @sizeOf(u64),
+    // The offset and match length cells from the literals length cells.
+    .offset_cells = @offsetOf(sequences.Tables, "offset") - @offsetOf(sequences.Tables, "literals_length"),
+    .match_length_cells = @offsetOf(sequences.Tables, "match_length") - @offsetOf(sequences.Tables, "literals_length"),
+    .bits_at = @bitOffsetOf(sequences.Cell, "bits") / octet_bits,
+    .extra_at = @bitOffsetOf(sequences.Cell, "extra_bits") / octet_bits,
+    .baseline_at = @bitOffsetOf(sequences.Cell, "baseline") / octet_bits,
+    .read_min = constants.fast_read_position_min,
+    .word_bits = @bitSizeOf(u64),
+    // The bits a load holds below the position past the most a sequence may read.
+    .bits_left_min = @bitSizeOf(u64) - constants.fast_read_position_min,
+    .repeat_values = constants.repeat_offset_values,
+    .chunk = constants.copy_chunk_len,
+    .chunk_shift = std.math.log2_int(usize, constants.copy_chunk_len),
+    .pair = copy_overrun_len,
+};
+
+test "a block's offsets go by selects once enough of its offset cells name a repeat" {
+    var tables: sequences.Tables = undefined;
+    tables.accuracy_logs[sequences.slot(.offset)] = constants.offset_accuracy_log_max;
+    tables.offset_repeat_cells = constants.offset_selects_cells_min - 1;
+    try std.testing.expectEqual(.branches, offsets_of(&tables));
+    tables.offset_repeat_cells = constants.offset_selects_cells_min;
+    try std.testing.expectEqual(.selects, offsets_of(&tables));
+    // A table of 32 cells counts each as 8 of 256: 2 is 16, below the least, and 3 is 24.
+    tables.accuracy_logs[sequences.slot(.offset)] = constants.offset_default_accuracy_log;
+    tables.offset_repeat_cells = 2;
+    try std.testing.expectEqual(.branches, offsets_of(&tables));
+    tables.offset_repeat_cells = 3;
+    try std.testing.expectEqual(.selects, offsets_of(&tables));
+}
+
+test "the assembly runs only on an x86-64 CPU with BMI2" {
+    try std.testing.expect(!runs(.{}));
+    try std.testing.expectEqual(builtin.cpu.arch == .x86_64, runs(.{ .bmi2 = true }));
+}
+
+test "a distance past the call's octets leaves the loop, wherever the output lies" {
+    if (comptime !takes(true, .{})) return error.SkipZigTest;
+    if (!runs(codec.Features.detect())) return error.SkipZigTest;
+    // RLE_Mode for all three codes: literals length code 1, one literal; offset code 20, an
+    // Offset_Value of 2^20 and 20 bits more; match length code 0, 3 octets. No state reads a bit.
+    const offset_code = 20;
+    var tables: sequences.Tables = undefined;
+    tables.init();
+    _ = try sequences.read_header(&.{ 1, 1 << 6 | 1 << 4 | 1 << 2, 1, offset_code, 0 }, &tables);
+    // The offset's bits read first, then as many the loop never reads, so the load holds 57.
+    const unread_bits = constants.fast_read_position_min - offset_code;
+    var writer: test_writer.BitWriter = .{};
+    writer.put(0, unread_bits);
+    writer.put(0, offset_code);
+    const stream = writer.finish();
+    const literals: [copy_overrun_len + 1]u8 = @splat(0);
+    // An output at an address below the distance, which a check of the source's address would let
+    // wrap; the loop must leave the sequence and write nothing there.
+    const low_address = 0x10000;
+    var loop: Loop = .{
+        .stream = stream.ptr,
+        .literals_length = @ptrCast(&tables.literals_length),
+        .offset = @ptrCast(&tables.offset),
+        .match_length = @ptrCast(&tables.match_length),
+        .output = @ptrFromInt(low_address),
+        .output_limit = @ptrFromInt(low_address + constants.http_window_len),
+        .synced = @ptrFromInt(low_address),
+        .literals = &literals,
+        .literals_room = literals.len,
+        .promised_room = constants.block_len_max,
+        .window_len = constants.http_window_len,
+        .position = codec.BackwardBitReader.init(stream).?.position,
+        .count = 1,
+        .repeats = undefined,
+        .states = @splat(0),
+        .patterns = &repeat_indices,
+        .left = 1,
+    };
+    for (&loop.repeats, constants.repeated_offsets_initial) |*held, repeat| held.* = repeat;
+    inline for (comptime std.enums.values(Offsets)) |offsets| {
+        var each = loop;
+        try std.testing.expectEqual(0, execute(offsets, &each));
+        try std.testing.expectEqual(loop.output, each.output);
+    }
+}

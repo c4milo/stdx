@@ -21,6 +21,7 @@ const huffman = @import("../huffman.zig");
 const sequences = @import("../sequences.zig");
 const work_module = @import("../work.zig");
 const Paths = @import("../claims.zig").Paths;
+const sequences_x86_64 = @import("../fast_sequences/fast_sequences_x86_64.zig");
 const Work = work_module.Work;
 
 pub const DecoderOptions = struct {
@@ -103,6 +104,8 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         huffman_valid: bool,
         hash: checksum.Xxh64,
         hash_path: checksum.Xxh64Path,
+        /// Whether the CPU runs the x86-64 assembly of the fast paths (decision 23).
+        assembly: bool,
         /// The block: whether it is the frame's last, its Block_Size, the octets of it still to
         /// read or write, and a repeated block's octet.
         last_block: bool,
@@ -124,6 +127,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         /// Starts a stream. Writes no octet of the window (decision 11).
         pub fn init(self: *Self, features: codec.Features) void {
             self.hash_path = checksum.Xxh64Path.fastest(checksum.Features.from(features));
+            self.assembly = sequences_x86_64.runs(features);
             self.work = work_module.zero;
             self.start();
         }

@@ -213,6 +213,7 @@ fn context(comptime options: DecoderOptions, self: *Self(options), octets: []con
         .block_len_max = self.block_len_max,
         .window_len = self.header.window_len,
         .work = &self.work,
+        .assembly = self.assembly,
     };
 }
 

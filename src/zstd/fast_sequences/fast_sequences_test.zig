@@ -211,7 +211,9 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) decoder_module.Error
 }
 
 /// Decodes a valid seeded frame on the fast path whole and split and on the checked path, and
-/// requires the octets it decodes to, the same on each, and the same count of work.
+/// requires the octets it decodes to, the same on each, and the same count of work. The whole
+/// decode takes no CPU feature, and the split one the CPU's, so where the CPU runs the assembly,
+/// the Zig loop and the assembly both meet the checked path (decision 23).
 fn expect_alike(shape: Shape, seed: u64) !void {
     var frame: FrameWriter = .{};
     const decoded_len = try seeded_frame(&frame, seed, shape);
@@ -228,44 +230,50 @@ fn expect_alike(shape: Shape, seed: u64) !void {
     try testing.expectEqual(checked.work, decoder.work);
     var split_output: [output_capacity]u8 = undefined;
     var states: [codec.split.state_slots]Decoder = undefined;
-    states[0].init(.{});
+    states[0].init(codec.Features.detect());
     const outcome = try codec.split.drive(Decoder, &states, step, frame.written(), &split_output, seed);
     try testing.expectEqual(.done, outcome.status);
     try testing.expectEqualSlices(u8, output[0..decoded_len], split_output[0..outcome.written]);
 }
 
 /// Decodes a seeded frame built to break a rule on both paths, and requires `refusal` of each after
-/// the same count of work, so the fast loop took no sequence past the one refused.
+/// the same count of work, so the fast loop took no sequence past the one refused: without CPU
+/// features and with the CPU's, which run the assembly where the CPU does.
 fn expect_refused(shape: Shape, seed: u64, refusal: anyerror) !void {
     var frame: FrameWriter = .{};
     _ = try seeded_frame(&frame, seed, shape);
     var output: [output_capacity]u8 = undefined;
-    var decoder: Decoder = undefined;
-    decoder.init(.{});
-    try testing.expectError(refusal, decoder.decode(frame.written(), &output));
     var checked: CheckedDecoder = undefined;
     checked.init(.{});
     try testing.expectError(refusal, checked.decode(frame.written(), &output));
-    try testing.expectEqual(checked.work, decoder.work);
+    for ([_]codec.Features{ .{}, codec.Features.detect() }) |features| {
+        var decoder: Decoder = undefined;
+        decoder.init(features);
+        try testing.expectError(refusal, decoder.decode(frame.written(), &output));
+        try testing.expectEqual(checked.work, decoder.work);
+    }
 }
 
 /// Decodes a seeded frame that may break a rule on both paths, and requires the same verdict, the
-/// same octets when it is valid, and the same count of work.
+/// same octets when it is valid, and the same count of work: without CPU features and with the
+/// CPU's, which run the assembly where the CPU does.
 fn expect_same(shape: Shape, seed: u64) !void {
     var frame: FrameWriter = .{};
     _ = try seeded_frame(&frame, seed, shape);
-    var output: [output_capacity]u8 = undefined;
-    var decoder: Decoder = undefined;
-    decoder.init(.{});
-    const fast = decoder.decode(frame.written(), &output);
     var checked_output: [output_capacity]u8 = undefined;
     var checked: CheckedDecoder = undefined;
     checked.init(.{});
     const slow = checked.decode(frame.written(), &checked_output);
-    try testing.expectEqual(slow, fast);
-    try testing.expectEqual(checked.work, decoder.work);
-    const progress = fast catch return;
-    try testing.expectEqualSlices(u8, checked_output[0..progress.written], output[0..progress.written]);
+    for ([_]codec.Features{ .{}, codec.Features.detect() }) |features| {
+        var output: [output_capacity]u8 = undefined;
+        var decoder: Decoder = undefined;
+        decoder.init(features);
+        const fast = decoder.decode(frame.written(), &output);
+        try testing.expectEqual(slow, fast);
+        try testing.expectEqual(checked.work, decoder.work);
+        const progress = fast catch continue;
+        try testing.expectEqualSlices(u8, checked_output[0..progress.written], output[0..progress.written]);
+    }
 }
 
 /// Offsets 5 to 28 (Offset_Value 8 and 16 plus 3 and 4 bits), under a chunk's 16 octets and past it.

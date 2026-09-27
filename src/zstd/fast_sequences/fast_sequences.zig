@@ -31,6 +31,7 @@ const fast_literals = @import("../fast_literals.zig");
 const copy = @import("fast_sequences_copy.zig");
 const Reader = @import("../fast_reader.zig").Reader;
 const aarch64 = @import("fast_sequences_aarch64.zig");
+const x86_64 = @import("fast_sequences_x86_64.zig");
 
 const LiteralsLengthCells = @FieldType(sequences.Tables, "literals_length");
 const OffsetCells = @FieldType(sequences.Tables, "offset");
@@ -97,6 +98,10 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
     // lies in the stream's first `constants.fast_read_position_min` bits.
     if (run.stream.left <= 1 or run.stream.position < constants.fast_read_position_min or output.len < constants.output_slack or literals_end + copy.overrun_of(kind == .slice, claims) > literal_source.len and kind == .slice) return;
     if (comptime aarch64.takes(kind == .slice, claims)) return aarch64.run_loop(Window, run, context, found.stream, found.tables, sink, literal_source);
+    // The x86-64 assembly, where the CPU runs it (decision 23).
+    if (comptime x86_64.takes(kind == .slice, claims)) {
+        if (context.assembly) return x86_64.run_loop(Window, run, context, found.stream, found.tables, sink, literal_source);
+    }
     run_iterations(kind, Window, claims, run, context, found, sink, literal_source, literals_end);
 }
 

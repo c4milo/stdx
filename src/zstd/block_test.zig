@@ -11,6 +11,7 @@ const huffman = @import("huffman.zig");
 const sequences = @import("sequences.zig");
 const work_module = @import("work.zig");
 const BitWriter = @import("test_writer.zig").BitWriter;
+const sequences_x86_64 = @import("fast_sequences/fast_sequences_x86_64.zig");
 
 /// A window of one Block_Maximum_Size, enough for these blocks.
 const window_len = constants.block_len_max;
@@ -51,6 +52,7 @@ const Fixture = struct {
             .block_len_max = self.block_len_max,
             .window_len = self.window_len,
             .work = &self.work,
+            .assembly = sequences_x86_64.runs(codec.Features.detect()),
         };
     }
 };
