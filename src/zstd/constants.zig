@@ -250,6 +250,10 @@ pub const fast_read_position_min = 57;
 /// of a table of short codes as that, and the loop's unrolled body grows with each.
 pub const literals_per_load_max = 8;
 
+/// The Huffman weights one load of the tree's fast read decodes: 8 state updates of at most
+/// `huffman_weights_accuracy_log_max` bits each, fewer than a load's 57.
+pub const weights_per_load = 8;
+
 /// Invariant 17's count for one table: the cells its build fills, and the symbols its description
 /// decodes.
 pub fn table_work_max(accuracy_log: u5, symbols: usize) usize {
@@ -286,6 +290,7 @@ comptime {
     assert(work_per_octet_max >= @bitSizeOf(u8));
     // A fast copy writes whole chunks, so no iteration writes past `chunk_len_max`.
     assert(chunk_len_max % copy_chunk_len == 0);
+    assert(weights_per_load * huffman_weights_accuracy_log_max <= fast_read_position_min);
     assert(block_len_max <= http_window_len);
     assert(literals_length_baselines[literals_length_symbols - 1] + (1 << literals_length_extra_bits[literals_length_symbols - 1]) - 1 == 131071);
     assert(match_length_baselines[match_length_symbols - 1] + (1 << match_length_extra_bits[match_length_symbols - 1]) - 1 == 131074);

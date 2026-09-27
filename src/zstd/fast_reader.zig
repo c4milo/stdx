@@ -1,17 +1,29 @@
 //! A backward stream of the Zstandard decoder's fast paths (decision 16), read from one 8-octet
 //! load at a time as the checked backward reader reads it (RFC 8878 §4.1): the sequences' stream
-//! where the loop leaves it.
+//! where the loop leaves it, and a Huffman tree's FSE-compressed weights.
 
 const std = @import("std");
 const codec = @import("codec");
+const constants = @import("constants.zig");
 
 /// The stream's first 8 octets as a little-endian word, zero past its end when it is shorter: the
 /// load of any position in the stream's first 64 bits.
 pub fn head_of(octets: []const u8) u64 {
+    if (octets.len >= @sizeOf(u64)) return std.mem.readInt(u64, octets[0..@sizeOf(u64)], .little);
     var padded: [@sizeOf(u64)]u8 = @splat(0);
-    const len = @min(octets.len, padded.len);
-    @memcpy(padded[0..len], octets[0..len]);
+    @memcpy(padded[0..octets.len], octets);
     return std.mem.readInt(u64, &padded, .little);
+}
+
+/// The 8 octets of `octets` whose last holds the bit below `position`, shifted so that bit leads:
+/// at least `constants.fast_read_position_min` bits of the stream lead the word (RFC 8878 §4.1).
+/// Within the stream's first 64 bits, `head` shifted the same way, the bits before the stream's
+/// first reading as zeros.
+pub inline fn leading(octets: []const u8, head: u64, position: usize) u64 {
+    if (position < @bitSizeOf(u64)) return (head << 1) << @as(u6, @truncate(@bitSizeOf(u64) - 1 - position));
+    const below = position - constants.fast_read_position_min;
+    const lag: u3 = @truncate(below);
+    return std.mem.readInt(u64, octets[below / @bitSizeOf(u8) ..][0..@sizeOf(u64)], .little) << ~lag;
 }
 
 /// A backward stream read from one 8-octet load at a time: the load's bits below the position are

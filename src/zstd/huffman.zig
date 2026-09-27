@@ -4,6 +4,11 @@
 //!
 //! The table has 2^Max_Number_of_Bits cells. The next Max_Number_of_Bits bits of a stream, the
 //! first read most significant, index the cell that names the symbol and its Number_of_Bits.
+//!
+//! A tree's read is much of a small body's cost. It works in the table's scratch, which a safe
+//! build does not fill as it fills an `undefined` local. FSE-compressed weights decode several to
+//! an 8-octet load, each counted as it comes; then the literals are placed by weight, and the
+//! shortest runs of cells go several literals to a store.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -12,6 +17,7 @@ const constants = @import("constants.zig");
 const work_module = @import("work.zig");
 const Work = work_module.Work;
 const fse = @import("fse.zig");
+const fast_reader = @import("fast_reader.zig");
 
 /// One cell: the code's Number_of_Bits, and the symbol whose code begins these bits. The length
 /// comes first, in the low octet, so a shift by the cell's low bits uses the code.
@@ -21,12 +27,15 @@ pub const Entry = packed struct(u16) {
 };
 
 pub const Table = struct {
-    cells: [1 << constants.huffman_bits_max]Entry,
+    /// 2^Max_Number_of_Bits cells, then room for the last store of a fill to pass them.
+    cells: [(1 << constants.huffman_bits_max) + fill_group_len]Entry,
     /// Max_Number_of_Bits.
     bits_max: u4,
     /// Invariant 17's count for the last tree read: its cells, its weights, and the cells and
     /// symbols of the FSE table that decoded them, if one did.
     work: Work,
+    /// Where a tree's read works; nothing a stream's decoding reads.
+    scratch: Scratch,
 };
 
 /// Every way a Huffman tree description or stream breaks RFC 8878 §4.2.
@@ -45,12 +54,67 @@ const weight_symbols = constants.huffman_weight_max + 1;
 /// The states that take turns decoding FSE-compressed weights (RFC 8878 §4.2.1.2).
 const weight_states = 2;
 
-/// The weights read for literals 0 up to the last present one, which is not written.
+/// A weight's index into an array of 16, which holds every weight 4 bits give.
+const weight_index_bits = 4;
+
+/// The weights read for literals 0 up to the last present one, which is not written, and their
+/// tally, which the table's build reads.
 pub const Weights = struct {
     values: [constants.literal_symbols]u8,
     /// The literals whose weights were written; the last present literal is this one.
     written: u16,
+    tally: Tally,
+
+    /// No weight written.
+    pub fn init(self: *Weights) void {
+        self.written = 0;
+        self.tally = .zero;
+    }
+
+    /// Writes `literal`'s weight and tallies it.
+    pub fn put(self: *Weights, literal: u8, weight: u8) void {
+        self.values[literal] = weight;
+        self.tally.add(weight);
+    }
 };
+
+/// What the table's build needs of the weights, counted as each is written: a reader keeps it in
+/// a local, where no write of a weight can alias it.
+pub const Tally = struct {
+    /// How many of the weights take each value.
+    counts: [1 << weight_index_bits]u16,
+    /// The sum of 2^(Weight-1) over the weights, a weight of 0 adding none (RFC 8878 §4.2.1).
+    sum: u32,
+
+    pub const zero: Tally = .{ .counts = @splat(0), .sum = 0 };
+
+    /// Tallies a weight, below 16 as 4 bits or the weight table's 12 symbols hold it. At most 256
+    /// are tallied, so no count or sum wraps.
+    pub inline fn add(self: *Tally, weight: u8) void {
+        const index: u4 = @truncate(weight);
+        self.counts[index] +%= 1;
+        self.sum +%= (@as(u32, 1) << index) >> 1;
+    }
+};
+
+/// What a tree's read works on: its weights, its literals placed by weight, and the table that
+/// decodes FSE-compressed weights.
+const Scratch = struct {
+    weights: Weights,
+    sorted: [sorted_len]u8,
+    distribution: fse.Distribution,
+    weight_table: WeightTable,
+};
+
+/// The bits of a place in `sorted`, which index it whole: the literals placed by weight, the place
+/// past them where literals of weight 0 go, and room for a run's last load to pass them.
+const sorted_index_bits = 9;
+const sorted_len = 1 << sorted_index_bits;
+
+comptime {
+    assert(constants.literal_symbols + 1 + fill_group_len <= sorted_len);
+    assert(constants.huffman_weight_max < 1 << weight_index_bits and @sizeOf(Entry) == @sizeOf(u16));
+}
 
 /// Reads the Huffman_Tree_Description at the start of `octets` into `table`. Returns the octets
 /// it takes (RFC 8878 §3.1.1.3.1.5).
@@ -58,13 +122,13 @@ pub fn read_tree(octets: []const u8, table: *Table) Error!usize {
     // RFC 8878 §4.2.1.1: a tree description starts with its header byte.
     if (octets.len == 0) return error.HuffmanTreeTruncated;
     const header = octets[0];
-    var weights: Weights = undefined;
+    const scratch = &table.scratch;
     var weights_work = work_module.zero;
     const description_len = if (header < constants.huffman_direct_header_min)
-        try read_compressed_weights(octets[1..], header, &weights, &weights_work)
+        try read_compressed_weights(octets[1..], header, scratch, &weights_work)
     else
-        try read_direct_weights(octets[1..], header - constants.huffman_direct_symbols_offset, &weights);
-    try build(&weights, table);
+        try read_direct_weights(octets[1..], header - constants.huffman_direct_symbols_offset, &scratch.weights);
+    try build(&scratch.weights, table);
     work_module.add(&table.work, weights_work);
     return 1 + description_len;
 }
@@ -75,106 +139,102 @@ fn read_direct_weights(octets: []const u8, count: u16, weights: *Weights) Error!
     const octets_len = (count + per_octet - 1) / per_octet;
     // RFC 8878 §4.2.1.1: the weights take ceiling(Number_of_Symbols / 2) octets.
     if (octets.len < octets_len) return error.HuffmanTreeTruncated;
-    for (0..count) |index| {
+    var tally: Tally = .zero;
+    for (weights.values[0..count], 0..) |*weight, index| {
         const octet = octets[index / per_octet];
-        weights.values[index] = if (index % per_octet == 0) octet >> constants.huffman_weight_bits else octet & constants.huffman_weight_mask;
+        weight.* = if (index % per_octet == 0) octet >> constants.huffman_weight_bits else octet & constants.huffman_weight_mask;
+        tally.add(weight.*);
     }
     weights.written = count;
+    weights.tally = tally;
     return octets_len;
 }
 
 /// Weights FSE-compressed in `compressed_len` octets: a table description, then a backward stream
 /// two states share, the first decoding the even-numbered weights (RFC 8878 §4.2.1.2).
-fn read_compressed_weights(octets: []const u8, compressed_len: u8, weights: *Weights, work: *Work) Error!usize {
+fn read_compressed_weights(octets: []const u8, compressed_len: u8, scratch: *Scratch, work: *Work) Error!usize {
     // RFC 8878 §4.2.1.1: the FSE-compressed weights take headerByte octets.
     if (octets.len < compressed_len) return error.HuffmanTreeTruncated;
     const compressed = octets[0..compressed_len];
-    var distribution: fse.Distribution = undefined;
-    const description_len = try fse.read_distribution(compressed, weight_symbols, constants.huffman_weights_accuracy_log_max, &distribution);
-    var table: fse.Table(constants.huffman_weights_accuracy_log_max) = undefined;
-    try fse.build(constants.huffman_weights_accuracy_log_max, &table, &distribution);
+    const description_len = try fse.read_distribution(compressed, weight_symbols, constants.huffman_weights_accuracy_log_max, &scratch.distribution);
+    const table = &scratch.weight_table;
+    try fse.build(constants.huffman_weights_accuracy_log_max, table, &scratch.distribution);
     // RFC 8878 §4.2.1.2: the table description and its stream fit the compressed size.
     if (description_len > compressed.len) return error.HuffmanTreeTruncated;
     // RFC 8878 §4.2.1.2 and §4.2.2: the stream's last octet holds its final 1 bit.
     var reader = codec.BackwardBitReader.init(compressed[description_len..]) orelse return error.HuffmanWeightsInvalid;
-    try decode_weights(&table, &reader, weights);
+    // State1 is read first, then State2 (RFC 8878 §4.2.1.2).
+    const state1 = reader.read(table.accuracy_log);
+    const state2 = reader.read(table.accuracy_log);
+    try decode_weights(table, reader.octets, .{ state1, state2 }, reader.position, reader.overflowed, &scratch.weights);
     work.* = table.work;
     return compressed_len;
 }
 
-/// Decodes weights with two states taking turns until a state's update reads past the stream's
-/// start, which reads zeros there; the other state's symbol is then the last (RFC 8878 §4.2.1.2).
-fn decode_weights(table: *const fse.Table(constants.huffman_weights_accuracy_log_max), reader: *codec.BackwardBitReader, weights: *Weights) Error!void {
-    const cells = table.entries();
-    // State1 is read first, then State2 (RFC 8878 §4.2.1.2).
-    var states: [weight_states]usize = undefined;
-    for (&states) |*state| state.* = reader.read(table.accuracy_log);
-    var peeked: Peeked = .{};
-    var count: usize = 0;
-    // Every weight takes a turn; at most `literal_symbols - 1` are written (RFC 8878 §4.2.1.2).
-    for (0..constants.literal_symbols) |turn| {
-        const current = turn % states.len;
-        // RFC 8878 §4.2.1.2: at most 255 weights, as literals span 0 to 255 and the last is unwritten.
-        if (count == weights.values.len - 1) return error.HuffmanWeightsInvalid;
-        const cell = fse_cell(cells, states[current]);
-        weights.values[count] = cell.symbol;
-        count += 1;
-        states[current] = @as(usize, cell.baseline) + peeked.read(reader, @intCast(cell.bits));
-        if (!reader.overflowed) continue;
-        weights.values[count] = fse_cell(cells, states[1 - current]).symbol;
-        weights.written = @intCast(count + 1);
-        return;
-    }
-    // RFC 8878 §4.2.1.2: the loop above ends at the 255th weight or earlier.
-    return error.HuffmanWeightsInvalid;
+/// The passes of `decode_weights` that write 255 weights, the most before the last.
+const weight_passes_max = (constants.literal_symbols - 1) / constants.weights_per_load + 1;
+
+comptime {
+    assert(constants.weights_per_load % weight_states == 0);
 }
 
-/// A backward stream's next bits, peeked from the reader 57 at a time and taken as
-/// they are read: each read costs a shift where the reader's own would cost a load and its checks.
-/// The reader uses them when the next peek comes, and a read past the stream's first bit, which
-/// takes zeros there, marks it overflowed at once, as its own read would.
-const Peeked = struct {
-    /// The peeked bits not yet read, the next to read most significant, at the top.
-    word: u64 = 0,
-    /// The bits of `word` not yet read.
-    held: u6 = 0,
-    /// The stream's bits before the next read, which a read of more reaches past its first.
-    remaining: usize = 0,
-    /// The bits read since the last peek, which the reader has not used yet.
-    taken: u6 = 0,
-
-    /// `count` bits, the first read most significant, as `reader.read(count)` gives them.
-    fn read(self: *Peeked, reader: *codec.BackwardBitReader, count: u6) u64 {
-        if (count > self.held) self.peek(reader);
-        const value = (self.word >> 1) >> ~count;
-        self.word <<= count;
-        self.held -= count;
-        if (count > self.remaining) {
-            // The reader's own read would have used every bit and marked it overflowed.
-            reader.consume(self.taken + count);
-            self.remaining = 0;
-            self.taken = 0;
-            return value;
+/// Decodes weights with two states taking turns until a state's update needs more bits than the
+/// stream has left, reading zeros past its start; the other state's symbol is then the last (RFC
+/// 8878 §4.2.1.2). A pass decodes `constants.weights_per_load` weights from one 8-octet load,
+/// which holds their bits, or all the stream has left within its first 64 bits.
+fn decode_weights(table: *const WeightTable, stream: []const u8, first: [weight_states]u64, position_first: usize, overflowed: bool, weights: *Weights) Error!void {
+    var states = first;
+    var tally: Tally = .zero;
+    // RFC 8878 §4.2.1.2: a stream that ends inside the first states ends at the first update.
+    if (overflowed) {
+        for (weights.values[0..weight_states], states) |*weight, state| {
+            weight.* = weight_cell(table, state).symbol;
+            tally.add(weight.*);
         }
-        self.remaining -= count;
-        self.taken += count;
-        return value;
+        weights.written = weight_states;
+        weights.tally = tally;
+        return;
     }
-
-    /// Uses the bits read so far, and peeks the next `read_bits_max`.
-    fn peek(self: *Peeked, reader: *codec.BackwardBitReader) void {
-        reader.consume(self.taken);
-        self.word = reader.peek(codec.backward_read_bits_max) << (@bitSizeOf(u64) - codec.backward_read_bits_max);
-        self.held = codec.backward_read_bits_max;
-        self.remaining = if (reader.overflowed) 0 else reader.position;
-        self.taken = 0;
+    const head = fast_reader.head_of(stream);
+    var position = position_first;
+    var count: usize = 0;
+    for (0..weight_passes_max) |_| {
+        var word = fast_reader.leading(stream, head, position);
+        inline for (0..constants.weights_per_load) |index| {
+            const current = index % weight_states;
+            // RFC 8878 §4.2.1.2: at most 255 weights precede the last, as literals span 0 to 255.
+            if (count == constants.literal_symbols - 1) return error.HuffmanWeightsInvalid;
+            const cell = weight_cell(table, states[current]);
+            weights.values[@as(u8, @truncate(count))] = cell.symbol;
+            tally.add(cell.symbol);
+            count += 1;
+            // RFC 8878 §4.2.1.2: an update that needs more bits than remain ends the weights.
+            if (cell.bits > position) {
+                const last = weight_cell(table, states[weight_states - 1 - current]).symbol;
+                weights.values[@as(u8, @truncate(count))] = last;
+                tally.add(last);
+                weights.written = @intCast(count + 1);
+                weights.tally = tally;
+                return;
+            }
+            // The cell's bits lead the word; a cell of none reads none, whatever the shift.
+            const bits: u6 = @truncate(cell.bits);
+            states[current] = cell.baseline + ((word >> 1) >> ~bits);
+            word <<= bits;
+            position -= cell.bits;
+        }
     }
-};
+    // Each pass writes `weights_per_load` weights, so the count reaches 255 within the passes.
+    unreachable;
+}
 
-/// The cell of `state`, which a state read from a table's own widths never passes.
-fn fse_cell(cells: []const fse.Entry, state: usize) fse.Entry {
-    assert(state < cells.len);
-    return cells[state];
+/// The table that decodes FSE-compressed weights.
+const WeightTable = fse.Table(constants.huffman_weights_accuracy_log_max);
+
+/// The cell of `state`, which a state read from the table's own widths never passes: below its 2^6
+/// cells, so the truncation changes none, and a cell's bits are at most 6.
+fn weight_cell(table: *const WeightTable, state: u64) fse.Entry {
+    return table.cells[@as(std.math.Log2Int(@TypeOf(table.cells.len)), @truncate(state))];
 }
 
 /// Builds the table the weights give: the last present literal's weight completes the sum of
@@ -183,69 +243,93 @@ fn fse_cell(cells: []const fse.Entry, state: usize) fse.Entry {
 pub fn build(weights: *Weights, table: *Table) Error!void {
     // RFC 8878 §4.2.1: literals 0 to 255, so at most 255 weights precede the last one.
     if (weights.written == 0 or weights.written >= constants.literal_symbols) return error.HuffmanWeightsInvalid;
-    var sum: u32 = 0;
-    for (weights.values[0..weights.written]) |weight| {
-        // RFC 8878 §4.2.1: a weight is at most Max_Number_of_Bits, itself at most 11.
-        if (weight > constants.huffman_weight_max) return error.HuffmanWeightsInvalid;
-        if (weight > 0) sum += @as(u32, 1) << @intCast(weight - 1);
-    }
     // RFC 8878 §4.2.1: the last literal completes a sum of at least one present weight.
-    if (sum == 0) return error.HuffmanWeightsInvalid;
-    const bits_max = std.math.log2_int(u32, sum) + 1;
-    // RFC 8878 §4.2.1: no code is longer than 11 bits.
+    if (weights.tally.sum == 0) return error.HuffmanWeightsInvalid;
+    const bits_max = std.math.log2_int(u32, weights.tally.sum) + 1;
+    // RFC 8878 §4.2.1: no code is longer than 11 bits, and no weight passes Max_Number_of_Bits. A
+    // weight adds 2^(Weight-1) to the sum, so one past 11 alone gives a sum past 2^11, and none
+    // passes Max_Number_of_Bits, whose power of 2 the sum is below.
     if (bits_max > constants.huffman_bits_max) return error.HuffmanWeightsInvalid;
-    const rest = (@as(u32, 1) << bits_max) - sum;
+    const rest = (@as(u32, 1) << bits_max) - weights.tally.sum;
     // The last weight must complete the sum to a power of 2 (RFC 8878 §4.2.1).
     if (!std.math.isPowerOfTwo(rest)) return error.HuffmanWeightsInvalid;
-    weights.values[weights.written] = std.math.log2_int(u32, rest) + 1;
-    // RFC 8878 §4.2.1: Max_Number_of_Bits is the tree's depth, which only literals of weight 1 reach.
-    if (std.mem.indexOfScalar(u8, weights.values[0 .. weights.written + 1], 1) == null) return error.HuffmanWeightsInvalid;
+    weights.put(@intCast(weights.written), std.math.log2_int(u32, rest) + 1);
     table.bits_max = @intCast(bits_max);
-    fill(weights.values[0 .. weights.written + 1], table);
+    try fill(weights, table);
     table.work = work_module.of((@as(usize, 1) << table.bits_max) + weights.written + 1);
 }
 
-/// Gives each literal 2^(Weight-1) consecutive cells, the lowest weights first.
-fn fill(weights: []const u8, table: *Table) void {
-    // Each weight's cells start where the lower weights' end: a count of each weight's cells, then
-    // one pass in literal order, so codes go out from the lowest weight up, in literal order
-    // within a weight (RFC 8878 §4.2.1).
-    var starts: [weight_symbols + 1]usize = @splat(0);
-    for (weights) |weight| {
-        if (weight > 0) starts[weight + 1] += @as(usize, 1) << @intCast(weight - 1);
+/// Gives each literal 2^(Weight-1) consecutive cells, the lowest weights first and literal order
+/// within a weight (RFC 8878 §4.2.1): the literals placed by weight, then each weight's cells
+/// filled in turn, which the table's longest code bounds.
+fn fill(weights: *const Weights, table: *Table) Error!void {
+    // RFC 8878 §4.2.1: Max_Number_of_Bits is the tree's depth, which only literals of weight 1 reach.
+    if (weights.tally.counts[1] == 0) return error.HuffmanWeightsInvalid;
+    const sorted = &table.scratch.sorted;
+    place_by_weight(weights, sorted);
+    const cells: *[table.cells.len]u16 = @ptrCast(&table.cells);
+    var cell: usize = 0;
+    var first: usize = 0;
+    // A weight past Max_Number_of_Bits has no literal, so its wrapped length writes nothing.
+    inline for (1..constants.huffman_weight_max + 1) |weight| {
+        const count = weights.tally.counts[weight];
+        fill_weight(weight, cells[cell..], sorted[first..], count, @as(u8, table.bits_max) +% 1 -% @as(u8, weight));
+        cell += @as(usize, count) << (weight - 1);
+        first += count;
     }
-    for (1..starts.len) |weight| starts[weight] += starts[weight - 1];
-    for (weights, 0..) |weight, symbol| {
-        if (weight == 0) continue;
-        const cells_len = @as(usize, 1) << @intCast(weight - 1);
-        const bits: u8 = @intCast(table.bits_max + 1 - weight);
-        fill_run(table.cells[starts[weight]..][0..cells_len], .{ .symbol = @intCast(symbol), .bits = bits });
-        starts[weight] += cells_len;
-    }
-    assert(starts[table.bits_max] == @as(usize, 1) << table.bits_max);
+    assert(cell == @as(usize, 1) << table.bits_max);
 }
 
-/// The cells a store of `fill_run` writes at once: 8 cells, 16 octets, and 4 for a run of 4.
+/// Places the literals by weight, from weight 1 up, in literal order within one (RFC 8878
+/// §4.2.1.3): each weight's first place is the count of the lighter ones. A literal of weight 0
+/// goes to the one place past them all, which nothing reads, so no literal takes a branch.
+fn place_by_weight(weights: *const Weights, sorted: *[sorted_len]u8) void {
+    var places: [1 << weight_index_bits]u16 = @splat(constants.literal_symbols);
+    var place: u16 = 0;
+    for (places[1..], weights.tally.counts[1..]) |*first, count| {
+        first.* = place;
+        place +%= count;
+    }
+    // At most 256 literals take places, each below `sorted_len`, and a literal is below 256.
+    for (weights.values[0 .. weights.written + 1], 0..) |weight, literal| {
+        const index: u4 = @truncate(weight);
+        sorted[@as(std.meta.Int(.unsigned, sorted_index_bits), @truncate(places[index]))] = @truncate(literal);
+        places[index] +%= @intFromBool(weight != 0);
+    }
+}
+
+/// The cells one store of a fill writes: 8, 16 octets.
 const fill_group_len = 8;
-const fill_half_group_len = 4;
 
-comptime {
-    assert(fill_half_group_len * @sizeOf(Entry) == @sizeOf(u64) and fill_group_len == fill_half_group_len + fill_half_group_len);
+/// Fills the cells of the `count` literals of `weight` in `literals`: 2^(Weight-1) each, naming
+/// the literal and its code's `bits`. A literal of a run shorter than a store shares its store with
+/// the next; the last store may pass the weight's cells by fewer than a store's, into the next
+/// weight's, which it fills after, or into the table's room past its cells.
+inline fn fill_weight(comptime weight: usize, cells: []u16, literals: []const u8, count: usize, bits: u8) void {
+    const run_len = 1 << (weight - 1);
+    if (run_len < fill_group_len) {
+        const per_store = fill_group_len / run_len;
+        const Group = @Vector(per_store, u16);
+        for (0..std.math.divCeil(usize, count, per_store) catch unreachable) |store| {
+            const group: @Vector(per_store, u8) = literals[store * per_store ..][0..per_store].*;
+            const entries = @as(Group, group) << @splat(@bitSizeOf(u8)) | @as(Group, @splat(bits));
+            cells[store * fill_group_len ..][0..fill_group_len].* = @shuffle(u16, entries, undefined, run_mask(per_store));
+        }
+        return;
+    }
+    for (literals[0..count], 0..) |literal, index| {
+        const entry: u16 = @as(u16, literal) << @bitSizeOf(u8) | bits;
+        const store: [fill_group_len]u16 = @splat(entry);
+        const run = cells[index * run_len ..][0..run_len];
+        for (0..run_len / fill_group_len) |group| run[group * fill_group_len ..][0..fill_group_len].* = store;
+    }
 }
 
-/// Writes `cell` over `run`, whose length is a power of 2: a group of cells a store from 4 cells
-/// up, one cell a store below.
-fn fill_run(run: []Entry, cell: Entry) void {
-    if (run.len < fill_half_group_len) {
-        for (run) |*each| each.* = cell;
-        return;
-    }
-    if (run.len == fill_half_group_len) {
-        run[0..fill_half_group_len].* = @splat(cell);
-        return;
-    }
-    const group: [fill_group_len]Entry = @splat(cell);
-    for (0..run.len / fill_group_len) |index| run[index * fill_group_len ..][0..fill_group_len].* = group;
+/// The shuffle that repeats each of a store's `per_store` entries over its run of cells.
+fn run_mask(comptime per_store: usize) @Vector(fill_group_len, i32) {
+    var mask: [fill_group_len]i32 = undefined;
+    for (&mask, 0..) |*lane, cell| lane.* = @intCast(cell / (fill_group_len / per_store));
+    return mask;
 }
 
 /// Decodes `output.len` literals from the Huffman-coded stream `octets`, which must end exactly at
@@ -272,31 +356,6 @@ pub fn decode_rest(table: *const Table, reader: *codec.BackwardBitReader, output
 fn huffman_cell(table: *const Table, index: u64) Entry {
     assert(index < @as(u64, 1) << table.bits_max);
     return table.cells[@intCast(index)];
-}
-
-test "a peeked read gives the checked reader's bits, position and overflow, to the stream's first bit" {
-    const testing = std.testing;
-    var generator = codec.split.Generator.init(3);
-    for (0..64) |_| {
-        var stream: [48]u8 = undefined;
-        for (&stream) |*octet| octet.* = @truncate(generator.next());
-        const len = generator.between(1, stream.len);
-        stream[len - 1] |= 0x80;
-        var checked = codec.BackwardBitReader.init(stream[0..len]).?;
-        // A weight stream's states come first, read by the reader itself.
-        const skipped: u6 = @intCast(generator.below(codec.backward_read_bits_max));
-        _ = checked.read(skipped);
-        var reader = checked;
-        var peeked: Peeked = .{};
-        // Reads of up to an FSE weight table's widest state, until one reaches past the first bit.
-        while (!checked.overflowed) {
-            const count: u6 = @intCast(generator.below(constants.huffman_weights_accuracy_log_max + 1));
-            try testing.expectEqual(checked.read(count), peeked.read(&reader, count));
-            try testing.expectEqual(checked.overflowed, reader.overflowed);
-            if (!checked.overflowed) try testing.expectEqual(checked.position, reader.position - peeked.taken);
-        }
-        try testing.expectEqual(0, reader.position);
-    }
 }
 
 test {

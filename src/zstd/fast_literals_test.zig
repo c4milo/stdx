@@ -33,9 +33,10 @@ fn present_literal(generator: *codec.split.Generator, table: *const huffman.Tabl
 /// A literal whose code is the tree's longest, drawn, so a load's literals take its most bits. The
 /// longest codes take the table's first cells, one each.
 fn deepest_literal(generator: *codec.split.Generator, table: *const huffman.Table) u8 {
+    const cells = table.cells[0 .. @as(usize, 1) << table.bits_max];
     var deepest: usize = 0;
-    while (table.cells[deepest].bits == table.bits_max) deepest += 1;
-    return table.cells[generator.below(deepest)].symbol;
+    while (deepest < cells.len and cells[deepest].bits == table.bits_max) deepest += 1;
+    return cells[generator.below(deepest)].symbol;
 }
 
 const Draw = *const fn (*codec.split.Generator, *const huffman.Table) u8;
