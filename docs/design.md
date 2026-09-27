@@ -796,6 +796,84 @@ to 12 are reordered and nothing else changes.
   the HTTP instance; skippable and multiple frames; the verified errata of docs/rfcs/README.md;
   then the fast path's equality, A/Bs and benchmark as step 7; mutations.
 
+  **Check passed, 2026-09-27, but for Z2's verdict, which the owner rules on.** Zig 0.16.0 on
+  macOS 26.6 arm64 by hand, under Rosetta 2 for x86-64, and on the hosted runners, at 3a45936.
+  - The decoder: the checked path (9623b2a to e592538), then the fast path's claims: Z4 (d1021ae),
+    Z1 (82b75e1), Z6, a call's octets moved into the window once (233b8b4), Z5 (1c5ef93) and Z2
+    (3ae12b4). Z3's default tables build at comptime, and no switch turns them off. Under decision
+    23, the sequence loop and the four-stream literal loops run in aarch64 assembly (69e81ed,
+    e108311) and, where the CPU has BMI2, in x86-64 assembly (9e52f53, d91e01c).
+  - Decision 15 against libzstd: CI run
+    [36353188252](https://github.com/c4milo/stdx/actions/runs/36353188252) passed
+    `differential-zstd` on both runners, with the same counts on each: 38 files and 669 frames, 0
+    failed; 173,953 corrupted inputs, 0 failed, of which the verdict entries allow 86. Of those, 35
+    are windows past 2^23 in frames whose Frame_Content_Size is at most 2^23, and 51 are
+    Huffman-coded streams not read to their first bit in frames without Content_Checksum. The same
+    run passed the unit tests and a short fuzz pass on both runners.
+  - Windows: `frame.zig`'s header test accepts a window of exactly 2^23 in the HTTP instance and
+    refuses one past it, and `block_test.zig` accepts an offset equal to Window_Size and refuses one
+    past it (decision 22).
+    The differential check decodes frames with window logs 10, 17 and 23.
+  - Frames: `decoder_test.zig` skips a skippable frame before a Zstandard frame, and the
+    differential check decodes two frames with a skippable frame between them.
+  - Errata: `fse_test.zig` checks the default tables without 6441's duplicate rows,
+    `sequences_test.zig` checks Table 18's rows as 6442 and 8085 correct them, and
+    `huffman_test.zig` checks the bitstream 8195 corrects. `literals.zig` refuses four streams in
+    fewer than 6 octets, as 7297 reads Stream4_Size.
+  - Equality: the unit tests, the fuzz test and the differential check require the fast path to
+    decode what the checked path decodes. On x86-64 they decode both with the assembly and
+    without it.
+  - Each claim's A/B, from `bench-zstd` run
+    [36353187127](https://github.com/c4milo/stdx/actions/runs/36353187127) on an AMD EPYC 7763 and
+    a Neoverse N2, and run [36354787750](https://github.com/c4milo/stdx/actions/runs/36354787750) on
+    Intel Xeons. Each cell is the median over the 38 corpus files of the throughput with the claim
+    off over the throughput with all on, then the files where on beats off and off beats on by
+    more than the spread.
+
+    | Claim | EPYC 7763 | N2 | Xeon 8573C | Xeon 8370C | Verdict |
+    |---|---|---|---|---|---|
+    | Z1 | 0.85; 36 and 1 | 0.85; 36 and 0 | 0.81; 33 and 0 | 0.84; 38 and 0 | Kept |
+    | Z2 | 1.00; 6 and 8 | 1.00; 2 and 3 | 1.00; 0 and 0 | 1.00; 4 and 7 | Beats no noise: the owner rules |
+    | Z4 | 0.56; 38 and 0 | 0.62; 38 and 0 | 0.56; 38 and 0 | 0.54; 38 and 0 | Kept |
+    | Z5 | 0.99; 21 and 0 | 0.99; 34 and 0 | 0.99; 1 and 0 | 0.99; 26 and 2 | Kept |
+    | Z6 | 0.40; 38 and 0 | 0.43; 38 and 0 | 0.43; 38 and 0 | 0.41; 38 and 0 | Kept |
+
+    - Z2 decodes two literals a lookup, and measured faster on the owner's M1 Pro when it was added
+      (3ae12b4); on every runner it ties. Step 7's rule removes a claim that beats no noise, and
+      decision 23 puts the owner's Mac first, so the owner rules on it.
+  - Decision 17: built ReleaseFast, stdx runs at a median of 1.00 of its ReleaseSafe speed on the
+    EPYC 7763 (0.88 to 1.05), 1.02 on the N2 (0.98 to 1.09), and 0.99 to 1.02 on the Xeons, each
+    as a ratio of the two builds' ratios to libzstd in one run.
+  - The benchmark: libzstd at level 3 encodes each file, and libzstd's decoder keeps its context
+    across decodes. stdx's throughput over libzstd's, over the 38 files:
+
+    | CPU | Run | Median | Range | Faster | Slower |
+    |---|---|---|---|---|---|
+    | AMD EPYC 7763 | 36353187127 | 1.19 | 1.00 to 1.32 | 37 | 0 |
+    | Intel Xeon 6973P-C | 36354787750 | 1.13 | 0.98 to 1.34 | 36 | 1 |
+    | Intel Xeon Platinum 8573C | 36354787750 | 1.17 | 0.97 to 1.34 | 37 | 1 |
+    | Intel Xeon Platinum 8370C | 36354787750 | 1.15 | 0.92 to 1.33 | 34 | 3 |
+    | Neoverse N2 | 36353187127 | 1.01 | 0.92 to 1.16 | 21 | 15 |
+
+    - The losses: css-1m on the 6973P-C and the 8573C (0.98 and 0.97; a second 8573C job gave
+      1.01, and a median of 1.15, faster on all 38), the 1 KiB HTTP bodies on the 8370C (0.92 to
+      0.95), and 15 files on the N2, down to nci at 0.92.
+    - The fast path runs at a median of 3.91 to 4.19 times the checked path's speed.
+    - The x86-64 runner drew only AMD CPUs for the `bench` workflow that day, so a one-off workflow
+      on a branch of its own ran `bench/run.sh` in 24 jobs and kept the reports of those on Intel
+      CPUs. Its commit, 637ee9a, is 3a45936 with that workflow's file alone.
+  - Findings that changed the code:
+    - ReleaseSafe fills an `undefined` local with 0xaa. `assign_baselines`'s 512-octet array took
+      3 to 6% of the 1 KiB bodies' time on x86-64 through a memset call (3a45936). A sampling
+      profile found it, as perf's software clock works on a runner whose VM exposes no hardware
+      counter.
+    - The M1 Pro and the N2 disagree: XXH64's aarch64 path ran at 1.28 times the scalar path's
+      speed on the M1 and 0.84 to 1.00 on the N2, so it runs on Apple's cores alone (efeecd1).
+    - Zig 0.16 builds Debug on x86-64 Linux with its own backend, whose inline assembler refuses
+      the x86-64 loops' text. The loops run only where LLVM compiles them, and the unit tests
+      compile with LLVM (9e52f53).
+  - Mutations are listed in each commit's body.
+
 - **Step 12: the brotli decoder.** The static dictionary generated from RFC 7932 Appendix A and the
   transforms from Appendix B; the checked path, then the fast path (claims B1 to B3), with Google's
   brotli as the oracle.
