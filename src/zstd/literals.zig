@@ -159,8 +159,8 @@ fn read_compressed(comptime paths: Paths, reader: *codec.Reader, first: u8, form
 /// Builds the tree's pairs of literals for a section long enough to repay them (claim Z2), unless
 /// an earlier section of the tree built them.
 fn prepare_pairs(table: *huffman.Table, len: u32) void {
-    if (table.pairs_ready or table.pair_share < constants.pair_share_min) return;
-    if (len < @as(u32, constants.pairs_literals_per_cell) << table.bits_max) return;
+    if (table.pairs_ready or len < @as(u32, constants.pairs_literals_per_cell) << table.bits_max) return;
+    if (table.pair_share() < constants.pair_share_min) return;
     fast_literals.build_pairs(table);
 }
 

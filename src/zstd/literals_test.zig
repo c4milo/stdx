@@ -142,6 +142,33 @@ test "four Huffman-coded streams decode in order, the last holding what remains"
     }
 }
 
+test "a long section of a tree whose codes pair builds the pairs, and a short or flat one does not" {
+    // The tree above: codes of 1 to 4 bits, where 11 of every 16 lookups find two literals, past
+    // the half that repays the pairs (claim Z2), which a section does from 4 literals a cell, 64.
+    const paired_tree = [_]u8{ constants.huffman_direct_symbols_offset + 5, 0x43, 0x20, 0x10 };
+    // 16 literals of weight 1, the last deduced: 4-bit codes, no two of which fit in 4 bits.
+    const flat_tree = [_]u8{ constants.huffman_direct_symbols_offset + 15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x10 };
+    const pairs_len = constants.pairs_literals_per_cell << 4;
+    const cases = [_]struct { []const u8, usize, bool }{
+        .{ &paired_tree, pairs_len - 1, false },
+        .{ &paired_tree, pairs_len, true },
+        .{ &flat_tree, pairs_len, false },
+    };
+    const alphabet = [_]u8{ 0, 1, 2, 4, 5 };
+    for (cases) |case| {
+        const tree, const len, const paired = case;
+        var built: huffman.Table = undefined;
+        _ = try huffman.read_tree(tree, &built);
+        var text: [pairs_len]u8 = undefined;
+        for (text[0..len], 0..) |*literal, index| literal.* = alphabet[index % alphabet.len];
+        var block: [256]u8 = undefined;
+        var fixture: Fixture = .{};
+        _ = try literals.read(four_streams(tree, &built, text[0..len], &block), len_max, fixture.tables());
+        try testing.expectEqual(paired, fixture.table.pairs_ready);
+        try testing.expectEqualSlices(u8, text[0..len], fixture.buffer[0..len]);
+    }
+}
+
 test "too many literals, a cut section, and a jump table past its streams are refused" {
     const tree = [_]u8{ constants.huffman_direct_symbols_offset + 5, 0x43, 0x20, 0x10 };
     var fixture: Fixture = .{};

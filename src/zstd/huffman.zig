@@ -44,15 +44,20 @@ pub const Table = struct {
     /// Invariant 17's count for the last tree read: its cells, its weights, and the cells and
     /// symbols of the FSE table that decoded them, if one did.
     work: Work,
-    /// Where a tree's read works; nothing a stream's decoding reads.
+    /// Where a tree's read works. A stream's decoding reads none of it, and `pair_share` reads the
+    /// weights `read_tree` leaves in it, which stay until the next tree.
     scratch: Scratch,
     /// The fast path's cells of two literals at once (claim Z2), which it builds from `cells` for a
     /// long section, and whether they are this tree's.
     pairs: [1 << constants.huffman_bits_max]Pair,
     pairs_ready: bool,
+
     /// Of every 2^`constants.pair_share_bits` lookups of the table, how many find two literals whose
-    /// codes fit its width, which decides whether a section builds the pairs.
-    pair_share: u32,
+    /// codes fit its width, which decides whether a long section builds the pairs. Counted when a
+    /// section asks, so a tree whose sections are short never counts it.
+    pub fn pair_share(self: *const Table) u32 {
+        return pair_share_of(&self.scratch.weights.tally.counts, self.bits_max);
+    }
 };
 
 /// Every way a Huffman tree description or stream breaks RFC 8878 §4.2.
@@ -276,7 +281,6 @@ pub fn build(weights: *Weights, table: *Table) Error!void {
     weights.put(@intCast(weights.written), std.math.log2_int(u32, rest) + 1);
     table.bits_max = @intCast(bits_max);
     table.pairs_ready = false;
-    table.pair_share = pair_share(&weights.tally.counts, table.bits_max);
     try fill(weights, table);
     table.work = work_module.of((@as(usize, 1) << table.bits_max) + weights.written + 1);
 }
@@ -286,7 +290,7 @@ pub fn build(weights: *Weights, table: *Table) Error!void {
 /// cells of the weights whose codes fit the bits it leaves (claim Z2). A code of weight W takes
 /// Max_Number_of_Bits + 1 - W bits, so a second of weight W2 fits after a first of W1 when W2 is at
 /// least Max_Number_of_Bits + 2 - W1.
-fn pair_share(counts: *const [1 << weight_index_bits]u16, bits_max: u4) u32 {
+fn pair_share_of(counts: *const [1 << weight_index_bits]u16, bits_max: u4) u32 {
     // The cells of the weights from each weight up; at most 2^11 of them.
     var fits: [(1 << weight_index_bits) + 1]u64 = @splat(0);
     var weight: usize = 1 << weight_index_bits;

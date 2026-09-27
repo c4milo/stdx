@@ -161,7 +161,7 @@ test "a table's pairs hold what its cells give two at a time, and its share coun
         fast_literals.build_pairs(&table);
         const doubles = try expect_pairs(&table);
         // Every cell is as likely as another, so the share is the fraction of pairs of two.
-        try testing.expectEqual((doubles << constants.pair_share_bits) >> table.bits_max, table.pair_share);
+        try testing.expectEqual((doubles << constants.pair_share_bits) >> table.bits_max, table.pair_share());
     }
 }
 
