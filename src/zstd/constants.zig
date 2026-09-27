@@ -250,6 +250,17 @@ pub const fast_read_position_min = 57;
 /// of a table of short codes as that, and the loop's unrolled body grows with each.
 pub const literals_per_load_max = 8;
 
+/// A literals section builds its tree's pairs of literals (claim Z2) when it holds this many
+/// literals per cell of the tree's table: the build writes each cell once, and a literal a pair
+/// takes saves part of a lookup.
+pub const pairs_literals_per_cell = 4;
+
+/// A table's share of lookups that find two literals is counted in 2^16ths, and a section builds
+/// pairs only when that share is at least `pair_share_min`: where fewer lookups find two, a pair's
+/// wider step costs more than it takes.
+pub const pair_share_bits = 16;
+pub const pair_share_min = 1 << (pair_share_bits - 1);
+
 /// The Huffman weights one load of the tree's fast read decodes: 8 state updates of at most
 /// `huffman_weights_accuracy_log_max` bits each, fewer than a load's 57.
 pub const weights_per_load = 8;

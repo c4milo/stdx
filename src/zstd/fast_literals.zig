@@ -12,6 +12,7 @@
 //! they stop, in stream order, and requires it to end exactly at its first bit.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
@@ -22,26 +23,150 @@ const fast_reader = @import("fast_reader.zig");
 /// checked decoder would, and returns how many literals of each it wrote: the checked decoder takes
 /// each stream from there.
 pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
-    var done: [count]usize = @splat(0);
+    if (!claims.interleaved_streams) return decode_each(count, claims, table, streams, outputs, readers);
+    var done: [count]usize = undefined;
     // The table's longest code fixes the loop's shifts and its literals per load.
     switch (table.bits_max) {
         inline 1...constants.huffman_bits_max => |bits_max| {
-            if (claims.interleaved_streams) {
-                done = @splat(decode_loads(count, bits_max, table, streams, outputs, readers));
-                decode_tails(count, bits_max, table, streams, outputs, readers, &done);
-            } else {
-                for (&done, streams, outputs, readers) |*decoded, stream, output, *reader| {
-                    decoded.* = decode_loads(1, bits_max, table, .{stream}, .{output}, reader[0..1]);
-                    var one: [1]usize = .{decoded.*};
-                    decode_tails(1, bits_max, table, .{stream}, .{output}, reader[0..1], &one);
-                    decoded.* = one[0];
-                }
-            }
+            done = if (claims.pairs and table.pairs_ready)
+                decode_pair_loads(count, bits_max, table, streams, outputs, readers)
+            else
+                @splat(decode_loads(count, bits_max, table, streams, outputs, readers));
+            decode_tails(count, bits_max, table, streams, outputs, readers, &done);
         },
         // huffman.build gives a Max_Number_of_Bits from 1 to 11.
         else => unreachable,
     }
     return done;
+}
+
+/// `decode` one stream after another, when the claim of Z1 is off.
+fn decode_each(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
+    comptime var one_claims = claims;
+    one_claims.interleaved_streams = true;
+    var done: [count]usize = undefined;
+    for (&done, streams, outputs, readers) |*decoded, stream, output, *reader| {
+        decoded.* = decode(1, one_claims, table, .{stream}, .{output}, reader[0..1])[0];
+    }
+    return done;
+}
+
+/// Builds `table.pairs` from its cells (claim Z2). The cell of the next Max_Number_of_Bits bits
+/// names the literal whose code they begin with, and the literal after it when that one's code
+/// ends within the same bits: the bits past the first code index the cells again, zeros below
+/// them, and a code no longer than those bits is theirs whatever the zeros stand for. So the
+/// second literals of every first code of one length form one row, which each such literal's run
+/// of cells takes with its own literal added. The runs of one length lie together, so one row at a
+/// time serves them.
+pub fn build_pairs(table: *huffman.Table) void {
+    const len = @as(usize, 1) << table.bits_max;
+    // The length whose row the scratch holds; none is 0 bits long.
+    var row_length: u8 = 0;
+    var index: usize = 0;
+    // Each run is one literal's cells, so at most 256 runs fill the table.
+    for (0..constants.literal_symbols) |_| {
+        if (index == len) break;
+        const first = table.cells[index];
+        const length: u4 = @truncate(first.bits);
+        const run = len >> length;
+        const row = table.scratch.rows[0..run];
+        if (first.bits != row_length) build_row(table, length, row);
+        row_length = first.bits;
+        fill_pairs(table.pairs[index..][0..run], row, first.symbol);
+        index += run;
+    }
+    assert(index == len);
+    table.pairs_ready = true;
+}
+
+/// The pairs of a first code of `length` bits, but its literal: for each value of the bits after
+/// it, the literal whose code they hold, when it ends within them, and the bits both codes take.
+fn build_row(table: *const huffman.Table, length: u4, row: []huffman.Pair) void {
+    const rest = table.bits_max - length;
+    for (row, 0..) |*cell, after| {
+        const second = table.cells[after << length];
+        const both = second.bits <= rest;
+        cell.* = .{
+            .literals = if (both) @as(u16, second.symbol) << @bitSizeOf(u8) else 0,
+            .bits = if (both) length + second.bits else length,
+            .count = @as(u8, 1) + @intFromBool(both),
+        };
+    }
+}
+
+/// A literal's run of pairs: its row with the literal in each cell's first octet, a vector of cells
+/// a store where the run holds one.
+fn fill_pairs(pairs: []huffman.Pair, row: []const huffman.Pair, literal: u8) void {
+    const Cells = @Vector(pairs_per_store, u32);
+    const words: []u32 = @ptrCast(pairs);
+    const row_words: []const u32 = @ptrCast(row);
+    // The literal is the first octet of a pair's literals, its low 8 bits.
+    const first: Cells = @splat(literal);
+    if (pairs.len < pairs_per_store) {
+        for (words, row_words) |*pair, cell| pair.* = cell | literal;
+        return;
+    }
+    for (0..pairs.len / pairs_per_store) |store| {
+        const cells: Cells = row_words[store * pairs_per_store ..][0..pairs_per_store].*;
+        words[store * pairs_per_store ..][0..pairs_per_store].* = cells | first;
+    }
+}
+
+/// The pairs one vector store writes: 4, 16 octets.
+const pairs_per_store = 4;
+
+/// The literals a pair writes at most, each step's store.
+const pair_len = 2;
+
+/// Decodes the streams' literals in pairs (Z2): one load of each stream, then a step of each in
+/// turn, each step's pair writing two literals and moving past the one or two it holds. A pass
+/// needs a load's bits in every stream and room for a pass's stores in every output; the loop
+/// returns how many literals of each stream it wrote.
+fn decode_pair_loads(comptime count: usize, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
+    const steps = comptime literals_per_load(bits_max);
+    var sources = streams;
+    var positions: [count]usize = undefined;
+    for (&positions, readers) |*position, *reader| position.* = reader.position;
+    defer for (readers, positions) |*reader, position| {
+        reader.position = position;
+    };
+    var written: [count]usize = @splat(0);
+    var shortest = outputs[0].len;
+    for (outputs[1..]) |output| shortest = @min(shortest, output.len);
+    // Each pass writes `steps` literals of each stream at least.
+    for (0..shortest / steps + 1) |_| {
+        if (!loadable(count, positions) or !pairs_fit(count, steps, outputs, written)) break;
+        pair_pass(count, bits_max, steps, table, &sources, &positions, outputs, &written);
+    }
+    return written;
+}
+
+/// Whether every output has room for a pass's stores past what it holds.
+inline fn pairs_fit(comptime count: usize, comptime steps: usize, outputs: [count][]u8, written: [count]usize) bool {
+    inline for (outputs, written) |output, len| {
+        if (output.len - len < steps * pair_len) return false;
+    }
+    return true;
+}
+
+/// One pass of `decode_pair_loads`: a load of each stream, then `steps` pairs of each in turn.
+/// `pairs_fit` found the room for every store, and the pairs table holds 2^11 cells, which the
+/// word's top `bits_max` bits index whole (decision 17 keeps checks out of per-symbol loops).
+inline fn pair_pass(comptime count: usize, comptime bits_max: u4, comptime steps: usize, table: *const huffman.Table, sources: *const [count][]const u8, positions: *[count]usize, outputs: [count][]u8, written: *[count]usize) void {
+    var words: [count]u64 = undefined;
+    inline for (&words, sources, positions) |*word, source, position| word.* = load(source, position);
+    var used: [count]usize = @splat(0);
+    inline for (0..steps) |_| {
+        inline for (&words, outputs, written, &used) |*word, output, *len, *bits| {
+            const pair = table.pairs[@as(u11, @truncate(word.* >> (@bitSizeOf(u64) - @as(u7, bits_max))))];
+            std.mem.writeInt(u16, output.ptr[len.*..][0..pair_len], pair.literals, .little);
+            len.* += pair.count;
+            const pair_bits: u6 = @truncate(pair.bits);
+            word.* <<= pair_bits;
+            bits.* += pair_bits;
+        }
+    }
+    inline for (positions, used) |*position, bits| position.* -= bits;
 }
 
 pub const head_of = fast_reader.head_of;

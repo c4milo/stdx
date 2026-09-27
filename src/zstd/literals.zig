@@ -148,11 +148,20 @@ fn read_compressed(comptime paths: Paths, reader: *codec.Reader, first: u8, form
         return error.TreelessWithoutTree;
     }
     const streams = content_reader.take(content_reader.remaining_len()) catch unreachable;
+    if (paths.fast_paths and paths.claims.pairs) prepare_pairs(tables.table, len);
     const output = literals_output(tables.buffer, len);
     if (constants.literals_compressed_streams[format] > 1) {
         try decode_four(paths, tables.table, streams, output);
     } else try decode_streams(paths, 1, tables.table, .{streams}, .{output});
     return .{ .source = .buffer, .len = len, .offset = 0, .octet = 0, .section_len = @intCast(header_len + compressed_len), .work = work };
+}
+
+/// Builds the tree's pairs of literals for a section long enough to repay them (claim Z2), unless
+/// an earlier section of the tree built them.
+fn prepare_pairs(table: *huffman.Table, len: u32) void {
+    if (table.pairs_ready or table.pair_share < constants.pair_share_min) return;
+    if (len < @as(u32, constants.pairs_literals_per_cell) << table.bits_max) return;
+    fast_literals.build_pairs(table);
 }
 
 /// The first `len` octets of the literals buffer, `len` checked against Block_Maximum_Size.

@@ -68,16 +68,23 @@ const Streams = struct {
     }
 };
 
+/// The octet the output past the last stream's literals holds, which no decode may write.
+const sentinel = 0xee;
+
 /// Decodes `count` of the streams through `decode` and on the checked path, and requires the same
-/// verdict and, when they decode, the same literals.
+/// verdict and, when they decode, the same literals. The outputs lie one after another, as the
+/// decoder's do, so a stream's writes past its own would change the next's, and the octets past
+/// the last must stay as they were.
 fn expect_alike(comptime count: usize, comptime claims: @import("claims.zig").Claims, table: *const huffman.Table, octets: [count][]const u8, counts: [count]usize) !void {
-    var fast_literals_out: [count][stream_literals]u8 = undefined;
-    var checked_literals_out: [count][stream_literals]u8 = undefined;
+    var fast_buffer: [count * stream_literals + stream_literals]u8 = @splat(sentinel);
+    var checked_buffer: [count * stream_literals]u8 = undefined;
     var fast_outputs: [count][]u8 = undefined;
     var checked_outputs: [count][]u8 = undefined;
-    for (&fast_outputs, &checked_outputs, &fast_literals_out, &checked_literals_out, counts) |*fast, *checked, *fast_buffer, *checked_buffer, literals| {
-        fast.* = fast_buffer[0..literals];
-        checked.* = checked_buffer[0..literals];
+    var start: usize = 0;
+    for (&fast_outputs, &checked_outputs, counts) |*fast, *checked, literals| {
+        fast.* = fast_buffer[start..][0..literals];
+        checked.* = checked_buffer[start..][0..literals];
+        start += literals;
     }
     const fast = literals_section.decode_streams(.{ .claims = claims }, count, table, octets, fast_outputs);
     var checked: literals_section.Error!void = {};
@@ -87,8 +94,9 @@ fn expect_alike(comptime count: usize, comptime claims: @import("claims.zig").Cl
     }
     try testing.expectEqual(checked, fast);
     if (fast) |_| {
-        for (fast_outputs, checked_outputs) |fast_one, checked_one| try testing.expectEqualSlices(u8, checked_one, fast_one);
+        try testing.expectEqualSlices(u8, checked_buffer[0..start], fast_buffer[0..start]);
     } else |_| {}
+    try testing.expect(std.mem.allEqual(u8, fast_buffer[start..], sentinel));
 }
 
 /// The four streams as the decoder takes them.
@@ -109,16 +117,63 @@ test "long streams decode alike on the fast path, interleaved and one by one, an
     for (trees) |tree| {
         var table: huffman.Table = undefined;
         _ = try huffman.read_tree(tree, &table);
-        for (0..seeds) |seed| {
-            var generator = codec.split.Generator.init(seed);
-            var set: Streams = .{};
-            set.write(&generator, &table);
-            try expect_each_way(&table, &set);
-            // A flipped bit: the streams no longer end where their literals do, or decode others.
-            set.flip(&generator);
-            try expect_each_way(&table, &set);
+        // One literal a lookup, then pairs (Z2).
+        for (0..2) |_| {
+            for (0..seeds) |seed| {
+                var generator = codec.split.Generator.init(seed);
+                var set: Streams = .{};
+                set.write(&generator, &table);
+                try expect_each_way(&table, &set);
+                // A flipped bit: the streams no longer end where their literals do, or decode others.
+                set.flip(&generator);
+                try expect_each_way(&table, &set);
+            }
+            fast_literals.build_pairs(&table);
         }
     }
+}
+
+/// Requires each of the table's pairs to name the literal its cell's code begins with, and the
+/// literal after it when that one's code ends within the table's width; returns how many do.
+fn expect_pairs(table: *const huffman.Table) !u32 {
+    const len = @as(usize, 1) << table.bits_max;
+    var doubles: u32 = 0;
+    for (table.pairs[0..len], table.cells[0..len], 0..) |pair, first, index| {
+        // The literal after the first, from the bits past its code, if its code ends in them.
+        const second = table.cells[(index << @intCast(first.bits)) & (len - 1)];
+        const both = first.bits + second.bits <= table.bits_max;
+        try testing.expectEqual(first.symbol, @as(u8, @truncate(pair.literals)));
+        try testing.expectEqual(@as(u8, 1) + @intFromBool(both), pair.count);
+        try testing.expectEqual(if (both) first.bits + second.bits else first.bits, pair.bits);
+        if (both) try testing.expectEqual(second.symbol, @as(u8, @truncate(pair.literals >> @bitSizeOf(u8))));
+        doubles += @intFromBool(both);
+    }
+    return doubles;
+}
+
+test "a table's pairs hold what its cells give two at a time, and its share counts them" {
+    var octets: [deepening_tree_len_max]u8 = undefined;
+    for (0..trees.len + constants.huffman_bits_max) |which| {
+        const tree = if (which < trees.len) trees[which] else deepening_tree(@intCast(which - trees.len + 1), &octets);
+        var table: huffman.Table = undefined;
+        _ = try huffman.read_tree(tree, &table);
+        fast_literals.build_pairs(&table);
+        const doubles = try expect_pairs(&table);
+        // Every cell is as likely as another, so the share is the fraction of pairs of two.
+        try testing.expectEqual((doubles << constants.pair_share_bits) >> table.bits_max, table.pair_share);
+    }
+}
+
+test "a new tree drops the pairs of the one before" {
+    var table: huffman.Table = undefined;
+    _ = try huffman.read_tree(trees[1], &table);
+    fast_literals.build_pairs(&table);
+    _ = try huffman.read_tree(trees[0], &table);
+    try testing.expect(!table.pairs_ready);
+    var generator = codec.split.Generator.init(3);
+    var set: Streams = .{};
+    set.write(&generator, &table);
+    try expect_each_way(&table, &set);
 }
 
 /// The octets of the deepest tree `deepening_tree` writes: its header, then 11 weights.
@@ -162,11 +217,14 @@ test "the fast path leaves no literal of a valid stream to the checked decoder" 
 }
 
 test "every longest code from 1 to 11 bits decodes alike on each path, each its own loop" {
-    for (1..constants.huffman_bits_max + 1) |bits_max| {
+    for (0..2 * constants.huffman_bits_max) |which| {
+        const bits_max = which % constants.huffman_bits_max + 1;
         var octets: [deepening_tree_len_max]u8 = undefined;
         var table: huffman.Table = undefined;
         _ = try huffman.read_tree(deepening_tree(@intCast(bits_max), &octets), &table);
         try testing.expectEqual(bits_max, table.bits_max);
+        // The second round decodes in pairs (Z2).
+        if (which >= constants.huffman_bits_max) fast_literals.build_pairs(&table);
         for (0..seeds / 8) |seed| {
             var generator = codec.split.Generator.init(seed);
             // Literals of every code, then of the longest alone, so a load's literals take its

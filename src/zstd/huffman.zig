@@ -26,6 +26,15 @@ pub const Entry = packed struct(u16) {
     symbol: u8,
 };
 
+/// A cell of the fast path's pairs (claim Z2): the literals the next Max_Number_of_Bits bits begin
+/// with, one or two, the first in the low octet, as a 2-octet store writes them least significant
+/// first; the bits their codes take; and how many there are.
+pub const Pair = packed struct(u32) {
+    literals: u16,
+    bits: u8,
+    count: u8,
+};
+
 pub const Table = struct {
     /// 2^Max_Number_of_Bits cells, then room for the last store of a fill to pass them.
     cells: [(1 << constants.huffman_bits_max) + fill_group_len]Entry,
@@ -36,6 +45,13 @@ pub const Table = struct {
     work: Work,
     /// Where a tree's read works; nothing a stream's decoding reads.
     scratch: Scratch,
+    /// The fast path's cells of two literals at once (claim Z2), which it builds from `cells` for a
+    /// long section, and whether they are this tree's.
+    pairs: [1 << constants.huffman_bits_max]Pair,
+    pairs_ready: bool,
+    /// Of every 2^`constants.pair_share_bits` lookups of the table, how many find two literals whose
+    /// codes fit its width, which decides whether a section builds the pairs.
+    pair_share: u32,
 };
 
 /// Every way a Huffman tree description or stream breaks RFC 8878 §4.2.
@@ -104,6 +120,9 @@ const Scratch = struct {
     sorted: [sorted_len]u8,
     distribution: fse.Distribution,
     weight_table: WeightTable,
+    /// The fast path's row of second literals for one first code's length, which its pairs build
+    /// from (claim Z2).
+    rows: [1 << constants.huffman_bits_max]Pair,
 };
 
 /// The bits of a place in `sorted`, which index it whole: the literals placed by weight, the place
@@ -255,8 +274,34 @@ pub fn build(weights: *Weights, table: *Table) Error!void {
     if (!std.math.isPowerOfTwo(rest)) return error.HuffmanWeightsInvalid;
     weights.put(@intCast(weights.written), std.math.log2_int(u32, rest) + 1);
     table.bits_max = @intCast(bits_max);
+    table.pairs_ready = false;
+    table.pair_share = pair_share(&weights.tally.counts, table.bits_max);
     try fill(weights, table);
     table.work = work_module.of((@as(usize, 1) << table.bits_max) + weights.written + 1);
+}
+
+/// Of every 2^`constants.pair_share_bits` lookups, how many find two literals whose codes fit the
+/// table's width, as every cell is as likely as another: the cells of each first weight, times the
+/// cells of the weights whose codes fit the bits it leaves (claim Z2). A code of weight W takes
+/// Max_Number_of_Bits + 1 - W bits, so a second of weight W2 fits after a first of W1 when W2 is at
+/// least Max_Number_of_Bits + 2 - W1.
+fn pair_share(counts: *const [1 << weight_index_bits]u16, bits_max: u4) u32 {
+    // The cells of the weights from each weight up; at most 2^11 of them.
+    var fits: [(1 << weight_index_bits) + 1]u64 = @splat(0);
+    var weight: usize = 1 << weight_index_bits;
+    for (0..1 << weight_index_bits) |_| {
+        weight -= 1;
+        fits[weight] = fits[weight + 1] + if (weight == 0) 0 else @as(u64, counts[weight]) << @intCast(weight - 1);
+    }
+    var pairs: u64 = 0;
+    for (1..@as(usize, bits_max) + 1) |first| {
+        // A first code of weight W leaves W - 1 bits, which a code of weight Max_Number_of_Bits +
+        // 1 - (W - 1) or more fits.
+        const room = first - 1;
+        pairs += (@as(u64, counts[first]) << @intCast(room)) * fits[@as(usize, bits_max) + 1 - room];
+    }
+    // Two cells' choices, each of 2^Max_Number_of_Bits.
+    return @intCast(((pairs << constants.pair_share_bits) >> bits_max) >> bits_max);
 }
 
 /// Gives each literal 2^(Weight-1) consecutive cells, the lowest weights first and literal order

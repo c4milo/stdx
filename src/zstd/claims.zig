@@ -7,6 +7,9 @@ pub const Claims = struct {
     /// Z1: the four Huffman-coded literal streams decoded in one loop, a load of each in turn. Off,
     /// the fast path decodes one stream after another.
     interleaved_streams: bool = true,
+    /// Z2: a long section's literals decoded in pairs, a lookup giving the literals two codes that
+    /// fit the table's width take together. Off, one literal a lookup.
+    pairs: bool = true,
     /// Z4: literals and matches copied 16 octets at a time, overrunning into the room the margin
     /// leaves. Off, the fast path copies exactly, with `@memcpy` and octet by octet.
     chunk_copies: bool = true,
@@ -23,6 +26,7 @@ pub const Claims = struct {
 /// Each claim off in turn, the A/Bs design §8 step 11 runs.
 pub const each_off = [_]Claims{
     .{ .interleaved_streams = false },
+    .{ .pairs = false },
     .{ .chunk_copies = false },
     .{ .block_in_input = false },
     .{ .window_once = false },
@@ -31,6 +35,7 @@ pub const each_off = [_]Claims{
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
 pub const each_off_names = [each_off.len][]const u8{
     "Z1 interleaved streams",
+    "Z2 pairs",
     "Z4 chunk copies",
     "Z5 block in input",
     "Z6 window once",
