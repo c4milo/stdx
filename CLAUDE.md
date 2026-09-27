@@ -271,8 +271,9 @@ Change this section when a step adds or renames a command.
   17's measure of what the safety checks cost.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
-  branch misses per decoded octet for each gzip decoder over every corpus file, through Linux's
-  perf_event_open, and says so where the host exposes no counters. The `bench` workflow's `profile` option runs it
+  branch misses per decoded octet for each gzip decoder, and for libzstd's and stdx's Zstandard
+  decoders, over every corpus file, through Linux's perf_event_open, and says so where the host
+  exposes no counters. The `bench` workflow's `profile` option runs it
   on both hosted runners, after allowing a process to count its own events.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the

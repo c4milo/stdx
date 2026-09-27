@@ -13,7 +13,7 @@
 //! - `zig build bench-zstd -Doracles` times Zstandard decoding against libzstd over the corpora
 //!   (`bench/zstd/zstd.zig`).
 //! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
-//!   decoder, where the host exposes the counters (`bench/profile/profile.zig`).
+//!   and Zstandard decoder, where the host exposes the counters (`bench/profile/profile.zig`).
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
 //!   agree with zlib and Wuffs over the corpora, and on seeded corruptions
 //!   (`tools/differential/deflate.zig`).
@@ -106,7 +106,7 @@ pub fn add(b: *std.Build, options: Options) void {
     const zstd_step = b.step("differential-zstd", "Require the Zstandard decoder to agree with libzstd (-Doracles)");
     const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
-    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip decoder (-Doracles)");
+    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip and Zstandard decoder (-Doracles)");
     const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, bench_zstd_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
@@ -273,6 +273,7 @@ pub fn add(b: *std.Build, options: Options) void {
     profile_module.addImport("codec", graph.codec);
     profile_module.addImport("gzip", graph.gzip);
     profile_module.addImport("deflate", graph.deflate);
+    profile_module.addImport("zstd", graph.zstd);
     profile_module.addImport("baselines", baselines_module);
     const profile = b.addExecutable(.{ .name = "bench_profile", .root_module = profile_module });
     b.installArtifact(profile);

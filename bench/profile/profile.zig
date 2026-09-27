@@ -1,13 +1,13 @@
-//! bench-profile: hardware counters for each gzip decoder over the corpora, where the host exposes
-//! them: cycles, instructions and branch misses per decoded octet, counted around the decoding
-//! alone through Linux's perf_event_open, in user space only. It shows where the fast path of
-//! design §8 step 7 spends its cycles against the baselines, and it answers whether a hosted runner
-//! exposes the counters, which docs/costs.md leaves open (decision 20). A host without them gets a
-//! line that says so, and the program exits 0.
+//! bench-profile: hardware counters for each gzip and Zstandard decoder over the corpora, where the
+//! host exposes them: cycles, instructions and branch misses per decoded octet, counted around the
+//! decoding alone through Linux's perf_event_open, in user space only. It shows where the fast
+//! paths of design §8 steps 7 and 11 spend their cycles against the baselines, and it answers
+//! whether a hosted runner exposes the counters, which docs/costs.md leaves open (decision 20). A
+//! host without them gets a line that says so, and the program exits 0.
 //!
-//! The streams are bench-deflate's: zlib's gzip at level 6. Each decoder decodes each file's
-//! stream until it has written at least `decoded_len_min` octets, after one decode checked against
-//! the file.
+//! The streams are bench-deflate's, zlib's gzip at level 6, and bench-zstd's, libzstd's frames at
+//! level 3. Each decoder decodes each file's stream until it has written at least
+//! `decoded_len_min` octets, after one decode checked against the file.
 //!
 //! Before the counters, on every host, it prints S2's count (decision 14): how stdx's decoder
 //! took each symbol of each file's raw DEFLATE stream at the same level, by one lookup in its
@@ -22,10 +22,14 @@ const oracle = @import("oracle");
 const codec = @import("codec");
 const gzip = @import("gzip");
 const deflate = @import("deflate");
+const zstd = @import("zstd");
 const baselines = @import("baselines");
 
 /// The zlib level of the streams, bench-deflate's.
 const encode_level: c_int = 6;
+
+/// The libzstd level of the frames, bench-zstd's.
+const zstd_level: c_int = 3;
 
 /// The octets each decoder writes per file, at least, over as many decodes as that takes.
 const decoded_len_min = 16 * 1024 * 1024;
@@ -71,10 +75,13 @@ const Counters = struct {
     }
 };
 
-/// What a decoder needs besides the stream: stdx's state, and the features it picks paths by.
+/// What a decoder needs besides the stream: stdx's states, the features they pick paths by, and
+/// libzstd's context, kept across decodes as bench-zstd keeps it.
 const Context = struct {
     decoder: *gzip.Decoder,
+    zstd_decoder: *zstd.HttpDecoder,
     features: codec.Features,
+    libzstd: *oracle.ZstdContext,
 };
 
 const Candidate = struct {
@@ -115,6 +122,36 @@ const candidates = [_]Candidate{
     .{ .name = "stdx", .decode = decode_stdx },
 };
 
+fn decode_libzstd(context: Context, frame: []const u8, output: []u8) bool {
+    return oracle.zstd_decode_with(context.libzstd, frame, output) == output.len;
+}
+
+fn decode_stdx_zstd(context: Context, frame: []const u8, output: []u8) bool {
+    context.zstd_decoder.init(context.features);
+    const progress = context.zstd_decoder.decode(frame, output) catch return false;
+    return progress.status == .done and progress.written == output.len;
+}
+
+const zstd_candidates = [_]Candidate{
+    .{ .name = "libzstd", .decode = decode_libzstd },
+    .{ .name = "stdx", .decode = decode_stdx_zstd },
+};
+
+/// The stream a section's decoders take for `input`.
+const Encode = *const fn (arena: std.mem.Allocator, input: []const u8) anyerror![]const u8;
+
+fn gzip_stream(arena: std.mem.Allocator, input: []const u8) anyerror![]const u8 {
+    const encoded = try arena.alloc(u8, oracle.zlib_bound(.gzip, input.len));
+    const encoding: oracle.Encoding = .{ .container = .gzip, .level = encode_level, .strategy = .default };
+    return encoded[0..oracle.zlib_encode(encoding, input, encoded).written];
+}
+
+fn zstd_frame(arena: std.mem.Allocator, input: []const u8) anyerror![]const u8 {
+    const encoded = try arena.alloc(u8, oracle.zstd_bound(input.len));
+    const frame_len = oracle.zstd_encode(.{ .level = zstd_level }, input, encoded) orelse return error.EncodeFailed;
+    return encoded[0..frame_len];
+}
+
 /// Prints S2's count for one file: the symbols of its raw DEFLATE stream, and how stdx took them.
 fn report_lookups(arena: std.mem.Allocator, out: *std.Io.Writer, name: []const u8, input: []const u8) !void {
     const encoded = try arena.alloc(u8, oracle.zlib_bound(.raw, input.len));
@@ -129,6 +166,35 @@ fn report_lookups(arena: std.mem.Allocator, out: *std.Io.Writer, name: []const u
     const symbols = lookups.table + lookups.canonical + lookups.checked;
     const share = @as(f64, @floatFromInt(lookups.table)) / @as(f64, @floatFromInt(@max(1, symbols)));
     try out.print("| {s} | {d} | {d} | {d} | {d} | {d:.4} |\n", .{ name, symbols, lookups.table, lookups.canonical, lookups.checked, share });
+}
+
+/// One table of counters: each of `section`'s decoders over each file's stream, after one decode
+/// checked against the file.
+fn report_counters(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, counters: *const Counters, context: Context, section: []const Candidate, encode: Encode, arguments: []const []const u8) !void {
+    try out.print("| File | Octets | Decoder | Cycles per octet | Instructions per octet | Instructions per cycle | Branch misses per KiB |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|\n", .{});
+    for (arguments) |argument| {
+        const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
+        const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
+        const stream = try encode(arena, input);
+        const output = try arena.alloc(u8, input.len);
+        const rounds = @max(1, decoded_len_min / @max(1, input.len));
+        for (section) |candidate| {
+            if (!candidate.decode(context, stream, output) or !std.mem.eql(u8, input, output)) return error.CandidateDisagrees;
+            counters.start();
+            for (0..rounds) |_| std.mem.doNotOptimizeAway(candidate.decode(context, stream, output));
+            const counts = counters.stop();
+            const octets: f64 = @floatFromInt(rounds * input.len);
+            const cycles: f64 = @floatFromInt(counts[0]);
+            const instructions: f64 = @floatFromInt(counts[1]);
+            const misses: f64 = @floatFromInt(counts[3]);
+            try out.print("| {s} | {d} | {s} | {d:.2} | {d:.2} | {d:.2} | {d:.2} |\n", .{
+                argument[0..split],     input.len,             candidate.name,
+                cycles / octets,        instructions / octets, instructions / @max(1, cycles),
+                misses / octets * 1024,
+            });
+        }
+    }
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -146,43 +212,26 @@ pub fn main(init: std.process.Init) !void {
         const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
         try report_lookups(arena, out, argument[0..split], input);
     }
-    try out.print("\n## Hardware counters per decoded octet, gzip at zlib level {d}\n\n", .{encode_level});
     if (comptime builtin.os.tag != .linux) {
-        try out.print("Hardware counters are read through Linux's perf_event_open; this host is not Linux.\n", .{});
+        try out.print("\n## Hardware counters per decoded octet\n\nHardware counters are read through Linux's perf_event_open; this host is not Linux.\n", .{});
         try out.flush();
         return;
     }
     const counters = Counters.open() catch {
-        try out.print("Hardware counters are unavailable on this host: perf_event_open refused them.\n", .{});
+        try out.print("\n## Hardware counters per decoded octet\n\nHardware counters are unavailable on this host: perf_event_open refused them.\n", .{});
         try out.flush();
         return;
     };
-    const context: Context = .{ .decoder = try arena.create(gzip.Decoder), .features = codec.Features.detect() };
-    try out.print("| File | Octets | Decoder | Cycles per octet | Instructions per octet | Instructions per cycle | Branch misses per KiB |\n", .{});
-    try out.print("|---|---|---|---|---|---|---|\n", .{});
-    for (args[1..]) |argument| {
-        const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
-        const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
-        const encoded = try arena.alloc(u8, oracle.zlib_bound(.gzip, input.len));
-        const encoding: oracle.Encoding = .{ .container = .gzip, .level = encode_level, .strategy = .default };
-        const stream = encoded[0..oracle.zlib_encode(encoding, input, encoded).written];
-        const output = try arena.alloc(u8, input.len);
-        const rounds = @max(1, decoded_len_min / @max(1, input.len));
-        for (candidates) |candidate| {
-            if (!candidate.decode(context, stream, output) or !std.mem.eql(u8, input, output)) return error.CandidateDisagrees;
-            counters.start();
-            for (0..rounds) |_| std.mem.doNotOptimizeAway(candidate.decode(context, stream, output));
-            const counts = counters.stop();
-            const octets: f64 = @floatFromInt(rounds * input.len);
-            const cycles: f64 = @floatFromInt(counts[0]);
-            const instructions: f64 = @floatFromInt(counts[1]);
-            const misses: f64 = @floatFromInt(counts[3]);
-            try out.print("| {s} | {d} | {s} | {d:.2} | {d:.2} | {d:.2} | {d:.2} |\n", .{
-                argument[0..split],     input.len,             candidate.name,
-                cycles / octets,        instructions / octets, instructions / @max(1, cycles),
-                misses / octets * 1024,
-            });
-        }
-    }
+    const libzstd = oracle.zstd_context_create() orelse return error.OutOfMemory;
+    const context: Context = .{
+        .decoder = try arena.create(gzip.Decoder),
+        .zstd_decoder = try arena.create(zstd.HttpDecoder),
+        .features = codec.Features.detect(),
+        .libzstd = libzstd,
+    };
+    try out.print("\n## Hardware counters per decoded octet, gzip at zlib level {d}\n\n", .{encode_level});
+    try report_counters(arena, io, out, &counters, context, &candidates, gzip_stream, args[1..]);
+    try out.print("\n## Hardware counters per decoded octet, Zstandard at libzstd level {d}\n\n", .{zstd_level});
+    try report_counters(arena, io, out, &counters, context, &zstd_candidates, zstd_frame, args[1..]);
     try out.flush();
 }
