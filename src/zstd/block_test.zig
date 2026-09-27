@@ -72,7 +72,7 @@ fn written_block(head: []const u8, extras: []const u8, octets: []u8) []const u8 
 
 fn decode(fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize) ![]const u8 {
     var run: block.Run = undefined;
-    try block.prepare(&run, fixture.context(octets));
+    try block.prepare(.{}, &run, fixture.context(octets));
     var written: usize = 0;
     for (0..output.len + 1) |_| {
         const room = @min(piece_len, output.len - written);
@@ -149,6 +149,6 @@ test "a block past Block_Maximum_Size, and octets after a section of no sequence
     fixture = .{};
     fixture.start();
     var run: block.Run = undefined;
-    try block.prepare(&run, fixture.context(&.{ 1 << 3, 'a', 0 }));
-    try testing.expectError(error.SequencesStreamInvalid, block.prepare(&run, fixture.context(&.{ 1 << 3, 'a', 0, 0 })));
+    try block.prepare(.{}, &run, fixture.context(&.{ 1 << 3, 'a', 0 }));
+    try testing.expectError(error.SequencesStreamInvalid, block.prepare(.{}, &run, fixture.context(&.{ 1 << 3, 'a', 0, 0 })));
 }

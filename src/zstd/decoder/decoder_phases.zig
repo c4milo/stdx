@@ -162,7 +162,7 @@ pub fn gather(comptime options: DecoderOptions, self: *Self(options), reader: *c
     @memcpy(self.block_octets[filled..][0..octets.len], octets);
     self.block_left -= @intCast(octets.len);
     if (self.block_left > 0) return .needs_input;
-    try block.prepare(&self.run, context(options, self));
+    try block.prepare(options.paths, &self.run, context(options, self));
     self.phase = .execute;
     return null;
 }

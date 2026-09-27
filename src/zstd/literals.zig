@@ -12,6 +12,8 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const work_module = @import("work.zig");
 const Work = work_module.Work;
+const fast_literals = @import("fast_literals.zig");
+const Paths = @import("claims.zig").Paths;
 const huffman = @import("huffman.zig");
 
 /// Where a block's literals are.
@@ -71,6 +73,11 @@ pub const Tables = struct {
 /// Reads the Literals_Section at the start of `block`, whose literals may number at most
 /// `literals_len_max`, Block_Maximum_Size (RFC 8878 §3.1.1.2.4).
 pub fn read(block: []const u8, literals_len_max: u32, tables: Tables) Error!Section {
+    return read_with(.{}, block, literals_len_max, tables);
+}
+
+/// `read`, decoding Huffman-coded literals on the paths `paths` names.
+pub fn read_with(comptime paths: Paths, block: []const u8, literals_len_max: u32, tables: Tables) Error!Section {
     assert(tables.buffer.len >= literals_len_max);
     var reader = codec.Reader.init(block);
     // RFC 8878 §3.1.1.3.1.1: the header's first octet is always present.
@@ -79,7 +86,7 @@ pub fn read(block: []const u8, literals_len_max: u32, tables: Tables) Error!Sect
     const format = (first >> constants.literals_size_format_shift) & constants.literals_size_format_mask;
     return switch (kind) {
         .raw, .repeated => read_uncompressed(&reader, first, format, kind, literals_len_max),
-        .compressed, .treeless => read_compressed(&reader, first, format, kind, literals_len_max, tables),
+        .compressed, .treeless => read_compressed(paths, &reader, first, format, kind, literals_len_max, tables),
     };
 }
 
@@ -112,7 +119,7 @@ fn uncompressed_size(reader: *codec.Reader, first: u8, format: u8) Error!u32 {
 }
 
 /// Compressed_Literals_Block and Treeless_Literals_Block (RFC 8878 §3.1.1.3.1.4).
-fn read_compressed(reader: *codec.Reader, first: u8, format: u8, kind: Kind, literals_len_max: u32, tables: Tables) Error!Section {
+fn read_compressed(comptime paths: Paths, reader: *codec.Reader, first: u8, format: u8, kind: Kind, literals_len_max: u32, tables: Tables) Error!Section {
     const size_bits = constants.literals_compressed_size_bits[format];
     const header_bits = kind_and_format_bits + constants.literals_compressed_sizes * @as(u32, size_bits);
     const header_len = header_bits / @bitSizeOf(u8);
@@ -142,10 +149,12 @@ fn read_compressed(reader: *codec.Reader, first: u8, format: u8, kind: Kind, lit
     }
     const streams = content_reader.take(content_reader.remaining_len()) catch unreachable;
     const output = literals_output(tables.buffer, len);
-    if (constants.literals_compressed_streams[format] == 1) {
-        try huffman.decode_stream(tables.table, streams, output);
+    if (constants.literals_compressed_streams[format] > 1) {
+        try decode_four(paths, tables.table, streams, output);
+    } else if (paths.fast_paths) {
+        try fast_literals.decode(1, paths.claims, tables.table, .{streams}, .{output});
     } else {
-        try decode_four(tables.table, streams, output);
+        try huffman.decode_stream(tables.table, streams, output);
     }
     return .{ .source = .buffer, .len = len, .offset = 0, .octet = 0, .section_len = @intCast(header_len + compressed_len), .work = work };
 }
@@ -158,7 +167,7 @@ fn literals_output(buffer: []u8, len: u32) []u8 {
 
 /// Four Huffman-coded streams after a Jump_Table of three 2-octet sizes, each stream regenerating
 /// (Regenerated_Size + 3) / 4 literals but the last (RFC 8878 §3.1.1.3.1.6).
-fn decode_four(table: *const huffman.Table, streams: []const u8, output: []u8) Error!void {
+fn decode_four(comptime paths: Paths, table: *const huffman.Table, streams: []const u8, output: []u8) Error!void {
     // RFC 8878 §3.1.1.3.1.6, erratum 7297: fewer than 6 octets, or 6 literals, cannot hold four
     // streams, as Stream4_Size would underflow.
     if (streams.len < constants.four_streams_len_min or output.len < constants.four_streams_len_min) return error.JumpTableInvalid;
@@ -173,12 +182,16 @@ fn decode_four(table: *const huffman.Table, streams: []const u8, output: []u8) E
     if (total > streams.len - constants.jump_table_len) return error.JumpTableInvalid;
     sizes[constants.literal_streams - 1] = streams.len - constants.jump_table_len - total;
     const segment_len = (output.len + constants.literal_streams - 1) / constants.literal_streams;
-    for (sizes, 0..) |size, index| {
-        const stream = reader.take(size) catch unreachable;
+    var stream_octets: [constants.literal_streams][]const u8 = undefined;
+    var outputs: [constants.literal_streams][]u8 = undefined;
+    for (sizes, &stream_octets, &outputs, 0..) |size, *stream, *segment, index| {
+        stream.* = reader.take(size) catch unreachable;
         const start = index * segment_len;
         const end = if (index == constants.literal_streams - 1) output.len else start + segment_len;
-        try huffman.decode_stream(table, stream, output[start..end]);
+        segment.* = output[start..end];
     }
+    if (paths.fast_paths) return fast_literals.decode(constants.literal_streams, paths.claims, table, stream_octets, outputs);
+    for (stream_octets, outputs) |stream, segment| try huffman.decode_stream(table, stream, segment);
 }
 
 test {
