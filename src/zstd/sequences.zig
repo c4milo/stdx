@@ -22,13 +22,11 @@ pub fn slot(code: Code) usize {
     return @intFromEnum(code);
 }
 
-/// Where a code's table comes from: a default distribution's comptime table, or the state's own.
-pub const Source = enum(u8) { default, built };
-
 /// A sequence table's cell: the code's value before its extra bits, and their count, from RFC 8878
 /// §3.1.1.3.2.1.1's tables (for an offset code, 2^code and the code), then the next state's
-/// baseline and bits (§4.1). One load gives all a sequence reads of a code.
-pub const Cell = extern struct {
+/// baseline and bits (§4.1). One load gives all a sequence reads of a code: the fields pack into
+/// 64 bits, the first least significant, whatever the host's octet order.
+pub const Cell = packed struct(u64) {
     base: u32,
     baseline: u16,
     bits: u8,
@@ -69,14 +67,15 @@ fn default_cells(comptime code: Code, comptime table: fse.Table(log_max_of(code)
 /// The comptime branches deriving the default tables' cells take.
 const default_cells_eval_quota = 10_000;
 
-/// The tables of the three codes, kept across blocks for Repeat_Mode (RFC 8878 §3.1.1.3.2.1).
+/// The tables of the three codes, kept across blocks for Repeat_Mode (RFC 8878 §3.1.1.3.2.1). Each
+/// table's cells fill the start of its array, a default distribution's copied from its comptime
+/// table (decision 14, Z3), so a state indexes the array whatever mode chose the table.
 pub const Tables = struct {
     literals_length: [1 << constants.literals_length_accuracy_log_max]Cell,
     offset: [1 << constants.offset_accuracy_log_max]Cell,
     match_length: [1 << constants.match_length_accuracy_log_max]Cell,
-    /// The accuracy logs of the tables built in `literals_length`, `offset` and `match_length`.
+    /// The accuracy logs of the tables in `literals_length`, `offset` and `match_length`.
     accuracy_logs: [codes.len]u4,
-    sources: [codes.len]Source,
     /// Whether a block with sequences set the tables, which Repeat_Mode needs.
     valid: bool,
     /// Invariant 17's count for the tables built since the block took it last.
@@ -90,9 +89,9 @@ pub const Tables = struct {
     pub fn cells(self: *const Tables, code: Code) []const Cell {
         const len = @as(usize, 1) << self.accuracy_logs[slot(code)];
         return switch (code) {
-            .literals_length => if (self.sources[slot(code)] == .default) &default_literals_length else self.literals_length[0..len],
-            .offset => if (self.sources[slot(code)] == .default) &default_offset else self.offset[0..len],
-            .match_length => if (self.sources[slot(code)] == .default) &default_match_length else self.match_length[0..len],
+            .literals_length => self.literals_length[0..len],
+            .offset => self.offset[0..len],
+            .match_length => self.match_length[0..len],
         };
     }
 
@@ -104,12 +103,25 @@ pub const Tables = struct {
             .match_length => derive(code, table, &self.match_length),
         }
         self.accuracy_logs[slot(code)] = table.accuracy_log;
-        self.sources[slot(code)] = .built;
         work_module.add(&self.work, table.work);
     }
 
+    /// Takes a code's default table, whose cells comptime built (RFC 8878 §3.1.1.3.2.2).
+    fn take_default(self: *Tables, code: Code) void {
+        switch (code) {
+            .literals_length => self.literals_length[0..default_literals_length.len].* = default_literals_length,
+            .offset => self.offset[0..default_offset.len].* = default_offset,
+            .match_length => self.match_length[0..default_match_length.len].* = default_match_length,
+        }
+        self.accuracy_logs[slot(code)] = switch (code) {
+            .literals_length => constants.literals_length_default_accuracy_log,
+            .offset => constants.offset_default_accuracy_log,
+            .match_length => constants.match_length_default_accuracy_log,
+        };
+    }
+
     fn accuracy_log(self: *const Tables, code: Code) u6 {
-        return std.math.log2_int(usize, self.cells(code).len);
+        return self.accuracy_logs[slot(code)];
     }
 };
 
@@ -176,9 +188,8 @@ fn read_count(reader: *codec.Reader) Error!u32 {
 
 /// The table one mode chooses for one code. Returns the octets its description takes.
 fn read_table(octets: []const u8, code: Code, mode: Mode, tables: *Tables) Error!usize {
-    const index = @intFromEnum(code);
     switch (mode) {
-        .predefined => tables.sources[index] = .default,
+        .predefined => tables.take_default(code),
         .repeat => {
             // RFC 8878 §3.1.1.3.2.1: Repeat_Mode with no earlier table in the frame is corruption.
             if (!tables.valid) return error.RepeatWithoutTable;

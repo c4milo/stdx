@@ -312,3 +312,42 @@ test "a first offset reaching the frame's first octet is taken, and one past it 
     try expect_alike(.{ .history_len = 11, .offset_symbols = "\x02\x03", .first = first }, 3);
     try expect_refused(.{ .history_len = 10, .offset_symbols = "\x02\x03", .first = first }, 3, error.OffsetTooFar);
 }
+
+/// Symbol_Compression_Modes with RLE_Mode for all three codes, whose tables read no state bits.
+const repeated_symbol_modes: u8 = 0x54;
+
+test "a block whose literal source is shorter than a chunk decodes on the checked path alike" {
+    // 64 octets of history, then a block of no literals and 12 sequences under RLE_Mode tables:
+    // literals length code 0, offset code 5, match length code 0. Each sequence reads only its 5
+    // offset bits, Offset_Value 32 to 63, offsets 29 to 60; the 60 bits let the fast loop start,
+    // and its literal source, the section after the literals header, takes 13 octets.
+    const sequence_count = 12;
+    const offset_code = 5;
+    var generator = codec.split.Generator.init(9);
+    var bits: test_writer.BitWriter = .{};
+    for (0..sequence_count) |_| bits.put(generator.below(1 << offset_code), offset_code);
+    var content: FrameWriter = .{};
+    raw_literals_header(&content, 0);
+    content.put(&.{ sequence_count, repeated_symbol_modes, 0, offset_code, 0 });
+    content.put(bits.finish());
+    try testing.expect(content.len - 2 < constants.copy_chunk_len);
+    var frame: FrameWriter = .{};
+    frame.put_int(u32, constants.frame_magic);
+    frame.put(&.{ 0, @as(u8, 4) << constants.window_exponent_shift });
+    const history_len = 64;
+    frame.block_header(false, decoder_test.raw_type, history_len);
+    for (0..history_len) |_| frame.put(&.{@truncate(generator.next())});
+    frame.block_header(true, decoder_test.compressed_type, @intCast(content.len));
+    frame.put(content.written());
+    var output: [output_capacity]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    const fast = try decoder.decode(frame.written(), &output);
+    const match_len_min = constants.match_length_baselines[0];
+    try testing.expectEqual(codec.Progress{ .consumed = frame.len, .written = history_len + sequence_count * match_len_min, .status = .done }, fast);
+    var checked_output: [output_capacity]u8 = undefined;
+    var checked: CheckedDecoder = undefined;
+    checked.init(.{});
+    try testing.expectEqual(fast, try checked.decode(frame.written(), &checked_output));
+    try testing.expectEqualSlices(u8, checked_output[0..fast.written], output[0..fast.written]);
+}
