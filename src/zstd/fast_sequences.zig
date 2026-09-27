@@ -102,13 +102,12 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
         // Decision 16's margin: an iteration starts no later than this.
         .written_max = output.len - constants.output_slack,
         .literals_end = literals_end,
-        .block_len_max = context.block_len_max,
         .window_len = context.window_len,
     };
-    // The literals copied, and the match octets the block promised against Block_Maximum_Size,
-    // each at most Block_Maximum_Size: kept narrow, so a sum with a length cannot overflow.
+    // The literals copied, at most Block_Maximum_Size: kept narrow, so a sum with a length cannot
+    // overflow. The match octets the block may still promise against Block_Maximum_Size.
     var literals_used: u32 = run.literals_used;
-    var promised_len: u32 = run.promised_len;
+    var promised_room: u32 = context.block_len_max - run.promised_len;
     var position = run.stream.position;
     // The cells of the next sequence's states, which the loop carries in their place: it writes
     // each sequence's states to `run.stream` as it takes the sequence, and loads their cells before
@@ -116,14 +115,16 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
     var cells = cells_of(tables, run.stream.states);
     var repeats = context.repeats.*;
     var written = sink.written;
-    var synced = sink.synced.*;
+    // The call's output the window has not taken, which a match reaching no further reads in place
+    // of the window.
+    var own_len = written - sink.synced.*;
     var taken: usize = 0;
     defer {
         run.stream.position = position;
         run.stream.left -= @intCast(taken);
         context.repeats.* = repeats;
         run.literals_used = literals_used;
-        run.promised_len = promised_len;
+        run.promised_len = context.block_len_max - promised_room;
         sink.written = written;
         work_module.add(context.work, work_module.of(taken));
     }
@@ -149,10 +150,10 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
         const match_len = match_length.base + field(aligned, match_length_at, match_length.extra_bits);
         const literals_len = literals_length.base + field(aligned, literals_length_at, literals_length.extra_bits);
         const distance, const next_repeats = resolve(repeats, offset_value, literals_len) orelse return;
-        if (leaves(bounds, need, constants.fast_read_position_min + @as(usize, lag), literals_used, promised_len, literals_len, match_len, distance)) return;
+        if (leaves(bounds, need, constants.fast_read_position_min + @as(usize, lag), literals_used, promised_room, literals_len, match_len, distance)) return;
         const target = written + literals_len;
-        const own_len = target - synced;
-        if (window_leaves(Window, claims, sink.window, distance, own_len, match_len)) return;
+        const own_at_target = own_len + literals_len;
+        if (window_leaves(Window, claims, sink.window, distance, own_at_target, match_len)) return;
         const states: [codes.len]u16 = .{
             @truncate(literals_length.baseline + field(aligned, literals_state_at, literals_length.bits)),
             @truncate(offset.baseline + field(aligned, offset_state_at, offset.bits)),
@@ -161,16 +162,17 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
         run.stream.states = states;
         cells = cells_of(tables, states);
         copy_literal_run(kind, claims, output, written, literal_source, literals_used, run.section.octet, literals_len);
-        if (distance > own_len) {
-            copy.copy_from_window_chunks(Window, claims, sink.window, output, target, distance, own_len, match_len);
+        if (distance > own_at_target) {
+            copy.copy_from_window_chunks(Window, claims, sink.window, output, target, distance, own_at_target, match_len);
         } else copy.copy_within(claims, output, target, distance, match_len);
         literals_used = @truncate(literals_used + literals_len);
-        promised_len = @truncate(promised_len + match_len);
+        promised_room -= @intCast(match_len);
         written = target + match_len;
+        own_len = own_at_target + match_len;
         position -= need;
         repeats = next_repeats;
         taken += 1;
-        sync_each(Window, claims, sink, written, &synced);
+        sync_each(Window, claims, sink, written, &own_len);
     }
 }
 
@@ -178,17 +180,16 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
 const Bounds = struct {
     written_max: usize,
     literals_end: usize,
-    block_len_max: u32,
     window_len: u64,
 };
 
 /// Whether the loop leaves a sequence, in one branch for every check: the load does not hold its
 /// `need` bits, a check of `next_sequence` fails, or one iteration cannot copy it.
-inline fn leaves(bounds: Bounds, need: usize, loaded_len: usize, literals_used: u32, promised_len: u32, literals_len: usize, match_len: usize, distance: usize) bool {
+inline fn leaves(bounds: Bounds, need: usize, loaded_len: usize, literals_used: u32, promised_room: u32, literals_len: usize, match_len: usize, distance: usize) bool {
     return need > loaded_len or
         literals_used + literals_len > bounds.literals_end or
         literals_len + match_len > constants.chunk_len_max or
-        promised_len + match_len > bounds.block_len_max or
+        match_len > promised_room or
         distance > bounds.window_len;
 }
 
@@ -200,12 +201,13 @@ inline fn window_leaves(comptime Window: type, comptime claims: Claims, window: 
     return distance > own_len and !copy.window_chunks_fit(Window, claims, window, distance, own_len, len);
 }
 
-/// Moves the call's output into the window after each sequence, when the claim of Z6 is off.
-inline fn sync_each(comptime Window: type, comptime claims: Claims, sink: *block.Sink(Window), written: usize, synced: *usize) void {
+/// Moves the call's output into the window after each sequence, when the claim of Z6 is off: the
+/// window then holds all of it.
+inline fn sync_each(comptime Window: type, comptime claims: Claims, sink: *block.Sink(Window), written: usize, own_len: *usize) void {
     if (claims.window_once) return;
     sink.written = written;
     sink.sync();
-    synced.* = sink.synced.*;
+    own_len.* = 0;
 }
 
 /// Copies a literal run of `kind`: `len` octets of `literal_source` from `start`, in chunks where
@@ -457,13 +459,13 @@ test "the fast reader reads what the checked backward reader reads, across its l
 test "the loop leaves a sequence whose bits pass its load's, and one any check refuses" {
     // Frames reach the first only with offsets of 2^19 or more; the tests' window is 2^17.
     const loaded_len = constants.fast_read_position_min;
-    const bounds: Bounds = .{ .written_max = 1000, .literals_end = 100, .block_len_max = 1000, .window_len = 1000 };
-    try std.testing.expect(!leaves(bounds, loaded_len, loaded_len, 90, 900, 10, 20, 1000));
-    try std.testing.expect(leaves(bounds, loaded_len + 1, loaded_len, 90, 900, 10, 20, 1000));
-    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 91, 900, 10, 20, 1000));
-    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 0, 0, 10, constants.chunk_len_max - 9, 1000));
-    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 90, 981, 10, 20, 1000));
-    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 90, 900, 10, 20, 1001));
+    const bounds: Bounds = .{ .written_max = 1000, .literals_end = 100, .window_len = 1000 };
+    try std.testing.expect(!leaves(bounds, loaded_len, loaded_len, 90, 100, 10, 20, 1000));
+    try std.testing.expect(leaves(bounds, loaded_len + 1, loaded_len, 90, 100, 10, 20, 1000));
+    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 91, 100, 10, 20, 1000));
+    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 0, 1000, 10, constants.chunk_len_max - 9, 1000));
+    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 90, 19, 10, 20, 1000));
+    try std.testing.expect(leaves(bounds, loaded_len, loaded_len, 90, 100, 10, 20, 1001));
 }
 
 test {
