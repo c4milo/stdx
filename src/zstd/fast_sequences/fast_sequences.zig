@@ -12,7 +12,8 @@
 //! one whose bits lie in the stream's first `constants.fast_read_position_min` or outnumber the
 //! load's, one too long for an iteration, and one left over from a call whose room ran out. `step`
 //! reads near the stream's start from the stream's first 8 octets, padded with zeros when the
-//! stream is shorter.
+//! stream is shorter. Within the margin of the output's end, `run_tail` decodes as `step` does and
+//! copies each sequence whose chunks end inside the output.
 //!
 //! Both decode only what is valid. They leave any sequence the checked path would refuse to the
 //! checked path, without using its bits: the checked path decodes it again and refuses it. So both
@@ -62,7 +63,7 @@ pub fn execute(comptime Window: type, comptime claims: Claims, run: *block.Run, 
     for (0..iterations_max) |_| {
         // The loop checks its own margins: the assembly's reach to the output's end.
         if (run.literals_left == 0 and run.match_left == 0) run_whole(Window, claims, run, context, &found, sink);
-        if (sink.room() < constants.output_slack) return;
+        if (sink.room() < constants.output_slack) return run_tail(Window, claims, run, context, &found, sink);
         const written = sink.written;
         const left = run.stream.left;
         if (!step(Window, claims, run, context, &found, sink)) return;
@@ -287,6 +288,21 @@ inline fn step(comptime Window: type, comptime claims: Claims, run: *block.Run, 
     }
     if (run.match_left > 0) copy_match(Window, claims, run, sink);
     return true;
+}
+
+/// The sequences within `constants.output_slack` of the output's end, each decoded as `step` decodes
+/// it, and copied whole while the output has room for the overrun of its last chunk past it. Stops
+/// at a sequence the output has no such room for, which the checked path copies exactly.
+fn run_tail(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, found: *const Block, sink: *block.Sink(Window)) void {
+    // Each pass copies a sequence: one `step` left, or the next.
+    for (0..run.stream.left + 1) |_| {
+        if (run.literals_left == 0 and run.match_left == 0 and !next_sequence(run, context, found, sink.reach())) return;
+        if (run.literals_left + run.match_left + constants.copy_chunk_len > sink.room()) return;
+        // The room is under `output_slack`, so each part fits one copy of `chunk_len_max`.
+        if (run.literals_left > 0) copy_literals(Window, claims, run, context, sink);
+        if (run.match_left > 0) copy_match(Window, claims, run, sink);
+        assert(run.literals_left == 0 and run.match_left == 0);
+    }
 }
 
 /// Decodes the next sequence as sequences.next does, and checks it as the checked path does before

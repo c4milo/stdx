@@ -244,6 +244,24 @@ test "a block the input holds whole decodes from it, and moves into the state wh
     try testing.expect(!std.mem.allEqual(u8, &gathering.block_octets, sentinel));
 }
 
+test "the sequences near the output's end copy in chunks, into the scratch past the frame (Z4)" {
+    var writer: FrameWriter = .{};
+    const text = standard_frame(&writer);
+    var output: [64]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    @memset(&output, sentinel);
+    const whole = try decoder.decode_all(writer.written(), &output);
+    try testing.expectEqualStrings(text, output[0..whole.written]);
+    // The last match, 4 octets from 1 back, writes a word of 8, and "gh" covers 2 of the 4 past it.
+    try testing.expect(!std.mem.allEqual(u8, output[whole.written..], sentinel));
+    var checked: decoder_module.Decoder(.{ .window_len_max = constants.block_len_max, .paths = .{ .fast_paths = false } }) = undefined;
+    checked.init(.{});
+    @memset(&output, sentinel);
+    _ = try checked.decode_all(writer.written(), &output);
+    try testing.expect(std.mem.allEqual(u8, output[whole.written..], sentinel));
+}
+
 test "a magic below the skippable range is refused, and a cut skippable frame asks for more" {
     var decoder: Decoder = undefined;
     var output: [16]u8 = undefined;
@@ -387,21 +405,25 @@ test "no frame reads the octets, tree, tables or offsets of the frame before it 
     for (std.enums.values(Follower)) |follower| {
         var second: FrameWriter = .{};
         const refusal = follower_frame(&second, follower, stream);
-        // A decoder whose window holds the marker, started again with `init`.
+        // A decoder whose window holds the marker, started again with `init`. The octets past
+        // the frame's are scratch a fast path may write (decision 11), the same on every run.
         decoder.init(.{});
+        @memset(&output, sentinel);
         const marked = try decoder.decode_all(first.written(), &output);
         try testing.expect(std.mem.indexOf(u8, output[0..marked.written], marker) != null);
+        const marked_output = output;
         decoder.init(.{});
         @memset(&output, sentinel);
         try testing.expectError(refusal, decoder.decode(second.written(), &output));
         try testing.expect(std.mem.allEqual(u8, &output, sentinel));
-        // Both frames in one input: the second frame meets the same refusal.
+        // Both frames in one input: the second frame meets the same refusal, and writes no octet
+        // the first frame alone did not.
         var both: FrameWriter = .{};
         both.put(first.written());
         both.put(second.written());
         decoder.init(.{});
         @memset(&output, sentinel);
         try testing.expectError(refusal, decoder.decode_all(both.written(), &output));
-        try testing.expect(std.mem.allEqual(u8, output[marked.written..], sentinel));
+        try testing.expectEqualSlices(u8, &marked_output, &output);
     }
 }
