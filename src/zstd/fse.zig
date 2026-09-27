@@ -228,6 +228,8 @@ fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, cells: []C
         const bits: u5 = @intCast(accuracy_log - std.math.log2_int(u32, state));
         cell.* = symbol_cells[symbol];
         cell.bits = bits;
+        // A sequence cell counts the bits its code reads, extra bits and state bits together.
+        if (@hasField(Cell, "total")) cell.total = @intCast(cell.extra_bits + bits);
         cell.baseline = @intCast((state << bits) - table_len);
     }
 }

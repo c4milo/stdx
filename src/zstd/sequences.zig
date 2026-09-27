@@ -24,23 +24,27 @@ pub fn slot(code: Code) usize {
 
 /// A sequence table's cell: the code's value before its extra bits, from RFC 8878 §3.1.1.3.2.1.1's
 /// tables (for an offset code, 2^code), the next state's bits, the code's extra bits (for an offset
-/// code, the code), and the next state's baseline (§4.1). One load gives all a sequence reads of a
-/// code: the fields pack into 64 bits, the first least significant, whatever the host's octet
-/// order. The baseline comes last, so one shift of the cell gives it alone.
+/// code, the code), both counts together, and the next state's baseline (§4.1). One load gives all
+/// a sequence reads of a code: the fields pack into 64 bits, the first least significant, whatever
+/// the host's octet order. The baseline comes last, so one shift of the cell gives it alone.
 pub const Cell = packed struct(u64) {
     base: u32,
     bits: u8,
     extra_bits: u8,
-    baseline: u16,
+    /// `extra_bits` and `bits` together: the bits a sequence reads for this code.
+    total: u7,
+    /// Below the table's 2^9 cells at most.
+    baseline: u9,
 };
 
 /// The cell an FSE table's entry gives for `code`.
 fn cell_of_entry(comptime code: Code, entry: fse.Entry) Cell {
-    return switch (code) {
-        .literals_length => .{ .base = constants.literals_length_baselines[entry.symbol], .extra_bits = constants.literals_length_extra_bits[entry.symbol], .baseline = entry.baseline, .bits = entry.bits },
-        .match_length => .{ .base = constants.match_length_baselines[entry.symbol], .extra_bits = constants.match_length_extra_bits[entry.symbol], .baseline = entry.baseline, .bits = entry.bits },
-        .offset => .{ .base = @as(u32, 1) << @intCast(entry.symbol), .extra_bits = entry.symbol, .baseline = entry.baseline, .bits = entry.bits },
+    const base: u32, const extra_bits: u8 = switch (code) {
+        .literals_length => .{ constants.literals_length_baselines[entry.symbol], constants.literals_length_extra_bits[entry.symbol] },
+        .match_length => .{ constants.match_length_baselines[entry.symbol], constants.match_length_extra_bits[entry.symbol] },
+        .offset => .{ @as(u32, 1) << @intCast(entry.symbol), entry.symbol },
     };
+    return .{ .base = base, .extra_bits = extra_bits, .bits = entry.bits, .total = @intCast(extra_bits + entry.bits), .baseline = @intCast(entry.baseline) };
 }
 
 /// A code's largest accuracy log (RFC 8878 §3.1.1.3.2.1).

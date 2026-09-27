@@ -139,7 +139,6 @@ comptime {
     // The fields `ldp` loads in pairs are adjacent.
     assert(@offsetOf(Loop, "literals_length") == @offsetOf(Loop, "stream") + @sizeOf(u64));
     assert(@offsetOf(Loop, "match_length") == @offsetOf(Loop, "offset") + @sizeOf(u64));
-    assert(@offsetOf(Loop, "output_max") == @offsetOf(Loop, "output") + @sizeOf(u64));
     assert(@offsetOf(Loop, "promised_room") == @offsetOf(Loop, "literals_room") + @sizeOf(u64));
     // A cell's base is its low 32 bits, its bits and extra bits an octet each, and its baseline
     // the rest, which one shift gives alone.
@@ -155,7 +154,8 @@ comptime {
 const chunk_len_log = std.math.log2_int(usize, constants.chunk_len_max);
 
 /// The loop. Registers: x0 the loop's state; x1 the stream; x2, x3 and x4 the literals length,
-/// offset and match length cells; x5 the last place a sequence may start; x7 the output; x8 the
+/// offset and match length cells; x5 the last place a sequence may start, then the bits the
+/// sequence reads; x7 the output; x8 the
 /// literals; x9 the literals room; x10 the promised room; x11 the position less the 57 bits a load
 /// needs before it, negative when the load has not them; x12 the sequences left;
 /// x13, x14 and x15 the repeats; x16, x17 and x19 the states of literals length, offset and match
@@ -165,7 +165,7 @@ const chunk_len_log = std.math.log2_int(usize, constants.chunk_len_max);
 const template = std.fmt.comptimePrint(
     \\    ldp x1, x2, [x0, #{[stream]}]
     \\    ldp x3, x4, [x0, #{[offset]}]
-    \\    ldp x7, x5, [x0, #{[output]}]
+    \\    ldr x7, [x0, #{[output]}]
     \\    ldr x8, [x0, #{[literals]}]
     \\    ldp x9, x10, [x0, #{[literals_room]}]
     \\    ldr x11, [x0, #{[position]}]
@@ -178,6 +178,7 @@ const template = std.fmt.comptimePrint(
     \\    cbz x12, 9f
     \\1:
     \\    // The margins: the load's bits before the position, and room past the output.
+    \\    ldr x5, [x0, #{[output_max]}]
     \\    cmp x11, #0
     \\    ccmp x7, x5, #2, ge
     \\    b.hi 9f
@@ -186,6 +187,12 @@ const template = std.fmt.comptimePrint(
     \\    ldr x20, [x2, x16, lsl #3]
     \\    ldr x21, [x3, x17, lsl #3]
     \\    ldr x22, [x4, x19, lsl #3]
+    \\    // x5 the bits the sequence reads: each cell's count of them, together.
+    \\    ubfx x5, x20, #{[total_at]}, #{[total_len]}
+    \\    ubfx x27, x22, #{[total_at]}, #{[total_len]}
+    \\    add x5, x5, x27
+    \\    ubfx x27, x21, #{[total_at]}, #{[total_len]}
+    \\    add x5, x5, x27
     \\    // The 8 octets whose last holds the position's bit, least significant first, shifted so
     \\    // that bit leads (RFC 8878 §4.1); x23 the bits they hold below the position.
     \\    lsr x24, x11, #3
@@ -240,12 +247,10 @@ const template = std.fmt.comptimePrint(
     \\    lsr x21, x21, #{[baseline_at]}
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
-    \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
     \\    add x21, x6, x21
-    \\    // x25 the bits the sequence reads, x26 Offset_Value, x28 the match length, x30 the
-    \\    // literals length. An Offset_Value above 3 is a new offset (RFC 8878 §3.1.1.5), and the
+    \\    // x26 Offset_Value, x28 the match length, x30 the literals length. An Offset_Value above 3 is a new offset (RFC 8878 §3.1.1.5), and the
     \\    // repeats become it, the first and the second: x26 the distance, x24 and x27 the second
     \\    // and third repeats after it.
     \\    cmp x26, #{[repeat_values]}
@@ -264,7 +269,7 @@ const template = std.fmt.comptimePrint(
     \\    ccmp x28, x10, #2, ls
     \\    ldr x6, [x0, #{[window_len]}]
     \\    ccmp x26, x6, #2, ls
-    \\    ccmp x25, x23, #2, ls
+    \\    ccmp x5, x23, #2, ls
     \\    b.hi 9f
     \\    // A match reaching past the call's own output reads the window: `step` takes it.
     \\    add x23, x7, x30
@@ -273,7 +278,7 @@ const template = std.fmt.comptimePrint(
     \\    cmp x26, x6
     \\    b.hi 9f
     \\    // The sequence is taken.
-    \\    sub x11, x11, x25
+    \\    sub x11, x11, x5
     \\    sub x9, x9, x30
     \\    sub x10, x10, x28
     \\    mov x16, x20
@@ -425,6 +430,9 @@ const template = std.fmt.comptimePrint(
     .bits_at = @bitOffsetOf(sequences.Cell, "bits"),
     .extra_at = @bitOffsetOf(sequences.Cell, "extra_bits"),
     .baseline_at = @bitOffsetOf(sequences.Cell, "baseline"),
+    .total_at = @bitOffsetOf(sequences.Cell, "total"),
+    .total_len = @bitSizeOf(@FieldType(sequences.Cell, "total")),
+    .output_max = @offsetOf(Loop, "output_max"),
     .repeat_values = constants.repeat_offset_values,
     .chunk_len_log = chunk_len_log,
     .chunk = constants.copy_chunk_len,
