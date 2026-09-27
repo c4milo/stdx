@@ -68,12 +68,20 @@ pub fn Window(comptime capacity: usize) type {
         /// one by one. The caller has refused every distance past `reach()` (invariant 10), and
         /// `into` is no longer than `distance`, so every octet it reads was written before the copy.
         pub fn copy_back(self: *const Self, distance: usize, into: []u8) void {
-            assert(distance >= 1 and distance <= self.filled_len);
             assert(into.len <= distance);
-            const start = (self.position + capacity - distance) & (capacity - 1);
-            const first_len = @min(into.len, capacity - start);
-            @memcpy(into[0..first_len], self.octets[start..][0..first_len]);
+            const first = self.ring_back(distance);
+            const first_len = @min(into.len, first.len);
+            @memcpy(into[0..first_len], first[0..first_len]);
             @memcpy(into[first_len..], self.octets[0 .. into.len - first_len]);
+        }
+
+        /// The ring from the octet `distance` back to the ring's end. Its first `distance` octets,
+        /// or all of it when the history wraps past the ring's end, are the history from there, in
+        /// order; the rest is the ring's older octets, which a caller may read but not use. The
+        /// caller has refused every distance past `reach()` (invariant 10).
+        pub fn ring_back(self: *const Self, distance: usize) []const u8 {
+            assert(distance >= 1 and distance <= self.filled_len);
+            return self.octets[(self.position + capacity - distance) & (capacity - 1) ..];
         }
     };
 }
@@ -122,6 +130,10 @@ test "append and copy_back agree with push and back, across the ring's end" {
         try testing.expectEqual(pushed.position, appended.position);
         for (1..pushed.reach() + 1) |distance| {
             try testing.expectEqual(pushed.back(distance), appended.back(distance));
+            const ring = appended.ring_back(distance);
+            for (ring[0..@min(distance, ring.len)], 0..) |octet, index| {
+                try testing.expectEqual(pushed.back(distance - index), octet);
+            }
             var copied: [8]u8 = undefined;
             appended.copy_back(distance, copied[0..distance]);
             for (copied[0..distance], 0..) |octet, index| {
