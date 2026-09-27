@@ -8,12 +8,12 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const fse = @import("fse.zig");
-const sequences = @import("sequences.zig");
-const test_writer = @import("test_writer.zig");
-const decoder_module = @import("decoder/decoder.zig");
-const decoder_test = @import("decoder/decoder_test.zig");
+const constants = @import("../constants.zig");
+const fse = @import("../fse.zig");
+const sequences = @import("../sequences.zig");
+const test_writer = @import("../test_writer.zig");
+const decoder_module = @import("../decoder/decoder.zig");
+const decoder_test = @import("../decoder/decoder_test.zig");
 const FrameWriter = decoder_test.FrameWriter;
 
 /// The most sequences a seeded block holds, and the three codes each has.

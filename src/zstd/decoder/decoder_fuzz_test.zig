@@ -13,7 +13,7 @@ const constants = @import("../constants.zig");
 const claims = @import("../claims.zig");
 const huffman = @import("../huffman.zig");
 const StreamWriter = @import("../test_writer.zig").StreamWriter;
-const fast_sequences_test = @import("../fast_sequences_test.zig");
+const fast_sequences_test = @import("../fast_sequences/fast_sequences_test.zig");
 const Decoder = decoder_test.Decoder;
 const FrameWriter = decoder_test.FrameWriter;
 

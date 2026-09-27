@@ -16,7 +16,7 @@ const literals = @import("literals.zig");
 const sequences = @import("sequences.zig");
 const work_module = @import("work.zig");
 const Work = work_module.Work;
-const fast_sequences = @import("fast_sequences.zig");
+const fast_sequences = @import("fast_sequences/fast_sequences.zig");
 const Paths = @import("claims.zig").Paths;
 
 /// Every way a compressed block breaks RFC 8878 §3.1.1.3 and §3.1.1.4.

@@ -7,8 +7,8 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const Claims = @import("claims.zig").Claims;
+const constants = @import("../constants.zig");
+const Claims = @import("../claims.zig").Claims;
 
 /// The chunks that cover `len` octets, one at least: the first chunk moves whatever the length, so
 /// a run of none costs no branch.

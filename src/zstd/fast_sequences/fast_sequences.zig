@@ -20,12 +20,12 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const sequences = @import("sequences.zig");
-const block = @import("block.zig");
-const Claims = @import("claims.zig").Claims;
-const work_module = @import("work.zig");
-const fast_literals = @import("fast_literals.zig");
+const constants = @import("../constants.zig");
+const sequences = @import("../sequences.zig");
+const block = @import("../block.zig");
+const Claims = @import("../claims.zig").Claims;
+const work_module = @import("../work.zig");
+const fast_literals = @import("../fast_literals.zig");
 const copy = @import("fast_sequences_copy.zig");
 
 const LiteralsLengthCells = @FieldType(sequences.Tables, "literals_length");

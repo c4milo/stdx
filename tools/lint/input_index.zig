@@ -21,8 +21,8 @@
 //!
 //! Decision 16 lets the fast paths it names leave the checked reader and writer. Each lives in a
 //! file of its own, which this rule does not read: `src/deflate/fast.zig`, the DEFLATE symbol loop
-//! and match copy of design §8 step 7, and `src/zstd/fast_sequences.zig` and `src/zstd/fast_literals.zig`,
-//! the Zstandard sequence execution and literal decoding of step 11. A fast path's margins, checked once per iteration, bound
+//! and match copy of design §8 step 7, and `src/zstd/fast_sequences/fast_sequences.zig` and
+//! `src/zstd/fast_literals.zig`, the Zstandard sequence execution and literal decoding of step 11. A fast path's margins, checked once per iteration, bound
 //! every index it takes, and ReleaseSafe's bounds checks stay on inside it.
 //!
 //! What the rule cannot see. It follows names within one function, so an input-derived value passed
@@ -55,7 +55,7 @@ pub const scope: Scope = .{
         "src/codec/bit_reader.zig",
         // Decision 16's fast paths.
         "src/deflate/fast.zig",
-        "src/zstd/fast_sequences.zig",
+        "src/zstd/fast_sequences/fast_sequences.zig",
         "src/zstd/fast_literals.zig",
     },
 };
