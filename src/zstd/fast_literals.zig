@@ -47,14 +47,7 @@ pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huff
     }
 }
 
-/// The stream's first 8 octets as a little-endian word, zero past its end when it is shorter: the
-/// load of any position in the stream's first 64 bits.
-pub fn head_of(octets: []const u8) u64 {
-    var padded: [@sizeOf(u64)]u8 = @splat(0);
-    const len = @min(octets.len, padded.len);
-    @memcpy(padded[0..len], octets[0..len]);
-    return std.mem.readInt(u64, &padded, .little);
-}
+pub const head_of = @import("fast_reader.zig").head_of;
 
 /// Decodes the literals the loads left, one at a time: each from the 8 octets that end at the
 /// position's octet, or from the stream's first 8 when fewer lie before it, the bits before the
