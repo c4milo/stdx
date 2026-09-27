@@ -254,17 +254,17 @@ const template = std.fmt.comptimePrint(
     \\    mov x24, x13
     \\    mov x27, x14
     \\3:
-    \\    // The checks of the checked path, in one branch: the load holds the bits read; the
-    \\    // literals are there; the lengths stay below a chunk's most; the block's size holds; the
-    \\    // offset is within Window_Size.
-    \\    cmp x25, x23
-    \\    ccmp x30, x9, #2, ls
+    \\    // The checks of the checked path, in one branch: the literals are there; the lengths stay
+    \\    // below a chunk's most; the block's size holds; the offset is within Window_Size; the load
+    \\    // holds the bits read, last, as their count comes last.
+    \\    cmp x30, x9
     \\    add x6, x30, x28
     \\    lsr x6, x6, #{[chunk_len_log]}
     \\    ccmp x6, #0, #2, ls
     \\    ccmp x28, x10, #2, ls
     \\    ldr x6, [x0, #{[window_len]}]
     \\    ccmp x26, x6, #2, ls
+    \\    ccmp x25, x23, #2, ls
     \\    b.hi 9f
     \\    // A match reaching past the call's own output reads the window: `step` takes it.
     \\    add x23, x7, x30
