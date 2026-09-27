@@ -78,6 +78,18 @@ pub const BackwardBitReader = struct {
         if (len == 0) return 0;
         const first = start / @bitSizeOf(u8);
         const last = (start + len - 1) / @bitSizeOf(u8);
+        const mask = (@as(u64, 1) << @intCast(len)) - 1;
+        // One 8-octet load holds the bits when the stream has 8 octets from the first they touch,
+        // or 8 up to the last: 57 bits end within 8 octets of any bit.
+        if (first + @sizeOf(u64) <= self.octets.len) {
+            const word = std.mem.readInt(u64, self.octets[first..][0..@sizeOf(u64)], .little);
+            return (word >> @intCast(start % @bitSizeOf(u8))) & mask;
+        }
+        if (last + 1 >= @sizeOf(u64)) {
+            const base = last + 1 - @sizeOf(u64);
+            const word = std.mem.readInt(u64, self.octets[base..][0..@sizeOf(u64)], .little);
+            return (word >> @intCast(start - base * @bitSizeOf(u8))) & mask;
+        }
         var value: u64 = 0;
         // At most 8 octets: 57 bits from any bit of an octet end within the eighth.
         for (self.octets[first .. last + 1], 0..) |octet, index| value |= @as(u64, octet) << @intCast(index * @bitSizeOf(u8));
@@ -135,5 +147,26 @@ test "57 bits read at any alignment" {
         _ = reader.read(@intCast(skip));
         const start = 71 - skip - read_bits_max;
         try testing.expectEqual(@as(u64, @truncate(whole >> @intCast(start))) & ((@as(u64, 1) << read_bits_max) - 1), reader.peek(read_bits_max));
+    }
+}
+
+test "every read of streams from 1 to 24 octets equals the bits assembled one octet at a time" {
+    var generator = @import("split.zig").Generator.init(4);
+    var stream: [24]u8 = undefined;
+    for (1..stream.len + 1) |len| {
+        for (stream[0..len]) |*octet| octet.* = @truncate(generator.next());
+        stream[len - 1] |= 1;
+        const reader = BackwardBitReader.init(stream[0..len]).?;
+        const bits_total = len * @bitSizeOf(u8);
+        for (0..bits_total) |start| {
+            for (1..@min(read_bits_max, bits_total - start) + 1) |count| {
+                var expected: u64 = 0;
+                for (0..count) |bit| {
+                    const at = start + bit;
+                    expected |= @as(u64, (stream[at / 8] >> @intCast(at % 8)) & 1) << @intCast(bit);
+                }
+                try testing.expectEqual(expected, reader.bits(start, count));
+            }
+        }
     }
 }
