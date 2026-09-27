@@ -93,8 +93,9 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
     const output = sink.output;
     const literals_end = copy.literals_end_of(kind == .slice, claims, run.section.len, literal_source);
     // The block's last sequence reads no states, and `step` takes it, as it takes every sequence
-    // when the literal source is shorter than a chunk.
-    if (run.stream.left <= 1 or output.len < constants.output_slack or literals_end + copy.overrun_of(kind == .slice, claims) > literal_source.len and kind == .slice) return;
+    // when the literal source is shorter than a chunk, and every sequence left once the position
+    // lies in the stream's first `constants.fast_read_position_min` bits.
+    if (run.stream.left <= 1 or run.stream.position < constants.fast_read_position_min or output.len < constants.output_slack or literals_end + copy.overrun_of(kind == .slice, claims) > literal_source.len and kind == .slice) return;
     if (comptime aarch64.takes(kind == .slice, claims)) return aarch64.run_loop(Window, run, context, found.stream, found.tables, sink, literal_source);
     run_iterations(kind, Window, claims, run, context, found, sink, literal_source, literals_end);
 }
