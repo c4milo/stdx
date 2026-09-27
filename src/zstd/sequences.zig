@@ -51,6 +51,15 @@ fn log_max_of(comptime code: Code) u4 {
     };
 }
 
+/// The function that makes a code's cell for a symbol, with no bits and a Baseline of 0.
+fn maker(comptime code: Code) fn (u8) Cell {
+    return struct {
+        fn make(symbol: u8) Cell {
+            return cell_of_entry(code, .{ .symbol = symbol, .bits = 0, .baseline = 0 });
+        }
+    }.make;
+}
+
 /// The cells of a code's FSE table.
 fn derive(comptime code: Code, table: *const fse.Table(log_max_of(code)), cells: []Cell) void {
     for (table.entries(), cells[0..table.entries().len]) |entry, *cell| cell.* = cell_of_entry(code, entry);
@@ -95,15 +104,28 @@ pub const Tables = struct {
         };
     }
 
-    /// Takes a code's table as `table` gives it.
-    fn take(self: *Tables, comptime code: Code, table: *const fse.Table(log_max_of(code))) void {
-        switch (code) {
-            .literals_length => derive(code, table, &self.literals_length),
-            .offset => derive(code, table, &self.offset),
-            .match_length => derive(code, table, &self.match_length),
-        }
-        self.accuracy_logs[slot(code)] = table.accuracy_log;
-        work_module.add(&self.work, table.work);
+    /// Builds a code's table from `distribution` straight into its cells.
+    fn take(self: *Tables, comptime code: Code, distribution: *const fse.Distribution) Error!void {
+        const work = try fse.build_cells(Cell, maker(code), self.cells_of(code), distribution);
+        self.accuracy_logs[slot(code)] = distribution.accuracy_log;
+        work_module.add(&self.work, work_module.of(work));
+    }
+
+    /// Takes a code's RLE_Mode table: one state, which decodes `symbol` and reads no bits (RFC
+    /// 8878 §3.1.1.3.2.1).
+    fn take_repeated(self: *Tables, comptime code: Code, symbol: u8) void {
+        self.cells_of(code)[0] = cell_of_entry(code, .{ .symbol = symbol, .bits = 0, .baseline = 0 });
+        self.accuracy_logs[slot(code)] = 0;
+        work_module.add(&self.work, work_module.of(1));
+    }
+
+    /// Every cell a code's table may fill.
+    fn cells_of(self: *Tables, comptime code: Code) []Cell {
+        return switch (code) {
+            .literals_length => &self.literals_length,
+            .offset => &self.offset,
+            .match_length => &self.match_length,
+        };
     }
 
     /// Takes a code's default table, whose cells comptime built (RFC 8878 §3.1.1.3.2.2).
@@ -209,11 +231,7 @@ fn build_repeated(tables: *Tables, code: Code, symbol: u8) Error!void {
     // RFC 8878 §3.1.1.3.2.1.1: the symbol is a code of the alphabet.
     if (symbol >= symbol_limit(code)) return error.RepeatSymbolInvalid;
     switch (code) {
-        inline else => |known| {
-            var table: fse.Table(log_max_of(known)) = undefined;
-            fse.build_rle(log_max_of(known), &table, symbol);
-            tables.take(known, &table);
-        },
+        inline else => |known| tables.take_repeated(known, symbol),
     }
 }
 
@@ -225,11 +243,7 @@ fn read_distribution(tables: *Tables, code: Code, octets: []const u8) Error!usiz
         .match_length => try fse.read_distribution(octets, constants.match_length_symbols, constants.match_length_accuracy_log_max, &distribution),
     };
     switch (code) {
-        inline else => |known| {
-            var table: fse.Table(log_max_of(known)) = undefined;
-            try fse.build(log_max_of(known), &table, &distribution);
-            tables.take(known, &table);
-        },
+        inline else => |known| try tables.take(known, &distribution),
     }
     return read;
 }

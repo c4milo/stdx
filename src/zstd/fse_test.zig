@@ -146,3 +146,12 @@ test "an accuracy log past the table's largest, a total past the table, and a cu
     writer.write(&three);
     try testing.expectError(error.FseDistributionInvalid, fse.read_distribution(&writer.octets, 2, 9, &distribution));
 }
+
+test "a distribution whose probabilities miss the table's cells builds no table" {
+    // 16 and 15 of 32 cells: the spread's steps end one step short of the cell they started from.
+    var distribution: fse.Distribution = .{ .probabilities = undefined, .symbol_count = 2, .accuracy_log = 5 };
+    distribution.probabilities[0] = 16;
+    distribution.probabilities[1] = 15;
+    var table: fse.Table(constants.accuracy_log_max) = undefined;
+    try testing.expectError(error.FseDistributionInvalid, fse.build(constants.accuracy_log_max, &table, &distribution));
+}

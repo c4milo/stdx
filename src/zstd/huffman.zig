@@ -175,10 +175,33 @@ fn fill(weights: []const u8, table: *Table) void {
         if (weight == 0) continue;
         const cells_len = @as(usize, 1) << @intCast(weight - 1);
         const bits: u8 = @intCast(table.bits_max + 1 - weight);
-        @memset(table.cells[starts[weight]..][0..cells_len], .{ .symbol = @intCast(symbol), .bits = bits });
+        fill_run(table.cells[starts[weight]..][0..cells_len], .{ .symbol = @intCast(symbol), .bits = bits });
         starts[weight] += cells_len;
     }
     assert(starts[table.bits_max] == @as(usize, 1) << table.bits_max);
+}
+
+/// The cells a store of `fill_run` writes at once: 8 cells, 16 octets, and 4 for a run of 4.
+const fill_group_len = 8;
+const fill_half_group_len = 4;
+
+comptime {
+    assert(fill_half_group_len * @sizeOf(Entry) == @sizeOf(u64) and fill_group_len == fill_half_group_len + fill_half_group_len);
+}
+
+/// Writes `cell` over `run`, whose length is a power of 2: a group of cells a store from 4 cells
+/// up, one cell a store below.
+fn fill_run(run: []Entry, cell: Entry) void {
+    if (run.len < fill_half_group_len) {
+        for (run) |*each| each.* = cell;
+        return;
+    }
+    if (run.len == fill_half_group_len) {
+        run[0..fill_half_group_len].* = @splat(cell);
+        return;
+    }
+    const group: [fill_group_len]Entry = @splat(cell);
+    for (0..run.len / fill_group_len) |index| run[index * fill_group_len ..][0..fill_group_len].* = group;
 }
 
 /// Decodes `output.len` literals from the Huffman-coded stream `octets`, which must end exactly at

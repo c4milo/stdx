@@ -137,70 +137,99 @@ fn set_zeros(probabilities: *[symbols_max]i16, start: u16, count: u16) void {
 pub fn build(comptime log_max: u4, table: *Table(log_max), distribution: *const Distribution) Error!void {
     assert(distribution.accuracy_log <= log_max);
     table.accuracy_log = distribution.accuracy_log;
-    const table_len: u32 = @as(u32, 1) << distribution.accuracy_log;
+    table.work = work_module.of(try build_cells(Entry, entry_of, &table.cells, distribution));
+}
+
+fn entry_of(symbol: u8) Entry {
+    return .{ .symbol = symbol, .bits = 0, .baseline = 0 };
+}
+
+/// Builds the table `distribution` gives into the start of `cells` (RFC 8878 §4.1.1): each state's
+/// cell is its symbol's cell as `make` gives it, with the state's Number_of_Bits in its `bits` and
+/// its Baseline in its `baseline`. Returns invariant 17's count: the cells and the distribution's
+/// symbols.
+pub fn build_cells(comptime Cell: type, comptime make: fn (u8) Cell, cells: []Cell, distribution: *const Distribution) Error!usize {
+    const table_len = @as(usize, 1) << distribution.accuracy_log;
+    assert(distribution.accuracy_log <= constants.accuracy_log_max and table_len <= cells.len);
     const probabilities = distribution.probabilities[0..distribution.symbol_count];
+    var symbols_buffer: [1 << constants.accuracy_log_max]u8 = undefined;
+    const symbols = symbols_buffer[0..table_len];
     // "Less than 1" symbols take one cell each from the table's end back, and reset the state.
-    var high: u32 = table_len;
+    var high: usize = table_len;
     for (probabilities, 0..) |probability, symbol| {
         if (probability >= 0) continue;
         high -= 1;
-        table.cells[high].symbol = @intCast(symbol);
+        symbols[high] = @intCast(symbol);
     }
-    try spread(log_max, table, probabilities, high);
-    assign_baselines(log_max, table, probabilities);
-    table.work = work_module.of(table_len + probabilities.len);
+    const position = if (high == table_len) spread_all(symbols, probabilities) else spread_below(symbols, probabilities, high);
+    // RFC 8878 §4.1.1: the step is odd, so it visits every cell once; ending anywhere but 0 means
+    // the probabilities did not fill the cells below `high`.
+    if (position != 0) return error.FseDistributionInvalid;
+    assign_baselines(Cell, make, cells[0..table_len], symbols, probabilities, distribution.accuracy_log);
+    return table_len + probabilities.len;
 }
 
 /// The step of RFC 8878 §4.1.1's spread for a table of `table_len` cells.
-fn spread_step(table_len: u32) u32 {
+fn spread_step(table_len: usize) usize {
     return (table_len >> constants.fse_spread_half_shift) + (table_len >> constants.fse_spread_eighth_shift) + constants.fse_spread_add;
 }
 
-/// Spreads every other symbol over the cells below `high`, in symbol order, stepping as RFC 8878
-/// §4.1.1 gives and skipping the cells of "less than 1" symbols.
-fn spread(comptime log_max: u4, table: *Table(log_max), probabilities: []const i16, high: u32) Error!void {
-    const table_len: u32 = @as(u32, 1) << table.accuracy_log;
-    const mask = table_len - 1;
-    const step = spread_step(table_len);
-    var position: u32 = 0;
+/// Spreads every symbol over all of `symbols`, in symbol order, stepping as RFC 8878 §4.1.1 gives,
+/// for a distribution with no "less than 1" symbol. Returns where the steps end.
+fn spread_all(symbols: []u8, probabilities: []const i16) usize {
+    const mask = symbols.len - 1;
+    const step = spread_step(symbols.len);
+    var position: usize = 0;
     for (probabilities, 0..) |probability, symbol| {
         if (probability <= 0) continue;
         for (0..@as(usize, @intCast(probability))) |_| {
-            table.cells[position].symbol = @intCast(symbol);
+            symbols[position] = @intCast(symbol);
             position = (position + step) & mask;
-            // At most `table_len - high` cells are taken, so this ends within as many steps.
-            for (0..table_len) |_| {
+        }
+    }
+    return position;
+}
+
+/// Spreads every other symbol over the cells below `high`, in symbol order, stepping as RFC 8878
+/// §4.1.1 gives and skipping the cells of "less than 1" symbols. Returns where the steps end.
+fn spread_below(symbols: []u8, probabilities: []const i16, high: usize) usize {
+    const mask = symbols.len - 1;
+    const step = spread_step(symbols.len);
+    var position: usize = 0;
+    for (probabilities, 0..) |probability, symbol| {
+        if (probability <= 0) continue;
+        for (0..@as(usize, @intCast(probability))) |_| {
+            symbols[position] = @intCast(symbol);
+            position = (position + step) & mask;
+            // At most `symbols.len - high` cells are taken, so this ends within as many steps.
+            for (0..symbols.len) |_| {
                 if (position < high) break;
                 position = (position + step) & mask;
             }
         }
     }
-    // RFC 8878 §4.1.1: the step is odd, so it visits every cell once; ending anywhere but 0 means
-    // the probabilities did not fill the cells below `high`.
-    if (position != 0) return error.FseDistributionInvalid;
+    return position;
 }
 
 /// Each cell's Number_of_Bits and Baseline: a symbol's cells, in table order, take the states
 /// from its probability up, and the lower states read one bit more (RFC 8878 §4.1.1, Table 21).
-fn assign_baselines(comptime log_max: u4, table: *Table(log_max), probabilities: []const i16) void {
+/// Each symbol's cell is made once, and each state's is a copy of it.
+fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, cells: []Cell, symbols: []const u8, probabilities: []const i16, accuracy_log: u4) void {
     var next_states: [symbols_max]u32 = undefined;
-    for (probabilities, next_states[0..probabilities.len]) |probability, *next| next.* = if (probability < 0) 1 else @intCast(probability);
-    const table_len: u32 = @as(u32, 1) << table.accuracy_log;
-    for (table.cells[0..table_len]) |*cell| {
-        const state = next_states[cell.symbol];
-        next_states[cell.symbol] += 1;
-        const bits: u5 = @intCast(table.accuracy_log - std.math.log2_int(u32, state));
+    var symbol_cells: [symbols_max]Cell = undefined;
+    for (probabilities, next_states[0..probabilities.len], symbol_cells[0..probabilities.len], 0..) |probability, *next, *symbol_cell, symbol| {
+        next.* = if (probability < 0) 1 else @intCast(probability);
+        symbol_cell.* = make(@intCast(symbol));
+    }
+    const table_len: u32 = @intCast(cells.len);
+    for (cells, symbols) |*cell, symbol| {
+        const state = next_states[symbol];
+        next_states[symbol] += 1;
+        const bits: u5 = @intCast(accuracy_log - std.math.log2_int(u32, state));
+        cell.* = symbol_cells[symbol];
         cell.bits = bits;
         cell.baseline = @intCast((state << bits) - table_len);
     }
-}
-
-/// A table whose every state decodes `symbol` and reads no bits: RLE_Mode (RFC 8878
-/// §3.1.1.3.2.1).
-pub fn build_rle(comptime log_max: u4, table: *Table(log_max), symbol: u8) void {
-    table.accuracy_log = 0;
-    table.cells[0] = .{ .symbol = symbol, .bits = 0, .baseline = 0 };
-    table.work = work_module.of(1);
 }
 
 /// The table of a default distribution, built at comptime (RFC 8878 §3.1.1.3.2.2).
