@@ -1,5 +1,5 @@
 //! The instructions the checksum paths use, which the caller reads from its `codec.Features` and
-//! passes in: the checksum module imports nothing (design §3), so it names the eight fields it
+//! passes in: the checksum module imports nothing (design §3), so it names the fields it
 //! reads rather than import the type. Decision 21 has the rest.
 
 const std = @import("std");
@@ -26,6 +26,9 @@ pub const Features = struct {
     pmull: bool = false,
     /// aarch64: UDOT, dot products of octets.
     dotprod: bool = false,
+    /// aarch64: MADD's addend waits for its multiply, on Apple's cores. It chooses the XXH64 path
+    /// rather than naming an instruction.
+    madd_addend_slow: bool = false,
 
     /// The instructions the build target guarantees, which a test may run without detection.
     pub fn target() Features {
@@ -70,10 +73,11 @@ test "from copies every field it names, and nothing else" {
         crc32: bool = false,
         pmull: bool = true,
         dotprod: bool = false,
+        madd_addend_slow: bool = true,
         other: bool = true,
     };
     const features = Features.from(Wider{});
-    try std.testing.expectEqual(Features{ .pclmul = true, .vpclmul = true, .vnni = true, .pmull = true }, features);
-    const flipped = Features.from(Wider{ .pclmul = false, .avx2 = true, .vpclmul = false, .avx512 = true, .vnni = false, .crc32 = true, .pmull = false, .dotprod = true });
+    try std.testing.expectEqual(Features{ .pclmul = true, .vpclmul = true, .vnni = true, .pmull = true, .madd_addend_slow = true }, features);
+    const flipped = Features.from(Wider{ .pclmul = false, .avx2 = true, .vpclmul = false, .avx512 = true, .vnni = false, .crc32 = true, .pmull = false, .dotprod = true, .madd_addend_slow = false });
     try std.testing.expectEqual(Features{ .avx2 = true, .avx512 = true, .crc32 = true, .dotprod = true }, flipped);
 }

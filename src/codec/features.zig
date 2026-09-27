@@ -37,6 +37,11 @@ pub const Features = struct {
     pmull: bool = false,
     /// aarch64: the DotProd extension's UDOT and SDOT, dot products of octets.
     dotprod: bool = false,
+    /// aarch64: MADD's addend waits for its multiply, so a chain of values through the addend takes
+    /// the multiply's latency at each step, as on Apple's M-series cores. It chooses a path rather
+    /// than naming an instruction: XXH64's round is such a chain, which its aarch64 path breaks, at
+    /// no gain on a Neoverse N2 (design §8 step 10, decision 21).
+    madd_addend_slow: bool = false,
 
     /// No feature: every codec takes its scalar paths.
     pub fn none() Features {
@@ -96,10 +101,14 @@ fn from_target(cpu: std.Target.Cpu) Features {
             .crc32 = std.Target.aarch64.featureSetHas(cpu.features, .crc),
             .pmull = std.Target.aarch64.featureSetHas(cpu.features, .aes),
             .dotprod = std.Target.aarch64.featureSetHas(cpu.features, .dotprod),
+            .madd_addend_slow = std.mem.startsWith(u8, cpu.model.name, apple_model_prefix),
         },
         else => .{},
     };
 }
+
+/// The prefix of Zig's names for Apple's cores.
+const apple_model_prefix = "apple_";
 
 fn has_x86(cpu: std.Target.Cpu, feature: std.Target.x86.Feature) bool {
     return std.Target.x86.featureSetHas(cpu.features, feature);
@@ -222,8 +231,9 @@ fn detect_aarch64() Features {
     if (builtin.cpu.arch != .aarch64) unreachable;
     return switch (builtin.os.tag) {
         .linux => from_hwcap(hwcap_word()),
-        // Every aarch64 Mac is an Apple M-series part, which has all three.
-        .macos => .{ .crc32 = true, .pmull = true, .dotprod = true },
+        // Every aarch64 Mac is an Apple M-series part, which has all three and whose MADD's addend
+        // waits for its multiply.
+        .macos => .{ .crc32 = true, .pmull = true, .dotprod = true, .madd_addend_slow = true },
         else => Features.target(),
     };
 }
@@ -302,6 +312,11 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
 }
 
+test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does not" {
+    try testing.expect(from_target(std.Target.aarch64.cpu.apple_m1.toCpu(.aarch64)).madd_addend_slow);
+    try testing.expect(!from_target(std.Target.aarch64.cpu.neoverse_n2.toCpu(.aarch64)).madd_addend_slow);
+}
+
 test "the hardware capability word maps CRC32 and PMULL" {
     try testing.expectEqual(Features{ .crc32 = true, .pmull = true }, from_hwcap(0b1001_0000));
     try testing.expectEqual(Features{ .crc32 = true }, from_hwcap(0b1000_0000));
@@ -312,7 +327,7 @@ test "the hardware capability word maps CRC32 and PMULL" {
 test "detection on this host finds what its architecture's feature set should" {
     const detected = Features.detect();
     switch (builtin.cpu.arch) {
-        .aarch64 => if (builtin.os.tag == .macos) try testing.expect(detected.crc32 and detected.pmull and detected.dotprod),
+        .aarch64 => if (builtin.os.tag == .macos) try testing.expect(detected.crc32 and detected.pmull and detected.dotprod and detected.madd_addend_slow),
         .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull and !detected.dotprod),
         else => try testing.expectEqual(Features.target(), detected),
     }

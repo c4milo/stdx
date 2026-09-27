@@ -6,7 +6,6 @@
 //! property over inputs and splits Zig's fuzzer draws.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const constants = @import("constants.zig");
 const xxh64_module = @import("xxh64.zig");
@@ -164,15 +163,17 @@ test "every path gives the specification's value where the AVX-512 path takes it
 const long_len = long_runs * constants.xxh64_avx512_len_min;
 const long_runs = 4;
 
-test "fastest takes the AVX-512 path only where VPMULLQ is fast, and the aarch64 path on aarch64" {
+test "fastest takes the AVX-512 path only where VPMULLQ is fast, and the aarch64 path only where MADD's addend is slow" {
     const intel: Features = .{ .avx512 = true };
     const amd: Features = .{ .avx512 = true, .vpmullq_fast = true };
-    const general: Xxh64Path = if (builtin.cpu.arch == .aarch64) .aarch64 else .scalar;
-    try testing.expectEqual(general, Xxh64Path.fastest(intel));
-    try testing.expectEqual(if (Xxh64Path.avx512.built()) Xxh64Path.avx512 else general, Xxh64Path.fastest(amd));
-    try testing.expectEqual(general, Xxh64Path.fastest(.{ .vpmullq_fast = true }));
+    const apple: Features = .{ .madd_addend_slow = true };
+    try testing.expectEqual(.scalar, Xxh64Path.fastest(intel));
+    try testing.expectEqual(if (Xxh64Path.avx512.built()) Xxh64Path.avx512 else .scalar, Xxh64Path.fastest(amd));
+    try testing.expectEqual(.scalar, Xxh64Path.fastest(.{ .vpmullq_fast = true }));
+    try testing.expectEqual(if (Xxh64Path.aarch64.built()) Xxh64Path.aarch64 else .scalar, Xxh64Path.fastest(apple));
+    try testing.expectEqual(.scalar, Xxh64Path.fastest(.{}));
     // The path chosen runs on the CPU it was chosen for, so the tests above take it.
-    for ([_]Features{ intel, amd, .{ .vpmullq_fast = true }, .{} }) |features| try testing.expect(Xxh64Path.fastest(features).runs_on(features));
+    for ([_]Features{ intel, amd, apple, .{ .vpmullq_fast = true }, .{} }) |features| try testing.expect(Xxh64Path.fastest(features).runs_on(features));
 }
 
 test "final leaves the state as it was, so the hash goes on" {

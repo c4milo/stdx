@@ -36,10 +36,13 @@ pub const Xxh64Path = enum {
 
     /// The fastest path a CPU with `features` runs in this build. The AVX-512 path is the faster
     /// only where VPMULLQ is: 1.27 times the scalar path on an AMD EPYC 9V74 runner, and 0.47 times
-    /// on an Intel Xeon 6973P-C (design §8 step 10). An aarch64 build takes its assembly.
+    /// on an Intel Xeon 6973P-C (design §8 step 10). The aarch64 path is the faster only where
+    /// MADD's addend waits for its multiply: a Neoverse N2 runner ran it at 0.84 to 1.00 times the
+    /// scalar path, in run 36346717594.
     pub fn fastest(features: Features) Xxh64Path {
         if (Xxh64Path.avx512.runs_on(features) and features.vpmullq_fast) return .avx512;
-        return if (Xxh64Path.aarch64.built()) .aarch64 else .scalar;
+        if (Xxh64Path.aarch64.runs_on(features) and features.madd_addend_slow) return .aarch64;
+        return .scalar;
     }
 
     /// True when a CPU with `features` runs the path in this build.
@@ -179,9 +182,10 @@ fn process_stripes_aarch64(accumulators: *[constants.xxh64_lanes]u64, octets: []
     var source = octets.ptr;
     var stripes = octets.len / stripe_len;
     assert(stripes > 0);
+    // The accumulators stay in registers on both sides, so none goes through memory to the next
+    // step.
+    var lane_0, var lane_1, var lane_2, var lane_3 = accumulators.*;
     asm volatile (std.fmt.comptimePrint(
-            \\    ldp x8, x9, [x0]
-            \\    ldp x10, x11, [x0, #{[pair]}]
             \\1:
             \\    ldp x12, x13, [x1], #{[pair]}
             \\    ldp x14, x15, [x1], #{[pair]}
@@ -203,8 +207,6 @@ fn process_stripes_aarch64(accumulators: *[constants.xxh64_lanes]u64, octets: []
             \\    mul x11, x11, x4
             \\    subs x2, x2, #1
             \\    b.ne 1b
-            \\    stp x8, x9, [x0]
-            \\    stp x10, x11, [x0, #{[pair]}]
         , .{
             // Two lanes a load, and Step 2's left rotation as the right rotation aarch64 has.
             .pair = lane_len + lane_len,
@@ -212,10 +214,14 @@ fn process_stripes_aarch64(accumulators: *[constants.xxh64_lanes]u64, octets: []
         })
         : [source] "+{x1}" (source),
           [stripes] "+{x2}" (stripes),
-        : [accumulators] "{x0}" (accumulators),
-          [prime_2] "{x3}" (prime_2),
+          [lane_0] "+{x8}" (lane_0),
+          [lane_1] "+{x9}" (lane_1),
+          [lane_2] "+{x10}" (lane_2),
+          [lane_3] "+{x11}" (lane_3),
+        : [prime_2] "{x3}" (prime_2),
           [prime_1] "{x4}" (prime_1),
-        : .{ .memory = true, .nzcv = true, .x8 = true, .x9 = true, .x10 = true, .x11 = true, .x12 = true, .x13 = true, .x14 = true, .x15 = true });
+        : .{ .memory = true, .nzcv = true, .x12 = true, .x13 = true, .x14 = true, .x15 = true });
+    accumulators.* = .{ lane_0, lane_1, lane_2, lane_3 };
 }
 
 /// A lane's 64-bit value, least significant octet first (Step 2).

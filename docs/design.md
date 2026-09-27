@@ -783,8 +783,12 @@ to 12 are reordered and nothing else changes.
   - 2026-09-27, under decision 23: LLVM fused each lane's multiply by PRIME64_2 into the add to its
     accumulator, so a multiply-add's latency sat on the accumulator's chain, 7 cycles a round on
     the owner's M1 Pro. The `aarch64` path runs Step 2 in assembly with the product first, so the
-    chain is an add, a rotate and a multiply, and `fastest` takes it on aarch64. Its throughput on
-    the runners is not measured yet.
+    chain is an add, a rotate and a multiply. On a Neoverse N2 runner it ran at 0.84 of the scalar
+    path at 64 octets, 0.93 at 1 KiB, 0.98 at 16 KiB and 1.00 at 1 MiB, in run
+    [36346717594](https://github.com/c4milo/stdx/actions/runs/36346717594): on that core the
+    chain through MADD's addend ran no slower than without it. By decision 21's rule, `fastest`
+    takes the path only where `codec.Features.madd_addend_slow` holds, which detection sets on
+    every aarch64 Mac.
 
 - **Step 11: the Zstandard decoder.** The checked path, then the fast path (claims Z1 to Z5), with
   libzstd as the oracle.
