@@ -539,6 +539,10 @@ to 12 are reordered and nothing else changes.
   - Decision 17: the same program built ReleaseFast runs the fast path at a median of 1.012 of its
     ReleaseSafe speed on the N2 (1.003 to 1.094) and 0.997 on the EPYC (0.981 to 1.067). The
     safety checks cost about 1%.
+    - Correction, found in step 11: that program kept stdx's safety checks. Zig 0.16 takes runtime
+      safety from the root module for every module a program imports, and the program's root was
+      ReleaseSafe, so the run timed ReleaseSafe against itself. The root is ReleaseFast since
+      then, and the measurement is owed again.
   - The benchmark, gzip at level 6, in the same run: stdx decodes at a median of 1.53 of zlib's
     speed on the N2 and 1.54 on the EPYC, 0.96 and 0.80 of zlib-ng's, 0.69 and 0.66 of
     libdeflate's, and 1.04 and 1.02 of Wuffs's. Of the 38 files, it is faster than zlib on 38 and
