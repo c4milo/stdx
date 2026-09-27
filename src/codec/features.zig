@@ -27,6 +27,9 @@ pub const Features = struct {
     vpclmul: bool = false,
     /// x86-64: AVX512_VNNI's VPDPBUSD, dot products of octets, with the ZMM registers saved.
     vnni: bool = false,
+    /// x86-64: BMI2's SHLX, SHRX and BZHI, with SSSE3's PSHUFB: what the Zstandard decoder's x86-64
+    /// assembly runs (decision 23). Neither needs the operating system to save a register.
+    bmi2: bool = false,
     /// x86-64: VPMULLQ, AVX-512 DQ's multiply of 64-bit lanes, as fast as a scalar multiply. It
     /// chooses a path rather than naming an instruction: an AMD CPU with AVX-512, Zen 4 or later,
     /// takes 3 cycles, and Intel's take about 15 (design §8 step 10, decision 21).
@@ -92,6 +95,7 @@ fn from_target(cpu: std.Target.Cpu) Features {
         .x86_64 => .{
             .pclmul = has_x86(cpu, .pclmul) and has_x86(cpu, .sse4_1),
             .avx2 = has_x86(cpu, .avx2),
+            .bmi2 = has_x86(cpu, .bmi2) and has_x86(cpu, .ssse3),
             .avx512 = has_avx512(cpu),
             .vpmullq_fast = has_avx512(cpu) and std.mem.startsWith(u8, cpu.model.name, amd_model_prefix),
             .vpclmul = has_x86(cpu, .vpclmulqdq),
@@ -130,13 +134,15 @@ const x86 = struct {
     const vendor_amd_ecx = 0x444d_4163;
     const leaf_features = 1;
     const leaf_extended_features = 7;
-    // Leaf 1, ECX: bits 1, 19, 27 and 28.
+    // Leaf 1, ECX: bits 1, 9, 19, 27 and 28.
     const ecx_pclmulqdq = 0x0000_0002;
+    const ecx_ssse3 = 0x0000_0200;
     const ecx_sse4_1 = 0x0008_0000;
     const ecx_osxsave = 0x0800_0000;
     const ecx_avx = 0x1000_0000;
-    // Leaf 7, EBX: bits 5, 16, 17, 30 and 31; ECX: bits 10 and 11.
+    // Leaf 7, EBX: bits 5, 8, 16, 17, 30 and 31; ECX: bits 10 and 11.
     const ebx_avx2 = 0x0000_0020;
+    const ebx_bmi2 = 0x0000_0100;
     const ebx_avx512f = 0x0001_0000;
     const ebx_avx512dq = 0x0002_0000;
     const ebx_avx512bw = 0x4000_0000;
@@ -212,6 +218,7 @@ fn from_x86(registers: X86Registers) Features {
     return .{
         .pclmul = all(registers.leaf_1_ecx, x86.ecx_pclmulqdq | x86.ecx_sse4_1),
         .avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2),
+        .bmi2 = all(registers.leaf_1_ecx, x86.ecx_ssse3) and all(registers.leaf_7_ebx, x86.ebx_bmi2),
         .avx512 = avx512,
         .vpmullq_fast = avx512 and registers.vendor_amd,
         .vpclmul = ymm and all(registers.leaf_7_ecx, x86.ecx_vpclmulqdq),
@@ -310,6 +317,23 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     var no_dq = every;
     no_dq.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000;
     try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
+}
+
+test "BMI2 counts only with SSSE3, and needs no register saved" {
+    const both: X86Registers = .{ .vendor_amd = false, .leaf_1_ecx = 0x0000_0200, .leaf_7_ebx = 0x0000_0100, .leaf_7_ecx = 0, .xcr0 = 0 };
+    try testing.expectEqual(Features{ .bmi2 = true }, from_x86(both));
+    var no_ssse3 = both;
+    no_ssse3.leaf_1_ecx = 0;
+    try testing.expectEqual(Features{}, from_x86(no_ssse3));
+    var no_bmi2 = both;
+    no_bmi2.leaf_7_ebx = 0;
+    try testing.expectEqual(Features{}, from_x86(no_bmi2));
+    // The target's features: BMI2 alone is not enough.
+    var cpu = std.Target.x86.cpu.x86_64.toCpu(.x86_64);
+    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.bmi2));
+    try testing.expect(!from_target(cpu).bmi2);
+    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
+    try testing.expect(from_target(cpu).bmi2);
 }
 
 test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does not" {
