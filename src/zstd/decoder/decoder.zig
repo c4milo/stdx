@@ -111,6 +111,9 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         skip_left: u32,
         /// Invariant 17's count since `init`, in a test build.
         work: Work,
+        /// The call's output before these indices is in the window, and in the checksum.
+        synced: usize,
+        hashed: usize,
 
         comptime {
             assert(@sizeOf(Self) <= options.window_len_max + constants.decoder_state_extra_len);
@@ -136,10 +139,18 @@ pub fn Decoder(comptime options: DecoderOptions) type {
             assert(self.phase != .done and self.phase != .refused);
             var reader = codec.Reader.init(input);
             var written: usize = 0;
+            self.synced = 0;
+            self.hashed = 0;
             const status = run(options, self, &reader, output, &written) catch |err| {
                 self.phase = .refused;
                 return err;
             };
+            // The next call reads this call's octets from the window, unless the frame ended. A call
+            // that wrote octets is inside a frame's blocks, so its window and header are set.
+            if (self.phase != .done and written > 0) {
+                phases.hash_output(options, self, output[0..written]);
+                self.window.append(output[self.synced..written]);
+            }
             const progress: codec.Progress = .{ .consumed = reader.consumed(), .written = written, .status = status };
             codec.check_progress(input.len, output.len, progress);
             return progress;

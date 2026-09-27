@@ -120,7 +120,21 @@ pub fn read_block_header(comptime options: DecoderOptions, self: *Self(options),
 }
 
 fn sink(comptime options: DecoderOptions, self: *Self(options), output: []u8, written: usize) block.Sink(@TypeOf(self.window)) {
-    return .{ .output = output, .written = written, .window = &self.window, .hash = &self.hash, .frame_len = &self.frame_len };
+    return .{
+        .output = output,
+        .written = written,
+        .window = &self.window,
+        .synced = &self.synced,
+        .frame_len = &self.frame_len,
+        .window_each = !options.paths.claims.window_once,
+    };
+}
+
+/// Takes the call's output from `hashed` into the checksum, when the frame has one (RFC 8878
+/// §3.1.1).
+pub fn hash_output(comptime options: DecoderOptions, self: *Self(options), output: []const u8) void {
+    if (self.header.has_checksum) self.hash.update(output[self.hashed..]);
+    self.hashed = output.len;
 }
 
 /// A raw block's octets, from the input to the output as both allow (RFC 8878 §3.1.1.2.2).
@@ -131,7 +145,7 @@ pub fn copy_raw(comptime options: DecoderOptions, self: *Self(options), reader: 
     into.commit(octets.len);
     written.* = into.written;
     self.block_left -= @intCast(octets.len);
-    if (self.block_left == 0) return end_block(options, self);
+    if (self.block_left == 0) return end_block(options, self, output[0..written.*]);
     return if (reader.remaining_len() == 0) .needs_input else .needs_room;
 }
 
@@ -150,7 +164,7 @@ pub fn write_repeated(comptime options: DecoderOptions, self: *Self(options), ou
     into.commit(len);
     written.* = into.written;
     self.block_left -= @intCast(len);
-    if (self.block_left == 0) return end_block(options, self);
+    if (self.block_left == 0) return end_block(options, self, output[0..written.*]);
     return .needs_room;
 }
 
@@ -186,11 +200,12 @@ pub fn execute(comptime options: DecoderOptions, self: *Self(options), output: [
     const ended = try block.execute(options.paths, @TypeOf(self.window), &self.run, context(options, self), &into);
     written.* = into.written;
     if (!ended) return .needs_room;
-    return end_block(options, self);
+    return end_block(options, self, output[0..written.*]);
 }
 
-/// The next block, the checksum, or the frame's end.
-fn end_block(comptime options: DecoderOptions, self: *Self(options)) Error!?Status {
+/// The next block, the checksum, or the frame's end. `written` is the call's output so far, which
+/// the checksum takes before the frame's last block ends.
+fn end_block(comptime options: DecoderOptions, self: *Self(options), written: []const u8) Error!?Status {
     if (self.header.content_len) |content_len| {
         // RFC 8878 §3.1.1.1.4 and §8: a frame decodes to Frame_Content_Size octets, no more.
         if (self.frame_len > content_len) return error.ContentSizeMismatch;
@@ -199,6 +214,7 @@ fn end_block(comptime options: DecoderOptions, self: *Self(options)) Error!?Stat
         self.phase = .block_header;
         return null;
     }
+    hash_output(options, self, written);
     if (self.header.has_checksum) {
         self.phase = .checksum;
         return null;

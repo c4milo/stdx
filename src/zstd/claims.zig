@@ -10,18 +10,24 @@ pub const Claims = struct {
     /// Z4: literals and matches copied 16 octets at a time, overrunning into the room the margin
     /// leaves. Off, the fast path copies exactly, with `@memcpy` and octet by octet.
     chunk_copies: bool = true,
+    /// Z6, as S5 for DEFLATE: the window takes a call's octets once, when the call ends, and none
+    /// when the call ends the frame; history in between is read from the output. Off, each piece
+    /// moves into the window as it is written.
+    window_once: bool = true,
 };
 
 /// Each claim off in turn, the A/Bs design §8 step 11 runs.
 pub const each_off = [_]Claims{
     .{ .interleaved_streams = false },
     .{ .chunk_copies = false },
+    .{ .window_once = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
 pub const each_off_names = [each_off.len][]const u8{
     "Z1 interleaved streams",
     "Z4 chunk copies",
+    "Z6 window once",
 };
 
 /// The paths a decoder takes: the fast paths of decision 16 while their margins hold, and the
