@@ -1,6 +1,7 @@
-//! A backward stream of the Zstandard decoder's fast paths (decision 16), read from one 8-octet
-//! load at a time as the checked backward reader reads it (RFC 8878 §4.1): the sequences' stream
-//! where the loop leaves it, and a Huffman tree's FSE-compressed weights.
+//! The Zstandard decoder's streams as its fast paths (decision 16) read them, from one 8-octet load
+//! at a time: backward as the checked backward reader reads them (RFC 8878 §4.1), the sequences'
+//! stream where the loop leaves it and a Huffman tree's FSE-compressed weights; and forward, an FSE
+//! table's description (RFC 8878 §4.1.1).
 
 const std = @import("std");
 const codec = @import("codec");
@@ -24,6 +25,18 @@ pub inline fn leading(octets: []const u8, head: u64, position: usize) u64 {
     const below = position - constants.fast_read_position_min;
     const lag: u3 = @truncate(below);
     return std.mem.readInt(u64, octets[below / @bitSizeOf(u8) ..][0..@sizeOf(u64)], .little) << ~lag;
+}
+
+/// The bits of `octets` from bit `at` on, the first least significant (RFC 8878 §4.1.1): the 8
+/// octets from `at`'s, shifted so `at`'s bit is the lowest, 57 of them at least, zeros past the
+/// octets' end.
+pub inline fn forward(octets: []const u8, at: usize) u64 {
+    const first = at / @bitSizeOf(u8);
+    const lag: u3 = @truncate(at);
+    if (first + @sizeOf(u64) <= octets.len) return std.mem.readInt(u64, octets[first..][0..@sizeOf(u64)], .little) >> lag;
+    var padded: [@sizeOf(u64)]u8 = @splat(0);
+    for (octets[@min(first, octets.len)..], 0..) |octet, index| padded[index] = octet;
+    return std.mem.readInt(u64, &padded, .little) >> lag;
 }
 
 /// A backward stream read from one 8-octet load at a time: the load's bits below the position are

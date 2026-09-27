@@ -10,6 +10,7 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const work_module = @import("work.zig");
+const fast_reader = @import("fast_reader.zig");
 const Work = work_module.Work;
 
 /// One cell: the symbol a state decodes, and the bits and Baseline that give the next state.
@@ -59,64 +60,68 @@ const default_table_eval_quota = 100_000;
 /// the description takes: a round number, whatever the last one leaves unused (RFC 8878 §4.1.1).
 pub fn read_distribution(octets: []const u8, symbol_limit: u16, accuracy_log_max: u4, distribution: *Distribution) Error!usize {
     assert(symbol_limit <= symbols_max);
-    var reader = codec.BitReader.init(octets, .{});
+    const bits_len = octets.len * @bitSizeOf(u8);
     // RFC 8878 §4.1.1: the description starts with Accuracy_Log - 5 in 4 bits.
-    const low_bits = reader.read(constants.accuracy_log_field_bits) orelse return error.FseDescriptionTruncated;
-    const accuracy_log = low_bits + constants.accuracy_log_offset;
+    if (bits_len < constants.accuracy_log_field_bits) return error.FseDescriptionTruncated;
+    const low_bits: u4 = @truncate(fast_reader.forward(octets, 0));
+    const accuracy_log = @as(u32, low_bits) + constants.accuracy_log_offset;
     // RFC 8878 §3.1.1.3.2.1 and §4.2.1.2 give each table its largest accuracy log.
     if (accuracy_log > accuracy_log_max) return error.FseAccuracyLogTooLarge;
     distribution.accuracy_log = @intCast(accuracy_log);
-    const table_len: u32 = @as(u32, 1) << @intCast(accuracy_log);
-    var distributed: u32 = 0;
+    var at: usize = constants.accuracy_log_field_bits;
+    // The points of the table's 2^Accuracy_Log not yet given: a probability is at most this many.
+    var left: u32 = @as(u32, 1) << @intCast(accuracy_log);
     var symbol: u16 = 0;
     var present: u16 = 0;
     for (0..symbols_max + 1) |_| {
-        if (distributed >= table_len) break;
+        if (left == 0) break;
         // RFC 8878 §4.1.1: a distribution names no symbol past the alphabet's last.
         if (symbol >= symbol_limit) return error.FseDistributionInvalid;
-        const probability = try read_probability(&reader, table_len - distributed);
+        const probability = try read_probability(octets, &at, left);
         distribution.probabilities[symbol] = probability;
-        distributed += if (probability < 0) 1 else @as(u32, @intCast(probability));
+        left -= if (probability < 0) 1 else @as(u32, @intCast(probability));
         present += @intFromBool(probability != 0);
         symbol += 1;
-        if (probability == 0) symbol = try skip_zeros(&reader, distribution, symbol, symbol_limit);
+        if (probability == 0) symbol = try skip_zeros(octets, &at, distribution, symbol, symbol_limit);
     }
     // RFC 8878 §4.1.1: the total reaches exactly 2^Accuracy_Log, over two or more symbols.
-    if (distributed != table_len or present < constants.fse_symbols_present_min) return error.FseDistributionInvalid;
+    if (left != 0 or present < constants.fse_symbols_present_min) return error.FseDistributionInvalid;
     distribution.symbol_count = symbol;
-    const bits_read = octets.len * @bitSizeOf(u8) - reader.reader.remaining_len() * @bitSizeOf(u8) - reader.bits.count;
-    return (bits_read + @bitSizeOf(u8) - 1) / @bitSizeOf(u8);
+    return std.math.divCeil(usize, at, @bitSizeOf(u8)) catch unreachable;
 }
 
-/// One probability, when `left` points of the table remain to distribute (RFC 8878 §4.1.1, Table
-/// 20): values from 0 to `left + 1`, the smaller ones in one bit fewer. Returns Value - 1.
-fn read_probability(reader: *codec.BitReader, left: u32) Error!i16 {
+/// One probability, when `left` points of the table remain to give (RFC 8878 §4.1.1, Table 20):
+/// values from 0 to `left + 1`, those below a threshold in one bit fewer. Returns Value - 1, and
+/// moves `at` past the value's bits. Both widths come from one load, and a select picks one.
+inline fn read_probability(octets: []const u8, at: *usize, left: u32) Error!i16 {
     const value_max = left + 1;
-    const bits: u7 = @intCast(std.math.log2_int(u32, value_max) + 1);
-    const threshold = (@as(u32, 1) << @intCast(bits)) - 1 - value_max;
-    const low_bits = bits - 1;
-    // RFC 8878 §4.1.1: a description the block ends inside is corrupt.
-    if (!reader.ensure(low_bits)) return error.FseDescriptionTruncated;
-    const low: u32 = @intCast(reader.peek(low_bits));
-    if (low < threshold) {
-        reader.consume(low_bits);
-        return @intCast(@as(i32, @intCast(low)) - 1);
-    }
-    // RFC 8878 §4.1.1: as above, for a value of the full width.
-    if (!reader.ensure(bits)) return error.FseDescriptionTruncated;
-    const read: u32 = @intCast(reader.peek(bits));
-    reader.consume(bits);
-    const value = if (read >= @as(u32, 1) << @intCast(low_bits)) read - threshold else read;
+    // `left` is from 1 to 2^9, so the full width is from 2 to 10 bits, and 2^width passes
+    // `value_max`: no step wraps.
+    const width: u5 = @intCast(std.math.log2_int(u32, value_max) + 1);
+    const half = @as(u32, 1) << (width - 1);
+    const threshold = (half << 1) -% 1 -% value_max;
+    const bits: u32 = @truncate(fast_reader.forward(octets, at.*));
+    const low = bits & (half - 1);
+    const full = bits & ((half << 1) - 1);
+    const short = low < threshold;
+    const value = if (short) low else if (full >= half) full - threshold else full;
+    const used = width - @intFromBool(short);
+    // RFC 8878 §4.1.1: a description the block ends inside is corrupt. A short value whose bits
+    // pass the end reads zeros there, but its own width already passes it.
+    if (at.* + used > octets.len * @bitSizeOf(u8)) return error.FseDescriptionTruncated;
+    at.* += used;
     return @intCast(@as(i32, @intCast(value)) - 1);
 }
 
 /// After a probability of zero, the 2-bit repeat flags: each names up to 3 more zeros, and a 3
 /// says another flag follows (RFC 8878 §4.1.1). Returns the next symbol.
-fn skip_zeros(reader: *codec.BitReader, distribution: *Distribution, first: u16, symbol_limit: u16) Error!u16 {
+fn skip_zeros(octets: []const u8, at: *usize, distribution: *Distribution, first: u16, symbol_limit: u16) Error!u16 {
     var symbol = first;
     for (0..symbols_max + 1) |_| {
         // RFC 8878 §4.1.1: a repeat flag the block ends inside is corrupt.
-        const repeat: u16 = @intCast(reader.read(constants.fse_repeat_flag_bits) orelse return error.FseDescriptionTruncated);
+        if (at.* + constants.fse_repeat_flag_bits > octets.len * @bitSizeOf(u8)) return error.FseDescriptionTruncated;
+        const repeat: u16 = @as(u2, @truncate(fast_reader.forward(octets, at.*)));
+        at.* += constants.fse_repeat_flag_bits;
         // RFC 8878 §4.1.1: zeros may not run past the alphabet's last symbol.
         if (symbol + repeat > symbol_limit) return error.FseDistributionInvalid;
         set_zeros(&distribution.probabilities, symbol, repeat);

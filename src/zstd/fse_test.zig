@@ -100,6 +100,41 @@ test "a distribution reads back as it was written, taking a round number of octe
     }
 }
 
+test "every cut of a written description is refused as cut, and the description alone reads" {
+    var ends_at_octet: usize = 0;
+    for (0..300) |seed| {
+        var generator = codec.split.Generator.init(seed);
+        const accuracy_log: u4 = @intCast(5 + generator.below(5));
+        const symbol_count: u16 = @intCast(2 + generator.below(constants.match_length_symbols - 1));
+        const written = seeded_distribution(&generator, symbol_count, accuracy_log);
+        if (count_present(&written) < 2) continue;
+        var writer: DescriptionWriter = .{};
+        writer.write(&written);
+        const octets_len = (writer.bits_written + 7) / 8;
+        var read: fse.Distribution = undefined;
+        for (0..octets_len) |cut| try testing.expectError(error.FseDescriptionTruncated, fse.read_distribution(writer.octets[0..cut], constants.match_length_symbols, constants.accuracy_log_max, &read));
+        try testing.expectEqual(octets_len, try fse.read_distribution(writer.octets[0..octets_len], constants.match_length_symbols, constants.accuracy_log_max, &read));
+        ends_at_octet += @intFromBool(writer.bits_written % 8 == 0);
+    }
+    // Some descriptions end at their last octet's last bit, which the reads must reach.
+    try testing.expect(ends_at_octet > 0);
+}
+
+test "a repeat flag cut after its first bit is refused as cut, not by the zeros that bit names" {
+    // Accuracy_Log 6 in 4 bits, a probability of 4 in 6 and one of 0 in 5: the zero's repeat flag
+    // takes bits 15 and 16. Its first bit, 1, names one more zero, which would carry the reading to
+    // symbol 3, past a 3-symbol alphabet; cut after it, the flag is refused as cut (RFC 8878 §4.1.1).
+    var distribution: fse.Distribution = .{ .probabilities = @splat(0), .symbol_count = 4, .accuracy_log = 6 };
+    distribution.probabilities[0] = 4;
+    distribution.probabilities[3] = 60;
+    var writer: DescriptionWriter = .{};
+    writer.write(&distribution);
+    var read: fse.Distribution = undefined;
+    try testing.expectError(error.FseDescriptionTruncated, fse.read_distribution(writer.octets[0..2], 3, constants.accuracy_log_max, &read));
+    // Whole, the flag's zeros carry the reading to symbol 3, past the alphabet.
+    try testing.expectError(error.FseDistributionInvalid, fse.read_distribution(&writer.octets, 3, constants.accuracy_log_max, &read));
+}
+
 test "a spread whose steps end among the cells of \"less than 1\" symbols builds" {
     // Symbol 0 at 9 of 32 cells and symbols 1 to 23 at "less than 1", from cell 31 down to 9. The
     // step of 23 visits cells 27, 18 and 9 after the ninth of symbol 0, the last below 9, then 0.
