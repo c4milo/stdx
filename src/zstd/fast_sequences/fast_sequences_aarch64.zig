@@ -52,6 +52,19 @@ pub const Loop = extern struct {
     count: usize,
     repeats: [constants.repeated_offsets_initial.len]u64,
     states: [constants.repeated_offsets_initial.len]u64,
+    /// `repeat_indices`, which the assembly reads a match of a distance below a chunk through.
+    patterns: *const [constants.copy_chunk_len][constants.copy_chunk_len]u8,
+};
+
+/// For each distance below a chunk, the index of each octet of a match's first chunk among the
+/// distance's octets before the match: the octet's place modulo the distance, as each octet is the
+/// one the distance before it.
+const repeat_indices: [constants.copy_chunk_len][constants.copy_chunk_len]u8 = indices: {
+    var indices: [constants.copy_chunk_len][constants.copy_chunk_len]u8 = @splat(@splat(0));
+    for (indices[1..], 1..) |*row, distance| {
+        for (row, 0..) |*index, place| index.* = place % distance;
+    }
+    break :indices indices;
 };
 
 /// The most a sequence's copies write past its octets, and read past its literals: two chunks.
@@ -82,6 +95,7 @@ pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, 
         .count = run.stream.left - 1,
         .repeats = undefined,
         .states = undefined,
+        .patterns = &repeat_indices,
     };
     for (&loop.repeats, context.repeats) |*held, repeat| held.* = repeat;
     for (&loop.states, run.stream.states) |*held, state| held.* = state;
@@ -107,6 +121,7 @@ noinline fn execute(loop: *Loop) usize {
           .memory = true,
           .nzcv = true,
           .v0 = true,
+          .v1 = true,
           .x1 = true,
           .x2 = true,
           .x3 = true,
@@ -364,19 +379,19 @@ const template = std.fmt.comptimePrint(
     \\    b.lo 15b
     \\    b 8b
     \\6:
-    \\    mov x6, x25
-    \\    // Below a chunk: up to the first chunk one octet at a time, each the octet the distance
-    \\    // before it; past it the octets repeat every multiple of the distance, so the rest go a
-    \\    // chunk at a time from the least multiple at least a chunk back, in x27.
-    \\    mov x24, #0
-    \\16:
-    \\    ldrb w27, [x6, x24]
-    \\    strb w27, [x23, x24]
-    \\    add x24, x24, #1
-    \\    cmp x24, x28
-    \\    b.hs 8b
-    \\    cmp x24, #{[chunk]}
-    \\    b.lo 16b
+    \\    // Below a chunk: the first chunk is the distance's octets repeated, which one table
+    \\    // lookup gives from them, each octet's index its place modulo the distance; past it the
+    \\    // octets repeat every multiple of the distance, so the rest go a chunk at a time from the
+    \\    // least multiple at least a chunk back, in x27. The load reads the chunk from the source,
+    \\    // inside the output, whose octets past the distance the indices do not take.
+    \\    ldr x6, [x0, #{[patterns]}]
+    \\    add x6, x6, x26, lsl #{[chunk_shift]}
+    \\    ldr q1, [x6]
+    \\    ldr q0, [x25]
+    \\    tbl v0.16b, {{v0.16b}}, v1.16b
+    \\    str q0, [x23]
+    \\    cmp x28, #{[chunk]}
+    \\    b.ls 8b
     \\    mov x27, x26
     \\17:
     \\    cmp x27, #{[chunk]}
@@ -409,6 +424,7 @@ const template = std.fmt.comptimePrint(
 , .{
     .stream = @offsetOf(Loop, "stream"),
     .offset = @offsetOf(Loop, "offset"),
+    .patterns = @offsetOf(Loop, "patterns"),
     .output = @offsetOf(Loop, "output"),
     .synced = @offsetOf(Loop, "synced"),
     .literals = @offsetOf(Loop, "literals"),
@@ -427,5 +443,6 @@ const template = std.fmt.comptimePrint(
     .output_limit = @offsetOf(Loop, "output_limit"),
     .repeat_values = constants.repeat_offset_values,
     .chunk = constants.copy_chunk_len,
+    .chunk_shift = std.math.log2_int(usize, constants.copy_chunk_len),
     .pair = copy_overrun_len,
 });
