@@ -15,6 +15,8 @@ const literals = @import("literals.zig");
 const sequences = @import("sequences.zig");
 const work_module = @import("work.zig");
 const Work = work_module.Work;
+const fast_sequences = @import("fast_sequences.zig");
+const Paths = @import("claims.zig").Paths;
 
 /// Every way a compressed block breaks RFC 8878 §3.1.1.3 and §3.1.1.4.
 pub const Error = literals.Error || sequences.Error || error{
@@ -61,6 +63,16 @@ pub fn Sink(comptime Window: type) type {
             self.hash.update(octets);
             self.written += len;
             self.frame_len.* += len;
+        }
+
+        /// Records the octets a fast path placed from `start` up to `written`, as `commit` would
+        /// have piece by piece.
+        pub fn commit_since(self: *@This(), start: usize) void {
+            assert(start <= self.written);
+            const octets = self.output[start..self.written];
+            self.window.append(octets);
+            self.hash.update(octets);
+            self.frame_len.* += octets.len;
         }
     };
 }
@@ -112,8 +124,15 @@ fn stream_octets(run: *const Run, block: []const u8) []const u8 {
 }
 
 /// Executes the block into `sink` until it ends, returning true, or the output fills first,
-/// returning false (RFC 8878 §3.1.1.4).
-pub fn execute(comptime Window: type, run: *Run, context: Context, sink: *Sink(Window)) Error!bool {
+/// returning false (RFC 8878 §3.1.1.4). The fast path of `paths` goes first, and the checked path
+/// takes over where it stops.
+pub fn execute(comptime paths: Paths, comptime Window: type, run: *Run, context: Context, sink: *Sink(Window)) Error!bool {
+    if (paths.fast_paths) fast_sequences.execute(Window, paths.claims, run, context, sink);
+    return execute_checked(Window, run, context, sink);
+}
+
+/// The checked path of `execute`.
+fn execute_checked(comptime Window: type, run: *Run, context: Context, sink: *Sink(Window)) Error!bool {
     // Each pass copies at least one octet, decodes a sequence, or ends the block; a block holds at
     // most Block_Maximum_Size octets and as many sequences.
     for (0..constants.block_execute_passes_max) |_| {

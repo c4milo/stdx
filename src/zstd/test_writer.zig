@@ -44,7 +44,7 @@ pub const StreamWriter = struct {
 };
 
 /// The octets a forward bit stream in these tests takes at most.
-const bits_capacity = 256;
+const bits_capacity = 1024;
 
 /// Bits written forward, each octet filled from its least significant bit, ended by the final 1
 /// bit a backward reader starts below (RFC 8878 §4.1, §3.1.1.3.2.1.2).

@@ -19,12 +19,16 @@ const block = @import("../block.zig");
 const huffman = @import("../huffman.zig");
 const sequences = @import("../sequences.zig");
 const work_module = @import("../work.zig");
+const Paths = @import("../claims.zig").Paths;
 const Work = work_module.Work;
 
 pub const DecoderOptions = struct {
     /// The largest Window_Size the decoder takes, a power of two: 2^23, RFC 9659 §3's for HTTP, or
     /// more for a caller outside HTTP (decision 12).
     window_len_max: usize = constants.http_window_len,
+    /// The fast paths of decision 16 and the claims within them; the tests and the benchmark
+    /// switch them.
+    paths: Paths = .{},
 };
 
 /// Every way a stream breaks RFC 8878.

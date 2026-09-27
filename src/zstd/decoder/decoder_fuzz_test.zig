@@ -1,15 +1,19 @@
 //! The Zstandard decoder's split property, over inputs the fuzzer or a seed draws: any input, valid
 //! or not, decoded in one call and under a seeded split that moves the state between calls, gives
 //! the same octets, the same verdict and the same `consumed` (decision 11; invariants 5, 12 and
-//! 13). No input may reach a panic.
+//! 13). The checked path alone gives them too, and so does each claim of decision 14 off, so the
+//! fast paths write what the checked path writes (decision 16). No input may reach a panic.
 
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const decoder_module = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
+const constants = @import("../constants.zig");
+const claims = @import("../claims.zig");
 const huffman = @import("../huffman.zig");
 const StreamWriter = @import("../test_writer.zig").StreamWriter;
+const fast_sequences_test = @import("../fast_sequences_test.zig");
 const Decoder = decoder_test.Decoder;
 const FrameWriter = decoder_test.FrameWriter;
 
@@ -36,12 +40,26 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) decoder_module.Error
     return decoder.decode(input, output);
 }
 
-/// Decodes `input` in one call and under `seed`'s split, and requires the two to agree.
+/// Decodes `input` in one call through `paths`, and requires the verdict and octets of `whole`.
+fn check_paths(comptime paths: claims.Paths, input: []const u8, whole: Verdict, whole_output: []const u8) !void {
+    const Other = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max, .paths = paths });
+    var decoder: Other = undefined;
+    decoder.init(.{});
+    var output: [output_len_max]u8 = undefined;
+    const verdict = verdict_of(decoder.decode(input, &output));
+    try testing.expectEqual(whole, verdict);
+    if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], output[0..whole.progress.written]);
+}
+
+/// Decodes `input` in one call and under `seed`'s split, and in one call through the checked path
+/// alone and with each claim off, and requires all to agree.
 fn check_split(input: []const u8, seed: u64) !void {
     var states: [codec.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
     states[0].init(.{});
     const whole = verdict_of(states[0].decode(input, &whole_output));
+    try check_paths(.{ .fast_paths = false }, input, whole, &whole_output);
+    inline for (claims.each_off) |off| try check_paths(.{ .claims = off }, input, whole, &whole_output);
     states[0].init(.{});
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
@@ -71,14 +89,19 @@ fn valid_frames(standard: *FrameWriter, marker: *FrameWriter) !void {
     decoder_test.marker_frame(marker, stream_writer.write(&tree, decoder_test.marker_literals));
 }
 
+/// The seed of the frame of many sequences the corruptions start from.
+const many_sequences_seed = 7;
+
 test "every seeded corruption of a valid frame decodes alike in one call and split" {
     var standard: FrameWriter = .{};
     var marker: FrameWriter = .{};
     try valid_frames(&standard, &marker);
+    var many: FrameWriter = .{};
+    _ = try fast_sequences_test.seeded_frame(&many, many_sequences_seed, .{});
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
         var generator = codec.split.Generator.init(seed);
-        const frames = [_][]const u8{ standard.written(), marker.written(), skippable_frame };
+        const frames = [_][]const u8{ standard.written(), marker.written(), skippable_frame, many.written() };
         const valid = frames[generator.below(frames.len)];
         @memcpy(input[0..valid.len], valid);
         for (0..generator.below(flips_max + 1)) |_| {

@@ -3,6 +3,8 @@
 //! Design §8 step 11 writes the decoder, and step 13 the encoder.
 
 pub const constants = @import("constants.zig");
+/// Decision 14's claims, and the paths a decoder takes (decision 16).
+pub const claims = @import("claims.zig");
 
 const decoder = @import("decoder/decoder.zig");
 pub const DecoderOptions = decoder.DecoderOptions;
@@ -23,5 +25,6 @@ test {
     _ = @import("frame.zig");
     _ = @import("block.zig");
     _ = @import("work.zig");
+    _ = @import("fast_sequences.zig");
     _ = decoder;
 }
