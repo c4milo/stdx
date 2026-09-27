@@ -5,8 +5,10 @@
 const std = @import("std");
 const testing = std.testing;
 const constants = @import("constants.zig");
+const fse = @import("fse.zig");
 const sequences = @import("sequences.zig");
-const BitWriter = @import("test_writer.zig").BitWriter;
+const test_writer = @import("test_writer.zig");
+const BitWriter = test_writer.BitWriter;
 
 test "Repeated_Offsets follow Table 18, with the rows errata 6442 and 8085 correct" {
     var repeats = constants.repeated_offsets_initial;
@@ -164,4 +166,33 @@ test "a stream that ends before its initial states or its sequences is refused" 
     var stream = try sequences.start(octets, &tables, 3);
     _ = try sequences.next(&stream, octets, &tables);
     try testing.expectError(error.SequencesStreamInvalid, sequences.next(&stream, octets, &tables));
+}
+
+test "the offset table counts its cells whose code names a Repeated_Offset, in every mode" {
+    var tables: sequences.Tables = undefined;
+    tables.init();
+    // Predefined_Mode: codes 0 and 1 hold a cell each of 32, 16 of 256 (RFC 8878 §3.1.1.3.2.2).
+    _ = try sequences.read_header(&.{ 1, 0 }, &tables);
+    try testing.expectEqual(2, tables.offset_repeat_cells);
+    try testing.expectEqual(16, tables.offset_repeat_share());
+    // RLE_Mode for offsets alone: code 1 names a repeat in the one cell, code 2 in none, and
+    // Repeat_Mode keeps the count.
+    _ = try sequences.read_header(&.{ 1, 1 << 4, 1 }, &tables);
+    try testing.expectEqual(1 << constants.offset_accuracy_log_max, tables.offset_repeat_share());
+    _ = try sequences.read_header(&.{ 1, 1 << 4, 2 }, &tables);
+    try testing.expectEqual(0, tables.offset_repeat_share());
+    _ = try sequences.read_header(&.{ 1, 3 << 4 }, &tables);
+    try testing.expectEqual(0, tables.offset_repeat_share());
+    // FSE_Compressed_Mode: code 0 at 3 of 32, code 1 "less than 1", one cell, and code 2 the rest.
+    var distribution: fse.Distribution = .{ .probabilities = @splat(0), .symbol_count = 3, .accuracy_log = constants.offset_default_accuracy_log };
+    distribution.probabilities[0..3].* = .{ 3, -1, 28 };
+    var description: test_writer.DescriptionWriter = .{};
+    description.write(&distribution);
+    var section: [2 + description.octets.len]u8 = undefined;
+    const description_len = std.math.divCeil(usize, description.bits_written, @bitSizeOf(u8)) catch unreachable;
+    section[0..2].* = .{ 1, 2 << 4 };
+    @memcpy(section[2..][0..description_len], description.octets[0..description_len]);
+    _ = try sequences.read_header(section[0 .. 2 + description_len], &tables);
+    try testing.expectEqual(4, tables.offset_repeat_cells);
+    try testing.expectEqual(32, tables.offset_repeat_share());
 }

@@ -87,6 +87,9 @@ pub const Tables = struct {
     match_length: [1 << constants.match_length_accuracy_log_max]Cell,
     /// The accuracy logs of the tables in `literals_length`, `offset` and `match_length`.
     accuracy_logs: [codes.len]u4,
+    /// The offset table's cells whose code is below `constants.offset_repeat_codes`, each naming a
+    /// Repeated_Offset: how often the block's offsets repeat.
+    offset_repeat_cells: u16,
     /// Whether a block with sequences set the tables, which Repeat_Mode needs.
     valid: bool,
     /// Invariant 17's count for the tables built since the block took it last.
@@ -95,6 +98,11 @@ pub const Tables = struct {
     pub fn init(self: *Tables) void {
         self.valid = false;
         self.work = work_module.zero;
+    }
+
+    /// `offset_repeat_cells` as a table of 2^offset_accuracy_log_max cells would count them.
+    pub fn offset_repeat_share(self: *const Tables) u32 {
+        return @as(u32, self.offset_repeat_cells) << @intCast(constants.offset_accuracy_log_max - self.accuracy_log(.offset));
     }
 
     pub fn cells(self: *const Tables, code: Code) []const Cell {
@@ -110,6 +118,7 @@ pub const Tables = struct {
     fn take(self: *Tables, comptime code: Code, distribution: *const fse.Distribution) Error!void {
         const work = try fse.build_cells(Cell, maker(code), self.cells_of(code), distribution);
         self.accuracy_logs[slot(code)] = distribution.accuracy_log;
+        if (code == .offset) self.offset_repeat_cells = cells_of_probabilities(distribution.probabilities[0..@min(distribution.symbol_count, constants.offset_repeat_codes)]);
         work_module.add(&self.work, work_module.of(work));
     }
 
@@ -118,6 +127,7 @@ pub const Tables = struct {
     fn take_repeated(self: *Tables, comptime code: Code, symbol: u8) void {
         self.cells_of(code)[0] = cell_of_entry(code, .{ .symbol = symbol, .bits = 0, .baseline = 0 });
         self.accuracy_logs[slot(code)] = 0;
+        if (code == .offset) self.offset_repeat_cells = @intFromBool(symbol < constants.offset_repeat_codes);
         work_module.add(&self.work, work_module.of(1));
     }
 
@@ -134,7 +144,10 @@ pub const Tables = struct {
     fn take_default(self: *Tables, code: Code) void {
         switch (code) {
             .literals_length => self.literals_length[0..default_literals_length.len].* = default_literals_length,
-            .offset => self.offset[0..default_offset.len].* = default_offset,
+            .offset => {
+                self.offset[0..default_offset.len].* = default_offset;
+                self.offset_repeat_cells = default_offset_repeat_cells;
+            },
             .match_length => self.match_length[0..default_match_length.len].* = default_match_length,
         }
         self.accuracy_logs[slot(code)] = switch (code) {
@@ -153,6 +166,16 @@ pub const Tables = struct {
 const default_literals_length = default_cells(.literals_length, fse.default_table(constants.literals_length_accuracy_log_max, constants.literals_length_default_accuracy_log, &constants.literals_length_default));
 const default_offset = default_cells(.offset, fse.default_table(constants.offset_accuracy_log_max, constants.offset_default_accuracy_log, &constants.offset_default));
 const default_match_length = default_cells(.match_length, fse.default_table(constants.match_length_accuracy_log_max, constants.match_length_default_accuracy_log, &constants.match_length_default));
+
+const default_offset_repeat_cells = cells_of_probabilities(constants.offset_default[0..constants.offset_repeat_codes]);
+
+/// The cells that the symbols of `probabilities` take in their table: one for a probability of -1,
+/// "less than 1" (RFC 8878 §4.1.1).
+fn cells_of_probabilities(probabilities: []const i16) u16 {
+    var cells: u16 = 0;
+    for (probabilities) |probability| cells += if (probability < 0) 1 else @intCast(probability);
+    return cells;
+}
 
 /// Every way a Sequences_Section breaks RFC 8878 §3.1.1.3.2.
 pub const Error = fse.Error || error{

@@ -39,6 +39,8 @@ pub const Shape = struct {
     literals_length_symbols: *const [table_symbols]u8 = "\x01\x02",
     offset_symbols: *const [table_symbols]u8 = "\x05\x06",
     match_length_symbols: *const [table_symbols]u8 = "\x00\x01",
+    /// The cells of the first offset symbol; the second takes the rest.
+    offset_first_cells: i16 = symbol_cells,
     /// Window_Descriptor's Exponent: 16 KiB by default.
     window_exponent: u5 = 4,
     /// The literals the section holds, when not the ones the sequences take.
@@ -56,9 +58,11 @@ pub const First = struct {
     offset_bits: u64,
 };
 
-fn distribution_of(symbols: *const [table_symbols]u8) fse.Distribution {
+/// A table of `symbols`, the first holding `first_cells` of the 32 cells and the second the rest.
+fn distribution_of(symbols: *const [table_symbols]u8, first_cells: i16) fse.Distribution {
     var distribution: fse.Distribution = .{ .probabilities = @splat(0), .symbol_count = symbols[table_symbols - 1] + 1, .accuracy_log = accuracy_log };
-    for (symbols) |symbol| distribution.probabilities[symbol] = symbol_cells;
+    distribution.probabilities[symbols[0]] = first_cells;
+    distribution.probabilities[symbols[1]] = (1 << accuracy_log) - first_cells;
     return distribution;
 }
 
@@ -160,7 +164,7 @@ const compressed_modes: u8 = 0xa8;
 /// the sequences. Returns the octets it decodes to, when every rule holds.
 pub fn seeded_frame(frame: *FrameWriter, seed: u64, shape: Shape) !usize {
     var generator = codec.split.Generator.init(seed);
-    const distributions = [_]fse.Distribution{ distribution_of(shape.literals_length_symbols), distribution_of(shape.offset_symbols), distribution_of(shape.match_length_symbols) };
+    const distributions = [_]fse.Distribution{ distribution_of(shape.literals_length_symbols, symbol_cells), distribution_of(shape.offset_symbols, shape.offset_first_cells), distribution_of(shape.match_length_symbols, symbol_cells) };
     var tables: Tables = undefined;
     for (&tables, distributions) |*table, distribution| try fse.build(accuracy_log, table, &distribution);
     const fields = seeded_fields(&generator, &tables, shape);
@@ -278,8 +282,22 @@ const long_short_matches: Shape = .{ .offset_symbols = "\x03\x04", .match_length
 
 /// Offset code 1, Offset_Value 2 or 3, a Repeated_Offset, beside new offsets of code 5; with
 /// literals lengths 0 and 1, so the shift a literals length of 0 gives (RFC 8878 §3.1.1.5) comes
-/// too, and Repeated_Offset1 - 1 may be 0.
+/// too, and Repeated_Offset1 - 1 may be 0. Half the offset cells name a repeat, so the assembly
+/// takes the offsets by selects.
 const repeated_offsets: Shape = .{ .literals_length_symbols = "\x00\x01", .offset_symbols = "\x01\x05" };
+/// Offset code 0, Offset_Value 1: the first repeat, or the second after no literals.
+const first_repeats: Shape = .{ .literals_length_symbols = "\x00\x01", .offset_symbols = "\x00\x05" };
+/// Both again with 2 of 32 offset cells a repeat's, 16 of every 256, too few for selects: the
+/// assembly branches.
+const rare_repeat_cells = 2;
+const rare_repeated_offsets: Shape = .{ .literals_length_symbols = "\x00\x01", .offset_symbols = "\x01\x05", .offset_first_cells = rare_repeat_cells };
+const rare_first_repeats: Shape = .{ .literals_length_symbols = "\x00\x01", .offset_symbols = "\x00\x05", .offset_first_cells = rare_repeat_cells };
+
+comptime {
+    const scale = constants.offset_accuracy_log_max - accuracy_log;
+    std.debug.assert(rare_repeat_cells << scale < constants.offset_selects_cells_min);
+    std.debug.assert(symbol_cells << scale >= constants.offset_selects_cells_min);
+}
 
 test "seeded blocks decode alike on the fast and checked paths, whole and split" {
     for (0..32) |seed| {
@@ -288,6 +306,9 @@ test "seeded blocks decode alike on the fast and checked paths, whole and split"
         try expect_alike(long_runs, seed);
         try expect_alike(long_short_matches, seed);
         try expect_same(repeated_offsets, seed);
+        try expect_alike(first_repeats, seed);
+        try expect_same(rare_repeated_offsets, seed);
+        try expect_alike(rare_first_repeats, seed);
     }
 }
 

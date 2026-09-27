@@ -841,3 +841,10 @@ None. Decisions 11 to 20 are ruled.
   pin by hash holds them still.
 - **Encoders at their strongest levels will likely lose** to libzstd, Google's brotli and
   libdeflate's level 12, and decision 14 says so in advance.
+- **A benchmark that decodes one small payload many times lets the branch predictor learn its
+  branches.** On the M1 Pro, a 16 KiB payload decoded again and again mispredicts less than
+  payloads that differ on each decode. Step 11 measured it on the Zstandard sequence loop, which
+  takes a block's offsets by selects rather than branches when the block's offset table names a
+  repeat in at least 20 of every 256 cells: json-16k decoded alone ran 2% slower by selects, and
+  json-1m cut into 64 distinct frames of 16 KiB ran 5.7% faster. The loop keeps the rule that
+  serves distinct payloads, and loses to libzstd on json-16k for it.

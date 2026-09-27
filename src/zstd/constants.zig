@@ -184,6 +184,9 @@ pub const repeated_offsets_initial = [3]u32{ 1, 4, 8 };
 /// Offset_Values 1 to 3 name a Repeated_Offset; above 3, the offset is Offset_Value - 3 (RFC 8878
 /// §3.1.1.4).
 pub const repeat_offset_values = 3;
+/// The offset codes whose Offset_Value names a Repeated_Offset: code 0 gives 1, and code 1 gives 2
+/// or 3 (RFC 8878 §3.1.1.3.2.1.1).
+pub const offset_repeat_codes = 2;
 
 /// Each literals length code's Baseline and Number_of_Bits (RFC 8878 §3.1.1.3.2.1.1, Table 16).
 pub const literals_length_baselines = [literals_length_symbols]u32{
@@ -245,6 +248,11 @@ pub const output_slack = chunk_len_max + copy_chunk_len;
 /// A fast read of a backward stream loads the 8 octets that end at its position's octet, so it
 /// needs that many before the position: at least 57 bits, the most one read takes.
 pub const fast_read_position_min = 57;
+
+/// The sequence loop's assembly takes a block's offsets through selects rather than branches when
+/// at least this many of every 2^offset_accuracy_log_max cells of the block's offset table name a
+/// Repeated_Offset. Below it nearly every offset is new, and a branch on that predicts well.
+pub const offset_selects_cells_min = 20;
 
 /// The most literals one load of the literal fast path decodes: a load holds 57 bits, as many codes
 /// of a table of short codes as that, and the loop's unrolled body grows with each.
@@ -313,6 +321,8 @@ comptime {
     assert(literals_length_baselines[literals_length_symbols - 1] + (1 << literals_length_extra_bits[literals_length_symbols - 1]) - 1 == 131071);
     assert(match_length_baselines[match_length_symbols - 1] + (1 << match_length_extra_bits[match_length_symbols - 1]) - 1 == 131074);
     assert(literals_length_accuracy_log_max <= accuracy_log_max and offset_accuracy_log_max <= accuracy_log_max);
+    assert((1 << offset_repeat_codes) - 1 == repeat_offset_values);
+    assert(offset_selects_cells_min < 1 << offset_accuracy_log_max);
     for ([_][]const i16{ &literals_length_default, &match_length_default, &offset_default }, [_]u5{ literals_length_default_accuracy_log, match_length_default_accuracy_log, offset_default_accuracy_log }) |distribution, log| {
         var total: u32 = 0;
         for (distribution) |probability| total += if (probability < 0) 1 else @intCast(probability);
