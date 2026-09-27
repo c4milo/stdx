@@ -255,17 +255,11 @@ pub fn add(b: *std.Build, options: Options) void {
     add_corpus_args(b, zstd_run, corpus);
     zstd_step.dependOn(&zstd_run.step);
 
-    const bench_zstd_module = b.createModule(.{ .root_source_file = b.path("bench/zstd/zstd.zig"), .target = baseline, .optimize = .ReleaseSafe });
-    bench_zstd_module.addImport("oracle", oracle);
-    bench_zstd_module.addImport("timing", timing);
-    bench_zstd_module.addImport("codec", graph.codec);
-    bench_zstd_module.addImport("zstd", graph.zstd);
-    const bench_zstd = b.addExecutable(.{ .name = "bench_zstd", .root_module = bench_zstd_module });
-    b.installArtifact(bench_zstd);
-    const bench_zstd_run = b.addRunArtifact(bench_zstd);
-    bench_zstd_run.has_side_effects = true;
-    add_corpus_args(b, bench_zstd_run, corpus);
-    bench_zstd_step.dependOn(&bench_zstd_run.step);
+    // Decision 17's measurement for Zstandard, after the benchmark: stdx built ReleaseFast.
+    const bench_zstd_run = add_bench_zstd(b, .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline }, graph, false);
+    const bench_zstd_fast_run = add_bench_zstd(b, .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline }, release_fast_graph, true);
+    bench_zstd_fast_run.step.dependOn(&bench_zstd_run.step);
+    bench_zstd_step.dependOn(&bench_zstd_fast_run.step);
 
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
@@ -307,6 +301,37 @@ pub fn add(b: *std.Build, options: Options) void {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
+}
+
+/// What each Zstandard benchmark program is built from.
+const BenchInputs = struct {
+    oracle: *std.Build.Module,
+    timing: *std.Build.Module,
+    corpus: Corpus,
+    baseline: std.Build.ResolvedTarget,
+};
+
+/// `bench/zstd/zstd.zig` over the corpora, against the library `graph` holds: ReleaseSafe, or
+/// ReleaseFast for decision 17's measurement, where the root is ReleaseFast too, since Zig 0.16
+/// takes runtime safety from the root module for every module the program imports.
+fn add_bench_zstd(b: *std.Build, inputs: BenchInputs, graph: modules.Modules, release_fast: bool) *std.Build.Step.Run {
+    const module = b.createModule(.{
+        .root_source_file = b.path("bench/zstd/zstd.zig"),
+        .target = inputs.baseline,
+        .optimize = if (release_fast) .ReleaseFast else .ReleaseSafe,
+    });
+    module.addImport("oracle", inputs.oracle);
+    module.addImport("timing", inputs.timing);
+    module.addImport("codec", graph.codec);
+    module.addImport("zstd", graph.zstd);
+    module.addOptions("bench_options", bench_options(b, release_fast));
+    const name = if (release_fast) "bench_zstd_release_fast" else "bench_zstd";
+    const program = b.addExecutable(.{ .name = name, .root_module = module });
+    b.installArtifact(program);
+    const run = b.addRunArtifact(program);
+    run.has_side_effects = true;
+    add_corpus_args(b, run, inputs.corpus);
+    return run;
 }
 
 /// A benchmark program's options: whether it is decision 17's ReleaseFast measuring device.
