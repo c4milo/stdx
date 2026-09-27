@@ -266,7 +266,9 @@ Change this section when a step adds or renames a command.
 - Zstandard benchmark: `zig build bench-zstd -Doracles` times libzstd's decoder, with a context
   kept across decodes, and stdx's HTTP decoder over every corpus file encoded by libzstd at level
   3; then stdx's fast paths against its checked path, and each claim of decision 14 off against
-  all on: every candidate interleaved in one run, the median of five runs with the spread.
+  all on: every candidate interleaved in one run, the median of five runs with the spread. A
+  second program then repeats the comparison with libzstd with stdx built ReleaseFast, decision
+  17's measure of what the safety checks cost.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder over every corpus file, through Linux's

@@ -13,6 +13,10 @@
 //! - Decision 14's claims: stdx's decoder with each claim off in turn against the decoder with all
 //!   on (design §8 step 11), each claim's A/B, reported as the ratio of the two throughputs.
 //!
+//! - Decision 17's measurement: `bench_zstd_release_fast`, this program with stdx built
+//!   ReleaseFast, prints the comparison with libzstd after it. The difference bounds what the
+//!   safety checks cost; ReleaseFast is never offered to a caller.
+//!
 //! stdx's decoder is a candidate from design §8 step 11. It picks its checksum path from the CPU's
 //! features, as a caller does (decision 21).
 //!
@@ -26,6 +30,7 @@ const oracle = @import("oracle");
 const timing = @import("timing");
 const codec = @import("codec");
 const zstd = @import("zstd");
+const bench_options = @import("bench_options");
 
 /// The libzstd level whose frames the decoders are timed on: its default.
 const decode_level: c_int = 3;
@@ -92,6 +97,13 @@ pub fn main(init: std.process.Init) !void {
     const context = oracle.zstd_context_create() orelse return error.OutOfMemory;
     defer oracle.zstd_context_free(context);
 
+    if (bench_options.release_fast) {
+        try out.print("\n## stdx built ReleaseFast against libzstd, libzstd level {d} (decision 17)\n\n", .{decode_level});
+        try out.print("| File | Octets | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|\n", .{});
+        for (files.items) |file| try report_decode(arena, io, out, file, context);
+        try out.flush();
+        return;
+    }
     try out.print("## Decoding, libzstd level {d}\n\n", .{decode_level});
     try out.print("| File | Octets | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_decode(arena, io, out, file, context);
