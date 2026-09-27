@@ -218,28 +218,32 @@ const template = std.fmt.comptimePrint(
     \\    mvn x27, x27
     \\    lsr x30, x30, x27
     \\    add x30, x30, w20, uxtw
-    \\    // The next states: each field plus its cell's baseline, the cell's top 16 bits.
+    \\    // The next states: each field plus its cell's baseline, the cell's top 16 bits, shifted
+    \\    // down as soon as the cell arrives, so the add that waits on the field is a plain one.
     \\    ubfx x27, x20, #{[bits_at]}, #8
+    \\    lsr x20, x20, #{[baseline_at]}
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
-    \\    add x20, x6, x20, lsr #{[baseline_at]}
+    \\    add x20, x6, x20
     \\    ubfx x27, x22, #{[bits_at]}, #8
+    \\    lsr x22, x22, #{[baseline_at]}
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
-    \\    add x22, x6, x22, lsr #{[baseline_at]}
+    \\    add x22, x6, x22
     \\    ubfx x27, x21, #{[bits_at]}, #8
+    \\    lsr x21, x21, #{[baseline_at]}
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
     \\    add x25, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
-    \\    add x21, x6, x21, lsr #{[baseline_at]}
+    \\    add x21, x6, x21
     \\    // x25 the bits the sequence reads, x26 Offset_Value, x28 the match length, x30 the
     \\    // literals length. An Offset_Value above 3 is a new offset (RFC 8878 §3.1.1.5), and the
     \\    // repeats become it, the first and the second: x26 the distance, x24 and x27 the second
