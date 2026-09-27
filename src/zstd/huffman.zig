@@ -163,17 +163,22 @@ pub fn build(weights: *Weights, table: *Table) Error!void {
 
 /// Gives each literal 2^(Weight-1) consecutive cells, the lowest weights first.
 fn fill(weights: []const u8, table: *Table) void {
-    var position: usize = 0;
-    for (1..@as(usize, table.bits_max) + 1) |weight| {
+    // Each weight's cells start where the lower weights' end: a count of each weight's cells, then
+    // one pass in literal order, so codes go out from the lowest weight up, in literal order
+    // within a weight (RFC 8878 §4.2.1).
+    var starts: [weight_symbols + 1]usize = @splat(0);
+    for (weights) |weight| {
+        if (weight > 0) starts[weight + 1] += @as(usize, 1) << @intCast(weight - 1);
+    }
+    for (1..starts.len) |weight| starts[weight] += starts[weight - 1];
+    for (weights, 0..) |weight, symbol| {
+        if (weight == 0) continue;
         const cells_len = @as(usize, 1) << @intCast(weight - 1);
         const bits: u8 = @intCast(table.bits_max + 1 - weight);
-        for (weights, 0..) |literal_weight, symbol| {
-            if (literal_weight != weight) continue;
-            @memset(table.cells[position..][0..cells_len], .{ .symbol = @intCast(symbol), .bits = bits });
-            position += cells_len;
-        }
+        @memset(table.cells[starts[weight]..][0..cells_len], .{ .symbol = @intCast(symbol), .bits = bits });
+        starts[weight] += cells_len;
     }
-    assert(position == @as(usize, 1) << table.bits_max);
+    assert(starts[table.bits_max] == @as(usize, 1) << table.bits_max);
 }
 
 /// Decodes `output.len` literals from the Huffman-coded stream `octets`, which must end exactly at
