@@ -12,8 +12,9 @@
 //! one whose bits lie in the stream's first `constants.fast_read_position_min` or outnumber the
 //! load's, one too long for an iteration, and one left over from a call whose room ran out. `step`
 //! reads near the stream's start from the stream's first 8 octets, padded with zeros when the
-//! stream is shorter. Within the margin of the output's end, `run_tail` decodes as `step` does and
-//! copies each sequence whose chunks end inside the output.
+//! stream is shorter. It copies a sequence whole where the output holds it and its last chunk's
+//! overrun, and `chunk_len_max` octets an iteration where it does not. Within the margin of the
+//! output's end, `run_tail` decodes as `step` does and copies each sequence the output holds so.
 //!
 //! Both decode only what is valid. They leave any sequence the checked path would refuse to the
 //! checked path, without using its bits: the checked path decodes it again and refuses it. So both
@@ -282,12 +283,29 @@ inline fn step(comptime Window: type, comptime claims: Claims, run: *block.Run, 
     if (run.literals_left == 0 and run.match_left == 0) {
         if (!next_sequence(run, context, found, sink.reach())) return false;
     }
+    if (fits_whole(Window, run, sink)) {
+        copy_whole(Window, claims, run, context, sink);
+        return true;
+    }
     if (run.literals_left > 0) {
-        copy_literals(Window, claims, run, context, sink);
+        copy_literals(Window, claims, run, context, sink, @min(run.literals_left, constants.chunk_len_max));
         if (run.literals_left > 0 or sink.room() < constants.output_slack) return true;
     }
-    if (run.match_left > 0) copy_match(Window, claims, run, sink);
+    if (run.match_left > 0) copy_match(Window, claims, run, sink, @min(run.match_left, constants.chunk_len_max));
     return true;
+}
+
+/// Whether the output holds what is left of the sequence and the overrun of its last chunk past
+/// it, less than a chunk's.
+inline fn fits_whole(comptime Window: type, run: *const block.Run, sink: *const block.Sink(Window)) bool {
+    return @as(usize, run.literals_left) + run.match_left + constants.copy_chunk_len <= sink.room();
+}
+
+/// Copies what is left of the sequence, for a caller `fits_whole` answered: its literals, then its
+/// match, each in one copy of its whole length.
+inline fn copy_whole(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window)) void {
+    if (run.literals_left > 0) copy_literals(Window, claims, run, context, sink, run.literals_left);
+    if (run.match_left > 0) copy_match(Window, claims, run, sink, run.match_left);
 }
 
 /// The sequences within `constants.output_slack` of the output's end, each decoded as `step` decodes
@@ -297,10 +315,8 @@ fn run_tail(comptime Window: type, comptime claims: Claims, run: *block.Run, con
     // Each pass copies a sequence: one `step` left, or the next.
     for (0..run.stream.left + 1) |_| {
         if (run.literals_left == 0 and run.match_left == 0 and !next_sequence(run, context, found, sink.reach())) return;
-        if (run.literals_left + run.match_left + constants.copy_chunk_len > sink.room()) return;
-        // The room is under `output_slack`, so each part fits one copy of `chunk_len_max`.
-        if (run.literals_left > 0) copy_literals(Window, claims, run, context, sink);
-        if (run.match_left > 0) copy_match(Window, claims, run, sink);
+        if (!fits_whole(Window, run, sink)) return;
+        copy_whole(Window, claims, run, context, sink);
         assert(run.literals_left == 0 and run.match_left == 0);
     }
 }
@@ -358,9 +374,9 @@ inline fn resolve(repeats: [constants.repeated_offsets_initial.len]u32, offset_v
     return .{ offset, .{ offset, first, second } };
 }
 
-/// Copies up to `chunk_len_max` of the sequence's literals.
-fn copy_literals(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window)) void {
-    const len: u32 = @min(run.literals_left, constants.chunk_len_max);
+/// Copies `len` of the sequence's literals.
+fn copy_literals(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window), len: u32) void {
+    assert(len <= run.literals_left);
     switch (run.section.source) {
         .block => copy.copy_run(claims, sink.output, sink.written, context.block, run.section.offset + run.literals_used, len),
         .buffer => copy.copy_run(claims, sink.output, sink.written, context.literals_buffer, run.literals_used, len),
@@ -371,10 +387,10 @@ fn copy_literals(comptime Window: type, comptime claims: Claims, run: *block.Run
     run.literals_left -= len;
 }
 
-/// Copies up to `chunk_len_max` of the sequence's match: what lies before the call's unsynced
-/// output from the window, and the rest from the output.
-fn copy_match(comptime Window: type, comptime claims: Claims, run: *block.Run, sink: *block.Sink(Window)) void {
-    const len: u32 = @min(run.match_left, constants.chunk_len_max);
+/// Copies `len` of the sequence's match: what lies before the call's unsynced output from the
+/// window, and the rest from the output.
+fn copy_match(comptime Window: type, comptime claims: Claims, run: *block.Run, sink: *block.Sink(Window), len: u32) void {
+    assert(len <= run.match_left);
     const target = sink.written;
     const own_len = target - sink.synced.*;
     if (run.offset > own_len) {
