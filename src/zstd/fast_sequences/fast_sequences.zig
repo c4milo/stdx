@@ -27,6 +27,7 @@ const Claims = @import("../claims.zig").Claims;
 const work_module = @import("../work.zig");
 const fast_literals = @import("../fast_literals.zig");
 const copy = @import("fast_sequences_copy.zig");
+const aarch64 = @import("fast_sequences_aarch64.zig");
 
 const LiteralsLengthCells = @FieldType(sequences.Tables, "literals_length");
 const OffsetCells = @FieldType(sequences.Tables, "offset");
@@ -93,6 +94,13 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
     // The block's last sequence reads no states, and `step` takes it, as it takes every sequence
     // when the literal source is shorter than a chunk.
     if (run.stream.left <= 1 or output.len < constants.output_slack or literals_end + copy.overrun_of(kind == .slice, claims) > literal_source.len and kind == .slice) return;
+    if (comptime aarch64.takes(kind == .slice, claims)) return aarch64.run_loop(Window, run, context, found.stream, found.tables, sink, literal_source, literals_end);
+    run_iterations(kind, Window, claims, run, context, found, sink, literal_source, literals_end);
+}
+
+/// The loop in Zig, for every target and claim setting the assembly does not take.
+fn run_iterations(comptime kind: LiteralKind, comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, found: *const Block, sink: *block.Sink(Window), literal_source: []const u8, literals_end: usize) void {
+    const output = sink.output;
     assert(run.promised_len <= context.block_len_max);
     // What every iteration reads, held here: a write to the output may alias any pointer's target,
     // so a read through one would repeat after every copy.
