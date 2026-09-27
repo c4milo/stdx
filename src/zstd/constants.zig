@@ -236,6 +236,9 @@ pub const offset_default = [29]i16{
 /// writes at most `chunk_len_max` octets of a literal run or a match, and the overrun of its last
 /// chunk past them.
 pub const copy_chunk_len = 16;
+/// A copy whose distance is under `copy_chunk_len` moves this many octets at a time, when the
+/// distance allows it.
+pub const copy_word_len = 8;
 pub const chunk_len_max = 256;
 pub const output_slack = chunk_len_max + copy_chunk_len;
 
