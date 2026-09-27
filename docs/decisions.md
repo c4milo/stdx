@@ -1008,3 +1008,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entry 22 
     - Safety comes after speed. Once the loop matches or beats libzstd on the runners, a proposal
       says how it is made safe, and the owner rules on it. Until then, decision 16's refusal of raw
       memory access stands for every other loop.
+    - Extended by the owner the same day, after the N2 reached 0.94 of libzstd's speed: "use
+      assembly where you can't get the zig compiler to do better", in the Zstandard decoder's hot
+      paths. The target is to beat libzstd on every corpus file on an aarch64 Mac first, the owner's
+      M1 Pro, and port to the other architectures after. Published numbers still come from the
+      runners (decision 20).
