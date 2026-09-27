@@ -5,8 +5,9 @@
 //! `constants.fast_read_position_min` bits remain before the stream's position. Four streams
 //! decode in one loop, a load of each in turn, so the lookups of one stream do not wait on
 //! another's (Z1). Literals go to the state's literal buffer, whose size is fixed, so the loop
-//! needs no output margin. The checked decoder takes each stream from where the loop left it, in
-//! stream order, and requires it to end exactly at its first bit.
+//! needs no output margin. Each stream's last literals then decode one at a time, reading the
+//! stream's first 8 octets where fewer lie before the position; the checked decoder takes each
+//! stream from where they stop, in stream order, and requires it to end exactly at its first bit.
 //!
 //! A stream whose last octet is 0 sends every stream to the checked decoder whole, so each
 //! refusal comes in the order the checked path gives it (decision 16).
@@ -32,7 +33,44 @@ pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huff
     } else {
         for (0..count) |index| decode_serial(table, streams[index], outputs[index], &readers[index], &done[index], per_load);
     }
-    for (&readers, outputs, done) |*reader, output, decoded| try huffman.decode_rest(table, reader, output[decoded..]);
+    for (&readers, streams, outputs, &done) |*reader, stream, output, *decoded| {
+        decode_tail(table, stream, reader, output, decoded);
+        try huffman.decode_rest(table, reader, output[decoded.*..]);
+    }
+}
+
+/// The stream's first 8 octets as a little-endian word, zero past its end when it is shorter: the
+/// load of any position in the stream's first 64 bits.
+pub fn head_of(octets: []const u8) u64 {
+    var padded: [@sizeOf(u64)]u8 = @splat(0);
+    const len = @min(octets.len, padded.len);
+    @memcpy(padded[0..len], octets[0..len]);
+    return std.mem.readInt(u64, &padded, .little);
+}
+
+/// Decodes the literals the loads left, one at a time: each from the 8 octets that end at the
+/// position's octet, or from the stream's first 8 when fewer lie before it, the bits before the
+/// stream's first reading as zeros, as the checked decoder reads them (RFC 8878 §4.2.2). A code
+/// longer than the bits left is the checked decoder's to refuse.
+fn decode_tail(table: *const huffman.Table, stream: []const u8, reader: *codec.BackwardBitReader, output: []u8, done: *usize) void {
+    const head = head_of(stream);
+    const mask = (@as(u64, 1) << table.bits_max) - 1;
+    for (output[done.*..]) |*literal| {
+        const at = reader.position;
+        const end = std.math.divCeil(usize, at, @bitSizeOf(u8)) catch unreachable;
+        const start = if (end >= @sizeOf(u64)) end - @sizeOf(u64) else 0;
+        const word = if (end >= @sizeOf(u64)) std.mem.readInt(u64, stream[start..][0..@sizeOf(u64)], .little) else head;
+        const bits_left = at - start * @bitSizeOf(u8);
+        const index = if (bits_left >= table.bits_max)
+            (word >> @intCast(bits_left - table.bits_max)) & mask
+        else
+            (word & ((@as(u64, 1) << @intCast(bits_left)) - 1)) << @intCast(table.bits_max - bits_left);
+        const cell = table.cells[@intCast(index)];
+        if (cell.bits > at) return;
+        literal.* = cell.symbol;
+        reader.position = at - cell.bits;
+        done.* += 1;
+    }
 }
 
 fn decode_checked(comptime count: usize, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8) huffman.Error!void {
