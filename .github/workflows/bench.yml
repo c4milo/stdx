@@ -9,7 +9,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate, checksum, profile, zstd]
+        options: [costs, deflate, checksum, profile, zstd, perf]
         default: deflate
 
 permissions:
@@ -51,6 +51,27 @@ jobs:
           # perf_event_open lets a process count its own events only where the kernel allows it.
           sudo sysctl -w kernel.perf_event_paranoid=1
           bench/run.sh bench-report.md bench-profile -Doracles
+      - name: Record where the Zstandard decoder spends its cycles
+        if: inputs.benchmark == 'perf'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-tools-$(uname -r)" linux-tools-common || sudo apt-get install -y -qq linux-tools-azure linux-tools-common
+          sudo sysctl -w kernel.perf_event_paranoid=-1
+          sudo sysctl -w kernel.kptr_restrict=0
+          tools/fetch_packages.sh
+          zig build -Doracles -Drelease corpus
+          zig build -Doracles
+          PERF=$(ls /usr/lib/linux-tools/*/perf | head -1)
+          file=zig-out/corpus/silesia/dickens
+          {
+            echo "# perf, $(uname -m)"
+            echo '```text'
+            "$PERF" stat -e cycles,instructions,branch-misses,stalled-cycles-frontend,stalled-cycles-backend,L1-dcache-load-misses,L1-dcache-loads,l2d_cache_refill,ld_align_lat,stall_backend_mem,stall_frontend,br_mis_pred_retired ./zig-out/bin/bench_profile "dickens=$file" 2>&1 | tail -30 || true
+            "$PERF" record -q -o perf.data ./zig-out/bin/bench_profile "dickens=$file" >/dev/null 2>&1 || true
+            "$PERF" report -i perf.data --stdio --sort symbol 2>/dev/null | head -40 || true
+            "$PERF" annotate -i perf.data --stdio -s fast_sequences.fast_sequences_aarch64.execute 2>/dev/null | head -400 || true
+            echo '```'
+          } > bench-report.md 2>&1
       - name: Summarize
         run: cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the report
