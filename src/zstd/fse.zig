@@ -161,7 +161,11 @@ pub fn build_cells(comptime Cell: type, comptime make: fn (u8) Cell, cells: []Ce
     // RFC 8878 §4.1.1: the step is odd, so it visits every cell once; ending anywhere but 0 means
     // the probabilities did not fill the cells below the "less than 1" symbols'.
     if (spread(Cell, table, probabilities) != 0) return error.FseDistributionInvalid;
-    assign_baselines(Cell, make, table, probabilities, distribution.accuracy_log);
+    switch (distribution.accuracy_log) {
+        inline constants.accuracy_log_offset...constants.accuracy_log_max => |accuracy_log| assign_baselines(Cell, make, accuracy_log, table, probabilities),
+        // RFC 8878 §4.1.1's field gives Accuracy_Log 5 at least, and the default tables 5 and 6.
+        else => unreachable,
+    }
     return table_len + probabilities.len;
 }
 
@@ -223,30 +227,44 @@ comptime {
     assert(symbols_max <= 1 << symbol_index_bits);
 }
 
+/// The Number_of_Bits and Baseline of every state of a table of 2^`accuracy_log` cells, in the places
+/// `Cell` holds them, the rest of the cell 0 (RFC 8878 §4.1.1, Table 21). A state lies from 1 to
+/// below 2^(Accuracy_Log+1): its highest bit gives the bits it reads, and it shifted by them lies
+/// from 2^Accuracy_Log to twice that, the Baseline above 2^Accuracy_Log.
+fn state_fields(comptime Cell: type, comptime accuracy_log: u4) [1 << (accuracy_log + 1)]std.meta.Int(.unsigned, @bitSizeOf(Cell)) {
+    @setEvalBranchQuota(default_table_eval_quota);
+    const Bits = std.meta.Int(.unsigned, @bitSizeOf(Cell));
+    var fields: [1 << (accuracy_log + 1)]Bits = @splat(0);
+    for (fields[1..], 1..) |*field, state| {
+        const bits = accuracy_log - std.math.log2_int(usize, state);
+        var cell: Cell = @bitCast(@as(Bits, 0));
+        cell.bits = bits;
+        cell.baseline = @intCast((state << bits) - (1 << accuracy_log));
+        field.* = @bitCast(cell);
+    }
+    return fields;
+}
+
 /// Each cell's Number_of_Bits and Baseline: a symbol's cells, in table order, take the states
 /// from its probability up, and the lower states read one bit more (RFC 8878 §4.1.1, Table 21).
-/// Each symbol's cell is made once, and each state's is a copy of it.
-fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, table: []Cell, probabilities: []const i16, accuracy_log: u4) void {
+/// Each symbol's cell is made once, with no bits and a Baseline of 0, and each state's is it with
+/// the state's fields, which comptime computed, added.
+fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, comptime accuracy_log: u4, table: []Cell, probabilities: []const i16) void {
+    const Bits = std.meta.Int(.unsigned, @bitSizeOf(Cell));
+    const fields = comptime state_fields(Cell, accuracy_log);
     var next_states: [1 << symbol_index_bits]u16 = undefined;
-    var symbol_cells: [1 << symbol_index_bits]Cell = undefined;
+    var symbol_cells: [1 << symbol_index_bits]Bits = undefined;
     for (probabilities, next_states[0..probabilities.len], symbol_cells[0..probabilities.len], 0..) |probability, *next, *symbol_cell, symbol| {
         next.* = if (probability < 0) 1 else @intCast(probability);
-        symbol_cell.* = make(@intCast(symbol));
+        symbol_cell.* = @bitCast(make(@intCast(symbol)));
     }
-    const table_len: u32 = @intCast(table.len);
     for (table) |*cell| {
-        // The spread left a symbol below 64, so the truncation changes none.
+        // The spread left a symbol below 64, and a state is below 2^(Accuracy_Log+1), the fields'
+        // length, so the truncations change none.
         const symbol: u6 = @truncate(cell.baseline);
-        const state: u32 = next_states[symbol];
+        const state = next_states[symbol];
         next_states[symbol] +%= 1;
-        // A state lies from its symbol's probability to one less than twice it, so from 1 to below
-        // 2^(Accuracy_Log+1): its highest bit, from 31 less its leading zeros, is at most
-        // Accuracy_Log, and the state shifted by the difference lies from 2^Accuracy_Log to twice
-        // that. No step wraps.
-        const bits: u5 = @truncate(@as(u32, accuracy_log) +% @clz(state) -% (@bitSizeOf(u32) - 1));
-        cell.* = symbol_cells[symbol];
-        cell.bits = bits;
-        cell.baseline = @truncate((state << bits) -% table_len);
+        cell.* = @bitCast(symbol_cells[symbol] | fields[@as(std.math.IntFittingRange(0, fields.len - 1), @truncate(state))]);
     }
 }
 

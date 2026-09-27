@@ -254,7 +254,7 @@ const WeightTable = fse.Table(constants.huffman_weights_accuracy_log_max);
 /// The cell of `state`, which a state read from the table's own widths never passes: below its 2^6
 /// cells, so the truncation changes none, and a cell's bits are at most 6.
 fn weight_cell(table: *const WeightTable, state: u64) fse.Entry {
-    return table.cells[@as(std.math.Log2Int(@TypeOf(table.cells.len)), @truncate(state))];
+    return table.cells[@as(std.math.IntFittingRange(0, table.cells.len - 1), @truncate(state))];
 }
 
 /// Builds the table the weights give: the last present literal's weight completes the sum of

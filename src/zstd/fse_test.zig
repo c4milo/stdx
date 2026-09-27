@@ -148,6 +148,31 @@ test "a spread whose steps end among the cells of \"less than 1\" symbols builds
     try expect_cells_follow(&table, &distribution);
 }
 
+test "every cell's bits and Baseline are RFC 8878 §4.1.1's, at every accuracy log" {
+    for (0..100) |seed| {
+        var generator = codec.split.Generator.init(seed);
+        const accuracy_log: u4 = @intCast(constants.accuracy_log_offset + seed % 5);
+        const symbol_count: u16 = @intCast(2 + generator.below(constants.match_length_symbols - 1));
+        const distribution = seeded_distribution(&generator, symbol_count, accuracy_log);
+        if (count_present(&distribution) < 2) continue;
+        var table: fse.Table(constants.accuracy_log_max) = undefined;
+        try fse.build(constants.accuracy_log_max, &table, &distribution);
+        // Table order: each symbol's cells take the states from its probability up, one for "less
+        // than 1"; a state reads Accuracy_Log less its highest bit's place in bits, from a Baseline
+        // of the state shifted by them less the table's length.
+        var next: [fse.symbols_max]u32 = undefined;
+        for (distribution.probabilities[0..symbol_count], next[0..symbol_count]) |probability, *state| state.* = if (probability < 0) 1 else @intCast(probability);
+        const table_len = @as(u32, 1) << accuracy_log;
+        for (table.entries()) |cell| {
+            const state = next[cell.symbol];
+            next[cell.symbol] += 1;
+            const bits = accuracy_log - std.math.log2_int(u32, state);
+            try testing.expectEqual(bits, cell.bits);
+            try testing.expectEqual((state << bits) - table_len, cell.baseline);
+        }
+    }
+}
+
 fn count_present(distribution: *const fse.Distribution) usize {
     var present: usize = 0;
     for (distribution.probabilities[0..distribution.symbol_count]) |probability| present += @intFromBool(probability != 0);
