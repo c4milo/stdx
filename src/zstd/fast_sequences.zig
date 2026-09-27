@@ -220,11 +220,16 @@ inline fn copy_literal_run(comptime kind: LiteralKind, comptime claims: Claims, 
 /// The `count` bits of `aligned` that start `at` bits below its top, the first read most
 /// significant (RFC 8878 §4.1). A field of none is 0: the shift past the word's top leaves
 /// nothing, whatever `at` truncates to. Every other field ends inside the word, so `at` is below
-/// 64, and the tables bound a field to 31 bits.
+/// 64, and the tables bound a field to 31 bits, so the truncations change none. The field's top 31
+/// bits, then the rest in 32 bits: the value is below 2^31 by its type, which a sum with a table's
+/// base relies on, and no instruction pays for it.
 inline fn field(aligned: u64, at: usize, count: u8) usize {
-    const value = ((aligned << @as(u6, @truncate(at))) >> 1) >> ~@as(u6, @truncate(count));
-    return @as(u32, @truncate(value));
+    const top: u32 = @truncate((aligned << @as(u6, @truncate(at))) >> (@bitSizeOf(u64) - field_bits_max));
+    return top >> ~@as(u5, @truncate(count));
 }
+
+/// The widest field a table gives: an offset's 31 extra bits.
+const field_bits_max = 31;
 
 /// The cells of the three states, each the index of its table's array: the array's length bounds
 /// every state a table's widths gave, so the truncation changes none (decision 17 keeps checks out
