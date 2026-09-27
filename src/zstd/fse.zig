@@ -142,7 +142,7 @@ fn set_zeros(probabilities: *[symbols_max]i16, start: u16, count: u16) void {
 pub fn build(comptime log_max: u4, table: *Table(log_max), distribution: *const Distribution) Error!void {
     assert(distribution.accuracy_log <= log_max);
     table.accuracy_log = distribution.accuracy_log;
-    table.work = work_module.of(try build_cells(Entry, entry_of, &table.cells, distribution));
+    table.work = work_module.of(try build_cells(Entry, entry_of, 1 << symbol_index_bits, &table.cells, distribution));
 }
 
 fn entry_of(symbol: u8) Entry {
@@ -151,18 +151,20 @@ fn entry_of(symbol: u8) Entry {
 
 /// Builds the table `distribution` gives into the start of `cells` (RFC 8878 §4.1.1): each state's
 /// cell is its symbol's cell as `make` gives it, with the state's Number_of_Bits in its `bits` and
-/// its Baseline in its `baseline`. Returns invariant 17's count: the cells and the distribution's
+/// its Baseline in its `baseline`. `make` takes every symbol below `symbol_limit`, and the
+/// distribution names none past it. Returns invariant 17's count: the cells and the distribution's
 /// symbols.
-pub fn build_cells(comptime Cell: type, comptime make: fn (u8) Cell, cells: []Cell, distribution: *const Distribution) Error!usize {
+pub fn build_cells(comptime Cell: type, comptime make: fn (u8) Cell, comptime symbol_limit: usize, cells: []Cell, distribution: *const Distribution) Error!usize {
     const table_len = @as(usize, 1) << distribution.accuracy_log;
     assert(distribution.accuracy_log <= constants.accuracy_log_max and table_len <= cells.len);
+    assert(distribution.symbol_count <= symbol_limit);
     const probabilities = distribution.probabilities[0..distribution.symbol_count];
     const table = cells[0..table_len];
     // RFC 8878 §4.1.1: the step is odd, so it visits every cell once; ending anywhere but 0 means
     // the probabilities did not fill the cells below the "less than 1" symbols'.
     if (spread(Cell, table, probabilities) != 0) return error.FseDistributionInvalid;
     switch (distribution.accuracy_log) {
-        inline constants.accuracy_log_offset...constants.accuracy_log_max => |accuracy_log| assign_baselines(Cell, make, accuracy_log, table, probabilities),
+        inline constants.accuracy_log_offset...constants.accuracy_log_max => |accuracy_log| assign_baselines(Cell, make, symbol_limit, accuracy_log, table, probabilities),
         // RFC 8878 §4.1.1's field gives Accuracy_Log 5 at least, and the default tables 5 and 6.
         else => unreachable,
     }
@@ -249,14 +251,14 @@ fn state_fields(comptime Cell: type, comptime accuracy_log: u4) [1 << (accuracy_
 /// from its probability up, and the lower states read one bit more (RFC 8878 §4.1.1, Table 21).
 /// Each symbol's cell is made once, with no bits and a Baseline of 0, and each state's is it with
 /// the state's fields, which comptime computed, added.
-fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, comptime accuracy_log: u4, table: []Cell, probabilities: []const i16) void {
-    const Bits = std.meta.Int(.unsigned, @bitSizeOf(Cell));
+fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, comptime symbol_limit: usize, comptime accuracy_log: u4, table: []Cell, probabilities: []const i16) void {
     const fields = comptime state_fields(Cell, accuracy_log);
+    // Each symbol's cell but for its state's fields, which comptime builds from `make`: a local
+    // array would be filled with 0xaa on every build in ReleaseSafe.
+    const symbol_cells = comptime symbol_cells_of(Cell, make, symbol_limit);
     var next_states: [1 << symbol_index_bits]u16 = undefined;
-    var symbol_cells: [1 << symbol_index_bits]Bits = undefined;
-    for (probabilities, next_states[0..probabilities.len], symbol_cells[0..probabilities.len], 0..) |probability, *next, *symbol_cell, symbol| {
+    for (probabilities, next_states[0..probabilities.len]) |probability, *next| {
         next.* = if (probability < 0) 1 else @intCast(probability);
-        symbol_cell.* = @bitCast(make(@intCast(symbol)));
     }
     for (table) |*cell| {
         // The spread left a symbol below 64, and a state is below 2^(Accuracy_Log+1), the fields'
@@ -266,6 +268,13 @@ fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, comptime a
         next_states[symbol] +%= 1;
         cell.* = @bitCast(symbol_cells[symbol] | fields[@as(std.math.IntFittingRange(0, fields.len - 1), @truncate(state))]);
     }
+}
+
+/// The cell `make` gives each symbol below `symbol_limit`, 0 past it.
+fn symbol_cells_of(comptime Cell: type, comptime make: fn (u8) Cell, comptime symbol_limit: usize) [1 << symbol_index_bits]std.meta.Int(.unsigned, @bitSizeOf(Cell)) {
+    var cells: [1 << symbol_index_bits]std.meta.Int(.unsigned, @bitSizeOf(Cell)) = @splat(0);
+    for (cells[0..symbol_limit], 0..) |*cell, symbol| cell.* = @bitCast(make(symbol));
+    return cells;
 }
 
 /// The table of a default distribution, built at comptime (RFC 8878 §3.1.1.3.2.2).

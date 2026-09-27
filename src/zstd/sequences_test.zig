@@ -196,3 +196,41 @@ test "the offset table counts its cells whose code names a Repeated_Offset, in e
     try testing.expectEqual(4, tables.offset_repeat_cells);
     try testing.expectEqual(32, tables.offset_repeat_share());
 }
+
+test "every code's table gives each symbol, its last included, its base and extra bits" {
+    // FSE_Compressed_Mode for all three codes, each distribution naming every symbol of its
+    // alphabet: one cell each, and the rest of the table to symbol 0.
+    const limits = [_]u16{ constants.literals_length_symbols, constants.offset_symbols, constants.match_length_symbols };
+    var section: [2 + 3 * 64]u8 = undefined;
+    section[0..2].* = .{ 1, 2 << 6 | 2 << 4 | 2 << 2 };
+    var len: usize = 2;
+    for (limits) |limit| {
+        const accuracy_log = std.math.log2_int_ceil(u16, limit);
+        var distribution: fse.Distribution = .{ .probabilities = @splat(0), .symbol_count = limit, .accuracy_log = @intCast(@max(accuracy_log, constants.accuracy_log_offset)) };
+        for (distribution.probabilities[0..limit]) |*probability| probability.* = 1;
+        distribution.probabilities[0] += @intCast((@as(u16, 1) << distribution.accuracy_log) - limit);
+        var description: test_writer.DescriptionWriter = .{};
+        description.write(&distribution);
+        const description_len = std.math.divCeil(usize, description.bits_written, @bitSizeOf(u8)) catch unreachable;
+        @memcpy(section[len..][0..description_len], description.octets[0..description_len]);
+        len += description_len;
+    }
+    var tables: sequences.Tables = undefined;
+    tables.init();
+    _ = try sequences.read_header(section[0..len], &tables);
+    for ([_]sequences.Code{ .literals_length, .offset, .match_length }, limits) |code, limit| {
+        for (0..limit) |symbol| try expect_symbol_cell(&tables, code, symbol);
+    }
+}
+
+/// Requires a cell of `code`'s table with `symbol`'s base and extra bits (RFC 8878 §3.1.1.3.2.1.1).
+fn expect_symbol_cell(tables: *const sequences.Tables, code: sequences.Code, symbol: usize) !void {
+    const base: u32, const extra_bits: u8 = switch (code) {
+        .literals_length => .{ constants.literals_length_baselines[symbol], constants.literals_length_extra_bits[symbol] },
+        .match_length => .{ constants.match_length_baselines[symbol], constants.match_length_extra_bits[symbol] },
+        .offset => .{ @as(u32, 1) << @intCast(symbol), @intCast(symbol) },
+    };
+    var found = false;
+    for (tables.cells(code)) |cell| found = found or (cell.base == base and cell.extra_bits == extra_bits);
+    try testing.expect(found);
+}

@@ -116,7 +116,7 @@ pub const Tables = struct {
 
     /// Builds a code's table from `distribution` straight into its cells.
     fn take(self: *Tables, comptime code: Code, distribution: *const fse.Distribution) Error!void {
-        const work = try fse.build_cells(Cell, maker(code), self.cells_of(code), distribution);
+        const work = try fse.build_cells(Cell, maker(code), symbol_limit(code), self.cells_of(code), distribution);
         self.accuracy_logs[slot(code)] = distribution.accuracy_log;
         if (code == .offset) self.offset_repeat_cells = cells_of_probabilities(distribution.probabilities[0..@min(distribution.symbol_count, constants.offset_repeat_codes)]);
         work_module.add(&self.work, work_module.of(work));
