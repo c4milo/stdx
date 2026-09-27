@@ -109,6 +109,7 @@ fn decode_weights(table: *const fse.Table(constants.huffman_weights_accuracy_log
     // State1 is read first, then State2 (RFC 8878 §4.2.1.2).
     var states: [weight_states]usize = undefined;
     for (&states) |*state| state.* = reader.read(table.accuracy_log);
+    var peeked: Peeked = .{};
     var count: usize = 0;
     // Every weight takes a turn; at most `literal_symbols - 1` are written (RFC 8878 §4.2.1.2).
     for (0..constants.literal_symbols) |turn| {
@@ -118,7 +119,7 @@ fn decode_weights(table: *const fse.Table(constants.huffman_weights_accuracy_log
         const cell = fse_cell(cells, states[current]);
         weights.values[count] = cell.symbol;
         count += 1;
-        states[current] = @as(usize, cell.baseline) + reader.read(@intCast(cell.bits));
+        states[current] = @as(usize, cell.baseline) + peeked.read(reader, @intCast(cell.bits));
         if (!reader.overflowed) continue;
         weights.values[count] = fse_cell(cells, states[1 - current]).symbol;
         weights.written = @intCast(count + 1);
@@ -127,6 +128,48 @@ fn decode_weights(table: *const fse.Table(constants.huffman_weights_accuracy_log
     // RFC 8878 §4.2.1.2: the loop above ends at the 255th weight or earlier.
     return error.HuffmanWeightsInvalid;
 }
+
+/// A backward stream's next bits, peeked from the reader 57 at a time and taken as
+/// they are read: each read costs a shift where the reader's own would cost a load and its checks.
+/// The reader uses them when the next peek comes, and a read past the stream's first bit, which
+/// takes zeros there, marks it overflowed at once, as its own read would.
+const Peeked = struct {
+    /// The peeked bits not yet read, the next to read most significant, at the top.
+    word: u64 = 0,
+    /// The bits of `word` not yet read.
+    held: u6 = 0,
+    /// The stream's bits before the next read, which a read of more reaches past its first.
+    remaining: usize = 0,
+    /// The bits read since the last peek, which the reader has not used yet.
+    taken: u6 = 0,
+
+    /// `count` bits, the first read most significant, as `reader.read(count)` gives them.
+    fn read(self: *Peeked, reader: *codec.BackwardBitReader, count: u6) u64 {
+        if (count > self.held) self.peek(reader);
+        const value = (self.word >> 1) >> ~count;
+        self.word <<= count;
+        self.held -= count;
+        if (count > self.remaining) {
+            // The reader's own read would have used every bit and marked it overflowed.
+            reader.consume(self.taken + count);
+            self.remaining = 0;
+            self.taken = 0;
+            return value;
+        }
+        self.remaining -= count;
+        self.taken += count;
+        return value;
+    }
+
+    /// Uses the bits read so far, and peeks the next `read_bits_max`.
+    fn peek(self: *Peeked, reader: *codec.BackwardBitReader) void {
+        reader.consume(self.taken);
+        self.word = reader.peek(codec.backward_read_bits_max) << (@bitSizeOf(u64) - codec.backward_read_bits_max);
+        self.held = codec.backward_read_bits_max;
+        self.remaining = if (reader.overflowed) 0 else reader.position;
+        self.taken = 0;
+    }
+};
 
 /// The cell of `state`, which a state read from a table's own widths never passes.
 fn fse_cell(cells: []const fse.Entry, state: usize) fse.Entry {
@@ -229,6 +272,31 @@ pub fn decode_rest(table: *const Table, reader: *codec.BackwardBitReader, output
 fn huffman_cell(table: *const Table, index: u64) Entry {
     assert(index < @as(u64, 1) << table.bits_max);
     return table.cells[@intCast(index)];
+}
+
+test "a peeked read gives the checked reader's bits, position and overflow, to the stream's first bit" {
+    const testing = std.testing;
+    var generator = codec.split.Generator.init(3);
+    for (0..64) |_| {
+        var stream: [48]u8 = undefined;
+        for (&stream) |*octet| octet.* = @truncate(generator.next());
+        const len = generator.between(1, stream.len);
+        stream[len - 1] |= 0x80;
+        var checked = codec.BackwardBitReader.init(stream[0..len]).?;
+        // A weight stream's states come first, read by the reader itself.
+        const skipped: u6 = @intCast(generator.below(codec.backward_read_bits_max));
+        _ = checked.read(skipped);
+        var reader = checked;
+        var peeked: Peeked = .{};
+        // Reads of up to an FSE weight table's widest state, until one reaches past the first bit.
+        while (!checked.overflowed) {
+            const count: u6 = @intCast(generator.below(constants.huffman_weights_accuracy_log_max + 1));
+            try testing.expectEqual(checked.read(count), peeked.read(&reader, count));
+            try testing.expectEqual(checked.overflowed, reader.overflowed);
+            if (!checked.overflowed) try testing.expectEqual(checked.position, reader.position - peeked.taken);
+        }
+        try testing.expectEqual(0, reader.position);
+    }
 }
 
 test {

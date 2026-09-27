@@ -36,6 +36,7 @@ pub const Writer = @import("writer.zig").Writer;
 pub const BitReader = @import("bit_reader.zig").BitReader;
 pub const Bits = @import("bit_reader.zig").Bits;
 pub const BackwardBitReader = @import("bit_reader_backward.zig").BackwardBitReader;
+pub const backward_read_bits_max = @import("bit_reader_backward.zig").read_bits_max;
 pub const BitWriter = @import("bit_writer.zig").BitWriter;
 pub const Window = @import("window.zig").Window;
 pub const Field = @import("field.zig").Field;
