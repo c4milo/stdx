@@ -232,6 +232,27 @@ pub const offset_default = [29]i16{
     1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1,
 };
 
+/// Decision 16's fast paths. A copy moves `copy_chunk_len` octets at a time, and one iteration
+/// writes at most `chunk_len_max` octets of a literal run or a match, and the overrun of its last
+/// chunk past them.
+pub const copy_chunk_len = 16;
+pub const chunk_len_max = 256;
+pub const output_slack = chunk_len_max + copy_chunk_len;
+
+/// A fast read of a backward stream loads the 8 octets that end at its position's octet, so it
+/// needs that many before the position: at least 57 bits, the most one read takes.
+pub const fast_read_position_min = 57;
+
+/// The most bits one sequence reads: offset, match length and literals length bits, then the three
+/// states' (RFC 8878 §3.1.1.3.2.1.2).
+pub const sequence_bits_max = @as(usize, offset_code_max) + std.mem.max(u5, &match_length_extra_bits) +
+    std.mem.max(u5, &literals_length_extra_bits) + literals_length_accuracy_log_max + match_length_accuracy_log_max +
+    offset_accuracy_log_max;
+
+/// The stream position the sequence loop needs at an iteration's start, so every read in it has
+/// `fast_read_position_min` bits before it.
+pub const sequence_position_min = fast_read_position_min + sequence_bits_max;
+
 /// Invariant 17's count for one table: the cells its build fills, and the symbols its description
 /// decodes.
 pub fn table_work_max(accuracy_log: u5, symbols: usize) usize {
@@ -266,6 +287,8 @@ comptime {
     assert(std.math.isPowerOfTwo(http_window_len));
     assert(match_length_baselines[0] >= 3 * work_per_written_max);
     assert(work_per_octet_max >= @bitSizeOf(u8));
+    // A fast copy writes whole chunks, so no iteration writes past `chunk_len_max`.
+    assert(chunk_len_max % copy_chunk_len == 0);
     assert(block_len_max <= http_window_len);
     assert(literals_length_baselines[literals_length_symbols - 1] + (1 << literals_length_extra_bits[literals_length_symbols - 1]) - 1 == 131071);
     assert(match_length_baselines[match_length_symbols - 1] + (1 << match_length_extra_bits[match_length_symbols - 1]) - 1 == 131074);

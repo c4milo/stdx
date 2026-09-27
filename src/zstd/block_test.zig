@@ -77,7 +77,7 @@ fn decode(fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize)
     for (0..output.len + 1) |_| {
         const room = @min(piece_len, output.len - written);
         var sink: block.Sink(Window) = .{ .output = output[0 .. written + room], .written = written, .window = &fixture.window, .hash = &fixture.hash, .frame_len = &fixture.frame_len };
-        const ended = try block.execute(Window, &run, fixture.context(octets), &sink);
+        const ended = try block.execute(.{}, Window, &run, fixture.context(octets), &sink);
         written = sink.written;
         if (ended) return output[0..written];
     }

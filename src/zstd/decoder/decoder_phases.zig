@@ -183,7 +183,7 @@ fn context(comptime options: DecoderOptions, self: *Self(options)) block.Context
 /// A compressed block's sequences, as the output has room (RFC 8878 §3.1.1.4).
 pub fn execute(comptime options: DecoderOptions, self: *Self(options), output: []u8, written: *usize) Error!?Status {
     var into = sink(options, self, output, written.*);
-    const ended = try block.execute(@TypeOf(self.window), &self.run, context(options, self), &into);
+    const ended = try block.execute(options.paths, @TypeOf(self.window), &self.run, context(options, self), &into);
     written.* = into.written;
     if (!ended) return .needs_room;
     return end_block(options, self);

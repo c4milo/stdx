@@ -18,7 +18,7 @@ pub const Code = enum(u2) { literals_length, offset, match_length };
 const codes = std.enums.values(Code);
 
 /// A code's place in the arrays of three the section keeps.
-fn slot(code: Code) usize {
+pub fn slot(code: Code) usize {
     return @intFromEnum(code);
 }
 
@@ -41,7 +41,7 @@ pub const Tables = struct {
         self.work = work_module.zero;
     }
 
-    fn cells(self: *const Tables, code: Code) []const fse.Entry {
+    pub fn cells(self: *const Tables, code: Code) []const fse.Entry {
         return switch (code) {
             .literals_length => if (self.sources[slot(code)] == .default) default_literals_length.entries() else self.literals_length.entries(),
             .offset => if (self.sources[slot(code)] == .default) default_offset.entries() else self.offset.entries(),
