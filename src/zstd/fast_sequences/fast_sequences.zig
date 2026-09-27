@@ -395,6 +395,8 @@ fn copy_match(comptime Window: type, comptime claims: Claims, run: *block.Run, s
     const own_len = target - sink.synced.*;
     if (run.offset > own_len) {
         copy.copy_from_window(Window, claims, sink.window, sink.output, target, run.offset, own_len, len);
+    } else if (claims.chunk_copies and run.offset >= copy.chunk_pair_len and sink.room() - len >= copy.chunk_pair_len) {
+        copy.copy_chunk_pairs(sink.output, target, run.offset, len);
     } else copy.copy_within(claims, sink.output, target, run.offset, len);
     advance(Window, sink, len);
     run.match_left -= len;

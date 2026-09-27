@@ -96,6 +96,17 @@ pub inline fn copy_within(comptime claims: Claims, output: []u8, target: usize, 
     }
 }
 
+/// Two chunks, which one pair of vector loads and stores moves.
+pub const chunk_pair_len = constants.copy_chunk_len + constants.copy_chunk_len;
+
+/// Copies `len` octets to `target` from `distance` before it two chunks at a time, for a caller that
+/// found the distance and the output's room past the match at least `chunk_pair_len`: each pair
+/// reads octets written before it, and the last passes `len` by less than a pair. A long match
+/// moves half as many times as in single chunks.
+pub inline fn copy_chunk_pairs(output: []u8, target: usize, distance: usize, len: usize) void {
+    move_chunks(chunk_pair_len, output[target..], output[target - distance ..], len);
+}
+
 /// Copies `len` octets from `distance` before `target`, a distance under `copy_word_len`: the first
 /// `copy_word_len` octets one at a time, each the octet `distance` before it; past them the octets
 /// repeat every multiple of `distance`, so the rest move `copy_word_len` at a time from the least
