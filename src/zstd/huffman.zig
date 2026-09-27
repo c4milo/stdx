@@ -181,6 +181,12 @@ fn fill(weights: []const u8, table: *Table) void {
 pub fn decode_stream(table: *const Table, octets: []const u8, output: []u8) Error!void {
     // RFC 8878 §4.2.2: the stream's last octet holds its final 1 bit, so it is not 0.
     var reader = codec.BackwardBitReader.init(octets) orelse return error.HuffmanStreamUnterminated;
+    return decode_rest(table, &reader, output);
+}
+
+/// Decodes `output.len` literals from `reader`, where a fast path may have left it, then requires
+/// the stream to end exactly at its first bit (RFC 8878 §4.2.2).
+pub fn decode_rest(table: *const Table, reader: *codec.BackwardBitReader, output: []u8) Error!void {
     for (output) |*literal| {
         const cell = huffman_cell(table, reader.peek(table.bits_max));
         literal.* = cell.symbol;

@@ -4,6 +4,9 @@
 //! takes every claim on; only the benchmark and the tests switch one off.
 
 pub const Claims = struct {
+    /// Z1: the four Huffman-coded literal streams decoded in one loop, a load of each in turn. Off,
+    /// the fast path decodes one stream after another.
+    interleaved_streams: bool = true,
     /// Z4: literals and matches copied 16 octets at a time, overrunning into the room the margin
     /// leaves. Off, the fast path copies exactly, with `@memcpy` and octet by octet.
     chunk_copies: bool = true,
@@ -11,11 +14,13 @@ pub const Claims = struct {
 
 /// Each claim off in turn, the A/Bs design §8 step 11 runs.
 pub const each_off = [_]Claims{
+    .{ .interleaved_streams = false },
     .{ .chunk_copies = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
 pub const each_off_names = [each_off.len][]const u8{
+    "Z1 interleaved streams",
     "Z4 chunk copies",
 };
 

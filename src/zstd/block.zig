@@ -93,8 +93,8 @@ pub const Context = struct {
 
 /// Reads the block's literals section and sequences header, and starts its sequences (RFC 8878
 /// §3.1.1.3).
-pub fn prepare(run: *Run, context: Context) Error!void {
-    run.section = try literals.read(context.block, context.block_len_max, context.huffman);
+pub fn prepare(comptime paths: Paths, run: *Run, context: Context) Error!void {
+    run.section = try literals.read_with(paths, context.block, context.block_len_max, context.huffman);
     var reader = codec.Reader.init(context.block);
     _ = reader.take(run.section.section_len) catch unreachable;
     const sequences_octets = reader.take(reader.remaining_len()) catch unreachable;

@@ -26,5 +26,6 @@ test {
     _ = @import("block.zig");
     _ = @import("work.zig");
     _ = @import("fast_sequences.zig");
+    _ = @import("fast_literals.zig");
     _ = decoder;
 }
