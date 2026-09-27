@@ -31,27 +31,63 @@ pub fn execute(comptime Window: type, comptime claims: Claims, run: *block.Run, 
     const iterations_max = sink.room() + run.stream.left + 1;
     for (0..iterations_max) |_| {
         if (sink.room() < constants.output_slack) return;
-        if (run.literals_left > 0) {
-            copy_literals(Window, claims, run, context, sink);
-        } else if (run.match_left > 0) {
-            copy_match(Window, claims, run, sink, start);
-        } else if (!next_sequence(run, context, sink.window.reach() + (sink.written - start))) {
-            return;
-        }
+        const written = sink.written;
+        const left = run.stream.left;
+        if (!step(Window, claims, run, context, sink, start)) return;
+        assert(sink.written > written or run.stream.left < left);
     }
 }
 
-/// `count` bits of the backward stream `octets` below `position`, the first read most significant
-/// (RFC 8878 §4.1), from the 8 octets that end at the position's octet.
-inline fn read_back(octets: []const u8, position: *usize, count: u6) u64 {
-    const end = std.math.divCeil(usize, position.*, @bitSizeOf(u8)) catch unreachable;
-    const start = end - @sizeOf(u64);
-    const word = std.mem.readInt(u64, octets[start..][0..@sizeOf(u64)], .little);
-    position.* -= count;
-    const shift: u7 = @intCast(position.* - start * @bitSizeOf(u8));
-    const mask = (@as(u64, 1) << count) - 1;
-    return std.math.shr(u64, word, shift) & mask;
+/// One iteration: the next sequence when the last is copied, then its literals, then its match
+/// while the margin still holds. Returns false when the loop leaves the sequence.
+inline fn step(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window), start: usize) bool {
+    if (run.literals_left == 0 and run.match_left == 0) {
+        if (!next_sequence(run, context, sink.window.reach() + (sink.written - start))) return false;
+    }
+    if (run.literals_left > 0) {
+        copy_literals(Window, claims, run, context, sink);
+        if (run.literals_left > 0 or sink.room() < constants.output_slack) return true;
+    }
+    if (run.match_left > 0) copy_match(Window, claims, run, sink, start);
+    return true;
 }
+
+/// A backward stream read from one 8-octet load at a time: the load's bits below the position are
+/// `bits_left`, taken from the top, and a read that needs more loads again at the position (RFC
+/// 8878 §4.1). A load needs `constants.fast_read_position_min` bits before the position.
+const Reader = struct {
+    octets: []const u8,
+    word: u64,
+    /// The load's first octet, and its bits not yet read.
+    start: usize,
+    bits_left: usize,
+
+    fn init(octets: []const u8, at: usize) Reader {
+        var reader: Reader = .{ .octets = octets, .word = 0, .start = 0, .bits_left = 0 };
+        reader.load(at);
+        return reader;
+    }
+
+    inline fn load(self: *Reader, at: usize) void {
+        const end = std.math.divCeil(usize, at, @bitSizeOf(u8)) catch unreachable;
+        self.start = end - @sizeOf(u64);
+        self.word = std.mem.readInt(u64, self.octets[self.start..][0..@sizeOf(u64)], .little);
+        self.bits_left = at - self.start * @bitSizeOf(u8);
+    }
+
+    /// The stream's position: the bits before it are not read yet.
+    fn position(self: *const Reader) usize {
+        return self.start * @bitSizeOf(u8) + self.bits_left;
+    }
+
+    /// `count` bits, the first read most significant.
+    inline fn read(self: *Reader, count: u6) u64 {
+        if (count > self.bits_left) self.load(self.position());
+        self.bits_left -= count;
+        const mask = (@as(u64, 1) << count) - 1;
+        return std.math.shr(u64, self.word, self.bits_left) & mask;
+    }
+};
 
 /// Decodes the next sequence as sequences.next does, and checks it as the checked path does before
 /// its first copy. Returns false, having changed nothing, for a sequence the loop leaves: the last
@@ -59,20 +95,19 @@ inline fn read_back(octets: []const u8, position: *usize, count: u6) u64 {
 fn next_sequence(run: *block.Run, context: block.Context, reach: usize) bool {
     const stream = &run.stream;
     if (stream.left <= 1 or stream.overflowed or stream.position < constants.sequence_position_min) return false;
-    const octets = context.block[run.stream_offset..][0..run.stream_len];
+    var reader = Reader.init(context.block[run.stream_offset..][0..run.stream_len], stream.position);
     const tables = context.tables;
-    var position = stream.position;
     const literals_length = tables.cells(.literals_length)[stream.states[sequences.slot(.literals_length)]];
     const offset = tables.cells(.offset)[stream.states[sequences.slot(.offset)]];
     const match_length = tables.cells(.match_length)[stream.states[sequences.slot(.match_length)]];
     const offset_code: u5 = @intCast(offset.symbol);
-    const offset_value = (@as(u32, 1) << offset_code) + @as(u32, @intCast(read_back(octets, &position, offset_code)));
-    const match_len = constants.match_length_baselines[match_length.symbol] + @as(u32, @intCast(read_back(octets, &position, constants.match_length_extra_bits[match_length.symbol])));
-    const literals_len = constants.literals_length_baselines[literals_length.symbol] + @as(u32, @intCast(read_back(octets, &position, constants.literals_length_extra_bits[literals_length.symbol])));
+    const offset_value = (@as(u32, 1) << offset_code) + @as(u32, @intCast(reader.read(offset_code)));
+    const match_len = constants.match_length_baselines[match_length.symbol] + @as(u32, @intCast(reader.read(constants.match_length_extra_bits[match_length.symbol])));
+    const literals_len = constants.literals_length_baselines[literals_length.symbol] + @as(u32, @intCast(reader.read(constants.literals_length_extra_bits[literals_length.symbol])));
     var states = stream.states;
-    states[sequences.slot(.literals_length)] = @intCast(literals_length.baseline + read_back(octets, &position, @intCast(literals_length.bits)));
-    states[sequences.slot(.match_length)] = @intCast(match_length.baseline + read_back(octets, &position, @intCast(match_length.bits)));
-    states[sequences.slot(.offset)] = @intCast(offset.baseline + read_back(octets, &position, @intCast(offset.bits)));
+    states[sequences.slot(.literals_length)] = @intCast(literals_length.baseline + reader.read(@intCast(literals_length.bits)));
+    states[sequences.slot(.match_length)] = @intCast(match_length.baseline + reader.read(@intCast(match_length.bits)));
+    states[sequences.slot(.offset)] = @intCast(offset.baseline + reader.read(@intCast(offset.bits)));
     if (literals_len > run.section.len - run.literals_used) return false;
     const promised_len = run.promised_len +| match_len;
     if (promised_len > context.block_len_max) return false;
@@ -80,7 +115,7 @@ fn next_sequence(run: *block.Run, context: block.Context, reach: usize) bool {
     const distance = sequences.resolve_offset(&repeats, offset_value, literals_len) catch return false;
     // The checked path checks the reach when the match starts, after the literals.
     if (distance > context.window_len or distance > reach + literals_len) return false;
-    stream.position = position;
+    stream.position = reader.position();
     stream.states = states;
     stream.left -= 1;
     context.repeats.* = repeats;
@@ -155,6 +190,22 @@ inline fn copy_within(comptime claims: Claims, output: []u8, target: usize, dist
         @memset(output[target..][0..len], output[source]);
     } else {
         for (0..len) |index| output[target + index] = output[source + index];
+    }
+}
+
+test "the fast reader reads what the checked backward reader reads, across its loads" {
+    const codec = @import("codec");
+    var generator = codec.split.Generator.init(1);
+    var stream: [64]u8 = undefined;
+    for (&stream) |*octet| octet.* = @truncate(generator.next());
+    stream[stream.len - 1] |= 0x80;
+    var checked = codec.BackwardBitReader.init(&stream).?;
+    var fast = Reader.init(&stream, checked.position);
+    // Reads of up to 31 bits, so several reads outrun one load, while a load stays in the stream.
+    while (checked.position >= constants.fast_read_position_min + 31) {
+        const count: u6 = @intCast(generator.below(32));
+        try std.testing.expectEqual(checked.read(count), fast.read(count));
+        try std.testing.expectEqual(checked.position, fast.position());
     }
 }
 
