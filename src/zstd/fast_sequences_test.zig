@@ -43,6 +43,8 @@ pub const Shape = struct {
     window_exponent: u5 = 4,
     /// The literals the section holds, when not the ones the sequences take.
     literals_len: ?usize = null,
+    /// The sequences Number_of_Sequences declares, when more than the stream holds.
+    declared: ?usize = null,
     /// The first sequence's codes and offset bits, when forced.
     first: ?First = null,
 };
@@ -172,7 +174,7 @@ pub fn seeded_frame(frame: *FrameWriter, seed: u64, shape: Shape) !usize {
     const literals_len = shape.literals_len orelse fields.literals_len;
     raw_literals_header(&content, literals_len);
     for (0..literals_len) |_| content.put(&.{@truncate(generator.next())});
-    content.put(&.{ @intCast(shape.sequences), compressed_modes });
+    content.put(&.{ @intCast(shape.declared orelse shape.sequences), compressed_modes });
     for (distributions) |distribution| {
         var description: test_writer.DescriptionWriter = .{};
         description.write(&distribution);
@@ -296,6 +298,9 @@ test "literals that run out, and offsets past Window_Size, are refused inside th
     // is within reach but past Window_Size.
     const far: Shape = .{ .history_len = 2048, .offset_symbols = "\x0a\x0b", .window_exponent = 0, .first = .{ .literals_length_symbol = 1, .offset_symbol = 11, .offset_bits = 0 } };
     try expect_refused(far, 2, error.OffsetTooFar);
+    // Five sequences more than the stream holds: the stream ends before them (RFC 8878
+    // §3.1.1.3.2.1.2), and no path takes a sequence past its end.
+    try expect_refused(.{ .declared = sequences_max + 5 }, 5, error.SequencesStreamInvalid);
     // Matches of 131 to 514 in a block of 1 KiB at most: past Block_Maximum_Size in a few sequences.
     try expect_refused(.{ .match_length_symbols = "\x2b\x2c", .window_exponent = 0 }, 4, error.BlockTooLong);
 }

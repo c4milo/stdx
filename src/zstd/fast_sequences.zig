@@ -1,18 +1,16 @@
 //! The Zstandard decoder's sequence execution fast path (decision 16, claim Z4 of decision 14).
 //!
 //! The loop runs while the output has `constants.output_slack` octets of room, checked once at the
-//! top of each iteration. It reads a sequence's bits with one 8-octet little-endian load per field,
-//! which the stream allows while `constants.sequence_position_min` bits remain before the
-//! position. It copies literals and matches straight into the caller's output, 16 octets at a time
-//! and overrunning into the room the margin leaves (Z4), at most `constants.chunk_len_max` octets
-//! of a run per iteration. A match reads the loop's own output, and the window for what came
-//! before. The window, the checksum and the frame's count take the loop's octets once, when it
-//! ends.
+//! top of each iteration. It reads a sequence's fields from one 8-octet little-endian load, loading
+//! again when their bits run out; near the stream's start, the load is the stream's first 8
+//! octets, padded with zeros when the stream is shorter. It copies literals and matches straight
+//! into the caller's output, 16 octets at a time and overrunning into the room the margin leaves
+//! (Z4), at most `constants.chunk_len_max` octets per iteration. A match reads the call's own
+//! output, and the window for what came before (Z6).
 //!
-//! It decodes only what is valid and common. It leaves the last sequence of a block, and any
-//! sequence the checked path would refuse, to the checked path, without using its bits: the checked
-//! path decodes it again, and refuses it or ends the block. So both paths write the same octets and
-//! give the same verdict on every input (decision 16).
+//! It decodes only what is valid. It leaves any sequence the checked path would refuse to the
+//! checked path, without using its bits: the checked path decodes it again and refuses it. So both
+//! paths write the same octets and give the same verdict on every input (decision 16).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -22,12 +20,14 @@ const sequences = @import("sequences.zig");
 const block = @import("block.zig");
 const Claims = @import("claims.zig").Claims;
 const work_module = @import("work.zig");
+const fast_literals = @import("fast_literals.zig");
 
 /// What the loop reads for every sequence of a block, found once per call: the three codes' tables,
 /// which change only between blocks, and the sequence stream's octets.
 const Block = struct {
     cells: [codes.len][]const fse.Entry,
     stream: []const u8,
+    head: u64,
 };
 
 const codes = [_]sequences.Code{ .literals_length, .offset, .match_length };
@@ -35,11 +35,12 @@ const codes = [_]sequences.Code{ .literals_length, .offset, .match_length };
 /// Runs the loop over `run` until the margins or a sequence it leaves stop it. The frame's count
 /// takes the loop's octets when it ends.
 pub fn execute(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window)) void {
-    // The loop leaves a block's last sequence, and a block of none has no tables to find.
-    if (run.stream.left <= 1) return;
+    // A block of no sequences, or none left, has no tables to find.
+    if (run.stream.left == 0) return;
     const start = sink.written;
     defer sink.frame_len.* += sink.written - start;
-    var found: Block = .{ .cells = undefined, .stream = context.block[run.stream_offset..][0..run.stream_len] };
+    const stream_octets = context.block[run.stream_offset..][0..run.stream_len];
+    var found: Block = .{ .cells = undefined, .stream = stream_octets, .head = fast_literals.head_of(stream_octets) };
     for (codes, &found.cells) |code, *cells| cells.* = context.tables.cells(code);
     // Each iteration writes an octet or more, or decodes a sequence, which writes at least 3.
     const iterations_max = sink.room() + run.stream.left + 1;
@@ -118,10 +119,14 @@ const Whole = struct {
 
     /// Takes one whole sequence, or returns false having taken nothing.
     inline fn take(self: *Whole, comptime Window: type, comptime claims: Claims, found: *const Block, context: block.Context, sink: *block.Sink(Window), overflowed: bool) bool {
-        if (self.left <= 1 or overflowed or self.position < constants.sequence_position_min) return false;
+        if (self.left == 0 or overflowed) return false;
         if (sink.output.len - self.written < constants.output_slack) return false;
-        var reader = Reader.init(found.stream, self.position);
-        const decoded = decode(&reader, found, self.states);
+        const last = self.left == 1;
+        var reader = Reader.init(found.stream, found.head, self.position);
+        const decoded = decode(&reader, found, self.states, last);
+        // RFC 8878 §3.1.1.3.2.1.2: a stream that ends before its sequences, or holds bits after the
+        // last, is corrupt; the checked path refuses it.
+        if (reader.overflowed or (last and !reader.finished())) return false;
         const distance, const repeats = self.check(decoded, context) orelse return false;
         self.copy(Window, claims, sink, decoded, distance);
         self.position = reader.position();
@@ -181,11 +186,11 @@ const Decoded = struct {
     states: [codes.len]u16,
 };
 
-/// Reads a sequence that is not its block's last: its offset, match length and literals length
-/// bits, then the next states of literals length, match length and offset (RFC 8878
+/// Reads a sequence: its offset, match length and literals length bits, then, unless it is its
+/// block's last, the next states of literals length, match length and offset (RFC 8878
 /// §3.1.1.3.2.1.2). Every cast truncates to a width the tables bound: a read of at most 31 bits, a
 /// state below its table's 512 cells (decision 17 keeps checks out of per-symbol loops).
-inline fn decode(reader: *Reader, found: *const Block, states: [codes.len]u16) Decoded {
+inline fn decode(reader: *Reader, found: *const Block, states: [codes.len]u16, last: bool) Decoded {
     const literals_length = found.cells[sequences.slot(.literals_length)][states[sequences.slot(.literals_length)]];
     const offset = found.cells[sequences.slot(.offset)][states[sequences.slot(.offset)]];
     const match_length = found.cells[sequences.slot(.match_length)][states[sequences.slot(.match_length)]];
@@ -194,6 +199,8 @@ inline fn decode(reader: *Reader, found: *const Block, states: [codes.len]u16) D
     decoded.offset_value = (@as(u32, 1) << offset_code) + @as(u32, @truncate(reader.read(offset_code)));
     decoded.match_len = constants.match_length_baselines[match_length.symbol] + @as(u32, @truncate(reader.read(constants.match_length_extra_bits[match_length.symbol])));
     decoded.literals_len = constants.literals_length_baselines[literals_length.symbol] + @as(u32, @truncate(reader.read(constants.literals_length_extra_bits[literals_length.symbol])));
+    decoded.states = states;
+    if (last) return decoded;
     decoded.states[sequences.slot(.literals_length)] = @truncate(literals_length.baseline + reader.read(@truncate(literals_length.bits)));
     decoded.states[sequences.slot(.match_length)] = @truncate(match_length.baseline + reader.read(@truncate(match_length.bits)));
     decoded.states[sequences.slot(.offset)] = @truncate(offset.baseline + reader.read(@truncate(offset.bits)));
@@ -219,21 +226,31 @@ inline fn step(comptime Window: type, comptime claims: Claims, run: *block.Run, 
 /// 8878 §4.1). A load needs `constants.fast_read_position_min` bits before the position.
 const Reader = struct {
     octets: []const u8,
+    /// The stream's first 8 octets, zero past its end when it is shorter: the load of any position
+    /// in the stream's first 64 bits.
+    head: u64,
     word: u64,
     /// The load's first octet, and its bits not yet read.
     start: usize,
     bits_left: usize,
+    /// Whether a read reached before the stream's first bit, as the checked reader marks it.
+    overflowed: bool,
 
-    fn init(octets: []const u8, at: usize) Reader {
-        var reader: Reader = .{ .octets = octets, .word = 0, .start = 0, .bits_left = 0 };
+    fn init(octets: []const u8, head: u64, at: usize) Reader {
+        var reader: Reader = .{ .octets = octets, .head = head, .word = 0, .start = 0, .bits_left = 0, .overflowed = false };
         reader.load(at);
         return reader;
     }
 
     inline fn load(self: *Reader, at: usize) void {
         const end = std.math.divCeil(usize, at, @bitSizeOf(u8)) catch unreachable;
-        self.start = end - @sizeOf(u64);
-        self.word = std.mem.readInt(u64, self.octets[self.start..][0..@sizeOf(u64)], .little);
+        if (end >= @sizeOf(u64)) {
+            self.start = end - @sizeOf(u64);
+            self.word = std.mem.readInt(u64, self.octets[self.start..][0..@sizeOf(u64)], .little);
+        } else {
+            self.start = 0;
+            self.word = self.head;
+        }
         self.bits_left = at - self.start * @bitSizeOf(u8);
     }
 
@@ -242,25 +259,40 @@ const Reader = struct {
         return self.start * @bitSizeOf(u8) + self.bits_left;
     }
 
-    /// `count` bits, the first read most significant.
+    /// `count` bits, the first read most significant. Bits before the stream's first read as
+    /// zeros and mark the reader overflowed, as the checked reader reads them (RFC 8878 §4.1).
     inline fn read(self: *Reader, count: u6) u64 {
         if (count > self.bits_left) self.load(self.position());
-        self.bits_left -= count;
         const mask = (@as(u64, 1) << count) - 1;
+        if (count > self.bits_left) {
+            // Only a load from the stream's first octet holds fewer bits than a read takes.
+            const value = (self.word & ((@as(u64, 1) << @intCast(self.bits_left)) - 1)) << @intCast(count - self.bits_left);
+            self.bits_left = 0;
+            self.overflowed = true;
+            return value & mask;
+        }
+        self.bits_left -= count;
         return std.math.shr(u64, self.word, self.bits_left) & mask;
+    }
+
+    /// Whether every bit was read and no read reached before the first.
+    fn finished(self: *const Reader) bool {
+        return self.position() == 0 and !self.overflowed;
     }
 };
 
 /// Decodes the next sequence as sequences.next does, and checks it as the checked path does before
-/// its first copy. Returns false, having changed nothing, for a sequence the loop leaves: the last
-/// of the block, one too close to the stream's start, and one the checked path refuses. Every cast
+/// its first copy. Returns false, having changed nothing, for a sequence the checked path refuses. Every cast
 /// truncates to a width the tables and RFC 8878 §3.1.1.3.2.1.1 bound: a read of at most 31 bits, a
 /// state below its table's 512 cells (decision 17 keeps checks out of per-symbol loops).
 fn next_sequence(run: *block.Run, context: block.Context, found: *const Block, reach: usize) bool {
     const stream = &run.stream;
-    if (stream.left <= 1 or stream.overflowed or stream.position < constants.sequence_position_min) return false;
-    var reader = Reader.init(found.stream, stream.position);
-    const decoded = decode(&reader, found, stream.states);
+    if (stream.left == 0 or stream.overflowed) return false;
+    const last = stream.left == 1;
+    var reader = Reader.init(found.stream, found.head, stream.position);
+    const decoded = decode(&reader, found, stream.states, last);
+    // RFC 8878 §3.1.1.3.2.1.2: as in `Whole.take`, the checked path refuses what this leaves.
+    if (reader.overflowed or (last and !reader.finished())) return false;
     const literals_len = decoded.literals_len;
     const match_len = decoded.match_len;
     const offset_value = decoded.offset_value;
@@ -376,12 +408,22 @@ test "the fast reader reads what the checked backward reader reads, across its l
     for (&stream) |*octet| octet.* = @truncate(generator.next());
     stream[stream.len - 1] |= 0x80;
     var checked = codec.BackwardBitReader.init(&stream).?;
-    var fast = Reader.init(&stream, checked.position);
-    // Reads of up to 31 bits, so several reads outrun one load, while a load stays in the stream.
-    while (checked.position >= constants.fast_read_position_min + 31) {
+    var fast = Reader.init(&stream, fast_literals.head_of(&stream), checked.position);
+    // Reads of up to 31 bits, so several reads outrun one load, down to the stream's first bit and
+    // past it, where both read zeros and mark themselves overflowed.
+    while (!checked.overflowed) {
         const count: u6 = @intCast(generator.below(32));
         try std.testing.expectEqual(checked.read(count), fast.read(count));
         try std.testing.expectEqual(checked.position, fast.position());
+        try std.testing.expectEqual(checked.overflowed, fast.overflowed);
+    }
+    // A stream shorter than a load reads from its padded head.
+    var short = codec.BackwardBitReader.init(stream[0..5]).?;
+    var short_fast = Reader.init(stream[0..5], fast_literals.head_of(stream[0..5]), short.position);
+    while (!short.overflowed) {
+        const count: u6 = @intCast(generator.below(12));
+        try std.testing.expectEqual(short.read(count), short_fast.read(count));
+        try std.testing.expectEqual(short.overflowed, short_fast.overflowed);
     }
 }
 

@@ -243,16 +243,6 @@ pub const output_slack = chunk_len_max + copy_chunk_len;
 /// needs that many before the position: at least 57 bits, the most one read takes.
 pub const fast_read_position_min = 57;
 
-/// The most bits one sequence reads: offset, match length and literals length bits, then the three
-/// states' (RFC 8878 §3.1.1.3.2.1.2).
-pub const sequence_bits_max = @as(usize, offset_code_max) + std.mem.max(u5, &match_length_extra_bits) +
-    std.mem.max(u5, &literals_length_extra_bits) + literals_length_accuracy_log_max + match_length_accuracy_log_max +
-    offset_accuracy_log_max;
-
-/// The stream position the sequence loop needs at an iteration's start, so every read in it has
-/// `fast_read_position_min` bits before it.
-pub const sequence_position_min = fast_read_position_min + sequence_bits_max;
-
 /// Invariant 17's count for one table: the cells its build fills, and the symbols its description
 /// decodes.
 pub fn table_work_max(accuracy_log: u5, symbols: usize) usize {
