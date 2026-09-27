@@ -28,28 +28,34 @@ const word_len = constants.xxh64_word_len;
 pub const Xxh64Path = enum {
     /// The four accumulators in general registers, on every target.
     scalar,
+    /// The four accumulators in general registers, in aarch64 assembly that takes each lane's
+    /// product with PRIME64_2 before adding it to the accumulator (decision 23).
+    aarch64,
     /// The four accumulators in one 256-bit register, from the x86-64 AVX-512 variant object.
     avx512,
 
     /// The fastest path a CPU with `features` runs in this build. The AVX-512 path is the faster
     /// only where VPMULLQ is: 1.27 times the scalar path on an AMD EPYC 9V74 runner, and 0.47 times
-    /// on an Intel Xeon 6973P-C (design §8 step 10).
+    /// on an Intel Xeon 6973P-C (design §8 step 10). An aarch64 build takes its assembly.
     pub fn fastest(features: Features) Xxh64Path {
-        return if (Xxh64Path.avx512.runs_on(features) and features.vpmullq_fast) .avx512 else .scalar;
+        if (Xxh64Path.avx512.runs_on(features) and features.vpmullq_fast) return .avx512;
+        return if (Xxh64Path.aarch64.built()) .aarch64 else .scalar;
     }
 
     /// True when a CPU with `features` runs the path in this build.
     pub fn runs_on(path: Xxh64Path, features: Features) bool {
         return path.built() and switch (path) {
-            .scalar => true,
+            .scalar, .aarch64 => true,
             .avx512 => features.avx512,
         };
     }
 
-    /// True when this build holds the path's code: only an x86-64 build links the AVX-512 object.
+    /// True when this build holds the path's code: only an x86-64 build links the AVX-512 object,
+    /// and only an aarch64 build of little-endian octets assembles the aarch64 path.
     pub fn built(path: Xxh64Path) bool {
         return switch (path) {
             .scalar => true,
+            .aarch64 => builtin.cpu.arch == .aarch64,
             .avx512 => builtin.cpu.arch == .x86_64,
         };
     }
@@ -141,6 +147,7 @@ fn process_stripes(path: Xxh64Path, accumulators: *[constants.xxh64_lanes]u64, o
     if (octets.len == 0) return;
     switch (path) {
         .scalar => process_stripes_scalar(accumulators, octets),
+        .aarch64 => process_stripes_aarch64(accumulators, octets),
         .avx512 => if (octets.len < constants.xxh64_avx512_len_min) process_stripes_scalar(accumulators, octets) else process_stripes_avx512(accumulators, octets),
     }
 }
@@ -161,6 +168,54 @@ fn process_stripes_scalar(accumulators: *[constants.xxh64_lanes]u64, octets: []c
         }
     }
     accumulators.* = lanes;
+}
+
+/// Step 2 over whole stripes in aarch64 assembly. A fused multiply-add of each lane into its
+/// accumulator would put the multiply's latency on the accumulator's chain, 7 cycles a round on an
+/// M1 Pro; the product comes first instead, so the chain is an add, a rotate and a multiply. The
+/// loads take each lane least significant octet first, as a little-endian load does.
+fn process_stripes_aarch64(accumulators: *[constants.xxh64_lanes]u64, octets: []const u8) void {
+    if (builtin.cpu.arch != .aarch64) unreachable;
+    var source = octets.ptr;
+    var stripes = octets.len / stripe_len;
+    assert(stripes > 0);
+    asm volatile (std.fmt.comptimePrint(
+            \\    ldp x8, x9, [x0]
+            \\    ldp x10, x11, [x0, #{[pair]}]
+            \\1:
+            \\    ldp x12, x13, [x1], #{[pair]}
+            \\    ldp x14, x15, [x1], #{[pair]}
+            \\    mul x12, x12, x3
+            \\    mul x13, x13, x3
+            \\    mul x14, x14, x3
+            \\    mul x15, x15, x3
+            \\    add x8, x8, x12
+            \\    add x9, x9, x13
+            \\    add x10, x10, x14
+            \\    add x11, x11, x15
+            \\    ror x8, x8, #{[rotation]}
+            \\    ror x9, x9, #{[rotation]}
+            \\    ror x10, x10, #{[rotation]}
+            \\    ror x11, x11, #{[rotation]}
+            \\    mul x8, x8, x4
+            \\    mul x9, x9, x4
+            \\    mul x10, x10, x4
+            \\    mul x11, x11, x4
+            \\    subs x2, x2, #1
+            \\    b.ne 1b
+            \\    stp x8, x9, [x0]
+            \\    stp x10, x11, [x0, #{[pair]}]
+        , .{
+            // Two lanes a load, and Step 2's left rotation as the right rotation aarch64 has.
+            .pair = lane_len + lane_len,
+            .rotation = @bitSizeOf(u64) - constants.xxh64_round_rotation,
+        })
+        : [source] "+{x1}" (source),
+          [stripes] "+{x2}" (stripes),
+        : [accumulators] "{x0}" (accumulators),
+          [prime_2] "{x3}" (prime_2),
+          [prime_1] "{x4}" (prime_1),
+        : .{ .memory = true, .nzcv = true, .x8 = true, .x9 = true, .x10 = true, .x11 = true, .x12 = true, .x13 = true, .x14 = true, .x15 = true });
 }
 
 /// A lane's 64-bit value, least significant octet first (Step 2).

@@ -780,6 +780,11 @@ to 12 are reordered and nothing else changes.
       lies (e79284e), and in run
       [36274191626](https://github.com/c4milo/stdx/actions/runs/36274191626) the scalar path runs
       at 0.87 and 0.92 of libzstd over 64 octets, 0.98 and 0.99 over 1 KiB, and 1.00 from 16 KiB.
+  - 2026-09-27, under decision 23: LLVM fused each lane's multiply by PRIME64_2 into the add to its
+    accumulator, so a multiply-add's latency sat on the accumulator's chain, 7 cycles a round on
+    the owner's M1 Pro. The `aarch64` path runs Step 2 in assembly with the product first, so the
+    chain is an add, a rotate and a multiply, and `fastest` takes it on aarch64. Its throughput on
+    the runners is not measured yet.
 
 - **Step 11: the Zstandard decoder.** The checked path, then the fast path (claims Z1 to Z5), with
   libzstd as the oracle.
