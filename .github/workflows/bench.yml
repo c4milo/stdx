@@ -9,7 +9,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate, checksum, profile]
+        options: [costs, deflate, checksum, profile, zstd]
         default: deflate
 
 permissions:
@@ -42,6 +42,9 @@ jobs:
       - name: Measure checksums
         if: inputs.benchmark == 'checksum'
         run: bench/run.sh bench-report.md bench-checksum -Doracles
+      - name: Measure Zstandard
+        if: inputs.benchmark == 'zstd'
+        run: bench/run.sh bench-report.md bench-zstd -Doracles
       - name: Count cycles and branch misses
         if: inputs.benchmark == 'profile'
         run: |
