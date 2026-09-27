@@ -18,6 +18,7 @@ const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const Claims = @import("claims.zig").Claims;
 const fast_reader = @import("fast_reader.zig");
+const aarch64 = @import("fast_literals_aarch64.zig");
 
 /// Decodes what it can of each of `streams`, one or four, from where `readers` stand, as the
 /// checked decoder would, and returns how many literals of each it wrote: the checked decoder takes
@@ -29,15 +30,27 @@ pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huff
     switch (table.bits_max) {
         inline 1...constants.huffman_bits_max => |bits_max| {
             done = if (claims.pairs and table.pairs_ready)
-                decode_pair_loads(count, bits_max, table, streams, outputs, readers)
+                pairs_of(count, claims, bits_max, table, streams, outputs, readers)
             else
-                @splat(decode_loads(count, bits_max, table, streams, outputs, readers));
+                @splat(singles_of(count, claims, bits_max, table, streams, outputs, readers));
             decode_tails(count, bits_max, table, streams, outputs, readers, &done);
         },
         // huffman.build gives a Max_Number_of_Bits from 1 to 11.
         else => unreachable,
     }
     return done;
+}
+
+/// Literals one a lookup: in assembly where it takes the loop, in Zig elsewhere.
+inline fn singles_of(comptime count: usize, comptime claims: Claims, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) usize {
+    if (comptime aarch64.takes(count, claims)) return aarch64.decode_singles(bits_max, table, streams, outputs, readers);
+    return decode_loads(count, bits_max, table, streams, outputs, readers);
+}
+
+/// Literals in pairs (Z2): in assembly where it takes the loop, in Zig elsewhere.
+inline fn pairs_of(comptime count: usize, comptime claims: Claims, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
+    if (comptime aarch64.takes(count, claims)) return aarch64.decode_pairs(bits_max, table, streams, outputs, readers);
+    return decode_pair_loads(count, bits_max, table, streams, outputs, readers);
 }
 
 /// `decode` one stream after another, when the claim of Z1 is off.
@@ -100,10 +113,11 @@ fn fill_pairs(pairs: []huffman.Pair, row: []const huffman.Pair, literal: u8) voi
     const Cells = @Vector(pairs_per_store, u32);
     const words: []u32 = @ptrCast(pairs);
     const row_words: []const u32 = @ptrCast(row);
-    // The literal is the first octet of a pair's literals, its low 8 bits.
-    const first: Cells = @splat(literal);
+    // The literal is the first octet of a pair's literals, which the row leaves 0.
+    const with_literal: u32 = @bitCast(huffman.Pair{ .bits = 0, .count = 0, .literals = literal });
+    const first: Cells = @splat(with_literal);
     if (pairs.len < pairs_per_store) {
-        for (words, row_words) |*pair, cell| pair.* = cell | literal;
+        for (words, row_words) |*pair, cell| pair.* = cell | with_literal;
         return;
     }
     for (0..pairs.len / pairs_per_store) |store| {

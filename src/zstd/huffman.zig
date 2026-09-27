@@ -26,13 +26,14 @@ pub const Entry = packed struct(u16) {
     symbol: u8,
 };
 
-/// A cell of the fast path's pairs (claim Z2): the literals the next Max_Number_of_Bits bits begin
-/// with, one or two, the first in the low octet, as a 2-octet store writes them least significant
-/// first; the bits their codes take; and how many there are.
+/// A cell of the fast path's pairs (claim Z2): the bits the codes take, first, so a shift by the
+/// cell's low bits uses them, as with `Entry`; how many literals it holds; and the literals the
+/// next Max_Number_of_Bits bits begin with, one or two, the first in the low octet, as a 2-octet
+/// store writes them least significant first.
 pub const Pair = packed struct(u32) {
-    literals: u16,
     bits: u8,
     count: u8,
+    literals: u16,
 };
 
 pub const Table = struct {

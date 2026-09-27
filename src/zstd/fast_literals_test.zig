@@ -10,6 +10,7 @@ const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const fast_literals = @import("fast_literals.zig");
 const literals_section = @import("literals.zig");
+const aarch64 = @import("fast_literals_aarch64.zig");
 const test_writer = @import("test_writer.zig");
 
 /// The most literals of a stream, and the seeds each test takes. Each stream draws its count, so a
@@ -269,5 +270,70 @@ test "a stream that holds more bits than its literals take is refused as on the 
             if (count > set.counts[0]) continue;
             try expect_alike(1, .{}, &table, .{set.octets[0]}, .{count});
         }
+    }
+}
+
+test "four streams that hold more bits than their literals take stop at their outputs" {
+    var octets: [deepening_tree_len_max]u8 = undefined;
+    for (0..trees.len + constants.huffman_bits_max) |which| {
+        const tree = if (which < trees.len) trees[which] else deepening_tree(@intCast(which - trees.len + 1), &octets);
+        var table: huffman.Table = undefined;
+        _ = try huffman.read_tree(tree, &table);
+        // One literal a lookup, then pairs (Z2), whose stores need twice the room.
+        for (0..2) |_| {
+            var generator = codec.split.Generator.init(which);
+            var set: Streams = .{};
+            set.write_drawn(&generator, &table, deepest_literal);
+            // Outputs of half the literals, and of a few: the streams' bits outlast them, so only the
+            // outputs' room may stop the loops.
+            var halves: [streams]usize = undefined;
+            var few: [streams]usize = undefined;
+            for (&halves, &few, set.counts) |*half, *some, count| {
+                half.* = count / 2;
+                some.* = @min(count, 9);
+            }
+            try expect_alike(streams, .{}, &table, four_of(&set), halves);
+            try expect_alike(streams, .{}, &table, four_of(&set), few);
+            // Outputs of whole passes, where a pass of pairs of one literal each leaves room for
+            // one more pass of literals but not of pairs' stores.
+            const pass = aarch64.per_pass(table.bits_max);
+            var whole: [streams]usize = undefined;
+            for (&whole, set.counts) |*len, count| len.* = @min(count, 3 * pass);
+            try expect_alike(streams, .{}, &table, four_of(&set), whole);
+            fast_literals.build_pairs(&table);
+        }
+    }
+}
+
+test "four streams too short for their literals are refused as on the checked path" {
+    // Streams of no bits and of a few, each for more literals than their bits hold: the loops must
+    // not start on them, so no position passes a stream's first bit.
+    var octets: [deepening_tree_len_max]u8 = undefined;
+    var table: huffman.Table = undefined;
+    _ = try huffman.read_tree(deepening_tree(constants.huffman_bits_max, &octets), &table);
+    for (0..2) |_| {
+        for ([_][]const u8{ "\x01", "\x03", "\x0f", "\xff\x01" }) |stream| {
+            for ([_]usize{ 4, 8, 16 }) |count| try expect_alike(streams, .{}, &table, @splat(stream), @splat(count));
+        }
+        fast_literals.build_pairs(&table);
+    }
+}
+
+test "four short streams of the shortest code under a deep tree decode alike" {
+    // A tree of up to 11 bits whose literal 0 takes one: a stream of a few such literals holds far
+    // fewer bits than a pass of the deepest codes needs, so the loops must not start on it.
+    var octets: [deepening_tree_len_max]u8 = undefined;
+    var table: huffman.Table = undefined;
+    _ = try huffman.read_tree(deepening_tree(constants.huffman_bits_max, &octets), &table);
+    try testing.expectEqual(1, table.cells[(@as(usize, 1) << table.bits_max) - 1].bits);
+    for (0..2) |_| {
+        for (1..24) |count| {
+            var writers: [streams]test_writer.StreamWriter = @splat(.{});
+            var four: [streams][]const u8 = undefined;
+            const zeros: [24]u8 = @splat(0);
+            for (&writers, &four) |*writer, *stream| stream.* = writer.write(&table, zeros[0..count]);
+            try expect_alike(streams, .{}, &table, four, @splat(count));
+        }
+        fast_literals.build_pairs(&table);
     }
 }

@@ -261,6 +261,13 @@ pub const pairs_literals_per_cell = 4;
 pub const pair_share_bits = 16;
 pub const pair_share_min = 1 << (pair_share_bits - 1);
 
+/// The literal loops in assembly load a pass's next word before its last code: the 8 octets that end
+/// at the one holding the bit below the highest position that code may leave, at most 7 bits above
+/// the first they hold. The word then holds this many bits less the code's length below the
+/// position the code leaves, and the load stays inside the stream from a position this many bits
+/// in.
+pub const pipelined_load_bits = 58;
+
 /// The Huffman weights one load of the tree's fast read decodes: 8 state updates of at most
 /// `huffman_weights_accuracy_log_max` bits each, fewer than a load's 57.
 pub const weights_per_load = 8;
