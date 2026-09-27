@@ -2,9 +2,10 @@
 //! sequences sections from the whole block, then executing its sequences into the caller's
 //! output as the output has room, resuming in the next call where the room ran out.
 //!
-//! Executing a sequence copies its literals, then its match from the window. Every octet written
-//! goes to the output, the window and the checksum at once. A match reaches only octets this frame
-//! wrote (invariant 10) and no further than Window_Size (RFC 8878 §3.1.1.4).
+//! Executing a sequence copies its literals, then its match from the history: the window, then
+//! the call's own output, which the decoder moves into the window and the checksum when the call
+//! ends (Z6). A match reaches only octets this frame wrote (invariant 10) and no further than
+//! Window_Size (RFC 8878 §3.1.1.4).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -42,37 +43,58 @@ pub const Run = struct {
     promised_len: u32,
 };
 
-/// What the block's octets go into: the caller's output, the frame's window and checksum, and the
-/// frame's count of octets decoded.
+/// What the block's octets go into: the caller's output, the frame's window, and the frame's count
+/// of octets decoded. The history an offset reaches is the window, then the call's output from
+/// `synced` on, which the window takes when the call ends (Z6) or, with `window_each`, at each
+/// commit.
 pub fn Sink(comptime Window: type) type {
     return struct {
         output: []u8,
         written: usize,
         window: *Window,
-        hash: *checksum.Xxh64,
+        /// The call's output before this index is in the window.
+        synced: *usize,
         frame_len: *u64,
+        window_each: bool,
 
         pub fn room(self: *const @This()) usize {
             return self.output.len - self.written;
         }
 
-        /// Records the `len` octets just placed at `written` in the window and the checksum.
+        /// Records the `len` octets just placed at `written`.
         pub fn commit(self: *@This(), len: usize) void {
-            const octets = self.output[self.written..][0..len];
-            self.window.append(octets);
-            self.hash.update(octets);
             self.written += len;
             self.frame_len.* += len;
+            if (self.window_each) self.sync();
         }
 
-        /// Records the octets a fast path placed from `start` up to `written`, as `commit` would
-        /// have piece by piece.
-        pub fn commit_since(self: *@This(), start: usize) void {
-            assert(start <= self.written);
-            const octets = self.output[start..self.written];
-            self.window.append(octets);
-            self.hash.update(octets);
-            self.frame_len.* += octets.len;
+        /// Moves the call's output from `synced` to `written` into the window.
+        pub fn sync(self: *@This()) void {
+            assert(self.synced.* <= self.written);
+            self.window.append(self.output[self.synced.*..self.written]);
+            self.synced.* = self.written;
+        }
+
+        /// The octets written since the frame's first that the window and the call's output hold.
+        pub fn reach(self: *const @This()) usize {
+            return self.window.reach() + (self.written - self.synced.*);
+        }
+
+        /// Copies into `into` the octets from `distance` before `written`: from the window what
+        /// lies before `synced`, and from the output the rest. `into` is no longer than `distance`,
+        /// and the caller refused every distance past `reach()` (invariant 10).
+        pub fn copy_back(self: *const @This(), distance: usize, into: []u8) void {
+            assert(distance <= self.reach() and into.len <= distance);
+            const own_len = self.written - self.synced.*;
+            var copied: usize = 0;
+            if (distance > own_len) {
+                copied = @min(into.len, distance - own_len);
+                self.window.copy_back(distance - own_len, into[0..copied]);
+            }
+            if (copied == into.len) return;
+            // The rest starts at `synced` or after: the window gave what lies before it.
+            const source = self.written + copied - distance;
+            @memcpy(into[copied..], self.output[source..][0 .. into.len - copied]);
         }
     };
 }
@@ -196,11 +218,11 @@ fn literal_octets(octets: []const u8, start: u32, len: u32) []const u8 {
 /// most `offset` octets at a time so every octet copied was written before (RFC 8878 §3.1.1.4).
 fn copy_match(comptime Window: type, run: *Run, sink: *Sink(Window)) Error!void {
     // Invariant 10, RFC 8878 §3.1.1.3: an offset reaches no octet before the frame's first.
-    if (run.offset > sink.window.reach()) return error.OffsetTooFar;
+    if (run.offset > sink.reach()) return error.OffsetTooFar;
     for (0..run.match_left) |_| {
         const len: u32 = @intCast(@min(run.match_left, sink.room(), run.offset));
         if (len == 0) return;
-        sink.window.copy_back(run.offset, sink.output[sink.written..][0..len]);
+        sink.copy_back(run.offset, sink.output[sink.written..][0..len]);
         sink.commit(len);
         run.match_left -= len;
     }

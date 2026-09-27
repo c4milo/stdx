@@ -22,33 +22,30 @@ const block = @import("block.zig");
 const Claims = @import("claims.zig").Claims;
 const work_module = @import("work.zig");
 
-/// Runs the loop over `run` until the margins or a sequence it leaves stop it. The octets it writes
-/// go into `sink`'s window, checksum and count before it returns.
+/// Runs the loop over `run` until the margins or a sequence it leaves stop it.
 pub fn execute(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window)) void {
-    const start = sink.written;
-    defer sink.commit_since(start);
     // Each iteration writes an octet or more, or decodes a sequence, which writes at least 3.
     const iterations_max = sink.room() + run.stream.left + 1;
     for (0..iterations_max) |_| {
         if (sink.room() < constants.output_slack) return;
         const written = sink.written;
         const left = run.stream.left;
-        if (!step(Window, claims, run, context, sink, start)) return;
+        if (!step(Window, claims, run, context, sink)) return;
         assert(sink.written > written or run.stream.left < left);
     }
 }
 
 /// One iteration: the next sequence when the last is copied, then its literals, then its match
 /// while the margin still holds. Returns false when the loop leaves the sequence.
-inline fn step(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window), start: usize) bool {
+inline fn step(comptime Window: type, comptime claims: Claims, run: *block.Run, context: block.Context, sink: *block.Sink(Window)) bool {
     if (run.literals_left == 0 and run.match_left == 0) {
-        if (!next_sequence(run, context, sink.window.reach() + (sink.written - start))) return false;
+        if (!next_sequence(run, context, sink.reach())) return false;
     }
     if (run.literals_left > 0) {
         copy_literals(Window, claims, run, context, sink);
         if (run.literals_left > 0 or sink.room() < constants.output_slack) return true;
     }
-    if (run.match_left > 0) copy_match(Window, claims, run, sink, start);
+    if (run.match_left > 0) copy_match(Window, claims, run, sink);
     return true;
 }
 
@@ -135,7 +132,7 @@ fn copy_literals(comptime Window: type, comptime claims: Claims, run: *block.Run
         .buffer => copy_forward(claims, sink.output, sink.written, context.literals_buffer[run.literals_used..], len),
         .repeated => @memset(sink.output[sink.written..][0..len], run.section.octet),
     }
-    sink.written += len;
+    sink.commit(len);
     run.literals_used += len;
     run.literals_left -= len;
 }
@@ -154,12 +151,12 @@ inline fn copy_forward(comptime claims: Claims, output: []u8, target: usize, sou
     }
 }
 
-/// Copies up to `chunk_len_max` of the sequence's match: what lies before the loop's first octet
-/// from the window, and the rest from the loop's own output.
-fn copy_match(comptime Window: type, comptime claims: Claims, run: *block.Run, sink: *block.Sink(Window), start: usize) void {
+/// Copies up to `chunk_len_max` of the sequence's match: what lies before the call's unsynced
+/// output from the window, and the rest from the output.
+fn copy_match(comptime Window: type, comptime claims: Claims, run: *block.Run, sink: *block.Sink(Window)) void {
     const len: u32 = @min(run.match_left, constants.chunk_len_max);
     const target = sink.written;
-    const own_len = target - start;
+    const own_len = target - sink.synced.*;
     var copied: usize = 0;
     if (run.offset > own_len) {
         const distance = run.offset - own_len;
@@ -167,7 +164,7 @@ fn copy_match(comptime Window: type, comptime claims: Claims, run: *block.Run, s
         sink.window.copy_back(distance, sink.output[target..][0..copied]);
     }
     if (copied < len) copy_within(claims, sink.output, target + copied, run.offset, len - copied);
-    sink.written += len;
+    sink.commit(len);
     run.match_left -= len;
 }
 

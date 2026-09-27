@@ -5,7 +5,6 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const checksum = @import("checksum");
 const constants = @import("constants.zig");
 const block = @import("block.zig");
 const huffman = @import("huffman.zig");
@@ -28,7 +27,9 @@ const Fixture = struct {
     buffer: [constants.block_len_max]u8 = undefined,
     tables: sequences.Tables = undefined,
     repeats: [constants.repeated_offsets_initial.len]u32 = constants.repeated_offsets_initial,
-    hash: checksum.Xxh64 = checksum.Xxh64.init(.scalar, 0),
+    /// The output before this index is in the window: none, as every piece of a test's block
+    /// stays in one output.
+    synced: usize = 0,
     frame_len: u64 = 0,
     /// Window_Size and Block_Maximum_Size, which a test may set below the octets a block decodes.
     window_len: u64 = window_len,
@@ -76,7 +77,7 @@ fn decode(fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize)
     var written: usize = 0;
     for (0..output.len + 1) |_| {
         const room = @min(piece_len, output.len - written);
-        var sink: block.Sink(Window) = .{ .output = output[0 .. written + room], .written = written, .window = &fixture.window, .hash = &fixture.hash, .frame_len = &fixture.frame_len };
+        var sink: block.Sink(Window) = .{ .output = output[0 .. written + room], .written = written, .window = &fixture.window, .synced = &fixture.synced, .frame_len = &fixture.frame_len, .window_each = false };
         const ended = try block.execute(.{}, Window, &run, fixture.context(octets), &sink);
         written = sink.written;
         if (ended) return output[0..written];
@@ -97,7 +98,6 @@ test "a block's sequences copy literals and matches, whole and in pieces of any 
         var output: [32]u8 = undefined;
         try testing.expectEqualStrings("abcabcadefffffgh", try decode(&fixture, written, &output, piece_len));
         try testing.expectEqual(16, fixture.frame_len);
-        try testing.expectEqual(checksum.xxh64(.scalar, 0, "abcabcadefffffgh"), fixture.hash.final());
         try testing.expectEqualSlices(u32, &.{ 1, 3, 1 }, &fixture.repeats);
     }
 }
