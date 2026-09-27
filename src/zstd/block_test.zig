@@ -46,7 +46,7 @@ const Fixture = struct {
         return .{
             .block = octets,
             .literals_buffer = &self.buffer,
-            .huffman = .{ .table = &self.table, .table_valid = &self.table_valid, .buffer = &self.buffer },
+            .huffman = .{ .table = &self.table, .table_valid = &self.table_valid, .buffer = &self.buffer, .assembly = sequences_x86_64.runs(codec.Features.detect()) },
             .tables = &self.tables,
             .repeats = &self.repeats,
             .block_len_max = self.block_len_max,

@@ -11,6 +11,7 @@ const huffman = @import("huffman.zig");
 const fast_literals = @import("fast_literals.zig");
 const literals_section = @import("literals.zig");
 const aarch64 = @import("fast_literals_aarch64.zig");
+const sequences_x86_64 = @import("fast_sequences/fast_sequences_x86_64.zig");
 const test_writer = @import("test_writer.zig");
 
 /// The most literals of a stream, and the seeds each test takes. Each stream draws its count, so a
@@ -75,8 +76,13 @@ const sentinel = 0xee;
 /// Decodes `count` of the streams through `decode` and on the checked path, and requires the same
 /// verdict and, when they decode, the same literals. The outputs lie one after another, as the
 /// decoder's do, so a stream's writes past its own would change the next's, and the octets past
-/// the last must stay as they were.
+/// the last must stay as they were. The fast path runs with the x86-64 assembly off, and on where
+/// the CPU runs it.
 fn expect_alike(comptime count: usize, comptime claims: @import("claims.zig").Claims, table: *const huffman.Table, octets: [count][]const u8, counts: [count]usize) !void {
+    for ([_]bool{ false, sequences_x86_64.runs(codec.Features.detect()) }) |assembly| try expect_alike_with(count, claims, table, octets, counts, assembly);
+}
+
+fn expect_alike_with(comptime count: usize, comptime claims: @import("claims.zig").Claims, table: *const huffman.Table, octets: [count][]const u8, counts: [count]usize, assembly: bool) !void {
     var fast_buffer: [count * stream_literals + stream_literals]u8 = @splat(sentinel);
     var checked_buffer: [count * stream_literals]u8 = undefined;
     var fast_outputs: [count][]u8 = undefined;
@@ -87,7 +93,7 @@ fn expect_alike(comptime count: usize, comptime claims: @import("claims.zig").Cl
         checked.* = checked_buffer[start..][0..literals];
         start += literals;
     }
-    const fast = literals_section.decode_streams(.{ .claims = claims }, count, table, octets, fast_outputs);
+    const fast = literals_section.decode_streams(.{ .claims = claims }, count, table, octets, fast_outputs, assembly);
     var checked: literals_section.Error!void = {};
     for (octets, checked_outputs) |stream, output| {
         checked = huffman.decode_stream(table, stream, output);
@@ -203,18 +209,24 @@ test "the fast path leaves no literal of a valid stream to the checked decoder" 
             var set: Streams = .{};
             set.write(&generator, &table);
             inline for ([_]@import("claims.zig").Claims{ .{}, .{ .interleaved_streams = false } }) |claims| {
-                var buffers: [streams][stream_literals]u8 = undefined;
-                var outputs: [streams][]u8 = undefined;
-                var readers: [streams]codec.BackwardBitReader = undefined;
-                for (&outputs, &buffers, set.counts, &readers, set.octets) |*output, *buffer, count, *reader, octets| {
-                    output.* = buffer[0..count];
-                    reader.* = codec.BackwardBitReader.init(octets).?;
-                }
-                try testing.expectEqual(set.counts, fast_literals.decode(streams, claims, &table, four_of(&set), outputs, &readers));
-                for (readers) |reader| try testing.expect(reader.finished());
+                for ([_]bool{ false, sequences_x86_64.runs(codec.Features.detect()) }) |assembly| try expect_all_decoded(claims, &table, &set, assembly);
             }
         }
     }
+}
+
+/// Decodes `set` on the fast path alone, and requires every literal of every stream and every
+/// stream read to its first bit.
+fn expect_all_decoded(comptime claims: @import("claims.zig").Claims, table: *const huffman.Table, set: *const Streams, assembly: bool) !void {
+    var buffers: [streams][stream_literals]u8 = undefined;
+    var outputs: [streams][]u8 = undefined;
+    var readers: [streams]codec.BackwardBitReader = undefined;
+    for (&outputs, &buffers, set.counts, &readers, set.octets) |*output, *buffer, count, *reader, octets| {
+        output.* = buffer[0..count];
+        reader.* = codec.BackwardBitReader.init(octets).?;
+    }
+    try testing.expectEqual(set.counts, fast_literals.decode(streams, claims, table, four_of(set), outputs, &readers, assembly));
+    for (readers) |reader| try testing.expect(reader.finished());
 }
 
 test "every longest code from 1 to 11 bits decodes alike on each path, each its own loop" {

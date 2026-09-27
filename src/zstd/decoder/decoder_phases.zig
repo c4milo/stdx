@@ -207,7 +207,7 @@ fn context(comptime options: DecoderOptions, self: *Self(options), octets: []con
     return .{
         .block = octets,
         .literals_buffer = &self.literals_buffer,
-        .huffman = .{ .table = &self.huffman_table, .table_valid = &self.huffman_valid, .buffer = &self.literals_buffer },
+        .huffman = .{ .table = &self.huffman_table, .table_valid = &self.huffman_valid, .buffer = &self.literals_buffer, .assembly = self.assembly },
         .tables = &self.tables,
         .repeats = &self.repeats,
         .block_len_max = self.block_len_max,

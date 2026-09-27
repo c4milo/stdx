@@ -19,20 +19,21 @@ const huffman = @import("huffman.zig");
 const Claims = @import("claims.zig").Claims;
 const fast_reader = @import("fast_reader.zig");
 const aarch64 = @import("fast_literals_aarch64.zig");
+const x86_64 = @import("fast_literals_x86_64.zig");
 
 /// Decodes what it can of each of `streams`, one or four, from where `readers` stand, as the
 /// checked decoder would, and returns how many literals of each it wrote: the checked decoder takes
-/// each stream from there.
-pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
-    if (!claims.interleaved_streams) return decode_each(count, claims, table, streams, outputs, readers);
+/// each stream from there. `assembly` says whether the CPU runs the x86-64 assembly.
+pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) [count]usize {
+    if (!claims.interleaved_streams) return decode_each(count, claims, table, streams, outputs, readers, assembly);
     var done: [count]usize = undefined;
     // The table's longest code fixes the loop's shifts and its literals per load.
     switch (table.bits_max) {
         inline 1...constants.huffman_bits_max => |bits_max| {
             done = if (claims.pairs and table.pairs_ready)
-                pairs_of(count, claims, bits_max, table, streams, outputs, readers)
+                pairs_of(count, claims, bits_max, table, streams, outputs, readers, assembly)
             else
-                @splat(singles_of(count, claims, bits_max, table, streams, outputs, readers));
+                @splat(singles_of(count, claims, bits_max, table, streams, outputs, readers, assembly));
             decode_tails(count, bits_max, table, streams, outputs, readers, &done);
         },
         // huffman.build gives a Max_Number_of_Bits from 1 to 11.
@@ -41,25 +42,31 @@ pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huff
     return done;
 }
 
-/// Literals one a lookup: in assembly where it takes the loop, in Zig elsewhere.
-inline fn singles_of(comptime count: usize, comptime claims: Claims, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) usize {
+/// Literals one a lookup: in assembly where it takes the loop and the CPU runs it, in Zig elsewhere.
+inline fn singles_of(comptime count: usize, comptime claims: Claims, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) usize {
     if (comptime aarch64.takes(count, claims)) return aarch64.decode_singles(bits_max, table, streams, outputs, readers);
+    if (comptime x86_64.takes(count, claims)) {
+        if (assembly) return x86_64.decode_singles(bits_max, table, streams, outputs, readers);
+    }
     return decode_loads(count, bits_max, table, streams, outputs, readers);
 }
 
-/// Literals in pairs (Z2): in assembly where it takes the loop, in Zig elsewhere.
-inline fn pairs_of(comptime count: usize, comptime claims: Claims, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
+/// Literals in pairs (Z2): in assembly where it takes the loop and the CPU runs it, in Zig elsewhere.
+inline fn pairs_of(comptime count: usize, comptime claims: Claims, comptime bits_max: u4, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) [count]usize {
     if (comptime aarch64.takes(count, claims)) return aarch64.decode_pairs(bits_max, table, streams, outputs, readers);
+    if (comptime x86_64.takes(count, claims)) {
+        if (assembly) return x86_64.decode_pairs(bits_max, table, streams, outputs, readers);
+    }
     return decode_pair_loads(count, bits_max, table, streams, outputs, readers);
 }
 
 /// `decode` one stream after another, when the claim of Z1 is off.
-fn decode_each(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader) [count]usize {
+fn decode_each(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) [count]usize {
     comptime var one_claims = claims;
     one_claims.interleaved_streams = true;
     var done: [count]usize = undefined;
     for (&done, streams, outputs, readers) |*decoded, stream, output, *reader| {
-        decoded.* = decode(1, one_claims, table, .{stream}, .{output}, reader[0..1])[0];
+        decoded.* = decode(1, one_claims, table, .{stream}, .{output}, reader[0..1], assembly)[0];
     }
     return done;
 }
