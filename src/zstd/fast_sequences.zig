@@ -222,8 +222,7 @@ inline fn copy_literal_run(comptime kind: LiteralKind, comptime claims: Claims, 
 /// nothing, whatever `at` truncates to. Every other field ends inside the word, so `at` is below
 /// 64, and the tables bound a field to 31 bits.
 inline fn field(aligned: u64, at: usize, count: u8) usize {
-    const value = ((aligned << @as(u6, @truncate(at))) >> 1) >> ~@as(u6, @truncate(count));
-    return @as(u32, @truncate(value));
+    return ((aligned << @as(u6, @truncate(at))) >> 1) >> ~@as(u6, @truncate(count));
 }
 
 /// The cells of the three states, each the index of its table's array: the array's length bounds
