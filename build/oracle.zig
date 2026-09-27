@@ -157,12 +157,13 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_step.dependOn(&bench_run.step);
     // Decision 17's measurement: the same A/B with stdx built ReleaseFast, a measuring device
     // only, run after the benchmark on the same host. The two graphs share source files, which one
-    // compilation cannot hold twice, so it is a program of its own.
+    // compilation cannot hold twice, so it is a program of its own. Its root is ReleaseFast too:
+    // Zig 0.16 takes runtime safety from the root module for every module the program imports.
     const release_fast_graph = modules.add(b, .{ .target = baseline, .optimize = .ReleaseFast, .visibility = .private });
     const release_fast_module = b.createModule(.{
         .root_source_file = b.path("bench/deflate/deflate.zig"),
         .target = baseline,
-        .optimize = .ReleaseSafe,
+        .optimize = .ReleaseFast,
     });
     release_fast_module.addImport("oracle", oracle);
     release_fast_module.addImport("timing", timing);
@@ -308,15 +309,15 @@ pub fn add(b: *std.Build, options: Options) void {
     }
 }
 
-/// The SIMD features Zig's own detection finds on the build host, which runs the checks: the
-/// oracle for `codec.Features.detect()`, which the checks require to find at least as many.
-/// Whether a benchmark program is decision 17's ReleaseFast measuring device.
+/// A benchmark program's options: whether it is decision 17's ReleaseFast measuring device.
 fn bench_options(b: *std.Build, release_fast: bool) *std.Build.Step.Options {
     const options = b.addOptions();
     options.addOption(bool, "release_fast", release_fast);
     return options;
 }
 
+/// The SIMD features Zig's own detection finds on the build host, which runs the checks: the
+/// oracle for `codec.Features.detect()`, which the checks require to find at least as many.
 fn host_features(b: *std.Build) *std.Build.Step.Options {
     const cpu = b.graph.host.result.cpu;
     const x86 = std.Target.x86;
