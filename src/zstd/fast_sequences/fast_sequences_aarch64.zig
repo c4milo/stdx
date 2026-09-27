@@ -186,14 +186,12 @@ const template = std.fmt.comptimePrint(
     \\    ldr x21, [x3, x17, lsl #3]
     \\    ldr x22, [x4, x19, lsl #3]
     \\    // The 8 octets whose last holds the position's bit, least significant first, shifted so
-    \\    // that bit leads (RFC 8878 §4.1); x23 the bits they hold below the position.
+    \\    // that bit leads (RFC 8878 §4.1): 57 bits of the stream at least.
     \\    lsr x24, x11, #3
     \\    ldr x24, [x1, x24]
     \\    mvn x25, x11
     \\    and x25, x25, #7
     \\    lsl x24, x24, x25
-    \\    and x23, x11, #7
-    \\    add x23, x23, #{[read_min]}
     \\    // RFC 8878 §3.1.1.3.2.1.2: the offset, match length and literals length bits, then the
     \\    // states of literals length, match length and offset, each from the top of what the
     \\    // fields before it leave. A field of `count` bits: shifted past the bits before it, by
@@ -252,24 +250,23 @@ const template = std.fmt.comptimePrint(
     \\    mov x24, x13
     \\    mov x27, x14
     \\3:
-    \\    // The checks of the checked path, in one branch: the literals are there; the block's size
-    \\    // holds; the output holds the sequence's octets and the overrun of its copies; the offset
-    \\    // is within Window_Size; the load holds the bits read, last, as their count comes last.
-    \\    add x6, x7, x30
-    \\    add x6, x6, x28
-    \\    ldr x25, [x0, #{[output_limit]}]
-    \\    cmp x30, x9
+    \\    // The checks of the checked path, in one branch: the load held the bits read, 57 at least
+    \\    // (a sequence of more goes to `step`); the literals are there; the block's size holds; the
+    \\    // output holds the sequence's octets and the overrun of its copies; the offset is within
+    \\    // Window_Size; and the match reads the call's own output, x25 its source, where a match
+    \\    // reaching the window goes to `step`. x23 the match's target.
+    \\    add x23, x7, x30
+    \\    add x25, x23, x28
+    \\    ldr x6, [x0, #{[output_limit]}]
+    \\    cmp x5, #{[read_min]}
+    \\    ccmp x30, x9, #2, ls
     \\    ccmp x28, x10, #2, ls
-    \\    ccmp x6, x25, #2, ls
+    \\    ccmp x25, x6, #2, ls
     \\    ldr x6, [x0, #{[window_len]}]
     \\    ccmp x26, x6, #2, ls
-    \\    ccmp x5, x23, #2, ls
-    \\    b.hi 9f
-    \\    // A match reaching past the call's own output reads the window: `step` takes it.
-    \\    add x23, x7, x30
+    \\    sub x25, x23, x26
     \\    ldr x6, [x0, #{[synced]}]
-    \\    sub x6, x23, x6
-    \\    cmp x26, x6
+    \\    ccmp x6, x25, #2, ls
     \\    b.hi 9f
     \\    // The sequence is taken.
     \\    sub x11, x11, x5
@@ -287,12 +284,11 @@ const template = std.fmt.comptimePrint(
     \\    cmp x30, #{[pair]}
     \\    b.hi 4f
     \\5:
-    \\    // Its match, from x6: a chunk when the distance allows one, then the rest.
+    \\    // Its match, from x25: a chunk when the distance allows one, then the rest.
     \\    add x8, x8, x30
-    \\    sub x6, x23, x26
     \\    cmp x26, #{[chunk]}
     \\    b.lo 6f
-    \\    ldr q0, [x6]
+    \\    ldr q0, [x25]
     \\    str q0, [x23]
     \\    cmp x28, #{[chunk]}
     \\    b.hi 7f
@@ -345,7 +341,7 @@ const template = std.fmt.comptimePrint(
     \\7:
     \\    // The match past its first chunk: two chunks at a time where the distance holds two, and
     \\    // one at a time below; each reads octets written before.
-    \\    add x24, x6, #{[chunk]}
+    \\    add x24, x25, #{[chunk]}
     \\    add x27, x23, #{[chunk]}
     \\    add x20, x23, x28
     \\    cmp x26, #{[pair]}
@@ -363,6 +359,7 @@ const template = std.fmt.comptimePrint(
     \\    b.lo 15b
     \\    b 8b
     \\6:
+    \\    mov x6, x25
     \\    // Below a chunk: up to the first chunk one octet at a time, each the octet the distance
     \\    // before it; past it the octets repeat every multiple of the distance, so the rest go a
     \\    // chunk at a time from the least multiple at least a chunk back, in x27.
