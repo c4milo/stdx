@@ -152,20 +152,11 @@ pub fn build_cells(comptime Cell: type, comptime make: fn (u8) Cell, cells: []Ce
     const table_len = @as(usize, 1) << distribution.accuracy_log;
     assert(distribution.accuracy_log <= constants.accuracy_log_max and table_len <= cells.len);
     const probabilities = distribution.probabilities[0..distribution.symbol_count];
-    var symbols_buffer: [1 << constants.accuracy_log_max]u8 = undefined;
-    const symbols = symbols_buffer[0..table_len];
-    // "Less than 1" symbols take one cell each from the table's end back, and reset the state.
-    var high: usize = table_len;
-    for (probabilities, 0..) |probability, symbol| {
-        if (probability >= 0) continue;
-        high -= 1;
-        symbols[high] = @intCast(symbol);
-    }
-    const position = if (high == table_len) spread_all(symbols, probabilities) else spread_below(symbols, probabilities, high);
+    const table = cells[0..table_len];
     // RFC 8878 §4.1.1: the step is odd, so it visits every cell once; ending anywhere but 0 means
-    // the probabilities did not fill the cells below `high`.
-    if (position != 0) return error.FseDistributionInvalid;
-    assign_baselines(Cell, make, cells[0..table_len], symbols, probabilities, distribution.accuracy_log);
+    // the probabilities did not fill the cells below the "less than 1" symbols'.
+    if (spread(Cell, table, probabilities) != 0) return error.FseDistributionInvalid;
+    assign_baselines(Cell, make, table, probabilities, distribution.accuracy_log);
     return table_len + probabilities.len;
 }
 
@@ -174,61 +165,83 @@ fn spread_step(table_len: usize) usize {
     return (table_len >> constants.fse_spread_half_shift) + (table_len >> constants.fse_spread_eighth_shift) + constants.fse_spread_add;
 }
 
-/// Spreads every symbol over all of `symbols`, in symbol order, stepping as RFC 8878 §4.1.1 gives,
-/// for a distribution with no "less than 1" symbol. Returns where the steps end.
-fn spread_all(symbols: []u8, probabilities: []const i16) usize {
-    const mask = symbols.len - 1;
-    const step = spread_step(symbols.len);
-    var position: usize = 0;
+/// Spreads the symbols over `table`, each cell holding its symbol in its `baseline` for
+/// `assign_baselines`: "less than 1" symbols one cell each from the table's end back, then every
+/// other symbol in symbol order, stepping as RFC 8878 §4.1.1 gives and skipping their cells.
+/// Returns where the steps end.
+fn spread(comptime Cell: type, table: []Cell, probabilities: []const i16) usize {
+    var high: usize = table.len;
+    for (probabilities, 0..) |probability, symbol| {
+        if (probability >= 0) continue;
+        high -= 1;
+        table[high] = holding(Cell, @intCast(symbol));
+    }
+    const mask = table.len - 1;
+    const step = spread_step(table.len);
+    // The steps taken times the step, masked only where a cell is written, so a step waits on one
+    // add. Two rounds of the table's cells at most, far below its overflow.
+    var walked: usize = 0;
     for (probabilities, 0..) |probability, symbol| {
         if (probability <= 0) continue;
+        const cell = holding(Cell, @intCast(symbol));
         for (0..@as(usize, @intCast(probability))) |_| {
-            symbols[position] = @intCast(symbol);
-            position = (position + step) & mask;
+            walked = past_high(walked, step, mask, high);
+            table[walked & mask] = cell;
+            walked +%= step;
         }
     }
-    return position;
+    return past_high(walked, step, mask, high) & mask;
 }
 
-/// Spreads every other symbol over the cells below `high`, in symbol order, stepping as RFC 8878
-/// §4.1.1 gives and skipping the cells of "less than 1" symbols. Returns where the steps end.
-fn spread_below(symbols: []u8, probabilities: []const i16, high: usize) usize {
-    const mask = symbols.len - 1;
-    const step = spread_step(symbols.len);
-    var position: usize = 0;
-    for (probabilities, 0..) |probability, symbol| {
-        if (probability <= 0) continue;
-        for (0..@as(usize, @intCast(probability))) |_| {
-            symbols[position] = @intCast(symbol);
-            position = (position + step) & mask;
-            // At most `symbols.len - high` cells are taken, so this ends within as many steps.
-            for (0..symbols.len) |_| {
-                if (position < high) break;
-                position = (position + step) & mask;
-            }
-        }
+/// `walked` stepped past the cells from `high` on, which hold "less than 1" symbols: within one
+/// round of the table's cells, as fewer lie there.
+inline fn past_high(walked: usize, step: usize, mask: usize, high: usize) usize {
+    var at = walked;
+    for (0..mask + 1) |_| {
+        if (at & mask < high) return at;
+        at +%= step;
     }
-    return position;
+    return at;
+}
+
+/// A cell that holds `symbol` in its `baseline`, as the spread leaves it.
+inline fn holding(comptime Cell: type, symbol: u8) Cell {
+    var cell: Cell = @bitCast(@as(std.meta.Int(.unsigned, @bitSizeOf(Cell)), 0));
+    cell.baseline = symbol;
+    return cell;
+}
+
+/// The bits that index every symbol of the largest alphabet, match length codes' 53.
+const symbol_index_bits = 6;
+
+comptime {
+    assert(symbols_max <= 1 << symbol_index_bits);
 }
 
 /// Each cell's Number_of_Bits and Baseline: a symbol's cells, in table order, take the states
 /// from its probability up, and the lower states read one bit more (RFC 8878 §4.1.1, Table 21).
 /// Each symbol's cell is made once, and each state's is a copy of it.
-fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, cells: []Cell, symbols: []const u8, probabilities: []const i16, accuracy_log: u4) void {
-    var next_states: [symbols_max]u32 = undefined;
-    var symbol_cells: [symbols_max]Cell = undefined;
+fn assign_baselines(comptime Cell: type, comptime make: fn (u8) Cell, table: []Cell, probabilities: []const i16, accuracy_log: u4) void {
+    var next_states: [1 << symbol_index_bits]u16 = undefined;
+    var symbol_cells: [1 << symbol_index_bits]Cell = undefined;
     for (probabilities, next_states[0..probabilities.len], symbol_cells[0..probabilities.len], 0..) |probability, *next, *symbol_cell, symbol| {
         next.* = if (probability < 0) 1 else @intCast(probability);
         symbol_cell.* = make(@intCast(symbol));
     }
-    const table_len: u32 = @intCast(cells.len);
-    for (cells, symbols) |*cell, symbol| {
-        const state = next_states[symbol];
-        next_states[symbol] += 1;
-        const bits: u5 = @intCast(accuracy_log - std.math.log2_int(u32, state));
+    const table_len: u32 = @intCast(table.len);
+    for (table) |*cell| {
+        // The spread left a symbol below 64, so the truncation changes none.
+        const symbol: u6 = @truncate(cell.baseline);
+        const state: u32 = next_states[symbol];
+        next_states[symbol] +%= 1;
+        // A state lies from its symbol's probability to one less than twice it, so from 1 to below
+        // 2^(Accuracy_Log+1): its highest bit, from 31 less its leading zeros, is at most
+        // Accuracy_Log, and the state shifted by the difference lies from 2^Accuracy_Log to twice
+        // that. No step wraps.
+        const bits: u5 = @truncate(@as(u32, accuracy_log) +% @clz(state) -% (@bitSizeOf(u32) - 1));
         cell.* = symbol_cells[symbol];
         cell.bits = bits;
-        cell.baseline = @intCast((state << bits) - table_len);
+        cell.baseline = @truncate((state << bits) -% table_len);
     }
 }
 

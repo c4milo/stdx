@@ -100,6 +100,19 @@ test "a distribution reads back as it was written, taking a round number of octe
     }
 }
 
+test "a spread whose steps end among the cells of \"less than 1\" symbols builds" {
+    // Symbol 0 at 9 of 32 cells and symbols 1 to 23 at "less than 1", from cell 31 down to 9. The
+    // step of 23 visits cells 27, 18 and 9 after the ninth of symbol 0, the last below 9, then 0.
+    var distribution: fse.Distribution = .{ .probabilities = @splat(-1), .symbol_count = 24, .accuracy_log = 5 };
+    distribution.probabilities[0] = 9;
+    var table: fse.Table(constants.accuracy_log_max) = undefined;
+    try fse.build(constants.accuracy_log_max, &table, &distribution);
+    for (table.entries(), 0..) |cell, index| {
+        try testing.expectEqual(if (index < 9) 0 else 32 - index, cell.symbol);
+    }
+    try expect_cells_follow(&table, &distribution);
+}
+
 fn count_present(distribution: *const fse.Distribution) usize {
     var present: usize = 0;
     for (distribution.probabilities[0..distribution.symbol_count]) |probability| present += @intFromBool(probability != 0);
