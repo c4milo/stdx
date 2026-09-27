@@ -161,8 +161,8 @@ comptime {
 /// needs before it, negative when the load has not them; x12 the sequences left;
 /// x13, x14 and x15 the repeats; x16, x17 and x19 the states of literals length, offset and match
 /// length. x6 and x20 to x28 and x30 hold each sequence's values. The numbered labels: 1 a
-/// sequence, 2 a repeated offset, 3 the checks, 4 more literals, 5 the match, 6 a distance below two
-/// chunks, 7 more of the match, 8 the next sequence, 9 the state stored back.
+/// sequence, 2 a repeated offset, 3 the checks, 4 more literals, 5 the match, 6 a distance below a
+/// chunk, 7 more of the match, 8 the next sequence, 9 the state stored back.
 const template = std.fmt.comptimePrint(
     \\    ldp x1, x2, [x0, #{[stream]}]
     \\    ldp x3, x4, [x0, #{[offset]}]
@@ -185,12 +185,6 @@ const template = std.fmt.comptimePrint(
     \\    ldr x20, [x2, x16, lsl #3]
     \\    ldr x21, [x3, x17, lsl #3]
     \\    ldr x22, [x4, x19, lsl #3]
-    \\    // x5 the bits the sequence reads: each cell's count of them, together.
-    \\    ubfx x5, x20, #{[total_at]}, #{[total_len]}
-    \\    ubfx x27, x22, #{[total_at]}, #{[total_len]}
-    \\    add x5, x5, x27
-    \\    ubfx x27, x21, #{[total_at]}, #{[total_len]}
-    \\    add x5, x5, x27
     \\    // The 8 octets whose last holds the position's bit, least significant first, shifted so
     \\    // that bit leads (RFC 8878 §4.1); x23 the bits they hold below the position.
     \\    lsr x24, x11, #3
@@ -245,6 +239,7 @@ const template = std.fmt.comptimePrint(
     \\    lsr x21, x21, #{[baseline_at]}
     \\    lsl x6, x24, x25
     \\    lsr x6, x6, #1
+    \\    add x5, x25, x27
     \\    mvn x27, x27
     \\    lsr x6, x6, x27
     \\    add x21, x6, x21
@@ -292,14 +287,14 @@ const template = std.fmt.comptimePrint(
     \\    cmp x30, #{[pair]}
     \\    b.hi 4f
     \\5:
-    \\    // Its match, from x6: two chunks when the distance allows them, then the rest.
+    \\    // Its match, from x6: a chunk when the distance allows one, then the rest.
     \\    add x8, x8, x30
     \\    sub x6, x23, x26
-    \\    cmp x26, #{[pair]}
+    \\    cmp x26, #{[chunk]}
     \\    b.lo 6f
-    \\    ldp q0, q1, [x6]
-    \\    stp q0, q1, [x23]
-    \\    cmp x28, #{[pair]}
+    \\    ldr q0, [x6]
+    \\    str q0, [x23]
+    \\    cmp x28, #{[chunk]}
     \\    b.hi 7f
     \\8:
     \\    add x7, x23, x28
@@ -348,30 +343,26 @@ const template = std.fmt.comptimePrint(
     \\    b.lo 12b
     \\    b 5b
     \\7:
-    \\    // The match past its first two chunks, two at a time: each reads octets written before.
-    \\    add x24, x6, #{[pair]}
-    \\    add x27, x23, #{[pair]}
+    \\    // The match past its first chunk: two chunks at a time where the distance holds two, and
+    \\    // one at a time below; each reads octets written before.
+    \\    add x24, x6, #{[chunk]}
+    \\    add x27, x23, #{[chunk]}
     \\    add x20, x23, x28
+    \\    cmp x26, #{[pair]}
+    \\    b.lo 15f
     \\13:
     \\    ldp q0, q1, [x24], #{[pair]}
     \\    stp q0, q1, [x27], #{[pair]}
     \\    cmp x27, x20
     \\    b.lo 13b
     \\    b 8b
-    \\6:
-    \\    // A distance below two chunks: a chunk at a time from one chunk up, each reading octets
-    \\    // written before, and below a chunk the pattern.
-    \\    cmp x26, #{[chunk]}
-    \\    b.lo 14f
-    \\    mov x24, #0
     \\15:
-    \\    ldr q0, [x6, x24]
-    \\    str q0, [x23, x24]
-    \\    add x24, x24, #{[chunk]}
-    \\    cmp x24, x28
+    \\    ldr q0, [x24], #{[chunk]}
+    \\    str q0, [x27], #{[chunk]}
+    \\    cmp x27, x20
     \\    b.lo 15b
     \\    b 8b
-    \\14:
+    \\6:
     \\    // Below a chunk: up to the first chunk one octet at a time, each the octet the distance
     \\    // before it; past it the octets repeat every multiple of the distance, so the rest go a
     \\    // chunk at a time from the least multiple at least a chunk back, in x27.
@@ -431,8 +422,6 @@ const template = std.fmt.comptimePrint(
     .bits_at = @bitOffsetOf(sequences.Cell, "bits"),
     .extra_at = @bitOffsetOf(sequences.Cell, "extra_bits"),
     .baseline_at = @bitOffsetOf(sequences.Cell, "baseline"),
-    .total_at = @bitOffsetOf(sequences.Cell, "total"),
-    .total_len = @bitSizeOf(@FieldType(sequences.Cell, "total")),
     .output_limit = @offsetOf(Loop, "output_limit"),
     .repeat_values = constants.repeat_offset_values,
     .chunk = constants.copy_chunk_len,
