@@ -852,4 +852,4 @@ None. Decisions 11 to 20 are ruled.
   takes a block's offsets by selects rather than branches when the block's offset table names a
   repeat in at least 20 of every 256 cells: json-16k decoded alone ran 2% slower by selects, and
   json-1m cut into 64 distinct frames of 16 KiB ran 5.7% faster. The loop keeps the rule that
-  serves distinct payloads, and loses to libzstd on json-16k for it.
+  serves distinct payloads, and gives up about 2% on json-16k for it.
