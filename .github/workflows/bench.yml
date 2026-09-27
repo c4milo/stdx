@@ -64,12 +64,15 @@ jobs:
           PERF=$(ls /usr/lib/linux-tools/*/perf | head -1)
           file=zig-out/corpus/silesia/dickens
           {
-            echo "# perf, $(uname -m)"
+            echo "# perf, $(uname -m), $(grep -m1 -o 'Neoverse[^ ]*\|EPYC[^ ]*\|Xeon[^ ]*' /proc/cpuinfo || true)"
             echo '```text'
-            "$PERF" stat -e cycles,instructions,branch-misses,stalled-cycles-frontend,stalled-cycles-backend,L1-dcache-load-misses,L1-dcache-loads,l2d_cache_refill,ld_align_lat,stall_backend_mem,stall_frontend,br_mis_pred_retired ./zig-out/bin/bench_profile "dickens=$file" 2>&1 | tail -30 || true
-            "$PERF" record -q -o perf.data ./zig-out/bin/bench_profile "dickens=$file" >/dev/null 2>&1 || true
-            "$PERF" report -i perf.data --stdio --sort symbol 2>/dev/null | head -40 || true
-            "$PERF" annotate -i perf.data --stdio -s fast_sequences.fast_sequences_aarch64.execute 2>/dev/null | head -400 || true
+            "$PERF" stat -e cycles,instructions,branch-misses,stalled-cycles-frontend,stalled-cycles-backend,L1-dcache-load-misses,L1-dcache-loads ./zig-out/bin/bench_zstd "dickens=$file" 2>&1 | tail -22 || true
+            "$PERF" record -q -F 10000 -o perf.data ./zig-out/bin/bench_zstd "dickens=$file" >/dev/null 2>&1 || true
+            "$PERF" report -i perf.data --stdio --sort symbol 2>/dev/null | grep -v '^#' | head -25 || true
+            for symbol in fast_sequences.fast_sequences_aarch64.execute ZSTD_decompressSequences; do
+              echo "== $symbol"
+              "$PERF" annotate -i perf.data --stdio -s "$symbol" 2>/dev/null | awk '$1+0 >= 0.8' | head -60 || true
+            done
             echo '```'
           } > bench-report.md 2>&1
       - name: Summarize
