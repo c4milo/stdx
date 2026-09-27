@@ -13,6 +13,9 @@ const fse = @import("../fse.zig");
 const sequences = @import("../sequences.zig");
 const test_writer = @import("../test_writer.zig");
 const decoder_module = @import("../decoder/decoder.zig");
+const block = @import("../block.zig");
+const work_module = @import("../work.zig");
+const aarch64 = @import("fast_sequences_aarch64.zig");
 const decoder_test = @import("../decoder/decoder_test.zig");
 const FrameWriter = decoder_test.FrameWriter;
 
@@ -379,4 +382,40 @@ test "a block whose literal source is shorter than a chunk decodes on the checke
     checked.init(.{});
     try testing.expectEqual(fast, try checked.decode(frame.written(), &checked_output));
     try testing.expectEqualSlices(u8, checked_output[0..fast.written], output[0..fast.written]);
+}
+
+test "an output below Window_Size takes no step of the aarch64 loop, whose check of the source would wrap" {
+    if (comptime !aarch64.takes(true, .{})) return error.SkipZigTest;
+    // RLE_Mode for all three codes: literals length code 1, one literal; offset code 20, an
+    // Offset_Value of 2^20 and 20 bits more; match length code 0, 3 octets. No state reads a bit.
+    const offset_code = 20;
+    var tables: sequences.Tables = undefined;
+    tables.init();
+    const sequence_count = 2;
+    _ = try sequences.read_header(&.{ sequence_count, 1 << 6 | 1 << 4 | 1 << 2, 1, offset_code, 0 }, &tables);
+    // Both offsets' bits, read first, then bits the loop never reads, so a load holds 57.
+    var writer: test_writer.BitWriter = .{};
+    writer.put(0, constants.fast_read_position_min);
+    for (0..sequence_count) |_| writer.put(0, offset_code);
+    const stream = writer.finish();
+    var run: block.Run = undefined;
+    run.section = .{ .source = .buffer, .len = constants.block_len_max, .offset = 0, .octet = 0, .section_len = 0 };
+    run.literals_used = 0;
+    run.promised_len = 0;
+    run.stream = .{ .position = codec.BackwardBitReader.init(stream).?.position, .overflowed = false, .states = @splat(0), .left = sequence_count };
+    var repeats = constants.repeated_offsets_initial;
+    var work = work_module.zero;
+    var empty: [0]u8 = .{};
+    const context: block.Context = .{ .block = &empty, .literals_buffer = &empty, .huffman = undefined, .tables = &tables, .repeats = &repeats, .block_len_max = constants.block_len_max, .window_len = constants.http_window_len, .work = &work, .assembly = false };
+    // An output at an address below Window_Size and below the offset, which the loop must not
+    // write: a check of the source's address would wrap and let the match through.
+    const low_address = 0x10000;
+    var synced: usize = 0;
+    var frame_len: u64 = 0;
+    var window: void = {};
+    var sink: block.Sink(void) = .{ .output = @as([*]u8, @ptrFromInt(low_address))[0..constants.http_window_len], .written = 0, .window = &window, .synced = &synced, .frame_len = &frame_len, .window_each = false };
+    const literals: [aarch64.copy_overrun_len + 1]u8 = @splat(0);
+    aarch64.run_loop(void, &run, context, stream, &tables, &sink, &literals);
+    try testing.expectEqual(sequence_count, run.stream.left);
+    try testing.expectEqual(0, sink.written);
 }

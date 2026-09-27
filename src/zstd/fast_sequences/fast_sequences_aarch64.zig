@@ -75,6 +75,9 @@ pub const copy_overrun_len = constants.copy_chunk_len + constants.copy_chunk_len
 pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, stream: []const u8, tables: *const sequences.Tables, sink: *block.Sink(Window), literal_source: []const u8) void {
     const output = sink.output;
     if (output.len < copy_overrun_len or literal_source.len < copy_overrun_len) return;
+    // The loop checks a match's source address against `synced`, which would wrap for an output
+    // below Window_Size; such an output leaves every sequence to `step`, which checks indices.
+    if (@intFromPtr(output.ptr) < context.window_len) return;
     // The literals the loop may take: each run's copies read up to `copy_overrun_len` past it.
     const literals_end = @min(run.section.len, literal_source.len - copy_overrun_len);
     if (run.literals_used > literals_end) return;
