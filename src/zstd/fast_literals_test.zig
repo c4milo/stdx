@@ -30,6 +30,16 @@ fn present_literal(generator: *codec.split.Generator, table: *const huffman.Tabl
     return cells[generator.below(cells.len)].symbol;
 }
 
+/// A literal whose code is the tree's longest, drawn, so a load's literals take its most bits. The
+/// longest codes take the table's first cells, one each.
+fn deepest_literal(generator: *codec.split.Generator, table: *const huffman.Table) u8 {
+    var deepest: usize = 0;
+    while (table.cells[deepest].bits == table.bits_max) deepest += 1;
+    return table.cells[generator.below(deepest)].symbol;
+}
+
+const Draw = *const fn (*codec.split.Generator, *const huffman.Table) u8;
+
 /// Seeded streams of `stream_literals` literals each, written as the checked decoder reads them.
 const Streams = struct {
     writers: [streams]test_writer.StreamWriter = @splat(.{}),
@@ -37,10 +47,14 @@ const Streams = struct {
     counts: [streams]usize = undefined,
 
     fn write(self: *Streams, generator: *codec.split.Generator, table: *const huffman.Table) void {
+        self.write_drawn(generator, table, present_literal);
+    }
+
+    fn write_drawn(self: *Streams, generator: *codec.split.Generator, table: *const huffman.Table, draw: Draw) void {
         for (&self.writers, &self.octets, &self.counts) |*writer, *octets, *count| {
             count.* = generator.between(1, stream_literals);
             var literals: [stream_literals]u8 = undefined;
-            for (literals[0..count.*]) |*literal| literal.* = present_literal(generator, table);
+            for (literals[0..count.*]) |*literal| literal.* = draw(generator, table);
             const written = writer.write(table, literals[0..count.*]);
             octets.* = writer.octets[0..written.len];
         }
@@ -105,6 +119,44 @@ test "long streams decode alike on the fast path, interleaved and one by one, an
     }
 }
 
+/// The octets of the deepest tree `deepening_tree` writes: its header, then 11 weights.
+const deepening_tree_len_max = 1 + (constants.huffman_bits_max + constants.huffman_weights_per_octet - 1) / constants.huffman_weights_per_octet;
+
+/// A tree whose longest code takes `bits_max` bits: literals 0 to `bits_max - 1` weighing
+/// `bits_max` down to 1, and literal `bits_max` weighing 1, written directly (RFC 8878 §4.2.1.1).
+fn deepening_tree(bits_max: u4, octets: *[deepening_tree_len_max]u8) []const u8 {
+    const per_octet = constants.huffman_weights_per_octet;
+    octets.* = @splat(0);
+    octets[0] = constants.huffman_direct_symbols_offset + @as(u8, bits_max);
+    for (0..bits_max) |literal| {
+        const weight: u8 = @intCast(bits_max - literal);
+        // The first weight of an octet takes its top half (RFC 8878 §4.2.1.1).
+        octets[1 + literal / per_octet] |= if (literal % per_octet == 0) weight << constants.huffman_weight_bits else weight;
+    }
+    return octets[0 .. 1 + (bits_max + per_octet - 1) / per_octet];
+}
+
+test "every longest code from 1 to 11 bits decodes alike on each path, each its own loop" {
+    for (1..constants.huffman_bits_max + 1) |bits_max| {
+        var octets: [deepening_tree_len_max]u8 = undefined;
+        var table: huffman.Table = undefined;
+        _ = try huffman.read_tree(deepening_tree(@intCast(bits_max), &octets), &table);
+        try testing.expectEqual(bits_max, table.bits_max);
+        for (0..seeds / 8) |seed| {
+            var generator = codec.split.Generator.init(seed);
+            // Literals of every code, then of the longest alone, so a load's literals take its
+            // most bits.
+            for ([_]Draw{ present_literal, deepest_literal }) |draw| {
+                var set: Streams = .{};
+                set.write_drawn(&generator, &table, draw);
+                try expect_each_way(&table, &set);
+                set.flip(&generator);
+                try expect_each_way(&table, &set);
+            }
+        }
+    }
+}
+
 test "a stream that ends in an octet of 0 sends every stream to the checked path, refusals in order" {
     var table: huffman.Table = undefined;
     _ = try huffman.read_tree(trees[0], &table);
@@ -129,7 +181,7 @@ test "a stream that holds more bits than its literals take is refused as on the 
         set.write(&generator, &table);
         // A load's worth of literals and fewer, from a stream of up to 400: the stream's bits
         // outlast them, and the margin of literals alone must stop the loop.
-        const per_load = constants.fast_read_position_min / @as(usize, table.bits_max);
+        const per_load = fast_literals.literals_per_load(table.bits_max);
         for ([_]usize{ per_load - 1, per_load, per_load + 1 }) |count| {
             if (count > set.counts[0]) continue;
             try expect_alike(1, .{}, &table, .{set.octets[0]}, .{count});

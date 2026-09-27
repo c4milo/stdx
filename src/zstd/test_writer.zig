@@ -7,8 +7,12 @@ const constants = @import("constants.zig");
 const fse = @import("fse.zig");
 const huffman = @import("huffman.zig");
 
-/// The octets a written stream takes at most: 300 literals of up to 11 bits.
-const stream_capacity = 512;
+/// The most literals a written stream holds.
+const stream_literals_max = 400;
+
+/// The octets a written stream takes at most: `stream_literals_max` literals of up to 11 bits, and
+/// the final 1 bit.
+const stream_capacity = std.math.divCeil(usize, stream_literals_max * constants.huffman_bits_max + 1, @bitSizeOf(u8)) catch unreachable;
 
 /// Encodes literals as RFC 8878 §4.2.2 reads them: codes written forward from the last literal
 /// to the first, each most significant bit last, then the final 1 bit.

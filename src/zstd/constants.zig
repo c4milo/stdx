@@ -246,6 +246,10 @@ pub const output_slack = chunk_len_max + copy_chunk_len;
 /// needs that many before the position: at least 57 bits, the most one read takes.
 pub const fast_read_position_min = 57;
 
+/// The most literals one load of the literal fast path decodes: a load holds 57 bits, as many codes
+/// of a table of short codes as that, and the loop's unrolled body grows with each.
+pub const literals_per_load_max = 8;
+
 /// Invariant 17's count for one table: the cells its build fills, and the symbols its description
 /// decodes.
 pub fn table_work_max(accuracy_log: u5, symbols: usize) usize {

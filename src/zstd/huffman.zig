@@ -13,10 +13,11 @@ const work_module = @import("work.zig");
 const Work = work_module.Work;
 const fse = @import("fse.zig");
 
-/// One cell: the symbol whose code begins these bits, and the code's Number_of_Bits.
+/// One cell: the code's Number_of_Bits, and the symbol whose code begins these bits. The length
+/// comes first, in the low octet, so a shift by the cell's low bits uses the code.
 pub const Entry = packed struct(u16) {
-    symbol: u8,
     bits: u8,
+    symbol: u8,
 };
 
 pub const Table = struct {
