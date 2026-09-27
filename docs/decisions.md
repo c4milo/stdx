@@ -7,7 +7,8 @@ Entries marked **owner** wait on a ruling and are not settled. Everything else i
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
-and 20 came out of that review, entry 21 out of design §8 step 2, and entry 22 out of step 11.
+and 20 came out of that review, entry 21 out of design §8 step 2, and entries 22 to 24 out of step
+11.
 
 ## Scope and shape
 
@@ -1013,3 +1014,43 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entry 22 
       paths. The target is to beat libzstd on every corpus file on an aarch64 Mac first, the owner's
       M1 Pro, and port to the other architectures after. Published numbers still come from the
       runners (decision 20).
+
+24. **How the assembly loops are shown safe.** **owner** Proposed on 2026-09-27, as decision 23
+    asks once its loops match or beat libzstd on the runners: at 3a45936 the decoder runs at a
+    median of 1.13 to 1.19 of libzstd's speed on the x86-64 runners and 1.01 on the N2 (design §8
+    step 11).
+
+    **What runs without Zig's checks.** Five loops read and write memory by address:
+    - The Zstandard sequence loop, in aarch64 and in x86-64 assembly.
+    - The four-stream literal loops, in aarch64 and in x86-64 assembly.
+    - XXH64's stripe loop, on Apple's cores.
+
+    Each loop checks, once a sequence or a pass, the conditions that keep its accesses inside the
+    stream, the tables, the literals and the output: the checked path's checks, and the margins
+    the Zig code around it sets up (decision 16). Nothing checks each access. Only the tests check
+    the checks: the loops must write what the Zig fast path and the checked path write, and
+    libzstd's verdicts must hold.
+
+    **The proposal.** Four measures, none of which adds an instruction to a loop:
+    1. An access table in each loop's file: every load and store, the range it touches, and the
+       check or entry condition that bounds it. A commit that changes a loop changes its table,
+       and review compares the two.
+    2. Guard pages, in a tool under `tools/`, where mapping memory is allowed. It decodes the
+       differential check's frames and corruptions with every buffer a loop touches placed
+       between two pages that fault on any access: the input, the output, the window, the
+       literals buffer and the tables. An access past a bound then stops the tool, where
+       octets a loop read or wrote past a bound could otherwise go unnoticed. It joins
+       `tools/ci.sh` (decision 19) and runs on both runners.
+    3. Boundary tests: one per check of each loop, with the checked value on each side of its
+       bound, as c6197bf's test does for an output below Window_Size.
+    4. The Zig fast path stays the reference on every target: each test and the fuzzer compare
+       the loops' octets and verdicts with it and with the checked path.
+
+    The alternatives refused:
+    - Dropping the assembly. Before it, the x86-64 runners measured stdx at 0.69 and 0.80 of
+      libzstd's speed (runs 36328791718 and 36347478310), and the N2 at 0.72 with the Zig
+      sequence loop (run 36323029517).
+    - A bounds check on each access in the assembly. It repeats what the per-sequence checks
+      prove, at a cost per octet.
+    - A proof of each loop. No tool here reads Zig's inline assembly, and a proof by hand would be
+      the access table with less to check it.
