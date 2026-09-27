@@ -213,6 +213,37 @@ test "a cut frame asks for more input, and a full output for more room" {
     try testing.expectError(error.NoSpaceLeft, decoder.decode_all(writer.written(), output[0..10]));
 }
 
+test "a block the input holds whole decodes from it, and moves into the state when the output fills (Z5)" {
+    var writer: FrameWriter = .{};
+    const text = standard_frame(&writer);
+    var decoder: Decoder = undefined;
+    var output: [64]u8 = undefined;
+    // The input ends where the compressed block does, and the checksum comes in the next call.
+    const block_end = writer.len - constants.checksum_len;
+    decoder.init(.{});
+    @memset(&decoder.block_octets, sentinel);
+    const blocks = try decoder.decode(writer.written()[0..block_end], &output);
+    try testing.expectEqual(codec.Progress{ .consumed = block_end, .written = text.len, .status = .needs_input }, blocks);
+    try testing.expect(std.mem.allEqual(u8, &decoder.block_octets, sentinel));
+    try testing.expectEqual(.done, (try decoder.decode(writer.written()[block_end..], output[text.len..])).status);
+    try testing.expectEqualStrings(text, output[0..text.len]);
+    // Room for the raw and repeated blocks and 2 octets of the compressed one: the call takes the
+    // block, and the next resumes it from the state with the checksum alone as input.
+    decoder.init(.{});
+    @memset(&decoder.block_octets, sentinel);
+    const first = try decoder.decode(writer.written(), output[0..10]);
+    try testing.expectEqual(codec.Progress{ .consumed = block_end, .written = 10, .status = .needs_room }, first);
+    const rest = try decoder.decode(writer.written()[block_end..], output[first.written..]);
+    try testing.expectEqual(.done, rest.status);
+    try testing.expectEqualStrings(text, output[0 .. first.written + rest.written]);
+    // With Z5 off, the state gathers the block.
+    var gathering: decoder_module.Decoder(.{ .window_len_max = constants.block_len_max, .paths = .{ .claims = .{ .block_in_input = false } } }) = undefined;
+    gathering.init(.{});
+    @memset(&gathering.block_octets, sentinel);
+    _ = try gathering.decode_all(writer.written(), &output);
+    try testing.expect(!std.mem.allEqual(u8, &gathering.block_octets, sentinel));
+}
+
 test "a magic below the skippable range is refused, and a cut skippable frame asks for more" {
     var decoder: Decoder = undefined;
     var output: [16]u8 = undefined;

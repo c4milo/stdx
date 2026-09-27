@@ -169,21 +169,43 @@ pub fn write_repeated(comptime options: DecoderOptions, self: *Self(options), ou
 }
 
 /// A compressed block's octets, gathered until it is whole, then its sections read (RFC 8878
-/// §3.1.1.3).
-pub fn gather(comptime options: DecoderOptions, self: *Self(options), reader: *codec.Reader) Error!?Status {
+/// §3.1.1.3). A block the call's input holds whole decodes from the input instead (Z5).
+pub fn gather(comptime options: DecoderOptions, self: *Self(options), reader: *codec.Reader, output: []u8, written: *usize) Error!?Status {
     const filled = self.block_len - self.block_left;
+    const in_input = options.paths.fast_paths and options.paths.claims.block_in_input;
+    if (in_input and filled == 0 and reader.remaining_len() >= self.block_len) return execute_in_input(options, self, reader, output, written);
     const octets = reader.take_partial(self.block_left);
     @memcpy(self.block_octets[filled..][0..octets.len], octets);
     self.block_left -= @intCast(octets.len);
     if (self.block_left > 0) return .needs_input;
-    try block.prepare(options.paths, &self.run, context(options, self));
+    try block.prepare(options.paths, &self.run, context(options, self, self.block_octets[0..self.block_len]));
     self.phase = .execute;
     return null;
 }
 
-fn context(comptime options: DecoderOptions, self: *Self(options)) block.Context {
+/// Z5: a compressed block read and executed from the call's input, with no copy into the state.
+/// A block whose output fills first moves into the state, where the next call resumes it as a
+/// gathered block, so both give the same octets and the same verdict.
+fn execute_in_input(comptime options: DecoderOptions, self: *Self(options), reader: *codec.Reader, output: []u8, written: *usize) Error!?Status {
+    assert(self.block_left == self.block_len);
+    const octets = reader.take(self.block_len) catch unreachable;
+    self.block_left = 0;
+    const in_input = context(options, self, octets);
+    try block.prepare(options.paths, &self.run, in_input);
+    var into = sink(options, self, output, written.*);
+    const ended = try block.execute(options.paths, @TypeOf(self.window), &self.run, in_input, &into);
+    written.* = into.written;
+    if (ended) return end_block(options, self, output[0..written.*]);
+    @memcpy(self.block_octets[0..octets.len], octets);
+    self.phase = .execute;
+    return .needs_room;
+}
+
+/// The block's context, with its octets at `octets`: the state's, or the call's input (Z5).
+fn context(comptime options: DecoderOptions, self: *Self(options), octets: []const u8) block.Context {
+    assert(octets.len == self.block_len);
     return .{
-        .block = self.block_octets[0..self.block_len],
+        .block = octets,
         .literals_buffer = &self.literals_buffer,
         .huffman = .{ .table = &self.huffman_table, .table_valid = &self.huffman_valid, .buffer = &self.literals_buffer },
         .tables = &self.tables,
@@ -197,7 +219,7 @@ fn context(comptime options: DecoderOptions, self: *Self(options)) block.Context
 /// A compressed block's sequences, as the output has room (RFC 8878 §3.1.1.4).
 pub fn execute(comptime options: DecoderOptions, self: *Self(options), output: []u8, written: *usize) Error!?Status {
     var into = sink(options, self, output, written.*);
-    const ended = try block.execute(options.paths, @TypeOf(self.window), &self.run, context(options, self), &into);
+    const ended = try block.execute(options.paths, @TypeOf(self.window), &self.run, context(options, self, self.block_octets[0..self.block_len]), &into);
     written.* = into.written;
     if (!ended) return .needs_room;
     return end_block(options, self, output[0..written.*]);

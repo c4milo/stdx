@@ -3,9 +3,10 @@
 //!
 //! `Decoder(.{ .window_len_max = ... })` holds a window of that many octets, a power of two; the
 //! default, 2^23, is RFC 9659 §3's for HTTP (decision 12). A frame that asks for more is refused
-//! as `error.WindowTooLarge`. A compressed block is gathered whole into the state before it
-//! decodes, as its streams are read backward; then its sequences run as the output has room, so
-//! work per call stays linear in what the call reads and writes (invariant 17). A frame's offsets
+//! as `error.WindowTooLarge`. A compressed block decodes whole, as its streams are read backward:
+//! from the call's input when it holds the block (Z5), or gathered into the state first. Its
+//! sequences run as the output has room, so work per call stays linear in what the call reads and
+//! writes (invariant 17). A block the output cannot take moves into the state. A frame's offsets
 //! reach only octets it wrote (invariant 10). The octets after a frame stay in the input; the
 //! caller decodes the next frame from them, as `decode_all` does (decision 11, RFC 8878 §3.1).
 
@@ -83,7 +84,8 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         const Self = @This();
 
         window: Window,
-        /// A compressed block, gathered whole (decision 12), and its literals.
+        /// A compressed block, gathered whole (decision 12) when the call's input does not hold it,
+        /// and its literals.
         block_octets: [constants.block_len_max]u8,
         literals_buffer: [constants.block_len_max]u8,
         huffman_table: huffman.Table,
@@ -195,7 +197,7 @@ fn step(comptime options: DecoderOptions, self: *Decoder(options), reader: *code
         .raw_block => copy_raw(options, self, reader, output, written),
         .repeated_octet => read_repeated_octet(options, self, reader),
         .repeated_block => write_repeated(options, self, output, written),
-        .gather => gather(options, self, reader),
+        .gather => gather(options, self, reader, output, written),
         .execute => execute(options, self, output, written),
         .checksum => read_checksum(options, self, reader),
         .done, .refused => unreachable,

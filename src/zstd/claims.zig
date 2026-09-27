@@ -10,6 +10,10 @@ pub const Claims = struct {
     /// Z4: literals and matches copied 16 octets at a time, overrunning into the room the margin
     /// leaves. Off, the fast path copies exactly, with `@memcpy` and octet by octet.
     chunk_copies: bool = true,
+    /// Z5: a compressed block the call's input holds whole decodes from the input, and moves into
+    /// the state only when the output fills before the block ends. Off, every compressed block is
+    /// copied into the state before it decodes.
+    block_in_input: bool = true,
     /// Z6, as S5 for DEFLATE: the window takes a call's octets once, when the call ends, and none
     /// when the call ends the frame; history in between is read from the output. Off, each piece
     /// moves into the window as it is written.
@@ -20,6 +24,7 @@ pub const Claims = struct {
 pub const each_off = [_]Claims{
     .{ .interleaved_streams = false },
     .{ .chunk_copies = false },
+    .{ .block_in_input = false },
     .{ .window_once = false },
 };
 
@@ -27,6 +32,7 @@ pub const each_off = [_]Claims{
 pub const each_off_names = [each_off.len][]const u8{
     "Z1 interleaved streams",
     "Z4 chunk copies",
+    "Z5 block in input",
     "Z6 window once",
 };
 
