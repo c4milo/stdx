@@ -59,11 +59,9 @@ pub fn execute(comptime Window: type, comptime claims: Claims, run: *block.Run, 
     // Each iteration writes an octet or more, or decodes a sequence, which writes at least 3.
     const iterations_max = sink.room() + run.stream.left + 1;
     for (0..iterations_max) |_| {
+        // The loop checks its own margins: the assembly's reach to the output's end.
+        if (run.literals_left == 0 and run.match_left == 0) run_whole(Window, claims, run, context, &found, sink);
         if (sink.room() < constants.output_slack) return;
-        if (run.literals_left == 0 and run.match_left == 0) {
-            run_whole(Window, claims, run, context, &found, sink);
-            if (sink.room() < constants.output_slack) return;
-        }
         const written = sink.written;
         const left = run.stream.left;
         if (!step(Window, claims, run, context, &found, sink)) return;
@@ -94,7 +92,7 @@ fn run_loop(comptime kind: LiteralKind, comptime Window: type, comptime claims: 
     // The block's last sequence reads no states, and `step` takes it, as it takes every sequence
     // when the literal source is shorter than a chunk.
     if (run.stream.left <= 1 or output.len < constants.output_slack or literals_end + copy.overrun_of(kind == .slice, claims) > literal_source.len and kind == .slice) return;
-    if (comptime aarch64.takes(kind == .slice, claims)) return aarch64.run_loop(Window, run, context, found.stream, found.tables, sink, literal_source, literals_end);
+    if (comptime aarch64.takes(kind == .slice, claims)) return aarch64.run_loop(Window, run, context, found.stream, found.tables, sink, literal_source);
     run_iterations(kind, Window, claims, run, context, found, sink, literal_source, literals_end);
 }
 

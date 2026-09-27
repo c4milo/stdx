@@ -3,13 +3,15 @@
 //! allots, taking the sequences the Zig loop takes and writing the same octets.
 //!
 //! It takes the claims all on (Z4 chunk copies, Z6 window once) and literals from a slice; the Zig
-//! loop takes every other setting, and every other target. It leaves every sequence the Zig loop
-//! leaves, and also a match that reaches the window or whose lengths reach `chunk_len_max`
-//! together, which `step` takes.
+//! loop takes every other setting, and every other target. Where the Zig loop checks a margin
+//! before each sequence, the assembly checks each sequence's own octets: it takes a sequence of any
+//! length while the output holds it and the overrun of its copies, so it runs to within
+//! `copy_overrun_len` octets of the output's end. It leaves a match that reaches the window, which
+//! `step` takes.
 //!
-//! Its reads and writes go by address, without Zig's bounds checks. The margins it checks before
-//! each sequence, and the checks the checked path makes of it, keep them inside the stream, the
-//! tables, the literals and the output, as the Zig loop's margins keep its own.
+//! Its reads and writes go by address, without Zig's bounds checks. The checks it makes of each
+//! sequence, those of the checked path and the output's room, keep them inside the stream, the
+//! tables, the literals and the output.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -35,8 +37,8 @@ pub const Loop = extern struct {
     match_length: [*]const u64,
     /// Where the next sequence's literals go.
     output: [*]u8,
-    /// The last place a sequence may start: decision 16's margin past it.
-    output_max: [*]const u8,
+    /// The output's end less `copy_overrun_len`: the last place a sequence's octets may end.
+    output_limit: [*]const u8,
     /// The call's first octet the window has not taken.
     synced: [*]const u8,
     /// The next literal, and the literals the loop may still take.
@@ -52,12 +54,16 @@ pub const Loop = extern struct {
     states: [constants.repeated_offsets_initial.len]u64,
 };
 
+/// The most a sequence's copies write past its octets, and read past its literals: two chunks.
+pub const copy_overrun_len = constants.copy_chunk_len + constants.copy_chunk_len;
+
 /// Runs the loop over `run` as `fast_sequences.run_loop` does, for a caller that checked `takes`.
-pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, stream: []const u8, tables: *const sequences.Tables, sink: *block.Sink(Window), literal_source: []const u8, literals_end: usize) void {
+pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, stream: []const u8, tables: *const sequences.Tables, sink: *block.Sink(Window), literal_source: []const u8) void {
     const output = sink.output;
-    // Decision 16's margin: a sequence starts no later than this.
-    const written_max = output.len - constants.output_slack;
-    if (sink.written > written_max or run.literals_used > literals_end) return;
+    if (output.len < copy_overrun_len or literal_source.len < copy_overrun_len) return;
+    // The literals the loop may take: each run's copies read up to `copy_overrun_len` past it.
+    const literals_end = @min(run.section.len, literal_source.len - copy_overrun_len);
+    if (run.literals_used > literals_end) return;
     assert(run.promised_len <= context.block_len_max and run.stream.left > 1);
     var loop: Loop = .{
         .stream = stream.ptr,
@@ -65,7 +71,7 @@ pub fn run_loop(comptime Window: type, run: *block.Run, context: block.Context, 
         .offset = @ptrCast(&tables.offset),
         .match_length = @ptrCast(&tables.match_length),
         .output = output[sink.written..].ptr,
-        .output_max = output[written_max..].ptr,
+        .output_limit = output[output.len - copy_overrun_len ..].ptr,
         .synced = output[sink.synced.*..].ptr,
         .literals = literal_source[run.literals_used..].ptr,
         .literals_room = literals_end - run.literals_used,
@@ -145,23 +151,18 @@ comptime {
     assert(@bitOffsetOf(sequences.Cell, "base") == 0 and @bitSizeOf(@FieldType(sequences.Cell, "base")) == @bitSizeOf(u32));
     assert(@bitSizeOf(@FieldType(sequences.Cell, "bits")) == @bitSizeOf(u8) and @bitSizeOf(@FieldType(sequences.Cell, "extra_bits")) == @bitSizeOf(u8));
     assert(@bitOffsetOf(sequences.Cell, "baseline") + @bitSizeOf(@FieldType(sequences.Cell, "baseline")) == @bitSizeOf(u64));
-    // One sequence's lengths stay below `chunk_len_max`, so its chunks stay inside the margin.
-    assert(std.math.isPowerOfTwo(constants.chunk_len_max) and constants.copy_chunk_len == @sizeOf(u128));
+    // A chunk is one vector register, and a pair of them one `ldp`.
+    assert(constants.copy_chunk_len == @sizeOf(u128));
 }
 
-/// A sequence's lengths together, shifted right by this, are 0 when they stay below
-/// `chunk_len_max`.
-const chunk_len_log = std.math.log2_int(usize, constants.chunk_len_max);
-
 /// The loop. Registers: x0 the loop's state; x1 the stream; x2, x3 and x4 the literals length,
-/// offset and match length cells; x5 the last place a sequence may start, then the bits the
-/// sequence reads; x7 the output; x8 the
+/// offset and match length cells; x5 the bits the sequence reads; x7 the output; x8 the
 /// literals; x9 the literals room; x10 the promised room; x11 the position less the 57 bits a load
 /// needs before it, negative when the load has not them; x12 the sequences left;
 /// x13, x14 and x15 the repeats; x16, x17 and x19 the states of literals length, offset and match
 /// length. x6 and x20 to x28 and x30 hold each sequence's values. The numbered labels: 1 a
-/// sequence, 2 a repeated offset, 3 the checks, 4 more literals, 5 the match, 6 a distance below a
-/// chunk, 7 more of the match, 8 the next sequence, 9 the state stored back.
+/// sequence, 2 a repeated offset, 3 the checks, 4 more literals, 5 the match, 6 a distance below two
+/// chunks, 7 more of the match, 8 the next sequence, 9 the state stored back.
 const template = std.fmt.comptimePrint(
     \\    ldp x1, x2, [x0, #{[stream]}]
     \\    ldp x3, x4, [x0, #{[offset]}]
@@ -177,11 +178,8 @@ const template = std.fmt.comptimePrint(
     \\    ldr x19, [x0, #{[state3]}]
     \\    cbz x12, 9f
     \\1:
-    \\    // The margins: the load's bits before the position, and room past the output.
-    \\    ldr x5, [x0, #{[output_max]}]
-    \\    cmp x11, #0
-    \\    ccmp x7, x5, #2, ge
-    \\    b.hi 9f
+    \\    // The load's bits before the position.
+    \\    tbnz x11, #63, 9f
     \\    // The cells of the three states. A state is below its table's length: its cell's
     \\    // baseline and the bits it read (RFC 8878 §4.1).
     \\    ldr x20, [x2, x16, lsl #3]
@@ -259,14 +257,15 @@ const template = std.fmt.comptimePrint(
     \\    mov x24, x13
     \\    mov x27, x14
     \\3:
-    \\    // The checks of the checked path, in one branch: the literals are there; the lengths stay
-    \\    // below a chunk's most; the block's size holds; the offset is within Window_Size; the load
-    \\    // holds the bits read, last, as their count comes last.
+    \\    // The checks of the checked path, in one branch: the literals are there; the block's size
+    \\    // holds; the output holds the sequence's octets and the overrun of its copies; the offset
+    \\    // is within Window_Size; the load holds the bits read, last, as their count comes last.
+    \\    add x6, x7, x30
+    \\    add x6, x6, x28
+    \\    ldr x25, [x0, #{[output_limit]}]
     \\    cmp x30, x9
-    \\    add x6, x30, x28
-    \\    lsr x6, x6, #{[chunk_len_log]}
-    \\    ccmp x6, #0, #2, ls
     \\    ccmp x28, x10, #2, ls
+    \\    ccmp x6, x25, #2, ls
     \\    ldr x6, [x0, #{[window_len]}]
     \\    ccmp x26, x6, #2, ls
     \\    ccmp x5, x23, #2, ls
@@ -287,20 +286,20 @@ const template = std.fmt.comptimePrint(
     \\    mov x15, x27
     \\    mov x14, x24
     \\    mov x13, x26
-    \\    // Its literals, a chunk, then the rest.
-    \\    ldr q0, [x8]
-    \\    str q0, [x7]
-    \\    cmp x30, #{[chunk]}
+    \\    // Its literals, two chunks, then the rest.
+    \\    ldp q0, q1, [x8]
+    \\    stp q0, q1, [x7]
+    \\    cmp x30, #{[pair]}
     \\    b.hi 4f
     \\5:
-    \\    // Its match, from x6: a chunk when the distance allows one, then the rest.
+    \\    // Its match, from x6: two chunks when the distance allows them, then the rest.
     \\    add x8, x8, x30
     \\    sub x6, x23, x26
-    \\    cmp x26, #{[chunk]}
+    \\    cmp x26, #{[pair]}
     \\    b.lo 6f
-    \\    ldr q0, [x6]
-    \\    str q0, [x23]
-    \\    cmp x28, #{[chunk]}
+    \\    ldp q0, q1, [x6]
+    \\    stp q0, q1, [x23]
+    \\    cmp x28, #{[pair]}
     \\    b.hi 7f
     \\8:
     \\    add x7, x23, x28
@@ -338,42 +337,44 @@ const template = std.fmt.comptimePrint(
     \\    cbz x26, 9f
     \\    b 3b
     \\4:
-    \\    // The literals past the first chunk, a chunk at a time.
-    \\    mov x6, #{[chunk]}
+    \\    // The literals past the first two chunks, two at a time.
+    \\    add x24, x8, #{[pair]}
+    \\    add x27, x7, #{[pair]}
+    \\    add x6, x7, x30
     \\12:
-    \\    ldr q0, [x8, x6]
-    \\    str q0, [x7, x6]
-    \\    add x6, x6, #{[chunk]}
-    \\    cmp x6, x30
+    \\    ldp q0, q1, [x24], #{[pair]}
+    \\    stp q0, q1, [x27], #{[pair]}
+    \\    cmp x27, x6
     \\    b.lo 12b
     \\    b 5b
     \\7:
-    \\    // The match past the first chunk, a chunk at a time: each reads octets written before.
-    \\    mov x24, #{[chunk]}
+    \\    // The match past its first two chunks, two at a time: each reads octets written before.
+    \\    add x24, x6, #{[pair]}
+    \\    add x27, x23, #{[pair]}
+    \\    add x20, x23, x28
     \\13:
+    \\    ldp q0, q1, [x24], #{[pair]}
+    \\    stp q0, q1, [x27], #{[pair]}
+    \\    cmp x27, x20
+    \\    b.lo 13b
+    \\    b 8b
+    \\6:
+    \\    // A distance below two chunks: a chunk at a time from one chunk up, each reading octets
+    \\    // written before, and below a chunk the pattern.
+    \\    cmp x26, #{[chunk]}
+    \\    b.lo 14f
+    \\    mov x24, #0
+    \\15:
     \\    ldr q0, [x6, x24]
     \\    str q0, [x23, x24]
     \\    add x24, x24, #{[chunk]}
     \\    cmp x24, x28
-    \\    b.lo 13b
-    \\    b 8b
-    \\6:
-    \\    // A distance below a chunk: 8 octets at a time from 8 up, each reading octets written
-    \\    // before, and one at a time below.
-    \\    cmp x26, #{[word]}
-    \\    b.lo 14f
-    \\    mov x24, #0
-    \\15:
-    \\    ldr x27, [x6, x24]
-    \\    str x27, [x23, x24]
-    \\    add x24, x24, #{[word]}
-    \\    cmp x24, x28
     \\    b.lo 15b
     \\    b 8b
     \\14:
-    \\    // Below 8: up to the first 8 octets one at a time, each the octet the distance before it;
-    \\    // past them the octets repeat every multiple of the distance, so the rest go 8 at a time
-    \\    // from the least multiple at least 8 back, in x27.
+    \\    // Below a chunk: up to the first chunk one octet at a time, each the octet the distance
+    \\    // before it; past it the octets repeat every multiple of the distance, so the rest go a
+    \\    // chunk at a time from the least multiple at least a chunk back, in x27.
     \\    mov x24, #0
     \\16:
     \\    ldrb w27, [x6, x24]
@@ -381,21 +382,21 @@ const template = std.fmt.comptimePrint(
     \\    add x24, x24, #1
     \\    cmp x24, x28
     \\    b.hs 8b
-    \\    cmp x24, #{[word]}
+    \\    cmp x24, #{[chunk]}
     \\    b.lo 16b
     \\    mov x27, x26
     \\17:
-    \\    cmp x27, #{[word]}
+    \\    cmp x27, #{[chunk]}
     \\    b.hs 18f
     \\    add x27, x27, x26
     \\    b 17b
     \\18:
     \\    sub x6, x23, x27
-    \\    mov x24, #{[word]}
+    \\    mov x24, #{[chunk]}
     \\19:
-    \\    ldr x20, [x6, x24]
-    \\    str x20, [x23, x24]
-    \\    add x24, x24, #{[word]}
+    \\    ldr q0, [x6, x24]
+    \\    str q0, [x23, x24]
+    \\    add x24, x24, #{[chunk]}
     \\    cmp x24, x28
     \\    b.lo 19b
     \\    b 8b
@@ -432,9 +433,8 @@ const template = std.fmt.comptimePrint(
     .baseline_at = @bitOffsetOf(sequences.Cell, "baseline"),
     .total_at = @bitOffsetOf(sequences.Cell, "total"),
     .total_len = @bitSizeOf(@FieldType(sequences.Cell, "total")),
-    .output_max = @offsetOf(Loop, "output_max"),
+    .output_limit = @offsetOf(Loop, "output_limit"),
     .repeat_values = constants.repeat_offset_values,
-    .chunk_len_log = chunk_len_log,
     .chunk = constants.copy_chunk_len,
-    .word = constants.copy_word_len,
+    .pair = copy_overrun_len,
 });
