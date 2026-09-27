@@ -991,3 +991,20 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entry 22 
     - Accepting any offset inside the window's `capacity`, as libzstd's decoder does. It decodes no
       more of the frames libzstd writes, and it lets a frame reach octets past the Window_Size it
       declared.
+
+23. **An assembly sequence loop for the Zstandard decoder, speed first.** Ruled by the owner on
+    2026-09-27, during design §8 step 11, in the owner's words: "let's try assembly, once we match
+    or exceed performance, we can see how to make it safe." The runners had shown the Zig sequence
+    loop at 0.72 of libzstd's speed on the N2 (run 36323029517), at the same instructions per cycle
+    as libzstd and 24 to 67% more instructions (run 36323476089), and three changes to its source
+    that each dropped instructions ran 4% slower.
+    - It amends decision 16 for one function: the Zstandard sequence execution fast path (Z4) may
+      run as hand-written assembly that reads and writes memory by address, without the bounds
+      checks Zig adds, inside the margins the checked Zig code sets up. aarch64 comes first, then
+      x86-64.
+    - It is an experiment. The Zig fast path stays for every other target and every other claim
+      setting, as the reference the assembly must match: the tests and the fuzzer run the assembly
+      wherever the CPU does, and the differential check compares it with libzstd.
+    - Safety comes after speed. Once the loop matches or beats libzstd on the runners, a proposal
+      says how it is made safe, and the owner rules on it. Until then, decision 16's refusal of raw
+      memory access stands for every other loop.
