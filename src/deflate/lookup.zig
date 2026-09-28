@@ -82,7 +82,7 @@ pub const Entry = packed struct(u32) {
 };
 
 /// The bits of a combined entry's `value` that hold its length, below its distance symbol.
-const combined_length_bits = std.math.log2_int_ceil(u16, constants.match_len_max + 1);
+pub const combined_length_bits = std.math.log2_int_ceil(u16, constants.match_len_max + 1);
 
 comptime {
     assert(combined_length_bits + @bitSizeOf(u5) <= @bitSizeOf(u16));

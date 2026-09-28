@@ -378,6 +378,7 @@ test "a distance of 32,768, the whole window, is in reach without a limit (RFC 1
 test {
     _ = @import("decoder_dynamic_test.zig");
     _ = @import("decoder_combining_test.zig");
+    _ = @import("decoder_distances_test.zig");
     _ = @import("decoder_fuzz_test.zig");
     _ = @import("decoder_work_test.zig");
 }

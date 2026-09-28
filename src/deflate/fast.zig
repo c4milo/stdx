@@ -28,6 +28,7 @@ const huffman = @import("huffman.zig");
 const lookup = @import("lookup.zig");
 const fast_copy = @import("fast_copy.zig");
 const fast_step = @import("fast_step.zig");
+const fast_aarch64 = @import("fast_aarch64.zig");
 const options_module = @import("options.zig");
 const Options = options_module.Options;
 const Lookups = options_module.Lookups;
@@ -39,12 +40,12 @@ pub const input_slack = @sizeOf(u64);
 pub const output_slack = fast_copy.room_len;
 
 /// The bits a refill leaves in the buffer at least: an iteration uses at most `pair_bits_max`.
-const refill_bits = @bitSizeOf(u64) - @bitSizeOf(u8);
+pub const refill_bits = @bitSizeOf(u64) - @bitSizeOf(u8);
 
 /// The literals one iteration decodes at most. A literal the table decodes takes at most the
 /// table's width, so after a refill each of these literals' lookups finds a whole table index in
 /// the buffer, and none needs a check of the bits left.
-const literals_per_refill = (refill_bits - constants.literal_length_table_bits) / constants.literal_length_table_bits + 1;
+pub const literals_per_refill = (refill_bits - constants.literal_length_table_bits) / constants.literal_length_table_bits + 1;
 
 comptime {
     assert(constants.pair_bits_max <= refill_bits);
@@ -85,7 +86,7 @@ pub const Next = enum(u2) {
 };
 
 /// Why the common loop stopped: a margin, or a symbol for `decode_rare`, whose bits it left.
-const Stop = enum { margin, rare };
+pub const Stop = enum(u8) { margin, rare };
 
 /// The block's codes, as tables and as the canonical codes a long code falls back to.
 pub const Codes = struct {
@@ -265,7 +266,9 @@ inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, h
     // Each round decodes a symbol at least, which takes a bit, or ends the loop.
     const rounds_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
     for (0..rounds_max) |_| {
-        if (decode_common(options, loop) == .margin) return .margin;
+        // Decision 29: the aarch64 assembly takes the common symbols where it runs.
+        const stop = if (comptime fast_aarch64.takes(options)) fast_aarch64.decode_common(loop) else decode_common(options, loop);
+        if (stop == .margin) return .margin;
         const next = decode_rare(options, loop, codes, history);
         if (next != .go_on) return next.end();
     }
@@ -435,12 +438,12 @@ inline fn copy_near(comptime options: Options, loop: *Loop, distance: u64, len: 
 }
 
 /// A distance symbol's base, and the mask of its extra bits (RFC 1951 §3.2.5).
-const DistanceCode = packed struct(u32) { base: u16, mask: u16 };
+pub const DistanceCode = packed struct(u32) { base: u16, mask: u16 };
 
 /// Each distance symbol's base and extra bits' mask, with a slot for each value of a symbol's
 /// bits, so a combined entry's symbol indexes it with no bounds check. Symbols 30 and 31 never
 /// occur (§3.2.6), and no combined entry holds them.
-const distance_codes: [1 << @bitSizeOf(u5)]DistanceCode = codes: {
+pub const distance_codes: [1 << @bitSizeOf(u5)]DistanceCode = codes: {
     var codes: [1 << @bitSizeOf(u5)]DistanceCode = @splat(.{ .base = 0, .mask = 0 });
     for (constants.distance_base, constants.distance_extra_bits, 0..) |base, extra_bits, symbol| {
         codes[symbol] = .{ .base = base, .mask = (1 << extra_bits) - 1 };

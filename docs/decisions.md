@@ -1340,3 +1340,45 @@ entry 26 out of the owner's review of CI, entry 27 out of the owner's request fo
     - The vector UTF-8 check of claim J5 proved equal to the scalar one on every window of four
       octets, which design §10 first listed with these proofs. The owner asked for the machines;
       design §10 keeps it open.
+29. **An assembly symbol loop for the DEFLATE decoder.** Ruled by the owner on 2026-09-28, after a
+    review of the proposal, during [issue 13](https://github.com/c4milo/stdx/issues/13), which asks
+    the DEFLATE decoder to beat libdeflate's on both hosted runners. The owner had asked for
+    assembly once the Zig compiler gives no more gains, as decision 23's extension asked for the
+    Zstandard decoder. The Zig loop had stopped gaining:
+    - At fbcaf44, stdx decoded gzip at a median of 0.662 of libdeflate's speed on the EPYC 7763 and
+      0.696 on the N2 (run
+      [36372046166](https://github.com/c4milo/stdx/actions/runs/36372046166)).
+    - Five commits to the Zig loop took that to 0.856 and 0.862 at 402c953 (run
+      [36378152449](https://github.com/c4milo/stdx/actions/runs/36378152449)). The next two
+      measured 0.840 and 0.873 at b735d6a (run
+      [36380031615](https://github.com/c4milo/stdx/actions/runs/36380031615)), inside the noise.
+    - In that run, the program built ReleaseFast runs the fast path at 1.084 of its ReleaseSafe
+      speed on the EPYC and 1.119 on the N2. Without Zig's checks, the loop would reach about 0.91
+      and 0.98 of libdeflate.
+    - On the N2, stdx executes 1.27 to 1.50 times libdeflate's instructions per octet on the files
+      where it loses most (run
+      [36378148401](https://github.com/c4milo/stdx/actions/runs/36378148401)).
+
+    **The rule.**
+    - It amends decision 16 for one function: the common loop of the DEFLATE decoder's fast path
+      (`decode_common` in `fast.zig`: S1, S2, S4 and S11) may run as hand-written assembly. The
+      assembly reads and writes memory by address, without the bounds checks Zig adds, inside the
+      margins the checked Zig code sets up. aarch64 comes first, then x86-64.
+    - The assembly takes the symbols the Zig common loop takes, and leaves every other symbol to
+      `decode_rare`, in Zig: a code longer than the table, a block's end, a match that reaches the
+      window, and a value the checked path refuses.
+    - The Zig loop stays for every other target and every other claim setting. It is the
+      reference the assembly must match: the tests and the fuzzer run the assembly wherever the
+      CPU does, and `differential-deflate` compares it with zlib and Wuffs.
+    - Its loads read only the input, the tables and octets this call already wrote (invariant
+      10), a match whose distance is below a chunk included; its stores write only the room the
+      output margin holds.
+    - Decision 24's measures, once ruled, cover this loop as they cover the Zstandard loops.
+
+    The alternatives refused:
+    - `@setRuntimeSafety(false)` in the Zig loop, the exception decision 16 allows. It leaves the
+      code to the compiler, which reaches ReleaseFast's speed at best: about 0.91 and 0.98 of
+      libdeflate.
+    - Staying in Zig: the last two commits measured inside the noise.
+    - C compiled into the library. Its compiler would be LLVM, as Zig's is, so it would reach
+      about ReleaseFast's speed, and the library would hold a second language.
