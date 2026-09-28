@@ -34,9 +34,9 @@ const candidate_count = candidates.len;
 /// Where the candidate with every claim off stands in `candidates`.
 const scalar_index = candidate_count - 1;
 
-/// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3 and J5,
-/// and the encoder J1, J2 and J5.
-const decoder_claims = [_]usize{ 2, 3 };
+/// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3, and
+/// the encoder J1, J2 and J5.
+const decoder_claims = [_]usize{2};
 const encoder_claims = [_]usize{ 0, 1, 3 };
 
 /// A decode of every text of a workload by a candidate, one token a call.

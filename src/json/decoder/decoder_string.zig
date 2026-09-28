@@ -26,7 +26,7 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
             try escape_octet(decoder, reader.read_octet() catch return .{ .status = .needs_input, .kind = kind });
             continue;
         }
-        if (claims.decoder_string_vectors and decoder.utf8.between_characters()) copy_run(claims, reader, writer);
+        if (claims.decoder_string_vectors and decoder.utf8.between_characters()) copy_run(reader, writer);
         const octet = reader.read_octet() catch return .{ .status = .needs_input, .kind = kind };
         if (try string_octet(decoder, octet, reader, writer)) |outcome| return outcome;
     }
@@ -34,15 +34,13 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
     unreachable;
 }
 
-/// Copies the run of octets a string carries as they are, as far as the output has room (claims J3
-/// and J5).
-fn copy_run(comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) void {
+/// Copies the run of plain ASCII octets a string carries as they are, as far as the output has room
+/// (claim J3). A non-ASCII character takes the scalar validation: the vector UTF-8 path of claim J5
+/// left the decoder (decision 27).
+fn copy_run(reader: *codec.Reader, writer: *codec.Writer) void {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    const run_len = if (claims.utf8_vectors)
-        scan.string_run_len(constants.vector_len, window)
-    else
-        scan.plain_len_vector(constants.vector_len, window);
+    const run_len = scan.plain_len_vector(constants.vector_len, window);
     const run = reader.take(run_len) catch unreachable;
     writer.write_all(run) catch unreachable;
 }
