@@ -32,7 +32,8 @@ pub const TextWriter = struct {
     }
 
     /// Writes one token, with `octets` holding all of a name's, a string's, a hex string's or a
-    /// number's octets, and nothing for any other token.
+    /// number's octets, and nothing for any other token. After an error the text is lost: the
+    /// octets written are no text, and a new one starts with `init`.
     pub fn write(self: *TextWriter, token: Token, octets: []const u8) Error!void {
         const progress = try self.encoder.encode(token, octets, self.output[self.len..]);
         self.len += progress.written;
