@@ -1231,6 +1231,8 @@ to 12 are reordered and nothing else changes.
   **Check:**
   - A profile first: cycles, instructions and branch misses per token and per octet for stdx's
     decoder and encoder, and for simdjson's and yyjson's, on the N2, through `bench-profile`.
+  - The calls and switches each token passes through, cut where the profile finds them, each cut
+    measured by the same counters, before the index.
   - The index's vector path returns what its scalar path returns on every input the tests draw and
     the fuzzer finds, at 16, 32 and 64 octets a block, across a block's end and a call's.
   - The decoder gives the same tokens and verdicts with J6 on and off, whole, under seeded splits
@@ -1239,6 +1241,34 @@ to 12 are reordered and nothing else changes.
     features of every level the CPU runs.
   - J6's and J7's A/Bs on both runners of decision 20, and the baselines again.
   - Mutations.
+
+  **The profile, 2026-09-28.** `bench-profile` run
+  [36472497642](https://github.com/c4milo/stdx/actions/runs/36472497642) at f6f3e1f, on a
+  Neoverse N2; the x86-64 runner, an AMD EPYC 7763, refused perf_event_open. Per token, with every
+  claim on:
+
+  | Workload | Side | stdx, cycles | stdx, instructions | simdjson, cycles | simdjson, instructions | yyjson, cycles | yyjson, instructions |
+  |---|---|---|---|---|---|---|---|
+  | CLDR | decoding | 169.8 | 601.5 | 31.1 | 109.0 | 27.9 | 107.1 |
+  | qlog | decoding | 187.6 | 623.6 | 29.6 | 108.7 | 28.4 | 106.7 |
+  | CLDR | encoding | 129.9 | 598.7 | 25.1 | 102.1 | 27.1 | 105.4 |
+  | qlog | encoding | 120.1 | 541.2 | 22.4 | 100.1 | 28.3 | 117.7 |
+
+  - stdx runs as many instructions a cycle as the baselines, 3.3 to 4.6, and misses a branch 0.3
+    to 0.6 times a token: at docs/costs.md's 4.03 ns a mispredict on the N2, 2% to 4% of a token's
+    time. It loses on the instructions a token takes, five to six times theirs.
+  - perf sampled the same program at 20 kHz on the N2, in run
+    [36473532959](https://github.com/c4milo/stdx/actions/runs/36473532959) of the branch
+    `exp-json-perf`, which is never merged. qlog's decoding spent its time in `Decoder.step` 24%,
+    the benchmark's loop with `decode_with` inline 19%, `Number.accept`, called once a digit, 9%,
+    `continue_token` 6%, `plain_len_vector` 6%, `content` 5%, `decoder_value.number` 5%,
+    `copy_run` 4%, `separator_or_end` 4%, `skip_whitespace` 4%, `value` 3% and `write_pending`
+    3%. CLDR's took the same shape. qlog's encoding spent 51% in its loop with `encode_with`
+    inline, 22% in `Encoder.open` and 11% in `memcpy`, called for copies of a few octets.
+  - The scans the index would replace, of whitespace, strings and numbers, take about a quarter of
+    qlog's decoding time, and decision 29 keeps their checks. The rest is the calls and switches
+    each token passes through. So the step cuts those first, and builds the index where the
+    profile then finds the scans.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
