@@ -180,8 +180,19 @@ pub fn after_literals(state: *const State) Phase {
     return if (state.meta_block_left == 0) .meta_block_end else .distance;
 }
 
+/// The command's literals while their block, the output and the input hold them, one at a time
+/// (`read_literal`): at most its insert length.
+pub fn read_literals(state: *State, bits: *codec.BitReader, out: anytype) ?codec.Status {
+    assert(state.command.insert_left > 0);
+    for (0..state.command.insert_left) |_| {
+        if (read_literal(state, bits, out)) |status| return status;
+        if (state.phase != .literal) return null;
+    }
+    return null;
+}
+
 /// One literal, with the literal prefix code its block type and context pick (RFC 7932 §7.1, §7.3).
-pub fn read_literal(state: *State, bits: *codec.BitReader, out: anytype) ?codec.Status {
+fn read_literal(state: *State, bits: *codec.BitReader, out: anytype) ?codec.Status {
     assert(state.command.insert_left > 0);
     if (needs_switch(state, .literal)) return start_switch(state, .literal, .literal);
     if (!out.has_room()) return .needs_room;
