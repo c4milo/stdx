@@ -19,8 +19,9 @@
 //! stdx is built for the architecture's baseline CPU and ReleaseSafe, as a caller shipping one
 //! binary builds it (decisions 17 and 21), so the vectors are SSE2's and NEON's 16 octets.
 //!
-//! Usage: `bench_json <name>=<path>... cldr=<directory>`. It prints Markdown tables to standard
-//! output.
+//! Usage: `bench_json [--profile] <name>=<path>... cldr=<directory>`. It prints Markdown tables to
+//! standard output. With `--profile`, it counts the hardware counters of json_profile.zig instead
+//! of timing.
 
 const std = @import("std");
 const timing = @import("timing");
@@ -28,6 +29,7 @@ const json = @import("json");
 const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
 const baselines = @import("baselines/baselines.zig");
+const json_profile = @import("json_profile.zig");
 const Item = workloads.Item;
 const Workload = workloads.Workload;
 
@@ -159,9 +161,19 @@ fn rates_of(runs: *const [operation_count][timing.run_count]f64, octets: usize) 
     return rates;
 }
 
-fn time_decode(arena: std.mem.Allocator, io: std.Io, workload: *const Workload) !Rates {
+/// One side of one workload: every operation, checked against the reference before any runs, and
+/// the octets one run of each counts.
+const Side = struct {
+    operations: [operation_count]timing.Operation,
+    octets: usize,
+};
+
+/// The decoding side of `workload`: each candidate must count the tokens the reference counts and
+/// write the same octets for them, and each baseline, whose inputs `prepared` holds, must count
+/// them too.
+fn decoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *const baselines.Prepared) !Side {
     const output = try arena.alloc(u8, @max(workload.content_len_max, 1));
-    var operations: [operation_count]timing.Operation = undefined;
+    var side: Side = .{ .operations = undefined, .octets = workload.octets };
     const reference = decode(json.claims.scalar, workload, output);
     const reference_hash = tokens_hash(json.claims.scalar, workload, output);
     inline for (candidates, 0..) |claims, index| {
@@ -169,40 +181,45 @@ fn time_decode(arena: std.mem.Allocator, io: std.Io, workload: *const Workload) 
         state.* = .{ .workload = workload, .output = output };
         if (!std.meta.eql(decode(claims, workload, output), reference)) return error.CandidatesDiffer;
         if (tokens_hash(claims, workload, output) != reference_hash) return error.CandidatesDiffer;
-        operations[index] = .{ .context = state, .run_once = Decode(claims).run_once };
+        side.operations[index] = .{ .context = state, .run_once = Decode(claims).run_once };
     }
-    var baseline_memory: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer baseline_memory.deinit();
-    var prepared = try baselines.prepare(baseline_memory.allocator(), workload);
-    defer prepared.deinit();
-    operations[candidate_count..].* = try baselines.decode_operations(&prepared, reference);
-    var runs: [operation_count][timing.run_count]f64 = undefined;
-    timing.time_interleaved(io, &operations, &runs);
-    return rates_of(&runs, workload.octets);
+    side.operations[candidate_count..].* = try baselines.decode_operations(prepared, reference);
+    return side;
 }
 
-fn time_encode(arena: std.mem.Allocator, io: std.Io, workload: *const Workload) !Rates {
+/// The encoding side of `workload`: each candidate must write the reference's octets, and each
+/// baseline's text must decode to what the reference's does.
+fn encoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *const baselines.Prepared) !Side {
     var output_len: usize = 0;
     for (workload.items) |items| output_len += workloads.encoded_len_max(items);
     const output = try arena.alloc(u8, output_len);
     const reference = try arena.dupe(u8, output[0..encode(json.claims.scalar, workload, output)]);
-    var operations: [operation_count]timing.Operation = undefined;
+    var side: Side = .{ .operations = undefined, .octets = reference.len };
     inline for (candidates, 0..) |claims, index| {
         const state = try arena.create(Encode(claims));
         state.* = .{ .workload = workload, .output = output };
         const len = encode(claims, workload, output);
         if (!std.mem.eql(u8, reference, output[0..len])) return error.CandidatesDiffer;
-        operations[index] = .{ .context = state, .run_once = Encode(claims).run_once };
+        side.operations[index] = .{ .context = state, .run_once = Encode(claims).run_once };
     }
+    const storage = try arena.alloc(u8, output_len);
+    side.operations[candidate_count..].* = try baselines.encode_operations(prepared, workload, storage);
+    return side;
+}
+
+/// Builds one side of a workload: `decoding` or `encoding`.
+const Build = fn (arena: std.mem.Allocator, workload: *const Workload, prepared: *const baselines.Prepared) anyerror!Side;
+
+/// Times every operation of one side of `workload`, interleaved.
+fn time(arena: std.mem.Allocator, io: std.Io, workload: *const Workload, comptime build: Build) !Rates {
     var baseline_memory: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer baseline_memory.deinit();
     var prepared = try baselines.prepare(baseline_memory.allocator(), workload);
     defer prepared.deinit();
-    const storage = try baseline_memory.allocator().alloc(u8, output_len);
-    operations[candidate_count..].* = try baselines.encode_operations(&prepared, workload, storage);
+    const side = try build(arena, workload, &prepared);
     var runs: [operation_count][timing.run_count]f64 = undefined;
-    timing.time_interleaved(io, &operations, &runs);
-    return rates_of(&runs, reference.len);
+    timing.time_interleaved(io, &side.operations, &runs);
+    return rates_of(&runs, side.octets);
 }
 
 /// stdx's throughput with every claim on, beside the baselines'.
@@ -255,22 +272,28 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [4096]u8 = undefined;
     var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
-    const all = try load(arena, io, try init.minimal.args.toSlice(arena));
+    const args = try init.minimal.args.toSlice(arena);
+    const profiling = args.len > 1 and std.mem.eql(u8, args[1], "--profile");
+    const all = try load(arena, io, if (profiling) args[2..] else args[1..]);
+    if (profiling) {
+        try profile(arena, out, all);
+        return out.flush();
+    }
     var losses: std.ArrayList(Loss) = .empty;
-    const decoding = try arena.alloc(baselines.Row, all.len);
-    const encoding = try arena.alloc(baselines.Row, all.len);
+    const decoding_rows = try arena.alloc(baselines.Row, all.len);
+    const encoding_rows = try arena.alloc(baselines.Row, all.len);
 
     try header(out, "Decoding", &decoder_claims, "Octets are the text's.");
-    for (all, decoding) |*workload, *row| {
-        const rates = try time_decode(arena, io, workload);
+    for (all, decoding_rows) |*workload, *row| {
+        const rates = try time(arena, io, workload, decoding);
         row.* = baseline_row(workload, rates, workload.octets);
         try report_row(out, workload, rates, &decoder_claims, workload.octets);
         try record_losses(arena, &losses, workload, "decoding", rates, &decoder_claims);
         try out.flush();
     }
     try header(out, "Encoding", &encoder_claims, "Octets are the ones written.");
-    for (all, encoding) |*workload, *row| {
-        const rates = try time_encode(arena, io, workload);
+    for (all, encoding_rows) |*workload, *row| {
+        const rates = try time(arena, io, workload, encoding);
         row.* = baseline_row(workload, rates, workload.octets);
         try report_row(out, workload, rates, &encoder_claims, workload.octets);
         try record_losses(arena, &losses, workload, "encoding", rates, &encoder_claims);
@@ -282,15 +305,38 @@ pub fn main(init: std.process.Init) !void {
         const name = if (loss.claim < json.claims.each_off.len) json.claims.each_off_names[loss.claim] else "every claim";
         try out.print("- {s}, {s}: {s} off runs at {d:.3} of all on.\n", .{ loss.workload, loss.side, name, loss.ratio });
     }
-    try baselines.report(out, decoding, encoding);
+    try baselines.report(out, decoding_rows, encoding_rows);
     try out.flush();
 }
 
-/// The workloads, from the corpus files and the CLDR directory the arguments name.
+/// `--profile`: json_profile.zig's counters over both sides of the workloads it takes.
+fn profile(arena: std.mem.Allocator, out: *std.Io.Writer, all: []const Workload) !void {
+    if (comptime !timing.counters.available) return json_profile.unavailable(out, "they are read through Linux's perf_event_open, and this host is not Linux");
+    const open = timing.counters.Counters.open() catch return json_profile.unavailable(out, "perf_event_open refused them");
+    try profile_side(arena, out, &open, all, "decoding", decoding);
+    try profile_side(arena, out, &open, all, "encoding", encoding);
+}
+
+fn profile_side(arena: std.mem.Allocator, out: *std.Io.Writer, open: *const timing.counters.Counters, all: []const Workload, side_name: []const u8, comptime build: Build) !void {
+    const places: json_profile.Places = .{ .all_on = 0, .all_off = scalar_index, .first_baseline = candidate_count };
+    try json_profile.header(out, side_name);
+    for (all) |*workload| {
+        if (!json_profile.is_profiled(workload)) continue;
+        var baseline_memory: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+        defer baseline_memory.deinit();
+        var prepared = try baselines.prepare(baseline_memory.allocator(), workload);
+        defer prepared.deinit();
+        const side = try build(arena, workload, &prepared);
+        try json_profile.rows(out, open, workload, &side.operations, side.octets, places);
+        try out.flush();
+    }
+}
+
+/// The workloads, from the corpus files and the CLDR directory `args` name.
 fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) ![]const Workload {
     var files: std.ArrayList(workloads.File) = .empty;
     var cldr: std.ArrayList(workloads.File) = .empty;
-    for (args[1..]) |argument| {
+    for (args) |argument| {
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
         const name = argument[0..split];
         const path = argument[split + 1 ..];

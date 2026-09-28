@@ -16,14 +16,14 @@
 //! Usage: `bench_profile <name>=<path>...`. It prints a Markdown table to standard output.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const linux = std.os.linux;
 const oracle = @import("oracle");
 const codec = @import("codec");
 const gzip = @import("gzip");
 const deflate = @import("deflate");
 const zstd = @import("zstd");
 const baselines = @import("baselines");
+const timing = @import("timing");
+const Counters = timing.counters.Counters;
 
 /// The zlib level of the streams, bench-deflate's.
 const encode_level: c_int = 6;
@@ -33,47 +33,6 @@ const zstd_level: c_int = 3;
 
 /// The octets each decoder writes per file, at least, over as many decodes as that takes.
 const decoded_len_min = 16 * 1024 * 1024;
-
-/// The counters, as perf_event_open numbers them.
-const events = [_]linux.PERF.COUNT.HW{ .CPU_CYCLES, .INSTRUCTIONS, .BRANCH_INSTRUCTIONS, .BRANCH_MISSES };
-
-const Counters = struct {
-    fds: [events.len]i32,
-
-    /// Opens every counter for this thread, disabled, in user space alone.
-    fn open() error{Unavailable}!Counters {
-        var counters: Counters = undefined;
-        for (events, &counters.fds) |event, *fd| {
-            var attr: linux.perf_event_attr = .{
-                .type = .HARDWARE,
-                .config = @intFromEnum(event),
-                .flags = .{ .disabled = true, .exclude_kernel = true, .exclude_hv = true },
-            };
-            const result = linux.perf_event_open(&attr, 0, -1, -1, linux.PERF.FLAG.FD_CLOEXEC);
-            if (linux.errno(result) != .SUCCESS) {
-                std.debug.print("bench-profile: perf_event_open for {t}: {t}\n", .{ event, linux.errno(result) });
-                return error.Unavailable;
-            }
-            fd.* = @intCast(result);
-        }
-        return counters;
-    }
-
-    fn start(self: *const Counters) void {
-        for (self.fds) |fd| _ = linux.ioctl(fd, linux.PERF.EVENT_IOC.RESET, 0);
-        for (self.fds) |fd| _ = linux.ioctl(fd, linux.PERF.EVENT_IOC.ENABLE, 0);
-    }
-
-    fn stop(self: *const Counters) [events.len]u64 {
-        for (self.fds) |fd| _ = linux.ioctl(fd, linux.PERF.EVENT_IOC.DISABLE, 0);
-        var counts: [events.len]u64 = undefined;
-        for (self.fds, &counts) |fd, *count| {
-            var octets: [@sizeOf(u64)]u8 = undefined;
-            count.* = if (linux.read(fd, &octets, octets.len) == octets.len) std.mem.readInt(u64, &octets, .little) else 0;
-        }
-        return counts;
-    }
-};
 
 /// What a decoder needs besides the stream: stdx's states, the features they pick paths by, and
 /// libzstd's context, kept across decodes as bench-zstd keeps it.
@@ -185,9 +144,9 @@ fn report_counters(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, co
             for (0..rounds) |_| std.mem.doNotOptimizeAway(candidate.decode(context, stream, output));
             const counts = counters.stop();
             const octets: f64 = @floatFromInt(rounds * input.len);
-            const cycles: f64 = @floatFromInt(counts[0]);
-            const instructions: f64 = @floatFromInt(counts[1]);
-            const misses: f64 = @floatFromInt(counts[3]);
+            const cycles: f64 = @floatFromInt(counts[timing.counters.cycles]);
+            const instructions: f64 = @floatFromInt(counts[timing.counters.instructions]);
+            const misses: f64 = @floatFromInt(counts[timing.counters.branch_misses]);
             try out.print("| {s} | {d} | {s} | {d:.2} | {d:.2} | {d:.2} | {d:.2} |\n", .{
                 argument[0..split],     input.len,             candidate.name,
                 cycles / octets,        instructions / octets, instructions / @max(1, cycles),
@@ -212,7 +171,7 @@ pub fn main(init: std.process.Init) !void {
         const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
         try report_lookups(arena, out, argument[0..split], input);
     }
-    if (comptime builtin.os.tag != .linux) {
+    if (comptime !timing.counters.available) {
         try out.print("\n## Hardware counters per decoded octet\n\nHardware counters are read through Linux's perf_event_open; this host is not Linux.\n", .{});
         try out.flush();
         return;

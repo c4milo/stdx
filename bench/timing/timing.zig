@@ -8,6 +8,9 @@
 
 const std = @import("std");
 
+/// Hardware counters, for bench-profile.
+pub const counters = @import("counters.zig");
+
 /// Runs per measurement; decision 10 reports the median of five.
 pub const run_count = 5;
 

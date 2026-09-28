@@ -6,7 +6,7 @@ const oracle_corpus = @import("oracle_corpus.zig");
 
 /// `bench/json/json.zig` over the corpus files and CLDR's JSON texts: the json module's vector paths
 /// against its scalar ones (decision 27), built as the other benchmarks build stdx.
-pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, corpus: oracle_corpus.Corpus, graph: modules.Modules, baseline: std.Build.ResolvedTarget) ?*std.Build.Step.Run {
+pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, graph: modules.Modules, baseline: std.Build.ResolvedTarget) ?*std.Build.Step.Compile {
     const module = b.createModule(.{
         .root_source_file = b.path("bench/json/json.zig"),
         .target = baseline,
@@ -29,11 +29,20 @@ pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, corpus: oracle_c
     module.linkLibrary(add_json_baselines(b) orelse return null);
     const program = b.addExecutable(.{ .name = "bench_json", .root_module = module });
     b.installArtifact(program);
-    const run = b.addRunArtifact(program);
-    run.has_side_effects = true;
-    oracle_corpus.add_args(b, run, corpus);
-    run.addPrefixedDirectoryArg("cldr=", corpus.cldr_supplemental);
-    return run;
+    return program;
+}
+
+/// What a run of bench-json does: time every candidate, or count the hardware counters per token.
+pub const Mode = enum { time, profile };
+
+/// A run of bench-json over the corpus files and CLDR's JSON texts.
+pub fn run(b: *std.Build, program: *std.Build.Step.Compile, corpus: oracle_corpus.Corpus, mode: Mode) *std.Build.Step.Run {
+    const program_run = b.addRunArtifact(program);
+    program_run.has_side_effects = true;
+    if (mode == .profile) program_run.addArg("--profile");
+    oracle_corpus.add_args(b, program_run, corpus);
+    program_run.addPrefixedDirectoryArg("cldr=", corpus.cldr_supplemental);
+    return program_run;
 }
 
 /// simdjson and yyjson, bench-json's C and C++ baselines, with their bindings in

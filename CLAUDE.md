@@ -314,8 +314,11 @@ Change this section when a step adds or renames a command.
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder, and for libzstd's and stdx's Zstandard
   decoders, over every corpus file, through Linux's perf_event_open, and says so where the host
-  exposes no counters. The `bench` workflow's `profile` option runs it
-  on both hosted runners, after allowing a process to count its own events.
+  exposes no counters. Last, `bench_json --profile` counts them per token and per octet for the
+  `json` module's decoder and encoder, with every claim on and every claim off, and for simdjson,
+  yyjson and Zig's std.json, over one workload of each shape (`bench/json/json_profile.zig`). The
+  `bench` workflow's `profile` option runs it on both hosted runners, after allowing a process to
+  count its own events.
 - JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder
   with every vector path on, each of claims J1, J2, J3 and J5 off in turn, and every one off, over CLDR's
   JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text
