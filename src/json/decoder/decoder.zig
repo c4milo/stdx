@@ -6,7 +6,8 @@
 //! (decision 15): a byte order mark, a lone surrogate, and a text deeper than `depth_max` are
 //! refused. It reports every member of an object, duplicates included, in order (RFC 8259 §4).
 //! Its state is a plain value (invariant 12), and a call's work is bounded by the octets it
-//! consumes and writes (invariant 17).
+//! consumes and writes (invariant 17). Between tokens, a call tries claim J8's fast path first
+//! (decoder_fast.zig), and takes the checked path below for every case the fast path leaves.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,6 +22,7 @@ const Piece = framing_file.Piece;
 const Utf8 = @import("../utf8.zig").Utf8;
 const strings = @import("decoder_string.zig");
 const values = @import("decoder_value.zig");
+const fast = @import("decoder_fast.zig");
 
 /// A token of RFC 8259's grammar (§2): the four structural characters a caller sees, a member's
 /// name, a string, a number, and the three literal names.
@@ -212,6 +214,9 @@ pub const Decoder = struct {
     /// call of its own.
     inline fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
         if (self.open != .none) return self.continue_token(claims, reader, writer, piece);
+        if (claims.decoder_fast_path and self.stage == .tokens) {
+            if (fast.token(self, claims, reader, writer)) |outcome| return outcome;
+        }
         for (0..constants.decoder_steps_max) |_| {
             if (try self.step(claims, reader, writer, piece)) |outcome| return outcome;
         }
@@ -352,7 +357,7 @@ pub const Decoder = struct {
         return error.ExpectedValueSeparator;
     }
 
-    fn begin_container(self: *Decoder, octet: u8) Error!Outcome {
+    pub fn begin_container(self: *Decoder, octet: u8) Error!Outcome {
         // RFC 8259 §9: an implementation may limit the depth of nesting.
         if (self.depth == constants.depth_max) return error.DepthTooLarge;
         const object = octet == constants.begin_object;
@@ -362,7 +367,7 @@ pub const Decoder = struct {
         return .{ .status = .token, .kind = if (object) .begin_object else .begin_array };
     }
 
-    fn end_container(self: *Decoder, kind: Kind) Outcome {
+    pub fn end_container(self: *Decoder, kind: Kind) Outcome {
         assert(self.depth > 0 and self.containers.isSet(self.depth - 1) == (kind == .end_object));
         self.depth -= 1;
         self.value_ended(kind);
@@ -424,10 +429,12 @@ pub fn kind_of(open: Open) Kind {
     };
 }
 
-/// Takes the whitespace at the reader's position (RFC 8259 §2), and returns how much.
-fn skip_whitespace(reader: *codec.Reader) usize {
+/// Takes the whitespace at the reader's position (RFC 8259 §2), and returns how much. Between the
+/// tokens of a compact text there is none, which the first octet shows without the scan.
+pub inline fn skip_whitespace(reader: *codec.Reader) usize {
     const window = reader.take_partial(reader.remaining_len());
     reader.unread(window.len);
+    if (window.len == 0 or !scan.is_whitespace(window[0])) return 0;
     const len = scan.whitespace_len_scalar(window);
     _ = reader.take(len) catch unreachable;
     return len;
@@ -453,6 +460,8 @@ fn check_progress(input_len: usize, output_len: usize, progress: Progress) void 
 test {
     _ = strings;
     _ = values;
+    _ = fast;
+    _ = @import("decoder_fast_test.zig");
     _ = @import("decoder_test.zig");
     _ = @import("decoder_refusal_test.zig");
     _ = @import("decoder_fuzz_test.zig");

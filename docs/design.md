@@ -1270,6 +1270,29 @@ to 12 are reordered and nothing else changes.
     each token passes through. So the step cuts those first, and builds the index where the
     profile then finds the scans.
 
+  **J8, 2026-09-28.** The fast path of decision 30, in `decoder_fast.zig`.
+  `decoder_fast_test.zig` requires the same progress, octets, error and state after every call
+  with J8 on and off:
+  - over its texts and 1,500 seeded corruptions of them, and over every input the fuzzer draws;
+  - in both framings, whole and under 4 seeded splits of the input and the output;
+  - beside every other claim on, and beside every other claim off.
+
+  It also requires the fast path to take every token of three texts but the first, and a number
+  and a string that fill the output exactly. Mutations, each against `zig build test-json`:
+  - CAUGHT, each of 17:
+    - a string's closing octet unchecked, and its window one octet past the room;
+    - a number that fills the output left to the checked path;
+    - `ended_in` counting the octet that ends the number, and taking a number the input cuts;
+    - a value separator in an object expecting a value, and a name separator unchecked;
+    - an object's end closing an array, and no depth limit;
+    - a literal name's later letters unchecked, and a name taken as a string;
+    - `matched` left at 0, and `number` not set;
+    - a token taken after the text's value;
+    - whitespace's first octet tested inverted;
+    - the fast path tried before the text's tokens, and a fallback keeping the octets it read.
+  - NOT CAUGHT: the reset of the UTF-8 check. It changed nothing, since the check stands at `.{}`
+    between tokens, so an assertion of that replaced it.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

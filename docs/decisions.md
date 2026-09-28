@@ -9,8 +9,8 @@ stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
 and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to 25 out of step 11,
 entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, entry 28
-out of the owner's request that its state machines be proved, and entry 29 out of the baselines'
-numbers.
+out of the owner's request that its state machines be proved, entry 29 out of the baselines'
+numbers, and entry 30 out of design §8 step 17's profile.
 
 ## Scope and shape
 
@@ -1451,3 +1451,38 @@ numbers.
       target alone, and entry 27 found that width measured by nothing.
     - `init` keeping its arguments, with an `init_with` that takes the features. The owner ruled for
       one way to start each type.
+
+30. **A fast path for each token of the `json` decoder (claim J8).** **owner** Proposed on
+    2026-09-28 from design §8 step 17's profile. On the N2, stdx's decoder takes 600 to 625
+    instructions a token, five to six times simdjson's and yyjson's. perf put about a quarter of them
+    in the scans entry 29's index would replace, and the rest in the calls and switches each token
+    passes through.
+
+    **The fast path.** At the start of a call between tokens, the decoder takes the next token in
+    one straight line, when the input holds all of it and the output has room for its octets:
+    - whitespace, and at most one separator;
+    - then a structural character, a name or a string of plain ASCII, a whole number with the
+      octet that ends it, or a literal name.
+
+    Every other case returns having consumed nothing and changed nothing, and the checked path takes
+    the call from its start: an escape, a non-ASCII octet, a record separator, a token the input
+    cuts, an output without the room, and every refusal.
+    - It reads through the checked reader and writes through the checked writer. It reads each
+      octet the grammar turns on with `read_octet`, counts each run with a scan of `scan.zig` or
+      `number.zig`, and takes the run with `take`. So entry 16 needs no new exception, and the
+      input-index rule reads it.
+    - It leaves the state the checked path leaves, field for field. The tests require the same
+      progress and the same state after every call with J8 on and off, whole and under seeded
+      splits.
+    - It is claim J8, switched at comptime as J1 to J5 are. Off, every token takes the checked path,
+      the reference (entry 16).
+
+    The encoder's profile has the same shape. Its fast path waits on J8's measure.
+
+    The alternatives refused:
+    - Inlining the checked path's functions alone. The calls go, but each token still passes the
+      same switches, and what LLVM inlines changes with the callers each build gives it, the fault
+      entry 27's benchmark found.
+    - Many tokens a call. The owner kept one token a call (entry 29).
+    - A fast path that indexes the input itself, as DEFLATE's does. Entry 16 would have to name it,
+      and the profile did not find the checked reader's cost.

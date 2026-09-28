@@ -1,13 +1,14 @@
-//! bench-json: the json module's vector paths, claims J1, J2, J3 and J5 of decision 27, each off
-//! against all on, measured the way decisions 10, 20 and 21 fix: every candidate in this one
-//! program, interleaved in the same run, five runs each, the median and the spread reported, and
-//! the losses shown. The timing is bench/timing/timing.zig's.
+//! bench-json: the json module's vector paths, claims J1, J2, J3 and J5 of decision 27, and its
+//! decoder's fast path, claim J8 of decision 30, each off against all on, measured the way
+//! decisions 10, 20 and 21 fix: every candidate in this one program, interleaved in the same run,
+//! five runs each, the median and the spread reported, and the losses shown. The timing is
+//! bench/timing/timing.zig's.
 //!
 //! The candidates, per workload of json_workloads.zig:
 //! - every claim on, as `encode` and `decode` run;
 //! - each claim off in turn;
-//! - every claim off: the scalar paths alone, the reference (decision 16) and the baseline each
-//!   vector path is priced against.
+//! - every claim off: the scalar and checked paths alone, the reference (decision 16) and the
+//!   baseline each vector path and the fast path are priced against.
 //!
 //! Decoding counts the text's octets; encoding counts the octets it writes. Every candidate's
 //! output is compared with the reference's before any is timed. The timed decode counts each token
@@ -46,9 +47,9 @@ comptime {
     for (candidates) |claims| std.debug.assert(!std.meta.eql(claims, workloads.setup_claims));
 }
 
-/// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3 and
-/// J5, and the encoder J1, J2 and J5.
-const decoder_claims = [_]usize{ 2, 3 };
+/// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3, J5
+/// and J8, and the encoder J1, J2 and J5.
+const decoder_claims = [_]usize{ 2, 3, 4 };
 const encoder_claims = [_]usize{ 0, 1, 3 };
 
 /// A decode of every text of a workload by a candidate, one token a call.
@@ -258,7 +259,7 @@ fn record_losses(arena: std.mem.Allocator, losses: *std.ArrayList(Loss), workloa
 }
 
 fn header(out: *std.Io.Writer, title: []const u8, claims: []const usize, octets_are: []const u8) !void {
-    try out.print("\n## {s}\n\nEach claim's column is the throughput with the claim off over the throughput with every claim on; above 1, the vector path lost. {s}\n\n", .{ title, octets_are });
+    try out.print("\n## {s}\n\nEach claim's column is the throughput with the claim off over the throughput with every claim on; above 1, the claim's path lost. {s}\n\n", .{ title, octets_are });
     try out.print("| Workload | Octets | All on, MB/s |", .{});
     for (claims) |claim| try out.print(" {s} off |", .{json.claims.each_off_names[claim]});
     try out.print(" All off |\n|---|---|---|", .{});
@@ -299,7 +300,7 @@ pub fn main(init: std.process.Init) !void {
         try record_losses(arena, &losses, workload, "encoding", rates, &encoder_claims);
         try out.flush();
     }
-    try out.print("\n## Losses\n\nEach workload where a vector path ran slower than the scalar path by more than the noise floor of decision 20.\n\n", .{});
+    try out.print("\n## Losses\n\nEach workload where a claim's path ran slower than the path it replaces by more than the noise floor of decision 20.\n\n", .{});
     if (losses.items.len == 0) try out.print("None.\n", .{});
     for (losses.items) |loss| {
         const name = if (loss.claim < json.claims.each_off.len) json.claims.each_off_names[loss.claim] else "every claim";

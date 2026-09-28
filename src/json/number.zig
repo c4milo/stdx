@@ -58,7 +58,7 @@ pub const Number = struct {
     /// Takes the next octet, and says whether it belongs to the number (RFC 8259 §6). A digit
     /// after a lone zero is invalid rather than the start of what follows: leading zeros are not
     /// allowed, and a caller would otherwise see the number 0 where the text holds none.
-    pub fn accept(self: *Number, octet: u8) Step {
+    pub inline fn accept(self: *Number, octet: u8) Step {
         if (self.state == .zero and is_digit(octet)) return .invalid;
         const next = next_state(self.state, octet) orelse return if (self.whole()) .ended else .invalid;
         self.state = next;
@@ -104,6 +104,24 @@ fn next_state(state: State, octet: u8) ?State {
     return transitions.get(state)[@intFromEnum(class_of(octet))];
 }
 
+/// A whole number that an octet after it ends: the octets it took, and the machine after them.
+pub const Ended = struct { len: usize, number: Number };
+
+/// The number that starts `octets`, when it is whole and an octet of `octets` ends it (RFC 8259
+/// §6), for claim J8. Null when an octet cannot come next and the number is not whole before it,
+/// and when the number runs to the end of `octets`, where it may go on.
+pub fn ended_in(octets: []const u8) ?Ended {
+    var number: Number = .{};
+    for (octets, 0..) |octet, index| {
+        switch (number.accept(octet)) {
+            .taken => {},
+            .ended => return .{ .len = index, .number = number },
+            .invalid => return null,
+        }
+    }
+    return null;
+}
+
 /// True for an octet that can start a number (RFC 8259 §6).
 pub fn starts_number(octet: u8) bool {
     return octet == constants.minus or is_digit(octet);
@@ -147,6 +165,25 @@ test "a number ends before an octet that follows it, and a cut one does not" {
     try testing.expectEqual(.ended, number.accept(']'));
     number = .{ .state = .fraction };
     try testing.expectEqual(.ended, number.accept('.'));
+}
+
+test "ended_in finds a whole number an octet ends, and nothing where it is cut or invalid" {
+    const ended = [_]struct { octets: []const u8, len: usize, state: State }{
+        .{ .octets = "12,", .len = 2, .state = .integer },
+        .{ .octets = "-0.5e+3]", .len = 7, .state = .exponent },
+        .{ .octets = "0 ", .len = 1, .state = .zero },
+        .{ .octets = "1.25}", .len = 4, .state = .fraction },
+        .{ .octets = "7\x1e", .len = 1, .state = .integer },
+    };
+    for (ended) |case| {
+        const found = ended_in(case.octets) orelse return error.TestExpectedEnded;
+        try testing.expectEqual(case.len, found.len);
+        try testing.expectEqual(case.state, found.number.state);
+    }
+    // Cut at the end, where it may go on, and invalid before its end.
+    for ([_][]const u8{ "", "12", "-", "1.5e", "01,", "-,", "1.x", "1e+]" }) |octets| {
+        try testing.expectEqual(null, ended_in(octets));
+    }
 }
 
 test "every text of up to six octets of the grammar's letters is judged as RFC 8259 §6's rules judge it" {

@@ -49,14 +49,15 @@ const hex_len_max = 256 << 10;
 const string_len_min = 64 << 10;
 
 /// The claims the workloads are built with. J1 and J3 off turn J5 off with them, so every path is
-/// scalar, as with every claim off; but no candidate takes this value, so building the workloads
-/// gives no candidate's codec a second caller, which would change how LLVM inlines it (`encode` in
-/// json.zig).
+/// scalar or checked, as with every claim off; but no candidate takes this value, so building the
+/// workloads gives no candidate's codec a second caller, which would change how LLVM inlines it
+/// (`encode` in json.zig).
 pub const setup_claims: json.Claims = .{
     .encoder_string_vectors = false,
     .hex_vectors = false,
     .decoder_string_vectors = false,
     .utf8_vectors = true,
+    .decoder_fast_path = false,
 };
 
 /// The qlog-shaped records the log holds, and the seed they are drawn from.
