@@ -32,32 +32,29 @@ fn string(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *cod
         if (!encoder.write_pending(writer)) return .needs_room;
         if (reader.remaining_len() == 0) return end_of_string(encoder, piece);
         if (claims.encoder_string_vectors and encoder.utf8.between_characters()) {
-            copy_run(claims, reader, writer);
+            copy_run(reader, writer);
             if (reader.remaining_len() == 0) continue;
         }
-        if (!try string_octet(encoder, reader, writer)) return .needs_room;
+        if (!try string_octet(claims, encoder, reader, writer)) return .needs_room;
     }
     // Each pass that does not return takes at least one octet.
     unreachable;
 }
 
-/// Copies the run of octets that need no escape, as far as the output has room (claims J1 and J5).
-fn copy_run(comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) void {
+/// Copies the run of plain ASCII octets, as far as the output has room (claim J1).
+fn copy_run(reader: *codec.Reader, writer: *codec.Writer) void {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    const run_len = if (claims.utf8_vectors)
-        scan.string_run_len(constants.vector_len, window)
-    else
-        scan.plain_len_vector(constants.vector_len, window);
-    const run = reader.take(run_len) catch unreachable;
+    const run = reader.take(scan.plain_len_vector(constants.vector_len, window)) catch unreachable;
     writer.write_all(run) catch unreachable;
 }
 
 /// Takes the next octet of a string: escapes it, or checks it as UTF-8 and copies it. Returns false
 /// when the output has no room for it, and then leaves it unread.
-fn string_octet(encoder: *Encoder, reader: *codec.Reader, writer: *codec.Writer) Error!bool {
+fn string_octet(comptime claims: Claims, encoder: *Encoder, reader: *codec.Reader, writer: *codec.Writer) Error!bool {
     const octet = reader.read_octet() catch unreachable;
-    if (encoder.utf8.between_characters() and octet < constants.non_ascii_min and !scan.is_plain_ascii(octet)) {
+    const between_characters = encoder.utf8.between_characters();
+    if (between_characters and octet < constants.non_ascii_min and !scan.is_plain_ascii(octet)) {
         hold_escape(encoder, octet);
         return true;
     }
@@ -65,10 +62,28 @@ fn string_octet(encoder: *Encoder, reader: *codec.Reader, writer: *codec.Writer)
         reader.unread(1);
         return false;
     }
+    // Claim J5 starts past the escapes, so a string of ASCII runs what it runs with J5 off.
+    if (claims.encoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
+        reader.unread(1);
+        if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return true;
+        _ = reader.read_octet() catch unreachable;
+    }
     // RFC 8259 §8.1 and RFC 3629 §4: a string's octets are UTF-8.
     if (!encoder.utf8.accept(octet)) return error.InvalidUtf8;
     writer.write_octet(octet) catch unreachable;
     return true;
+}
+
+/// Copies the whole UTF-8 characters and plain ASCII octets that start the rest of the input, as
+/// far as the output has room, and returns how many octets it copied (claim J5). It copies none
+/// when the first character is not UTF-8, or the input or the room cuts it: the scalar validation
+/// then takes it.
+fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
+    const window = reader.take_partial(writer.room_len());
+    reader.unread(window.len);
+    const run = reader.take(scan.content_len_vector(constants.vector_len, window)) catch unreachable;
+    writer.write_all(run) catch unreachable;
+    return run.len;
 }
 
 /// Holds the escape of a quotation mark, a reverse solidus or a control character (RFC 8259 §7):

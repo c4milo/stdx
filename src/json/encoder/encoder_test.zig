@@ -231,7 +231,7 @@ test "a sequence's text is a record separator, the text and a line feed (RFC 746
 }
 
 test "a name or a string that is not UTF-8 is refused (RFC 8259 §8.1, RFC 3629 §4)" {
-    const invalid = [_][]const u8{ "\x80", "a\xc0\x80", "\xc1\xbf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xf5", "\xe2\x82", "\xe2\x82a", "\xff", "\xf0\x8f\xbf\xbf", "\xe0\x9f\xbf" };
+    const invalid = [_][]const u8{ "\x80", "a\xc0\x80", "\xc1\xbf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xf5", "\xe2\x82", "\xe2\x82a", "\xff", "\xf0\x8f\xbf\xbf", "\xe0\x9f\xbf", "\xc3\xc3\xa9\xa9" };
     for (invalid) |octets| {
         try expect_refused(&.{with(.string, octets)}, error.InvalidUtf8);
         try expect_refused(&.{ .{ .token = .begin_object }, with(.name, octets) }, error.InvalidUtf8);

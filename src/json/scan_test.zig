@@ -27,7 +27,6 @@ fn expect_same(input: []const u8) !void {
     inline for (widths) |width| {
         try testing.expectEqual(scan.plain_len_scalar(input), scan.plain_len_vector(width, input));
         try testing.expectEqual(scan.content_len_scalar(input), scan.content_len_vector(width, input));
-        try testing.expectEqual(scan.content_len_scalar(input), scan.string_run_len(width, input));
     }
     try expect_same_hex(input);
 }

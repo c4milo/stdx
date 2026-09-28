@@ -48,7 +48,7 @@ test "octets that are not UTF-8 are refused in a string (RFC 8259 §8.1, RFC 362
     try expect_refused(.text, &.{
         "\"\xc3\x28\"",    "\"\xc3\"",           "\"\xed\xa0\x80\"", "\"\xff\"",
         "\"\xc0\x80\"",    "\"\xe0\x9f\xbf\"",   "\"\x80\"",         "\"\xf4\x90\x80\x80\"",
-        "\"\xe2\x82\\n\"", "\"\xf0\x9d\x84\x22", "{\"\xfe\":1}",
+        "\"\xe2\x82\\n\"", "\"\xf0\x9d\x84\x22", "{\"\xfe\":1}",     "\"\xc3\xc3\xa9\xa9\"",
     }, error.InvalidUtf8, .corrupt);
 }
 

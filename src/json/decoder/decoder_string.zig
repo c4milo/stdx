@@ -20,14 +20,18 @@ const Outcome = decoder_file.Outcome;
 /// quotation mark, or the status of a call whose input or room ran out first.
 pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer) Error!Outcome {
     const kind = decoder_file.kind_of(decoder.open);
+    // True after an ASCII octet, and at the start of a call between characters: only there can claim
+    // J3's run start, and text of non-ASCII characters would test for one after each.
+    var after_ascii = decoder.utf8.between_characters();
     for (0..reader.remaining_len() + 1) |_| {
         if (!write_pending(decoder, writer)) return .{ .status = .needs_room, .kind = kind };
         if (decoder.escape != .none) {
             try escape_octet(decoder, reader.read_octet() catch return .{ .status = .needs_input, .kind = kind });
             continue;
         }
-        if (claims.decoder_string_vectors and decoder.utf8.between_characters()) copy_run(reader, writer);
+        if (claims.decoder_string_vectors and after_ascii) copy_run(decoder, reader, writer);
         const octet = reader.read_octet() catch return .{ .status = .needs_input, .kind = kind };
+        after_ascii = octet < constants.non_ascii_min;
         if (try string_octet(decoder, octet, reader, writer)) |outcome| return outcome;
     }
     // Each pass that does not return takes at least one octet.
@@ -37,11 +41,14 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
 /// Copies the run of plain ASCII octets a string carries as they are, as far as the output has room
 /// (claim J3). A non-ASCII character takes the scalar validation: the vector UTF-8 path of claim J5
 /// left the decoder (decision 27).
-fn copy_run(reader: *codec.Reader, writer: *codec.Writer) void {
+fn copy_run(decoder: *const Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
+    // An ASCII octet inside a character is not UTF-8, so after one the loop took, and after the
+    // escape a reverse solidus starts, the check stands between characters.
+    assert(decoder.utf8.between_characters());
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    // A run that starts where the scan stops would load a vector for nothing, and text of non-ASCII
-    // characters starts one at every character: it ran at 0.7 to 0.8 of the scalar path's speed.
+    // A run that starts where the scan stops would load a vector for nothing, as it does after each
+    // space in text of non-ASCII words.
     if (window.len == 0 or !scan.is_plain_ascii(window[0])) return;
     const run_len = scan.plain_len_vector(constants.vector_len, window);
     const run = reader.take(run_len) catch unreachable;
