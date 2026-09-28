@@ -19,7 +19,7 @@ set -euo pipefail
 
 # Every module whose tests hold a `std.testing.fuzz` call. A module gains its entry in the commit
 # that adds its first fuzz test.
-readonly fuzzed_modules=(codec checksum deflate gzip zlib zstd brotli)
+readonly fuzzed_modules=(codec checksum deflate gzip zlib zstd brotli json)
 
 if [[ $# -lt 1 || $# -gt 3 || ( "$1" == "--list" && $# -ne 1 ) ]]; then
   echo "usage: tools/fuzz.sh <runs> [report.md [module]] | tools/fuzz.sh --list" >&2

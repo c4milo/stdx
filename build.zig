@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "gzip", .module = graph.gzip },
         .{ .name = "zstd", .module = graph.zstd },
         .{ .name = "brotli", .module = graph.brotli },
+        .{ .name = "json", .module = graph.json },
     };
     for (unit_test_modules) |entry| {
         // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast

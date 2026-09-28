@@ -29,6 +29,8 @@ const passing_build: [:0]const u8 =
     \\    zstd.addImport("checksum", checksum);
     \\    const brotli = library(b, "brotli", target, optimize);
     \\    brotli.addImport("codec", codec);
+    \\    const json = library(b, "json", target, optimize);
+    \\    json.addImport("codec", codec);
     \\}
 ;
 
@@ -36,7 +38,7 @@ const passing_check: [:0]const u8 =
     \\const deflate_imports = [_]Import{
     \\    .{ .name = "codec", .root = "codec/codec.zig" },
     \\};
-    \\const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli" };
+    \\const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json" };
 ;
 
 /// Runs the comparison over two in-memory sources and returns the findings sorted.
@@ -169,8 +171,8 @@ test "module-graph reads the created modules and the edges of every receiver" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
-    try testing.expectEqual(7, calls.modules.len);
-    try testing.expectEqual(10, calls.edges.len);
+    try testing.expectEqual(8, calls.modules.len);
+    try testing.expectEqual(11, calls.edges.len);
     try testing.expectEqualStrings("deflate", calls.edges[0].module);
     try testing.expectEqualStrings("codec", calls.edges[0].name);
     try testing.expectEqualStrings("brotli", calls.edges[9].module);
@@ -210,11 +212,12 @@ test "the expected graph is design §3's table" {
         .{ "zstd", "codec" },
         .{ "zstd", "checksum" },
         .{ "brotli", "codec" },
+        .{ "json", "codec" },
     };
     var edge_count: usize = 0;
     for (module_graph.expected_graph) |module| edge_count += module.imports.len;
     try testing.expectEqual(table.len, edge_count);
-    try testing.expectEqual(7, module_graph.expected_graph.len);
+    try testing.expectEqual(8, module_graph.expected_graph.len);
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
 }
 

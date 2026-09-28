@@ -932,6 +932,35 @@ to 12 are reordered and nothing else changes.
     removed with its code.
   - Mutations.
 
+  **Mutations, 2026-09-28**, each applied, run against `zig build test-json` and reverted: 53, all
+  CAUGHT. Nine at first did not compile, as a local or a parameter they left unused; each was
+  written again so it compiled, and each was then CAUGHT.
+  - The encoder: a string's octet not checked as UTF-8; a string ending inside a character; a
+    number text's octet not checked; a number text ending unwhole; the depth limit one past
+    `depth_max`; the two-character escapes written as `\u00` and two digits; no value separator
+    after a member; no record separator before a sequence's text, and no line feed after it; held
+    octets written all or none; a hex pair's low digit first; the quotation mark not escaped;
+    `TextWriter` taking a full output for success.
+  - The numbers: a fraction not padded with zeros; a negative integer without its minus; a plus
+    sign starting a number; a digit after a lone zero read as the number's end.
+  - The decoder: octets after the text accepted; no record separator required; a byte order mark
+    read as nothing; an undelimited number or literal name accepted at the input's end, and before
+    a record separator; a text a record separator cuts taken as done; whitespace after the value
+    never recorded; an octet that starts no value read as a number; a member without a name; a name
+    without its colon; an array closed by a curly bracket; the depth limit one past `depth_max`; a
+    literal name's letters not compared; an octet no number takes read as the number's end; a
+    number at the text's end left waiting; a string's octet not checked as UTF-8; a control
+    character in a string accepted; a record separator in a string read as a control character; an
+    escape letter RFC 8259 §7 does not list taken as itself; a hex digit of any letter; a high
+    surrogate followed by anything, and paired with any code unit; a lone low surrogate accepted; an
+    escaped character left in `pending`.
+  - The vector paths: the plain run missing a reverse solidus; the UTF-8 check letting a surrogate
+    through, and an overlong form of four octets; a cut character not handed back to the scalar
+    path; a block after a non-ASCII one taken as whole; the whitespace run missing a carriage
+    return; the hex letters one too high; NEON's lanes read three bits apart.
+  - UTF-8: C0 and C1 taken as first octets; E0 and F4 followed by any continuation octet.
+  - `TextReader`: a sequence ending after its first text.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

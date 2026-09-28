@@ -61,7 +61,8 @@ pub const Module = struct {
     imports: []const []const u8,
 };
 
-/// The graph of docs/design.md §3, with `codec` as decision 11 rules it.
+/// The graph of docs/design.md §3, with `codec` as decision 11 rules it and `json` as decision 27
+/// does.
 pub const expected_graph = [_]Module{
     .{ .name = "codec", .imports = &.{} },
     .{ .name = "checksum", .imports = &.{} },
@@ -70,6 +71,7 @@ pub const expected_graph = [_]Module{
     .{ .name = "gzip", .imports = &.{ "codec", "checksum", "deflate" } },
     .{ .name = "zstd", .imports = &.{ "codec", "checksum" } },
     .{ .name = "brotli", .imports = &.{"codec"} },
+    .{ .name = "json", .imports = &.{"codec"} },
 };
 
 /// Longest path the rule builds for the file it reads beside build/modules.zig.

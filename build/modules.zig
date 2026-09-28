@@ -1,5 +1,5 @@
-//! The module graph of docs/design.md §3: one module per codec, one for the checksums, and one for
-//! the streaming contract every codec shares. A module can `@import` only what this file gives it,
+//! The module graph of docs/design.md §3: one module per codec, one for the checksums, one for JSON
+//! (decision 27), and one for the streaming contract every codec shares. A module can `@import` only what this file gives it,
 //! so the dependency direction is enforced by the build and not by review (CLAUDE.md, Layout).
 //!
 //! Every module here is library code and is exported by name with `b.addModule`, so a dependent
@@ -33,6 +33,8 @@ pub const Modules = struct {
     zstd: *std.Build.Module,
     /// Brotli, RFC 7932.
     brotli: *std.Build.Module,
+    /// JSON, RFC 8259, and JSON text sequences, RFC 7464 (decision 27).
+    json: *std.Build.Module,
 };
 
 /// Whether a graph's modules are exported by name. build.zig exports the graph a dependent imports;
@@ -72,6 +74,9 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     const brotli = library(b, "brotli", settings);
     brotli.addImport("codec", codec);
 
+    const json = library(b, "json", settings);
+    json.addImport("codec", codec);
+
     return .{
         .codec = codec,
         .checksum = checksum,
@@ -80,6 +85,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .gzip = gzip,
         .zstd = zstd,
         .brotli = brotli,
+        .json = json,
     };
 }
 
