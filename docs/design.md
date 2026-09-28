@@ -1324,6 +1324,22 @@ to 12 are reordered and nothing else changes.
 
   The reset of the UTF-8 check left for an assertion, as J8's did.
 
+  **The fast paths inline, 2026-09-28.** perf on the N2 in run
+  [36478303937](https://github.com/c4milo/stdx/actions/runs/36478303937) of the branch
+  `exp-json-perf-2`, at 305af14 with J8 and J9, found the benchmark's build calling what the probes
+  inlined. Decoding qlog, 35% of the time was in `next_token`, 17% in `value` and 4% in
+  `container_end`; about 10% was in the number machine's table, stepped once a digit. Encoding,
+  15% was in `Encoder.advance` and 9% in `memcpy`, copying a token's one or two octets of opening
+  and closing. Both fast paths are now inline throughout. The encoder writes those octets one at a
+  time, and a number's scans take a run of digits without stepping the machine where a digit
+  leaves its state as it is. Mutations, each against `zig build test-json`:
+  - CAUGHT: a lone zero's state and the start state taking a run of digits; an exponent's digits
+    left to the machine, which the test of `loops_on_digits` against the table catches; a digit run
+    an octet long; `whole_number` taking a number that is not whole.
+  - CAUGHT, J9's reshaped writes: a name closed as a string, a token's opening not written, a
+    formatted number's text not written, and a name's closing counted as a string's. The other
+    J9 mutations above ran again, and each was CAUGHT.
+
   **The API, 2026-09-28.** `Decoder.init`, `Encoder.init`, `TextWriter.init` and `TextReader.init`
   take the caller's `codec.Features` last, and each state keeps them (decision 29). The kernels of
   J7's wider levels come after. `round_trip_test.zig` requires `none()`, `target()` and `detect()`

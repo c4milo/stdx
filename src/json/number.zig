@@ -112,14 +112,32 @@ pub const Ended = struct { len: usize, number: Number };
 /// and when the number runs to the end of `octets`, where it may go on.
 pub fn ended_in(octets: []const u8) ?Ended {
     var number: Number = .{};
-    for (octets, 0..) |octet, index| {
-        switch (number.accept(octet)) {
-            .taken => {},
+    var index: usize = 0;
+    // Each pass takes at least one octet, or returns.
+    for (0..octets.len + 1) |_| {
+        if (loops_on_digits(number.state)) index += digits_len(octets[index..]);
+        if (index == octets.len) return null;
+        switch (number.accept(octets[index])) {
+            .taken => index += 1,
             .ended => return .{ .len = index, .number = number },
             .invalid => return null,
         }
     }
-    return null;
+    unreachable;
+}
+
+/// True in the states a digit leaves as they are: an integer part past its first digit, a
+/// fraction, and an exponent (`transitions`). There a run of digits takes no step of the machine.
+fn loops_on_digits(state: State) bool {
+    return state == .integer or state == .fraction or state == .exponent;
+}
+
+/// The run of digits that starts `octets`.
+fn digits_len(octets: []const u8) usize {
+    for (octets, 0..) |octet, index| {
+        if (!is_digit(octet)) return index;
+    }
+    return octets.len;
 }
 
 /// True for an octet that can start a number (RFC 8259 §6).
@@ -135,10 +153,15 @@ pub fn is_number(text: []const u8) bool {
 /// The machine after all of `text`, when `text` is one whole number (RFC 8259 §6), or null.
 pub fn whole_number(text: []const u8) ?Number {
     var number: Number = .{};
-    for (text) |octet| {
-        if (number.accept(octet) != .taken) return null;
+    var index: usize = 0;
+    // Each pass takes at least one octet, or returns.
+    for (0..text.len + 1) |_| {
+        if (loops_on_digits(number.state)) index += digits_len(text[index..]);
+        if (index == text.len) return if (number.whole()) number else null;
+        if (number.accept(text[index]) != .taken) return null;
+        index += 1;
     }
-    return if (number.whole()) number else null;
+    unreachable;
 }
 
 // Tests.
@@ -188,6 +211,14 @@ test "ended_in finds a whole number an octet ends, and nothing where it is cut o
     // Cut at the end, where it may go on, and invalid before its end.
     for ([_][]const u8{ "", "12", "-", "1.5e", "01,", "-,", "1.x", "1e+]" }) |octets| {
         try testing.expectEqual(null, ended_in(octets));
+    }
+}
+
+test "loops_on_digits holds exactly where every digit leaves the machine's state as it is" {
+    for (std.enums.values(State)) |state| {
+        var loops = true;
+        for (constants.zero..constants.nine + 1) |digit| loops = loops and next_state(state, @intCast(digit)) == state;
+        try testing.expectEqual(loops, loops_on_digits(state));
     }
 }
 
