@@ -7,7 +7,7 @@ date, the benchmark and the architecture.
 A hosted runner is a shared virtual machine, and its CPU model can change from one run to the
 next: the x86-64 runner was an AMD EPYC 9V74, an AMD EPYC 9V45, an AMD EPYC 7763, an Intel Xeon
 Platinum 8573C, an Intel Xeon Platinum 8370C and an Intel Xeon 6973P-C in runs from 2026-09-25 to
-2026-09-27. So compare
+2026-09-28. So compare
 candidates within one file, where they ran interleaved on the same machine, and never a number in
 one file with a number in another.
 
@@ -21,3 +21,4 @@ one file with a number in another.
 | 2026-09-26 | DEFLATE | [report](2026-09-26-deflate-encoder-search-x86_64.md) | [report](2026-09-26-deflate-encoder-search-aarch64.md) | As the row above, after the encoder's search turns candidates away on 4 octets and cuts itself after a long match: design §8 step 9, after the check |
 | 2026-09-26 | Checksums | [AMD](2026-09-26-checksum-xxh64-x86_64-amd.md), [Intel](2026-09-26-checksum-xxh64-x86_64-intel.md) | [report](2026-09-26-checksum-xxh64-aarch64.md) | As step 4's row, with XXH64's scalar and AVX-512 paths beside the fastest CRC-32 path: design §8 step 10. The x86-64 reports are an AMD EPYC 9V74 and an Intel Xeon 8370C, where the AVX-512 path wins and loses |
 | 2026-09-27 | Zstandard | [AMD](2026-09-27-zstd-x86_64.md), [Intel 8573C](2026-09-27-zstd-x86_64-intel-8573c.md), [Intel 8370C](2026-09-27-zstd-x86_64-intel-8370c.md), [Intel 6973P-C](2026-09-27-zstd-x86_64-intel-6973p-c.md) | [report](2026-09-27-zstd-aarch64.md) | stdx's HTTP decoder beside libzstd, its fast paths against its checked path, each claim of decision 14 off, and ReleaseFast: design §8 step 11. The Intel reports come from a one-off workflow that ran `bench/run.sh` as the bench workflow does, at 637ee9a, which is 3a45936 with that workflow's file alone |
+| 2026-09-28 | Zstandard | [report](2026-09-28-zstd-x86_64.md) | [report](2026-09-28-zstd-aarch64.md) | As the row above, at 2182b94, with dickens's first MiB shuffled among the files (decision 25): Z2's verdict, design §8 step 11. The x86-64 runner was an AMD EPYC 7763 |

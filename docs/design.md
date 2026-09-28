@@ -796,8 +796,9 @@ to 12 are reordered and nothing else changes.
   the HTTP instance; skippable and multiple frames; the verified errata of docs/rfcs/README.md;
   then the fast path's equality, A/Bs and benchmark as step 7; mutations.
 
-  **Check passed, 2026-09-27, but for Z2's verdict, which the owner rules on.** Zig 0.16.0 on
-  macOS 26.6 arm64 by hand, under Rosetta 2 for x86-64, and on the hosted runners, at 3a45936.
+  **Check passed, 2026-09-27, and Z2's verdict on 2026-09-28.** Zig 0.16.0 on macOS 26.6 arm64 by
+  hand, under Rosetta 2 for x86-64, and on the hosted runners, at 3a45936, and Z2's verdict at
+  2182b94.
   - The decoder: the checked path (9623b2a to e592538), then the fast path's claims: Z4 (d1021ae),
     Z1 (82b75e1), Z6, a call's octets moved into the window once (233b8b4), Z5 (1c5ef93) and Z2
     (3ae12b4). Z3's default tables build at comptime, and no switch turns them off. Under decision
@@ -833,14 +834,20 @@ to 12 are reordered and nothing else changes.
     | Claim | EPYC 7763 | N2 | Xeon 8573C | Xeon 8370C | Verdict |
     |---|---|---|---|---|---|
     | Z1 | 0.85; 36 and 1 | 0.85; 36 and 0 | 0.81; 33 and 0 | 0.84; 38 and 0 | Kept |
-    | Z2 | 1.00; 6 and 8 | 1.00; 2 and 3 | 1.00; 0 and 0 | 1.00; 4 and 7 | Beats no noise: the owner rules |
+    | Z2 | 1.00; 6 and 8 | 1.00; 2 and 3 | 1.00; 0 and 0 | 1.00; 4 and 7 | Kept, on the shuffled text below |
     | Z4 | 0.56; 38 and 0 | 0.62; 38 and 0 | 0.56; 38 and 0 | 0.54; 38 and 0 | Kept |
     | Z5 | 0.99; 21 and 0 | 0.99; 34 and 0 | 0.99; 1 and 0 | 0.99; 26 and 2 | Kept |
     | Z6 | 0.40; 38 and 0 | 0.43; 38 and 0 | 0.43; 38 and 0 | 0.41; 38 and 0 | Kept |
 
-    - Z2 decodes two literals a lookup, and measured faster on the owner's M1 Pro when it was added
-      (3ae12b4); on every runner it ties. Step 7's rule removes a claim that beats no noise, and
-      decision 23 puts the owner's Mac first, so the owner rules on it.
+    - Z2 decodes two literals a lookup. Over these 38 files it ties on every runner: at level 3,
+      matches cover most of each file, so literals take little of the time. The owner kept it for
+      text that compresses poorly, as long as it costs nothing elsewhere, and decision 25 added
+      that text to the corpora: `shuffled/dickens-1m`, whose literals Z2 decodes in pairs.
+    - In `bench-zstd` run [36361895217](https://github.com/c4milo/stdx/actions/runs/36361895217)
+      at 2182b94, Z2 off runs `shuffled/dickens-1m` at 0.86 of all on, on the EPYC 7763 (±0.1%)
+      and on the N2 (±0.3%), beyond decision 20's 5% floor on both. Over the other 38 files its
+      median stays 1.00, and no file runs faster with it off by more than 3%. stdx decodes the
+      shuffled text at 1.14 of libzstd's speed on the EPYC 7763 and 1.03 on the N2.
   - Decision 17: built ReleaseFast, stdx runs at a median of 1.00 of its ReleaseSafe speed on the
     EPYC 7763 (0.88 to 1.05), 1.02 on the N2 (0.98 to 1.09), and 0.99 to 1.02 on the Xeons, each
     as a ratio of the two builds' ratios to libzstd in one run.
