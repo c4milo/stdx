@@ -1050,6 +1050,11 @@ baselines' numbers, and entry 31 out of design §8 step 17's profile.
       paths. The target is to beat libzstd on every corpus file on an aarch64 Mac first, the owner's
       M1 Pro, and port to the other architectures after. Published numbers still come from the
       runners (decision 20).
+    - Extended by the owner to the brotli decoder on 2026-09-28, during design §8 step 12, in the
+      owner's words: "Remember that you can write assembly once you cannot get the zig compiler to
+      do better." Asked when, the owner ruled the same day to record it now and keep to Zig first:
+      the brotli command loop moves to aarch64 assembly only once changes in Zig stop gaining on the
+      runners. The Zig fast path stays the reference, as it does for Zstandard.
 
 24. **How the assembly loops are shown safe.** **owner** Proposed on 2026-09-27, as decision 23
     asks once its loops match or beat libzstd on the runners: at 3a45936 the decoder runs at a
