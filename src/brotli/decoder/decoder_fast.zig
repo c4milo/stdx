@@ -9,7 +9,8 @@
 //! distance, and up to `chunk_len_max` octets of a copy or of a dictionary word. It decodes with
 //! the meta-block's lookup tables (claim B3), writes straight into the caller's output, copies in
 //! chunks that overrun into the margin (S4), and reads history from the output and, before the
-//! loop's first octet, from the window, which takes what the loop wrote when it returns.
+//! octets the output holds, from the window, which takes the call's octets when the call ends (the
+//! window-once claim).
 //!
 //! It decodes only what is valid: before a length past the meta-block, a distance RFC 7932 refuses
 //! or a dictionary reference that names no word, it stops with the phase's bits unused, and the
@@ -88,7 +89,8 @@ const Loop = struct {
     count: u32,
     output: []u8,
     written: usize,
-    /// Where the output stood when the loop started: the window holds every octet before it.
+    /// Where the window's octets end in the output: at the call's first octet with the window-once
+    /// claim, and where the loop started without it.
     start: usize,
     p1: u8,
     p2: u8,
@@ -163,7 +165,8 @@ inline fn refill(comptime claims: Claims, loop: *Loop) void {
 
 /// Decodes command phases from `bits` into `writer` while the margins hold, until a phase the
 /// checked path takes, and hands the bit buffer, the input position, the output position and the
-/// context's octets back. The window takes the octets the loop wrote.
+/// context's octets back. Without the window-once claim, the window takes the octets the loop
+/// wrote.
 pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bits: *codec.BitReader, writer: *codec.Writer) void {
     var loop: Loop = .{
         .input = bits.reader.octets,
@@ -172,7 +175,7 @@ pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bit
         .count = bits.bits.count,
         .output = writer.octets,
         .written = writer.position,
-        .start = writer.position,
+        .start = if (claims.window_once) 0 else writer.position,
         .p1 = state.p1,
         .p2 = state.p2,
     };
@@ -190,7 +193,7 @@ pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bit
     state.p1 = loop.p1;
     state.p2 = loop.p2;
     if (builtin.is_test) state.work += loop.decoded;
-    window.append(loop.output[loop.start..loop.written]);
+    if (!claims.window_once) window.append(loop.output[loop.start..loop.written]);
 }
 
 /// The loop itself: iterations of chains of phases, each chain one iteration of this bounded

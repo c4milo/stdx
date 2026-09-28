@@ -83,11 +83,14 @@ pub fn Decoder(comptime options: DecoderOptions) type {
             assert(self.state.phase != .done and self.state.phase != .refused);
             var bits = codec.BitReader.init(input, self.state.bits);
             var writer = codec.Writer.init(output);
-            var out: Output(Window) = .{ .writer = &writer, .window = &self.window };
+            var out: Output(Window, options.paths.claims) = .{ .writer = &writer, .window = &self.window };
             const status = run(options, &self.state, &bits, &out, input.len, output.len) catch |err| {
                 self.state.phase = .refused;
                 return err;
             };
+            // The window takes the call's octets once, and none when the stream is done (the
+            // window-once claim).
+            if (options.paths.claims.window_once and status != .done) self.window.append(writer.written());
             // Decision 11's read-ahead rule: hand back the whole octets not used, unless the call
             // ends for want of input, when every octet it holds belongs to the step it could not
             // finish.
