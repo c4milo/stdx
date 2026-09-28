@@ -24,6 +24,7 @@ const wide = @import("../wide.zig");
 const strings = @import("decoder_string.zig");
 const values = @import("decoder_value.zig");
 const fast = @import("decoder_fast.zig");
+const batch = @import("decoder_batch.zig");
 
 /// A token of RFC 8259's grammar (§2): the four structural characters a caller sees, a member's
 /// name, a string, a number, and the three literal names.
@@ -209,6 +210,15 @@ pub const Decoder = struct {
         return progress;
     }
 
+    /// Many tokens a call (decision 33): `decode`'s tokens one after another into `slots`, with
+    /// their octets one after another in `output`.
+    pub const Slot = batch.Slot;
+    pub const Batch = batch.Batch;
+    pub fn decode_batch(self: *Decoder, input: []const u8, output: []u8, piece: Piece, slots: []Slot) Error!Batch {
+        return batch.decode_batch_with(self, .{}, input, output, piece, slots);
+    }
+    pub const decode_batch_with = batch.decode_batch_with;
+
     /// True when the text has ended.
     pub fn is_done(self: *const Decoder) bool {
         return self.stage == .done;
@@ -217,7 +227,7 @@ pub const Decoder = struct {
     /// The call's loop, inline in `decode_with`, its one caller. Out of line, as LLVM left it in
     /// the benchmark's build with every claim on, where it had a second caller, each token paid a
     /// call of its own.
-    inline fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
+    pub inline fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
         if (self.open != .none) return self.continue_token(claims, reader, writer, piece);
         if (claims.decoder_fast_path and self.stage == .tokens) {
             if (fast.token(self, claims, reader, writer)) |outcome| return outcome;
@@ -467,6 +477,8 @@ test {
     _ = values;
     _ = fast;
     _ = @import("decoder_fast_test.zig");
+    _ = batch;
+    _ = @import("decoder_batch_test.zig");
     _ = @import("decoder_test.zig");
     _ = @import("decoder_refusal_test.zig");
     _ = @import("decoder_fuzz_test.zig");

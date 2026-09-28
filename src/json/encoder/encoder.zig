@@ -20,6 +20,7 @@ const Number = @import("../number.zig").Number;
 const wide = @import("../wide.zig");
 const content = @import("encoder_content.zig");
 const fast = @import("encoder_fast.zig");
+const batch = @import("encoder_batch.zig");
 
 /// Whether the octets of a name, a string, a hex string or a number end with a call's input.
 pub const Piece = framing_file.Piece;
@@ -156,6 +157,14 @@ pub const Encoder = struct {
         return progress;
     }
 
+    /// Many tokens a call (decision 33): `encode`'s tokens one after another, from a list of items.
+    pub const Item = batch.Item;
+    pub const Batch = batch.Batch;
+    pub fn encode_batch(self: *Encoder, items: []const Item, output: []u8) Error!Batch {
+        return batch.encode_batch_with(self, .{}, items, output);
+    }
+    pub const encode_batch_with = batch.encode_batch_with;
+
     /// True when the text has ended.
     pub fn is_done(self: *const Encoder) bool {
         return self.part == .done;
@@ -164,7 +173,7 @@ pub const Encoder = struct {
     /// The call's loop, inline in `encode_with`, its one caller. Out of line, as LLVM left it in
     /// the benchmark's build with every claim off, where it had a second caller, each token paid a
     /// call of its own.
-    inline fn run(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
+    pub inline fn run(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
         if (try self.start(claims, token, reader, writer)) |status| return status;
         for (0..constants.token_parts) |_| {
             if (!self.write_pending(writer)) return .needs_room;
@@ -327,7 +336,7 @@ fn is_value(kind: Kind) bool {
 }
 
 /// True for a token whose octets come in the call's input.
-fn takes_input(token: Token) bool {
+pub fn takes_input(token: Token) bool {
     return switch (token) {
         .name, .string, .hex, .number => true,
         else => false,
@@ -344,6 +353,8 @@ fn piece_of(token: Token) Piece {
 test {
     _ = content;
     _ = fast;
+    _ = batch;
     _ = @import("encoder_test.zig");
+    _ = @import("encoder_batch_test.zig");
     _ = @import("encoder_fast_test.zig");
 }

@@ -32,6 +32,14 @@ pub const TextWriter = struct {
         return text;
     }
 
+    /// Writes `items` in one call (decision 33), each with all of its octets, as `write` writes each
+    /// alone. After an error the text is lost, as after `write`'s.
+    pub fn write_items(self: *TextWriter, items: []const Encoder.Item) Error!void {
+        const batch = try self.encoder.encode_batch(items, self.output[self.len..]);
+        self.len += batch.written;
+        if (batch.status == .needs_room) return error.NoSpaceLeft;
+    }
+
     /// Writes one token, with `octets` holding all of a name's, a string's, a hex string's or a
     /// number's octets, and nothing for any other token. After an error the text is lost: the
     /// octets written are no text, and a new one starts with `init`.
