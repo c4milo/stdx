@@ -28,6 +28,7 @@ const state_module = @import("../decoder_state.zig");
 const commands = @import("../decoder_commands.zig");
 const copies = @import("decoder_fast_copy.zig");
 const literal_runs = @import("decoder_fast_literals.zig");
+const straight = @import("decoder_fast_command.zig");
 const dictionary = @import("../../dictionary.zig");
 const transform = @import("../../transform.zig");
 const State = state_module.State;
@@ -122,7 +123,7 @@ pub const Loop = struct {
 
     /// Takes `bit_count` bits, at most `phase_bits_max`, so the shift truncates unchecked; the
     /// count's subtraction checks it.
-    inline fn take(self: *Loop, bit_count: u32) void {
+    pub inline fn take(self: *Loop, bit_count: u32) void {
         self.buffer >>= @as(u6, @truncate(bit_count));
         self.count -= bit_count;
     }
@@ -136,7 +137,7 @@ pub const Loop = struct {
     }
 
     /// Moves past `len` octets written, and keeps the last two as p1 and p2 (RFC 7932 §7.1).
-    inline fn wrote(self: *Loop, len: usize) void {
+    pub inline fn wrote(self: *Loop, len: usize) void {
         self.written += len;
         if (len >= context_octets) {
             self.p2 = self.output[self.written - context_octets];
@@ -148,7 +149,7 @@ pub const Loop = struct {
     }
 };
 
-inline fn low_bits(value: u64, bit_count: u32) u64 {
+pub inline fn low_bits(value: u64, bit_count: u32) u64 {
     return value & ((@as(u64, 1) << @intCast(bit_count)) - 1);
 }
 
@@ -205,7 +206,7 @@ inline fn decode_phases(comptime claims: Claims, loop: *Loop, literal_tables: *L
 
 /// Where a chain goes after one of its phases: on to another phase of the same command, to the
 /// loop's next iteration, or back to the checked path.
-const Link = enum { command, command_extra, literal, distance, copy, dictionary_copy, go_on, stop };
+pub const Link = enum { command, command_extra, literal, distance, copy, dictionary_copy, go_on, stop };
 
 /// The most links one chain takes: a command's symbol after its block switch, its extra bits, its
 /// literals, its distance and its copy, and the end.
@@ -225,13 +226,16 @@ fn link_of(phase: Phase) Link {
 }
 
 /// One chain: the phases of a command in a row, each an inline function, so that the loop's state
-/// stays in registers. A chain starts once the margins hold and the buffer is refilled, and checks
-/// them again only where a phase may lack them: after a block switch, and before a distance that
-/// literals or the command's extra bits preceded. A chain ends with a copy or a word, where its
-/// phase leaves the command for the next iteration, or at a phase the checked path takes.
+/// stays in registers. A chain at a command's symbol starts with the straight-line command of
+/// decoder_fast_command.zig, which takes a command of no literals in locals and hands the chain the
+/// phase it stops at. A chain starts once the margins hold and the buffer is refilled, and checks
+/// them again only where a phase may lack them: after a block switch, before a distance's block
+/// switch, and before a distance that literals or the command's extra bits preceded. A chain ends
+/// with a copy or a word, where its phase leaves the command for the next iteration, or at a phase
+/// the checked path takes.
 inline fn decode_chain(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
     if (!ready(claims, loop)) return .stop;
-    var link = link_of(state.phase);
+    var link = if (state.phase == .command) straight.straight_command(claims, loop, state) else link_of(state.phase);
     for (0..links_per_chain_max) |_| {
         link = switch (link) {
             .command => on_command(claims, loop, state),
@@ -290,6 +294,8 @@ inline fn on_literal(comptime claims: Claims, loop: *Loop, literal_tables: *Lite
 /// command and the chain.
 inline fn on_distance(comptime claims: Claims, loop: *Loop, state: *State) Link {
     if (!state.command.last_distance and commands.needs_switch(state, .distance)) {
+        // After the straight-line command's extra bits, a block switch may need a refill.
+        if (loop.count < phase_bits_max and !ready(claims, loop)) return .stop;
         block_switch(loop, state, .distance);
         if (!ready(claims, loop)) return .stop;
     }

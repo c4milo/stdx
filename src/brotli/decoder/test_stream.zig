@@ -17,6 +17,32 @@ const four_nibbles_bits = constants.nibbles_min * constants.nibble_bits;
 /// A symbol of a complex code's code length code, and its repeat's extra bits.
 pub const LengthSymbol = struct { symbol: u8, extra: u8 = 0 };
 
+/// Octets after a stream, so that the fast path's input margin holds to the stream's end: a refill
+/// reads 8 octets past the bits it takes.
+pub const trailer = "octets after the stream.";
+
+/// A skewed code: a complex code whose symbols `first` and the one after it take 15 bits, with
+/// code lengths 1 to 14 for the symbols 0 to 13, zeros to `first`, then 15 twice (RFC 7932 §3.5).
+/// Its code length code gives 4 bits to each of the lengths 1 to 15 and to the repeat of zeros, and
+/// none to the length 0 or to the repeat of the previous length, in its order from HSKIP 0; the
+/// zeros come in repeats that compound (`zero_repeats`).
+const skewed_code_length_len = 4;
+const long_code_lengths_of_lengths = lengths: {
+    var lengths: [constants.code_length_alphabet_len]u8 = @splat(skewed_code_length_len);
+    for (constants.code_length_code_order, 0..) |symbol, place| {
+        if (symbol == 0 or symbol == constants.repeat_previous_symbol) lengths[place] = 0;
+    }
+    break :lengths lengths;
+};
+const skewed_len_max = constants.code_len_max - 1;
+
+/// The two longest codes a skewed code ends with.
+const longest_codes = 2;
+
+/// The most repeats of zeros a skewed code takes. A repeat of zeros right after another makes the
+/// count of zeros 8 * (count - 2) + 3 + its extra bits (RFC 7932 §3.5).
+pub const zero_repeats_max = 4;
+
 pub const Stream = struct {
     octets: [capacity]u8 = @splat(0),
     bit_len: usize = 0,
@@ -125,6 +151,17 @@ pub const Stream = struct {
             if (symbol.symbol == constants.repeat_zero_symbol) self.put(symbol.extra, constants.repeat_zero_extra_bits);
         }
     }
+
+    /// The code length symbols of a skewed code, the zeros in `repeats`.
+    pub fn skewed_code(self: *Stream, repeats: []const LengthSymbol) void {
+        var symbols: [skewed_len_max + zero_repeats_max + longest_codes]LengthSymbol = undefined;
+        for (symbols[0..skewed_len_max], 1..) |*symbol, len| symbol.* = .{ .symbol = @intCast(len) };
+        @memcpy(symbols[skewed_len_max..][0..repeats.len], repeats);
+        const tail = skewed_len_max + repeats.len;
+        symbols[tail] = .{ .symbol = constants.code_len_max };
+        symbols[tail + 1] = .{ .symbol = constants.code_len_max };
+        self.complex_code(0, &long_code_lengths_of_lengths, symbols[0 .. tail + longest_codes]);
+    }
 };
 
 /// The code RFC 7932 §3.2's algorithm gives `symbol` from `lengths`.
@@ -143,4 +180,19 @@ pub fn canonical(lengths: []const u8, symbol: usize) struct { code: u32, len: u5
     }
     assert(lengths[symbol] != 0);
     return .{ .code = next[lengths[symbol]], .len = @intCast(lengths[symbol]) };
+}
+
+/// The code lengths of a skewed code: symbols of lengths 1 to 14, then zeros, then the two longest
+/// codes, at `first` and the symbol after it.
+pub fn skewed_lengths(lengths: []u8, first: usize) void {
+    @memset(lengths, 0);
+    for (lengths[0..skewed_len_max], 1..) |*len, value| len.* = @intCast(value);
+    lengths[first] = constants.code_len_max;
+    lengths[first + 1] = constants.code_len_max;
+}
+
+/// The repeats of zeros whose extra bits are `extras`, in `repeats`.
+pub fn zero_repeats(extras: []const u8, repeats: *[zero_repeats_max]LengthSymbol) []const LengthSymbol {
+    for (extras, 0..) |extra, index| repeats[index] = .{ .symbol = constants.repeat_zero_symbol, .extra = extra };
+    return repeats[0..extras.len];
 }

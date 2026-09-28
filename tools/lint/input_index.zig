@@ -63,6 +63,7 @@ pub const scope: Scope = .{
         "src/zstd/fast_reader.zig",
         "src/brotli/decoder/decoder_fast/decoder_fast.zig",
         "src/brotli/decoder/decoder_fast/decoder_fast_literals.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast_command.zig",
         "src/brotli/decoder/decoder_fast/decoder_fast_copy.zig",
     },
 };
