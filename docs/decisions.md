@@ -11,8 +11,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to
 entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, entry 28
 out of the owner's request that its state machines be proved, entry 29 out of [issue
 13](https://github.com/c4milo/stdx/issues/13)'s DEFLATE decoder, entry 30 out of the JSON
-baselines' numbers, entry 31 out of design §8 step 17's profile, and entry 32 out of step 12's
-brotli decoder.
+baselines' numbers, entry 31 out of design §8 step 17's profile, entry 32 out of step 12's brotli
+decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
 
 ## Scope and shape
 
@@ -1576,3 +1576,43 @@ brotli decoder.
     - A faster checked path. It is the reference, one octet a step; making it fast writes the fast
       path a second time.
     - Slack the caller provides, which decision 16 refused.
+
+33. **Many tokens a call for the `json` codecs.** Ruled by the owner on 2026-09-28, who lifted the
+    one token a call that entries 27 and 30 kept: "everyone knows batching is good for
+    performance". Design §8 step 17 had put about a third of a decoded token's time on the N2 at the
+    call's boundary once entry 31's fast paths ran: loading and storing the decoder's state,
+    invariant 7's checks at the call's entry and exit, building its `Progress`, and the caller's
+    dispatch on it. simdjson and yyjson pay that once a text.
+
+    **The decoder.** `Decoder.decode_batch` decodes tokens one after another into slots the caller
+    owns, until the slots are full, the input or the output runs out, or the text ends. The output
+    holds the octets of the call's names, strings and numbers one after another, and each slot holds
+    its token's kind, where its octets start in the output and how many there are.
+    - A call that ends inside a name, a string or a number fills its last slot with what it wrote,
+      marked as not ended. The next call's first slot holds the rest of that token.
+    - Its status adds `needs_slots` to `decode`'s: every slot is filled, and the text goes on.
+
+    **The encoder.** `Encoder.encode_batch` writes a list of items, each a token with its octets as
+    `encode` takes them, until the list ends, the output is full, or the text ends. It returns how
+    many items it wrote whole and how many octets of the next it took, so the caller passes the rest
+    of the list, and the rest of that item's octets, to the next call.
+
+    Both keep the streaming contract:
+    - A call takes what the caller has, says whether it needs input, room or slots or is done, and
+      the next call resumes where it stopped (non-negotiable 3).
+    - A token takes at least one octet of input decoding, and writes at least one octet encoding, so
+      a call's work stays bounded by the octets it consumes and writes (invariant 17). Invariant 7's
+      checks run at each batch's exit.
+    - A refused text fails the call, as with one token a call. The tokens the call took before the
+      refusal are not reported, since the text is refused whole.
+    - `decode` and `encode` stay, one token a call, and are the reference: a batch gives their
+      tokens, octets and verdicts, whatever the slots, the items and the splits (invariant 5).
+
+    Entry 30's structural index was dropped for one token a call. Its question reopens with batches,
+    and design §8 step 18 asks it again from its profile.
+
+    The alternatives refused:
+    - A callback for each token, through a pointer: a call a token, the cost this entry removes. A
+      comptime callback inlines, but compiles every caller's handling into the decoder's loop.
+    - An iterator over a whole text: it needs the whole text in one call, which the streaming
+      contract refuses (non-negotiable 3).

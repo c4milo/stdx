@@ -1424,6 +1424,21 @@ to 12 are reordered and nothing else changes.
   J7's wider levels come after. `round_trip_test.zig` requires `none()`, `target()` and `detect()`
   to give the same octets and tokens, as invariant 5 now states.
 
+- **Step 18: many tokens a call for the `json` codecs, and their fast paths on the slices
+  (decisions 33 and 16).** The owner ruled both on 2026-09-28, after step 17: batches, and the json
+  fast paths joining decision 16's table, to beat simdjson first and make the code safer after.
+  **Check:**
+  - `decode_batch` gives the tokens, octets and verdicts one token a call gives, over every text the
+    decoder's tests hold, the seeded corruptions and every input the fuzzer draws: whole, under
+    seeded splits of the input and the output, and with every count of slots from one up.
+  - `encode_batch` writes the octets one token a call writes, over the round trip's seeded lists and
+    every list the fuzzer draws, under the same splits and with every count of items.
+  - The fast paths that read and write the slices directly each get a row in decision 16's table,
+    with their margins and their A/B against the paths on the checked reader and writer.
+  - bench-json times the batches beside one token a call and the baselines; bench-profile counts
+    them per token.
+  - Mutations.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
