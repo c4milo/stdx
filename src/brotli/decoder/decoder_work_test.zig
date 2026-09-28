@@ -354,17 +354,22 @@ const empty_word_extra_bits = 14;
 const empty_word_distance_base = 49149;
 const empty_word_distance = (omit_first_nine << dictionary.bits[empty_word_len]) + 1;
 
-/// The fifth worst case: `empty_commands` commands whose dictionary word transform 54 empties, then
-/// a command of one literal. The insert-and-copy code takes 1 bit, the literal and distance codes
-/// none. Returns its count.
-fn empty_words_stream(stream: *Stream) u64 {
+/// The fifth worst case's header: one block type in each category, and codes of one symbol but
+/// the insert-and-copy code, whose symbol 8 takes the code 0 and symbol 130 the code 1.
+fn empty_words_header(stream: *Stream) void {
     stream.window_bits_16();
     stream.meta_block(true, 1);
     stream.simple_header(0, 0, 0);
     stream.simple_code(constants.literal_alphabet_len, &.{literal}, false);
-    // Symbol 8 takes the code 0 and symbol 130 the code 1.
     stream.simple_code(constants.insert_copy_alphabet_len, &.{ insert_one_symbol, empty_word_symbol }, false);
     stream.simple_code(distance_alphabet_len, &.{empty_word_distance_code}, false);
+}
+
+/// The fifth worst case: `empty_commands` commands whose dictionary word transform 54 empties, then
+/// a command of one literal. The insert-and-copy code takes 1 bit, the literal and distance codes
+/// none. Returns its count.
+fn empty_words_stream(stream: *Stream) u64 {
+    empty_words_header(stream);
     for (0..empty_commands) |_| {
         stream.put_code(1, 1);
         stream.put(empty_word_distance - empty_word_distance_base, empty_word_extra_bits);
@@ -383,4 +388,25 @@ test "commands that write nothing cost their symbols, and their distances' bits 
     const calls = try decode_by_octets(stream.written(), 1);
     try testing.expectEqual(work, calls.work);
     try testing.expectEqual(1, calls.written);
+}
+
+test "a category of one block type never switches, however many commands write nothing" {
+    // RFC 7932 §9.3 reads no block switch in a category of one block type, whose count §10 starts
+    // at 16,777,216. Commands of empty words write nothing, so a meta-block may hold more of them:
+    // the counts here are where 16,777,215 of them would leave the insert-and-copy and distance
+    // categories.
+    var header: Stream = .{};
+    empty_words_header(&header);
+    var stream: Stream = .{};
+    _ = empty_words_stream(&stream);
+    const header_len = header.bit_len / @bitSizeOf(u8);
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    var output: [1]u8 = undefined;
+    const first = try decoder.decode(stream.written()[0..header_len], &output);
+    try testing.expectEqual(.needs_input, first.status);
+    for ([_]state_module.Category{ .insert_copy, .distance }) |category| decoder.state.blocks[@intFromEnum(category)].count_left = 1;
+    const whole = try decoder.decode_all(stream.written()[first.consumed..], &output);
+    try testing.expectEqualStrings("a", output[0..whole.written]);
+    try testing.expectEqual(1, decoder.state.blocks[@intFromEnum(state_module.Category.insert_copy)].count_left);
 }

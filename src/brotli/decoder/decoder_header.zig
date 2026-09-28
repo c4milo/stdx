@@ -42,7 +42,8 @@ pub fn read_block_types_count(state: *State, bits: *codec.BitReader) ?codec.Stat
     blocks.type_current = 0;
     blocks.type_previous = 1;
     if (count == 1) {
-        // RFC 7932 §10: one block type's count never runs out within a meta-block.
+        // RFC 7932 §10: one block type's count starts at 16,777,216, which no element spends
+        // (§9.3, `take_element`).
         blocks.count_left = constants.block_count_single_type;
         next_category(state);
         return null;

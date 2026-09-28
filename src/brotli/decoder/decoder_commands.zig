@@ -26,9 +26,17 @@ fn blocks_of(state: *State, category: Category) *state_module.Blocks {
 fn needs_switch(state: *State, category: Category) bool {
     const blocks = blocks_of(state, category);
     if (blocks.count_left > 0) return false;
-    // RFC 7932 §10: a category of one block type counts from 1 << 24, which no meta-block spends.
+    // `take_element` spends no count of a category of one block type.
     assert(blocks.types_count >= constants.block_switch_types_min);
     return true;
+}
+
+/// Takes one element of the current block. RFC 7932 §9.3 reads a block switch only in a category
+/// of two block types or more, so the count of one block type, which §10 starts at 16,777,216,
+/// stays: commands whose dictionary words transform to nothing write no octet, and more of them
+/// than that fit one meta-block.
+fn take_element(blocks: *state_module.Blocks) void {
+    if (blocks.types_count >= constants.block_switch_types_min) blocks.count_left -= 1;
 }
 
 fn start_switch(state: *State, category: Category, after: Phase) ?codec.Status {
@@ -84,7 +92,7 @@ pub fn read_command(state: *State, bits: *codec.BitReader) ?codec.Status {
     const blocks = blocks_of(state, .insert_copy);
     const symbol = decode_symbol(bits, &state.insert_copy_codes[blocks.type_current]) orelse return .needs_input;
     count_work(state, 1);
-    blocks.count_left -= 1;
+    take_element(blocks);
     set_command_codes(&state.command, symbol);
     state.phase = .command_extra;
     return null;
@@ -139,7 +147,7 @@ pub fn read_literal(state: *State, bits: *codec.BitReader, out: anytype) ?codec.
     const tree = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count + id];
     const literal = decode_symbol(bits, &state.literal_codes[tree]) orelse return .needs_input;
     count_work(state, 1);
-    blocks.count_left -= 1;
+    take_element(blocks);
     state.command.insert_left -= 1;
     out.emit(state, @intCast(literal));
     if (state.command.insert_left == 0) state.phase = after_literals(state);
@@ -170,7 +178,7 @@ pub fn read_distance(state: *State, bits: *codec.BitReader) Error!?codec.Status 
     const distance = try distance_of(state, code, extra);
     bits.consume(decoded.len + extra_bits);
     count_work(state, 1);
-    blocks.count_left -= 1;
+    take_element(blocks);
     // RFC 7932 §4: the distance code 0 does not push its distance to the ring of last distances.
     return try resolve_distance(state, distance, code != 0);
 }
