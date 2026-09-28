@@ -16,7 +16,8 @@
 //!
 //! The text writes the numbers the entry's layout fixes, which `fast_x86_64.zig` asserts: a code's
 //! bits in 4 bits (15), a distance symbol in 5 (31), a combined length in 9 (0x1ff), the 56 bits a
-//! refill leaves at least, and a chunk of 16 octets (a shift of 4). One compare checks a distance
+//! refill leaves at least, a chunk of 16 octets (a shift of 4), the low bit of `other` (0x40), and
+//! the fields of a length's codes, 2 octets each. One compare checks a distance
 //! against both its bounds, a chunk and the stream's window: the distance less a chunk, unsigned,
 //! against `distance_span`. The numbered labels are those of the aarch64 text.
 
@@ -177,9 +178,10 @@ pub const copy =
 pub const plain =
     \\4:
     \\    // A length: its value, or its base and the extra bits after its code (RFC 1951 §3.2.5).
-    \\    // Any other entry, and a distance's code longer than its table, go to `decode_rare`.
+    \\    // A code longer than the table goes on at 94; any other entry, and a distance's code
+    \\    // longer than its table, go to `decode_rare`.
     \\    test r12d, {[direct_bit]}
-    \\    jz 90f
+    \\    jz 94f
     \\    shrx r13, r8, r12
     \\    mov rcx, qword ptr [rdi + {[distance_bits]}]
     \\    bzhi rax, r13, rcx
@@ -319,6 +321,71 @@ pub const other_cases =
     \\    cmp rax, rbx
     \\    jb 74b
     \\    jmp 7b
+;
+
+/// A literal/length code longer than the table, which the loop goes on decoding from its prefix,
+/// as the aarch64 text does. `fast_x86_64.zig` formats it apart from the other pieces.
+pub const long_code =
+    \\94:
+    \\    // A code longer than the table (RFC 1951 §3.2.2): the entry holds its first bits, most
+    \\    // significant first, and the table's width, how many they are; each bit after them doubles
+    \\    // the value and adds itself, until the value falls among the codes of the length read so
+    \\    // far. ecx the length read, eax the value, rbx each length's codes. The other entries that
+    \\    // come here, the block's end and a value the checked path refuses, set bit 6, the low bit
+    \\    // of `other`, and go to `decode_rare`.
+    \\    test r12d, 0x40
+    \\    jnz 90f
+    \\    rorx ecx, r12d, {[code_bits_at]}
+    \\    and ecx, 15
+    \\    rorx eax, r12d, {[value_at]}
+    \\    movzx eax, ax
+    \\    mov rbx, qword ptr [rdi + {[long_codes]}]
+    \\95:
+    \\    bt r8, rcx
+    \\    adc eax, eax
+    \\    inc ecx
+    \\    movzx r14d, word ptr [rbx + rcx*8]
+    \\    mov r15d, eax
+    \\    sub r15d, r14d
+    \\    movzx r14d, word ptr [rbx + rcx*8 + 2]
+    \\    cmp r15d, r14d
+    \\    jb 96f
+    \\    cmp ecx, 15
+    \\    jb 95b
+    \\    jmp 90f
+    \\96:
+    \\    movzx r14d, word ptr [rbx + rcx*8 + 4]
+    \\    add r15d, r14d
+    \\    mov r13, qword ptr [rdi + {[literal_length_symbols]}]
+    \\    movzx r15d, word ptr [r13 + r15*2]
+    \\    cmp r15d, 256
+    \\    jb 97f
+    \\    // A length (RFC 1951 §3.2.5): its entry for a code of no bits, with the code's bits added
+    \\    // to its bits and to its code's, taken as the table's entries are. The block's end wraps
+    \\    // past the lengths, and it and 286 and 287, which never occur (RFC 1951 §3.2.6), go to
+    \\    // `decode_rare`.
+    \\    sub r15d, 257
+    \\    cmp r15d, 29
+    \\    jae 90f
+    \\    mov r13, qword ptr [rdi + {[length_entries]}]
+    \\    mov r12d, dword ptr [r13 + r15*4]
+    \\    add r12d, ecx
+    \\    shl ecx, 8
+    \\    add r12d, ecx
+    \\    jmp 4b
+    \\97:
+    \\    // A literal: its octet, its bits, and a refill before the next lookup.
+    \\    mov byte ptr [rdx], r15b
+    \\    inc rdx
+    \\    shrx r8, r8, rcx
+    \\    sub r9d, ecx
+    \\    {[count_literal]s}
+    \\
+++ refill ++
+    \\
+    \\    bzhi rax, r8, r11
+    \\    mov r12d, dword ptr [r10 + rax*4]
+    \\    jmp 1b
 ;
 
 /// The exits, with the state stored back and why the loop stopped in rax.

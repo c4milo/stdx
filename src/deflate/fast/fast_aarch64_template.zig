@@ -21,8 +21,9 @@
 //!
 //! The numbered labels: 1 an iteration, 3 a match, 4 a length's own entry, 5 the refill after
 //! literals, 6 the match's copy, 7 the next symbol, 8 the refill after a match, 70 and 71 a match's
-//! other cases, the last a distance below a chunk, 72, 74, 76, 77 and 78 the rest of a match, 80
-//! and 90 the exits, 99 the state stored back.
+//! other cases, the last a distance below a chunk, 72, 74, 76, 77 and 78 the rest of a match, 94
+//! to 97 a literal/length code longer than the table, 80 and 90 the exits, 99 the state stored
+//! back.
 
 /// The prologue: the state, a refill, and the first symbol's entry.
 pub const prologue =
@@ -114,7 +115,7 @@ pub const combined =
     \\    // say they start. x15 the length, x19 the distance, x26 and w27 the buffer and its count
     \\    // past the match's bits.
     \\    ubfx x16, x14, #{[distance_symbol_at]}, #5
-    \\    ubfx x17, x14, #{[code_bits_at]}, #{[code_bits_bits]}
+    \\    ubfx x17, x14, #{[code_bits_at]}, #4
     \\    ldr w16, [x13, x16, lsl #2]
     \\    lsr x17, x6, x17
     \\    ubfx x15, x14, #{[value_at]}, #{[combined_length_bits]}
@@ -175,21 +176,22 @@ pub const copy =
 pub const plain =
     \\4:
     \\    // A length: its value, or its base and the extra bits after its code (RFC 1951 §3.2.5).
-    \\    // Any other entry, and a distance's code longer than its table, go to `decode_rare`. x17
-    \\    // the buffer past the length's bits, x21 the distance's entry.
-    \\    tbz w14, #{[direct_at]}, 90f
+    \\    // A code longer than the table goes on at 94; any other entry, and a distance's code
+    \\    // longer than its table, go to `decode_rare`. x17 the buffer past the length's bits, x21
+    \\    // the distance's entry.
+    \\    tbz w14, #{[direct_at]}, 94f
     \\    lsr x17, x6, x14
     \\    and x16, x17, x11
     \\    ldr w21, [x10, x16, lsl #2]
     \\    lsl x16, x23, x14
     \\    bic x16, x6, x16
-    \\    ubfx x15, x14, #{[code_bits_at]}, #{[code_bits_bits]}
+    \\    ubfx x15, x14, #{[code_bits_at]}, #4
     \\    lsr x16, x16, x15
     \\    add x15, x16, x14, lsr #{[value_at]}
     \\    tbz w21, #{[direct_at]}, 90f
     \\    lsl x16, x23, x21
     \\    bic x16, x17, x16
-    \\    ubfx x19, x21, #{[code_bits_at]}, #{[code_bits_bits]}
+    \\    ubfx x19, x21, #{[code_bits_at]}, #4
     \\    lsr x16, x16, x19
     \\    add x19, x16, x21, lsr #{[value_at]}
     \\    lsr x26, x17, x21
@@ -228,7 +230,7 @@ pub const other_cases =
     \\    cmp x16, x5
     \\    b.lo 90f
     \\    ldr x17, [x0, #{[repeats]}]
-    \\    add x16, x17, x19, lsl #{[chunk_shift]}
+    \\    add x16, x17, x19, lsl #4
     \\    ldr q1, [x16]
     \\    ldur q0, [x3, #-{[chunk]}]
     \\    tbl v0.16b, {{v0.16b}}, v1.16b
@@ -279,6 +281,68 @@ pub const other_cases =
     \\    cmp x17, x21
     \\    b.lo 74b
     \\    b 7b
+;
+
+/// A literal/length code longer than the table, which the loop goes on decoding from its prefix.
+pub const long_code =
+    \\94:
+    \\    // A code longer than the table (RFC 1951 §3.2.2): the entry holds its first bits, most
+    \\    // significant first, and the table's width, how many they are; each bit after them doubles
+    \\    // the value and adds itself, until the value falls among the codes of the length read so
+    \\    // far. x15 the length read, x16 the value, x28 each length's codes. The other entries that
+    \\    // come here, the block's end and a value the checked path refuses, set bit 6, the low bit
+    \\    // of `other`, and go to `decode_rare`.
+    \\    tbnz w14, #6, 90f
+    \\    ubfx x15, x14, #{[code_bits_at]}, #4
+    \\    lsr w16, w14, #{[value_at]}
+    \\    ldr x28, [x0, #{[long_codes]}]
+    \\95:
+    \\    lsr x19, x6, x15
+    \\    and x19, x19, #1
+    \\    orr w16, w19, w16, lsl #1
+    \\    add x15, x15, #1
+    \\    ldr x20, [x28, x15, lsl #3]
+    \\    sub w21, w16, w20, uxth
+    \\    ubfx x19, x20, #16, #16
+    \\    cmp w21, w19
+    \\    b.lo 96f
+    \\    cmp x15, #15
+    \\    b.lo 95b
+    \\    b 90f
+    \\96:
+    \\    ubfx x20, x20, #32, #16
+    \\    add w21, w21, w20
+    \\    ldr x17, [x0, #{[literal_length_symbols]}]
+    \\    ldrh w21, [x17, x21, lsl #1]
+    \\    cmp w21, #256
+    \\    b.lo 97f
+    \\    // A length (RFC 1951 §3.2.5): its entry for a code of no bits, with the code's bits added
+    \\    // to its bits and to its code's, taken as the table's entries are. The block's end wraps
+    \\    // past the lengths, and it and 286 and 287, which never occur (RFC 1951 §3.2.6), go to
+    \\    // `decode_rare`.
+    \\    sub w21, w21, #257
+    \\    cmp w21, #29
+    \\    b.hs 90f
+    \\    ldr x19, [x0, #{[length_entries]}]
+    \\    ldr w14, [x19, x21, lsl #2]
+    \\    add w14, w14, w15
+    \\    add w14, w14, w15, lsl #8
+    \\    b 4b
+    \\97:
+    \\    // A literal: its octet, its bits, and a refill before the next lookup.
+    \\    strb w21, [x3], #1
+    \\    lsr x6, x6, x15
+    \\    sub w7, w7, w15
+    \\    {[count_literal]s}
+    \\    ldr x16, [x1]
+    \\    lsl x16, x16, x7
+    \\    orr x6, x6, x16
+    \\    bic x16, x22, x7
+    \\    add x1, x1, x16, lsr #3
+    \\    orr w7, w7, #{[refill_bits]}
+    \\    and x17, x6, x9
+    \\    ldr w14, [x8, x17, lsl #2]
+    \\    b 1b
 ;
 
 /// The exits, with the state stored back and why the loop stopped in x0.

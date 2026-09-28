@@ -51,6 +51,11 @@ const State = extern struct {
     /// distance takes its loads from the state.
     distance_codes: [fast.distance_codes.len]DistanceCode,
     repeats: *const fast_copy.Repeats,
+    /// The literal/length codes longer than the table, which the loop decodes on from their
+    /// prefixes, as in the aarch64 state.
+    long_codes: *const [constants.code_len_max + 1]lookup.LongCodes,
+    literal_length_symbols: [*]const u16,
+    length_entries: *const [constants.length_base.len]lookup.Entry,
     /// The symbols decoded, which a test build counts (invariant 17).
     decoded: u64,
     /// The caller's rbp, which the loop counts its iterations in.
@@ -73,7 +78,7 @@ const distance_codes: [fast.distance_codes.len]DistanceCode = codes: {
 /// Runs the common loop as `fast.decode_common` does, for a caller that checked `takes` and that the
 /// CPU runs the assembly: until a margin, or a symbol it leaves for `decode_rare` with the margins
 /// held, at least `fast.refill_bits` bits in the buffer, and none of that symbol's bits used.
-pub fn decode_common(loop: *fast.Loop) fast.Stop {
+pub fn decode_common(loop: *fast.Loop, codes: fast.Codes) fast.Stop {
     if (loop.rest.len < fast.input_slack or loop.room() < fast.output_slack) return .margin;
     assert(loop.count <= @bitSizeOf(u64));
     // The masks index no entry past their tables.
@@ -94,6 +99,9 @@ pub fn decode_common(loop: *fast.Loop) fast.Stop {
         .distance_span = loop.distance_max - constants.copy_chunk_len,
         .distance_codes = distance_codes,
         .repeats = &fast_copy.repeats,
+        .long_codes = &codes.literal_length_table.long_codes,
+        .literal_length_symbols = &codes.literal_length_code.symbols,
+        .length_entries = &lookup.length_entries,
         .decoded = 0,
         .saved_frame = 0,
     };
@@ -158,6 +166,15 @@ comptime {
     assert(@sizeOf(u64) - 1 < 8 and constants.match_len_max + 1 < 512);
     // The shortest window a container declares is longer than a chunk, so the span is not negative.
     assert(constants.copy_chunk_len < 256);
+    // A long code's entry: `other` in bits 6 and 7, whose low bit the block's end and an invalid
+    // entry set and a long code's does not; codes of 15 bits at most; each length's codes in 8
+    // octets, the first code's value, the count and the place 2 octets each, low to high.
+    assert(@bitOffsetOf(lookup.Entry, "other") == 6 and @intFromEnum(lookup.Other.long) == 2);
+    assert(@intFromEnum(lookup.Other.end_of_block) & 1 == 1 and @intFromEnum(lookup.Other.invalid) & 1 == 1);
+    assert(constants.code_len_max == 15);
+    assert(@sizeOf(lookup.LongCodes) == 8 and @bitOffsetOf(lookup.LongCodes, "count") == 16 and @bitOffsetOf(lookup.LongCodes, "index") == 32);
+    // Symbols 257 to 285 are the lengths; 256 ends the block (RFC 1951 §3.2.5).
+    assert(constants.first_length_symbol == 257 and constants.length_base.len == 29 and constants.end_of_block == 256);
 }
 
 /// The chunks a match copy writes before it looks at the length, and the chunks two moves take
@@ -170,8 +187,27 @@ const template = std.fmt.comptimePrint(text: {
     var text: []const u8 = loop_text.prologue ++ "\n" ++ loop_text.iteration ++ "\n";
     for (0..fast.literals_per_refill - 1) |_| text = text ++ loop_text.literal ++ "\n" ++ loop_text.literal_next ++ "\n";
     text = text ++ loop_text.literal ++ "\n" ++ loop_text.literal_last ++ "\n";
-    break :text text ++ loop_text.combined ++ "\n" ++ loop_text.copy ++ "\n" ++ loop_text.plain ++ "\n" ++ loop_text.other_cases ++ "\n" ++ loop_text.exits ++ "\n";
+    break :text text ++ loop_text.combined ++ "\n" ++ loop_text.copy ++ "\n" ++ loop_text.plain ++ "\n" ++ loop_text.other_cases ++ "\n" ++ long_code ++ "\n" ++ loop_text.exits ++ "\n";
 }, template_arguments);
+
+/// The long codes' piece, formatted first with arguments of its own: one format takes 32 at most.
+/// It holds no brace, so the loop's format copies it as it is.
+const long_code = std.fmt.comptimePrint(loop_text.long_code, .{
+    .code_bits_at = @bitOffsetOf(lookup.Entry, "code_bits"),
+    .value_at = @bitOffsetOf(lookup.Entry, "value"),
+    .long_codes = @offsetOf(State, "long_codes"),
+    .literal_length_symbols = @offsetOf(State, "literal_length_symbols"),
+    .length_entries = @offsetOf(State, "length_entries"),
+    .count_literal = counts.literal,
+});
+
+comptime {
+    @setEvalBranchQuota(long_code_check_quota);
+    assert(std.mem.indexOfAny(u8, long_code, "{}") == null);
+}
+
+/// The comptime branches that check takes: two per octet of the piece, and room.
+const long_code_check_quota = 10_000;
 
 /// The instructions that count symbols in a test build, and nothing in another.
 const counts = if (builtin.is_test) .{

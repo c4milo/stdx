@@ -67,7 +67,14 @@ pub const Entry = packed struct(u32) {
     }
 
     pub const invalid: Entry = .{ .used_bits = 0, .other = .invalid };
-    pub const long: Entry = .{ .used_bits = 0, .other = .long };
+
+    /// The entry of the prefix of codes longer than a table of `bits`: the prefix, most
+    /// significant bit first, as RFC 1951 §3.2.2 counts a code's value, and `bits`, so a decoder
+    /// goes on from the prefix. It uses no bits itself.
+    pub fn long(prefix: u16, bits: u4) Entry {
+        assert(prefix >> bits == 0);
+        return .{ .used_bits = 0, .other = .long, .code_bits = bits, .value = prefix };
+    }
 
     /// The entry of a length or a distance with a code of `code_bits`, and `extra_bits` after it.
     fn coded(value: u16, code_bits: u4, extra_bits: u4) Entry {
@@ -99,6 +106,15 @@ pub fn literal_length_entry(symbol: u16, code_bits: u4) Entry {
     const index = symbol - constants.first_length_symbol;
     return Entry.coded(constants.length_base[index], code_bits, @intCast(constants.length_extra_bits[index]));
 }
+
+/// Each length symbol's entry for a code of no bits, from symbol 257 (RFC 1951 §3.2.5): a decoder
+/// that decodes a length from a code longer than the table adds the code's bits to the entry's
+/// bits and to its code's bits.
+pub const length_entries: [constants.length_base.len]Entry = entries: {
+    var entries: [constants.length_base.len]Entry = undefined;
+    for (&entries, 0..) |*entry, index| entry.* = literal_length_entry(constants.first_length_symbol + index, 0);
+    break :entries entries;
+};
 
 /// The entry for length symbol `symbol`, whose code takes `code_bits`, followed by the extra bits
 /// `extra`: the whole length, and the bits of both.
@@ -149,6 +165,11 @@ pub fn distance_entry(symbol: u16, code_bits: u4) Entry {
 }
 
 /// A table for an alphabet whose codes the table takes up to `bits_max` bits of.
+/// The codes of one length longer than a table (RFC 1951 §3.2.2): the first's value, how many
+/// there are, and the first's place among the code's symbols. A decoder that has read a long
+/// code's prefix, most significant bit first, goes on from it a length at a time.
+pub const LongCodes = packed struct(u64) { first: u16, count: u16, index: u16, zero: u16 = 0 };
+
 pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type {
     return struct {
         const Self = @This();
@@ -158,6 +179,9 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
         bits: u4,
         /// Whether the build resolved the lengths' extra bits (`build`).
         resolved: bool,
+        /// The codes of each length longer than `bits`, which the build writes for those lengths
+        /// alone; the others are unused.
+        long_codes: [constants.code_len_max + 1]LongCodes,
 
         /// The entries of the widest table.
         pub const len = 1 << bits_max;
@@ -177,7 +201,7 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
         /// `build`, at most `width` bits wide, for S2's A/B (claims.zig).
         pub fn build_shaped(self: *Self, comptime width: u4, counts: *const Counts, symbols: []const u16, resolves: bool) usize {
             comptime assert(width <= bits_max);
-            const written = build_table(&self.entries, &self.bits, width, counts, symbols, entry_of, resolves);
+            const written = build_table(&self.entries, &self.bits, &self.long_codes, width, counts, symbols, entry_of, resolves);
             self.resolved = resolves;
             // Invariant 17: the build stays within the bound its count is priced at.
             const resolved_max = if (resolves) constants.resolved_length_entries_max else 0;
@@ -218,7 +242,7 @@ const Starts = struct {
 /// copy. The table starts as two unused values, which each doubling copies on, so an incomplete
 /// code leaves them invalid. When it `resolves` lengths, each length whose code and extra bits fit
 /// the table gets an entry for each value of its extra bits, at the width they take.
-fn build_table(entries: []Entry, table_bits: *u4, bits_max: u4, counts: *const Counts, symbols: []const u16, entry_of: fn (u16, u4) Entry, resolves: bool) usize {
+fn build_table(entries: []Entry, table_bits: *u4, long_codes: *[constants.code_len_max + 1]LongCodes, bits_max: u4, counts: *const Counts, symbols: []const u16, entry_of: fn (u16, u4) Entry, resolves: bool) usize {
     assert(counts[0] == 0);
     const bits = @max(1, @min(bits_max, longest(counts.*)));
     table_bits.* = bits;
@@ -232,6 +256,7 @@ fn build_table(entries: []Entry, table_bits: *u4, bits_max: u4, counts: *const C
         code = (code + counts[len - 1]) << 1;
         starts.codes[len] = code;
         starts.symbols[len] = placed;
+        if (len > bits) long_codes[len] = .{ .first = code, .count = counts[len], .index = placed };
         const of_length = symbols[placed..][0..counts[len]];
         // Length symbols sort after every other of their code length.
         if (of_length.len > 0 and of_length[of_length.len - 1] >= constants.first_length_symbol) starts.with_lengths |= @as(u16, 1) << @intCast(len);
@@ -250,16 +275,28 @@ fn build_table(entries: []Entry, table_bits: *u4, bits_max: u4, counts: *const C
 /// Writes the entries of the codes of one length, `first_code` and on, one entry each: in the
 /// table of that length's size, or as a long code's prefix in the whole table.
 fn place_codes(entries: []Entry, bits: u4, symbols: []const u16, len: u4, first_code: u16, entry_of: fn (u16, u4) Entry) usize {
+    if (len > bits) return place_prefixes(entries, bits, symbols.len, len, first_code);
     for (symbols, 0..) |symbol, index| {
         const code: u16 = @intCast(first_code + index);
-        if (len <= bits) {
-            entries[reversed(code, len)] = entry_of(symbol, len);
-        } else {
-            // The first `bits` bits of the code, as the stream gives them, name its prefix.
-            entries[reversed(code >> (len - bits), bits)] = Entry.long;
-        }
+        entries[reversed(code, len)] = entry_of(symbol, len);
     }
     return symbols.len;
+}
+
+/// Writes the entry of each prefix the `count` codes of `len` bits, `first_code` and on, share:
+/// their first `bits` bits, as the stream gives them, name it. Consecutive codes share a prefix,
+/// which is written once. Returns the codes, the most it writes.
+fn place_prefixes(entries: []Entry, bits: u4, count: usize, len: u4, first_code: u16) usize {
+    const shift: u4 = len - bits;
+    const long_bits: u32 = @bitCast(Entry.long(0, bits));
+    var last: ?u16 = null;
+    for (0..count) |index| {
+        const prefix: u16 = @intCast((first_code + index) >> shift);
+        if (last == prefix) continue;
+        last = prefix;
+        entries[reversed(prefix, bits)] = @bitCast(long_bits | @as(u32, prefix) << @bitOffsetOf(Entry, "value"));
+    }
+    return count;
 }
 
 /// Writes, now that the table is `level` bits wide, an entry for each value of the extra bits of

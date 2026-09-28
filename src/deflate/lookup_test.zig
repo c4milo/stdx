@@ -31,7 +31,12 @@ fn expected_entry(code: anytype, index: usize, bits: u4, comptime entry_of: fn (
         .invalid => return lookup.Entry.invalid,
         .needs_bits => unreachable,
     };
-    if (symbol.len > bits) return lookup.Entry.long;
+    if (symbol.len > bits) {
+        // The prefix, most significant bit first: the index's bits in the order the stream gave.
+        var prefix: u16 = 0;
+        for (0..bits) |bit| prefix = prefix << 1 | @as(u16, @intCast((index >> @intCast(bit)) & 1));
+        return lookup.Entry.long(prefix, bits);
+    }
     const entry = entry_of(symbol.value, @intCast(symbol.len));
     if (!resolves_lengths or !entry.direct or !entry.extra or entry.used_bits > bits) return entry;
     const extra_bits: u6 = entry.used_bits - entry.code_bits;

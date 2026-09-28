@@ -269,7 +269,7 @@ inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, h
     // Each round decodes a symbol at least, which takes a bit, or ends the loop.
     const rounds_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
     for (0..rounds_max) |_| {
-        if (common(options, loop, history) == .margin) return .margin;
+        if (common(options, loop, codes, history) == .margin) return .margin;
         const next = decode_rare(options, loop, codes, history);
         if (next != .go_on) return next.end();
     }
@@ -277,11 +277,9 @@ inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, h
 }
 
 /// The common symbols, through the assembly of decision 29 where it runs.
-inline fn common(comptime options: Options, loop: *Loop, history: History) Stop {
-    if (comptime fast_aarch64.takes(options)) return fast_aarch64.decode_common(loop);
-    if (comptime fast_x86_64.takes(options)) {
-        if (history.assembly) return fast_x86_64.decode_common(loop);
-    }
+inline fn common(comptime options: Options, loop: *Loop, codes: Codes, history: History) Stop {
+    if (comptime fast_aarch64.takes(options)) return fast_aarch64.decode_common(loop, codes);
+    if ((comptime fast_x86_64.takes(options)) and history.assembly) return fast_x86_64.decode_common(loop, codes);
     return decode_common(options, loop);
 }
 
@@ -497,4 +495,5 @@ test {
     _ = @import("fast_step.zig");
     _ = @import("fast_aarch64.zig");
     _ = @import("fast_x86_64.zig");
+    _ = @import("fast_test.zig");
 }
