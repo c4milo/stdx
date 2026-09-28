@@ -1355,10 +1355,16 @@ to 12 are reordered and nothing else changes.
   - The AVX2 kernels ran under Rosetta 2 with `-Dtarget=x86_64-macos -Dcpu=x86_64_v3`, whose
     features `detect()` adds. The AVX-512 kernels run on the x86-64 runners that have AVX-512.
 
+  bench-json run [36480120596](https://github.com/c4milo/stdx/actions/runs/36480120596), at c31ad99
+  before J7, found one loss on the N2: E.coli, a string of plain ASCII alone, encoded 14.5% faster
+  with J9 off, as the fast path's scan of its 1 MiB ran inside the encoder's loop. So a run past its
+  first 16 octets now leaves its caller at every level, for a function of its own.
+
   Mutations, the kernels' under Rosetta, every one CAUGHT:
   - the AVX2 string, UTF-8 and hex kernels each one octet short;
-  - a stop in the last lane of the first block passed to the kernel;
-  - the kernel's run counted from the string's start;
+  - a stop in the last lane of the first block passed on;
+  - the rest's run counted from the string's start;
+  - a long run's rest one octet short at the target's level;
   - AVX-512's features picking AVX2;
   - J7 off keeping the wide level.
 

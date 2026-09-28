@@ -5,7 +5,8 @@
 //!
 //! A call costs what a short run saves, so a run no longer than the level's width stays on the
 //! 16-octet path, which compiles into its caller. A name's or a string's run starts there too, and
-//! reaches the level's kernel only once it passes its first 16 octets.
+//! leaves its caller only once it passes its first 16 octets, for a function of its own at every
+//! level.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -54,19 +55,27 @@ extern fn stdx_json_content_len_x86_64_avx512(octets: [*]const u8, len: usize) c
 extern fn stdx_json_hex_len_x86_64_avx2(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize;
 extern fn stdx_json_hex_len_x86_64_avx512(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize;
 
-/// `scan.plain_len_vector` at `level`'s width: the first 16 octets inline, and a run past them in
-/// the level's kernel.
+/// `scan.plain_len_vector` at `level`'s width: the first 16 octets inline, and a run past them out
+/// of line.
 pub inline fn plain_len(level: Level, octets: []const u8) usize {
-    if (comptime !has_kernels) return @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets });
-    if (level == .target or octets.len <= level.width()) return @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets });
+    if (octets.len <= constants.vector_len) return @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets });
     const first_len = @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets[0..constants.vector_len] });
     if (first_len < constants.vector_len) return first_len;
-    const rest = octets[constants.vector_len..];
-    return constants.vector_len + switch (level) {
-        .avx2 => stdx_json_plain_len_x86_64_avx2(rest.ptr, rest.len),
-        .avx512 => stdx_json_plain_len_x86_64_avx512(rest.ptr, rest.len),
-        .target => unreachable,
-    };
+    return constants.vector_len + plain_len_past_first(level, octets[constants.vector_len..]);
+}
+
+/// The rest of a run past its first 16 octets, in a function of its own: a long run's loop compiled
+/// inside its caller's ran 13% slower on the N2 (design §8 step 17). The level's kernel takes a
+/// rest longer than its width.
+noinline fn plain_len_past_first(level: Level, octets: []const u8) usize {
+    if (comptime has_kernels) {
+        if (level != .target and octets.len > level.width()) return switch (level) {
+            .avx2 => stdx_json_plain_len_x86_64_avx2(octets.ptr, octets.len),
+            .avx512 => stdx_json_plain_len_x86_64_avx512(octets.ptr, octets.len),
+            .target => unreachable,
+        };
+    }
+    return scan.plain_len_vector(constants.vector_len, octets);
 }
 
 /// `scan.content_len_vector` at `level`'s width.
