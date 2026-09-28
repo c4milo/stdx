@@ -1,0 +1,40 @@
+# A temporary experiment for https://github.com/c4milo/stdx/issues/13, on a branch of its own that
+# never lands: bench-deflate's decoding table for each commit .github/ab/refs.txt names, built and
+# run in the same job, taking turns, so each job compares the commits on one CPU.
+name: ab-deflate
+
+on:
+  push:
+    branches: [perf-deflate-ab]
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        draw: [1, 2, 3]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ab
+          fetch-depth: 0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ab/zig-pkg
+          key: zig-pkg-${{ hashFiles('ab/build.zig.zon') }}
+      - name: Install Zig
+        run: ab/tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Build each commit
+        run: python3 ab/.github/ab/build.py
+      - name: Time the commits in turns
+        run: python3 ab/.github/ab/run.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ab-${{ matrix.runner }}-${{ matrix.draw }}
+          path: ab-*.md
