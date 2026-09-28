@@ -12,6 +12,9 @@ on:
       runs:
         description: "Runs per fuzzed module, with Zig's K, M or G suffix"
         default: "2M"
+      module:
+        description: "One fuzzed module, or every one when empty"
+        default: ""
 
 permissions:
   contents: read
@@ -25,7 +28,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: List the fuzzed modules
         id: list
-        run: echo "modules=$(tools/fuzz.sh --list)" >> "$GITHUB_OUTPUT"
+        env:
+          MODULE: ${{ inputs.module }}
+        run: |
+          # A module named by hand is checked by tools/fuzz.sh against its list when its job runs.
+          if [[ -n "$MODULE" ]]; then
+            echo "modules=[\"$MODULE\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo "modules=$(tools/fuzz.sh --list)" >> "$GITHUB_OUTPUT"
+          fi
 
   fuzz:
     needs: modules
