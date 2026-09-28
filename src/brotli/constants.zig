@@ -49,3 +49,27 @@ pub const ferment_third_octet_xor = 5;
 comptime {
     std.debug.assert(transformed_word_len_max == 37);
 }
+
+/// Lut0, Lut1 and Lut2 each hold one entry per octet value, with the CRC-32 RFC 7932 §7.1 states for
+/// each (claim B2).
+pub const lut_len = 256;
+pub const lut0_crc32: u32 = 0x8e91efb7;
+pub const lut1_crc32: u32 = 0xd01a32f4;
+pub const lut2_crc32: u32 = 0x0dd7a0d6;
+
+/// A literal's context ID takes 6 bits, 0 to 63, and a distance's one of 4 values (RFC 7932 §7.1,
+/// §7.2).
+pub const literal_context_bits = 6;
+pub const literal_contexts_count = 1 << literal_context_bits;
+pub const distance_contexts_count = 4;
+
+/// MSB6 takes p1's six most significant bits: p1 shifted right by 2 (RFC 7932 §7.1).
+pub const msb6_shift = @bitSizeOf(u8) - literal_context_bits;
+
+/// Signed puts Lut2[p1] above Lut2[p2], 3 bits up (RFC 7932 §7.1).
+pub const signed_shift = 3;
+
+/// The copy length from which every distance takes the last context ID, 3 (RFC 7932 §7.2): copy
+/// lengths 2, 3 and 4 take IDs 0, 1 and 2.
+pub const distance_context_copy_len_min = 2;
+pub const distance_context_last_copy_len = 5;
