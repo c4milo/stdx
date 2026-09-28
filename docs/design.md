@@ -1242,6 +1242,9 @@ to 12 are reordered and nothing else changes.
   - J6's and J7's A/Bs on both runners of decision 20, and the baselines again.
   - Mutations.
 
+  A run names the commit it ran at on the json branch, which was then rebased onto main: there
+  f6f3e1f is 0023649, d8e68c3 is a67bdaa, 305af14 is 9b80395 and c31ad99 is 74254cc.
+
   **The profile, 2026-09-28.** `bench-profile` run
   [36472497642](https://github.com/c4milo/stdx/actions/runs/36472497642) at f6f3e1f, on a
   Neoverse N2; the x86-64 runner, an AMD EPYC 7763, refused perf_event_open. Per token, with every
