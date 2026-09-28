@@ -1089,9 +1089,11 @@ and entry 26 out of the owner's review of CI.
       three. The labels are pinned, as entry 20 pins Linux's: `macos-latest` moves to each new
       macOS. macOS 26 is the owner's.
     - Some code runs on macOS alone. There, `codec.Features.detect()` returns a fixed set, since
-      every aarch64 Mac is an Apple M-series part, and the set's `madd_addend_slow` puts XXH64 on
-      its aarch64 path. No Linux runner reaches either; before this entry, only a person's run on
-      the Mac did.
+      every aarch64 Mac is an Apple M-series part, and the set's `madd_addend_slow` makes the
+      Zstandard decoder check Content_Checksum with XXH64's aarch64 path. On Linux the decoder
+      takes the scalar path, and only `differential-checksum` calls the aarch64 path, directly.
+      Before this entry, only a person's run on the Mac ran the one or the decoder's use of the
+      other.
     - Zig 0.16's fuzzer runs on macOS as well as on Linux, so fuzzing need not stay on Linux, as
       entry 15 had it.
     - Numbers stay on Linux (decision 10): macOS runs the checks and the fuzzer, never the costs or
