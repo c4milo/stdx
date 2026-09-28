@@ -13,6 +13,8 @@
 //!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
 //! - `zig build bench-zstd -Doracles` times Zstandard decoding against libzstd over the corpora
 //!   (`bench/zstd/zstd.zig`).
+//! - `zig build bench-brotli -Doracles` times brotli decoding against Google's brotli over the
+//!   corpora (`bench/brotli/brotli.zig`).
 //! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
 //!   and Zstandard decoder, where the host exposes the counters (`bench/profile/profile.zig`).
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
@@ -104,9 +106,10 @@ pub fn add(b: *std.Build, options: Options) void {
     const zstd_step = b.step("differential-zstd", "Require the Zstandard decoder to agree with libzstd (-Doracles)");
     const brotli_step = b.step("differential-brotli", "Require the brotli decoder to agree with Google's brotli (-Doracles)");
     const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
+    const bench_brotli_step = b.step("bench-brotli", "Time brotli decoding against Google's brotli over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip and Zstandard decoder (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, profile_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -280,11 +283,14 @@ pub fn add(b: *std.Build, options: Options) void {
     oracle_corpus.add_args(b, brotli_run, corpus);
     brotli_step.dependOn(&brotli_run.step);
 
-    // Decision 17's measurement for Zstandard, after the benchmark: stdx built ReleaseFast.
-    const bench_zstd_run = add_bench_zstd(b, .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline }, graph, false);
-    const bench_zstd_fast_run = add_bench_zstd(b, .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline }, release_fast_graph, true);
-    bench_zstd_fast_run.step.dependOn(&bench_zstd_run.step);
-    bench_zstd_step.dependOn(&bench_zstd_fast_run.step);
+    // Decision 17's measurement for each decoder, after its benchmark: stdx built ReleaseFast.
+    const inputs: BenchInputs = .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline };
+    inline for (.{ .{ bench_zstd_step, zstd_bench }, .{ bench_brotli_step, brotli_bench } }) |decoder_bench| {
+        const safe_run = add_bench_decoder(b, inputs, graph, false, decoder_bench[1]);
+        const fast_run = add_bench_decoder(b, inputs, release_fast_graph, true, decoder_bench[1]);
+        fast_run.step.dependOn(&safe_run.step);
+        decoder_bench[0].dependOn(&fast_run.step);
+    }
 
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
@@ -329,7 +335,7 @@ pub fn add(b: *std.Build, options: Options) void {
     }
 }
 
-/// What each Zstandard benchmark program is built from.
+/// What each decoder benchmark program is built from.
 const BenchInputs = struct {
     oracle: *std.Build.Module,
     timing: *std.Build.Module,
@@ -337,21 +343,27 @@ const BenchInputs = struct {
     baseline: std.Build.ResolvedTarget,
 };
 
-/// `bench/zstd/zstd.zig` over the corpora, against the library `graph` holds: ReleaseSafe, or
+/// A decoder benchmark: its program's source, the name it installs as, and the codec module it
+/// times, by its name in the module graph.
+const DecoderBench = struct { source: []const u8, name: []const u8, codec: []const u8 };
+const zstd_bench: DecoderBench = .{ .source = "bench/zstd/zstd.zig", .name = "bench_zstd", .codec = "zstd" };
+const brotli_bench: DecoderBench = .{ .source = "bench/brotli/brotli.zig", .name = "bench_brotli", .codec = "brotli" };
+
+/// `bench`'s program over the corpora, against the library `graph` holds: ReleaseSafe, or
 /// ReleaseFast for decision 17's measurement, where the root is ReleaseFast too, since Zig 0.16
 /// takes runtime safety from the root module for every module the program imports.
-fn add_bench_zstd(b: *std.Build, inputs: BenchInputs, graph: modules.Modules, release_fast: bool) *std.Build.Step.Run {
+fn add_bench_decoder(b: *std.Build, inputs: BenchInputs, graph: modules.Modules, release_fast: bool, comptime bench: DecoderBench) *std.Build.Step.Run {
     const module = b.createModule(.{
-        .root_source_file = b.path("bench/zstd/zstd.zig"),
+        .root_source_file = b.path(bench.source),
         .target = inputs.baseline,
         .optimize = if (release_fast) .ReleaseFast else .ReleaseSafe,
     });
     module.addImport("oracle", inputs.oracle);
     module.addImport("timing", inputs.timing);
     module.addImport("codec", graph.codec);
-    module.addImport("zstd", graph.zstd);
+    module.addImport(bench.codec, @field(graph, bench.codec));
     module.addOptions("bench_options", bench_options(b, release_fast));
-    const name = if (release_fast) "bench_zstd_release_fast" else "bench_zstd";
+    const name = if (release_fast) bench.name ++ "_release_fast" else bench.name;
     const program = b.addExecutable(.{ .name = name, .root_module = module });
     b.installArtifact(program);
     const run = b.addRunArtifact(program);

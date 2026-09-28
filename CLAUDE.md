@@ -287,6 +287,12 @@ Change this section when a step adds or renames a command.
   all on: every candidate interleaved in one run, the median of five runs with the spread. A
   second program then repeats the comparison with libzstd with stdx built ReleaseFast, decision
   17's measure of what the safety checks cost.
+- brotli benchmark: `zig build bench-brotli -Doracles` times Google's brotli decoder and stdx's
+  HTTP decoder over every corpus file, encoded once by Google's brotli at its default quality 11
+  and window 22; then stdx's fast path against its checked path, and each claim off against all
+  on: every candidate interleaved in one run, the median of five runs with the spread. A second
+  program then repeats the comparison with Google's brotli with stdx built ReleaseFast, decision
+  17's measure of what the safety checks cost. The `bench` workflow offers it.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder, and for libzstd's and stdx's Zstandard
