@@ -525,6 +525,8 @@ entry 26 out of the owner's review of CI, entry 27 out of the owner's request fo
     | S8. A table build that writes only the entries the code uses | Clearing unused entries; bounds the cost of a stream of tiny dynamic blocks (invariant 17) | Entries written per octet consumed, counted in a test build, on the worst-case generators | — |
     | S9. CRC-32 by carry-less multiplication (x86 PCLMULQDQ, Arm PMULL) or Arm's CRC32 instructions; Adler-32 with vectors and a deferred modulo | A table-driven CRC-32 runs at about the speed of a fast decode, so it comes close to doubling the cost per output octet; step 4 measures both | Checksum throughput against each baseline; the checked table path is the oracle | zlib-ng, libdeflate, Wuffs |
     | S10. The checksum runs over each call's output once, while it is still in cache | A second pass over output that left L1 (cache miss) | A/B against checksumming after the whole stream | — |
+    | S11. A length and its distance's code in one literal/length entry, when both fit the table, so one lookup decodes both | The distance's lookup, a second load each match waits on (L1 hit) | A/B with the entries of a length and its distance apart | — |
+    | S12. A length's extra bits in its literal/length entry, when its code and the extra bits fit the table | Reading the extra bits of most matches: a shift and a mask each | A/B with every table built plain | — |
 
     Zstandard and brotli decoders:
 
@@ -572,10 +574,31 @@ entry 26 out of the owner's review of CI, entry 27 out of the owner's request fo
     - S7's test as written finds nothing to time: zlib at level 6 writes no fixed block for the
       HTTP corpus. Step 7 times S7 over zlib's fixed strategy instead.
     - S4's repeated pattern for distances under 8 is not written: few matches take such a
-      distance.
+      distance. Since decision 29, the assembly loops copy a match whose distance is below 16
+      with one table lookup (TBL on aarch64, PSHUFB on x86-64); the Zig loop still leaves it to
+      the step out of line.
     - The predictions: the 1 KiB bodies beat zlib, libdeflate and Wuffs on the N2 but lose to
       zlib-ng, and 1 MiB decoding stays behind libdeflate, at a median of 0.69 of its speed on
       the N2 and 0.66 on the EPYC 7763.
+
+    **What [issue 13](https://github.com/c4milo/stdx/issues/13) found.** Recorded on 2026-09-28;
+    design §8 step 7 holds the runs.
+    - S12 beats the noise. With it off, the N2 runs at a median of 0.97 of all on and the EPYC
+      7763 at 0.99, and all on wins by more than 5% on 14 and 12 files (run
+      [36380436703](https://github.com/c4milo/stdx/actions/runs/36380436703)). It stays.
+    - S11 tied with S12 alone in the Zig loop: 1.00 at the median on both runners. A table that
+      mixes combined and plain entries makes the branch between the two mispredict, and building
+      plain each block whose matches mostly would not combine removed those mispredictions and
+      none of the cycles (runs [36412089015](https://github.com/c4milo/stdx/actions/runs/36412089015)
+      and [36412091480](https://github.com/c4milo/stdx/actions/runs/36412091480)). The owner kept
+      S11 until the assembly loops of decision 29 measured it again.
+    - They did, and it stays. The combination read and branched on every entry of a block's
+      table, in an order no predictor follows, and each extra pass cost the M1 2 to 4% of a text
+      decode, so the tie had hidden S11's worth. Once it visits only the pairs it joins (dac6cd9),
+      S11 off runs at a median of 0.96 of all on on both runners, and all on wins by more than
+      5% on 16 of the N2's files and 18 of the EPYC 9V74's, off on none (run
+      [36478169575](https://github.com/c4milo/stdx/actions/runs/36478169575)). S12 off runs at
+      0.97 and 0.92.
 
 15. **The checks.** Proposed on 2026-09-25, the fifth decision record the owner asked for. Ruled by
     the owner on 2026-09-25, after a review of the proposal. The owner chose to fail closed where an

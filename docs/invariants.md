@@ -81,7 +81,9 @@ check lands with its step.
 - **Claim.** A call reads only `input[0..input.len]` and history it has written, and writes only
   `output[0..output.len]` and its own state.
 - **Mechanism.** The checked reader and writer of `codec`, and fast paths entered and continued only
-  while their margins hold (decision 16). Zig's bounds checks stay on in ReleaseSafe (decision 17).
+  while their margins hold (decision 16). Zig's bounds checks stay on in ReleaseSafe (decision 17),
+  but for the assembly loops of decisions 23 and 29, whose margins and checks of each sequence or
+  match bound every access they make (decision 24).
 - **Check.** Type system and the compiler's bounds checks for the access itself; seeded check for
   the margins: every fast path writes what the checked path writes, under the fuzzer. Steps 3 and 7.
 - **Violation.** A copy that writes 16 octets when only 8 of `output` remain.

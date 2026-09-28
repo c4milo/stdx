@@ -607,6 +607,85 @@ to 12 are reordered and nothing else changes.
   - Mutations are listed in each commit's body. Each NOT CAUGHT is an equivalent mutant, with its
     reason in the body, and each other gap found a test that was then written.
 
+  **[Issue 13](https://github.com/c4milo/stdx/issues/13), checked on 2026-09-28.** The issue asked
+  the decoder to beat libdeflate's on the hosted runners: a median above 1.00 of its speed over the
+  39 files, gzip at zlib level 6, on x86-64 and on aarch64, with every file where stdx loses named.
+  Zig 0.16.0 on macOS 26.6 arm64 by hand, and on the hosted runners.
+  - At dac6cd9, run [36478169575](https://github.com/c4milo/stdx/actions/runs/36478169575). The
+    x86-64 runner draws AMD or Intel CPUs at random, so the Intel rows come from a temporary
+    workflow, on a branch that never lands, whose twelve jobs time decoding on each Intel CPU they
+    draw (run [36478163045](https://github.com/c4milo/stdx/actions/runs/36478163045), two
+    attempts):
+
+    | Runner | CPU | stdx / libdeflate, median | Faster on |
+    |---|---|---|---|
+    | ubuntu-24.04-arm | Neoverse-N2 | 1.101 | 26 of 39 |
+    | ubuntu-24.04 | AMD EPYC 9V74 | 1.028 | 23 |
+    | ubuntu-24.04 | Intel Xeon 6973P-C, three jobs | 1.021, 1.010 and 1.008 | 21, 21 and 20 |
+    | ubuntu-24.04 | Intel Xeon Platinum 8573C, two jobs | 1.005 and 1.014 | 21 and 21 |
+
+  - Where stdx loses, below 1.00 of libdeflate's speed:
+    - N2: mozilla 0.90, nci 0.90, ooffice 0.91, sao 0.92, osdb 0.94, ptt5 0.94, samba 0.95,
+      dickens-1m 0.96, xml 0.99 and html-1m 0.99; json-1m, webster and css-1m round to 1.00.
+    - EPYC 9V74: nci 0.89, html-1m 0.90, xml, osdb and json-1m 0.93, mozilla 0.94, samba 0.95,
+      html-16k 0.95, sao, js-1m and ooffice 0.96, js-16k 0.97, cp.html and webster 0.98, css-16k
+      and world192.txt 0.99.
+    - The Intel CPUs, 18 files each in the first attempt's three jobs: the 1 MiB HTTP bodies (css-1m 0.82 to 0.88, html-1m 0.83 to
+      0.85, json-1m 0.87 to 0.91, js-1m 0.86 to 0.93), ptt5 0.84 to 0.86, nci 0.84 to 0.89, xml,
+      osdb, mozilla, samba, ooffice and sao 0.91 to 0.98, three of the 16 KiB bodies and cp.html
+      0.94 to 0.98, and world192.txt, webster or dickens-1m.
+  - How it got there, from main at fbcaf44, where stdx ran at 0.66 of libdeflate on an EPYC 7763
+    and 0.70 on the N2 (run [36372046166](https://github.com/c4milo/stdx/actions/runs/36372046166)):
+    - The Zig loop (590d804 to 040164c): rare symbols out of line, each iteration's input and room
+      from its margins, S12, S11, and every length's extra bits from a plain table. It stopped
+      gaining at 0.84 and 0.87 (run
+      [36380031615](https://github.com/c4milo/stdx/actions/runs/36380031615)).
+    - Decision 29, the common loop in assembly: on aarch64 1.03 of libdeflate at once (f1fab96, run
+      [36410699223](https://github.com/c4milo/stdx/actions/runs/36410699223)), 1.04 with the
+      copies' refinements; on x86-64 0.96 on an EPYC 7763 (70f9e2d) and 0.997 on a 9V74 (2ea5d64,
+      run [36440157054](https://github.com/c4milo/stdx/actions/runs/36440157054)), but 0.92 to
+      0.98 on Intel CPUs.
+    - Codes longer than the table decoded in the assembly, not out of line (f989436): 1.048 on
+      the N2, 1.017 on the 9V74, 0.983 on an Intel 8573C (runs
+      [36474114480](https://github.com/c4milo/stdx/actions/runs/36474114480) and
+      [36474115093](https://github.com/c4milo/stdx/actions/runs/36474115093)).
+    - The combination visiting only the pairs it joins (dac6cd9): the table above.
+  - Findings:
+    - On the Intel CPUs the decoder spent the most outside its loop. At f989436, a cpu-clock
+      profile on an 8573C over six files gave stdx, its checksum aside, 2.3% of the samples outside
+      the loop, 14% of the loop's own; libdeflate's table build took 0.4%, 2% of its loop's. On
+      the M1, one more combination per block cost 2 to 4% of a text decode, and one more table
+      build up to 2%: the combination read and branched on each of the table's 2048 entries, in an
+      order no predictor follows. Visiting the pairs alone took the Intel medians from 0.95 to
+      0.98 up to 1.005 to 1.021.
+    - The N2's counters put stdx's branch misses above libdeflate's on every large file, and S11
+      made most of them: with it off, stdx missed at most 13% more often than libdeflate, in the
+      same job, on all but reymont, mozilla, x-ray, ooffice and sum, 16 to 54% (run
+      [36411201317](https://github.com/c4milo/stdx/actions/runs/36411201317)). Sampled by branch
+      misses on the hosted N2, the samples land where the cycles' land (run
+      [36474987316](https://github.com/c4milo/stdx/actions/runs/36474987316)), so the virtualized
+      counters name no branch.
+    - Jobs on the same Intel model differ by up to 3% at the median, so an Intel row is one draw,
+      and a change is judged on the N2's counters and on the M1 first.
+  - Measured and not kept: the Zig code built for x86-64 v3, which gained 1 to 4% on the small
+    bodies (run [36424194918](https://github.com/c4milo/stdx/actions/runs/36424194918)); plain
+    tables for blocks whose matches mostly would not combine, which removed the misses and none of
+    the cycles (runs [36412089015](https://github.com/c4milo/stdx/actions/runs/36412089015) and
+    [36412091480](https://github.com/c4milo/stdx/actions/runs/36412091480)); one chunk for a match
+    of 16 octets or fewer, and a match's first chunks loaded in halves, both inside the noise on
+    the Intel CPUs (run [36463520495](https://github.com/c4milo/stdx/actions/runs/36463520495) and
+    the temporary workflow's next); a lookup table for the code length code, 5 to 7% slower on the
+    M1's 1 KiB bodies, whose repeated headers the predictor learns, and no faster on the large
+    files; and four refinements of the combination, each inside the noise on the M1.
+  - Decision 17: the ReleaseFast build runs the fast path at a median of 1.022 of ReleaseSafe's
+    speed on the N2 and 1.017 on the 9V74.
+  - Mutations are listed in each commit's body. NOT CAUGHT, each changing no output: the check
+    that a chunk of the call's output precedes a short distance's target, on both architectures,
+    whose removal reads octets before the output that the table lookup then drops, which only a
+    guard page would show and no test can place (non-negotiable 1); and in the combination, the
+    bound at which no distance code fits and the stop after a code length's lengths, which only
+    skip work.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
