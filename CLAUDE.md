@@ -1,16 +1,18 @@
 # stdx rules
 
 stdx is a library of compression codecs, written from the RFCs: DEFLATE with its zlib and gzip
-containers, Zstandard and brotli, each with an encoder and a decoder. Home:
+containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it holds a JSON
+encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27). Home:
 github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's
 brotli and Wuffs on the workloads it measures, with no heap and no I/O.
 
 It is a standalone library. colibri is its first consumer: colibri's h11 decodes HTTP/1.1's `gzip`
-and `deflate` transfer codings with it. Other projects want the encoders and decoders for the HTTP
-content codings `gzip`, `deflate`, `br` and `zstd` (RFC 9110 §8.4). stdx must never depend on
-colibri, must never name a consumer in its source, and must never take a decision that only makes
-sense inside one consumer. What a consumer needs informs what stdx measures; it does not shape
-stdx's API.
+and `deflate` transfer codings with it, and its qlog writes JSON text sequences with `json`. Other
+projects want the encoders and decoders for the HTTP content codings `gzip`, `deflate`, `br` and
+`zstd` (RFC 9110 §8.4). stdx must never depend on colibri, must never name a consumer in its
+source, and must never take a decision that only makes sense inside one consumer. What a consumer
+needs informs what stdx measures; it does not shape stdx's API, but where the owner rules it does,
+as decision 27 rules for three parts of the `json` module's.
 
 ## Read before changing behaviour
 
@@ -57,9 +59,10 @@ The architecture depends on every rule in this section.
    production, about two per function, covering positive and negative space, for programmer error
    only (decision 17). Hostile input returns an error value and fails closed; no input reaches an
    assertion.
-8. **One module per codec, plus the checksums.** Each is exported by name with `b.addModule`, so a
-   dependent reaches it with `dependency.module("gzip")` (decision 6). The library keeps no
-   process-wide mutable state, so a dependent may run codecs on as many threads as it likes.
+8. **One module per codec, plus the checksums and JSON.** Each is exported by name with
+   `b.addModule`, so a dependent reaches it with `dependency.module("gzip")` (decision 6). The
+   library keeps no process-wide mutable state, so a dependent may run codecs on as many threads as
+   it likes.
 9. **Invariants are code.** Every numbered invariant in `docs/invariants.md` names the check that
    proves it: a comptime assert, a runtime assertion, a lint rule or a seeded check.
 
@@ -117,8 +120,8 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the
   `!` optional. The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
   `ci`, `chore`. A scope holds lowercase letters and hyphens. Scopes track the module graph:
-  `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, and `bench` and `oracle` for
-  the benchmarks and the differential checks. A scope outside that set is a warning.
+  `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, and `bench` and
+  `oracle` for the benchmarks and the differential checks. A scope outside that set is a warning.
 - The description is imperative, starts with a lowercase letter, and ends without a period. The
   subject line stays at or under 72 columns.
 - Exactly one blank line separates the body from the subject. A body line stays at or under 100

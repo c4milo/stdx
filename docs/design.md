@@ -6,7 +6,8 @@ build plan. [decisions.md](decisions.md) holds why each choice beat its alternat
 5".
 
 The owner ruled on decisions 11 to 20 on 2026-09-25, so this document states the design as
-ruled. Where it depends on a decision, it names the decision.
+ruled. Where it depends on a decision, it names the decision. Decision 27, ruled on 2026-09-28,
+adds the `json` module.
 
 ## 1. Thesis and scope
 
@@ -20,8 +21,11 @@ workloads stdx measures: the corpora of decision 15, measured the way decision 1
 states where stdx expects to win, where to match, and where to lose, and every report shows all
 three.
 
+Beside the codecs, stdx holds a JSON encoder and decoder, RFC 8259 and RFC 7464's text sequences,
+under the same rules (decision 27).
+
 Out of scope are the items decision 13 lists: RFC 9841's extensions, dictionaries of every kind,
-threads, and formats that are not the four HTTP codings.
+threads, and formats that are not the four HTTP codings, but for JSON (decision 27).
 
 ## 2. The formats
 
@@ -39,6 +43,10 @@ threads, and formats that are not the four HTTP codings.
 - **brotli (RFC 7932).** A header with the window size (§9.1), then meta-blocks with up to 256
   prefix codes per category, context modeling for literals (§7), and references into a static
   dictionary of 122,784 octets (Appendix A) with 121 transforms (Appendix B).
+- **JSON (RFC 8259, RFC 7464).** A text is whitespace, one value and whitespace (§2): an object, an
+  array, a number, a string or a literal name, nested to any depth. It must be UTF-8 (§8.1, RFC 3629),
+  and it does not mark its own end. A text sequence puts a record separator before each text and a
+  line feed after it (RFC 7464 §2.2).
 
 ## 3. Module graph
 
@@ -56,8 +64,10 @@ threads, and formats that are not the four HTTP codings.
 | `gzip` | The gzip container | `codec`, `checksum`, `deflate` | 1952 |
 | `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
 | `brotli` | brotli | `codec` | 7932 |
+| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec` | 8259, 7464, 3629 |
 
-The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec.
+The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
+and none reaches `json`.
 No library module receives a package: pepegrillo, the oracles and the corpora are requested by
 `build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
 
@@ -123,6 +133,7 @@ where one can pin it. The ones that exist today are fixed by the RFCs:
 | `zstd.constants.block_len_max` | 131,072 | RFC 8878 §3.1.1.2.4 |
 | `brotli.constants.window_bits_max` | 24 | RFC 7932 §9.1 |
 | `brotli.constants.window_len_max` | 2^24 - 16 | RFC 7932 §9.1 |
+| `json.constants.depth_max` | 1,024 | RFC 8259 §9 lets a parser limit nesting (decision 27) |
 
 Limits that land with their steps: each fast path's `input_slack` and
 `output_slack` (decision 16), the table widths of decision 14, and each encoder level's window and
@@ -903,6 +914,24 @@ to 12 are reordered and nothing else changes.
   **Check:** decision 10's method as decision 20 amends it, with each run recorded and the losses
   included.
 
+- **Step 16: the `json` module (decision 27).** RFC 8259's encoder and decoder, RFC 7464's text
+  sequences, and the vector paths of claims J1 to J5. The owner asked for it on 2026-09-28; it runs
+  beside steps 12 to 15 and waits on none of them.
+  **Check:**
+  - RFC 8259 §13's examples decode to their tokens, and every escape of §7 to its character.
+  - Every refusal has a test of its own, with the class `refusal` gives it.
+  - An independent parser in the tests, written from RFC 8259 §2 to §7 and RFC 7464 §2.1 and §2.4,
+    gives the decoder's verdict and tokens on every seeded and fuzzed input.
+  - Seeded and fuzzed lists of tokens encode to texts that parser accepts, and decode back to the
+    same tokens.
+  - Every text gives the same octets, tokens and verdict one token a call, under seeded splits of
+    the input and the output with the state moved between calls (invariants 5 and 12), and with
+    every claim off; every vector path returns what its scalar path returns.
+  - The fuzzer on every runner of decision 26, with its runs recorded.
+  - Each claim's A/B on both runners of decision 20, and a claim that does not beat the noise
+    removed with its code.
+  - Mutations.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
@@ -915,7 +944,16 @@ and one that does not beat the noise is removed.
 
 ## 10. Open questions for the owner
 
-None. Decisions 11 to 20 are ruled.
+Decisions 11 to 20 are ruled. Decision 27 leaves two to the owner:
+
+- A dependency for the `json` module's checks: a conformance corpus such as JSONTestSuite, or an
+  oracle and benchmark baseline such as Zig's std.json, simdjson or yyjson. Until one is ruled in,
+  an independent parser in the tests is the decoder's judge, and its scalar paths are its vector
+  paths' baseline.
+- Proofs in Lean of the `json` module's finite-state parts: that its UTF-8 and number state
+  machines accept exactly RFC 3629 §4's and RFC 8259 §6's languages, and that the vector UTF-8
+  check agrees with the scalar one on every window of four octets. pepegrillo's `lean` engine
+  would build them in `tools/`, with the Lean toolchain a new dependency.
 
 ## 11. Risks
 

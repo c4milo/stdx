@@ -1,8 +1,9 @@
 # stdx
 
 Compression codecs in Zig 0.16, written from the RFCs: DEFLATE with its zlib and gzip containers
-(RFC 1951, 1950 and 1952), Zstandard (RFC 8878 and RFC 9659) and brotli (RFC 7932). Each codec has
-an encoder and a decoder. Each one:
+(RFC 1951, 1950 and 1952), Zstandard (RFC 8878 and RFC 9659) and brotli (RFC 7932). Beside them, a
+JSON encoder and decoder (RFC 8259) with JSON text sequences (RFC 7464). Each has an encoder and a
+decoder. Each one:
 
 - performs no I/O: it reads octets the caller already has and writes into storage the caller
   owns;
@@ -30,6 +31,7 @@ Each module is exported by name, so a project that depends on stdx imports it wi
 | `gzip` | RFC 1952, the HTTP `gzip` coding |
 | `zstd` | RFC 8878 and RFC 9659, the HTTP `zstd` coding |
 | `brotli` | RFC 7932, the HTTP `br` coding |
+| `json` | RFC 8259 and RFC 7464: a JSON encoder, a pull decoder, and text sequences (decision 27) |
 
 ## Building
 

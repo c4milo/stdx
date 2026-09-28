@@ -93,14 +93,17 @@ check lands with its step.
   `output`.
 - **Mechanism.** The streaming call's exit (decision 11).
 - **Check.** Runtime assertion at every public call's exit, step 3 for the shared helper and each
-  codec's step for its call.
+  codec's step for its call. The `json` decoder's `token` status is checked as `done` is: its
+  counts stay inside the slices, and a kind names its token (decision 27, design §8 step 16).
 - **Violation.** A decoder that stops at a block boundary with input left and reports
   `needs_input`, so a caller waits for input it already gave.
 
 ### INV-8: a call makes progress, or its status says why not
 
 - **Claim.** A call consumes or writes at least one octet, or returns `done`, or returns
-  `needs_input` with an empty `input`, or `needs_room` with an empty `output`.
+  `needs_input` with an empty `input`, or `needs_room` with an empty `output`. The `json`
+  decoder's `token` counts as progress: a number the text's end ends may take no octet, and the
+  token is what the call did (decision 27).
 - **Mechanism.** The status rules of decision 11. It follows from invariant 7: a call that returns
   `needs_input` took all of its input, and one that returns `needs_room` filled all of its output,
   so either made progress unless its slice was empty. Step 3 found this when a test for a separate
@@ -198,7 +201,8 @@ check lands with its step.
 ### INV-14: each library module imports only what design §3 gives it, and no package
 
 - **Claim.** The wrappers build on `deflate` and never the reverse, the codecs do not reach one
-  another, and no library module receives pepegrillo, an oracle or a corpus.
+  another, no codec reaches `json`, and no library module receives pepegrillo, an oracle or a
+  corpus.
 - **Mechanism.** A module can import only what `build/modules.zig` gives it.
 - **Check.** Lint rule `tools/lint/module_graph.zig` pins the graph; `zig build graph-check`
   compiles fixtures that import a wrapper, another codec, a package and the oracle bindings from

@@ -8,7 +8,7 @@ re-argued, not edited. Entries 1 to 10 record the rules the owner set in the bri
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
 and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to 25 out of step 11,
-and entry 26 out of the owner's review of CI.
+entry 26 out of the owner's review of CI, and entry 27 out of the owner's request for JSON.
 
 ## Scope and shape
 
@@ -21,6 +21,7 @@ and entry 26 out of the owner's review of CI.
    - colibri is the first consumer: its h11 decodes the `gzip` and `deflate` transfer codings of
      RFC 9112 §7.2 with stdx. Other projects want the encoders and decoders for the HTTP content
      codings of RFC 9110 §8.4: `gzip`, `deflate`, `br` and `zstd`.
+   - Entry 27 amends this item: stdx also holds a JSON encoder and decoder, the `json` module.
 
    The alternatives refused, in colibri's decision 90: the decoder inside colibri, which makes
    every other project take HTTP to get a codec; and stdx holding colibri's `core` as well, which
@@ -86,6 +87,8 @@ and entry 26 out of the owner's review of CI.
 
    The alternative refused: a dependent that imports stdx's source files by path. It would bypass
    the module graph that keeps each codec from reaching another (invariant 14).
+
+   Entry 27 adds an eighth module, `json`, exported the same way.
 
 ## Tooling and checks
 
@@ -493,7 +496,7 @@ and entry 26 out of the owner's review of CI.
     - Zstandard's long-distance matching, negative levels, and brotli qualities above 5.
     - Formats that are not the four HTTP codings: Deflate64, LZW (`compress`), LZ4, Snappy, xz.
 
-    Nothing else is argued in.
+    Nothing else is argued in. Entry 27 argues JSON in, at the owner's request.
 
 14. **Where the speed comes from.** Proposed on 2026-09-25, the fourth decision record the owner
     asked for. Ruled by the owner on 2026-09-25, after a review of the proposal. The owner chose
@@ -1105,3 +1108,131 @@ and entry 26 out of the owner's review of CI.
     The alternatives refused:
     - macOS by hand alone: a check nobody runs between steps drifts (entry 19).
     - `macos-latest`: the macOS under the checks would change without a commit.
+
+27. **A JSON module, `json`: RFC 8259's encoder and decoder, with RFC 7464's text sequences.**
+    Ruled by the owner on 2026-09-28, who asked for it. colibri writes qlog
+    (draft-ietf-quic-qlog-main-schema-14) as JSON text sequences, and today carries its own small
+    JSON writer; the owner wants that code to come from stdx, so that colibri's `qlog` module
+    imports `json`. It amends entry 1, which held stdx to compression codecs, entry 6, which listed
+    the modules, and entry 13, which left every format but the four HTTP codings out of version one.
+    - `json` imports `codec` alone, and no module imports it (design §3, invariant 14). It is
+      exported by name as every module is (entry 6).
+    - Every non-negotiable holds as for the codecs: no heap, no I/O, calls that stream and resume,
+      output that is a pure function of the input, and each refusal citing its RFC section.
+    - What colibri needs shaped three parts of the API, each one any writer of structured records
+      needs: a whole-buffer writer that fails whole, hex strings, and fixed-point decimals. It
+      shaped nothing else, and no source names it (invariant 15).
+
+    **The encoder.** A struct the caller places, started by `init(framing)`, and one call:
+    `encode(token, input, output)`, which returns decision 11's `codec.Progress`.
+    - A token is the start or the end of an object or an array, a name, a string, a hex string, a
+      number's text, an unsigned or a signed integer, a fixed-point decimal, a boolean or null. A
+      name's, a string's, a hex string's or a number's octets are the call's input, all at once
+      (`Piece.last`) or over several calls (`Piece.more`).
+    - `needs_input` says the token is written, or all of a token's input so far is taken, and the
+      text goes on; `needs_room` says the output filled first, and the next call passes the same
+      token with the input not consumed; `done` says the token ended the text.
+    - The encoder writes the value separators and the name separators itself, and no insignificant
+      whitespace, so its output depends on the tokens and the framing alone, never on how the
+      caller split the input and the output (invariant 5).
+    - A string escapes what RFC 8259 §7 requires and nothing else: the quotation mark, the reverse
+      solidus, and U+0000 to U+001F, in the two-character form where one exists and as `\u00` and
+      two lowercase digits where none does. Every other character is written as its UTF-8.
+    - It refuses input three ways: a name or a string that is not UTF-8, as `error.InvalidUtf8`
+      (RFC 8259 §8.1, RFC 3629 §4); a number's text that is not one number, as
+      `error.InvalidNumber` (§6); and a container past `depth_max`, as `error.DepthTooLarge` (§9).
+      Unlike entry 11's encoders, this one can fail: its input is text in a grammar, not octets
+      that are all valid. A token the grammar does not allow where it comes is a programmer error,
+      which an assertion catches.
+    - Numbers come from integers and from fixed-point decimals, never from floating point. A
+      decimal is an integer part and a fraction of a fixed number of digits, so "1234.567" is 1234,
+      567 and 3 digits: qlog's milliseconds with three digits of microseconds, with no rounding and
+      the same text on every host. A `number` token writes a caller's own text, checked against §6.
+    - A hex string holds two lowercase hexadecimal digits for each octet, the more significant
+      first: qlog's hexstring.
+    - The whole-buffer helper, `TextWriter`, hands each token all of its octets and all the room
+      left, so each token fits whole or the call fails with `error.NoSpaceLeft`, writing nothing
+      past the buffer. `written` gives the text. A caller that writes one record into the free part
+      of a buffer keeps it only when `written` returns, as colibri does.
+
+    **The decoder.** A pull reader: a struct the caller places, started by `init(framing)`, and one
+    call: `decode(input, output, piece)`, which returns a `Progress` whose status adds `token` to
+    decision 11's three. A call returns at most one token, and `kind` names it.
+    - A name's or a string's octets, unescaped into UTF-8, and a number's text are written into the
+      caller's output, over several calls when it fills (`needs_room`). Numbers are not converted:
+      their range and precision are the caller's to choose (§9), and no floating point enters.
+    - `piece` says whether the input holds the text's last octets. Entry 11 refused a flag for the
+      end of the input, because every compression format marks its own end. A JSON text does not:
+      a number, or the whitespace after the text's value, can go on in the next call, so only the
+      caller knows where the text ends.
+    - It follows RFC 8259's grammar strictly and refuses, with a distinct error each, what §2 to §7
+      refuse. Where the RFC lets a parser choose, it fails closed (entry 15):
+      - a byte order mark, which §8.1 lets a parser ignore, is `error.ByteOrderMark`;
+      - an escape of a surrogate that no other completes, which §8.2 leaves unpredictable and UTF-8
+        cannot hold (RFC 3629 §3), is `error.LoneSurrogate`;
+      - a text deeper than `depth_max` is `error.DepthTooLarge` (§9).
+    - It reports every member of an object, duplicate names included, in order. Refusing a
+      duplicate would take storage for every name of every open object; §4 says names should be
+      unique, not must, and the caller holds the names.
+    - `error.DepthTooLarge` and `error.LoneSurrogate` are `Unsupported`, texts RFC 8259 allows that
+      stdx refuses; every other refusal is `Corrupt`. `refusal` gives the class (entry 11).
+    - The whole-buffer helper, `TextReader`, gives each token with its octets in the caller's
+      storage, and turns the operational statuses into `error.Truncated` and `error.NoSpaceLeft`.
+
+    **Text sequences.** `Framing.sequence` delimits a text as RFC 7464 does. The encoder writes a
+    record separator, the text and a line feed (§2.2). The decoder reads one text per `init`: one
+    record separator or more, then the octets up to the next one or the input's end (§2.1). Its
+    `done` leaves the next record separator in the input, as a gzip member's `done` leaves the next
+    member. A text a record separator cuts is `error.IncompleteText`, and a text whose number or
+    literal name has no whitespace after it is `error.UndelimitedValue`, which §2.4 requires a
+    parser to drop. §2.1 asks a parser to go on after a text it cannot read; the decoder refuses the
+    text, and a caller that wants the rest calls `init` at the next record separator.
+
+    **The limit.** `json.constants.depth_max`, 1,024 levels, one bit of state each in the encoder
+    and in the decoder: 128 octets.
+
+    **SIMD, as entry 21 asks.** Each loop below has a vector path of 16 octets, SSE2's and NEON's,
+    the baseline of both architectures, so no feature detection chooses it. The vector paths take a
+    slice and return a count; the encoder and the decoder take the counted octets through
+    `codec.Reader` and write them through `codec.Writer`, so no bound goes unchecked (entry 16), and
+    the `input-index` rule reads them. The scalar paths stay as the reference, and `claims.zig`
+    switches each claim at comptime, as entry 14's claims are.
+
+    | Claim | Cost it removes | Test |
+    |---|---|---|
+    | J1. The encoder finds the run of a string's octets that need no escape a vector at a time | A compare and a branch per octet of a string | A/B against the octet-at-a-time path |
+    | J2. The encoder writes a hex string's digits a vector of octets at a time | Two table loads and two stores per octet | A/B |
+    | J3. The decoder finds the run of a string's octets up to the next quotation mark, reverse solidus, control character or non-ASCII octet a vector at a time | As J1, in the decoder | A/B |
+    | J4. The decoder skips whitespace a vector at a time | A compare and a branch per octet of whitespace | A/B on pretty-printed texts |
+    | J5. Inside J1's and J3's runs, UTF-8 is validated a vector at a time, so a run goes on past non-ASCII characters | A state machine step per non-ASCII octet | A/B on text of two- and three-octet characters |
+
+    A claim stays only where `bench-json` shows its vector path faster than the scalar path by more
+    than the noise, on each runner of entry 20; design §8 step 16 records the runs. Wider vectors
+    behind entry 21's per-level objects wait until a measurement asks for them.
+
+    **The checks, with no oracle.** A conformance corpus such as JSONTestSuite, an oracle, and a
+    benchmark baseline such as Zig's std.json, simdjson or yyjson are each a dependency, which
+    CLAUDE.md asks the owner about; none is added. In their place:
+    - an independent recursive-descent parser in the tests, written from RFC 8259 §2 to §7 and RFC
+      7464 §2.1 and §2.4, whose verdict and tokens the decoder must match on every seeded and fuzzed
+      input;
+    - round trips: seeded and fuzzed lists of tokens encode to a text the parser accepts and decode
+      back to the same tokens;
+    - every text under seeded splits of the input and the output with the state moved between
+      calls (invariants 5 and 12), and every vector path against its scalar one;
+    - the fuzzer over every property above, on each runner of entry 26.
+
+    The alternatives refused:
+    - A JSON writer in each project that needs one, colibri's today. Each copies the escapes and
+      the UTF-8 rules, and each copy drifts.
+    - Zig's std.json in the library. Its scanner takes an allocator, and its writer a `std.Io`
+      writer, which entries 2 and 3 refuse.
+    - A decoder that writes every token of a text into one buffer in one call. It crosses the call
+      boundary in bulk, but a caller then parses a second format to read the tokens.
+    - A decoder that builds a tree of the text. It needs the heap.
+    - Floating point in the encoder or the decoder. The shortest text of a float needs an algorithm
+      no RFC gives, and a decimal of fixed digits writes what a log means.
+    - Accepting a byte order mark or a lone surrogate, as RFC 8259 §8.1 and §8.2 allow. stdx fails
+      closed (entry 15).
+    - Framing left to the caller, with RS and LF written and split by hand. RFC 7464 §2.4's check
+      needs the decoder to know where a text ends.
