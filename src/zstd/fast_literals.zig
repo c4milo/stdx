@@ -26,6 +26,11 @@ const x86_64 = @import("fast_literals_x86_64.zig");
 /// each stream from there. `assembly` says whether the CPU runs the x86-64 assembly.
 pub fn decode(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) [count]usize {
     if (!claims.interleaved_streams) return decode_each(count, claims, table, streams, outputs, readers, assembly);
+    return decode_interleaved(count, claims, table, streams, outputs, readers, assembly);
+}
+
+/// `decode` with the streams in one loop (Z1), inline in `decode` and in `decode_each`.
+inline fn decode_interleaved(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) [count]usize {
     var done: [count]usize = undefined;
     // The table's longest code fixes the loop's shifts and its literals per load.
     switch (table.bits_max) {
@@ -60,13 +65,15 @@ inline fn pairs_of(comptime count: usize, comptime claims: Claims, comptime bits
     return decode_pair_loads(count, bits_max, table, streams, outputs, readers);
 }
 
-/// `decode` one stream after another, when the claim of Z1 is off.
+/// `decode` one stream after another, when the claim of Z1 is off, each stream under these claims.
+/// With Z1 set on for each stream, the claims would be all on's, and the benchmark's decoder with
+/// every claim on would share its `decode` of one stream with this one: LLVM, which inlines a
+/// function by how many callers it has, kept that function out of line in both, where each other
+/// claim candidate inlined its own.
 fn decode_each(comptime count: usize, comptime claims: Claims, table: *const huffman.Table, streams: [count][]const u8, outputs: [count][]u8, readers: *[count]codec.BackwardBitReader, assembly: bool) [count]usize {
-    comptime var one_claims = claims;
-    one_claims.interleaved_streams = true;
     var done: [count]usize = undefined;
     for (&done, streams, outputs, readers) |*decoded, stream, output, *reader| {
-        decoded.* = decode(1, one_claims, table, .{stream}, .{output}, reader[0..1], assembly)[0];
+        decoded.* = decode_interleaved(1, claims, table, .{stream}, .{output}, reader[0..1], assembly)[0];
     }
     return done;
 }
