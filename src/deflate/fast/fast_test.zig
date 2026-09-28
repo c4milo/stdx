@@ -236,6 +236,35 @@ test "the assembly decodes each literal and length whose code is longer than the
     try expect_far_pairs_stop(&built, &dynamic, &long);
 }
 
+test "a distance code longer than its table stops the loop, whatever bits follow it" {
+    if (!assembly_runs()) return error.SkipZigTest;
+    // Literal 'a' takes the code 0, and lengths 3 and 4 the last two of 6 bits: a complete code
+    // (RFC 1951 §3.2.2). Distance symbols 0 to 7 take 1 to 8 bits and 8 and 9 take 9, past the
+    // distance table's 8. Symbol 8's code, 111111110, then its three extra bits, 0 for a distance
+    // of 17, and the 60 zeros of 60 'a's leave the buffer past the table's bits all zero, so an
+    // entry that is not a distance's, taken as one, would give a distance the output holds.
+    var dynamic: Dynamic = .{ .literal_count = constants.first_length_symbol + 2, .distance_count = 10 };
+    for ("abcd", 1..) |octet, bits| dynamic.literal_lengths[octet] = @intCast(bits);
+    dynamic.literal_lengths[constants.end_of_block] = 5;
+    dynamic.literal_lengths[constants.first_length_symbol] = 6;
+    dynamic.literal_lengths[constants.first_length_symbol + 1] = 6;
+    for (dynamic.distance_lengths[0..8], 1..) |*len, bits| len.* = @intCast(bits);
+    dynamic.distance_lengths[8] = 9;
+    dynamic.distance_lengths[9] = 9;
+    var built: Built = undefined;
+    try built.init_dynamic(&dynamic);
+    var stream: Stream = .{};
+    var expected: Expected = .{};
+    for (0..history_len * 3) |index| {
+        const octet = "bcd"[(index * history_stride + index / 3) % 3];
+        dynamic.literal(&stream, octet);
+        expected.literal(octet);
+    }
+    dynamic.pair(&stream, 3, 17);
+    for (0..60) |_| dynamic.literal(&stream, 'a');
+    try expect_stops_at(&built, stream.slice(), expected.slice(), constants.first_length_symbol);
+}
+
 test "the block's end and a symbol that never occurs stop the loop, whatever the unused lengths hold" {
     if (!assembly_runs()) return error.SkipZigTest;
     // The fixed code's table is 9 bits wide, and the block's end takes 7 and 286 8 (RFC 1951

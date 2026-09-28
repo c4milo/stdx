@@ -138,10 +138,19 @@ fn expect_whole(comptime options: deflate.Options, input: []const u8, expected: 
     try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
 }
 
+/// Decodes with `options`, or through the Zig loop when `zig_loop`: a decode that counts lookups
+/// keeps the assembly out on every CPU.
+fn decode_call(comptime options: deflate.Options, comptime zig_loop: bool, decoder: *deflate.Decoder, input: []const u8, output: []u8) deflate.Error!codec.Progress {
+    if (!zig_loop) return deflate.decode_with(options, decoder, input, output);
+    var lookups: deflate.Lookups = .{};
+    return deflate.decode_counting(options, decoder, input, output, &lookups);
+}
+
 /// Decodes `input` in calls whose output goes to a buffer of the call's own: the history alone
 /// first, so the next call starts at the pairs, each of which reaches before the call's output,
-/// then rooms a seed draws. Requires the octets the calls append together to be `expected`.
-fn expect_separate_buffers(comptime options: deflate.Options, input: []const u8, expected: []const u8, seed: u64) !void {
+/// then rooms a seed draws, each ending inside a match. Requires the octets the calls append
+/// together to be `expected`.
+fn expect_separate_buffers(comptime options: deflate.Options, comptime zig_loop: bool, input: []const u8, expected: []const u8, seed: u64) !void {
     var decoder: deflate.Decoder = undefined;
     deflate.init(&decoder, codec.Features.detect());
     var generator = codec.split.Generator.init(seed);
@@ -153,7 +162,7 @@ fn expect_separate_buffers(comptime options: deflate.Options, input: []const u8,
         var own: [room_max]u8 = @splat(0);
         const drawn = room_min + @as(usize, @intCast(generator.below(room_max - room_min)));
         const room = if (call == 0) history_len else drawn;
-        const progress = try deflate.decode_with(options, &decoder, input[consumed..], own[0..room]);
+        const progress = try decode_call(options, zig_loop, &decoder, input[consumed..], own[0..room]);
         @memcpy(joined[joined_len..][0..progress.written], own[0..progress.written]);
         joined_len += progress.written;
         consumed += progress.consumed;
@@ -177,9 +186,11 @@ test "every distance to 256 copies each length as the checked path does, in one 
         try expect_whole(decoder_test.combining, input, expected[0..len]);
         try expect_whole(.{ .fast_paths = false }, input, expected[0..len]);
         for (0..seeds) |seed| {
-            try expect_separate_buffers(.{}, input, expected[0..len], seed);
-            try expect_separate_buffers(decoder_test.combining, input, expected[0..len], seed);
+            try expect_separate_buffers(.{}, false, input, expected[0..len], seed);
+            try expect_separate_buffers(decoder_test.combining, false, input, expected[0..len], seed);
         }
+        // The Zig loop too, whose output margin the calls' rooms end inside.
+        try expect_separate_buffers(decoder_test.combining, true, input, expected[0..len], 0);
     }
 }
 
@@ -214,12 +225,15 @@ test "a distance past the window a container declares is refused from combined a
         dynamic.literal(&stream, constants.end_of_block);
         var buffer: [input_len_max]u8 = undefined;
         const input = padded(&stream, &buffer);
+        // Through the assembly where the CPU runs it, and through the Zig loop.
         inline for (.{ deflate.Options{}, decoder_test.combining }) |options| {
-            var decoder: deflate.Decoder = undefined;
-            deflate.init(&decoder, codec.Features.detect());
-            deflate.limit_window(&decoder, window_len);
-            var output: [output_len_max + room_extra]u8 = undefined;
-            try testing.expectError(error.DistanceTooFar, deflate.decode_with(options, &decoder, input, &output));
+            inline for (.{ false, true }) |zig_loop| {
+                var decoder: deflate.Decoder = undefined;
+                deflate.init(&decoder, codec.Features.detect());
+                deflate.limit_window(&decoder, window_len);
+                var output: [output_len_max + room_extra]u8 = undefined;
+                try testing.expectError(error.DistanceTooFar, decode_call(options, zig_loop, &decoder, input, &output));
+            }
         }
     }
 }
