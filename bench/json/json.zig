@@ -1,7 +1,7 @@
-//! bench-json: the json module's vector paths, claims J1 to J5 of decision 27, each off against all
-//! on, measured the way decisions 10, 20 and 21 fix: every candidate in this one program, interleaved
-//! in the same run, five runs each, the median and the spread reported, and the losses shown. The
-//! timing is bench/timing/timing.zig's.
+//! bench-json: the json module's vector paths, claims J1, J2, J3 and J5 of decision 27, each off
+//! against all on, measured the way decisions 10, 20 and 21 fix: every candidate in this one
+//! program, interleaved in the same run, five runs each, the median and the spread reported, and
+//! the losses shown. The timing is bench/timing/timing.zig's.
 //!
 //! The candidates, per workload of json_workloads.zig:
 //! - every claim on, as `encode` and `decode` run;

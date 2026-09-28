@@ -932,6 +932,90 @@ to 12 are reordered and nothing else changes.
     removed with its code.
   - Mutations.
 
+  **Check passed, 2026-09-28.** Zig 0.16.0 on macOS 26.6 arm64 by hand, under Rosetta 2 and in an
+  amd64 container for x86-64, and on the hosted runners. A run names the commit it ran at on the
+  json branch, which was then rebased onto main: there dff16c4 is 0aeb7eb, f62ca98 is 4721a9f and
+  4048c30 is f8dbbae.
+  - The module: the encoder, the decoder and their tests (0729376), and the benchmark (e8863df).
+    The measurements below then removed J4, moved where J3 and J5 start, pinned the vectors' width
+    and fixed the benchmark, each in a commit of its own.
+  - RFC 8259 §13: `decoder_test.zig` decodes the object and the array of two objects to their
+    tokens, and the texts of a value alone with whitespace around them. Every escape of §7
+    decodes to the character it names, in UTF-8.
+  - Refusals: `decoder_refusal_test.zig` holds a test for each of the decoder's 16 errors, which
+    checks the class `refusal` gives it, and `encoder_test.zig` one for each of the encoder's 3.
+    Each case runs whole and under every split seed.
+  - The independent parser: `decoder_reference_test.zig` holds a recursive-descent parser written
+    from RFC 8259 §2 to §7 and RFC 7464 §2.1 and §2.4. The decoder gives its verdict and its tokens
+    on RFC 8259's texts, on hand-picked edges, on 4,000 seeded inputs near the grammar and far
+    from it, and on every input the fuzzer draws.
+  - Round trips: `round_trip_test.zig` draws 400 seeded lists of tokens, and the fuzzer draws
+    more. Each list encodes to the same text whole and under 4 seeded splits; the parser accepts
+    the text with the list's tokens; and the decoder decodes it to them whole, under 4 seeded
+    splits and with every claim off.
+  - Splits and claims: the decoder's tests decode each text with every claim on and off, and under
+    200 seeded splits of the input and the output with the state moved between calls; the
+    encoder's tests encode each list with every claim on and off, and under 300.
+    `decoder_fuzz_test.zig` corrupts 1,500 seeded texts in up to four octets each and requires the
+    same verdict every way. `scan_test.zig` requires each vector path to return what its scalar
+    path returns at 16, 32 and 64 octets a block, on 3,000 seeded inputs, on every sequence of
+    four octets at UTF-8's edges across a block's end, and on every input the fuzzer draws.
+  - The fuzzer, on each runner of decision 26, with no failure. Each run ran each of the module's
+    four fuzz tests the same number of times:
+    - run [36379252480](https://github.com/c4milo/stdx/actions/runs/36379252480) at 4048c30, 10
+      million times each: 40,017,010 runs on macOS arm64, 40,017,395 on x86-64 and 40,018,472 on
+      aarch64;
+    - run [36411321827](https://github.com/c4milo/stdx/actions/runs/36411321827) at f62ca98, 2
+      million times each: 8,001,744 runs on macOS arm64, 8,002,493 on x86-64 and 8,002,821 on
+      aarch64.
+  - Each claim's A/B, from `bench-json` run
+    [36413165907](https://github.com/c4milo/stdx/actions/runs/36413165907) at dff16c4, on a
+    Neoverse N2 and an Intel Xeon Platinum 8370C. Each cell is the throughput with the claim off
+    over the throughput with every claim on: the median over the workloads the claim acts on, then
+    the workloads where on beats off and where off beats on by more than the larger of decision
+    20's 5% floor and the spread with every claim on.
+
+    | Claim | Workloads | N2 | Xeon 8370C | Verdict |
+    |---|---|---|---|---|
+    | J1 | Encoding the 20 other than hex strings | 0.243; 20 and 0 | 0.191; 20 and 0 | Kept |
+    | J2 | Encoding the 39 hex strings | 0.179; 39 and 0 | 0.182; 39 and 0 | Kept |
+    | J3 | Decoding all 59 | 0.032; 59 and 0 | 0.026; 59 and 0 | Kept |
+    | J5, encoder | Encoding the 20 other than hex strings | 0.990; 1 and 0 | 0.984; 2 and 0 | Kept |
+    | J5, decoder | Decoding the 20 other than hex strings | 1.000; 1 and 0 | 1.003; 1 and 0 | Kept |
+    | J4 | Decoding | Removed before this run | Removed before this run | Removed |
+
+    - J5 acts on the text of Cyrillic and CJK characters alone. There, J5 off runs at 0.191 of all
+      on decoding and 0.160 encoding on the N2, and at 0.166 and 0.154 on the Xeon: J5 makes it 5
+      to 6.5 times as fast. On every other workload it is within the noise, CLDR's texts and qlog's
+      records included.
+    - Two wins fall outside a claim's reach, and are noise: J2 encoding the samba string, which
+      holds no hex string, at 0.872 on the N2, and J5 decoding webster's hex string, which holds no
+      non-ASCII octet, at 0.925 on the Xeon.
+    - No claim loses on any workload on either runner, and the report lists no loss.
+    - With every claim on, the decoder reads CLDR's texts at 196 MB/s on the N2 and 205 on the
+      Xeon, qlog's records at 136 and 149, and hex strings at a median of 4.9 and 5.7 GB/s. The
+      encoder writes CLDR's texts at 229 and 217 MB/s, qlog's records at 200 and 196, and hex
+      strings at a median of 15.5 and 15.9 GB/s. Every claim off, the scalar paths run CLDR's
+      texts at 0.556 and 0.512 of those speeds decoding, and at 0.666 and 0.597 encoding.
+    - Every run before this one carried the benchmark's fault below: runs
+      [36377081260](https://github.com/c4milo/stdx/actions/runs/36377081260) to
+      [36411317000](https://github.com/c4milo/stdx/actions/runs/36411317000). Their ratios on
+      the long strings, the non-ASCII text and the hex strings hold, as each of those workloads is
+      one token; on CLDR's texts and qlog's records they do not.
+  - Findings that changed the code, each a finding of decision 27:
+    - The benchmark measured a call of its own on two candidates (0aeb7eb), and `run` is inline in
+      both entries (1bf5e05). In run 36411317000, on the N2, the decoder with J5 off ran CLDR's
+      texts at 1.177 of all on, where J5 changes nothing, and 0.994 once the fault was gone; the
+      encoder with every claim off ran them at 0.494 of all on, and 0.666 once it was gone.
+    - J4 left with its code (c65a59d), on runs that carried that fault.
+    - J5 starts at a non-ASCII octet past the encoder's escapes and the decoder's delimiters, and J3
+      only after an ASCII octet (83507a5, eab2fca). J5 left the decoder on the fault's numbers
+      (cbea12b) and came back (4721a9f).
+    - The vectors hold 16 octets on every target (c7f0172).
+    - No vector of bool crosses a call, and `zig build test-avx512` builds for an AVX-512 CPU
+      (1677ec9, f8dbbae).
+  - Mutations: the 53 below, on the first commit, and those in the body of each commit after it.
+
   **Mutations, 2026-09-28**, each applied, run against `zig build test-json` and reverted: 53, all
   CAUGHT. Nine at first did not compile, as a local or a parameter they left unused; each was
   written again so it compiled, and each was then CAUGHT.

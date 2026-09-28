@@ -1,7 +1,7 @@
 //! The loops the encoder and the decoder spend their time in, each as a scalar path and a vector
-//! path that must return the same (decision 21; claims J1 to J5, decision 27): the run of a
-//! string's octets that need no escape, the same run with UTF-8 validated in it, the run of
-//! whitespace, and hexadecimal digits.
+//! path that must return the same (decision 21; claims J1, J2, J3 and J5, decision 27): the run of
+//! a string's octets that need no escape, the same run with UTF-8 validated in it, and hexadecimal
+//! digits. The run of whitespace has a scalar path alone, since claim J4's vector path left.
 //!
 //! Each takes a slice and returns a count, and reads nothing past the slice: a vector path loads
 //! whole blocks of `width` octets while one fits, and hands the rest to the scalar path. The
@@ -52,8 +52,8 @@ pub fn content_len_scalar(octets: []const u8) usize {
     return index;
 }
 
-/// The run of whitespace that starts `octets`, an octet at a time. Claim J4's vector path lost to
-/// it and left (decision 27).
+/// The run of whitespace that starts `octets`, an octet at a time. Claim J4's vector path left
+/// (decision 27).
 pub fn whitespace_len_scalar(octets: []const u8) usize {
     for (octets, 0..) |octet, index| {
         if (!is_whitespace(octet)) return index;

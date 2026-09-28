@@ -21,7 +21,7 @@ pub const Claims = struct {
     /// so text of ASCII runs what it runs with J5 off.
     ///
     /// J4, whitespace skipped a vector at a time, left with its code (decision 27, design §8 step
-    /// 16): on the N2, it cost the decoder 14 to 18% over CLDR's texts and qlog's records.
+    /// 16): the runs that measured it carried a fault of the benchmark's, and none shows it faster.
     utf8_vectors: bool = constants.vectors,
 };
 

@@ -1236,3 +1236,47 @@ entry 26 out of the owner's review of CI, and entry 27 out of the owner's reques
       closed (entry 15).
     - Framing left to the caller, with RS and LF written and split by hand. RFC 7464 §2.4's check
       needs the decoder to know where a text ends.
+
+    **What design §8 step 16 found.** Recorded on 2026-09-28; the rulings above stand, and these
+    are what measuring the claims changed. Step 16's entry holds the runs and the numbers.
+    - The benchmark first measured a fault of its own. LLVM inlines a function by how many callers
+      it has, and building the workloads called two candidates' codecs a second time: every claim
+      on read CLDR's texts, and every claim off built the other texts. Those two codecs alone then
+      paid a call for each token, which slowed them by 14 to 26% on texts of short tokens, CLDR's
+      and qlog's, on the N2, and every claim's column on those texts carried it. The workloads now
+      take claims no candidate takes, and each candidate's loop inlines its codec. `run`, each
+      call's loop, is inline in `encode_with` and `decode_with`, so a caller's build cannot pay the
+      same call.
+    - J4 left with its code on runs that carried that fault. It ran CLDR's texts and qlog's records
+      at 1.14 to 1.18 of all on with J4 off, on the N2, about what the fault alone gave every
+      column there, so those runs cannot show whether J4 wins or loses. It stays out: entry 21
+      keeps a path only where a measurement shows it faster, and none does.
+    - J5 starts only where the scalar path would check a non-ASCII octet: past the encoder's
+      escapes and past the decoder's delimiters. Inside J1's run, as the table has it, it tested
+      the end of each run, and cost the encoder 3 to 4% on ASCII strings on the N2. In the
+      decoder, J5 left, and came back once the fault above was gone: J5 off ran CLDR's texts at 1.18
+      of all on, but that was the fault's call, and with it gone J5 changes no workload but the text
+      of non-ASCII characters, which it decodes 5 to 6 times as fast.
+    - J3's run starts only after an ASCII octet, and only at a plain one. Tested before every
+      octet, it found no run at each character of a non-ASCII text, and the decoder ran such text
+      at 0.71 of the scalar path's speed on the N2.
+    - The vectors hold 16 octets on every target. `constants.vector_len` first took the width the
+      build target suggests, 32 or 64 octets for AVX2 or AVX-512: widths no benchmark measured,
+      chosen from the build target, which entry 21 refuses. At 64 octets, a string shorter than a
+      vector, as most of qlog's are, never reaches one.
+    - Every function that takes or returns a vector of bool is inline. LLVM keeps such a vector in
+      AVX-512's mask registers, and its Debug build cannot pass one across a call: it stopped with
+      "Cannot emit physreg copy instruction" in CI run 36377079320. `zig build test-avx512` builds
+      every module's tests for an AVX-512 CPU in Debug, since the hosted x86-64 runner draws one
+      only now and then.
+    - Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux, indexes a vector only at
+      a lane known at comptime, so `first_lane`'s fallback runs `inline for` over the lanes.
+
+    The alternatives refused:
+    - J5 out of the decoder, as it was from cbea12b to 4721a9f. Text of non-ASCII characters then
+      decoded at 81 MB/s on the N2, where J5 decodes about 600, and no text measured faster
+      without it once the benchmark was fixed.
+    - J4 kept, as the faulty runs cannot show it slower either. Entry 21 asks the reverse: a path
+      shows itself faster before it stays.
+    - Each target's own width. It needs a measurement of its own, and entry 21's objects to choose
+      it at run time.

@@ -306,7 +306,7 @@ Change this section when a step adds or renames a command.
   exposes no counters. The `bench` workflow's `profile` option runs it
   on both hosted runners, after allowing a process to count its own events.
 - JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder
-  with every vector path on, each of claims J1 to J5 off in turn, and every one off, over CLDR's
+  with every vector path on, each of claims J1, J2, J3 and J5 off in turn, and every one off, over CLDR's
   JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text
   and hex strings: every candidate interleaved in one run, the median of five runs with the
   spread, and the losses listed (decision 27). `bench/run.sh <report.md> bench-json -Doracles`
