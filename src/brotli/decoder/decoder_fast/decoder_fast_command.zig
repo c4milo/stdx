@@ -30,7 +30,7 @@ const distance_bits_max = constants.code_len_max + constants.distance_extra_bits
 
 /// A command whose insert-and-copy symbol's block is not spent, from its symbol on. The chain has
 /// checked the margins and refilled the buffer.
-pub inline fn straight_command(comptime claims: Claims, loop: *Loop, literal_tables: *fast.LiteralTables, state: *State) Link {
+pub inline fn straight_command(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *fast.LiteralTables, state: *State) Link {
     const blocks = commands.blocks_of(state, .insert_copy);
     if (commands.needs_switch(state, .insert_copy)) return .command;
     const symbol = loop.decode(&state.insert_copy_codes[blocks.type_current]);
@@ -55,27 +55,29 @@ pub inline fn straight_command(comptime claims: Claims, loop: *Loop, literal_tab
     state.command.copy_len = code.copy_base + @as(u32, @intCast(extra >> code.insert_extra_bits));
     if (insert_len > 0) {
         state.phase = .literal;
-        return straight_literals(claims, loop, literal_tables, state);
+        return straight_literals(claims, room, loop, literal_tables, state);
     }
     // A command starts only while the meta-block has octets left, so no literal ends it here.
     assert(state.meta_block_left > 0);
     state.phase = .distance;
-    return straight_distance(claims, loop, state);
+    return straight_distance(claims, room, loop, state);
 }
 
 /// The command's literals when one run of the current block takes them all, then its distance and
 /// copy as for a command of no literals; otherwise the link of the phase the literals stop at.
-inline fn straight_literals(comptime claims: Claims, loop: *Loop, literal_tables: *fast.LiteralTables, state: *State) Link {
+inline fn straight_literals(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *fast.LiteralTables, state: *State) Link {
     if (commands.needs_switch(state, .literal)) return .literal;
-    literal_runs.literals(claims, loop, literal_tables, state);
+    if (room == .each_write and loop.room() == 0) return .stop;
+    literal_runs.literals(claims, room, loop, literal_tables, state);
     if (state.phase != .distance) return .go_on;
-    if (!fast.ready(claims, loop)) return .stop;
-    return straight_distance(claims, loop, state);
+    const link = fast.to_distance(claims, room, loop);
+    if (link != .distance) return link;
+    return straight_distance(claims, room, loop, state);
 }
 
 /// The command's distance, and its copy when both are the common case; otherwise the link of the
 /// phase the command stands at.
-inline fn straight_distance(comptime claims: Claims, loop: *Loop, state: *State) Link {
+inline fn straight_distance(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, state: *State) Link {
     if (loop.count < distance_bits_max) {
         if (!loop.has_input_margin()) return .go_on;
         fast.refill(claims, loop);
@@ -87,6 +89,9 @@ inline fn straight_distance(comptime claims: Claims, loop: *Loop, state: *State)
     if (found.value > reach or found.value > loop.written or state.command.copy_len > constants.chunk_len_max) return .distance;
     // RFC 7932 §9.3: a copy length that would exceed MLEN; the checked path refuses it.
     if (state.command.copy_len > state.meta_block_left) return .stop;
+    // Decision 32: below the margin, the room the copy's chunks store into; with less, the copy
+    // phase takes the copy.
+    if (room == .each_write and loop.room() < copies.stored_len_max(claims.chunk_copies, state.command.copy_len)) return .distance;
     // A distance code takes its element of the block even when it takes no bits.
     if (!state.command.last_distance) {
         loop.take(found.bit_count);

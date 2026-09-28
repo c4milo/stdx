@@ -128,7 +128,9 @@ fn run(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, 
 /// the fast path decode what its margins allow.
 fn step(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, out: anytype) Error!?codec.Status {
     if (options.paths.fast_paths and fast.takes(state.phase) and fast.has_margin(state.phase, bits, out.writer)) {
-        fast.run(options.paths.claims, state, out.window, bits, out.writer);
+        switch (fast.room_of(out.writer)) {
+            inline else => |room| fast.run(options.paths.claims, room, state, out.window, bits, out.writer),
+        }
     }
     return switch (state.phase) {
         .stream_header => try stream.read_stream_header(state, bits, options.window_bits_max),

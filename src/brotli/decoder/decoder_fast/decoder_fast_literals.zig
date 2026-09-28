@@ -36,12 +36,17 @@ const Tables = [constants.literal_contexts_count]*const LiteralTable;
 /// Up to `chunk_len_max` literals of the current block, each with the tree its context picks (RFC
 /// 7932 §7.1, §7.3), refilling while the input's margin holds; and the phase after the command's
 /// last literal.
-pub inline fn literals(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State) void {
+pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *LiteralTables, state: *State) void {
     assert(state.command.insert_left > 0);
     const blocks = commands.blocks_of(state, .literal);
     const block_type = blocks.type_current;
     if (literal_tables.block_type != block_type) look_up_literal_tables(literal_tables, state, block_type);
-    const batch = @min(state.command.insert_left, blocks.count_left, constants.chunk_len_max);
+    // 32 bits wide: a 9-bit variable, as `chunk_len_max` would make it, goes through memory.
+    var batch: u32 = @min(state.command.insert_left, blocks.count_left, constants.chunk_len_max);
+    // Decision 32: below the margin, the batch fits the room, which the caller has checked holds an
+    // octet; above it, the margin holds a whole batch.
+    if (room == .each_write and loop.room() < batch) batch = @intCast(loop.room());
+    assert(batch >= 1);
     const written = run(claims, loop, literal_tables, state.context_modes[block_type], prefix_reader.literal_entry_mode(state), batch);
     assert(written >= 1);
     loop.wrote(written);

@@ -1532,7 +1532,9 @@ brotli decoder.
 32. **brotli's fast path checks the room of each write, and runs to a call's last octets.**
     Proposed on 2026-09-28, during design §8 step 12. Ruled by the owner the same day: the owner
     chose to amend decision 16 for it, reviewed this text before any code, and approved it as
-    written. It amends decision 16 for one function: the brotli command loop.
+    written. The code then revised the rule in two places, the second mode and the copy one octet
+    at a time, and the owner had the revision committed with it. It amends decision 16 for one
+    function: the brotli command loop.
 
     **The cost it removes.** Decision 16's output margin for the brotli command loop,
     `chunk_len_max` plus 16, is 272 octets, so the checked path decodes the last 272 octets of
@@ -1543,14 +1545,22 @@ brotli decoder.
 
     **The rule.** For the brotli command loop alone:
     - The input margin stands as decision 16 sets it: 8 octets, checked where the loop refills.
-    - The output margin becomes a check at each write, against the most that write stores:
+    - While at least `chunk_len_max` plus 16 octets of room remain, one check at the top of a chain
+      and one after its literals cover every write the chain makes, as decision 16's margin does.
+    - Below that, the loop runs in a second mode, where each write checks the room it stores into,
+      against the most it stores:
       - a literal run stores its batch, which the run bounds by the room left;
-      - a copy in chunks (S4) stores its length rounded up to a whole chunk of 16 octets;
+      - a copy in chunks (S4) stores its length rounded up to a whole chunk of 16 octets, and at
+        least the two chunks it writes first; with less room it copies its octets one at a time,
+        as with S4 off;
       - a dictionary word's wide transform stores `transform.wide_output_len`, 64 octets, and its
         exact transform, near DICT's end, `transformed_word_len_max`;
       - the rest of a word the checked path started stores what is left of it.
     - A write whose room is short returns to the checked path, as a failed margin does now, so the
-      checked path decodes at most the last write's octets and its overrun, not 272.
+      checked path decodes at most the last write's octets, not 272.
+    - Each mode is its own instance of the loop, so the margin's mode compiles as though the other
+      did not exist. The checks at each write cost the common case nothing: on the owner's M1 Pro
+      they cost command-heavy files 3% when every chain made them.
     - Zig's safety checks stay on (decision 16). Each check is one compare against the room the
       loop already holds in a register, and the slice checks behind it still turn a wrong bound
       into a panic.

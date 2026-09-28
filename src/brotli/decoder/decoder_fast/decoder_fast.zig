@@ -1,14 +1,18 @@
 //! The brotli decoder's fast path (decision 16): the command loop decision 16's table names, with
 //! its match copy (S4).
 //!
-//! The loop runs while at least `input_slack` octets of input and `output_slack` octets of output
-//! room remain, checked at the top of each iteration. An iteration refills a 64-bit bit buffer with
+//! The loop runs while at least `input_slack` octets of input remain, checked at the top of each
+//! iteration. While `output_margin` octets of output room remain, one check at the top of a chain,
+//! and one after its literals, cover every write it makes; below it, each write checks the room it
+//! stores into, and a write whose room is short returns to the checked path (decision 32). An
+//! iteration refills a 64-bit bit buffer with
 //! one 8-octet little-endian load (as S1 for DEFLATE) and takes a chain of the checked path's
 //! command phases, each an inline function, so that the loop's state stays in registers: a block
 //! switch, an insert-and-copy symbol and its extra bits, up to `chunk_len_max` literals, a
 //! distance, and up to `chunk_len_max` octets of a copy or of a dictionary word. It decodes with
 //! the meta-block's lookup tables (claim B3), writes straight into the caller's output, copies in
-//! chunks that overrun into the margin (S4), and reads history from the output and, before the
+//! chunks that may run past a copy's end into the room it checked (S4), and reads history from the
+//! output and, before the
 //! octets the output holds, from the window, which takes the call's octets when the call ends (the
 //! window-once claim).
 //!
@@ -27,6 +31,7 @@ const Claims = @import("../../claims.zig").Claims;
 const state_module = @import("../decoder_state.zig");
 const commands = @import("../decoder_commands.zig");
 const copies = @import("decoder_fast_copy.zig");
+const words = @import("decoder_fast_word.zig");
 const literal_runs = @import("decoder_fast_literals.zig");
 const straight = @import("decoder_fast_command.zig");
 const dictionary = @import("../../dictionary.zig");
@@ -35,12 +40,23 @@ const State = state_module.State;
 const Category = state_module.Category;
 const Phase = state_module.Phase;
 
-/// Decision 16's margins: the input a refill reads, and the output an iteration may write, as
-/// decision 16's table sets it for brotli: `chunk_len_max` and a chunk past it. A copy's last
-/// chunk may overrun the copy, but `chunk_len_max` is a whole number of chunks, so an iteration
-/// writes at most `chunk_len_max`, and the chunk past it is spare.
+/// Decision 16's input margin: the octets a refill reads.
 pub const input_slack = @sizeOf(u64);
-pub const output_slack = constants.chunk_len_max + constants.copy_chunk_len;
+
+/// Decision 16's output margin, which decision 32 keeps for a chain's common case: the most a
+/// chain writes between two checks, `chunk_len_max` and a chunk past it, since a copy's last chunk
+/// may run past the copy.
+const output_margin = constants.chunk_len_max + constants.copy_chunk_len;
+
+/// How the loop checks the output's room (decision 32): against the margin, at the top of each chain
+/// and after its literals, or at each write, once less than the margin remains. Each mode is its
+/// own instance of `run`, so the margin's mode compiles as though the other did not exist.
+pub const Room = enum { margin, each_write };
+
+/// The mode the loop starts in for the room the writer holds.
+pub fn room_of(writer: *const codec.Writer) Room {
+    return if (writer.room_len() >= output_margin) .margin else .each_write;
+}
 
 /// The bits a refill leaves at least, and the most one phase takes: a block switch's type and
 /// count codes and the count's extra bits.
@@ -67,15 +83,16 @@ fn reads_no_input(phase: Phase) bool {
     return phase == .copy or phase == .dictionary_copy;
 }
 
-/// Whether the margins hold for the input and the room left: the room's alone for a phase that
-/// reads no input, so that a copy which ends the stream takes the fast path.
+/// Whether the fast path may start: the input's margin holds, or the phase reads no input, so that
+/// a copy which ends the stream takes the fast path; and the output has room for an octet. Each
+/// write checks its own room (decision 32).
 pub fn has_margin(phase: Phase, bits: *const codec.BitReader, writer: *const codec.Writer) bool {
     const input_holds = bits.reader.octets.len - bits.reader.position >= input_slack;
-    return (input_holds or reads_no_input(phase)) and writer.room_len() >= output_slack;
+    return (input_holds or reads_no_input(phase)) and writer.room_len() > 0;
 }
 
 /// What a phase says: go on, or stop for the checked path.
-const Next = enum { go_on, stop };
+pub const Next = enum { go_on, stop };
 
 pub const LiteralTables = literal_runs.LiteralTables;
 
@@ -103,12 +120,10 @@ pub const Loop = struct {
         return self.input.len - self.position >= input_slack;
     }
 
-    inline fn has_output_margin(self: *const Loop) bool {
-        return self.output.len - self.written >= output_slack;
-    }
-
-    inline fn has_margin(self: *const Loop) bool {
-        return self.has_input_margin() and self.has_output_margin();
+    /// The output room past the octets the loop wrote, against which each write checks the most it
+    /// stores (decision 32).
+    pub inline fn room(self: *const Loop) usize {
+        return self.output.len - self.written;
     }
 
     /// Fills the buffer to at least `refill_bits` bits with one 8-octet load, taking the whole
@@ -173,7 +188,7 @@ pub inline fn refill(comptime claims: Claims, loop: *Loop) void {
 /// checked path takes, and hands the bit buffer, the input position, the output position and the
 /// context's octets back. Without the window-once claim, the window takes the octets the loop
 /// wrote.
-pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bits: *codec.BitReader, writer: *codec.Writer) void {
+pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State, window: anytype, bits: *codec.BitReader, writer: *codec.Writer) void {
     var loop: Loop = .{
         .input = bits.reader.octets,
         .position = bits.reader.position,
@@ -187,7 +202,7 @@ pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bit
     };
     assert(loop.count <= @bitSizeOf(u64));
     var literal_tables: LiteralTables = .{};
-    decode_phases(claims, &loop, &literal_tables, state, window);
+    decode_phases(claims, room, &loop, &literal_tables, state, window);
     assert(loop.written <= loop.output.len and loop.position <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
     bits.bits = .{
@@ -204,13 +219,13 @@ pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bit
 
 /// The loop itself: iterations of chains of phases, each chain one iteration of this bounded
 /// loop.
-inline fn decode_phases(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) void {
+inline fn decode_phases(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) void {
     // Each chain takes a bit or writes an octet, or is one of the few chains of a command that lead
     // to one that does, as the checked path's steps are.
     const units = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + (loop.output.len - loop.written);
     const iterations_max = constants.decoder_steps_per_unit * units + constants.decoder_steps_floor;
     for (0..iterations_max) |_| {
-        if (decode_chain(claims, loop, literal_tables, state, window) == .stop) return;
+        if (decode_chain(claims, room, loop, literal_tables, state, window) == .stop) return;
     }
     unreachable;
 }
@@ -239,28 +254,29 @@ fn link_of(phase: Phase) Link {
 /// One chain: the phases of a command in a row, each an inline function, so that the loop's state
 /// stays in registers. A chain at a command's symbol starts with the straight-line command of
 /// decoder_fast_command.zig, which takes a command of no literals in locals and hands the chain the
-/// phase it stops at. A chain starts once the margins hold and the buffer is refilled, and checks
-/// them again only where a phase may lack them: after a block switch, before a distance's block
-/// switch, and before a distance that literals or the command's extra bits preceded. A chain ends
-/// with a copy or a word, where its phase leaves the command for the next iteration, or at a phase
-/// the checked path takes. A chain at a copy or at the rest of a word reads no input, and needs the
-/// output's margin alone.
-inline fn decode_chain(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
+/// phase it stops at. A chain starts once the input's margin holds and the buffer is refilled, and
+/// checks them again only where a phase may lack them: after a block switch, before a distance's
+/// block switch, and before a distance that literals or the command's extra bits preceded. A chain
+/// ends with a copy or a word, where its phase leaves the command for the next iteration, or at a
+/// phase the checked path takes. A chain at a copy or at the rest of a word reads no input. Each
+/// write checks its own room (decision 32).
+inline fn decode_chain(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
+    // In the margin's mode, a chain starts only while the margin holds; the checked path then
+    // starts the mode that checks each write.
+    if (room == .margin and loop.room() < output_margin) return .stop;
     if (reads_no_input(state.phase)) {
-        if (!loop.has_output_margin()) return .stop;
-        if (state.phase == .copy) copy(claims, loop, state, window) else word(loop, state);
-        return .go_on;
+        return if (state.phase == .copy) copy(claims, room, loop, state, window) else words.word(room, loop, state);
     }
     if (!ready(claims, loop)) return .stop;
-    var link = if (state.phase == .command) straight.straight_command(claims, loop, literal_tables, state) else link_of(state.phase);
+    var link = if (state.phase == .command) straight.straight_command(claims, room, loop, literal_tables, state) else link_of(state.phase);
     for (0..links_per_chain_max) |_| {
         link = switch (link) {
             .command => on_command(claims, loop, state),
             .command_extra => on_command_extra(claims, loop, state),
-            .literal => on_literal(claims, loop, literal_tables, state),
-            .distance => on_distance(claims, loop, state),
-            .copy => on_copy(claims, loop, state, window),
-            .dictionary_copy => on_word(loop, state),
+            .literal => on_literal(claims, room, loop, literal_tables, state),
+            .distance => on_distance(claims, room, loop, state),
+            .copy => on_copy(claims, room, loop, state, window),
+            .dictionary_copy => on_word(room, loop, state),
             .go_on => return .go_on,
             .stop => return .stop,
         };
@@ -295,49 +311,57 @@ inline fn extra_link(comptime claims: Claims, loop: *Loop, state: *State, code: 
 
 /// A run of literals, after a refill the command's extra bits may have left it, or a block switch
 /// the next iteration goes on from; then the distance once the margins hold for it.
-inline fn on_literal(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State) Link {
+inline fn on_literal(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State) Link {
     if (loop.count < phase_bits_max and !ready(claims, loop)) return .stop;
     if (commands.needs_switch(state, .literal)) {
         block_switch(loop, state, .literal);
         return .go_on;
     }
-    literal_runs.literals(claims, loop, literal_tables, state);
+    if (room == .each_write and loop.room() == 0) return .stop;
+    literal_runs.literals(claims, room, loop, literal_tables, state);
     if (state.phase != .distance) return .go_on;
-    return if (ready(claims, loop)) .distance else .stop;
+    return to_distance(claims, room, loop);
+}
+
+/// The link to a command's distance after its literals: with the input's margin, and in the
+/// margin's mode, the next chain when the literals left less than the margin, since that chain then
+/// checks each write.
+pub inline fn to_distance(comptime claims: Claims, comptime room: Room, loop: *Loop) Link {
+    if (!ready(claims, loop)) return .stop;
+    if (room == .margin and loop.room() < output_margin) return .go_on;
+    return .distance;
 }
 
 /// The command's distance, after its block switch when its block is spent; then its copy, or a
 /// word the checked path started. A word the distance wrote straight into the output ends the
 /// command and the chain.
-inline fn on_distance(comptime claims: Claims, loop: *Loop, state: *State) Link {
+inline fn on_distance(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State) Link {
     if (!state.command.last_distance and commands.needs_switch(state, .distance)) {
         // After the straight-line command's extra bits, a block switch may need a refill.
         if (loop.count < phase_bits_max and !ready(claims, loop)) return .stop;
         block_switch(loop, state, .distance);
         if (!ready(claims, loop)) return .stop;
     }
-    if (distance(loop, state) == .stop) return .stop;
+    if (distance(room, loop, state) == .stop) return .stop;
     return switch (state.phase) {
         .copy, .dictionary_copy => link_of(state.phase),
         else => .go_on,
     };
 }
 
-inline fn on_copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) Link {
-    copy(claims, loop, state, window);
-    return .go_on;
+inline fn on_copy(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State, window: anytype) Link {
+    return if (copy(claims, room, loop, state, window) == .stop) .stop else .go_on;
 }
 
-inline fn on_word(loop: *Loop, state: *State) Link {
-    word(loop, state);
-    return .go_on;
+inline fn on_word(comptime room: Room, loop: *Loop, state: *State) Link {
+    return if (words.word(room, loop, state) == .stop) .stop else .go_on;
 }
 
-/// Whether the margins hold for another phase, and when they do, a buffer refilled to at least
-/// `refill_bits`: the state may bring a full buffer of 64 bits, and every later refill finds 63
+/// Whether the input's margin holds for another phase, and when it does, a buffer refilled to at
+/// least `refill_bits`: the state may bring a full buffer of 64 bits, and every later refill finds 63
 /// or fewer.
 pub inline fn ready(comptime claims: Claims, loop: *Loop) bool {
-    if (!loop.has_margin()) return false;
+    if (!loop.has_input_margin()) return false;
     if (loop.count < refill_bits) refill(claims, loop);
     return true;
 }
@@ -388,7 +412,7 @@ pub inline fn produce(state: *State, len: usize) void {
 
 /// The command's distance (RFC 7932 §4), resolved to a back-reference or a dictionary word before
 /// its bits are taken, so that the checked path takes again one it refuses.
-inline fn distance(loop: *Loop, state: *State) Next {
+inline fn distance(comptime room: Room, loop: *Loop, state: *State) Next {
     // RFC 7932 §5: symbols below 128 reuse the last distance, and no distance code follows.
     if (state.command.last_distance) {
         _ = commands.resolve_distance(state, state.last_distances[0], false) catch return .stop;
@@ -404,7 +428,7 @@ inline fn distance(loop: *Loop, state: *State) Next {
     const value = commands.distance_of(state, code, extra) catch return .stop;
     const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
     if (value > reach) {
-        const len = word_straight(loop, state, value - reach - 1) orelse return .stop;
+        const len = words.word_straight(room, loop, state, value - reach - 1) orelse return .stop;
         take_distance(loop, blocks, symbol.len + extra_bits);
         loop.wrote(len);
         produce(state, len);
@@ -424,30 +448,17 @@ inline fn take_distance(loop: *Loop, blocks: *state_module.Blocks, bit_count: u3
     commands.take_element(blocks);
 }
 
-/// The dictionary word a reference past the window names (RFC 7932 §8), transformed straight into
-/// the output past what the loop wrote, and its length; null, having taken nothing, for a reference
-/// the checked path refuses. The margins hold the room the wide copies take, and a word near DICT's
-/// end, whose head DICT does not hold, takes the exact copies.
-inline fn word_straight(loop: *Loop, state: *const State, word_id: u32) ?usize {
-    const reference = commands.word_reference(state, word_id) catch return null;
-    const offset = dictionary.word_offset(reference.len, reference.index);
-    const room = loop.output[loop.written..][0..transform.wide_output_len];
-    const len = if (offset + transform.wide_input_len <= dictionary.data.len)
-        transform.apply_wide(reference.transform_id, dictionary.data[offset..][0..transform.wide_input_len], reference.len, room)
-    else
-        transform.apply(reference.transform_id, dictionary.word(reference.len, reference.index), room[0..constants.transformed_word_len_max]);
-    // RFC 7932 §9.3: a dictionary word that would exceed MLEN; the checked path refuses it.
-    if (len > state.meta_block_left) return null;
-    return len;
-}
-
 /// Up to `chunk_len_max` octets of a back-reference: from this call's output, or from the window
-/// for those before it.
-inline fn copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) void {
+/// for those before it. Below the margin, a copy within the output whose chunks the room lacks goes
+/// an octet at a time, as with S4 off, and a copy the room lacks returns to the checked path.
+inline fn copy(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State, window: anytype) Next {
     const len = @min(state.command.copy_left, constants.chunk_len_max);
     const back = state.command.distance;
+    // Decision 32: the room of the copy's octets, and of its chunks.
+    if (room == .each_write and loop.room() < len) return .stop;
+    const chunks = room == .margin or loop.room() >= copies.stored_len_max(claims.chunk_copies, len);
     if (back <= loop.written) {
-        copies.within(claims.chunk_copies, loop.output, loop.written, back, len);
+        if (chunks) copies.within(claims.chunk_copies, loop.output, loop.written, back, len) else copies.within(false, loop.output, loop.written, back, len);
     } else {
         copies.from_window(window, loop.output, loop.written, loop.start, back, len);
     }
@@ -455,15 +466,5 @@ inline fn copy(comptime claims: Claims, loop: *Loop, state: *State, window: anyt
     produce(state, len);
     state.command.copy_left -= len;
     if (state.command.copy_left == 0) state.phase = commands.after_copy(state);
-}
-
-/// The rest of a dictionary word, transformed (RFC 7932 §8): at most `transformed_word_len_max`
-/// octets.
-inline fn word(loop: *Loop, state: *State) void {
-    const octets = state.word[state.word_written..state.word_len];
-    @memcpy(loop.output[loop.written..][0..octets.len], octets);
-    loop.wrote(octets.len);
-    produce(state, octets.len);
-    state.word_written = state.word_len;
-    state.phase = commands.after_copy(state);
+    return .go_on;
 }

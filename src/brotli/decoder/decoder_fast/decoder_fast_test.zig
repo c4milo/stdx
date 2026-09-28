@@ -88,17 +88,30 @@ test "a long copy that ends the stream, past the input's margin, writes nothing 
     }
 }
 
-test "a copy or a word's rest takes the fast path on the output's margin alone, a command on both" {
+test "a copy or a word's rest starts the fast path with the input short, a command needs its margin" {
     const input: [fast.input_slack - 1]u8 = @splat(0);
     var bits = codec.BitReader.init(&input, .{});
-    var output: [fast.output_slack]u8 = undefined;
+    var output: [1]u8 = undefined;
     var writer = codec.Writer.init(&output);
     try testing.expect(fast.has_margin(.copy, &bits, &writer));
     try testing.expect(fast.has_margin(.dictionary_copy, &bits, &writer));
     try testing.expect(!fast.has_margin(.command, &bits, &writer));
     try testing.expect(!fast.has_margin(.literal, &bits, &writer));
-    var short_writer = codec.Writer.init(output[1..]);
-    try testing.expect(!fast.has_margin(.copy, &bits, &short_writer));
+    // Each needs an octet of room; each write then checks the room it stores into (decision 32).
+    var no_room = codec.Writer.init(output[1..]);
+    try testing.expect(!fast.has_margin(.copy, &bits, &no_room));
+    const whole: [fast.input_slack]u8 = @splat(0);
+    var whole_bits = codec.BitReader.init(&whole, .{});
+    try testing.expect(fast.has_margin(.command, &whole_bits, &writer));
+    try testing.expect(!fast.has_margin(.command, &whole_bits, &no_room));
+}
+
+test "the loop checks each write once its room is short of the margin, and against the margin before" {
+    var output: [constants.chunk_len_max + constants.copy_chunk_len]u8 = undefined;
+    var margin = codec.Writer.init(&output);
+    try testing.expectEqual(.margin, fast.room_of(&margin));
+    var short = codec.Writer.init(output[1..]);
+    try testing.expectEqual(.each_write, fast.room_of(&short));
 }
 
 /// Symbol 389: insert length 0 and copy code 21, 582 and 9 extra bits, which takes a distance
@@ -302,6 +315,40 @@ test "the dictionary's last words decode on the fast path, the last from its exa
     const whole = try decoder.decode_all(stream.written(), &output);
     const dictionary = @import("../../dictionary.zig");
     try testing.expectEqualSlices(u8, dictionary.data[dictionary.data.len - last_words * last_word_len ..], output[0..whole.written]);
+}
+
+test "the dictionary's last words write nothing past any room, the wide word nor the exact one" {
+    var stream: Stream = .{};
+    last_words_stream(&stream);
+    const dictionary = @import("../../dictionary.zig");
+    const expected = dictionary.data[dictionary.data.len - last_words * last_word_len ..];
+    var output: [last_words * last_word_len]u8 = undefined;
+    for (0..expected.len + 1) |room| {
+        var decoder: Decoder = undefined;
+        decoder.init(.{});
+        const progress = try decoder.decode(stream.written(), output[0..room]);
+        try testing.expectEqual(room, progress.written);
+        try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
+    }
+}
+
+test "the rest of a word the checked path started writes nothing past the next call's room" {
+    var stream: Stream = .{};
+    last_words_stream(&stream);
+    const dictionary = @import("../../dictionary.zig");
+    const expected = dictionary.data[dictionary.data.len - last_words * last_word_len ..];
+    var output: [last_words * last_word_len]u8 = undefined;
+    // A first call cuts the first word; the second's room holds some of its rest, or all.
+    for (1..last_word_len) |first| {
+        for (0..expected.len - first + 1) |second| {
+            var decoder: Decoder = undefined;
+            decoder.init(.{});
+            const one = try decoder.decode(stream.written(), output[0..first]);
+            const two = try decoder.decode(stream.written()[one.consumed..], output[first..][0..second]);
+            try testing.expectEqual(second, two.written);
+            try testing.expectEqualSlices(u8, expected[0 .. first + second], output[0 .. first + second]);
+        }
+    }
 }
 
 /// Symbols 32 and 128 (RFC 7932 §5): insert length 4 and copy length 2 at the last distance, which

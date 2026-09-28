@@ -13,6 +13,13 @@ pub inline fn within(comptime chunks: bool, output: []u8, target: usize, distanc
     if (chunks) copy_within(output, target, distance, len) else copy_exact(output, target, distance, len);
 }
 
+/// The most octets `within` stores for a copy of `len`: in chunks, up to the end of the last chunk,
+/// and at least the chunks it writes whatever the length (`copy_within`); otherwise `len`.
+pub fn stored_len_max(comptime chunks: bool, len: usize) usize {
+    if (!chunks) return len;
+    return @max(std.mem.alignForward(usize, len, constants.copy_chunk_len), chunks_unconditional * constants.copy_chunk_len);
+}
+
 /// Copies a back-reference that reaches before this call's output: its first octets from the
 /// window, whose newest octet is the one before `start` in the output, and the rest from the
 /// output, an octet at a time. The caller has kept `distance` within the octets produced and the
