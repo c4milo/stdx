@@ -88,12 +88,16 @@ fn load(comptime width: usize, octets: []const u8) Block(width) {
     return octets[0..width].*;
 }
 
-fn any(comptime width: usize, lanes: Lanes(width)) bool {
+// Every function that takes or returns a vector of bool is inline: LLVM's Debug build cannot pass
+// one across a call on AVX-512, whose mask registers hold it ("Cannot emit physreg copy
+// instruction", CI run 36377079320 on x86-64).
+
+inline fn any(comptime width: usize, lanes: Lanes(width)) bool {
     return @reduce(.Or, lanes);
 }
 
 /// The first lane that holds, of lanes of which at least one does.
-fn first_lane(comptime width: usize, lanes: Lanes(width)) usize {
+inline fn first_lane(comptime width: usize, lanes: Lanes(width)) usize {
     assert(any(width, lanes));
     if (builtin.cpu.arch == .aarch64) {
         // NEON gathers no bit per lane into a register. Shifted right by 4 and narrowed as 16-bit
@@ -119,14 +123,14 @@ fn first_lane(comptime width: usize, lanes: Lanes(width)) usize {
 /// The lanes whose octet a string must escape or is not ASCII: below U+0020 or from 0x80 up, which
 /// shifted down by 0x20 wraps past 0xDF or lands at 0x60 and up, and the quotation mark and the
 /// reverse solidus (RFC 8259 §7).
-fn plain_stops(comptime width: usize, block: Block(width)) Lanes(width) {
+inline fn plain_stops(comptime width: usize, block: Block(width)) Lanes(width) {
     const shifted = block -% splat(width, constants.unescaped_min);
     const outside = shifted >= splat(width, constants.non_ascii_min - constants.unescaped_min);
     return outside | escape_lanes(width, block);
 }
 
 /// The lanes whose octet a string must escape (RFC 8259 §7).
-fn escape_lanes(comptime width: usize, block: Block(width)) Lanes(width) {
+inline fn escape_lanes(comptime width: usize, block: Block(width)) Lanes(width) {
     const control = block < splat(width, constants.unescaped_min);
     const quotation_mark = block == splat(width, constants.quotation_mark);
     const reverse_solidus = block == splat(width, constants.reverse_solidus);
@@ -152,7 +156,7 @@ pub fn plain_len_vector(comptime width: usize, octets: []const u8) usize {
 /// - the octet follows E0, ED, F0 or F4 outside the narrower range RFC 3629 §4 gives it there.
 ///
 /// `previous` ends between characters, or inside a character whose octets `block` goes on with.
-fn utf8_error_lanes(comptime width: usize, previous: Block(width), block: Block(width)) Lanes(width) {
+inline fn utf8_error_lanes(comptime width: usize, previous: Block(width), block: Block(width)) Lanes(width) {
     var asked: Lanes(width) = @splat(false);
     inline for (1..constants.utf8_len_max) |back| {
         asked |= shifted_in(width, back, previous, block) >= splat(width, constants.reaching_lead_min[back]);
