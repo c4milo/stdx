@@ -131,19 +131,29 @@ fn common(loop: *fast.Loop, codes: fast.Codes) fast.Stop {
     unreachable;
 }
 
+/// How the loop's bit buffer starts: empty, or full with the input's first 8 octets, as a state
+/// the checked reader filled can bring it.
+const Buffer = enum { empty, full };
+
 /// Runs the assembly over `input`, a block's symbols after its header, and requires it to stop for
 /// `decode_rare` at the symbol `last`, having written `expected` and used none of `last`'s bits.
 /// The input is padded and the output has room past `expected`, so the margins hold through
 /// `last`.
 fn expect_stops_at(built: *const Built, input: []const u8, expected: []const u8, last: u16) !void {
+    return expect_stops_from(.empty, built, input, expected, last);
+}
+
+/// `expect_stops_at`, the bit buffer starting as `buffer` says.
+fn expect_stops_from(buffer: Buffer, built: *const Built, input: []const u8, expected: []const u8, last: u16) !void {
     var padded: [test_stream.stream_len_max + input_padding]u8 = @splat(0);
     @memcpy(padded[0..input.len], input);
     var output: [output_len_max + fast.output_slack]u8 = @splat(0);
+    const taken: usize = if (buffer == .full) @sizeOf(u64) else 0;
     var loop: fast.Loop = .{
         .input = &padded,
-        .rest = &padded,
-        .buffer = 0,
-        .count = 0,
+        .rest = padded[taken..],
+        .buffer = if (buffer == .full) std.mem.readInt(u64, padded[0..@sizeOf(u64)], .little) else 0,
+        .count = if (buffer == .full) @as(u32, @bitSizeOf(u64)) else 0,
         .output = output[0 .. expected.len + fast.output_slack],
         .written = 0,
         .literal_length_entries = &built.literal_length_table.entries,
@@ -263,6 +273,35 @@ test "a distance code longer than its table stops the loop, whatever bits follow
     dynamic.pair(&stream, 3, 17);
     for (0..60) |_| dynamic.literal(&stream, 'a');
     try expect_stops_at(&built, stream.slice(), expected.slice(), constants.first_length_symbol);
+}
+
+test "a run's last literal waits for the refill when the buffer, full at the start, holds 10 bits" {
+    if (!assembly_runs()) return error.SkipZigTest;
+    // Literals 0 to 127 take 10 bits and 128 to 255 take 11, the block's end 1 and lengths 3 and 4
+    // take 2 and 4: 128/1024 + 128/2048 + 1/2 + 1/4 + 1/16 = 1, a complete code (RFC 1951
+    // §3.2.2). A buffer full at the start holds as many bits as its count, so after four literals
+    // of 11 bits and one of 10 it holds 10: the next literal's 11th bit is not in it yet.
+    var dynamic: Dynamic = .{ .literal_count = constants.first_length_symbol + 2, .distance_count = 1 };
+    for (dynamic.literal_lengths[0..128]) |*len| len.* = 10;
+    for (dynamic.literal_lengths[128..constants.end_of_block]) |*len| len.* = 11;
+    dynamic.literal_lengths[constants.end_of_block] = 1;
+    dynamic.literal_lengths[constants.first_length_symbol] = 2;
+    dynamic.literal_lengths[constants.first_length_symbol + 1] = 4;
+    dynamic.distance_lengths[0] = 1;
+    var built: Built = undefined;
+    try built.init_dynamic(&dynamic);
+    // The next literal is one whose code's last bit, the one the buffer lacks, is 1.
+    const codes = test_stream.assign_codes(constants.literal_length_alphabet_len, dynamic.literal_lengths);
+    var next: u16 = 132;
+    while (codes[next] & 1 == 0) next += 1;
+    var stream: Stream = .{};
+    var expected: Expected = .{};
+    for ([_]u16{ 128, 129, 130, 131, 0, next }) |octet| {
+        dynamic.literal(&stream, octet);
+        expected.literal(@intCast(octet));
+    }
+    dynamic.literal(&stream, constants.end_of_block);
+    try expect_stops_from(.full, &built, stream.slice(), expected.slice(), constants.end_of_block);
 }
 
 test "the block's end and a symbol that never occurs stop the loop, whatever the unused lengths hold" {

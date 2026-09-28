@@ -20,7 +20,8 @@
 //! bits; and 0 and 1 for `fast.Stop`'s margin and rare.
 //!
 //! The numbered labels: 1 an iteration, 3 a match, 4 a length's own entry, 5 the refill after
-//! literals, 6 the match's copy, 7 the next symbol, 8 the refill after a match, 70 and 71 a match's
+//! literals, 51 the refill before the lookup after a run's last literal, 6 the match's copy, 7 the
+//! next symbol, 8 the refill after a match, 70 and 71 a match's
 //! other cases, the last a distance below a chunk, 72, 74, 76, 77 and 78 the rest of a match, 94
 //! to 97 a literal/length code longer than the table, 80 and 90 the exits, 99 the state stored
 //! back.
@@ -84,9 +85,24 @@ pub const literal_next =
     \\    tbz w14, #{[literal_at]}, 5f
 ;
 
-/// After the last literal of a run, which may leave fewer bits than an index, the refill comes
-/// before the lookup; after a shorter run, the refill alone.
+/// After the last literal of a run, the lookup reads the buffer before the refill when it holds a
+/// whole index, so it need not wait for the refill: the buffer holds as many of the stream's bits
+/// as its count at least, and a count of 11 holds the widest index. With fewer, the refill comes
+/// first. After a shorter run, the refill alone.
 pub const literal_last =
+    \\    and x17, x6, x9
+    \\    ldr w14, [x8, x17, lsl #2]
+    \\    and w16, w7, #0xff
+    \\    cmp w16, #11
+    \\    b.lo 51f
+    \\    ldr x16, [x1]
+    \\    lsl x16, x16, x7
+    \\    orr x6, x6, x16
+    \\    bic x16, x22, x7
+    \\    add x1, x1, x16, lsr #3
+    \\    orr w7, w7, #{[refill_bits]}
+    \\    b 1b
+    \\51:
     \\    ldr x16, [x1]
     \\    lsl x16, x16, x7
     \\    orr x6, x6, x16

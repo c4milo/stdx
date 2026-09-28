@@ -171,6 +171,8 @@ comptime {
     assert(@intFromEnum(lookup.Other.end_of_block) & 1 == 1 and @intFromEnum(lookup.Other.invalid) & 1 == 1);
     assert(constants.code_len_max == 15);
     assert(@sizeOf(lookup.LongCodes) == 8 and @bitOffsetOf(lookup.LongCodes, "count") == 16 and @bitOffsetOf(lookup.LongCodes, "index") == 32);
+    // A count of 11 leaves the widest index in the buffer after a run's last literal.
+    assert(constants.literal_length_table_bits == 11);
     // Symbols 257 to 285 are the lengths; 256 ends the block (RFC 1951 §3.2.5).
     assert(constants.first_length_symbol == 257 and constants.length_base.len == 29 and constants.end_of_block == 256);
     assert(@intFromEnum(fast.Stop.margin) == 0 and @intFromEnum(fast.Stop.rare) == 1);
