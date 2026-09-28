@@ -1,5 +1,7 @@
-# Decision 20: fuzzing runs in scheduled jobs of fixed length per target, on both hosted runners.
-# The corpus a run grows lives in .zig-cache, which is kept from one run to the next.
+# Decision 20: fuzzing runs in scheduled jobs of fixed length per target, one job per fuzzed module
+# on each runner, so each module has the job time limit to itself. The corpus a job grows is
+# the part of .zig-cache Zig 0.16's fuzzer keeps between runs, f and v, which GitHub's cache keeps
+# from one run to the next per runner and module; the builds beside it are not kept.
 name: fuzz
 
 on:
@@ -15,13 +17,25 @@ permissions:
   contents: read
 
 jobs:
+  modules:
+    runs-on: ubuntu-24.04
+    outputs:
+      modules: ${{ steps.list.outputs.modules }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: List the fuzzed modules
+        id: list
+        run: echo "modules=$(tools/fuzz.sh --list)" >> "$GITHUB_OUTPUT"
+
   fuzz:
+    needs: modules
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        module: ${{ fromJSON(needs.modules.outputs.modules) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -30,13 +44,15 @@ jobs:
           key: zig-pkg-${{ hashFiles('build.zig.zon') }}
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .zig-cache
-          key: fuzz-corpus-${{ matrix.runner }}-${{ github.run_id }}
-          restore-keys: fuzz-corpus-${{ matrix.runner }}-
+          path: |
+            .zig-cache/f
+            .zig-cache/v
+          key: fuzz-corpus-${{ matrix.runner }}-${{ matrix.module }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.runner }}-${{ matrix.module }}-
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
       - name: Fuzz
-        run: tools/fuzz.sh "${{ inputs.runs || '2M' }}" fuzz-report.md
+        run: tools/fuzz.sh "${{ inputs.runs || '2M' }}" fuzz-report.md "${{ matrix.module }}"
       - name: Summarize
         if: always()
         run: cat fuzz-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -44,5 +60,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fuzz-${{ matrix.runner }}
+          name: fuzz-${{ matrix.runner }}-${{ matrix.module }}
           path: fuzz-report.md

@@ -250,11 +250,12 @@ Change this section when a step adds or renames a command.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB,
   shuffles dickens's first MiB into `shuffled/dickens-1m`, and installs every corpus file under
   `zig-out/corpus/`.
-- Fuzzing: `tools/fuzz.sh <runs> [report.md]` runs Zig's fuzzer over every module that holds a
-  `std.testing.fuzz` test, for `<runs>` runs each (`20K`, `2M`), and refuses to run when its list
-  of modules misses one. It builds ReleaseSafe: Zig 0.16.0's test runner does not compile in fuzz
-  mode in Debug. `tools/ci.sh` runs a short pass on every push, and the `fuzz` workflow a long one
-  every night on both runners, keeping each runner's corpus between runs (decision 20).
+- Fuzzing: `tools/fuzz.sh <runs> [report.md [module]]` runs Zig's fuzzer over every module that
+  holds a `std.testing.fuzz` test, or over the one named, for `<runs>` runs each (`20K`, `2M`), and
+  refuses to run when its list of modules misses one; `tools/fuzz.sh --list` prints that list as
+  JSON. It builds ReleaseSafe: Zig 0.16.0's test runner does not compile in fuzz mode in Debug.
+  `tools/ci.sh` runs a short pass on every push, and the `fuzz` workflow a long one every night,
+  one job per module on each runner, keeping each job's corpus in GitHub's cache (decision 20).
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
   `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
