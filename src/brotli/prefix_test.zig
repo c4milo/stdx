@@ -69,6 +69,32 @@ fn random_lengths(generator: *codec.split.Generator, lengths: []u8, count: usize
     }
 }
 
+/// The entries a table of `lengths` takes: its root, and for each root entry whose codes are
+/// longer, a second level of 1 << (the longest of them - `table_root_bits`) entries.
+fn reference_table_len(lengths: []const u8) usize {
+    var counts: [constants.code_len_max + 1]u32 = @splat(0);
+    for (lengths) |len| counts[len] += 1;
+    counts[0] = 0;
+    var next: [constants.code_len_max + 1]u32 = @splat(0);
+    var code: u32 = 0;
+    for (1..constants.code_len_max + 1) |len| {
+        code = (code + counts[len - 1]) << 1;
+        next[len] = code;
+    }
+    var longest: [1 << constants.table_root_bits]u8 = @splat(0);
+    for (lengths) |len| {
+        if (len <= constants.table_root_bits) continue;
+        const root = next[len] >> @intCast(len - constants.table_root_bits);
+        next[len] += 1;
+        longest[root] = @max(longest[root], len);
+    }
+    var table_len: usize = 1 << constants.table_root_bits;
+    for (longest) |len| {
+        if (len > 0) table_len += @as(usize, 1) << @intCast(len - constants.table_root_bits);
+    }
+    return table_len;
+}
+
 fn expect_table_matches(table: anytype, lengths: []const u8) !void {
     for (0..1 << constants.code_len_max) |bits| {
         const expected = reference_decode(lengths, bits, constants.code_len_max).?;
@@ -80,20 +106,20 @@ fn expect_table_matches(table: anytype, lengths: []const u8) !void {
     }
 }
 
-test "every table decodes every value as the canonical code does, and asks for bits it lacks" {
+test "every table takes the entries its codes need, decodes every value as the canonical code does, and asks for bits it lacks" {
     var generator = codec.split.Generator.init(0);
     for (0..24) |_| {
         var lengths: [constants.literal_alphabet_len]u8 = undefined;
         random_lengths(&generator, &lengths, generator.between(2, lengths.len));
         var table: LiteralTable = undefined;
-        _ = table.build(&lengths);
+        try testing.expectEqual(reference_table_len(&lengths), table.build(&lengths));
         try expect_table_matches(&table, &lengths);
     }
     for (0..8) |_| {
         var lengths: [constants.insert_copy_alphabet_len]u8 = undefined;
         random_lengths(&generator, &lengths, generator.between(2, lengths.len));
         var table: InsertCopyTable = undefined;
-        _ = table.build(&lengths);
+        try testing.expectEqual(reference_table_len(&lengths), table.build(&lengths));
         try expect_table_matches(&table, &lengths);
     }
 }

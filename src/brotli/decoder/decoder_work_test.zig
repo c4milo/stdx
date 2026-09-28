@@ -50,11 +50,8 @@ const root_len = 1 << constants.table_root_bits;
 /// The count of a simple code of one symbol: the symbol, and the root, whose every entry names it.
 const single_code_work = 1 + root_len;
 
-/// The count of a simple code of two symbols over an alphabet of `alphabet_len`: the symbols, the
-/// alphabet's lengths cleared, and the root.
-fn pair_code_work(alphabet_len: usize) u64 {
-    return constants.code_symbols_min + alphabet_len + root_len;
-}
+/// The count of a simple code of two symbols: the symbols, and the root.
+const pair_code_work = constants.code_symbols_min + root_len;
 
 /// The literal the streams write, and the one the second tree of the second worst case writes.
 const literal = 'a';
@@ -198,7 +195,7 @@ fn split_map(stream: *Stream, contexts_count: usize) void {
 
 /// The count of `split_map`: its code, then for each entry its value and the check.
 fn split_map_work(contexts_count: usize) u64 {
-    return pair_code_work(constants.context_map_trees_min) + constants.block_switch_types_min * contexts_count * (1 + 1);
+    return pair_code_work + constants.block_switch_types_min * contexts_count * (1 + 1);
 }
 
 /// The second worst case (claim B3): two block types in each category, whose blocks are one symbol
@@ -377,7 +374,7 @@ fn empty_words_stream(stream: *Stream) u64 {
     stream.put_code(0, 1);
     // Each empty command's insert-and-copy symbol and distance.
     const empty_command_work = 1 + 1;
-    return one_tree_maps_work + single_code_work + pair_code_work(constants.insert_copy_alphabet_len) + single_code_work +
+    return one_tree_maps_work + single_code_work + pair_code_work + single_code_work +
         empty_commands * empty_command_work + one_literal_command_work;
 }
 

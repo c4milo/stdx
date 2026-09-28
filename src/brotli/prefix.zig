@@ -42,7 +42,13 @@ pub const Decoded = union(enum) {
 };
 
 /// The number of codes of each length, 1 to 15; `counts[0]` is unused.
-const Counts = [constants.code_len_max + 1]u16;
+pub const Counts = [constants.code_len_max + 1]u16;
+
+/// A symbol and the length of its code, as the build takes them: in canonical order.
+pub const Coded = struct { symbol: u16, len: u8 };
+
+/// The octets of code lengths the canonical sort tests for zero at once.
+const lengths_chunk_len = 16;
 
 /// A symbol entry's value in a table built with `build` or `build_single`: the symbol.
 fn symbol_itself(symbol: u16) u16 {
@@ -73,13 +79,21 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// 7932 §3.2). The caller has checked that they form a complete code of two symbols or more.
         /// Returns the entries written: each entry of the root and of the second levels once.
         pub fn build(self: *Self, lengths: []const u8) usize {
-            return self.build_valued(lengths, symbol_itself);
+            const counts = counts_of(lengths);
+            var buffer: [constants.insert_copy_alphabet_len]Coded = undefined;
+            return self.build_sorted(sort_canonical(lengths, &counts, &buffer), &counts);
         }
 
-        /// As `build`, each symbol entry holding `value_of(symbol)`. A link's value stays the place
-        /// of its second level.
-        pub fn build_valued(self: *Self, lengths: []const u8, comptime value_of: fn (u16) u16) usize {
-            return build_entries(root_bits, value_of, &self.entries, lengths);
+        /// As `build`, from the symbols with a code in canonical order (`sort_canonical`) and the
+        /// count of each length.
+        pub fn build_sorted(self: *Self, sorted: []const Coded, counts: *const Counts) usize {
+            return self.build_sorted_valued(sorted, counts, symbol_itself);
+        }
+
+        /// As `build_sorted`, each symbol entry holding `value_of(symbol)`. A link's value stays the
+        /// place of its second level.
+        pub fn build_sorted_valued(self: *Self, sorted: []const Coded, counts: *const Counts, comptime value_of: fn (u16) u16) usize {
+            return fill_canonical(root_bits, value_of, &self.entries, sorted, counts);
         }
 
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
@@ -98,43 +112,118 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
     };
 }
 
-fn build_entries(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, lengths: []const u8) usize {
-    const first_codes = first_codes_of(lengths);
-    const table_len = link_second_levels(root_bits, entries, lengths, first_codes);
-    var next = first_codes;
-    for (lengths, 0..) |len, symbol| {
-        if (len == 0) continue;
-        const code = next[len];
-        next[len] += 1;
-        const value = value_of(@intCast(symbol));
-        if (len <= root_bits) fill_root(root_bits, entries, value, code, len) else fill_second(root_bits, entries, value, code, len);
+/// The symbols of `lengths` with a code, in canonical order: by length, then by symbol (RFC 7932
+/// §3.2), each placed after the codes of shorter lengths that `counts` counts. A chunk of lengths
+/// that are all zero is passed over whole.
+pub fn sort_canonical(lengths: []const u8, counts: *const Counts, sorted: []Coded) []const Coded {
+    var next: Counts = undefined;
+    var total: u16 = 0;
+    for (1..constants.code_len_max + 1) |len| {
+        next[len] = total;
+        total += counts[len];
     }
-    return table_len;
+    assert(total <= sorted.len);
+    const chunks = lengths.len / lengths_chunk_len;
+    for (0..chunks) |chunk| {
+        const first = chunk * lengths_chunk_len;
+        const octets: @Vector(lengths_chunk_len, u8) = lengths[first..][0..lengths_chunk_len].*;
+        if (@reduce(.Or, octets) != 0) place(lengths[first..][0..lengths_chunk_len], first, &next, sorted);
+    }
+    place(lengths[chunks * lengths_chunk_len ..], chunks * lengths_chunk_len, &next, sorted);
+    // The counts count the lengths: each length's codes end where the next length's begin.
+    assert(next[constants.code_len_max] == total);
+    return sorted[0..total];
 }
 
-/// Writes a link in each root entry whose codes are longer than the root, to a second level as wide
-/// as the longest of them, placed one after another behind the root. Returns the entries the table
-/// takes.
-fn link_second_levels(comptime root_bits: u5, entries: []Entry, lengths: []const u8, first_codes: [constants.code_len_max + 1]u32) usize {
-    var longest: [1 << root_bits]u8 = @splat(0);
-    var next = first_codes;
-    for (lengths) |len| {
-        if (len <= root_bits) continue;
-        const code = next[len];
-        next[len] += 1;
-        const root = reversed(code >> @intCast(len - root_bits), root_bits);
-        longest[root] = @max(longest[root], len);
-    }
-    var table_len: usize = 1 << root_bits;
-    for (longest, 0..) |len, root| {
+/// Places each symbol with a code among `lengths`, the first being `first`, after the codes
+/// placed before it of its length.
+fn place(lengths: []const u8, first: usize, next: *Counts, sorted: []Coded) void {
+    for (lengths, first..) |len, symbol| {
         if (len == 0) continue;
-        const second_bits = len - root_bits;
-        entries[root] = .{ .value = @intCast(table_len), .len = root_bits, .second_bits = second_bits };
-        table_len += @as(usize, 1) << @intCast(second_bits);
+        sorted[next[len]] = .{ .symbol = @intCast(symbol), .len = len };
+        next[len] += 1;
     }
+}
+
+/// The number of codes of each length among `lengths`: per length, a sum over chunks of lengths
+/// compared at once, so no count waits for the one before it. A chunk of zeros is passed over.
+pub fn counts_of(lengths: []const u8) Counts {
+    const Chunk = @Vector(lengths_chunk_len, u8);
+    const Sums = @Vector(lengths_chunk_len, u16);
+    var sums: [constants.code_len_max + 1]Chunk = @splat(@splat(0));
+    const chunks = lengths.len / lengths_chunk_len;
+    // A lane counts one per chunk, so no lane's sum passes the chunks of the largest alphabet.
+    comptime assert(constants.insert_copy_alphabet_len / lengths_chunk_len <= std.math.maxInt(u8));
+    for (0..chunks) |chunk| {
+        const octets: Chunk = lengths[chunk * lengths_chunk_len ..][0..lengths_chunk_len].*;
+        if (@reduce(.Or, octets) == 0) continue;
+        inline for (1..constants.code_len_max + 1) |len| {
+            sums[len] += @select(u8, octets == @as(Chunk, @splat(len)), @as(Chunk, @splat(1)), @as(Chunk, @splat(0)));
+        }
+    }
+    var counts: Counts = @splat(0);
+    for (1..constants.code_len_max + 1) |len| counts[len] = @reduce(.Add, @as(Sums, sums[len]));
+    for (lengths[chunks * lengths_chunk_len ..]) |len| {
+        assert(len <= constants.code_len_max);
+        if (len != 0) counts[len] += 1;
+    }
+    return counts;
+}
+
+/// Writes the table of the canonical code whose symbols `sorted` holds in canonical order, and
+/// returns the entries it takes: the root, and behind it a second level for each root entry whose
+/// codes are longer. The codes take consecutive values in that order (RFC 7932 §3.2), so the
+/// codes of one root entry come together, the longest last.
+fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, sorted: []const Coded, counts: *const Counts) usize {
+    const len_max = sorted[sorted.len - 1].len;
+    var remaining = counts.*;
+    var code: u32 = 0;
+    var code_len: u8 = 0;
+    var table_len: usize = 1 << root_bits;
+    // No root entry has this index, so the first longer code links a second level.
+    var linked_root: u32 = 1 << root_bits;
+    for (sorted) |coded| {
+        assert(coded.len >= code_len and coded.len <= constants.code_len_max);
+        code <<= @intCast(coded.len - code_len);
+        code_len = coded.len;
+        const value = value_of(coded.symbol);
+        if (coded.len <= root_bits) {
+            fill_root(root_bits, entries, value, code, coded.len);
+        } else {
+            const root = reversed(code >> @intCast(coded.len - root_bits), root_bits);
+            if (root != linked_root) {
+                const second_bits = second_level_bits(root_bits, coded.len, len_max, &remaining);
+                entries[root] = .{ .value = @intCast(table_len), .len = root_bits, .second_bits = second_bits };
+                table_len += @as(usize, 1) << @intCast(second_bits);
+                linked_root = root;
+            }
+            fill_second(root_bits, entries, value, code, coded.len);
+        }
+        remaining[coded.len] -= 1;
+        code += 1;
+    }
+    // The reader checked the sums of RFC 7932 §3.5: the codes take every value.
+    assert(code == @as(u32, 1) << @intCast(code_len));
     // tools/brotli_table_budget.zig: no code of the alphabet takes more.
     assert(table_len <= entries.len);
     return table_len;
+}
+
+/// The bits of the second level of the root entry whose first code, `len` bits long, comes next:
+/// as many as its longest code takes past the root. The codes still to come fill the root entry's
+/// values in order, each value at one length becoming two at the next, so its longest code is at
+/// the length where they run out.
+fn second_level_bits(comptime root_bits: u5, len: u8, len_max: u8, remaining: *const Counts) u8 {
+    var bits = len - root_bits;
+    var left: i32 = @as(i32, 1) << @intCast(bits);
+    for (len..len_max) |longer| {
+        left -= remaining[longer];
+        if (left <= 0) break;
+        bits += 1;
+        left <<= 1;
+    }
+    assert(bits <= constants.code_len_max - root_bits);
+    return bits;
 }
 
 /// A code of `len` bits up to the root's fills every root entry whose low `len` bits are its bits
@@ -168,28 +257,6 @@ inline fn look_up(comptime root_bits: u5, entries: anytype, bits: u64) WholeSymb
     const second_index = (bits >> root_bits) & ((@as(u64, 1) << @as(u6, @truncate(root.second_bits))) - 1);
     const entry = entries[root.value + @as(usize, @intCast(second_index))];
     return .{ .value = entry.value, .len = root_bits + entry.len };
-}
-
-/// The first code of each length (RFC 7932 §3.2): after the codes of every shorter length, doubled
-/// per bit.
-fn first_codes_of(lengths: []const u8) [constants.code_len_max + 1]u32 {
-    var counts: Counts = @splat(0);
-    for (lengths) |len| {
-        assert(len <= constants.code_len_max);
-        counts[len] += 1;
-    }
-    counts[0] = 0;
-    var first_codes: [constants.code_len_max + 1]u32 = @splat(0);
-    var code: u32 = 0;
-    var used: u32 = 0;
-    for (1..constants.code_len_max + 1) |len| {
-        code = (code + counts[len - 1]) << 1;
-        first_codes[len] = code;
-        used += @as(u32, counts[len]) << @intCast(constants.code_len_max - len);
-    }
-    // The reader checked the sums of RFC 7932 §3.5: the codes take every value.
-    assert(used == 1 << constants.code_len_max);
-    return first_codes;
 }
 
 /// The low `len` bits of `code` in reverse order: a code as the stream holds it.

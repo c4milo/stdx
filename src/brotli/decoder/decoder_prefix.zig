@@ -85,12 +85,21 @@ pub fn read_simple_symbol(state: *State, bits: *codec.BitReader) Error!?codec.St
 fn build_simple(state: *State, tree_select: bool) void {
     const reading = &state.reading;
     const symbols = reading.simple_symbols[0..reading.simple_count];
-    if (symbols.len == 1) return finish(state, symbols[0]);
+    if (symbols.len == 1) return finish_code(state, .{ .single = symbols[0] });
     const lengths = if (tree_select) &constants.simple_code_lengths_tree_select else constants.simple_code_lengths[symbols.len - constants.code_symbols_min];
-    @memset(state.lengths[0..reading.alphabet_len], 0);
-    count_work(state, reading.alphabet_len);
-    for (symbols, lengths) |symbol, len| state.lengths[symbol] = len;
-    finish(state, null);
+    var sorted: [constants.simple_symbols_max]prefix.Coded = undefined;
+    var counts: prefix.Counts = @splat(0);
+    for (sorted[0..symbols.len], symbols, lengths) |*coded, symbol, len| {
+        coded.* = .{ .symbol = symbol, .len = len };
+        counts[len] += 1;
+    }
+    std.mem.sort(prefix.Coded, sorted[0..symbols.len], {}, canonical_before);
+    finish_code(state, .{ .sorted = .{ .symbols = sorted[0..symbols.len], .counts = &counts } });
+}
+
+/// Whether `a` comes before `b` in canonical order: by length, then by symbol (RFC 7932 §3.2).
+fn canonical_before(_: void, a: prefix.Coded, b: prefix.Coded) bool {
+    return a.len < b.len or (a.len == b.len and a.symbol < b.symbol);
 }
 
 /// One code length of the code length code, in the order of RFC 7932 §3.5, until their sum of
@@ -221,25 +230,44 @@ fn repeat_length(state: *State, symbol: u8, extra: u32) Error!void {
     if (len != 0) reading.space -= @intCast(added * (@as(u32, constants.code_lengths_space) >> @intCast(len)));
 }
 
-/// Builds the code read into the place its target names, and moves the header on: a code of one
-/// symbol when `single` holds it, otherwise the code `state.lengths` defines.
+/// A code read, as its table takes it: one symbol, whose code takes no bits, or the symbols with a
+/// code in canonical order and the count of each length.
+const Code = union(enum) {
+    single: u16,
+    sorted: struct { symbols: []const prefix.Coded, counts: *const prefix.Counts },
+};
+
+/// Builds the complex code whose lengths `state.lengths` holds, or the code of one symbol when
+/// `single` holds it, and moves the header on.
 fn finish(state: *State, single: ?u16) void {
+    if (single) |symbol| return finish_code(state, .{ .single = symbol });
     const lengths = state.lengths[0..state.reading.alphabet_len];
+    const counts = prefix.counts_of(lengths);
+    var buffer: [constants.insert_copy_alphabet_len]prefix.Coded = undefined;
+    const sorted = prefix.sort_canonical(lengths, &counts, &buffer);
+    finish_code(state, .{ .sorted = .{ .symbols = sorted, .counts = &counts } });
+}
+
+/// Builds `code` into the place the reading's target names, and moves the header on.
+fn finish_code(state: *State, code: Code) void {
     const entries = switch (state.reading.target) {
-        .block_type => |category| build(&state.blocks[@intFromEnum(category)].type_code, lengths, single),
-        .block_count => |category| build(&state.blocks[@intFromEnum(category)].count_code, lengths, single),
-        .map => build(&state.map_code, lengths, single),
-        .literal => |index| build_literal(&state.literal_codes[index], lengths, single, literal_entry_mode(state)),
-        .insert_copy => |index| build(&state.insert_copy_codes[index], lengths, single),
-        .distance => |index| build(&state.distance_codes[index], lengths, single),
+        .block_type => |category| build(&state.blocks[@intFromEnum(category)].type_code, code),
+        .block_count => |category| build(&state.blocks[@intFromEnum(category)].count_code, code),
+        .map => build(&state.map_code, code),
+        .literal => |index| build_literal(&state.literal_codes[index], code, literal_entry_mode(state)),
+        .insert_copy => |index| build(&state.insert_copy_codes[index], code),
+        .distance => |index| build(&state.distance_codes[index], code),
     };
     count_work(state, entries);
     header.after_code(state);
 }
 
 /// Builds the table, and returns the entries it wrote.
-fn build(code: anytype, lengths: []const u8, single: ?u16) usize {
-    return if (single) |symbol| code.build_single(symbol) else code.build(lengths);
+fn build(table: anytype, code: Code) usize {
+    return switch (code) {
+        .single => |symbol| table.build_single(symbol),
+        .sorted => |sorted| table.build_sorted(sorted.symbols, sorted.counts),
+    };
 }
 
 /// The mode whose `context.p1_part` the literal tables' entries hold: the first literal block
@@ -250,11 +278,11 @@ pub fn literal_entry_mode(state: *const State) context.Mode {
 
 /// Builds a literal table whose entries hold each literal's part of the next context ID in `mode`
 /// (`context.literal_entry_value`), and returns the entries it wrote.
-fn build_literal(code: anytype, lengths: []const u8, single: ?u16, mode: context.Mode) usize {
+fn build_literal(table: anytype, code: Code, mode: context.Mode) usize {
     return switch (mode) {
-        inline else => |entry_mode| if (single) |symbol|
-            code.build_single_valued(symbol, context.literal_entry_value(entry_mode))
-        else
-            code.build_valued(lengths, context.literal_entry_value(entry_mode)),
+        inline else => |entry_mode| switch (code) {
+            .single => |symbol| table.build_single_valued(symbol, context.literal_entry_value(entry_mode)),
+            .sorted => |sorted| table.build_sorted_valued(sorted.symbols, sorted.counts, context.literal_entry_value(entry_mode)),
+        },
     };
 }
