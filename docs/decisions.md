@@ -11,7 +11,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to
 entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, entry 28
 out of the owner's request that its state machines be proved, entry 29 out of [issue
 13](https://github.com/c4milo/stdx/issues/13)'s DEFLATE decoder, entry 30 out of the JSON
-baselines' numbers, and entry 31 out of design §8 step 17's profile.
+baselines' numbers, entry 31 out of design §8 step 17's profile, and entry 32 out of step 12's
+brotli decoder.
 
 ## Scope and shape
 
@@ -1370,6 +1371,7 @@ baselines' numbers, and entry 31 out of design §8 step 17's profile.
     - The vector UTF-8 check of claim J5 proved equal to the scalar one on every window of four
       octets, which design §10 first listed with these proofs. The owner asked for the machines;
       design §10 keeps it open.
+
 29. **An assembly symbol loop for the DEFLATE decoder.** Ruled by the owner on 2026-09-28, after a
     review of the proposal, during [issue 13](https://github.com/c4milo/stdx/issues/13), which asks
     the DEFLATE decoder to beat libdeflate's on both hosted runners. The owner had asked for
@@ -1518,3 +1520,41 @@ baselines' numbers, and entry 31 out of design §8 step 17's profile.
     - Many tokens a call. The owner kept one token a call (entry 30).
     - A fast path that indexes the input itself, as DEFLATE's does. Entry 16 would have to name it,
       and the profile did not find the checked reader's cost.
+
+32. **brotli's fast path checks the room of each write, and runs to a call's last octets.**
+    Proposed on 2026-09-28, during design §8 step 12. Ruled by the owner the same day: the owner
+    chose to amend decision 16 for it, reviewed this text before any code, and approved it as
+    written. It amends decision 16 for one function: the brotli command loop.
+
+    **The cost it removes.** Decision 16's output margin for the brotli command loop,
+    `chunk_len_max` plus 16, is 272 octets, so the checked path decodes the last 272 octets of
+    every call: a quarter of a 1 KiB body, at about 90 instructions an octet. On the owner's M1
+    Pro, decoding the corpus's 1 KiB HTTP files into an output 512 octets longer than they need
+    takes 15 to 25% fewer instructions and 12 to 19% fewer cycles than into one that holds them
+    exactly, and html-16k 3% fewer of each. Numbers for publication come from the runners.
+
+    **The rule.** For the brotli command loop alone:
+    - The input margin stands as decision 16 sets it: 8 octets, checked where the loop refills.
+    - The output margin becomes a check at each write, against the most that write stores:
+      - a literal run stores its batch, which the run bounds by the room left;
+      - a copy in chunks (S4) stores its length rounded up to a whole chunk of 16 octets;
+      - a dictionary word's wide transform stores `transform.wide_output_len`, 64 octets, and its
+        exact transform, near DICT's end, `transformed_word_len_max`;
+      - the rest of a word the checked path started stores what is left of it.
+    - A write whose room is short returns to the checked path, as a failed margin does now, so the
+      checked path decodes at most the last write's octets and its overrun, not 272.
+    - Zig's safety checks stay on (decision 16). Each check is one compare against the room the
+      loop already holds in a register, and the slice checks behind it still turn a wrong bound
+      into a panic.
+    - Every write's check has a test that decodes a stream into every room up to its length, as
+      the fast path's margin tests do now.
+
+    **The measurement that admits it:** bench-brotli on both runners, the 1 KiB and 16 KiB HTTP
+    files ahead of the fixed margin by more than the noise, and no corpus file behind it.
+
+    The alternatives refused:
+    - The fixed margin, as decision 16 ruled it: every call's last 272 octets at the checked path's
+      speed.
+    - A faster checked path. It is the reference, one octet a step; making it fast writes the fast
+      path a second time.
+    - Slack the caller provides, which decision 16 refused.
