@@ -207,7 +207,10 @@ pub const Decoder = struct {
         return self.stage == .done;
     }
 
-    fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
+    /// The call's loop, inline in `decode_with`, its one caller. Out of line, as LLVM left it in
+    /// the benchmark's build with every claim on, where it had a second caller, each token paid a
+    /// call of its own.
+    inline fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
         if (self.open != .none) return self.continue_token(claims, reader, writer, piece);
         for (0..constants.decoder_steps_max) |_| {
             if (try self.step(claims, reader, writer, piece)) |outcome| return outcome;

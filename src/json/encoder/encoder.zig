@@ -155,7 +155,10 @@ pub const Encoder = struct {
         return self.part == .done;
     }
 
-    fn run(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
+    /// The call's loop, inline in `encode_with`, its one caller. Out of line, as LLVM left it in
+    /// the benchmark's build with every claim off, where it had a second caller, each token paid a
+    /// call of its own.
+    inline fn run(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
         if (self.part == .between_tokens) try self.open(token) else assert(self.kind == std.meta.activeTag(token));
         for (0..constants.token_parts) |_| {
             if (!self.write_pending(writer)) return .needs_room;
