@@ -124,6 +124,19 @@ test "every table takes the entries its codes need, decodes every value as the c
     }
 }
 
+test "a code with longer codes and none of the root's length links them past the copies of the root" {
+    // Lengths 1 to 7, then four of 9: the root is half copied when the codes of 9 link second
+    // levels at the root entries 127 and 255 (RFC 7932 §3.2).
+    const short_lengths = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
+    const long_codes = 4;
+    var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
+    @memcpy(lengths[0..short_lengths.len], &short_lengths);
+    @memset(lengths[short_lengths.len..][0..long_codes], constants.table_root_bits + 1);
+    var table: LiteralTable = undefined;
+    try testing.expectEqual(reference_table_len(&lengths), table.build(&lengths));
+    try expect_table_matches(&table, &lengths);
+}
+
 test "RFC 7932 §3.2's example: lengths (3, 3, 3, 3, 3, 2, 4, 4) give the codes it lists" {
     var table: prefix.Table(32, 3) = undefined;
     const lengths = [_]u8{ 3, 3, 3, 3, 3, 2, 4, 4 };

@@ -174,12 +174,19 @@ pub fn counts_of(lengths: []const u8) Counts {
 /// returns the entries it takes: the root, and behind it a second level for each root entry whose
 /// codes are longer. The codes take consecutive values in that order (RFC 7932 §3.2), so the
 /// codes of one root entry come together, the longest last.
+///
+/// A code of `len` bits up to the root's names every root entry whose low `len` bits are its bits
+/// as the stream holds them. The build writes it once among the first 1 << `len` entries, having
+/// copied the entries written before it to fill them (`double_root`), so each copy repeats every
+/// shorter code; the root is whole once it is copied to its full width. Before the first code no
+/// entry is written, so the first width needs no copy.
 fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, sorted: []const Coded, counts: *const Counts) usize {
     const len_max = sorted[sorted.len - 1].len;
     var remaining = counts.*;
     var code: u32 = 0;
     var code_len: u8 = 0;
     var table_len: usize = 1 << root_bits;
+    var filled: usize = @as(usize, 1) << @intCast(@min(sorted[0].len, root_bits));
     // No root entry has this index, so the first longer code links a second level.
     var linked_root: u32 = 1 << root_bits;
     for (sorted) |coded| {
@@ -188,8 +195,10 @@ fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entri
         code_len = coded.len;
         const value = value_of(coded.symbol);
         if (coded.len <= root_bits) {
-            fill_root(root_bits, entries, value, code, coded.len);
+            filled = double_root(root_bits, entries, filled, coded.len);
+            entries[reversed(code, coded.len)] = .{ .value = value, .len = coded.len, .second_bits = 0 };
         } else {
+            filled = double_root(root_bits, entries, filled, root_bits);
             const root = reversed(code >> @intCast(coded.len - root_bits), root_bits);
             if (root != linked_root) {
                 const second_bits = second_level_bits(root_bits, coded.len, len_max, &remaining);
@@ -202,6 +211,7 @@ fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entri
         remaining[coded.len] -= 1;
         code += 1;
     }
+    _ = double_root(root_bits, entries, filled, root_bits);
     // The reader checked the sums of RFC 7932 §3.5: the codes take every value.
     assert(code == @as(u32, 1) << @intCast(code_len));
     // tools/brotli_table_budget.zig: no code of the alphabet takes more.
@@ -226,13 +236,18 @@ fn second_level_bits(comptime root_bits: u5, len: u8, len_max: u8, remaining: *c
     return bits;
 }
 
-/// A code of `len` bits up to the root's fills every root entry whose low `len` bits are its bits
-/// as the stream holds them.
-fn fill_root(comptime root_bits: u5, entries: []Entry, value: u16, code: u32, len: u8) void {
-    const low = reversed(code, len);
-    for (0..@as(usize, 1) << @intCast(root_bits - len)) |high| {
-        entries[low | high << @intCast(len)] = .{ .value = value, .len = len, .second_bits = 0 };
+/// Copies the `filled` first entries of the root after themselves until they are 1 << `len`, and
+/// returns how many there are: the codes among them, each shorter than `len` bits, then name every
+/// entry their bits name.
+fn double_root(comptime root_bits: u5, entries: []Entry, filled: usize, len: u8) usize {
+    assert(len <= root_bits and std.math.isPowerOfTwo(filled));
+    var width = filled;
+    for (0..root_bits) |_| {
+        if (width >= @as(usize, 1) << @intCast(len)) break;
+        @memcpy(entries[width..][0..width], entries[0..width]);
+        width <<= 1;
     }
+    return width;
 }
 
 /// A longer code fills every entry of its root entry's second level whose low bits are the bits it
