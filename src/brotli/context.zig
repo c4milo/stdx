@@ -36,23 +36,44 @@ pub fn literal_id(mode: Mode, p1: u8, p2: u8) u6 {
     };
 }
 
-/// Where a literal table's entry value holds the literal's Lut0 and Lut1 values: above the
-/// literal's octet, Lut0's 6 bits, then Lut1's 2.
-pub const entry_lut0_shift = @bitSizeOf(u8);
-pub const entry_lut1_shift = entry_lut0_shift + constants.literal_context_bits;
+/// A literal's part of the next literal's context ID, where it is p1 (RFC 7932 §7.1). In every
+/// mode the ID is p1's part OR p2's part (`p2_part`).
+pub fn p1_part(comptime mode: Mode, literal: u8) u6 {
+    return switch (mode) {
+        .lsb6 => @truncate(literal),
+        .msb6 => @intCast(literal >> constants.msb6_shift),
+        .utf8 => @truncate(lut0[literal]),
+        .signed => @truncate(@as(u8, lut2[literal]) << constants.signed_shift),
+    };
+}
 
-/// A literal table's entry value: the literal in its low octet, and above it the literal's Lut0 and
-/// Lut1 values, which UTF8's context ID takes of p1 and of p2 (RFC 7932 §7.1). The decoder reads
-/// them with the literal, so no Lut load stands between a literal and the next one's table.
-pub fn literal_entry_value(literal: u16) u16 {
-    assert(literal < constants.lut_len);
-    return literal | @as(u16, lut0[literal]) << entry_lut0_shift | @as(u16, lut1[literal]) << entry_lut1_shift;
+/// A literal's part of the context ID of the literal after the next, where it is p2 (RFC 7932
+/// §7.1): none in LSB6 and MSB6.
+pub fn p2_part(comptime mode: Mode, literal: u8) u6 {
+    return switch (mode) {
+        .lsb6, .msb6 => 0,
+        .utf8 => @truncate(lut1[literal]),
+        .signed => @truncate(lut2[literal]),
+    };
+}
+
+/// Where a literal table's entry value holds the literal's `p1_part`: above the literal's octet.
+pub const entry_p1_part_shift = @bitSizeOf(u8);
+
+/// The entry value of a literal table built for block types of `mode`: the literal in its low
+/// octet, and above it the literal's `p1_part`. The decoder reads the part with the literal, so no
+/// load stands between a literal and the next one's table.
+pub fn literal_entry_value(comptime mode: Mode) fn (u16) u16 {
+    return struct {
+        fn value(literal: u16) u16 {
+            assert(literal < constants.lut_len);
+            return literal | @as(u16, p1_part(mode, @intCast(literal))) << entry_p1_part_shift;
+        }
+    }.value;
 }
 
 comptime {
     @setEvalBranchQuota(10_000);
-    // Lut1 fits the bits above Lut0's in a 16-bit value.
-    for (lut1) |value| assert(value < 1 << (@bitSizeOf(u16) - entry_lut1_shift));
     // UTF8's and Signed's IDs, from any p1 and p2, stay below 64 (RFC 7932 §7.1).
     for (lut0) |value| assert(value < constants.literal_contexts_count);
     for (lut1) |value| assert(value < constants.literal_contexts_count);
@@ -84,6 +105,29 @@ test "each mode's context ID, as RFC 7932 §7.1 computes it" {
     try testing.expectEqual(0, literal_id(.signed, 0, 0));
     try testing.expectEqual(63, literal_id(.signed, 0xff, 0xff));
     try testing.expectEqual(7 << 3 | 1, literal_id(.signed, 0xff, 1));
+}
+
+test "every mode's ID is p1's part OR p2's part" {
+    for (0..constants.lut_len) |p1| {
+        for (0..constants.lut_len) |p2| {
+            inline for (@typeInfo(Mode).@"enum".fields) |field| {
+                const mode = @field(Mode, field.name);
+                const parts = p1_part(mode, @intCast(p1)) | p2_part(mode, @intCast(p2));
+                try testing.expectEqual(literal_id(mode, @intCast(p1), @intCast(p2)), parts);
+            }
+        }
+    }
+}
+
+test "a literal table's entry value holds the literal, and its part of the next ID above it" {
+    inline for (@typeInfo(Mode).@"enum".fields) |field| {
+        const mode = @field(Mode, field.name);
+        for (0..constants.lut_len) |literal| {
+            const value = literal_entry_value(mode)(@intCast(literal));
+            try testing.expectEqual(literal, value & 0xff);
+            try testing.expectEqual(p1_part(mode, @intCast(literal)), value >> entry_p1_part_shift);
+        }
+    }
 }
 
 test "every pair of octets gives every mode an ID below 64" {

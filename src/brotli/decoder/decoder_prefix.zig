@@ -6,6 +6,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
+const context = @import("../context.zig");
 const prefix = @import("../prefix.zig");
 const state_module = @import("decoder_state.zig");
 const header = @import("decoder_header.zig");
@@ -228,7 +229,7 @@ fn finish(state: *State, single: ?u16) void {
         .block_type => |category| build(&state.blocks[@intFromEnum(category)].type_code, lengths, single),
         .block_count => |category| build(&state.blocks[@intFromEnum(category)].count_code, lengths, single),
         .map => build(&state.map_code, lengths, single),
-        .literal => |index| build(&state.literal_codes[index], lengths, single),
+        .literal => |index| build_literal(&state.literal_codes[index], lengths, single, literal_entry_mode(state)),
         .insert_copy => |index| build(&state.insert_copy_codes[index], lengths, single),
         .distance => |index| build(&state.distance_codes[index], lengths, single),
     };
@@ -239,4 +240,21 @@ fn finish(state: *State, single: ?u16) void {
 /// Builds the table, and returns the entries it wrote.
 fn build(code: anytype, lengths: []const u8, single: ?u16) usize {
     return if (single) |symbol| code.build_single(symbol) else code.build(lengths);
+}
+
+/// The mode whose `context.p1_part` the literal tables' entries hold: the first literal block
+/// type's, read before the trees (RFC 7932 §9.2).
+pub fn literal_entry_mode(state: *const State) context.Mode {
+    return state.context_modes[0];
+}
+
+/// Builds a literal table whose entries hold each literal's part of the next context ID in `mode`
+/// (`context.literal_entry_value`), and returns the entries it wrote.
+fn build_literal(code: anytype, lengths: []const u8, single: ?u16, mode: context.Mode) usize {
+    return switch (mode) {
+        inline else => |entry_mode| if (single) |symbol|
+            code.build_single_valued(symbol, context.literal_entry_value(entry_mode))
+        else
+            code.build_valued(lengths, context.literal_entry_value(entry_mode)),
+    };
 }

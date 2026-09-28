@@ -211,7 +211,7 @@ pub const State = struct {
     distance_context_map: [constants.distance_contexts_count * constants.block_types_max]u8,
     /// The prefix codes of the meta-block (RFC 7932 §9.2), each built once into its table (claim
     /// B3).
-    literal_codes: [constants.trees_max]prefix.TableOf(constants.literal_table_len_max, constants.table_root_bits, context.literal_entry_value),
+    literal_codes: [constants.trees_max]prefix.Table(constants.literal_table_len_max, constants.table_root_bits),
     insert_copy_codes: [constants.block_types_max]prefix.Table(constants.insert_copy_table_len_max, constants.table_root_bits),
     distance_codes: [constants.trees_max]prefix.Table(constants.distance_table_len_max, constants.table_root_bits),
     /// A prefix code being read, the code of its code lengths, and its lengths so far.

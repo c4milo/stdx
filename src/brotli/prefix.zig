@@ -44,18 +44,12 @@ pub const Decoded = union(enum) {
 /// The number of codes of each length, 1 to 15; `counts[0]` is unused.
 const Counts = [constants.code_len_max + 1]u16;
 
-pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
-    return TableOf(entries_len, root_bits, symbol_itself);
-}
-
-/// A symbol entry's value in a table of `Table`: the symbol.
+/// A symbol entry's value in a table built with `build` or `build_single`: the symbol.
 fn symbol_itself(symbol: u16) u16 {
     return symbol;
 }
 
-/// A table whose symbol entries hold `value_of(symbol)`: the symbol, and bits above it that the
-/// decoder reads with it. A link's value stays the place of its second level.
-pub fn TableOf(comptime entries_len: usize, comptime root_bits: u5, comptime value_of: fn (u16) u16) type {
+pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
     comptime assert(entries_len >= 1 << root_bits);
     return struct {
         const Self = @This();
@@ -65,6 +59,12 @@ pub fn TableOf(comptime entries_len: usize, comptime root_bits: u5, comptime val
         /// The code of one symbol, which takes no bits (RFC 7932 §3.4, NSYM = 1; §3.5): every root
         /// entry names it. Returns the entries written.
         pub fn build_single(self: *Self, symbol: u16) usize {
+            return self.build_single_valued(symbol, symbol_itself);
+        }
+
+        /// As `build_single`, the entries holding `value_of(symbol)`: the symbol, and bits above it
+        /// that the decoder reads with it.
+        pub fn build_single_valued(self: *Self, symbol: u16, comptime value_of: fn (u16) u16) usize {
             @memset(self.entries[0 .. 1 << root_bits], .{ .value = value_of(symbol), .len = 0, .second_bits = 0 });
             return 1 << root_bits;
         }
@@ -73,6 +73,12 @@ pub fn TableOf(comptime entries_len: usize, comptime root_bits: u5, comptime val
         /// 7932 §3.2). The caller has checked that they form a complete code of two symbols or more.
         /// Returns the entries written: each entry of the root and of the second levels once.
         pub fn build(self: *Self, lengths: []const u8) usize {
+            return self.build_valued(lengths, symbol_itself);
+        }
+
+        /// As `build`, each symbol entry holding `value_of(symbol)`. A link's value stays the place
+        /// of its second level.
+        pub fn build_valued(self: *Self, lengths: []const u8, comptime value_of: fn (u16) u16) usize {
             return build_entries(root_bits, value_of, &self.entries, lengths);
         }
 
