@@ -163,3 +163,7 @@ test {
 test {
     _ = @import("decoder_blocks_test.zig");
 }
+
+test {
+    _ = @import("decoder_fuzz_test.zig");
+}
