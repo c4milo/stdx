@@ -45,6 +45,17 @@ pub const Decoded = union(enum) {
 const Counts = [constants.code_len_max + 1]u16;
 
 pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
+    return TableOf(entries_len, root_bits, symbol_itself);
+}
+
+/// A symbol entry's value in a table of `Table`: the symbol.
+fn symbol_itself(symbol: u16) u16 {
+    return symbol;
+}
+
+/// A table whose symbol entries hold `value_of(symbol)`: the symbol, and bits above it that the
+/// decoder reads with it. A link's value stays the place of its second level.
+pub fn TableOf(comptime entries_len: usize, comptime root_bits: u5, comptime value_of: fn (u16) u16) type {
     comptime assert(entries_len >= 1 << root_bits);
     return struct {
         const Self = @This();
@@ -54,7 +65,7 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// The code of one symbol, which takes no bits (RFC 7932 §3.4, NSYM = 1; §3.5): every root
         /// entry names it. Returns the entries written.
         pub fn build_single(self: *Self, symbol: u16) usize {
-            @memset(self.entries[0 .. 1 << root_bits], .{ .value = symbol, .len = 0, .second_bits = 0 });
+            @memset(self.entries[0 .. 1 << root_bits], .{ .value = value_of(symbol), .len = 0, .second_bits = 0 });
             return 1 << root_bits;
         }
 
@@ -62,7 +73,7 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// 7932 §3.2). The caller has checked that they form a complete code of two symbols or more.
         /// Returns the entries written: each entry of the root and of the second levels once.
         pub fn build(self: *Self, lengths: []const u8) usize {
-            return build_entries(root_bits, &self.entries, lengths);
+            return build_entries(root_bits, value_of, &self.entries, lengths);
         }
 
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
@@ -81,7 +92,7 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
     };
 }
 
-fn build_entries(comptime root_bits: u5, entries: []Entry, lengths: []const u8) usize {
+fn build_entries(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, lengths: []const u8) usize {
     const first_codes = first_codes_of(lengths);
     const table_len = link_second_levels(root_bits, entries, lengths, first_codes);
     var next = first_codes;
@@ -89,7 +100,8 @@ fn build_entries(comptime root_bits: u5, entries: []Entry, lengths: []const u8) 
         if (len == 0) continue;
         const code = next[len];
         next[len] += 1;
-        if (len <= root_bits) fill_root(root_bits, entries, @intCast(symbol), code, len) else fill_second(root_bits, entries, @intCast(symbol), code, len);
+        const value = value_of(@intCast(symbol));
+        if (len <= root_bits) fill_root(root_bits, entries, value, code, len) else fill_second(root_bits, entries, value, code, len);
     }
     return table_len;
 }
@@ -121,22 +133,22 @@ fn link_second_levels(comptime root_bits: u5, entries: []Entry, lengths: []const
 
 /// A code of `len` bits up to the root's fills every root entry whose low `len` bits are its bits
 /// as the stream holds them.
-fn fill_root(comptime root_bits: u5, entries: []Entry, symbol: u16, code: u32, len: u8) void {
+fn fill_root(comptime root_bits: u5, entries: []Entry, value: u16, code: u32, len: u8) void {
     const low = reversed(code, len);
     for (0..@as(usize, 1) << @intCast(root_bits - len)) |high| {
-        entries[low | high << @intCast(len)] = .{ .value = symbol, .len = len, .second_bits = 0 };
+        entries[low | high << @intCast(len)] = .{ .value = value, .len = len, .second_bits = 0 };
     }
 }
 
 /// A longer code fills every entry of its root entry's second level whose low bits are the bits it
 /// takes past the root.
-fn fill_second(comptime root_bits: u5, entries: []Entry, symbol: u16, code: u32, len: u8) void {
+fn fill_second(comptime root_bits: u5, entries: []Entry, value: u16, code: u32, len: u8) void {
     const link = entries[reversed(code >> @intCast(len - root_bits), root_bits)];
     assert(link.second_bits > 0);
     const rest_len = len - root_bits;
     const low = reversed(code & ((@as(u32, 1) << @intCast(rest_len)) - 1), rest_len);
     for (0..@as(usize, 1) << @intCast(link.second_bits - rest_len)) |high| {
-        entries[link.value + (low | high << @intCast(rest_len))] = .{ .value = symbol, .len = rest_len, .second_bits = 0 };
+        entries[link.value + (low | high << @intCast(rest_len))] = .{ .value = value, .len = rest_len, .second_bits = 0 };
     }
 }
 

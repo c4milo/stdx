@@ -23,8 +23,8 @@
 //! file of its own, which this rule does not read: `src/deflate/fast.zig`, the DEFLATE symbol loop
 //! and match copy of design §8 step 7, `src/zstd/fast_sequences/fast_sequences.zig`,
 //! `src/zstd/fast_literals.zig` and `src/zstd/fast_reader.zig`, the Zstandard sequence execution,
-//! literal decoding and backward stream of step 11, and `src/brotli/decoder/decoder_fast.zig` and
-//! `src/brotli/decoder/decoder_fast_copy.zig`, the brotli command loop and its copies of step 12.
+//! literal decoding and backward stream of step 11, and the files of `src/brotli/decoder/decoder_fast/`
+//! but its test, the brotli command loop, its literal runs and its copies of step 12.
 //! A fast path's margins, checked once per iteration, bound every index it takes, and ReleaseSafe's
 //! bounds checks stay on inside it.
 //!
@@ -61,8 +61,9 @@ pub const scope: Scope = .{
         "src/zstd/fast_sequences/fast_sequences.zig",
         "src/zstd/fast_literals.zig",
         "src/zstd/fast_reader.zig",
-        "src/brotli/decoder/decoder_fast.zig",
-        "src/brotli/decoder/decoder_fast_copy.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast_literals.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast_copy.zig",
     },
 };
 

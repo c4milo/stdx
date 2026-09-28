@@ -1,7 +1,7 @@
 //! The brotli decoder (RFC 7932; decisions 11, 12 and 16). Its checked path reads every bit through
 //! `codec.BitReader`, writes every octet through `codec.Writer`, and reads every back-reference
 //! through `codec.Window`, one step at a time. Before a step of a command, while decision 16's
-//! margins hold, the fast path of decoder_fast.zig decodes as many commands as they allow.
+//! margins hold, the fast path of decoder_fast/decoder_fast.zig decodes as many commands as they allow.
 //!
 //! A step reads one whole field, one code or one symbol with its extra bits, or writes one octet.
 //! A step that lacks bits leaves them in the state, and the call returns `needs_input` having taken
@@ -17,7 +17,7 @@ const stream = @import("decoder_stream.zig");
 const header = @import("decoder_header.zig");
 const prefix_reader = @import("decoder_prefix.zig");
 const commands = @import("decoder_commands.zig");
-const fast = @import("decoder_fast.zig");
+const fast = @import("decoder_fast/decoder_fast.zig");
 const Output = @import("decoder_output.zig").Output;
 const Paths = @import("../claims.zig").Paths;
 const State = state_module.State;
@@ -186,9 +186,9 @@ test {
 }
 
 test {
-    _ = @import("decoder_fast_test.zig");
+    _ = @import("decoder_fast/decoder_fast_test.zig");
 }
 
 test {
-    _ = @import("decoder_fast_copy.zig");
+    _ = @import("decoder_fast/decoder_fast_copy.zig");
 }

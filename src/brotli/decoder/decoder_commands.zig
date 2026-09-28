@@ -150,11 +150,12 @@ pub fn read_literal(state: *State, bits: *codec.BitReader, out: anytype) ?codec.
     const block_type = blocks.type_current;
     const id = context.literal_id(state.context_modes[block_type], state.p1, state.p2);
     const tree = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count + id];
-    const literal = decode_symbol(bits, &state.literal_codes[tree]) orelse return .needs_input;
+    // The entry's value holds the literal in its low octet (`context.literal_entry_value`).
+    const literal: u8 = @truncate(decode_symbol(bits, &state.literal_codes[tree]) orelse return .needs_input);
     count_work(state, 1);
     take_element(blocks);
     state.command.insert_left -= 1;
-    out.emit(state, @intCast(literal));
+    out.emit(state, literal);
     if (state.command.insert_left == 0) state.phase = after_literals(state);
     return null;
 }

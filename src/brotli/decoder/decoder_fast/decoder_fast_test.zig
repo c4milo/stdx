@@ -3,9 +3,9 @@
 
 const std = @import("std");
 const testing = std.testing;
-const decoder_module = @import("decoder.zig");
-const constants = @import("../constants.zig");
-const test_stream = @import("test_stream.zig");
+const decoder_module = @import("../decoder.zig");
+const constants = @import("../../constants.zig");
+const test_stream = @import("../test_stream.zig");
 const Stream = test_stream.Stream;
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
@@ -277,6 +277,6 @@ test "the dictionary's last words decode on the fast path, the last from its exa
     var decoder: Decoder = undefined;
     decoder.init(.{});
     const whole = try decoder.decode_all(stream.written(), &output);
-    const dictionary = @import("../dictionary.zig");
+    const dictionary = @import("../../dictionary.zig");
     try testing.expectEqualSlices(u8, dictionary.data[dictionary.data.len - last_words * last_word_len ..], output[0..whole.written]);
 }

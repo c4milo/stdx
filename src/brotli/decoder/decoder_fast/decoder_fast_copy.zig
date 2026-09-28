@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
+const constants = @import("../../constants.zig");
 
 /// Copies `len` octets to `target` from `distance` before it, within `output`: in chunks (S4) when
 /// `chunks` holds, and an octet at a time otherwise.

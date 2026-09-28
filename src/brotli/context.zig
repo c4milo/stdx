@@ -36,8 +36,23 @@ pub fn literal_id(mode: Mode, p1: u8, p2: u8) u6 {
     };
 }
 
+/// Where a literal table's entry value holds the literal's Lut0 and Lut1 values: above the
+/// literal's octet, Lut0's 6 bits, then Lut1's 2.
+pub const entry_lut0_shift = @bitSizeOf(u8);
+pub const entry_lut1_shift = entry_lut0_shift + constants.literal_context_bits;
+
+/// A literal table's entry value: the literal in its low octet, and above it the literal's Lut0 and
+/// Lut1 values, which UTF8's context ID takes of p1 and of p2 (RFC 7932 §7.1). The decoder reads
+/// them with the literal, so no Lut load stands between a literal and the next one's table.
+pub fn literal_entry_value(literal: u16) u16 {
+    assert(literal < constants.lut_len);
+    return literal | @as(u16, lut0[literal]) << entry_lut0_shift | @as(u16, lut1[literal]) << entry_lut1_shift;
+}
+
 comptime {
     @setEvalBranchQuota(10_000);
+    // Lut1 fits the bits above Lut0's in a 16-bit value.
+    for (lut1) |value| assert(value < 1 << (@bitSizeOf(u16) - entry_lut1_shift));
     // UTF8's and Signed's IDs, from any p1 and p2, stay below 64 (RFC 7932 §7.1).
     for (lut0) |value| assert(value < constants.literal_contexts_count);
     for (lut1) |value| assert(value < constants.literal_contexts_count);

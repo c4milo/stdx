@@ -21,14 +21,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("../constants.zig");
-const context = @import("../context.zig");
-const Claims = @import("../claims.zig").Claims;
-const state_module = @import("decoder_state.zig");
-const commands = @import("decoder_commands.zig");
+const constants = @import("../../constants.zig");
+const context = @import("../../context.zig");
+const Claims = @import("../../claims.zig").Claims;
+const state_module = @import("../decoder_state.zig");
+const commands = @import("../decoder_commands.zig");
 const copies = @import("decoder_fast_copy.zig");
-const dictionary = @import("../dictionary.zig");
-const transform = @import("../transform.zig");
+const literal_runs = @import("decoder_fast_literals.zig");
+const dictionary = @import("../../dictionary.zig");
+const transform = @import("../../transform.zig");
 const State = state_module.State;
 const Category = state_module.Category;
 const Phase = state_module.Phase;
@@ -68,23 +69,14 @@ pub fn has_margin(bits: *const codec.BitReader, writer: *const codec.Writer) boo
 /// What a phase says: go on, or stop for the checked path.
 const Next = enum { go_on, stop };
 
-const LiteralTable = @TypeOf(@as(State, undefined).literal_codes[0]);
-
-/// The literal table of each context of the literal block type `block_type`, looked up once for
-/// each block type the loop meets, so that a literal takes its table in one load. It stays apart
-/// from `Loop`, whose fields the compiler keeps in registers only while no array indexed at run
-/// time lies among them.
-const LiteralTables = struct {
-    tables: [constants.literal_contexts_count]*const LiteralTable = undefined,
-    block_type: ?u8 = null,
-};
+const LiteralTables = literal_runs.LiteralTables;
 
 /// The octets before a literal that its context reads, p1 and p2 (RFC 7932 §7.1).
 const context_octets = 2;
 
 /// The loop's state: the bit buffer and input position taken from the checked reader, the output
 /// position taken from the checked writer, and the two octets a literal's context reads.
-const Loop = struct {
+pub const Loop = struct {
     input: []const u8,
     position: usize,
     buffer: u64,
@@ -99,7 +91,7 @@ const Loop = struct {
     /// Invariant 17's count of the symbols the loop decoded, which a test build keeps.
     decoded: usize = 0,
 
-    inline fn has_input_margin(self: *const Loop) bool {
+    pub inline fn has_input_margin(self: *const Loop) bool {
         return self.input.len - self.position >= input_slack;
     }
 
@@ -136,7 +128,7 @@ const Loop = struct {
     }
 
     /// The symbol of `table`'s code the buffer starts with, its bits taken.
-    inline fn decode(self: *Loop, table: anytype) u16 {
+    pub inline fn decode(self: *Loop, table: anytype) u16 {
         const symbol = table.decode_whole(self.buffer);
         self.take(symbol.len);
         if (builtin.is_test) self.decoded += 1;
@@ -161,7 +153,7 @@ inline fn low_bits(value: u64, bit_count: u32) u64 {
 }
 
 /// Refills with one 8-octet load (as S1), or with the claim off, an octet at a time.
-inline fn refill(comptime claims: Claims, loop: *Loop) void {
+pub inline fn refill(comptime claims: Claims, loop: *Loop) void {
     if (claims.word_refill) loop.refill_word() else loop.refill_octets();
 }
 
@@ -281,7 +273,7 @@ inline fn on_literal(comptime claims: Claims, loop: *Loop, literal_tables: *Lite
         block_switch(loop, state, .literal);
         return .go_on;
     }
-    literals(claims, loop, literal_tables, state);
+    literal_runs.literals(claims, loop, literal_tables, state);
     if (state.phase != .distance) return .go_on;
     return if (ready(claims, loop)) .distance else .stop;
 }
@@ -359,57 +351,8 @@ inline fn command_extra(loop: *Loop, state: *State) Next {
     return .go_on;
 }
 
-/// Up to `chunk_len_max` literals of the current block, each with the tree its context picks (RFC
-/// 7932 §7.1, §7.3), refilling while the input's margin holds; and the phase after the command's
-/// last literal.
-inline fn literals(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State) void {
-    assert(state.command.insert_left > 0);
-    const blocks = commands.blocks_of(state, .literal);
-    const block_type = blocks.type_current;
-    if (literal_tables.block_type != block_type) look_up_literal_tables(literal_tables, state, block_type);
-    const batch = @min(state.command.insert_left, blocks.count_left, constants.chunk_len_max);
-    const written = switch (state.context_modes[block_type]) {
-        inline else => |mode| literal_run(claims, mode, loop, &literal_tables.tables, batch),
-    };
-    assert(written >= 1);
-    if (blocks.types_count >= constants.block_switch_types_min) blocks.count_left -= written;
-    state.command.insert_left -= written;
-    produce(state, written);
-    if (state.command.insert_left == 0) state.phase = commands.after_literals(state);
-}
-
-/// The literal table of each context of `block_type`, from its row of the literal context map (RFC
-/// 7932 §7.3).
-fn look_up_literal_tables(literal_tables: *LiteralTables, state: *const State, block_type: u8) void {
-    const row = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count ..][0..constants.literal_contexts_count];
-    for (&literal_tables.tables, row) |*table, tree| table.* = &state.literal_codes[tree];
-    literal_tables.block_type = block_type;
-}
-
-/// Writes up to `batch` literals under one context mode, and returns how many. The first finds the
-/// bits a refill left; each later one refills first when the input's margin allows it. A literal
-/// table holds symbols below 256, so a symbol truncates to its octet unchecked.
-inline fn literal_run(comptime claims: Claims, comptime mode: context.Mode, loop: *Loop, tables: *const [constants.literal_contexts_count]*const LiteralTable, batch: u32) u32 {
-    const out = loop.output[loop.written..][0..batch];
-    for (out, 0..) |*octet, index| {
-        if (loop.count < constants.code_len_max) {
-            if (!loop.has_input_margin()) {
-                loop.written += index;
-                return @intCast(index);
-            }
-            refill(claims, loop);
-        }
-        const literal: u8 = @truncate(loop.decode(tables[context.literal_id(mode, loop.p1, loop.p2)]));
-        octet.* = literal;
-        loop.p2 = loop.p1;
-        loop.p1 = literal;
-    }
-    loop.written += batch;
-    return batch;
-}
-
 /// Counts `len` octets of the meta-block as produced.
-inline fn produce(state: *State, len: usize) void {
+pub inline fn produce(state: *State, len: usize) void {
     assert(len <= state.meta_block_left);
     state.meta_block_left -= @intCast(len);
     state.produced += len;
