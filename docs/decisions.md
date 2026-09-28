@@ -827,6 +827,14 @@ brotli decoder.
        cost it, and proposes either moving assertions out of a loop or an exception under decision
        16. The owner rules on either.
 
+    **brotli's measurement, 2026-09-28**, at 7520761 in run
+    [36487926168](https://github.com/c4milo/stdx/actions/runs/36487926168): built ReleaseFast, the
+    decoder runs at a median of 1.17 of its ReleaseSafe speed on the N2 and 1.23 on the EPYC 9V74,
+    and at up to 2.40 on the 1 KiB HTTP bodies, past this entry's 5% (design §8 step 12). The owner
+    ruled the same day on the route: remove the cost by construction first, rewriting the hot code
+    so the compiler proves its bounds and writes nothing it need not, with every check still on;
+    measure on the runners; and propose an exception under decision 16 only for what remains.
+
     The alternatives refused:
     - Safety off in the hot functions only, with `@setRuntimeSafety(false)`. It turns every
       assertion there into an assumption the optimizer relies on, which is the opposite of a

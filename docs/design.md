@@ -1038,6 +1038,25 @@ to 12 are reordered and nothing else changes.
     [36440517055](https://github.com/c4milo/stdx/actions/runs/36440517055), whose aarch64 report
     cannot be compared with the N2's.
 
+  **The benchmark at 7520761, 2026-09-28**, run
+  [36487926168](https://github.com/c4milo/stdx/actions/runs/36487926168), after the fast path's
+  straight-line command, its literal runs of one tree, the table build in canonical order and the
+  copy that ends a stream (reports in `bench/results/`, dated 2026-09-28). The x86-64 runner was an
+  AMD EPYC 9V74.
+  - stdx decodes at a median of 0.73 of Google's speed on the N2 (0.25 to 1.49) and 0.74 on the
+    EPYC (0.28 to 1.55), faster on 2 and 3 of the 39 files: ptt5, css-1m and, on the EPYC,
+    E.coli. The 1 KiB HTTP bodies lose most, at 0.25 to 0.35.
+  - The fast path runs at a median of 2.80 times the checked path's speed on the N2 and 2.71 on
+    the EPYC.
+  - With each claim off, all on's speed falls to a median of 0.94 and 0.92 without S1, and 0.88
+    and 0.82 without S4. S5's A/B is 0.99 and 1.01, inside the noise.
+  - Decision 17: built ReleaseFast, stdx runs at a median of 1.17 of its ReleaseSafe speed on the
+    N2 (1.01 to 2.40) and 1.23 on the EPYC (0.95 to 1.69), each as a ratio of the two builds'
+    ratios to Google in one run. The 1 KiB bodies pay most: 2.06 to 2.40 on the N2. Part of it is
+    the 0xAA a safe build writes into each buffer declared undefined, which 193e909 cuts from 5.6
+    KiB per prefix code to its alphabet's size. The owner ruled on the proposal decision 17 then
+    asks for (see there).
+
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
   8,000,000 octets at the HTTP levels (decision 12).
