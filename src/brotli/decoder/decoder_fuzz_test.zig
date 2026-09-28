@@ -11,8 +11,8 @@ const decoder_module = @import("decoder.zig");
 const work_test = @import("decoder_work_test.zig");
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
-const CheckedDecoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .fast_paths = false } });
 const test_window_bits = 16;
+const claims = @import("../claims.zig");
 
 /// The largest input and output one case takes.
 const input_len_max = 2048;
@@ -66,25 +66,34 @@ fn decode_whole(decoder: *Decoder, input: []const u8, output: []u8) !Verdict {
 /// at the input's last commands, and the fast path meets what is there (decision 16).
 const padding_len = 16;
 
-/// Decodes `input`, padded, in one call with the fast path and with the checked path alone, and
-/// requires the same verdict and octets (decision 16). Each check keeps its decoders in a frame of
-/// its own.
+/// Decodes `input`, padded, in one call with the checked path alone, and with the fast path with
+/// every claim on and with each off, and requires the same verdict and octets of all (decision
+/// 16). Each decode keeps its decoder in a frame of its own.
 noinline fn check_paths(unpadded: []const u8) !void {
     var padded: [input_len_max + padding_len]u8 = undefined;
     @memcpy(padded[0..unpadded.len], unpadded);
     @memset(padded[unpadded.len..][0..padding_len], 0);
     const input = padded[0 .. unpadded.len + padding_len];
-    var fast_decoder: Decoder = undefined;
-    var checked_decoder: CheckedDecoder = undefined;
-    var fast_output: [output_len_max]u8 = undefined;
     var checked_output: [output_len_max]u8 = undefined;
-    fast_decoder.init(.{});
-    checked_decoder.init(.{});
-    const fast = verdict_of(fast_decoder.decode(input, &fast_output));
-    const checked = verdict_of(checked_decoder.decode(input, &checked_output));
-    try testing.expectEqual(checked, fast);
-    switch (fast) {
-        .progress => |progress| try testing.expectEqualSlices(u8, checked_output[0..progress.written], fast_output[0..progress.written]),
+    const checked = decode_with(.{ .fast_paths = false }, input, &checked_output);
+    try expect_paths(.{}, input, checked, &checked_output);
+    inline for (claims.each_off) |off| try expect_paths(.{ .claims = off }, input, checked, &checked_output);
+}
+
+/// Decodes `input` in one call with `paths`, in a frame of its own.
+noinline fn decode_with(comptime paths: claims.Paths, input: []const u8, output: *[output_len_max]u8) Verdict {
+    var decoder: decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = paths }) = undefined;
+    decoder.init(.{});
+    return verdict_of(decoder.decode(input, output));
+}
+
+/// Decodes `input` with `paths`, and requires the verdict and the octets `expected` gave.
+noinline fn expect_paths(comptime paths: claims.Paths, input: []const u8, expected: Verdict, expected_output: *const [output_len_max]u8) !void {
+    var output: [output_len_max]u8 = undefined;
+    const verdict = decode_with(paths, input, &output);
+    try testing.expectEqual(expected, verdict);
+    switch (verdict) {
+        .progress => |progress| try testing.expectEqualSlices(u8, expected_output[0..progress.written], output[0..progress.written]),
         .refused => {},
     }
 }

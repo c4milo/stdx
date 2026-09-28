@@ -5,6 +5,7 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const decoder_module = @import("decoder.zig");
+const claims = @import("../claims.zig");
 
 /// The instance the tests take: a window of 2^18 octets, small enough for two on a test's stack.
 const test_window_bits = 18;
@@ -82,30 +83,47 @@ noinline fn expect_fixture(comptime Tested: type, fixture: Fixture) !void {
     }
 }
 
-test "every fixture decodes whole to its input, with the fast path and without it" {
+test "every fixture decodes whole to its input, on every path and with each claim off" {
     for (fixtures) |fixture| {
         try expect_fixture(Decoder, fixture);
         try expect_fixture(CheckedDecoder, fixture);
+        inline for (claims.each_off) |off| try expect_fixture(ClaimOff(off), fixture);
     }
 }
 
-fn step(decoder: *Decoder, input: []const u8, output: []u8) decoder_module.Error!codec.Progress {
-    return decoder.decode(input, output);
+/// The fast path with the claim `off` switches off.
+fn ClaimOff(comptime off: claims.Claims) type {
+    return decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .claims = off } });
+}
+
+/// The splits each fixture decodes under.
+const split_seeds = 8;
+
+/// Decodes `fixture` under every seed's split with a `Tested` decoder, in a frame of its own, the
+/// state moved between calls, and requires its input.
+noinline fn expect_splits(comptime Tested: type, fixture: Fixture) !void {
+    const step = struct {
+        fn step(decoder: *Tested, input: []const u8, output: []u8) decoder_module.Error!codec.Progress {
+            return decoder.decode(input, output);
+        }
+    }.step;
+    var expected_buffer: [output_len_max]u8 = undefined;
+    const expected = plain_of(fixture.plain, &expected_buffer);
+    for (0..split_seeds) |seed| {
+        var states: [codec.split.state_slots]Tested = undefined;
+        states[0].init(.{});
+        var output: [output_len_max]u8 = undefined;
+        const outcome = try codec.split.drive(Tested, &states, step, fixture.stream, output[0..expected.len], seed);
+        try testing.expectEqual(.done, outcome.status);
+        try testing.expectEqual(fixture.stream.len, outcome.consumed);
+        try testing.expectEqualSlices(u8, expected, output[0..outcome.written]);
+    }
 }
 
 test "every split of input and output gives the same octets, the state moved between calls" {
     for (fixtures) |fixture| {
-        var expected_buffer: [output_len_max]u8 = undefined;
-        const expected = plain_of(fixture.plain, &expected_buffer);
-        for (0..8) |seed| {
-            var states: [codec.split.state_slots]Decoder = undefined;
-            states[0].init(.{});
-            var output: [output_len_max]u8 = undefined;
-            const outcome = try codec.split.drive(Decoder, &states, step, fixture.stream, output[0..expected.len], seed);
-            try testing.expectEqual(.done, outcome.status);
-            try testing.expectEqual(fixture.stream.len, outcome.consumed);
-            try testing.expectEqualSlices(u8, expected, output[0..outcome.written]);
-        }
+        try expect_splits(Decoder, fixture);
+        inline for (claims.each_off) |off| try expect_splits(ClaimOff(off), fixture);
     }
 }
 

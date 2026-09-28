@@ -30,6 +30,10 @@ pub const Entry = extern struct {
 /// A symbol, and the length of its code in bits: 0 for a code of one symbol.
 pub const Symbol = struct { value: u16, len: u7 };
 
+/// A symbol as the fast path takes it, its length an octet wide: a field of 7 bits in a returned
+/// struct sends the length through memory on every symbol.
+pub const WholeSymbol = struct { value: u16, len: u8 };
+
 /// What a lookup found in the bits it was given.
 pub const Decoded = union(enum) {
     symbol: Symbol,
@@ -64,14 +68,14 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
         /// are present.
         pub fn decode(self: *const Self, bits: u64, available: u7) Decoded {
-            const symbol = look_up(root_bits, &self.entries, bits);
-            if (symbol.len > available) return .needs_bits;
-            return .{ .symbol = symbol };
+            const whole = look_up(root_bits, &self.entries, bits);
+            if (whole.len > available) return .needs_bits;
+            return .{ .symbol = .{ .value = whole.value, .len = @intCast(whole.len) } };
         }
 
         /// The symbol whose code starts `bits`, which hold a longest code's bits at least: the fast
         /// path's lookup, whose margin keeps the buffer that full (decision 16).
-        pub fn decode_whole(self: *const Self, bits: u64) Symbol {
+        pub inline fn decode_whole(self: *const Self, bits: u64) WholeSymbol {
             return look_up(root_bits, &self.entries, bits);
         }
     };
@@ -138,13 +142,14 @@ fn fill_second(comptime root_bits: u5, entries: []Entry, symbol: u16, code: u32,
 
 /// The symbol of the code `bits` start with, and its length: a root entry's, or the entry of its
 /// second level that the bits after the root's pick. Bits past the stream's end read as zeros, so a
-/// symbol longer than the bits present is one the caller asks more bits for.
-inline fn look_up(comptime root_bits: u5, entries: anytype, bits: u64) Symbol {
+/// symbol longer than the bits present is one the caller asks more bits for. The build writes no
+/// second level wider than `code_len_max`, so its width truncates to a shift's type unchecked.
+inline fn look_up(comptime root_bits: u5, entries: anytype, bits: u64) WholeSymbol {
     const root = entries[@intCast(bits & ((1 << root_bits) - 1))];
-    if (root.second_bits == 0) return .{ .value = root.value, .len = @intCast(root.len) };
-    const second_index = (bits >> root_bits) & ((@as(u64, 1) << @intCast(root.second_bits)) - 1);
+    if (root.second_bits == 0) return .{ .value = root.value, .len = root.len };
+    const second_index = (bits >> root_bits) & ((@as(u64, 1) << @as(u6, @truncate(root.second_bits))) - 1);
     const entry = entries[root.value + @as(usize, @intCast(second_index))];
-    return .{ .value = entry.value, .len = @intCast(root_bits + entry.len) };
+    return .{ .value = entry.value, .len = root_bits + entry.len };
 }
 
 /// The first code of each length (RFC 7932 §3.2): after the codes of every shorter length, doubled

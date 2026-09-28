@@ -49,12 +49,24 @@ inline fn copy_within(output: []u8, target: usize, distance: usize, len: usize) 
     }
 }
 
+/// The chunks a copy writes before it looks at the length: most copies are that short.
+const chunks_unconditional = 2;
+
 /// Copies `len` octets in chunks of `chunk_len`, which the distance is at least, so each chunk reads
-/// octets written before it.
+/// octets written before it: the first `chunks_unconditional` whatever the length, and the rest in a
+/// loop.
 inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
+    // The first chunks' source and target lie in one span, bounded once: the chunks inside it sit
+    // at offsets its length covers, so their bounds need no check.
+    const head_len = chunks_unconditional * chunk_len;
     const source = target - distance;
+    const span = output[source..][0 .. distance + head_len];
+    inline for (0..chunks_unconditional) |chunk| {
+        span[distance..][chunk * chunk_len ..][0..chunk_len].* = span[chunk * chunk_len ..][0..chunk_len].*;
+    }
+    if (len <= head_len) return;
     const chunks = std.math.divCeil(usize, len, chunk_len) catch unreachable;
-    for (0..chunks) |chunk| {
+    for (chunks_unconditional..chunks) |chunk| {
         const offset = chunk * chunk_len;
         output[target + offset ..][0..chunk_len].* = output[source + offset ..][0..chunk_len].*;
     }

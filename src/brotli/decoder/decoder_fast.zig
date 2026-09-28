@@ -3,12 +3,13 @@
 //!
 //! The loop runs while at least `input_slack` octets of input and `output_slack` octets of output
 //! room remain, checked at the top of each iteration. An iteration refills a 64-bit bit buffer with
-//! one 8-octet little-endian load (as S1 for DEFLATE) and takes one of the checked path's command
-//! phases: a block switch, an insert-and-copy symbol and its extra bits, up to `chunk_len_max`
-//! literals, a distance, or up to `chunk_len_max` octets of a copy or of a dictionary word. It
-//! decodes with the meta-block's lookup tables (claim B3), writes straight into the caller's
-//! output, copies in chunks that overrun into the margin (S4), and reads history from the output
-//! and, before the call's output, from the window, which takes what the loop wrote when it returns.
+//! one 8-octet little-endian load (as S1 for DEFLATE) and takes a chain of the checked path's
+//! command phases, each an inline function, so that the loop's state stays in registers: a block
+//! switch, an insert-and-copy symbol and its extra bits, up to `chunk_len_max` literals, a
+//! distance, and up to `chunk_len_max` octets of a copy or of a dictionary word. It decodes with
+//! the meta-block's lookup tables (claim B3), writes straight into the caller's output, copies in
+//! chunks that overrun into the margin (S4), and reads history from the output and, before the
+//! loop's first octet, from the window, which takes what the loop wrote when it returns.
 //!
 //! It decodes only what is valid: before a length past the meta-block, a distance RFC 7932 refuses
 //! or a dictionary reference that names no word, it stops with the phase's bits unused, and the
@@ -64,6 +65,17 @@ pub fn has_margin(bits: *const codec.BitReader, writer: *const codec.Writer) boo
 /// What a phase says: go on, or stop for the checked path.
 const Next = enum { go_on, stop };
 
+const LiteralTable = @TypeOf(@as(State, undefined).literal_codes[0]);
+
+/// The literal table of each context of the literal block type `block_type`, looked up once for
+/// each block type the loop meets, so that a literal takes its table in one load. It stays apart
+/// from `Loop`, whose fields the compiler keeps in registers only while no array indexed at run
+/// time lies among them.
+const LiteralTables = struct {
+    tables: [constants.literal_contexts_count]*const LiteralTable = undefined,
+    block_type: ?u8 = null,
+};
+
 /// The octets before a literal that its context reads, p1 and p2 (RFC 7932 §7.1).
 const context_octets = 2;
 
@@ -112,8 +124,10 @@ const Loop = struct {
         }
     }
 
+    /// Takes `bit_count` bits, at most `phase_bits_max`, so the shift truncates unchecked; the
+    /// count's subtraction checks it.
     inline fn take(self: *Loop, bit_count: u32) void {
-        self.buffer >>= @intCast(bit_count);
+        self.buffer >>= @as(u6, @truncate(bit_count));
         self.count -= bit_count;
     }
 
@@ -163,7 +177,8 @@ pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bit
         .p2 = state.p2,
     };
     assert(loop.count <= @bitSizeOf(u64));
-    decode_phases(claims, &loop, state, window);
+    var literal_tables: LiteralTables = .{};
+    decode_phases(claims, &loop, &literal_tables, state, window);
     assert(loop.written <= loop.output.len and loop.position <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
     bits.bits = .{
@@ -178,60 +193,149 @@ pub noinline fn run(comptime claims: Claims, state: *State, window: anytype, bit
     window.append(loop.output[loop.start..loop.written]);
 }
 
-/// The loop itself.
-fn decode_phases(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) void {
-    // Each phase takes a bit or writes an octet, or is one of the few phases of a command that
-    // lead to one that does, as the checked path's steps are.
+/// The loop itself: iterations of chains of phases, each chain one iteration of this bounded
+/// loop.
+inline fn decode_phases(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) void {
+    // Each chain takes a bit or writes an octet, or is one of the few chains of a command that lead
+    // to one that does, as the checked path's steps are.
     const units = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + (loop.output.len - loop.written);
     const iterations_max = constants.decoder_steps_per_unit * units + constants.decoder_steps_floor;
     for (0..iterations_max) |_| {
-        if (!loop.has_margin()) return;
-        // The state may bring a full buffer of 64 bits; every later refill finds 63 or fewer.
-        if (loop.count < refill_bits) refill(claims, loop);
-        const next: Next = switch (state.phase) {
-            .command => command(loop, state),
-            .command_extra => command_extra(loop, state),
-            .literal => literals(claims, loop, state),
-            .distance => distance(loop, state),
-            .copy => copy(claims, loop, state, window),
-            .dictionary_copy => word(loop, state),
-            else => .stop,
-        };
-        if (next == .stop) return;
+        if (decode_chain(claims, loop, literal_tables, state, window) == .stop) return;
     }
     unreachable;
 }
 
+/// Where a chain goes after one of its phases: on to another phase of the same command, to the
+/// loop's next iteration, or back to the checked path.
+const Link = enum { command, command_extra, literal, distance, copy, dictionary_copy, go_on, stop };
+
+/// The most links one chain takes: a command's symbol after its block switch, its extra bits, its
+/// literals, its distance and its copy, and the end.
+const links_per_chain_max = 8;
+
+/// The link a phase starts a chain with: its own, for the command phases the fast path takes.
+fn link_of(phase: Phase) Link {
+    return switch (phase) {
+        .command => .command,
+        .command_extra => .command_extra,
+        .literal => .literal,
+        .distance => .distance,
+        .copy => .copy,
+        .dictionary_copy => .dictionary_copy,
+        else => .stop,
+    };
+}
+
+/// One chain: the phases of a command in a row, each an inline function, so that the loop's state
+/// stays in registers. A chain starts once the margins hold and the buffer is refilled, and checks
+/// them again only where a phase may lack them: after a block switch, and before a distance that
+/// literals or the command's extra bits preceded. A chain ends with a copy or a word, where its
+/// phase leaves the command for the next iteration, or at a phase the checked path takes.
+inline fn decode_chain(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
+    if (!ready(claims, loop)) return .stop;
+    var link = link_of(state.phase);
+    for (0..links_per_chain_max) |_| {
+        link = switch (link) {
+            .command => on_command(claims, loop, state),
+            .command_extra => on_command_extra(claims, loop, state),
+            .literal => on_literal(claims, loop, literal_tables, state),
+            .distance => on_distance(claims, loop, state),
+            .copy => on_copy(claims, loop, state, window),
+            .dictionary_copy => on_word(loop, state),
+            .go_on => return .go_on,
+            .stop => return .stop,
+        };
+    }
+    unreachable;
+}
+
+/// An insert-and-copy symbol, after its block switch when its block is spent.
+inline fn on_command(comptime claims: Claims, loop: *Loop, state: *State) Link {
+    if (commands.needs_switch(state, .insert_copy)) {
+        block_switch(loop, state, .insert_copy);
+        return if (ready(claims, loop)) .command else .stop;
+    }
+    command(loop, state);
+    if (command_extra_bits(state) > loop.count) return .go_on;
+    return .command_extra;
+}
+
+/// The command's extra bits, then its literals, or its distance once the margins hold for it.
+inline fn on_command_extra(comptime claims: Claims, loop: *Loop, state: *State) Link {
+    if (command_extra(loop, state) == .stop) return .stop;
+    if (state.phase == .distance and !ready(claims, loop)) return .stop;
+    return link_of(state.phase);
+}
+
+/// A run of literals, after a refill the command's extra bits may have left it, or a block switch
+/// the next iteration goes on from; then the distance once the margins hold for it.
+inline fn on_literal(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State) Link {
+    if (loop.count < phase_bits_max and !ready(claims, loop)) return .stop;
+    if (commands.needs_switch(state, .literal)) {
+        block_switch(loop, state, .literal);
+        return .go_on;
+    }
+    literals(claims, loop, literal_tables, state);
+    if (state.phase != .distance) return .go_on;
+    return if (ready(claims, loop)) .distance else .stop;
+}
+
+/// The command's distance, after its block switch when its block is spent; then its copy or word.
+inline fn on_distance(comptime claims: Claims, loop: *Loop, state: *State) Link {
+    if (!state.command.last_distance and commands.needs_switch(state, .distance)) {
+        block_switch(loop, state, .distance);
+        if (!ready(claims, loop)) return .stop;
+    }
+    if (distance(loop, state) == .stop) return .stop;
+    return link_of(state.phase);
+}
+
+inline fn on_copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) Link {
+    copy(claims, loop, state, window);
+    return .go_on;
+}
+
+inline fn on_word(loop: *Loop, state: *State) Link {
+    word(loop, state);
+    return .go_on;
+}
+
+/// Whether the margins hold for another phase, and when they do, a buffer refilled to at least
+/// `refill_bits`: the state may bring a full buffer of 64 bits, and every later refill finds 63
+/// or fewer.
+inline fn ready(comptime claims: Claims, loop: *Loop) bool {
+    if (!loop.has_margin()) return false;
+    if (loop.count < refill_bits) refill(claims, loop);
+    return true;
+}
+
 /// A block switch's type and count (RFC 7932 §6), both codes and the count's extra bits at once:
 /// `phase_bits_max`, which a refill leaves.
-fn block_switch(loop: *Loop, state: *State, category: Category) Next {
+inline fn block_switch(loop: *Loop, state: *State, category: Category) void {
     assert(loop.count >= phase_bits_max);
     const blocks = commands.blocks_of(state, category);
     commands.switch_type(blocks, loop.decode(&blocks.type_code));
     const code = constants.block_count_codes[loop.decode(&blocks.count_code)];
     blocks.count_left = code.base + @as(u32, @intCast(low_bits(loop.buffer, code.extra_bits)));
     loop.take(code.extra_bits);
-    return .go_on;
 }
 
-/// An insert-and-copy symbol (RFC 7932 §5), and its extra bits when the buffer holds them.
-fn command(loop: *Loop, state: *State) Next {
-    if (commands.needs_switch(state, .insert_copy)) return block_switch(loop, state, .insert_copy);
+/// An insert-and-copy symbol (RFC 7932 §5).
+inline fn command(loop: *Loop, state: *State) void {
     const blocks = commands.blocks_of(state, .insert_copy);
     const symbol = loop.decode(&state.insert_copy_codes[blocks.type_current]);
     commands.take_element(blocks);
     commands.set_command_codes(&state.command, symbol);
     state.phase = .command_extra;
-    if (command_extra_bits(state) > loop.count) return .go_on;
-    return command_extra(loop, state);
 }
 
 fn command_extra_bits(state: *const State) u32 {
     return @as(u32, constants.insert_length_codes[state.command.insert_code].extra_bits) + constants.copy_length_codes[state.command.copy_code].extra_bits;
 }
 
-/// The insert and copy lengths' extra bits (RFC 7932 §5).
-fn command_extra(loop: *Loop, state: *State) Next {
+/// The insert and copy lengths' extra bits (RFC 7932 §5), and the phase after them.
+inline fn command_extra(loop: *Loop, state: *State) Next {
     const insert = constants.insert_length_codes[state.command.insert_code];
     const copy_code = constants.copy_length_codes[state.command.copy_code];
     const extra = low_bits(loop.buffer, command_extra_bits(state));
@@ -246,45 +350,56 @@ fn command_extra(loop: *Loop, state: *State) Next {
 }
 
 /// Up to `chunk_len_max` literals of the current block, each with the tree its context picks (RFC
-/// 7932 §7.1, §7.3), refilling while the input's margin holds.
-fn literals(comptime claims: Claims, loop: *Loop, state: *State) Next {
+/// 7932 §7.1, §7.3), refilling while the input's margin holds; and the phase after the command's
+/// last literal.
+inline fn literals(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State) void {
     assert(state.command.insert_left > 0);
-    if (commands.needs_switch(state, .literal)) return block_switch(loop, state, .literal);
     const blocks = commands.blocks_of(state, .literal);
     const block_type = blocks.type_current;
-    const row = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count ..][0..constants.literal_contexts_count];
+    if (literal_tables.block_type != block_type) look_up_literal_tables(literal_tables, state, block_type);
     const batch = @min(state.command.insert_left, blocks.count_left, constants.chunk_len_max);
     const written = switch (state.context_modes[block_type]) {
-        inline else => |mode| literal_run(claims, mode, loop, state, row, batch),
+        inline else => |mode| literal_run(claims, mode, loop, &literal_tables.tables, batch),
     };
     assert(written >= 1);
     if (blocks.types_count >= constants.block_switch_types_min) blocks.count_left -= written;
     state.command.insert_left -= written;
     produce(state, written);
     if (state.command.insert_left == 0) state.phase = commands.after_literals(state);
-    return .go_on;
+}
+
+/// The literal table of each context of `block_type`, from its row of the literal context map (RFC
+/// 7932 §7.3).
+fn look_up_literal_tables(literal_tables: *LiteralTables, state: *const State, block_type: u8) void {
+    const row = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count ..][0..constants.literal_contexts_count];
+    for (&literal_tables.tables, row) |*table, tree| table.* = &state.literal_codes[tree];
+    literal_tables.block_type = block_type;
 }
 
 /// Writes up to `batch` literals under one context mode, and returns how many. The first finds the
-/// bits a refill left; each later one refills first when the input's margin allows it.
-inline fn literal_run(comptime claims: Claims, comptime mode: context.Mode, loop: *Loop, state: *const State, row: *const [constants.literal_contexts_count]u8, batch: u32) u32 {
-    for (0..batch) |index| {
+/// bits a refill left; each later one refills first when the input's margin allows it. A literal
+/// table holds symbols below 256, so a symbol truncates to its octet unchecked.
+inline fn literal_run(comptime claims: Claims, comptime mode: context.Mode, loop: *Loop, tables: *const [constants.literal_contexts_count]*const LiteralTable, batch: u32) u32 {
+    const out = loop.output[loop.written..][0..batch];
+    for (out, 0..) |*octet, index| {
         if (loop.count < constants.code_len_max) {
-            if (!loop.has_input_margin()) return @intCast(index);
+            if (!loop.has_input_margin()) {
+                loop.written += index;
+                return @intCast(index);
+            }
             refill(claims, loop);
         }
-        const tree = row[context.literal_id(mode, loop.p1, loop.p2)];
-        const literal: u8 = @intCast(loop.decode(&state.literal_codes[tree]));
-        loop.output[loop.written] = literal;
-        loop.written += 1;
+        const literal: u8 = @truncate(loop.decode(tables[context.literal_id(mode, loop.p1, loop.p2)]));
+        octet.* = literal;
         loop.p2 = loop.p1;
         loop.p1 = literal;
     }
+    loop.written += batch;
     return batch;
 }
 
 /// Counts `len` octets of the meta-block as produced.
-fn produce(state: *State, len: usize) void {
+inline fn produce(state: *State, len: usize) void {
     assert(len <= state.meta_block_left);
     state.meta_block_left -= @intCast(len);
     state.produced += len;
@@ -292,13 +407,12 @@ fn produce(state: *State, len: usize) void {
 
 /// The command's distance (RFC 7932 §4), resolved to a back-reference or a dictionary word before
 /// its bits are taken, so that the checked path takes again one it refuses.
-fn distance(loop: *Loop, state: *State) Next {
+inline fn distance(loop: *Loop, state: *State) Next {
     // RFC 7932 §5: symbols below 128 reuse the last distance, and no distance code follows.
     if (state.command.last_distance) {
         _ = commands.resolve_distance(state, state.last_distances[0], false) catch return .stop;
         return .go_on;
     }
-    if (commands.needs_switch(state, .distance)) return block_switch(loop, state, .distance);
     const blocks = commands.blocks_of(state, .distance);
     const id = context.distance_id(state.command.copy_len);
     const tree = state.distance_context_map[@as(usize, blocks.type_current) * constants.distance_contexts_count + id];
@@ -317,7 +431,7 @@ fn distance(loop: *Loop, state: *State) Next {
 
 /// Up to `chunk_len_max` octets of a back-reference: from this call's output, or from the window
 /// for those before it.
-fn copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) Next {
+inline fn copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) void {
     const len = @min(state.command.copy_left, constants.chunk_len_max);
     const back = state.command.distance;
     if (back <= loop.written) {
@@ -329,17 +443,15 @@ fn copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) Ne
     produce(state, len);
     state.command.copy_left -= len;
     if (state.command.copy_left == 0) state.phase = commands.after_copy(state);
-    return .go_on;
 }
 
 /// The rest of a dictionary word, transformed (RFC 7932 §8): at most `transformed_word_len_max`
 /// octets.
-fn word(loop: *Loop, state: *State) Next {
+inline fn word(loop: *Loop, state: *State) void {
     const octets = state.word[state.word_written..state.word_len];
     @memcpy(loop.output[loop.written..][0..octets.len], octets);
     loop.wrote(octets.len);
     produce(state, octets.len);
     state.word_written = state.word_len;
     state.phase = commands.after_copy(state);
-    return .go_on;
 }

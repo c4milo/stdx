@@ -7,7 +7,7 @@ const constants = @import("../constants.zig");
 const Category = @import("decoder_state.zig").Category;
 
 /// The longest stream a test writes.
-pub const capacity = 2048;
+pub const capacity = 8192;
 
 /// A meta-block's MLEN - 1 in 4 nibbles, the fewest MNIBBLES gives: MLEN up to 65536 (RFC 7932
 /// §9.2); the MNIBBLES code 0 says 4.

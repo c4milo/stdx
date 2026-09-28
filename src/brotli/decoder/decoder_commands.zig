@@ -190,14 +190,14 @@ pub fn read_distance(state: *State, bits: *codec.BitReader) Error!?codec.Status 
 
 /// The extra bits of a distance code: none for the 16 short codes and the NDIRECT direct ones,
 /// 1 + ((dcode - NDIRECT - 16) >> (NPOSTFIX + 1)) after them (RFC 7932 §4).
-pub fn distance_extra_bits(state: *const State, code: u32) u5 {
+pub inline fn distance_extra_bits(state: *const State, code: u32) u5 {
     const first_coded = constants.distance_short_codes_count + @as(u32, state.direct_count);
     if (code < first_coded) return 0;
     return @intCast(1 + ((code - first_coded) >> (@as(u5, state.postfix_bits) + 1)));
 }
 
 /// The backward distance a distance code and its extra bits give (RFC 7932 §4).
-pub fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 {
+pub inline fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 {
     if (code < constants.distance_short_codes_count) {
         const short = constants.distance_short_codes[code];
         const distance = @as(i64, state.last_distances[short.last]) + short.delta;
@@ -219,7 +219,7 @@ pub fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 {
 
 /// A distance within the window and the octets produced is a back-reference; one past them names a
 /// static dictionary word (RFC 7932 §8).
-pub fn resolve_distance(state: *State, distance: u32, push: bool) Error!?codec.Status {
+pub inline fn resolve_distance(state: *State, distance: u32, push: bool) Error!?codec.Status {
     const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
     if (distance > reach) {
         try start_word(state, distance - reach - 1);

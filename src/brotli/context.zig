@@ -25,14 +25,23 @@ comptime {
 pub const Mode = enum(u2) { lsb6, msb6, utf8, signed };
 
 /// The context ID of the next literal (RFC 7932 §7.1): p1 is the last octet the stream produced and
-/// p2 the one before it.
+/// p2 the one before it. Every ID the tables give is below 64 (the comptime block below), so it
+/// truncates to its type unchecked.
 pub fn literal_id(mode: Mode, p1: u8, p2: u8) u6 {
     return switch (mode) {
         .lsb6 => @truncate(p1),
         .msb6 => @intCast(p1 >> constants.msb6_shift),
-        .utf8 => @intCast(lut0[p1] | lut1[p2]),
-        .signed => @intCast(@as(u8, lut2[p1]) << constants.signed_shift | lut2[p2]),
+        .utf8 => @truncate(lut0[p1] | lut1[p2]),
+        .signed => @truncate(@as(u8, lut2[p1]) << constants.signed_shift | lut2[p2]),
     };
+}
+
+comptime {
+    @setEvalBranchQuota(10_000);
+    // UTF8's and Signed's IDs, from any p1 and p2, stay below 64 (RFC 7932 §7.1).
+    for (lut0) |value| assert(value < constants.literal_contexts_count);
+    for (lut1) |value| assert(value < constants.literal_contexts_count);
+    for (lut2) |value| assert(value < 1 << constants.signed_shift);
 }
 
 /// The context ID of a distance (RFC 7932 §7.2): 0, 1 and 2 for copy lengths 2, 3 and 4, and 3 for
