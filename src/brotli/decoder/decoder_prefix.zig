@@ -115,10 +115,10 @@ fn build_code_length_code(state: *State) Error!void {
     // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
     if (reading.space < 0) return error.OverSubscribedCodeLengthCode;
     if (reading.space == 0) {
-        state.code_length_code.build(lengths);
+        _ = state.code_length_code.build(lengths);
     } else if (reading.nonzero_count == 1) {
         // RFC 7932 §3.5: one non-zero code length gives a code of one symbol, of no bits.
-        state.code_length_code.build_single(@intCast(std.mem.indexOfNone(u8, lengths, &.{0}).?));
+        _ = state.code_length_code.build_single(@intCast(std.mem.indexOfNone(u8, lengths, &.{0}).?));
     } else {
         // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
         return error.IncompleteCodeLengthCode;
@@ -228,5 +228,5 @@ fn finish(state: *State, single: ?u16) void {
 }
 
 fn build(code: anytype, lengths: []const u8, single: ?u16) void {
-    if (single) |symbol| code.build_single(symbol) else code.build(lengths);
+    _ = if (single) |symbol| code.build_single(symbol) else code.build(lengths);
 }

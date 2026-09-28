@@ -29,3 +29,26 @@ pub fn add(b: *std.Build, tool_module: *std.Build.Module) *std.Build.Step {
     step.dependOn(&check.step);
     return step;
 }
+
+/// `zig build brotli-table-budget-check`, part of `zig build test`: tools/brotli_table_budget.zig
+/// computes each lookup table's worst size and requires it to equal the budget constants.zig pins
+/// (decision 12), and its own tests check its search against trying every code. `brotli` is the
+/// library's brotli module built for this host, whose constants it reads.
+pub fn add_budget_check(b: *std.Build, brotli: *std.Build.Module) *std.Build.Step {
+    const module = b.createModule(.{
+        .root_source_file = b.path("tools/brotli_table_budget.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseFast,
+    });
+    module.addImport("brotli", brotli);
+    const tool = b.addExecutable(.{ .name = "brotli_table_budget", .root_module = module });
+    const run = b.addRunArtifact(tool);
+    run.addArg("--check");
+    const step = b.step(
+        "brotli-table-budget-check",
+        "Require brotli's pinned table budgets to equal the worst tables the tool finds",
+    );
+    step.dependOn(&run.step);
+    step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = module })).step);
+    return step;
+}

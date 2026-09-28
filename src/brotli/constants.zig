@@ -311,7 +311,26 @@ pub const coded_distance_base = 2;
 pub const coded_distance_bias = 4;
 
 /// The octets a decoder takes beside its window's octets (decision 12): the ring's two counters and
-/// the checked path's state, of which the prefix codes of every tree take 783,872 and the context
-/// maps 17,408; a test build adds invariant 17's count. Pinned, so that the state grows only by a
-/// change of this line.
-pub const decoder_state_len = 805_008;
+/// the state, of which the lookup tables of every tree take 2,683,592, under decision 12's 3 MiB,
+/// and the context maps 17,408; a test build adds invariant 17's count. Pinned, so that the state
+/// grows only by a change of this line.
+pub const decoder_state_len = 2_702_176;
+
+/// The bits a prefix code's lookup table resolves in its root (claim B3): 8, which gives the least
+/// memory of any width but 7 and resolves more codes than it.
+pub const table_root_bits = 8;
+
+/// The most entries a lookup table of each alphabet takes over every code RFC 7932 allows it, as
+/// tools/brotli_table_budget.zig computes them for `table_root_bits` (decision 12): the root and the
+/// worst second levels. `zig build brotli-table-budget-check` fails when they drift.
+pub const literal_table_len_max = 630;
+pub const insert_copy_table_len_max = 1080;
+pub const distance_table_len_max = 896;
+pub const block_type_table_len_max = 632;
+pub const block_count_table_len_max = 396;
+pub const context_map_table_len_max = 646;
+
+/// The code length code's table: its codes are at most 5 bits (RFC 7932 §3.5), so a root of 5 bits
+/// resolves them all.
+pub const code_length_table_root_bits = code_length_code_len_max;
+pub const code_length_table_len = 1 << code_length_table_root_bits;

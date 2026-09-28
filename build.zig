@@ -144,6 +144,8 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(brotli_tables.add(b, host_module(b, "tools/brotli_tables.zig")));
+    const host_graph = modules.add(b, .{ .target = b.graph.host, .optimize = .ReleaseFast, .visibility = .private });
+    test_step.dependOn(brotli_tables.add_budget_check(b, host_graph.brotli));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);

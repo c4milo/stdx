@@ -103,8 +103,8 @@ pub const Blocks = struct {
     type_current: u8,
     type_previous: u8,
     count_left: u32,
-    type_code: prefix.Code(constants.block_type_alphabet_len_max),
-    count_code: prefix.Code(constants.block_count_alphabet_len),
+    type_code: prefix.Table(constants.block_type_table_len_max, constants.table_root_bits),
+    count_code: prefix.Table(constants.block_count_table_len_max, constants.table_root_bits),
 };
 
 /// The context maps of RFC 7932 §7.3, as NTREES and the map a meta-block header gives.
@@ -203,17 +203,18 @@ pub const State = struct {
     trees_counts: [maps_count]u16,
     literal_context_map: [constants.literal_contexts_count * constants.block_types_max]u8,
     distance_context_map: [constants.distance_contexts_count * constants.block_types_max]u8,
-    /// The prefix codes of the meta-block (RFC 7932 §9.2), built once each (claim B3).
-    literal_codes: [constants.trees_max]prefix.Code(constants.literal_alphabet_len),
-    insert_copy_codes: [constants.block_types_max]prefix.Code(constants.insert_copy_alphabet_len),
-    distance_codes: [constants.trees_max]prefix.Code(constants.distance_alphabet_len_max),
+    /// The prefix codes of the meta-block (RFC 7932 §9.2), each built once into its table (claim
+    /// B3).
+    literal_codes: [constants.trees_max]prefix.Table(constants.literal_table_len_max, constants.table_root_bits),
+    insert_copy_codes: [constants.block_types_max]prefix.Table(constants.insert_copy_table_len_max, constants.table_root_bits),
+    distance_codes: [constants.trees_max]prefix.Table(constants.distance_table_len_max, constants.table_root_bits),
     /// A prefix code being read, the code of its code lengths, and its lengths so far.
     reading: Reading,
-    code_length_code: prefix.Code(constants.code_length_alphabet_len),
+    code_length_code: prefix.Table(constants.code_length_table_len, constants.code_length_table_root_bits),
     lengths: [constants.insert_copy_alphabet_len]u8,
     /// A context map being read, and the prefix code of its values.
     map_reading: MapReading,
-    map_code: prefix.Code(constants.context_map_alphabet_len_max),
+    map_code: prefix.Table(constants.context_map_table_len_max, constants.table_root_bits),
     command: Command,
     /// A static dictionary word, transformed, and the octets of it already written (RFC 7932 §8).
     word: [constants.transformed_word_len_max]u8,
