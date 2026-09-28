@@ -4,11 +4,11 @@
 //! loop takes every symbol through it. Split from fast.zig.
 
 const builtin = @import("builtin");
-const constants = @import("constants.zig");
-const lookup = @import("lookup.zig");
+const constants = @import("../constants.zig");
+const lookup = @import("../lookup.zig");
 const fast = @import("fast.zig");
 const fast_copy = @import("fast_copy.zig");
-const options_module = @import("options.zig");
+const options_module = @import("../options.zig");
 const Options = options_module.Options;
 const How = options_module.How;
 const Loop = fast.Loop;

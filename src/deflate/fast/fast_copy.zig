@@ -5,7 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 
 /// The room after a match's target that the wide loop's margin leaves: a longest match and the
 /// overrun of its last chunk.

@@ -23,14 +23,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const huffman = @import("huffman.zig");
-const lookup = @import("lookup.zig");
+const constants = @import("../constants.zig");
+const huffman = @import("../huffman.zig");
+const lookup = @import("../lookup.zig");
 const fast_copy = @import("fast_copy.zig");
 const fast_step = @import("fast_step.zig");
 const fast_aarch64 = @import("fast_aarch64.zig");
 const fast_x86_64 = @import("fast_x86_64.zig");
-const options_module = @import("options.zig");
+const options_module = @import("../options.zig");
 const Options = options_module.Options;
 const Lookups = options_module.Lookups;
 const How = options_module.How;
@@ -490,4 +490,11 @@ pub inline fn length_of(buffer: u64, length: lookup.Entry, resolved: bool) ?u64 
 /// comptime test of `Options.count_lookups`, so a decode that does not count evaluates nothing.
 pub inline fn count_symbol(loop: *Loop, how: How) void {
     loop.lookups.count(how);
+}
+
+test {
+    _ = @import("fast_copy.zig");
+    _ = @import("fast_step.zig");
+    _ = @import("fast_aarch64.zig");
+    _ = @import("fast_x86_64.zig");
 }

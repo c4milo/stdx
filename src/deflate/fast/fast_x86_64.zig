@@ -7,10 +7,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const lookup = @import("lookup.zig");
+const constants = @import("../constants.zig");
+const lookup = @import("../lookup.zig");
 const fast = @import("fast.zig");
-const Options = @import("options.zig").Options;
+const Options = @import("../options.zig").Options;
 const fast_copy = @import("fast_copy.zig");
 const loop_text = @import("fast_x86_64_template.zig");
 

@@ -34,6 +34,7 @@ test {
     _ = constants;
     _ = @import("huffman.zig");
     _ = @import("lookup.zig");
+    _ = @import("fast/fast.zig");
     _ = decoder;
     _ = @import("test_stream.zig");
     _ = @import("encoder/encoder_code.zig");
