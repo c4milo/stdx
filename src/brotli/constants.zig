@@ -336,6 +336,20 @@ pub const context_map_table_len_max = 646;
 pub const code_length_table_root_bits = code_length_code_len_max;
 pub const code_length_table_len = 1 << code_length_table_root_bits;
 
+/// Decision 16's fast path. A copy moves `copy_chunk_len` octets at a time, or `copy_word_len` for
+/// a distance shorter than a chunk and at least a word, and one iteration writes at most
+/// `chunk_len_max` octets of literals, of a copy or of a dictionary word, and the overrun of its
+/// last chunk past them.
+pub const copy_chunk_len = 16;
+pub const copy_word_len = @sizeOf(u64);
+pub const chunk_len_max = 256;
+
+comptime {
+    // A dictionary word, transformed, fits one iteration.
+    std.debug.assert(transformed_word_len_max <= chunk_len_max);
+    std.debug.assert(chunk_len_max % copy_chunk_len == 0);
+}
+
 /// Invariant 17's count for one prefix code at most, over an alphabet of `alphabet_len` symbols
 /// whose table takes at most `table_len_max` entries (RFC 7932 §3.5): a complex code's code length
 /// code, its 18 lengths cleared and read and its table; the alphabet's lengths cleared; a symbol and

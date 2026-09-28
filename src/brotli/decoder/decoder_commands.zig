@@ -17,13 +17,13 @@ const Category = state_module.Category;
 const Error = state_module.Error;
 const count_work = state_module.count_work;
 
-fn blocks_of(state: *State, category: Category) *state_module.Blocks {
+pub fn blocks_of(state: *State, category: Category) *state_module.Blocks {
     return &state.blocks[@intFromEnum(category)];
 }
 
 /// Whether the next element of `category` needs a block switch first (RFC 7932 §9.3): its block is
 /// spent and it has two block types or more.
-fn needs_switch(state: *State, category: Category) bool {
+pub fn needs_switch(state: *State, category: Category) bool {
     const blocks = blocks_of(state, category);
     if (blocks.count_left > 0) return false;
     // `take_element` spends no count of a category of one block type.
@@ -35,7 +35,7 @@ fn needs_switch(state: *State, category: Category) bool {
 /// of two block types or more, so the count of one block type, which §10 starts at 16,777,216,
 /// stays: commands whose dictionary words transform to nothing write no octet, and more of them
 /// than that fit one meta-block.
-fn take_element(blocks: *state_module.Blocks) void {
+pub fn take_element(blocks: *state_module.Blocks) void {
     if (blocks.types_count >= constants.block_switch_types_min) blocks.count_left -= 1;
 }
 
@@ -46,12 +46,19 @@ fn start_switch(state: *State, category: Category, after: Phase) ?codec.Status {
     return null;
 }
 
-/// A block type code (RFC 7932 §6): 0 is the previous block type, 1 the current one plus one,
-/// wrapping to 0, and 2 to 257 the block types 0 to 255.
+/// A block type code, which starts a block switch.
 pub fn read_block_type(state: *State, bits: *codec.BitReader) ?codec.Status {
     const blocks = blocks_of(state, state.category);
     const symbol = decode_symbol(bits, &blocks.type_code) orelse return .needs_input;
     count_work(state, 1);
+    switch_type(blocks, symbol);
+    state.phase = .block_count;
+    return null;
+}
+
+/// Makes current the block type a block type code names (RFC 7932 §6): 0 is the previous block
+/// type, 1 the current one plus one, wrapping to 0, and 2 to 257 the block types 0 to 255.
+pub fn switch_type(blocks: *state_module.Blocks, symbol: u16) void {
     const block_type: u8 = switch (symbol) {
         0 => blocks.type_previous,
         1 => @intCast((@as(u16, blocks.type_current) + 1) % blocks.types_count),
@@ -60,8 +67,6 @@ pub fn read_block_type(state: *State, bits: *codec.BitReader) ?codec.Status {
     assert(block_type < blocks.types_count);
     blocks.type_previous = blocks.type_current;
     blocks.type_current = block_type;
-    state.phase = .block_count;
-    return null;
 }
 
 /// The block count that follows a block type code (RFC 7932 §6).
@@ -100,7 +105,7 @@ pub fn read_command(state: *State, bits: *codec.BitReader) ?codec.Status {
 
 /// The insert length code and copy length code an insert-and-copy symbol gives (RFC 7932 §5): its
 /// cell of 64 names the first of each, and its bits 3 to 5 and 0 to 2 add to them.
-fn set_command_codes(command: *state_module.Command, symbol: u16) void {
+pub fn set_command_codes(command: *state_module.Command, symbol: u16) void {
     assert(symbol < constants.insert_copy_alphabet_len);
     const cell = constants.insert_copy_cells[symbol >> constants.insert_copy_cell_bits];
     const code_mask = (1 << constants.insert_copy_code_bits) - 1;
@@ -132,7 +137,7 @@ fn low_mask(count: u5) u64 {
 
 /// After the literals, the distance and copy; none when the literals end the meta-block, whose last
 /// command's copy length is then ignored (RFC 7932 §9.3).
-fn after_literals(state: *const State) Phase {
+pub fn after_literals(state: *const State) Phase {
     return if (state.meta_block_left == 0) .meta_block_end else .distance;
 }
 
@@ -185,14 +190,14 @@ pub fn read_distance(state: *State, bits: *codec.BitReader) Error!?codec.Status 
 
 /// The extra bits of a distance code: none for the 16 short codes and the NDIRECT direct ones,
 /// 1 + ((dcode - NDIRECT - 16) >> (NPOSTFIX + 1)) after them (RFC 7932 §4).
-fn distance_extra_bits(state: *const State, code: u32) u5 {
+pub fn distance_extra_bits(state: *const State, code: u32) u5 {
     const first_coded = constants.distance_short_codes_count + @as(u32, state.direct_count);
     if (code < first_coded) return 0;
     return @intCast(1 + ((code - first_coded) >> (@as(u5, state.postfix_bits) + 1)));
 }
 
 /// The backward distance a distance code and its extra bits give (RFC 7932 §4).
-fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 {
+pub fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 {
     if (code < constants.distance_short_codes_count) {
         const short = constants.distance_short_codes[code];
         const distance = @as(i64, state.last_distances[short.last]) + short.delta;
@@ -214,7 +219,7 @@ fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 {
 
 /// A distance within the window and the octets produced is a back-reference; one past them names a
 /// static dictionary word (RFC 7932 §8).
-fn resolve_distance(state: *State, distance: u32, push: bool) Error!?codec.Status {
+pub fn resolve_distance(state: *State, distance: u32, push: bool) Error!?codec.Status {
     const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
     if (distance > reach) {
         try start_word(state, distance - reach - 1);
@@ -274,6 +279,6 @@ pub fn copy_word(state: *State, out: anytype) ?codec.Status {
     return null;
 }
 
-fn after_copy(state: *const State) Phase {
+pub fn after_copy(state: *const State) Phase {
     return if (state.meta_block_left == 0) .meta_block_end else .command;
 }

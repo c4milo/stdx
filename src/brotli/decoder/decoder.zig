@@ -1,6 +1,7 @@
-//! The brotli decoder's checked path (RFC 7932; decisions 11, 12 and 16): every bit read through
-//! `codec.BitReader`, every octet written through `codec.Writer`, and every back-reference read
-//! through `codec.Window`, one step at a time.
+//! The brotli decoder (RFC 7932; decisions 11, 12 and 16). Its checked path reads every bit through
+//! `codec.BitReader`, writes every octet through `codec.Writer`, and reads every back-reference
+//! through `codec.Window`, one step at a time. Before a step of a command, while decision 16's
+//! margins hold, the fast path of decoder_fast.zig decodes as many commands as they allow.
 //!
 //! A step reads one whole field, one code or one symbol with its extra bits, or writes one octet.
 //! A step that lacks bits leaves them in the state, and the call returns `needs_input` having taken
@@ -16,7 +17,9 @@ const stream = @import("decoder_stream.zig");
 const header = @import("decoder_header.zig");
 const prefix_reader = @import("decoder_prefix.zig");
 const commands = @import("decoder_commands.zig");
+const fast = @import("decoder_fast.zig");
 const Output = @import("decoder_output.zig").Output;
+const Paths = @import("../claims.zig").Paths;
 const State = state_module.State;
 
 pub const Corrupt = state_module.Corrupt;
@@ -36,6 +39,9 @@ pub const DecoderOptions = struct {
     /// RFC 7932 allows (§1.4, §9.1); a smaller value takes a smaller window and refuses larger
     /// streams with `error.WindowTooLarge`.
     window_bits_max: u5 = constants.window_bits_max,
+    /// The fast path of decision 16 and the claims within it; the tests and the benchmark switch
+    /// them.
+    paths: Paths = .{},
 };
 
 pub fn Decoder(comptime options: DecoderOptions) type {
@@ -115,8 +121,12 @@ fn run(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, 
     unreachable;
 }
 
-/// One step, and the status that ends the call, or null to go on.
+/// One step, and the status that ends the call, or null to go on. A step of a command first lets
+/// the fast path decode what its margins allow.
 fn step(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, out: anytype) Error!?codec.Status {
+    if (options.paths.fast_paths and fast.takes(state.phase) and fast.has_margin(bits, out.writer)) {
+        fast.run(options.paths.claims, state, out.window, bits, out.writer);
+    }
     return switch (state.phase) {
         .stream_header => try stream.read_stream_header(state, bits, options.window_bits_max),
         .meta_block_header => stream.read_meta_block_header(state, bits),
@@ -170,4 +180,12 @@ test {
 
 test {
     _ = @import("decoder_work_test.zig");
+}
+
+test {
+    _ = @import("decoder_fast_test.zig");
+}
+
+test {
+    _ = @import("decoder_fast_copy.zig");
 }

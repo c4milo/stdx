@@ -57,16 +57,35 @@ const fixtures = [_]Fixture{
     .{ .stream = @embedFile("../fixtures/wave-q11-w16.br"), .plain = .wave },
 };
 
-test "every fixture decodes whole to its input" {
-    for (fixtures) |fixture| {
-        var decoder: Decoder = undefined;
+/// The checked path alone (decision 16).
+const CheckedDecoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .fast_paths = false } });
+
+/// The zero octets after a fixture, so that the fast path's input margin holds at its last
+/// commands (decision 16).
+const padding_len = 16;
+
+/// Decodes `fixture` whole with a `Tested` decoder, in a frame of its own, and requires its input:
+/// as it is, and with `padding_len` zero octets after it, which stay in the input.
+noinline fn expect_fixture(comptime Tested: type, fixture: Fixture) !void {
+    var expected_buffer: [output_len_max]u8 = undefined;
+    const expected = plain_of(fixture.plain, &expected_buffer);
+    var padded: [output_len_max + padding_len]u8 = undefined;
+    @memcpy(padded[0..fixture.stream.len], fixture.stream);
+    @memset(padded[fixture.stream.len..][0..padding_len], 0);
+    for ([_][]const u8{ fixture.stream, padded[0 .. fixture.stream.len + padding_len] }) |input| {
+        var decoder: Tested = undefined;
         decoder.init(.{});
-        var expected_buffer: [output_len_max]u8 = undefined;
-        const expected = plain_of(fixture.plain, &expected_buffer);
         var output: [output_len_max]u8 = undefined;
-        const whole = try decoder.decode_all(fixture.stream, &output);
+        const whole = try decoder.decode_all(input, &output);
         try testing.expectEqual(fixture.stream.len, whole.consumed);
         try testing.expectEqualSlices(u8, expected, output[0..whole.written]);
+    }
+}
+
+test "every fixture decodes whole to its input, with the fast path and without it" {
+    for (fixtures) |fixture| {
+        try expect_fixture(Decoder, fixture);
+        try expect_fixture(CheckedDecoder, fixture);
     }
 }
 

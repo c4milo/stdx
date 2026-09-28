@@ -1,7 +1,8 @@
 //! The brotli decoder's split property, over inputs the fuzzer or a seed draws: any input, valid or
 //! not, decoded in one call and under a seeded split that moves the state between calls, gives the
-//! same octets, the same verdict and the same `consumed` (decision 11; invariants 5, 12 and 13). No
-//! input may reach a panic, and no call may work past invariant 17's bound.
+//! same octets, the same verdict and the same `consumed` (decision 11; invariants 5, 12 and 13), and
+//! so does the checked path alone (decision 16). No input may reach a panic, and no call may work
+//! past invariant 17's bound.
 
 const std = @import("std");
 const testing = std.testing;
@@ -10,6 +11,7 @@ const decoder_module = @import("decoder.zig");
 const work_test = @import("decoder_work_test.zig");
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
+const CheckedDecoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .fast_paths = false } });
 const test_window_bits = 16;
 
 /// The largest input and output one case takes.
@@ -60,8 +62,35 @@ fn decode_whole(decoder: *Decoder, input: []const u8, output: []u8) !Verdict {
     return verdict;
 }
 
+/// The zero octets after each input the paths decode, so that the fast path's input margin holds
+/// at the input's last commands, and the fast path meets what is there (decision 16).
+const padding_len = 16;
+
+/// Decodes `input`, padded, in one call with the fast path and with the checked path alone, and
+/// requires the same verdict and octets (decision 16). Each check keeps its decoders in a frame of
+/// its own.
+noinline fn check_paths(unpadded: []const u8) !void {
+    var padded: [input_len_max + padding_len]u8 = undefined;
+    @memcpy(padded[0..unpadded.len], unpadded);
+    @memset(padded[unpadded.len..][0..padding_len], 0);
+    const input = padded[0 .. unpadded.len + padding_len];
+    var fast_decoder: Decoder = undefined;
+    var checked_decoder: CheckedDecoder = undefined;
+    var fast_output: [output_len_max]u8 = undefined;
+    var checked_output: [output_len_max]u8 = undefined;
+    fast_decoder.init(.{});
+    checked_decoder.init(.{});
+    const fast = verdict_of(fast_decoder.decode(input, &fast_output));
+    const checked = verdict_of(checked_decoder.decode(input, &checked_output));
+    try testing.expectEqual(checked, fast);
+    switch (fast) {
+        .progress => |progress| try testing.expectEqualSlices(u8, checked_output[0..progress.written], fast_output[0..progress.written]),
+        .refused => {},
+    }
+}
+
 /// Decodes `input` in one call and under `seed`'s split, and requires both to agree.
-fn check_split(input: []const u8, seed: u64) !void {
+noinline fn check_split(input: []const u8, seed: u64) !void {
     var states: [codec.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
     const whole = try decode_whole(&states[0], input, &whole_output);
@@ -94,6 +123,7 @@ test "every seeded corruption of a valid stream decodes alike in one call and sp
         }
         const len = if (generator.below(2) == 0) valid.len else generator.below(valid.len + 1);
         try check_split(input[0..len], generator.next());
+        try check_paths(input[0..len]);
     }
 }
 
@@ -105,4 +135,5 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     var input: [input_len_max]u8 = undefined;
     const input_len = smith.slice(&input);
     try check_split(input[0..input_len], smith.value(u64));
+    try check_paths(input[0..input_len]);
 }

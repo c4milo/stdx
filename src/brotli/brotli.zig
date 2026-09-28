@@ -10,6 +10,7 @@ pub const dictionary = @import("dictionary.zig");
 pub const transform = @import("transform.zig");
 pub const context = @import("context.zig");
 pub const prefix = @import("prefix.zig");
+pub const claims = @import("claims.zig");
 
 const decoder = @import("decoder/decoder.zig");
 pub const Decoder = decoder.Decoder;
@@ -26,5 +27,6 @@ test {
     _ = transform;
     _ = context;
     _ = prefix;
+    _ = claims;
     _ = decoder;
 }

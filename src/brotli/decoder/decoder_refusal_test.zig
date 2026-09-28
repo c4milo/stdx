@@ -4,20 +4,45 @@
 
 const std = @import("std");
 const testing = std.testing;
+const codec = @import("codec");
 const decoder_module = @import("decoder.zig");
 const constants = @import("../constants.zig");
 const test_stream = @import("test_stream.zig");
 const Stream = test_stream.Stream;
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
+const CheckedDecoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .fast_paths = false } });
 const test_window_bits = 16;
 const output_len_max = 64;
 
-fn decode(stream: []const u8, output: *[output_len_max]u8) ![]const u8 {
-    var decoder: Decoder = undefined;
+/// The zero octets after each stream, so that the fast path's input margin holds at its last
+/// commands, and the fast path meets the refusals there (decision 16).
+const padding_len = 16;
+
+/// Decodes `input` whole with a `Tested` decoder, in a frame of its own.
+noinline fn decode_with(comptime Tested: type, input: []const u8, output: *[output_len_max]u8) (decoder_module.Error || codec.Incomplete)!codec.Whole {
+    var decoder: Tested = undefined;
     decoder.init(.{});
-    const whole = try decoder.decode_all(stream, output);
+    return decoder.decode_all(input, output);
+}
+
+/// Decodes `stream`, padded, with the fast path and with the checked path alone, and requires the
+/// same verdict and octets of both. Returns the octets.
+fn decode(stream: []const u8, output: *[output_len_max]u8) ![]const u8 {
+    var padded: [test_stream.capacity + padding_len]u8 = undefined;
+    @memcpy(padded[0..stream.len], stream);
+    @memset(padded[stream.len..][0..padding_len], 0);
+    const input = padded[0 .. stream.len + padding_len];
+    var checked_output: [output_len_max]u8 = undefined;
+    const checked = decode_with(CheckedDecoder, input, &checked_output);
+    const fast = decode_with(Decoder, input, output);
+    const whole = checked catch |err| {
+        try testing.expectError(err, fast);
+        return err;
+    };
+    try testing.expectEqual(whole, try fast);
     try testing.expectEqual(stream.len, whole.consumed);
+    try testing.expectEqualSlices(u8, checked_output[0..whole.written], output[0..whole.written]);
     return output[0..whole.written];
 }
 
