@@ -1388,6 +1388,18 @@ to 12 are reordered and nothing else changes.
   - the kernel's run counted from the head's start;
   - a short rest sent to the head's slice.
 
+  **J7 at its new shape, 2026-09-28.** bench-json run
+  [36493638351](https://github.com/c4milo/stdx/actions/runs/36493638351) at d0e536c, which main
+  holds as 2a99e8f, on a Neoverse N2 and an AMD EPYC 7763, which has AVX2 but not AVX-512.
+  - On the EPYC, with J7 off, E.coli as a string and the hex strings decoded at 0.59 of all on and
+    encoded at 0.59 to 0.62. CLDR, qlog, English text and the text of Cyrillic and CJK characters
+    stayed within 3%.
+  - On the N2, every J7 column stayed within 1%.
+  - The run lists no loss of J7. It lists one of J9: hex of canterbury's `sum`, encoded at 1.057 of
+    all on with J9 off, which a later run checks.
+
+  The AVX-512 kernels at this shape wait for a run that draws a runner with AVX-512.
+
   **The API, 2026-09-28.** `Decoder.init`, `Encoder.init`, `TextWriter.init` and `TextReader.init`
   take the caller's `codec.Features` last, and each state keeps them (decision 30). The kernels of
   J7's wider levels come after. `round_trip_test.zig` requires `none()`, `target()` and `detect()`
