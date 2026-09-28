@@ -15,7 +15,7 @@ pub const names = [_][]const u8{
     "canterbury-large/bible.txt", "canterbury-large/world192.txt", "http/html-1k",          "http/html-16k",
     "http/html-1m",               "http/json-1k",                  "http/json-16k",         "http/json-1m",
     "http/js-1k",                 "http/js-16k",                   "http/js-1m",            "http/css-1k",
-    "http/css-16k",               "http/css-1m",
+    "http/css-16k",               "http/css-1m",                   "shuffled/dickens-1m",
 };
 
 /// True when `given` holds every name of `names` once and nothing else.
@@ -35,8 +35,8 @@ pub fn is_whole(given: []const []const u8) bool {
 
 const testing = std.testing;
 
-test "the corpus is decision 15's 38 files, and a set with one dropped or added is refused" {
-    try testing.expectEqual(38, names.len);
+test "the corpus is decision 15's 39 files, and a set with one dropped or added is refused" {
+    try testing.expectEqual(39, names.len);
     try testing.expect(is_whole(&names));
     try testing.expect(!is_whole(names[1..]));
     var doubled = names;

@@ -7,7 +7,7 @@ Entries marked **owner** wait on a ruling and are not settled. Everything else i
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
-and 20 came out of that review, entry 21 out of design §8 step 2, and entries 22 to 24 out of step
+and 20 came out of that review, entry 21 out of design §8 step 2, and entries 22 to 25 out of step
 11.
 
 ## Scope and shape
@@ -137,7 +137,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
 
 10. **Real numbers come from Linux, measured one way.** Ruled by the owner on 2026-09-25, as
     colibri's decision 32 ruled it for colibri. Entry 20 amends it: the Linux hosts are GitHub's
-    hosted runners, and a result is a ratio within one job.
+    hosted runners, and a result is a ratio within one job. Entry 25 adds a literal-heavy text to
+    its corpora.
     - Benchmarks run on Linux alone, with the machine written down beside the numbers: CPU model,
       core count, kernel, compiler versions. macOS publishes no number.
     - Each result is the median of five runs, with the spread.
@@ -590,6 +591,7 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
       it has one, so the hash pins an archive. Bootstrap's 1 MiB piece repeats about 500 KB, a
       distance DEFLATE's 32 KiB window cannot reach and Zstandard's and brotli's can, so its ratios
       favour those two, and each report says so beside the number.
+    - Entry 25 adds a literal-heavy text, derived from Silesia's dickens rather than fetched.
 
     **Decoders against the oracles.** `tools/oracle/` runs the same inputs through stdx and through
     every ruled oracle, and requires byte-identical output.
@@ -1054,3 +1056,22 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
       prove, at a cost per octet.
     - A proof of each loop. No tool here reads Zig's inline assembly, and a proof by hand would be
       the access table with less to check it.
+
+25. **A literal-heavy text joins the corpora.** Ruled by the owner on 2026-09-27, during design §8
+    step 11. It amends entries 10 and 15.
+    - `tools/corpus/shuffle.zig` writes the first MiB of Silesia's dickens in the order a
+      Fisher-Yates shuffle draws from a fixed seed, and `zig build corpus` installs it as
+      `shuffled/dickens-1m`. Every check and benchmark over the corpora takes it.
+    - `codec.split.Generator` draws the order, so every host writes the same octets. A host that
+      wrote others would fail differential-encode, whose recorded hashes cover the file.
+    - The shuffle keeps the text's octet frequencies and breaks its repeated strings: libzstd at
+      level 3 leaves 868,620 of its 1,048,576 octets as literals, with Huffman codes of many
+      lengths.
+    - The reason: matches cover most of every other file at level 3, so no file measured claim Z2
+      of decision 14, which decodes two literals a lookup. The owner keeps Z2 for text that
+      compresses poorly, as long as it costs nothing where it does not apply.
+
+    The alternatives refused:
+    - Random dictionary words: the word list differs from host to host.
+    - Base64 or hexadecimal text: every literal takes a code of one length, and Z2 pairs no two.
+    - A fetched file: none of the corpora holds text that level 3 leaves mostly as literals.
