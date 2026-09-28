@@ -76,13 +76,16 @@ fn builds_cpp(b: *std.Build) bool {
 }
 
 /// simdjson's flags: C++20, which its string builder's `view` needs; error codes in place of
-/// exceptions; and NDEBUG, which its doc/performance.md asks of a release build. On x86-64 they add
-/// `-mevex512`: this clang compiles 512-bit vectors only with that feature, which the functions of
-/// simdjson's AVX-512 kernel do not name, so without it that kernel fails to compile on a host
-/// without AVX-512. simdjson still picks a kernel at run time, by what the CPU holds.
+/// exceptions; and NDEBUG, which its doc/performance.md asks of a release build. An x86-64 host
+/// without 512-bit vectors (LLVM's `evex512`) cannot compile simdjson's AVX-512 kernel, and
+/// simdjson could never pick it there, so the build leaves it out the way its
+/// doc/implementation-selection.md shows. `-mevex512` compiled it on some runners, and one runner's
+/// clang refused that flag as deprecated.
 fn simdjson_flags(b: *std.Build) []const []const u8 {
-    return if (b.graph.host.result.cpu.arch == .x86_64) &simdjson_flags_x86_64 else &simdjson_flags_common;
+    const cpu = b.graph.host.result.cpu;
+    const without_avx512 = cpu.arch == .x86_64 and !std.Target.x86.featureSetHas(cpu.features, .evex512);
+    return if (without_avx512) &simdjson_flags_without_avx512 else &simdjson_flags_common;
 }
 
 const simdjson_flags_common = [_][]const u8{ "-std=c++20", "-DSIMDJSON_EXCEPTIONS=0", "-DNDEBUG" };
-const simdjson_flags_x86_64 = simdjson_flags_common ++ [_][]const u8{"-mevex512"};
+const simdjson_flags_without_avx512 = simdjson_flags_common ++ [_][]const u8{"-DSIMDJSON_IMPLEMENTATION_ICELAKE=0"};
