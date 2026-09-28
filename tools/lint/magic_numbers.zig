@@ -7,9 +7,9 @@
 //! a number rather than using one as a limit. A fuzz property function is not a `test` block, so
 //! its input size is named at file level.
 //!
-//! `constants.zig` is not read, because it is where the names live. A table generated from an RFC,
-//! such as RFC 1951 §3.2.6's fixed code lengths or RFC 7932 Appendix A's dictionary, will join the
-//! exclusions in the commit that adds its generator, named file by file.
+//! `constants.zig` is not read, because it is where the names live. A table generated from an RFC
+//! joins the exclusions in the commit that adds its generator, named file by file:
+//! `rfc_tables.zig`, which tools/brotli_tables.zig writes from RFC 7932's appendices.
 //!
 //! The width of an octet is `@bitSizeOf(u8)`, never 8, so a shift by a whole octet names what it
 //! shifts by.
@@ -27,7 +27,7 @@ pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_basenames = &.{"constants.zig"},
+        .exclude_basenames = &.{ "constants.zig", "rfc_tables.zig" },
     },
 };
 

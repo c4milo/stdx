@@ -21,6 +21,7 @@ const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const oracle = @import("build/oracle.zig");
 const self_hosted = @import("build/self_hosted.zig");
+const brotli_tables = @import("build/brotli_tables.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -44,6 +45,7 @@ const tool_test_roots = [_][]const u8{
 const plain_tool_test_roots = [_][]const u8{
     "tools/graph_check.zig",
     "tools/corpus/cut.zig",
+    "tools/brotli_tables.zig",
     "bench/costs/costs.zig",
 };
 
@@ -141,6 +143,7 @@ pub fn build(b: *std.Build) void {
     });
 
     test_step.dependOn(add_graph_check_step(b));
+    test_step.dependOn(brotli_tables.add(b, host_module(b, "tools/brotli_tables.zig")));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
