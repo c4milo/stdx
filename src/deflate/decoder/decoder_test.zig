@@ -21,15 +21,24 @@ const split_seeds = 200;
 pub const Stream = test_stream.Stream;
 pub const assign_codes = test_stream.assign_codes;
 
+/// A decoder with the CPU's features, so it runs the assembly of decision 29 wherever the CPU does.
 fn fresh() Decoder {
     var decoder: Decoder = undefined;
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     return decoder;
 }
 
 /// Decodes the whole stream in one call.
 fn decode_whole(input: []const u8, output: []u8) deflate.Error!codec.Progress {
     var decoder = fresh();
+    return deflate.decode(&decoder, input, output);
+}
+
+/// Decodes the whole stream in one call with no feature of the CPU, which takes the Zig loop on
+/// x86-64 where a CPU would run the assembly.
+fn decode_featureless(input: []const u8, output: []u8) deflate.Error!codec.Progress {
+    var decoder: Decoder = undefined;
+    deflate.init(&decoder, .{});
     return deflate.decode(&decoder, input, output);
 }
 
@@ -74,6 +83,9 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
     try testing.expectEqual(input.len, with_padding.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..with_padding.written]);
     try expect_each_claim_off(padded(input, &buffer), with_padding, expected);
+    const featureless = try decode_featureless(padded(input, &buffer), &output);
+    try testing.expectEqual(with_padding, featureless);
+    try testing.expectEqualSlices(u8, expected, output[0..featureless.written]);
     var decoder = fresh();
     const checked = try deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output);
     try testing.expectEqual(whole, checked);
@@ -81,7 +93,8 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
     for (steps) |split_step| {
         for (0..split_seeds) |seed| {
             var states: [codec.split.state_slots]Decoder = undefined;
-            deflate.init(&states[0], .{});
+            // The CPU's features, so the splits run the assembly of decision 29 where it does.
+            deflate.init(&states[0], codec.Features.detect());
             var split_output: [output_len_max]u8 = undefined;
             const outcome = try codec.split.drive(Decoder, &states, split_step, input, split_output[0..expected.len], seed);
             try testing.expectEqual(codec.Status.done, outcome.status);
@@ -117,6 +130,7 @@ pub fn expect_refused(input: []const u8, expected: deflate.Error) !void {
     try testing.expectError(expected, decode_whole(input, &output));
     var buffer: [padded_len_max]u8 = undefined;
     try testing.expectError(expected, decode_whole(padded(input, &buffer), &output));
+    try testing.expectError(expected, decode_featureless(padded(input, &buffer), &output));
     var decoder = fresh();
     try testing.expectError(expected, deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output));
     decoder = fresh();
@@ -125,7 +139,8 @@ pub fn expect_refused(input: []const u8, expected: deflate.Error) !void {
     for (steps) |split_step| {
         for (0..split_seeds) |seed| {
             var states: [codec.split.state_slots]Decoder = undefined;
-            deflate.init(&states[0], .{});
+            // The CPU's features, so the splits run the assembly of decision 29 where it does.
+            deflate.init(&states[0], codec.Features.detect());
             try testing.expectError(expected, codec.split.drive(Decoder, &states, split_step, input, &output, seed));
         }
     }
@@ -284,7 +299,7 @@ test "invariant 10: a distance past the stream's start is refused, and the old w
     const marker = 0x5a;
     var decoder: Decoder = undefined;
     @memset(std.mem.asBytes(&decoder), marker);
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     var output: [16]u8 = @splat(0);
     try testing.expectError(error.DistanceTooFar, deflate.decode(&decoder, stream.slice(), &output));
     try testing.expect(std.mem.indexOfScalar(u8, &output, marker) == null);
@@ -307,23 +322,23 @@ test "a distance past the window a container declares is refused, and one at its
     var output: [output_len_max]u8 = undefined;
     var at_edge: Stream = .{};
     literals_then_pair(&at_edge, 256);
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     deflate.limit_window(&decoder, 256);
     const progress = try deflate.decode(&decoder, at_edge.slice(), &output);
     try testing.expectEqual(codec.Status.done, progress.status);
     try testing.expectEqual(303, progress.written);
     var past_edge: Stream = .{};
     literals_then_pair(&past_edge, 257);
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     deflate.limit_window(&decoder, 256);
     try testing.expectError(error.DistanceTooFar, deflate.decode(&decoder, past_edge.slice(), &output));
     // Padded, so the fast path meets the pair with its margins held.
     var buffer: [padded_len_max]u8 = undefined;
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     deflate.limit_window(&decoder, 256);
     try testing.expectError(error.DistanceTooFar, deflate.decode(&decoder, padded(past_edge.slice(), &buffer), &output));
     // Without the limit, the whole window is in reach.
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     try testing.expectEqual(codec.Status.done, (try deflate.decode(&decoder, past_edge.slice(), &output)).status);
 }
 
@@ -367,7 +382,7 @@ test "a distance of 32,768, the whole window, is in reach without a limit (RFC 1
     const input_len = stored_header_len + constants.window_len + tail.slice().len;
     @memcpy(input[stored_header_len + constants.window_len .. input_len], tail.slice());
     var decoder: Decoder = undefined;
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     var output: [constants.window_len + 3]u8 = undefined;
     const progress = try deflate.decode(&decoder, input[0..input_len], &output);
     try testing.expectEqual(codec.Status.done, progress.status);

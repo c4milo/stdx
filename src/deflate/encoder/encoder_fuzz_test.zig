@@ -38,7 +38,7 @@ fn check_level(comptime level: u4, input: []const u8, points: []const usize, see
     try testing.expectEqualSlices(u8, first[0..outcome.written], second[0..again.written]);
     var decoded: [input_len_max]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    decoder.init(&state, .{});
+    decoder.init(&state, codec.Features.detect());
     const whole = try decoder.decode_all(&state, first[0..outcome.written], &decoded);
     try testing.expectEqual(outcome.written, whole.consumed);
     try testing.expectEqualSlices(u8, input, decoded[0..whole.written]);

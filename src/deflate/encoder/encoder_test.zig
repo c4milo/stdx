@@ -59,7 +59,7 @@ fn write_words(target: []u8, generator: *codec.split.Generator) void {
 fn expect_decodes_to(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max + 1]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    decoder.init(&state, .{});
+    decoder.init(&state, codec.Features.detect());
     const whole = try decoder.decode_all(&state, stream, &output);
     try testing.expectEqual(stream.len, whole.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..whole.written]);
@@ -157,7 +157,7 @@ test "after each flush the output so far decodes to the input so far, and splits
 fn expect_prefix_decodes(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    decoder.init(&state, .{});
+    decoder.init(&state, codec.Features.detect());
     const progress = try decoder.decode(&state, stream, &output);
     try testing.expectEqual(.needs_input, progress.status);
     try testing.expectEqualSlices(u8, expected, output[0..progress.written]);

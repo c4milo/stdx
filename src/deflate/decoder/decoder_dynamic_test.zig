@@ -192,14 +192,14 @@ test "S2's count tells a table's symbols from the canonical decode's and the che
     var output: [long_codes_output.len]u8 = undefined;
     var decoder: deflate.Decoder = undefined;
     var lookups: deflate.Lookups = .{};
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     _ = try deflate.decode_counting(.{}, &decoder, &input, &output, &lookups);
     try testing.expectEqualSlices(u8, long_codes_output, &output);
     // Of the 100 symbols, 25 take codes past the tables: 'l', 'm' and the 17 'n's, both lengths
     // and both distances, and end-of-block. The 64 'k's and the rest take one lookup.
     try testing.expectEqual(deflate.Lookups{ .table = 75, .canonical = 25, .checked = 0 }, lookups);
     var checked: deflate.Lookups = .{};
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     _ = try deflate.decode_counting(.{ .fast_paths = false }, &decoder, &input, &output, &checked);
     try testing.expectEqual(deflate.Lookups{ .table = 0, .canonical = 0, .checked = 100 }, checked);
 }
@@ -274,7 +274,7 @@ test "a call that ends in a dynamic header leaves the fast path's octets in the 
     const input = stream.slice();
     for (1..input.len) |cut| {
         var decoder: deflate.Decoder = undefined;
-        deflate.init(&decoder, .{});
+        deflate.init(&decoder, codec.Features.detect());
         var output: [expected.len]u8 = undefined;
         const first = try deflate.decode(&decoder, input[0..cut], &output);
         try testing.expectEqual(codec.Status.needs_input, first.status);

@@ -29,6 +29,7 @@ const lookup = @import("lookup.zig");
 const fast_copy = @import("fast_copy.zig");
 const fast_step = @import("fast_step.zig");
 const fast_aarch64 = @import("fast_aarch64.zig");
+const fast_x86_64 = @import("fast_x86_64.zig");
 const options_module = @import("options.zig");
 const Options = options_module.Options;
 const Lookups = options_module.Lookups;
@@ -108,6 +109,8 @@ pub const History = struct {
     work: *huffman.Work,
     /// S2's count, when the decode keeps one (options.zig).
     lookups: ?*Lookups,
+    /// Whether the CPU runs the x86-64 assembly of the common loop (decision 29).
+    assembly: bool,
 };
 
 /// The loop's state: the bit buffer and the input not yet taken into it, from the checked reader,
@@ -266,13 +269,25 @@ inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, h
     // Each round decodes a symbol at least, which takes a bit, or ends the loop.
     const rounds_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
     for (0..rounds_max) |_| {
-        // Decision 29: the aarch64 assembly takes the common symbols where it runs.
-        const stop = if (comptime fast_aarch64.takes(options)) fast_aarch64.decode_common(loop) else decode_common(options, loop);
-        if (stop == .margin) return .margin;
+        if (common(options, loop, history) == .margin) return .margin;
         const next = decode_rare(options, loop, codes, history);
         if (next != .go_on) return next.end();
     }
     unreachable;
+}
+
+/// The common symbols, through the assembly of decision 29 where it runs.
+inline fn common(comptime options: Options, loop: *Loop, history: History) Stop {
+    if (comptime fast_aarch64.takes(options)) return fast_aarch64.decode_common(loop);
+    if (comptime fast_x86_64.takes(options)) {
+        if (history.assembly) return fast_x86_64.decode_common(loop);
+    }
+    return decode_common(options, loop);
+}
+
+/// Whether a CPU with `features` runs the x86-64 assembly of the common loop.
+pub fn assembly_runs(features: codec.Features) bool {
+    return fast_x86_64.runs(features);
 }
 
 /// The input and the output room of one iteration of the wide loop, which its margins bound.

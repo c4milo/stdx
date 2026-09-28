@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const lookup = @import("lookup.zig");
 const fast = @import("fast.zig");
+const fast_copy = @import("fast_copy.zig");
 const Options = @import("options.zig").Options;
 const loop_text = @import("fast_aarch64_template.zig");
 
@@ -47,27 +48,9 @@ const State = extern struct {
     distance_mask: u64,
     distance_max: u64,
     distance_codes: [*]const fast.DistanceCode,
-    repeats: *const Repeats,
+    repeats: *const fast_copy.Repeats,
     /// The symbols decoded, which a test build counts (invariant 17).
     decoded: u64,
-};
-
-/// For each distance below a chunk, the index of each octet of a match's first chunk in the chunk
-/// before the target: the octet the distance before it, taken modulo the distance. And the least
-/// multiple of the distance a chunk long at least, which the rest of the match copies from.
-const Repeats = extern struct {
-    indices: [constants.copy_chunk_len][constants.copy_chunk_len]u8,
-    steps: [constants.copy_chunk_len]u8,
-};
-
-const repeats: Repeats = table: {
-    const chunk_len = constants.copy_chunk_len;
-    var table: Repeats = .{ .indices = @splat(@splat(0)), .steps = @splat(0) };
-    for (1..chunk_len) |distance| {
-        for (&table.indices[distance], 0..) |*index, place| index.* = chunk_len - distance + place % distance;
-        table.steps[distance] = (chunk_len + distance - 1) / distance * distance;
-    }
-    break :table table;
 };
 
 /// Runs the common loop as `fast.decode_common` does, for a caller that checked `takes`: until a
@@ -92,7 +75,7 @@ pub fn decode_common(loop: *fast.Loop) fast.Stop {
         .distance_mask = loop.distance_mask,
         .distance_max = loop.distance_max,
         .distance_codes = &fast.distance_codes,
-        .repeats = &repeats,
+        .repeats = &fast_copy.repeats,
         .decoded = 0,
     };
     const stop: fast.Stop = @enumFromInt(execute(&state));
@@ -215,7 +198,7 @@ const template_arguments = .{
     .distance_entries = @offsetOf(State, "distance_entries"),
     .distance_max = @offsetOf(State, "distance_max"),
     .repeats = @offsetOf(State, "repeats"),
-    .steps = @offsetOf(Repeats, "steps"),
+    .steps = @offsetOf(fast_copy.Repeats, "steps"),
     .refill_bits = fast.refill_bits,
     .match_len_max = constants.match_len_max,
     .literal_at = @bitOffsetOf(lookup.Entry, "literal"),
@@ -240,15 +223,3 @@ const template_arguments = .{
     .count_literal = counts.literal,
     .count_match = counts.match,
 };
-
-test "each distance below a chunk repeats its octets through a match's first chunk" {
-    for (1..constants.copy_chunk_len) |distance| {
-        const step = repeats.steps[distance];
-        try std.testing.expect(step % distance == 0 and step >= constants.copy_chunk_len and step < constants.copy_chunk_len + distance);
-        for (repeats.indices[distance], 0..) |index, place| {
-            // The octet `distance` before each octet of the chunk, in the chunk before it.
-            try std.testing.expectEqual(constants.copy_chunk_len - distance + place % distance, index);
-            try std.testing.expect(index < constants.copy_chunk_len);
-        }
-    }
-}

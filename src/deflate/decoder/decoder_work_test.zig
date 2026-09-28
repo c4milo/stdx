@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const testing = std.testing;
+const codec = @import("codec");
 const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const Stream = @import("decoder_test.zig").Stream;
@@ -110,7 +111,7 @@ fn expect_whole(block_count: usize, literal_count: usize) !void {
     var stream: Stream = .{};
     const work = worst_case(&stream, block_count, literal_count);
     var decoder: deflate.Decoder = undefined;
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     var output: [literals]u8 = undefined;
     const progress = try deflate.decode(&decoder, stream.slice(), &output);
     try testing.expectEqual(.done, progress.status);
@@ -133,7 +134,7 @@ test "the worst case an octet at a time costs at most the bound per call" {
     const work = worst_case(&stream, minimal_blocks, split_literals);
     const input = stream.slice();
     var decoder: deflate.Decoder = undefined;
-    deflate.init(&decoder, .{});
+    deflate.init(&decoder, codec.Features.detect());
     var output: [split_literals]u8 = undefined;
     var consumed: usize = 0;
     var written: usize = 0;

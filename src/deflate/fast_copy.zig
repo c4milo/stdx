@@ -119,3 +119,33 @@ fn fill(output: []u8, target: usize, octet: u8, len: usize) void {
         into[index * chunk_len ..][0..chunk_len].* = chunk;
     }
 }
+
+/// For each distance below a chunk, the index of each octet of a match's first chunk in the chunk
+/// before the target: the octet the distance before it, taken modulo the distance. And the least
+/// multiple of the distance a chunk long at least, which the rest of the match copies from.
+pub const Repeats = extern struct {
+    indices: [constants.copy_chunk_len][constants.copy_chunk_len]u8,
+    steps: [constants.copy_chunk_len]u8,
+};
+
+pub const repeats: Repeats = table: {
+    const chunk_len = constants.copy_chunk_len;
+    var table: Repeats = .{ .indices = @splat(@splat(0)), .steps = @splat(0) };
+    for (1..chunk_len) |distance| {
+        for (&table.indices[distance], 0..) |*index, place| index.* = chunk_len - distance + place % distance;
+        table.steps[distance] = (chunk_len + distance - 1) / distance * distance;
+    }
+    break :table table;
+};
+
+test "each distance below a chunk repeats its octets through a match's first chunk" {
+    for (1..constants.copy_chunk_len) |distance| {
+        const step = repeats.steps[distance];
+        try std.testing.expect(step % distance == 0 and step >= constants.copy_chunk_len and step < constants.copy_chunk_len + distance);
+        for (repeats.indices[distance], 0..) |index, place| {
+            // The octet `distance` before each octet of the chunk, in the chunk before it.
+            try std.testing.expectEqual(constants.copy_chunk_len - distance + place % distance, index);
+            try std.testing.expect(index < constants.copy_chunk_len);
+        }
+    }
+}

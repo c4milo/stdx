@@ -339,6 +339,7 @@ fn read_symbols_fast(comptime options: Options, decoder: *Decoder, bits: *codec.
         .distance_max = decoder.distance_max,
         .work = &decoder.work,
         .lookups = if (options.count_lookups) lookups else null,
+        .assembly = fast.assembly_runs(decoder.features),
     };
     const before = bits.*;
     const end = switch (fast.run(options, codes, history, bits, writer)) {

@@ -50,13 +50,15 @@ fn check_split(input: []const u8, seed: u64) !void {
     try testing.expectEqual(checked, whole);
     if (whole == .progress) try testing.expectEqualSlices(u8, checked_output[0..whole.progress.written], whole_output[0..whole.progress.written]);
     var combined_output: [output_len_max]u8 = undefined;
-    deflate.init(&decoder, .{});
+    // The combining and the split decodes take the CPU's features, so where the CPU runs the
+    // assembly of decision 29, they meet the Zig loop and the checked path.
+    deflate.init(&decoder, codec.Features.detect());
     const combined = verdict_of(deflate.decode_with(decoder_test.combining, &decoder, input, &combined_output));
     try testing.expectEqual(whole, combined);
     if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], combined_output[0..whole.progress.written]);
     try check_each_claim_off(input, whole, &whole_output);
     var states: [codec.split.state_slots]Decoder = undefined;
-    deflate.init(&states[0], .{});
+    deflate.init(&states[0], codec.Features.detect());
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
@@ -78,7 +80,7 @@ fn check_each_claim_off(input: []const u8, whole: Verdict, whole_output: []const
     inline for (claims.each_off) |off| {
         var output: [output_len_max]u8 = undefined;
         var decoder: Decoder = undefined;
-        deflate.init(&decoder, .{});
+        deflate.init(&decoder, codec.Features.detect());
         const verdict = verdict_of(deflate.decode_with(.{ .claims = off }, &decoder, input, &output));
         try testing.expectEqual(whole, verdict);
         if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], output[0..whole.progress.written]);
