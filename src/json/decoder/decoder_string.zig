@@ -32,15 +32,14 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
         if (claims.decoder_string_vectors and after_ascii) copy_run(decoder, reader, writer);
         const octet = reader.read_octet() catch return .{ .status = .needs_input, .kind = kind };
         after_ascii = octet < constants.non_ascii_min;
-        if (try string_octet(decoder, octet, reader, writer)) |outcome| return outcome;
+        if (try string_octet(claims, decoder, octet, reader, writer)) |outcome| return outcome;
     }
     // Each pass that does not return takes at least one octet.
     unreachable;
 }
 
 /// Copies the run of plain ASCII octets a string carries as they are, as far as the output has room
-/// (claim J3). A non-ASCII character takes the scalar validation: the vector UTF-8 path of claim J5
-/// left the decoder (decision 27).
+/// (claim J3).
 fn copy_run(decoder: *const Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
     // An ASCII octet inside a character is not UTF-8, so after one the loop took, and after the
     // escape a reverse solidus starts, the check stands between characters.
@@ -58,18 +57,37 @@ fn copy_run(decoder: *const Decoder, reader: *codec.Reader, writer: *codec.Write
 /// Takes one octet of the content: the closing quotation mark, the start of an escape, or an octet
 /// the string carries as it is. Returns the call's outcome when the token ends or the output has no
 /// room for the octet, which it then leaves unread, and null when the content goes on.
-fn string_octet(decoder: *Decoder, octet: u8, reader: *codec.Reader, writer: *codec.Writer) Error!?Outcome {
+fn string_octet(comptime claims: Claims, decoder: *Decoder, octet: u8, reader: *codec.Reader, writer: *codec.Writer) Error!?Outcome {
     const kind = decoder_file.kind_of(decoder.open);
+    const between_characters = decoder.utf8.between_characters();
     const delimits = octet == constants.quotation_mark or octet == constants.reverse_solidus or octet < constants.unescaped_min;
-    if (delimits and decoder.utf8.between_characters()) return delimiter(decoder, octet);
+    if (delimits and between_characters) return delimiter(decoder, octet);
     if (writer.room_len() == 0) {
         reader.unread(1);
         return .{ .status = .needs_room, .kind = kind };
+    }
+    // Claim J5 starts past the delimiters, so text of ASCII runs what it runs with J5 off.
+    if (claims.decoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
+        reader.unread(1);
+        if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return null;
+        _ = reader.read_octet() catch unreachable;
     }
     // RFC 8259 §8.1 and RFC 3629 §4: a text is UTF-8.
     if (!decoder.utf8.accept(octet)) return error.InvalidUtf8;
     writer.write_octet(octet) catch unreachable;
     return null;
+}
+
+/// Copies the whole UTF-8 characters and plain ASCII octets that start the rest of the input, as
+/// far as the output has room, and returns how many octets it copied (claim J5). It copies none
+/// when the first character is not UTF-8, or the input or the room cuts it: the scalar validation
+/// then takes it.
+fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
+    const window = reader.take_partial(writer.room_len());
+    reader.unread(window.len);
+    const run = reader.take(scan.content_len_vector(constants.vector_len, window)) catch unreachable;
+    writer.write_all(run) catch unreachable;
+    return run.len;
 }
 
 /// Takes an octet that is not a string's content between characters: the closing quotation mark,
