@@ -1244,7 +1244,8 @@ to 12 are reordered and nothing else changes.
   - Mutations.
 
   A run names the commit it ran at on the json branch, which was then rebased onto main: there
-  f6f3e1f is 0023649, d8e68c3 is a67bdaa, 305af14 is 9b80395 and c31ad99 is 74254cc.
+  f6f3e1f is dbb411b, d8e68c3 is 2fa51a1, 305af14 is 50e98f5, c31ad99 is 828d5ed and 2252816 is
+  db35c61.
 
   **The profile, 2026-09-28.** `bench-profile` run
   [36472497642](https://github.com/c4milo/stdx/actions/runs/36472497642) at f6f3e1f, on a
