@@ -281,9 +281,9 @@ Change this section when a step adds or renames a command.
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
   fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
   and records it, and the `bench` workflow offers it.
-- CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine and writes the
-  report; `.github/workflows/main.yml` runs it on each push to main, on x86-64 and aarch64
-  (decision 19). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned
+- CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine, builds every
+  program with `zig build -Doracles`, and writes the report; `.github/workflows/main.yml` runs it
+  on each push to main, on x86-64 and aarch64 (decision 19). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned
   SHA-256.
 - Format: `zig fmt --check build.zig bench build src tools`, or `zig build fmt`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;

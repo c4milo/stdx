@@ -55,6 +55,9 @@ run_check "rfcs and specs" check_copies
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "test" zig build test
 run_check "oracle tests" zig build test-oracle -Doracles
+# Every program the build installs, the benchmarks included: no check above compiles bench/zstd or
+# bench/checksum, which run only when a person asks for numbers.
+run_check "build" zig build -Doracles
 run_check "fuzz, short" tools/fuzz.sh 20K fuzz-report.md
 run_check "oracle self-test" zig build oracle-selftest -Doracles
 run_check "differential checksum" zig build differential-checksum -Doracles
