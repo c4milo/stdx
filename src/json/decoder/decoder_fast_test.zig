@@ -56,7 +56,7 @@ const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xff";
 
 /// Requires two decoders to agree in every field a later call reads. The octets of `pending`
 /// past `pending_len` are never read.
-fn expect_same_state(fast: *const Decoder, checked: *const Decoder) !void {
+pub fn expect_same_state(fast: *const Decoder, checked: *const Decoder) !void {
     try testing.expect(fast.containers.eql(checked.containers));
     inline for (@typeInfo(Decoder).@"struct".fields) |field| {
         const skipped = comptime std.mem.eql(u8, field.name, "containers") or std.mem.eql(u8, field.name, "pending");
