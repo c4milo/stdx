@@ -87,7 +87,9 @@ const StdxDecode = struct {
     }
 };
 
-/// A decode of one raw DEFLATE stream by stdx's decoder on the paths `options` names, in one call.
+/// A decode of one raw DEFLATE stream by stdx's decoder on the paths `options` names, in one call,
+/// with the CPU's features, as the gzip decode takes them, so it runs the assembly of decision 29
+/// wherever the CPU does.
 fn RawDecode(comptime options: deflate.Options) type {
     return struct {
         const Self = @This();
@@ -95,10 +97,11 @@ fn RawDecode(comptime options: deflate.Options) type {
         stream: []const u8,
         output: []u8,
         decoder: *deflate.Decoder,
+        features: codec.Features,
 
         fn run_once(context: *const anyopaque) void {
             const self: *const Self = @ptrCast(@alignCast(context));
-            deflate.init(self.decoder, .{});
+            deflate.init(self.decoder, self.features);
             // Out of line, so every candidate's entry takes the same shape. LLVM inlines a function
             // by how many callers it has, and the gzip decoder and S10's decodes call all on's
             // entry through `deflate.decode`, so LLVM kept that one out of line and inlined each
@@ -229,11 +232,13 @@ fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file:
         .stream = stream,
         .output = try arena.alloc(u8, file.input.len),
         .decoder = try arena.create(deflate.Decoder),
+        .features = codec.Features.detect(),
     };
     const fast: RawDecode(.{}) = .{
         .stream = stream,
         .output = try arena.alloc(u8, file.input.len),
         .decoder = try arena.create(deflate.Decoder),
+        .features = codec.Features.detect(),
     };
     const candidates = [_]timing.Operation{
         .{ .context = &checked, .run_once = @TypeOf(checked).run_once },
@@ -266,7 +271,7 @@ fn raw_stream_with(arena: std.mem.Allocator, input: []const u8, strategy: oracle
 fn raw_candidate(comptime options: deflate.Options, arena: std.mem.Allocator, stream: []const u8, len: usize) !struct { timing.Operation, []const u8 } {
     const Candidate = RawDecode(options);
     const candidate = try arena.create(Candidate);
-    candidate.* = .{ .stream = stream, .output = try arena.alloc(u8, len), .decoder = try arena.create(deflate.Decoder) };
+    candidate.* = .{ .stream = stream, .output = try arena.alloc(u8, len), .decoder = try arena.create(deflate.Decoder), .features = codec.Features.detect() };
     return .{ .{ .context = candidate, .run_once = Candidate.run_once }, candidate.output };
 }
 
@@ -304,7 +309,7 @@ const SplitDecode = struct {
     fn run_once(context: *const anyopaque) void {
         const self: *const SplitDecode = @ptrCast(@alignCast(context));
         if (self.checksum_after) {
-            deflate.init(self.raw_decoder, .{});
+            deflate.init(self.raw_decoder, self.features);
             const written = split(deflate.Decoder, self.raw_decoder, deflate.decode, self.stream, self.output);
             const path = checksum.Crc32Path.fastest(checksum.Features.from(self.features));
             std.mem.doNotOptimizeAway(checksum.crc32(path, gzip.constants.crc32_initial, self.output[0..written]));
