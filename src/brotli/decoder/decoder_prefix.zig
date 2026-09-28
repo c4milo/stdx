@@ -149,19 +149,19 @@ fn build_code_length_code(state: *State) Error!void {
 }
 
 /// Code lengths of the alphabet's symbols, until their sum of 32768 >> length reaches 32768 (RFC
-/// 7932 §3.5): at least one that takes bits, or every one a code of no bits gives in a row.
+/// 7932 §3.5) or the input runs out.
 pub fn read_code_lengths(state: *State, bits: *codec.BitReader) Error!?codec.Status {
-    // A code length of no bits gives at least one length, so the alphabet ends the loop.
+    // Each code length symbol gives at least one length, so the alphabet ends the loop.
     for (0..state.reading.alphabet_len) |_| {
-        const taken = try read_code_length(state, bits) orelse return .needs_input;
-        if (state.phase != .code_lengths or taken > 0) return null;
+        try read_code_length(state, bits) orelse return .needs_input;
+        if (state.phase != .code_lengths) return null;
     }
     unreachable;
 }
 
-/// One code length symbol and its extra bits, and the lengths it gives; the bits it took, or null
-/// while they are not all present.
-fn read_code_length(state: *State, bits: *codec.BitReader) Error!?u7 {
+/// One code length symbol and its extra bits, and the lengths it gives; null while they are not all
+/// present.
+fn read_code_length(state: *State, bits: *codec.BitReader) Error!?void {
     const reading = &state.reading;
     _ = bits.ensure(constants.code_length_code_len_max + constants.repeat_zero_extra_bits);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
@@ -193,7 +193,6 @@ fn read_code_length(state: *State, bits: *codec.BitReader) Error!?u7 {
         // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
         return error.IncompleteCode;
     }
-    return decoded.len + extra_bits;
 }
 
 /// A code length of 0 to 15 for the next symbol.

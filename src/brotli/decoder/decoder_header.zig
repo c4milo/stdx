@@ -174,25 +174,23 @@ pub fn read_map_run_length(state: *State, bits: *codec.BitReader) ?codec.Status 
     return null;
 }
 
-/// Context map values (RFC 7932 §7.3): at least one that takes bits, or every one a code of no bits
-/// gives in a row.
+/// Context map values (RFC 7932 §7.3), until the map is whole or the input runs out.
 pub fn read_map_values(state: *State, bits: *codec.BitReader) Error!?codec.Status {
     const len = map_len(state, state.map_reading.map);
-    // A value of no bits gives at least one entry, so the map's length ends the loop.
+    // Each symbol gives at least one entry, so the map's length ends the loop.
     for (0..len + 1) |_| {
         if (state.map_reading.index == len) {
             state.phase = .map_inverse_transform;
             return null;
         }
-        const taken = try read_map_value(state, bits, len) orelse return .needs_input;
-        if (taken > 0) return null;
+        try read_map_value(state, bits, len) orelse return .needs_input;
     }
     unreachable;
 }
 
-/// One symbol of the map's code and its extra bits: a value, or a run of zeros (RFC 7932 §7.3). The
-/// bits it took, or null while they are not all present.
-fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?u7 {
+/// One symbol of the map's code and its extra bits: a value, or a run of zeros (RFC 7932 §7.3); null
+/// while they are not all present.
+fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?void {
     const reading = &state.map_reading;
     _ = bits.ensure(constants.code_len_max + constants.run_length_codes_max);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
@@ -208,7 +206,7 @@ fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?u7 {
         // RLEMAX + n is the value n; 0 is the value 0.
         entries[reading.index] = @intCast(if (decoded.value == 0) 0 else decoded.value - reading.run_length_codes);
         reading.index += 1;
-        return decoded.len;
+        return;
     }
     // A run of zeros, (1 << n) + n extra bits long.
     const extra_bits: u7 = @intCast(decoded.value);
@@ -220,7 +218,6 @@ fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?u7 {
     fill_zeros(entries, reading.index, run);
     count_work(state, 1 + run);
     reading.index += run;
-    return decoded.len + extra_bits;
 }
 
 /// Writes `count` zeros from `start`, which the caller has checked against the map's length.
