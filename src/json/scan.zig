@@ -225,8 +225,10 @@ pub fn content_len_vector(comptime width: usize, octets: []const u8) usize {
 /// The run the codecs take with claims J1 or J3 and J5 on: `plain_len_vector`'s, and past a
 /// non-ASCII octet, `content_len_vector`'s, in a call of its own. ASCII runs `plain_len_vector`'s
 /// loop and one compare, as with J5 off, and the UTF-8 blocks stay out of the codecs' loops. It
-/// returns what `content_len_vector` returns.
-pub fn string_run_len(comptime width: usize, octets: []const u8) usize {
+/// returns what `content_len_vector` returns. It is inline, as `plain_len_vector` is where the
+/// codecs call it: a call for every string cost the decoder a fifth of its speed on texts of short
+/// strings, in bench run 36379444100.
+pub inline fn string_run_len(comptime width: usize, octets: []const u8) usize {
     const plain = plain_len_vector(width, octets);
     if (plain == octets.len or octets[plain] < constants.non_ascii_min) return plain;
     return plain + @call(.never_inline, content_len_vector, .{ width, octets[plain..] });
