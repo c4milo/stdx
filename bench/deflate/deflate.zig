@@ -8,6 +8,7 @@
 //!   counts decoded octets. Each decoder's output is compared with the input before any is timed.
 //! - stdx's paths: its raw DEFLATE decoder with the fast path of decision 16 and on its checked
 //!   path alone, the A/B that admits the fast path, over the same streams without the container.
+//!   The checked path's decoder takes claims no other candidate takes (`checked_claims`).
 //! - Decision 14's claims: stdx's raw decoder with each claim off in turn against the decoder with
 //!   all on (design §8 step 7), each claim's A/B, reported as the ratio of the two throughputs.
 //!   S7's A/B also runs over streams zlib's fixed strategy encodes, since level 6 writes no fixed
@@ -98,10 +99,28 @@ fn RawDecode(comptime options: deflate.Options) type {
         fn run_once(context: *const anyopaque) void {
             const self: *const Self = @ptrCast(@alignCast(context));
             deflate.init(self.decoder, .{});
-            const progress = deflate.decode_with(options, self.decoder, self.stream, self.output) catch unreachable;
+            // Out of line, so every candidate's entry takes the same shape. LLVM inlines a function
+            // by how many callers it has, and the gzip decoder and S10's decodes call all on's
+            // entry through `deflate.decode`, so LLVM kept that one out of line and inlined each
+            // other candidate's here.
+            const progress = @call(.never_inline, deflate.decode_with, .{ options, self.decoder, self.stream, self.output }) catch unreachable;
             std.debug.assert(progress.status == .done and progress.written == self.output.len);
         }
     };
+}
+
+/// The claims of the checked path's candidate. Those its path reads, window-once, the comptime fixed
+/// tables and the tables' widths, stay as all on has them; word refill and chunk copies, which only
+/// the fast path reads, are off, so no other candidate takes this value. With all on's claims, the
+/// two decoders shared the checked path's functions over the claims, a block's header, a stored
+/// block's copy and a dynamic block's code lengths, and LLVM kept them out of line in both, where
+/// each claim candidate inlined its own.
+const checked_claims: deflate.Claims = .{ .word_refill = false, .chunk_copies = false };
+
+comptime {
+    // The checked path's candidate must not share a claim candidate's codec (`checked_claims`).
+    std.debug.assert(!std.meta.eql(checked_claims, deflate.Claims{}));
+    for (deflate.claims.each_off) |off| std.debug.assert(!std.meta.eql(off, checked_claims));
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -206,7 +225,7 @@ fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file:
     const encoded = try arena.alloc(u8, oracle.zlib_bound(.raw, file.input.len));
     const encoding: oracle.Encoding = .{ .container = .raw, .level = decode_level, .strategy = .default };
     const stream = encoded[0..oracle.zlib_encode(encoding, file.input, encoded).written];
-    const checked: RawDecode(.{ .fast_paths = false }) = .{
+    const checked: RawDecode(.{ .fast_paths = false, .claims = checked_claims }) = .{
         .stream = stream,
         .output = try arena.alloc(u8, file.input.len),
         .decoder = try arena.create(deflate.Decoder),
