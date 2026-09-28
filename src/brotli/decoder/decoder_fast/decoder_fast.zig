@@ -247,20 +247,27 @@ inline fn decode_chain(comptime claims: Claims, loop: *Loop, literal_tables: *Li
     unreachable;
 }
 
-/// An insert-and-copy symbol, after its block switch when its block is spent.
+/// An insert-and-copy symbol, after its block switch when its block is spent; then its extra bits,
+/// when the buffer holds them.
 inline fn on_command(comptime claims: Claims, loop: *Loop, state: *State) Link {
     if (commands.needs_switch(state, .insert_copy)) {
         block_switch(loop, state, .insert_copy);
         return if (ready(claims, loop)) .command else .stop;
     }
-    command(loop, state);
-    if (command_extra_bits(state) > loop.count) return .go_on;
-    return .command_extra;
+    const code = command(loop, state);
+    if (code.extra_bits > loop.count) return .go_on;
+    return extra_link(claims, loop, state, code);
+}
+
+/// The extra bits of a command the checked path or an earlier iteration started, from the codes it
+/// kept.
+inline fn on_command_extra(comptime claims: Claims, loop: *Loop, state: *State) Link {
+    return extra_link(claims, loop, state, commands.command_code_of(state.command.insert_code, state.command.copy_code));
 }
 
 /// The command's extra bits, then its literals, or its distance once the margins hold for it.
-inline fn on_command_extra(comptime claims: Claims, loop: *Loop, state: *State) Link {
-    if (command_extra(loop, state) == .stop) return .stop;
+inline fn extra_link(comptime claims: Claims, loop: *Loop, state: *State, code: commands.CommandCode) Link {
+    if (command_extra(loop, state, code) == .stop) return .stop;
     if (state.phase == .distance and !ready(claims, loop)) return .stop;
     return link_of(state.phase);
 }
@@ -323,30 +330,28 @@ inline fn block_switch(loop: *Loop, state: *State, category: Category) void {
     loop.take(code.extra_bits);
 }
 
-/// An insert-and-copy symbol (RFC 7932 §5).
-inline fn command(loop: *Loop, state: *State) void {
+/// An insert-and-copy symbol (RFC 7932 §5), its codes kept for the phases, and what they give.
+inline fn command(loop: *Loop, state: *State) commands.CommandCode {
     const blocks = commands.blocks_of(state, .insert_copy);
     const symbol = loop.decode(&state.insert_copy_codes[blocks.type_current]);
     commands.take_element(blocks);
-    commands.set_command_codes(&state.command, symbol);
+    const code = commands.command_codes[symbol];
+    state.command.insert_code = code.insert_code;
+    state.command.copy_code = code.copy_code;
+    state.command.last_distance = symbol < constants.insert_copy_last_distance_symbols;
     state.phase = .command_extra;
-}
-
-fn command_extra_bits(state: *const State) u32 {
-    return @as(u32, constants.insert_length_codes[state.command.insert_code].extra_bits) + constants.copy_length_codes[state.command.copy_code].extra_bits;
+    return code;
 }
 
 /// The insert and copy lengths' extra bits (RFC 7932 §5), and the phase after them.
-inline fn command_extra(loop: *Loop, state: *State) Next {
-    const insert = constants.insert_length_codes[state.command.insert_code];
-    const copy_code = constants.copy_length_codes[state.command.copy_code];
-    const extra = low_bits(loop.buffer, command_extra_bits(state));
-    const insert_len = insert.base + @as(u32, @intCast(low_bits(extra, insert.extra_bits)));
+inline fn command_extra(loop: *Loop, state: *State, code: commands.CommandCode) Next {
+    const extra = low_bits(loop.buffer, code.extra_bits);
+    const insert_len = code.insert_base + @as(u32, @intCast(low_bits(extra, code.insert_extra_bits)));
     // RFC 7932 §9.3: literals that would exceed MLEN; the checked path refuses them.
     if (insert_len > state.meta_block_left) return .stop;
-    loop.take(command_extra_bits(state));
+    loop.take(code.extra_bits);
     state.command.insert_left = insert_len;
-    state.command.copy_len = copy_code.base + @as(u32, @intCast(extra >> insert.extra_bits));
+    state.command.copy_len = code.copy_base + @as(u32, @intCast(extra >> code.insert_extra_bits));
     state.phase = if (insert_len > 0) .literal else commands.after_literals(state);
     return .go_on;
 }

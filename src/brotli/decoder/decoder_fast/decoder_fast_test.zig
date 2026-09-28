@@ -280,3 +280,38 @@ test "the dictionary's last words decode on the fast path, the last from its exa
     const dictionary = @import("../../dictionary.zig");
     try testing.expectEqualSlices(u8, dictionary.data[dictionary.data.len - last_words * last_word_len ..], output[0..whole.written]);
 }
+
+/// Symbols 32 and 128 (RFC 7932 §5): insert length 4 and copy length 2 at the last distance, which
+/// no distance code follows; then the first symbol that takes a distance code, insert length 0 and
+/// copy length 2. NDIRECT 1 makes its code 16 the distance 1.
+const implicit_symbol = 32;
+const explicit_symbol = 128;
+const one_direct_high = 1;
+const one_direct_alphabet_len = constants.distance_short_codes_count + one_direct_high + constants.distance_code_groups;
+
+fn distance_boundary_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.meta_block(true, "abcdabbb".len);
+    stream.simple_header(0, one_direct_high, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{ 'a', 'b', 'c', 'd' }, false);
+    // Symbol 32 takes the code 0 and symbol 128 the code 1.
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{ implicit_symbol, explicit_symbol }, false);
+    stream.simple_code(one_direct_alphabet_len, &.{constants.distance_short_codes_count}, false);
+    stream.put_code(0, 1);
+    for ("abcd") |literal| stream.put_code(literal - 'a', literal_code_bits);
+    stream.put_code(1, 1);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+
+test "the first symbol of a distance code takes its code, and the one before it the last distance" {
+    var stream: Stream = .{};
+    distance_boundary_stream(&stream);
+    // Room past the stream's octets, so that the fast path's margin holds.
+    var output: [512]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    const whole = try decoder.decode_all(stream.written(), &output);
+    // The last distance, 4, copies "ab"; distance 1 copies "b" twice.
+    try testing.expectEqualStrings("abcdabbb", output[0..whole.written]);
+}

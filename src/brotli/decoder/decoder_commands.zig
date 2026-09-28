@@ -103,16 +103,55 @@ pub fn read_command(state: *State, bits: *codec.BitReader) ?codec.Status {
     return null;
 }
 
-/// The insert length code and copy length code an insert-and-copy symbol gives (RFC 7932 §5): its
-/// cell of 64 names the first of each, and its bits 3 to 5 and 0 to 2 add to them.
+/// The insert length code and copy length code an insert-and-copy symbol gives (RFC 7932 §5), and
+/// whether it takes the last distance.
 pub fn set_command_codes(command: *state_module.Command, symbol: u16) void {
-    assert(symbol < constants.insert_copy_alphabet_len);
-    const cell = constants.insert_copy_cells[symbol >> constants.insert_copy_cell_bits];
-    const code_mask = (1 << constants.insert_copy_code_bits) - 1;
-    command.insert_code = cell.insert + @as(u8, @intCast((symbol >> constants.insert_copy_code_bits) & code_mask));
-    command.copy_code = cell.copy + @as(u8, @intCast(symbol & code_mask));
+    const code = command_codes[symbol];
+    command.insert_code = code.insert_code;
+    command.copy_code = code.copy_code;
     command.last_distance = symbol < constants.insert_copy_last_distance_symbols;
 }
+
+/// What an insert-and-copy symbol's codes give (RFC 7932 §5): the first insert length and copy
+/// length, the insert length's extra bits and both codes' together, and the codes.
+pub const CommandCode = struct {
+    insert_base: u32,
+    copy_base: u32,
+    insert_extra_bits: u5,
+    extra_bits: u6,
+    insert_code: u8,
+    copy_code: u8,
+};
+
+/// The codes an insert length code and a copy length code give.
+pub fn command_code_of(insert_code: u8, copy_code: u8) CommandCode {
+    const insert = constants.insert_length_codes[insert_code];
+    const copy = constants.copy_length_codes[copy_code];
+    return .{
+        .insert_base = insert.base,
+        .copy_base = copy.base,
+        .insert_extra_bits = insert.extra_bits,
+        .extra_bits = @as(u6, insert.extra_bits) + copy.extra_bits,
+        .insert_code = insert_code,
+        .copy_code = copy_code,
+    };
+}
+
+/// The comptime branches `command_codes` takes at most: a few for each of the 704 symbols.
+const command_codes_branch_quota = 10_000;
+
+/// Each insert-and-copy symbol's codes, at comptime: its cell of 64 names the first insert length
+/// code and copy length code, and its bits 3 to 5 and 0 to 2 add to them (RFC 7932 §5).
+pub const command_codes: [constants.insert_copy_alphabet_len]CommandCode = codes: {
+    @setEvalBranchQuota(command_codes_branch_quota);
+    const code_mask = (1 << constants.insert_copy_code_bits) - 1;
+    var codes: [constants.insert_copy_alphabet_len]CommandCode = undefined;
+    for (&codes, 0..) |*code, symbol| {
+        const cell = constants.insert_copy_cells[symbol >> constants.insert_copy_cell_bits];
+        code.* = command_code_of(cell.insert + ((symbol >> constants.insert_copy_code_bits) & code_mask), cell.copy + (symbol & code_mask));
+    }
+    break :codes codes;
+};
 
 /// The insert and copy lengths' extra bits, together (RFC 7932 §5).
 pub fn read_command_extra(state: *State, bits: *codec.BitReader) Error!?codec.Status {
