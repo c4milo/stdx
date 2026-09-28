@@ -52,10 +52,16 @@ pub const Verdict = union(enum) {
     refused: decoder_file.Error,
 };
 
-/// Decodes `input` one token a call, all of it the text's last piece, under `claims_used`.
+/// Decodes `input` one token a call, all of it the text's last piece, under `claims_used` and the
+/// host's features.
 pub fn decode_whole(comptime claims_used: claims.Claims, framing: Framing, input: []const u8, transcript: *Transcript) Verdict {
+    return decode_whole_with(claims_used, codec.Features.detect(), framing, input, transcript);
+}
+
+/// `decode_whole` under `features`.
+pub fn decode_whole_with(comptime claims_used: claims.Claims, features: codec.Features, framing: Framing, input: []const u8, transcript: *Transcript) Verdict {
     var decoder: Decoder = undefined;
-    decoder.init(framing);
+    decoder.init(framing, features);
     var output: [content_len_max]u8 = undefined;
     var consumed: usize = 0;
     for (0..input.len + whole_calls_extra) |_| {
@@ -76,7 +82,7 @@ pub fn decode_whole(comptime claims_used: claims.Claims, framing: Framing, input
 pub fn decode_split(framing: Framing, input: []const u8, seed: u64, transcript: *Transcript) !Verdict {
     var schedule = codec.split.Schedule.init(seed);
     var states: [codec.split.state_slots]Decoder = undefined;
-    states[0].init(framing);
+    states[0].init(framing, codec.Features.detect());
     var slot: usize = 0;
     var drive: SplitDrive = .{ .input = input, .transcript = transcript };
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
@@ -241,7 +247,7 @@ test "a sequence's texts decode one at a time (RFC 7464 §2.1)" {
     try expect_tokens(.sequence, "\x1etrue ", "true \n");
     var storage: [16]u8 = undefined;
     const log = "\x1e{\"n\":1}\n\x1e\x1e[2]\n\x1e\"three\"\n\x1e4\n";
-    var reader = text_reader.TextReader.init(log, &storage, .sequence);
+    var reader = text_reader.TextReader.init(log, &storage, .sequence, codec.Features.detect());
     var texts: usize = 0;
     var tokens: usize = 0;
     while (reader.next_text()) : (texts += 1) {
@@ -254,7 +260,7 @@ test "a sequence's texts decode one at a time (RFC 7464 §2.1)" {
 
 test "the whole-buffer reader gives each token's octets, and says when a text or its storage ends" {
     var storage: [8]u8 = undefined;
-    var reader = text_reader.TextReader.init("{\"key\":[\"value\",-1.5]}", &storage, .text);
+    var reader = text_reader.TextReader.init("{\"key\":[\"value\",-1.5]}", &storage, .text, codec.Features.detect());
     try testing.expect(reader.next_text());
     try testing.expectEqual(.begin_object, try reader.next());
     try testing.expectEqualStrings("key", (try reader.next()).?.name);
@@ -266,12 +272,12 @@ test "the whole-buffer reader gives each token's octets, and says when a text or
     try testing.expectEqual(null, try reader.next());
     try testing.expect(!reader.next_text());
 
-    reader = text_reader.TextReader.init("[\"longer than eight\"]", &storage, .text);
+    reader = text_reader.TextReader.init("[\"longer than eight\"]", &storage, .text, codec.Features.detect());
     try testing.expect(reader.next_text());
     try testing.expectEqual(.begin_array, try reader.next());
     try testing.expectError(error.NoSpaceLeft, reader.next());
 
-    reader = text_reader.TextReader.init("{\"a\":", &storage, .text);
+    reader = text_reader.TextReader.init("{\"a\":", &storage, .text, codec.Features.detect());
     try testing.expect(reader.next_text());
     try testing.expectEqual(.begin_object, try reader.next());
     try testing.expectEqualStrings("a", (try reader.next()).?.name);
@@ -294,7 +300,7 @@ test "every cut of a text before its end is truncated, and the whole text is don
 
 test "a number at the end of the input ends there only when the input is the text's last" {
     var decoder: Decoder = undefined;
-    decoder.init(.text);
+    decoder.init(.text, codec.Features.detect());
     var output: [8]u8 = undefined;
     var progress = try decoder.decode("12", &output, .more);
     try testing.expectEqual(.needs_input, progress.status);

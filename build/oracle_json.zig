@@ -15,6 +15,7 @@ pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, graph: modules.M
     });
     module.addImport("timing", timing);
     module.addImport("json", graph.json);
+    module.addImport("codec", graph.codec);
     // The baselines of decision 27: simdjson and yyjson from C and C++, and Zig's std.json, each
     // built for the host in ReleaseFast, as the codecs' baselines are.
     const abi = b.createModule(.{ .root_source_file = b.path("bench/json/baselines/baselines_abi.zig") });

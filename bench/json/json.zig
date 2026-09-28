@@ -27,6 +27,7 @@
 const std = @import("std");
 const timing = @import("timing");
 const json = @import("json");
+const codec = @import("codec");
 const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
 const baselines = @import("baselines/baselines.zig");
@@ -58,20 +59,21 @@ fn Decode(comptime claims: json.Claims) type {
         const Self = @This();
         workload: *const Workload,
         output: []u8,
+        features: codec.Features,
 
         fn run_once(context: *const anyopaque) void {
             const self: *const Self = @ptrCast(@alignCast(context));
-            std.mem.doNotOptimizeAway(decode(claims, self.workload, self.output));
+            std.mem.doNotOptimizeAway(decode(claims, self.workload, self.output, self.features));
         }
     };
 }
 
 /// Decodes every text of `workload` and returns the tally of its tokens.
-fn decode(comptime claims: json.Claims, workload: *const Workload, output: []u8) abi.Tally {
+fn decode(comptime claims: json.Claims, workload: *const Workload, output: []u8, features: codec.Features) abi.Tally {
     var tally: abi.Tally = .{};
     for (workload.texts) |text| {
         var decoder: json.Decoder = undefined;
-        decoder.init(workload.framing);
+        decoder.init(workload.framing, features);
         var consumed: usize = 0;
         for (0..text.len + 2) |_| {
             // Inline, so every candidate's loop takes the same shape (below, in `encode`).
@@ -90,11 +92,11 @@ fn decode(comptime claims: json.Claims, workload: *const Workload, output: []u8)
 
 /// Decodes every text of `workload` and returns a hash of its tokens, so candidates compare
 /// before any is timed.
-fn tokens_hash(comptime claims: json.Claims, workload: *const Workload, output: []u8) u64 {
+fn tokens_hash(comptime claims: json.Claims, workload: *const Workload, output: []u8, features: codec.Features) u64 {
     var hash = std.hash.Wyhash.init(0);
     for (workload.texts) |text| {
         var decoder: json.Decoder = undefined;
-        decoder.init(workload.framing);
+        decoder.init(workload.framing, features);
         var consumed: usize = 0;
         for (0..text.len + 2) |_| {
             // Inline, so every candidate's loop takes the same shape (below, in `encode`).
@@ -120,20 +122,21 @@ fn Encode(comptime claims: json.Claims) type {
         const Self = @This();
         workload: *const Workload,
         output: []u8,
+        features: codec.Features,
 
         fn run_once(context: *const anyopaque) void {
             const self: *const Self = @ptrCast(@alignCast(context));
-            std.mem.doNotOptimizeAway(encode(claims, self.workload, self.output));
+            std.mem.doNotOptimizeAway(encode(claims, self.workload, self.output, self.features));
         }
     };
 }
 
 /// Encodes every text of `workload` into `output` and returns how many octets it wrote.
-fn encode(comptime claims: json.Claims, workload: *const Workload, output: []u8) usize {
+fn encode(comptime claims: json.Claims, workload: *const Workload, output: []u8, features: codec.Features) usize {
     var written: usize = 0;
     for (workload.items) |items| {
         var encoder: json.Encoder = undefined;
-        encoder.init(workload.framing);
+        encoder.init(workload.framing, features);
         for (items) |item| {
             // Inline, so every candidate's loop takes the same shape. LLVM inlines a codec by how
             // many callers it has, and in bench run 36411317000 the workloads' own calls gave two
@@ -174,14 +177,15 @@ const Side = struct {
 /// them too.
 fn decoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *const baselines.Prepared) !Side {
     const output = try arena.alloc(u8, @max(workload.content_len_max, 1));
+    const features = codec.Features.detect();
     var side: Side = .{ .operations = undefined, .octets = workload.octets };
-    const reference = decode(json.claims.scalar, workload, output);
-    const reference_hash = tokens_hash(json.claims.scalar, workload, output);
+    const reference = decode(json.claims.scalar, workload, output, features);
+    const reference_hash = tokens_hash(json.claims.scalar, workload, output, features);
     inline for (candidates, 0..) |claims, index| {
         const state = try arena.create(Decode(claims));
-        state.* = .{ .workload = workload, .output = output };
-        if (!std.meta.eql(decode(claims, workload, output), reference)) return error.CandidatesDiffer;
-        if (tokens_hash(claims, workload, output) != reference_hash) return error.CandidatesDiffer;
+        state.* = .{ .workload = workload, .output = output, .features = features };
+        if (!std.meta.eql(decode(claims, workload, output, features), reference)) return error.CandidatesDiffer;
+        if (tokens_hash(claims, workload, output, features) != reference_hash) return error.CandidatesDiffer;
         side.operations[index] = .{ .context = state, .run_once = Decode(claims).run_once };
     }
     side.operations[candidate_count..].* = try baselines.decode_operations(prepared, reference);
@@ -194,12 +198,13 @@ fn encoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *cons
     var output_len: usize = 0;
     for (workload.items) |items| output_len += workloads.encoded_len_max(items);
     const output = try arena.alloc(u8, output_len);
-    const reference = try arena.dupe(u8, output[0..encode(json.claims.scalar, workload, output)]);
+    const features = codec.Features.detect();
+    const reference = try arena.dupe(u8, output[0..encode(json.claims.scalar, workload, output, features)]);
     var side: Side = .{ .operations = undefined, .octets = reference.len };
     inline for (candidates, 0..) |claims, index| {
         const state = try arena.create(Encode(claims));
-        state.* = .{ .workload = workload, .output = output };
-        const len = encode(claims, workload, output);
+        state.* = .{ .workload = workload, .output = output, .features = features };
+        const len = encode(claims, workload, output, features);
         if (!std.mem.eql(u8, reference, output[0..len])) return error.CandidatesDiffer;
         side.operations[index] = .{ .context = state, .run_once = Encode(claims).run_once };
     }

@@ -32,10 +32,16 @@ pub fn with(comptime kind: std.meta.Tag(Token), octets: []const u8) Item {
     return .{ .token = @unionInit(Token, @tagName(kind), .last), .octets = octets };
 }
 
-/// Encodes `items` one call each, with all the room left, under `claims_used`.
+/// Encodes `items` one call each, with all the room left, under `claims_used` and the host's
+/// features.
 pub fn encode_whole(comptime claims_used: claims.Claims, framing: Framing, items: []const Item, output: []u8) !usize {
+    return encode_whole_with(claims_used, codec.Features.detect(), framing, items, output);
+}
+
+/// `encode_whole` under `features`.
+pub fn encode_whole_with(comptime claims_used: claims.Claims, features: codec.Features, framing: Framing, items: []const Item, output: []u8) !usize {
     var encoder: Encoder = undefined;
-    encoder.init(framing);
+    encoder.init(framing, features);
     var written: usize = 0;
     for (items, 0..) |item, index| {
         const progress = try encoder.encode_with(claims_used, item.token, item.octets, output[written..]);
@@ -52,7 +58,7 @@ pub fn encode_whole(comptime claims_used: claims.Claims, framing: Framing, items
 /// returns the octets written or the first error.
 pub fn encode_split(framing: Framing, items: []const Item, output: []u8, seed: u64) !usize {
     var drive: EncodeDrive = .{ .schedule = codec.split.Schedule.init(seed), .output = output };
-    drive.states[0].init(framing);
+    drive.states[0].init(framing, codec.Features.detect());
     for (items) |item| {
         if (try drive.token(item)) return drive.written;
     }
@@ -246,10 +252,10 @@ test "a number's text that is not one number is refused (RFC 8259 §6)" {
 test "an object or an array past depth_max is refused, and depth_max is written (RFC 8259 §9)" {
     var output: [text_len_max]u8 = undefined;
     var encoder: Encoder = undefined;
-    encoder.init(.text);
+    encoder.init(.text, codec.Features.detect());
     for (0..constants.depth_max) |_| _ = try encoder.encode(.begin_array, "", &output);
     try testing.expectError(error.DepthTooLarge, encoder.encode(.begin_array, "", &output));
-    encoder.init(.text);
+    encoder.init(.text, codec.Features.detect());
     for (0..constants.depth_max - 1) |_| _ = try encoder.encode(.begin_array, "", &output);
     _ = try encoder.encode(.begin_object, "", &output);
     _ = try encoder.encode(.{ .name = .last }, "n", &output);
@@ -278,7 +284,7 @@ test "a whole-buffer text fails without writing past the buffer at every shorter
     };
     for (0..expected.len + 1) |len| {
         @memset(&buffer, 0xaa);
-        var text = TextWriter.init(buffer[0..len], .text);
+        var text = TextWriter.init(buffer[0..len], .text, codec.Features.detect());
         const result = Record.write(&text);
         if (len < expected.len) {
             try testing.expectError(error.NoSpaceLeft, result);

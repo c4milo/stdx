@@ -94,8 +94,8 @@ const Lockstep = struct {
 /// Decodes `input` in lockstep, whole when `seed` is null and else under its split.
 fn expect_lockstep(comptime pair: Pair, framing: Framing, input: []const u8, seed: ?u64) !void {
     var lockstep: Lockstep = .{ .fast = undefined, .checked = undefined };
-    lockstep.fast.init(framing);
-    lockstep.checked.init(framing);
+    lockstep.fast.init(framing, codec.Features.detect());
+    lockstep.checked.init(framing, codec.Features.detect());
     var schedule = codec.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
     for (0..calls_max) |_| {
@@ -126,7 +126,7 @@ test "the fast path takes each token of the texts as the checked path does, whol
 /// took: before each call between tokens, a copy of the decoder tries it.
 fn tokens_taken_fast(framing: Framing, text: []const u8) !usize {
     var decoder: Decoder = undefined;
-    decoder.init(framing);
+    decoder.init(framing, codec.Features.detect());
     var output: [content_len_max]u8 = undefined;
     var consumed: usize = 0;
     var taken: usize = 0;
@@ -168,7 +168,7 @@ test "a number and a string that fill the output exactly are taken, and one octe
     };
     for (cases) |case| {
         var decoder: Decoder = undefined;
-        decoder.init(.text);
+        decoder.init(.text, codec.Features.detect());
         var output: [content_len_max]u8 = undefined;
         _ = try decoder.decode_with(claims.scalar, "[", &output, .more);
         const before = decoder;

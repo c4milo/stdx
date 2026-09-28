@@ -76,8 +76,13 @@ pub const Program = struct {
     }
 };
 
+/// The feature sets each text is encoded and decoded under: none, the build target's and the
+/// host's. Each must give the same octets and tokens (decision 29, invariant 5).
+const feature_sets = [_]*const fn () codec.Features{ codec.Features.none, codec.Features.target, codec.Features.detect };
+
 /// Encodes `program` whole and under splits, requires the reference parser to accept the text and
-/// the decoder to give back the program's tokens, whole and under splits.
+/// the decoder to give back the program's tokens, whole and under splits, and every feature set
+/// to give the same.
 fn check(framing: Framing, program: *const Program, seed: u64) !void {
     const items = program.items[0..program.count];
     var text: [text_len_max]u8 = undefined;
@@ -94,6 +99,17 @@ fn check(framing: Framing, program: *const Program, seed: u64) !void {
     try testing.expectEqual(decoder_test.Verdict.done, decoder_test.decode_whole(.{}, framing, text[0..text_len], &transcript));
     try testing.expectEqualStrings(program.expected.slice(), transcript.slice());
     try testing.expectEqual(decoder_test.Verdict.done, try decoder_test.expect_consistent(framing, text[0..text_len], case_seeds));
+    for (feature_sets) |features_of| try expect_alike_under(features_of(), framing, program, text[0..text_len]);
+}
+
+/// Requires `program` to encode to `text` under `features`, and `text` to decode to its tokens.
+fn expect_alike_under(features: codec.Features, framing: Framing, program: *const Program, text: []const u8) !void {
+    var other: [text_len_max]u8 = undefined;
+    const other_len = try encoder_test.encode_whole_with(.{}, features, framing, program.items[0..program.count], &other);
+    try testing.expectEqualStrings(text, other[0..other_len]);
+    var transcript: decoder_test.Transcript = .{};
+    try testing.expectEqual(decoder_test.Verdict.done, decoder_test.decode_whole_with(.{}, features, framing, text, &transcript));
+    try testing.expectEqualStrings(program.expected.slice(), transcript.slice());
 }
 
 /// Draws a list of tokens from any source with a `below(bound)`: a seed's generator or the fuzzer's

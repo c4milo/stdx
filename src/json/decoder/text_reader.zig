@@ -43,8 +43,9 @@ pub const TextReader = struct {
     started: bool,
     ended: bool,
 
-    /// Reads the texts `input` holds, writing names, strings and numbers into `storage`.
-    pub fn init(input: []const u8, storage: []u8, framing: Framing) TextReader {
+    /// Reads the texts `input` holds, writing names, strings and numbers into `storage`, with the
+    /// caller's CPU features (`Decoder.init`).
+    pub fn init(input: []const u8, storage: []u8, framing: Framing, features: codec.Features) TextReader {
         var reader: TextReader = .{
             .decoder = undefined,
             .input = input,
@@ -54,7 +55,7 @@ pub const TextReader = struct {
             .started = false,
             .ended = false,
         };
-        reader.decoder.init(framing);
+        reader.decoder.init(framing, features);
         return reader;
     }
 
@@ -67,7 +68,7 @@ pub const TextReader = struct {
         }
         assert(self.ended);
         if (self.framing == .text or self.consumed == self.input.len) return false;
-        self.decoder.init(self.framing);
+        self.decoder.init(self.framing, self.decoder.features);
         self.ended = false;
         return true;
     }

@@ -64,13 +64,16 @@ check lands with its step.
 ### INV-5: an output is a pure function of the input and the parameters
 
 - **Claim.** A decoder's output and verdict depend on the input octets alone. An encoder's output
-  depends on its input, its level and its flush points alone: not on the host, the build mode, or
-  how the caller split the input and the output across calls.
+  depends on its input, its level and its flush points alone: not on the host, the CPU features
+  the caller passes, the build mode, or how the caller split the input and the output across
+  calls.
 - **Mechanism.** INV-3 and INV-10; an encoder decides a block's contents from the octets it holds,
   never from how many arrived in the last call (decision 11).
 - **Check.** Seeded check (decision 15): the same input under many seeded splits gives the same
   octets; the SHA-256 of every encoder output over the corpora is committed and must match on macOS
-  arm64 and Linux x86_64, in Debug and ReleaseSafe. Steps 5 and 9.
+  arm64 and Linux x86_64, in Debug and ReleaseSafe. Steps 5 and 9. The `json` module's round trip
+  requires the same octets and tokens under `codec.Features.none()`, `target()` and `detect()`
+  (decision 29, `src/json/round_trip_test.zig`).
 - **Violation.** An encoder that ends a block when its input buffer runs dry, so a caller feeding
   one octet at a time gets different octets.
 

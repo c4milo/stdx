@@ -157,9 +157,12 @@ pub const Decoder = struct {
     pending: [constants.utf8_len_max]u8,
     pending_len: u8,
     pending_written: u8,
+    /// The caller's CPU features, which pick the width of the vector paths (decision 29).
+    features: codec.Features,
 
-    /// Starts a text. `init` again after `done` or after an error.
-    pub fn init(self: *Decoder, framing: Framing) void {
+    /// Starts a text, with the CPU features the caller detected once or took from the build
+    /// target (`codec.Features`). `init` again after `done` or after an error.
+    pub fn init(self: *Decoder, framing: Framing, features: codec.Features) void {
         self.* = .{
             .containers = .initEmpty(),
             .depth = 0,
@@ -178,6 +181,7 @@ pub const Decoder = struct {
             .pending = undefined,
             .pending_len = 0,
             .pending_written = 0,
+            .features = features,
         };
     }
 

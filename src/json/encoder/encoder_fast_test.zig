@@ -116,8 +116,8 @@ const Lockstep = struct {
 /// Encodes `items` in lockstep, whole when `seed` is null and else under its split.
 fn expect_lockstep(comptime pair: Pair, framing: Framing, items: []const Item, seed: ?u64) !void {
     var lockstep: Lockstep = .{ .fast = undefined, .checked = undefined };
-    lockstep.fast.init(framing);
-    lockstep.checked.init(framing);
+    lockstep.fast.init(framing, codec.Features.detect());
+    lockstep.checked.init(framing, codec.Features.detect());
     var schedule = codec.split.Schedule.init(seed orelse 0);
     for (items) |item| {
         if (!try lockstep.item_call(pair, &schedule, seed != null, item)) return;
@@ -178,7 +178,7 @@ test "the fast path leaves escapes, non-ASCII octets and refusals to the checked
 /// wrote: before each call, a copy of the encoder tries it.
 fn tokens_written_fast(framing: Framing, items: []const Item) !usize {
     var encoder: Encoder = undefined;
-    encoder.init(framing);
+    encoder.init(framing, codec.Features.detect());
     var output: [text_len_max]u8 = undefined;
     var written: usize = 0;
     var taken: usize = 0;
@@ -208,7 +208,7 @@ test "a token that fills the output exactly is written, and one octet more is no
     };
     for (cases) |case| {
         var encoder: Encoder = undefined;
-        encoder.init(.text);
+        encoder.init(.text, codec.Features.detect());
         const before = encoder;
         var output: [text_len_max]u8 = undefined;
         var reader = codec.Reader.init(case.item.octets);

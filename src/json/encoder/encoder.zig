@@ -101,9 +101,12 @@ pub const Encoder = struct {
     utf8: Utf8,
     /// Where a number's text stands in RFC 8259 §6's grammar.
     number: Number,
+    /// The caller's CPU features, which pick the width of the vector paths (decision 29).
+    features: codec.Features,
 
-    /// Starts a text. `init` again after `done` or after an error.
-    pub fn init(self: *Encoder, framing: Framing) void {
+    /// Starts a text, with the CPU features the caller detected once or took from the build
+    /// target (`codec.Features`). `init` again after `done` or after an error.
+    pub fn init(self: *Encoder, framing: Framing, features: codec.Features) void {
         self.* = .{
             .containers = .initEmpty(),
             .depth = 0,
@@ -117,6 +120,7 @@ pub const Encoder = struct {
             .pending_written = 0,
             .utf8 = .{},
             .number = .{},
+            .features = features,
         };
     }
 

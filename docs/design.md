@@ -1324,6 +1324,11 @@ to 12 are reordered and nothing else changes.
 
   The reset of the UTF-8 check left for an assertion, as J8's did.
 
+  **The API, 2026-09-28.** `Decoder.init`, `Encoder.init`, `TextWriter.init` and `TextReader.init`
+  take the caller's `codec.Features` last, and each state keeps them (decision 29). The kernels of
+  J7's wider levels come after. `round_trip_test.zig` requires `none()`, `target()` and `detect()`
+  to give the same octets and tokens, as invariant 5 now states.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

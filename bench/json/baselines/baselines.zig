@@ -17,6 +17,7 @@
 
 const std = @import("std");
 const json = @import("json");
+const codec = @import("codec");
 const timing = @import("timing");
 const abi = @import("abi");
 const std_json = @import("std_json_baseline");
@@ -287,7 +288,7 @@ fn check_encoded(prepared: *const Prepared, workload: *const Workload, storage: 
 /// What stdx's decoder counts in `text`, with the workloads' claims (json_workloads.zig).
 fn tally_of(text: []const u8, framing: json.Framing, storage: []u8) !abi.Tally {
     var decoder: json.Decoder = undefined;
-    decoder.init(framing);
+    decoder.init(framing, codec.Features.detect());
     var tally: abi.Tally = .{};
     var consumed: usize = 0;
     for (0..text.len + 1) |_| {
