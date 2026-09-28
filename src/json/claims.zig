@@ -15,11 +15,12 @@ pub const Claims = struct {
     /// J3: the decoder finds the run of a name's or a string's octets up to the next quotation mark,
     /// reverse solidus, control character or non-ASCII octet a vector at a time.
     decoder_string_vectors: bool = constants.vectors,
-    /// J4: the decoder skips whitespace a vector at a time.
-    whitespace_vectors: bool = constants.vectors,
-    /// J5: in the runs J1 and J3 find, UTF-8 is validated a vector at a time, so a run goes on past
-    /// non-ASCII characters. Off, each non-ASCII character takes the scalar validation of
-    /// `utf8.zig`.
+    /// J5: where the runs J1 and J3 find stop at a non-ASCII octet, UTF-8 is validated a vector at
+    /// a time, so a run goes on past non-ASCII characters. Off, each non-ASCII character takes the
+    /// scalar validation of `utf8.zig`.
+    ///
+    /// J4, whitespace skipped a vector at a time, left with its code: on the N2 it lost 14% of the
+    /// decoder's speed over CLDR's texts and qlog's records, and won nowhere (decision 27).
     utf8_vectors: bool = constants.vectors,
 };
 
@@ -28,7 +29,6 @@ pub const scalar: Claims = .{
     .encoder_string_vectors = false,
     .hex_vectors = false,
     .decoder_string_vectors = false,
-    .whitespace_vectors = false,
     .utf8_vectors = false,
 };
 
@@ -37,7 +37,6 @@ pub const vector: Claims = .{
     .encoder_string_vectors = true,
     .hex_vectors = true,
     .decoder_string_vectors = true,
-    .whitespace_vectors = true,
     .utf8_vectors = true,
 };
 
@@ -46,7 +45,6 @@ pub const each_off = [_]Claims{
     .{ .encoder_string_vectors = false },
     .{ .hex_vectors = false },
     .{ .decoder_string_vectors = false },
-    .{ .whitespace_vectors = false },
     .{ .utf8_vectors = false },
 };
 
@@ -55,6 +53,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "J1 encoder string vectors",
     "J2 hex vectors",
     "J3 decoder string vectors",
-    "J4 whitespace vectors",
     "J5 UTF-8 vectors",
 };

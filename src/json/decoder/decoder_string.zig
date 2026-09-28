@@ -40,7 +40,7 @@ fn copy_run(comptime claims: Claims, reader: *codec.Reader, writer: *codec.Write
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
     const run_len = if (claims.utf8_vectors)
-        scan.content_len_vector(constants.vector_len, window)
+        scan.string_run_len(constants.vector_len, window)
     else
         scan.plain_len_vector(constants.vector_len, window);
     const run = reader.take(run_len) catch unreachable;

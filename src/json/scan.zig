@@ -52,7 +52,8 @@ pub fn content_len_scalar(octets: []const u8) usize {
     return index;
 }
 
-/// The run of whitespace that starts `octets`, an octet at a time (claim J4 off).
+/// The run of whitespace that starts `octets`, an octet at a time. Claim J4's vector path lost to
+/// it and left (decision 27).
 pub fn whitespace_len_scalar(octets: []const u8) usize {
     for (octets, 0..) |octet, index| {
         if (!is_whitespace(octet)) return index;
@@ -221,6 +222,16 @@ pub fn content_len_vector(comptime width: usize, octets: []const u8) usize {
     unreachable;
 }
 
+/// The run the codecs take with claims J1 or J3 and J5 on: `plain_len_vector`'s, and past a
+/// non-ASCII octet, `content_len_vector`'s, in a call of its own. ASCII runs `plain_len_vector`'s
+/// loop and one compare, as with J5 off, and the UTF-8 blocks stay out of the codecs' loops. It
+/// returns what `content_len_vector` returns.
+pub fn string_run_len(comptime width: usize, octets: []const u8) usize {
+    const plain = plain_len_vector(width, octets);
+    if (plain == octets.len or octets[plain] < constants.non_ascii_min) return plain;
+    return plain + @call(.never_inline, content_len_vector, .{ width, octets[plain..] });
+}
+
 /// What `utf8_run` took: whole characters, and whether a block of ASCII ended them.
 const Run = struct { len: usize, ascii_next: bool };
 
@@ -239,24 +250,6 @@ fn utf8_run(comptime width: usize, octets: []const u8) Run {
         if (!any(width, block >= splat(width, constants.non_ascii_min))) return .{ .len = index, .ascii_next = true };
     }
     return .{ .len = index - cut_character_len(octets[0..index]), .ascii_next = false };
-}
-
-/// `whitespace_len_scalar`, `width` octets at a time (claim J4). Most tokens follow the one before
-/// with no whitespace between them, so the first octet is tested alone before any block is loaded.
-pub fn whitespace_len_vector(comptime width: usize, octets: []const u8) usize {
-    if (octets.len == 0 or !is_whitespace(octets[0])) return 0;
-    var index: usize = 0;
-    for (0..octets.len / width) |_| {
-        const block = load(width, octets[index..]);
-        const space = block == splat(width, constants.space);
-        const horizontal_tab = block == splat(width, constants.horizontal_tab);
-        const line_feed = block == splat(width, constants.line_feed);
-        const carriage_return = block == splat(width, constants.carriage_return);
-        const others = !(space | horizontal_tab | line_feed | carriage_return);
-        if (any(width, others)) return index + first_lane(width, others);
-        index += width;
-    }
-    return index + whitespace_len_scalar(octets[index..]);
 }
 
 /// `hex_len_scalar`, `width` octets at a time (claim J2): each nibble plus `'0'`, and plus the

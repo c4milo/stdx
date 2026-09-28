@@ -226,7 +226,7 @@ pub const Decoder = struct {
             .tokens => {},
             .done, .refused => unreachable,
         }
-        const whitespace = skip_whitespace(claims, reader);
+        const whitespace = skip_whitespace(reader);
         if (whitespace > 0 and self.expect == .end_of_text) self.value_delimited = true;
         const octet = reader.read_octet() catch return try self.end_of_input(piece);
         if (self.framing == .sequence and octet == constants.record_separator) {
@@ -421,17 +421,11 @@ pub fn kind_of(open: Open) Kind {
     };
 }
 
-/// Takes the whitespace at the reader's position (RFC 8259 §2), and returns how much. Most tokens
-/// follow the one before with none between them, so the first octet is tested here, before either
-/// path is called.
-fn skip_whitespace(comptime claims: Claims, reader: *codec.Reader) usize {
+/// Takes the whitespace at the reader's position (RFC 8259 §2), and returns how much.
+fn skip_whitespace(reader: *codec.Reader) usize {
     const window = reader.take_partial(reader.remaining_len());
     reader.unread(window.len);
-    if (window.len == 0 or !scan.is_whitespace(window[0])) return 0;
-    const len = if (claims.whitespace_vectors)
-        scan.whitespace_len_vector(constants.vector_len, window)
-    else
-        scan.whitespace_len_scalar(window);
+    const len = scan.whitespace_len_scalar(window);
     _ = reader.take(len) catch unreachable;
     return len;
 }
