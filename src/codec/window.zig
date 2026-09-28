@@ -75,6 +75,14 @@ pub fn Window(comptime capacity: usize) type {
             @memcpy(into[first_len..], self.octets[0 .. into.len - first_len]);
         }
 
+        /// The ring's index of the octet `distance` back. The octets after it, in order, are at the
+        /// indices that follow it modulo `capacity`. The caller has refused every distance past
+        /// `reach()` (invariant 10).
+        pub fn ring_index(self: *const Self, distance: usize) usize {
+            assert(distance >= 1 and distance <= self.filled_len);
+            return (self.position + capacity - distance) & (capacity - 1);
+        }
+
         /// The ring from the octet `distance` back to the ring's end. Its first `distance` octets,
         /// or all of it when the history wraps past the ring's end, are the history from there, in
         /// order; the rest is the ring's older octets, which a caller may read but not use. The

@@ -2,17 +2,22 @@
 //! match copy of S4, which decision 16's table names.
 //!
 //! The loop runs while at least `input_slack` octets of input and `output_slack` octets of output
-//! room remain, checked once at the top of each iteration. It refills a 64-bit bit buffer with one
-//! 8-octet little-endian load (S1), decodes each symbol with one lookup in the block's tables (S2),
-//! and copies a match in chunks of `constants.copy_chunk_len` octets, overrunning into the room
-//! the margin leaves (S4). It writes straight into the caller's output and reads history from the
+//! room remain, checked once in each iteration. It refills a 64-bit bit buffer with one 8-octet
+//! little-endian load (S1), decodes each symbol with one lookup in the block's tables (S2), and
+//! copies a match in chunks of `constants.copy_chunk_len` octets, overrunning into the room the
+//! margin leaves (S4). It writes straight into the caller's output and reads history from the
 //! output and, for what the window holds, from the window; the decoder appends the call's last
 //! octets to the window once, when the call ends or the checked path needs it (S5).
 //!
-//! It decodes only what is valid and common: at a value no code names, a symbol RFC 1951 says
-//! never occurs, or a distance past the history, it stops before using the symbol's bits, and the
-//! checked path decodes the symbol again and refuses it. So both paths write the same octets and
-//! give the same verdict on every input (decision 16).
+//! The common symbols run in `decode_common`: runs of literals the literal/length table decodes,
+//! and pairs the tables decode whole whose match lies in this call's output at least a word back.
+//! It stops, having used no bit of it, at any other symbol, which `decode_rare` decodes out of
+//! line, so the common loop holds no call and keeps its state in registers.
+//!
+//! It decodes only what is valid: at a value no code names, a symbol RFC 1951 says never occurs,
+//! or a distance past the history, it stops before using the symbol's bits, and the checked path
+//! decodes the symbol again and refuses it. So both paths write the same octets and give the same
+//! verdict on every input (decision 16).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -21,6 +26,7 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const lookup = @import("lookup.zig");
+const fast_copy = @import("fast_copy.zig");
 const options_module = @import("options.zig");
 const Options = options_module.Options;
 const Lookups = options_module.Lookups;
@@ -28,18 +34,21 @@ const Lookups = options_module.Lookups;
 /// Decision 16's margins: the input one iteration may read, a refill of 8 octets, and the output
 /// it may write, a longest match and the overrun of its last chunk.
 pub const input_slack = @sizeOf(u64);
-pub const output_slack = constants.match_len_max + constants.copy_chunk_len;
+pub const output_slack = fast_copy.room_len;
 
-/// The bits below which the loop refills: an iteration uses at most `pair_bits_max`, and a refill
-/// leaves at least this many.
+/// The bits a refill leaves in the buffer at least: an iteration uses at most `pair_bits_max`.
 const refill_bits = @bitSizeOf(u64) - @bitSizeOf(u8);
 
-/// The literal entries one refill decodes at most, each checked against the bits left.
-const literals_per_refill = refill_bits / constants.literal_length_table_bits;
+/// The literals one iteration decodes at most. A literal the table decodes takes at most the
+/// table's width, so after a refill each of these literals' lookups finds a whole table index in
+/// the buffer, and none needs a check of the bits left.
+const literals_per_refill = (refill_bits - constants.literal_length_table_bits) / constants.literal_length_table_bits + 1;
 
 comptime {
     assert(constants.pair_bits_max <= refill_bits);
     assert(literals_per_refill <= output_slack);
+    // The last literal's lookup still finds a whole table index.
+    assert(refill_bits - (literals_per_refill - 1) * constants.literal_length_table_bits >= constants.literal_length_table_bits);
 }
 
 /// The two loops: the wide one, which the margins let read 8 octets at a time and write chunks
@@ -73,6 +82,9 @@ const Next = enum(u2) {
     }
 };
 
+/// Why the common loop stopped: a margin, or a symbol for `decode_rare`, whose bits it left.
+const Stop = enum { margin, rare };
+
 /// The block's codes, as tables and as the canonical codes a long code falls back to.
 pub const Codes = struct {
     literal_length_table: *const lookup.LiteralLengthTable,
@@ -95,46 +107,56 @@ pub const History = struct {
     lookups: ?*Lookups,
 };
 
-/// The loop's state: the bit buffer and input position taken from the checked reader, and the
-/// output position taken from the checked writer.
+/// The loop's state: the bit buffer and the input not yet taken into it, from the checked reader,
+/// the output position taken from the checked writer, and what the loop reads on every iteration,
+/// copied here once because the output's stores might alias the structures they came from.
 const Loop = struct {
     input: []const u8,
-    position: usize,
+    /// The input after the octets the buffer took: its end, as the checked reader's position.
+    rest: []const u8,
     buffer: u64,
     count: u32,
     output: []u8,
     written: usize,
-    /// Where the output stands in the window: the window holds everything before it.
-    start: usize,
-    /// The window's reach when the loop started.
-    reach_before: usize,
-    /// The index masks of the block's tables, kept here because the output's stores might alias
-    /// the tables' own fields.
-    literal_length_mask: lookup.LiteralLengthTable.Index,
-    distance_mask: lookup.DistanceTable.Index,
+    literal_length_entries: *const [lookup.LiteralLengthTable.len]lookup.Entry,
+    /// The index masks of the block's tables, no wider than the tables, so an index needs no
+    /// bounds check: `decode_common` widens them from their tables' index types, which say so.
+    literal_length_mask: u64,
+    distance_entries: *const [lookup.DistanceTable.len]lookup.Entry,
+    distance_mask: u64,
+    distance_max: usize,
     decoded: usize = 0,
     /// S2's count for this run, which `run_loop` adds to the decode's when it keeps one.
     lookups: Lookups = .{},
-    /// The last output position the wide loop's margin allows, set when it starts, so each
-    /// iteration compares against it with no subtraction.
-    output_limit: usize = 0,
 
     /// The literal/length entry of the code the buffer starts with.
-    inline fn look_up(self: *const Loop, table: *const lookup.LiteralLengthTable) lookup.Entry {
-        return table.entries[@as(lookup.LiteralLengthTable.Index, @truncate(self.buffer)) & self.literal_length_mask];
+    inline fn look_up(self: *const Loop) lookup.Entry {
+        return self.literal_length_entries[@intCast(self.buffer & self.literal_length_mask)];
+    }
+
+    /// The distance entry of the code `buffer` starts with.
+    inline fn look_up_distance(self: *const Loop, buffer: u64) lookup.Entry {
+        return self.distance_entries[@intCast(buffer & self.distance_mask)];
     }
 
     inline fn has_margin(self: *const Loop) bool {
-        return self.input.len - self.position >= input_slack and self.output.len - self.written >= output_slack;
+        return self.rest.len >= input_slack and self.output.len - self.written >= output_slack;
     }
 
-    /// Fills the buffer to at least `refill_bits` bits with one 8-octet load, taking the whole
-    /// octets that fit, with no branch: the bits above `count` repeat the input's next octets,
-    /// which a later load writes again unchanged. The buffer holds at most 63 bits before it.
-    inline fn refill(self: *Loop) void {
-        const word = std.mem.readInt(u64, self.input[self.position..][0..@sizeOf(u64)], .little);
-        self.buffer |= word << @intCast(self.count);
-        self.position += (@bitSizeOf(u64) - 1 - self.count) / @bitSizeOf(u8);
+    /// The input octets the checked reader has taken.
+    inline fn position(self: *const Loop) usize {
+        return self.input.len - self.rest.len;
+    }
+
+    /// Fills the buffer to at least `refill_bits` bits from `word`, the next 8 input octets,
+    /// taking the whole octets that fit, with no branch: the bits above `count` repeat the input's
+    /// next octets, which a later load writes again unchanged. The buffer holds at most 63 bits
+    /// before it.
+    inline fn refill(self: *Loop, word: *const [@sizeOf(u64)]u8) void {
+        // The count fits six bits here, and its complement is the room left: 63 less the count.
+        const held: u6 = @truncate(self.count);
+        self.buffer |= std.mem.readInt(u64, word, .little) << held;
+        self.rest = self.rest[~held / @bitSizeOf(u8) ..];
         // The count gains the whole octets taken: 56 plus the bits of a partly used octet.
         self.count = refill_bits + self.count % @bitSizeOf(u8);
     }
@@ -143,9 +165,9 @@ const Loop = struct {
     /// bits above `count` stay zero.
     inline fn refill_exact(self: *Loop) void {
         for (0..@sizeOf(u64)) |_| {
-            if (self.count > refill_bits or self.position == self.input.len) return;
-            self.buffer |= @as(u64, self.input[self.position]) << @intCast(self.count);
-            self.position += 1;
+            if (self.count > refill_bits or self.rest.len == 0) return;
+            self.buffer |= @as(u64, self.rest[0]) << @intCast(self.count);
+            self.rest = self.rest[1..];
             self.count += @bitSizeOf(u8);
         }
     }
@@ -155,27 +177,20 @@ const Loop = struct {
         return self.output.len - self.written;
     }
 
-    inline fn consume(self: *Loop, count: u32) void {
-        self.buffer >>= @intCast(count);
-        self.count -= count;
-        if (builtin.is_test) self.decoded += 1;
-    }
-
-    /// Uses a pair's bits: `after_length` is the buffer past the length's, and the distance's
-    /// entry says how many bits come after them. `used` counts both.
-    inline fn consume_pair(self: *Loop, after_length: u64, distance: lookup.Entry, used: u32) void {
-        self.buffer = past(after_length, distance);
-        self.count -= used;
-        if (builtin.is_test) self.decoded += 1;
-    }
-
     /// Uses a table entry's code. The shift takes the entry's low six bits, which hold the code's
     /// length, so the length need not be taken out first.
     inline fn consume_entry(self: *Loop, entry: lookup.Entry) void {
-        const raw: u32 = @bitCast(entry);
-        self.buffer >>= @truncate(raw);
+        self.buffer = past(self.buffer, entry);
         self.count -= entry.used_bits;
         if (builtin.is_test) self.decoded += 1;
+    }
+
+    /// Uses a length's and its distance's bits, after the copy: `after_length` is the buffer
+    /// past the length's.
+    inline fn consume_pair(self: *Loop, length: lookup.Entry, after_length: u64, distance: lookup.Entry) void {
+        self.buffer = past(after_length, distance);
+        self.count -= @as(u32, length.used_bits) + distance.used_bits;
+        if (builtin.is_test) self.decoded += constants.decodes_per_step_max;
     }
 };
 
@@ -209,101 +224,209 @@ pub noinline fn run_tail(comptime options: Options, codes: Codes, history: Histo
 inline fn run_loop(comptime mode: Mode, comptime options: Options, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
     var loop: Loop = .{
         .input = bits.reader.octets,
-        .position = bits.reader.position,
+        .rest = bits.reader.octets[bits.reader.position..],
         .buffer = bits.bits.buffer,
         .count = bits.bits.count,
         .output = writer.octets,
         .written = writer.position,
-        .start = history.synced,
-        .reach_before = history.window.reach(),
+        .literal_length_entries = &codes.literal_length_table.entries,
         .literal_length_mask = codes.literal_length_table.mask(),
+        .distance_entries = &codes.distance_table.entries,
         .distance_mask = codes.distance_table.mask(),
+        .distance_max = history.distance_max,
     };
     assert(loop.count <= @bitSizeOf(u64));
     const end: End = switch (mode) {
         .wide => if (loop.has_margin()) decode_symbols(options, &loop, codes, history) else .margin,
         .tail => decode_tail(options, &loop, codes, history),
     };
-    assert(loop.written <= loop.output.len and loop.position <= loop.input.len);
+    assert(loop.written <= loop.output.len and loop.rest.len <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
     bits.bits = .{
         .buffer = if (loop.count >= @bitSizeOf(u64)) loop.buffer else low_bits(loop.buffer, loop.count),
         .count = @intCast(loop.count),
     };
-    bits.reader.position = loop.position;
+    bits.reader.position = loop.position();
     writer.position = loop.written;
     if (builtin.is_test) history.work.* += loop.decoded;
     if (options.count_lookups) history.lookups.?.add(loop.lookups);
     return end;
 }
 
-/// The loop itself, entered with its margins held.
+/// The wide loop, entered with its margins held: the common symbols, and each other symbol out
+/// of line.
 inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, history: History) End {
     assert(loop.has_margin());
-    loop.output_limit = loop.output.len - output_slack;
-    // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
-    // iteration uses a bit or more, so every later refill finds 63 bits or fewer. The margins are
-    // checked before each refill, which ends every iteration.
-    if (loop.count < refill_bits) refill(options, loop);
-    var entry = loop.look_up(codes.literal_length_table);
-    // Each iteration consumes at least a bit, or ends the loop.
-    const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
-    var iterations_left = iterations_max;
-    while (iterations_left > 0) : (iterations_left -= 1) {
-        const next = step(.wide, options, loop, codes, history, entry);
+    // Each round decodes a symbol at least, which takes a bit, or ends the loop.
+    const rounds_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
+    for (0..rounds_max) |_| {
+        if (decode_common(options, loop) == .margin) return .margin;
+        const next = decode_rare(options, loop, codes, history);
         if (next != .go_on) return next.end();
-        // The input's margin is the bound the refill's load checks, so the two are one compare.
-        if (loop.position + input_slack > loop.input.len or loop.written > loop.output_limit) return .margin;
-        entry = refill_and_look_up(options, loop, codes);
     }
     unreachable;
 }
 
-/// Refills, and looks up the next symbol's entry. When the bits before the refill hold a whole
-/// table code, the lookup reads them, which the refill leaves in place, so the lookup need not
-/// wait for the refill.
-inline fn refill_and_look_up(comptime options: Options, loop: *Loop, codes: Codes) lookup.Entry {
-    if (loop.count >= constants.literal_length_table_bits) {
-        const entry = loop.look_up(codes.literal_length_table);
-        refill(options, loop);
+/// The input and the output room of one iteration of the wide loop, which its margins bound.
+const Margins = struct {
+    /// The next 8 input octets, which the refill at the iteration's end takes.
+    word: *const [@sizeOf(u64)]u8,
+    /// The output room from the iteration's first octet.
+    room: *[output_slack]u8,
+};
+
+/// The margins of the next iteration, or null when too little input or output room is left.
+/// Each slice is taken from the length the margin compares, so neither needs another check.
+inline fn margins(loop: *const Loop) ?Margins {
+    if (loop.rest.len < input_slack) return null;
+    const room = loop.output[loop.written..];
+    if (room.len < output_slack) return null;
+    return .{ .word = loop.rest[0..input_slack], .room = room[0..output_slack] };
+}
+
+/// Decodes the common symbols until a margin, or a symbol it leaves for `decode_rare`: with the
+/// margins held, at least `refill_bits` bits in the buffer, and none of that symbol's bits used.
+/// It works on a copy of the state, which stays in registers, and writes it back when it stops.
+inline fn decode_common(comptime options: Options, state: *Loop) Stop {
+    var loop = state.*;
+    defer state.* = loop;
+    // The masks come back from memory: their tables' index types bound them again.
+    loop.literal_length_mask = @as(lookup.LiteralLengthTable.Index, @truncate(loop.literal_length_mask));
+    loop.distance_mask = @as(lookup.DistanceTable.Index, @truncate(loop.distance_mask));
+    const first = margins(&loop) orelse return .margin;
+    // The state may bring a full buffer of 64 bits, which the first iteration starts from; each
+    // iteration uses a bit or more, so every later refill finds 63 bits or fewer.
+    if (loop.count < refill_bits) refill(options, &loop, first.word);
+    var entry = loop.look_up();
+    // Each iteration consumes at least a bit, or ends the loop.
+    const iterations_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
+    for (0..iterations_max) |_| {
+        // The margins, checked before the iteration's first access, bound every access in it: the
+        // refill at its end takes `word`, and the iteration writes into `room`.
+        const iteration = margins(&loop) orelse return .margin;
+        // The buffer holds at least `refill_bits` bits, and `entry` is the next symbol's.
+        var known: ?lookup.Entry = null;
+        if (entry.kind == .literal) {
+            known = literal_run(options, &loop, iteration.room, entry);
+        } else if (entry.kind != .length or !copy_common(options, &loop, iteration.room, entry)) {
+            @branchHint(.unlikely);
+            return .rare;
+        }
+        entry = next_entry(options, &loop, iteration.word, known);
+    }
+    unreachable;
+}
+
+/// Decodes the symbol `decode_common` stopped at: a code longer than the table, the end of the
+/// block, a match from the window or less than a word back, or a value for the checked path.
+noinline fn decode_rare(comptime options: Options, state: *Loop, codes: Codes, history: History) Next {
+    var loop = state.*;
+    defer state.* = loop;
+    return step(.wide, options, &loop, codes, history, loop.look_up());
+}
+
+/// Refills from `word`, and gives the next symbol's entry: `known`, which a literal run looked up
+/// while the buffer held its index, or a lookup. When the bits before the refill hold a whole
+/// table index, the lookup reads them, which the refill leaves in place, so it need not wait for
+/// the refill.
+inline fn next_entry(comptime options: Options, loop: *Loop, word: *const [@sizeOf(u64)]u8, known: ?lookup.Entry) lookup.Entry {
+    if (known) |entry| {
+        refill(options, loop, word);
         return entry;
     }
-    refill(options, loop);
-    return loop.look_up(codes.literal_length_table);
+    if (loop.count >= constants.literal_length_table_bits) {
+        const entry = loop.look_up();
+        refill(options, loop, word);
+        return entry;
+    }
+    refill(options, loop, word);
+    return loop.look_up();
 }
 
 /// The wide loop's refill: one 8-octet load (S1), or with the claim off, an octet at a time.
-inline fn refill(comptime options: Options, loop: *Loop) void {
-    if (options.claims.word_refill) loop.refill() else loop.refill_exact();
+inline fn refill(comptime options: Options, loop: *Loop, word: *const [@sizeOf(u64)]u8) void {
+    if (options.claims.word_refill) loop.refill(word) else loop.refill_exact();
 }
 
-/// The tail: a symbol at a time, while the input holds a whole pair's bits.
-inline fn decode_tail(comptime options: Options, loop: *Loop, codes: Codes, history: History) End {
-    // Each iteration consumes at least a bit, or ends the loop.
-    const iterations_max = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + 1;
-    for (0..iterations_max) |_| {
-        loop.refill_exact();
-        // Near the input's end, the checked path decodes what is left, and asks for more.
-        if (loop.count < constants.pair_bits_max) return .checked;
-        const next = step(.tail, options, loop, codes, history, loop.look_up(codes.literal_length_table));
-        if (next != .go_on) return next.end();
+/// Writes the literal `first` and the literals after it, up to `literals_per_refill`, into `room`,
+/// and returns the entry of the symbol after them when it looked it up, or null when the run
+/// filled. The bit count drops once, by the run's bits.
+inline fn literal_run(comptime options: Options, loop: *Loop, room: *[output_slack]u8, first: lookup.Entry) ?lookup.Entry {
+    var run_bits: u32 = 0;
+    write_literal(options, loop, room, 0, first, &run_bits);
+    inline for (1..literals_per_refill) |index| {
+        const next = loop.look_up();
+        if (next.kind != .literal) {
+            loop.count -= run_bits;
+            loop.written += index;
+            return next;
+        }
+        write_literal(options, loop, room, index, next, &run_bits);
     }
-    unreachable;
+    loop.count -= run_bits;
+    loop.written += literals_per_refill;
+    return null;
 }
 
-/// Decodes one literal/length symbol, whose table entry is `first`, and the distance a length
-/// takes, or a run of literals. Returns why the loop stops, or `go_on`.
+/// Writes a literal at `index` of the iteration's room, and adds its bits to the run's.
+inline fn write_literal(comptime options: Options, loop: *Loop, room: *[output_slack]u8, comptime index: usize, entry: lookup.Entry, run_bits: *u32) void {
+    if (options.count_lookups) count_symbol(loop, entry);
+    room[index] = @truncate(entry.value);
+    loop.buffer = past(loop.buffer, entry);
+    run_bits.* += entry.used_bits;
+    if (builtin.is_test) loop.decoded += 1;
+}
+
+/// Decodes a pair whose codes the tables hold and copies its match, when the match lies in this
+/// call's output at least a word back. Returns false, having used no bit, for any other pair.
+inline fn copy_common(comptime options: Options, loop: *Loop, room: *[output_slack]u8, length: lookup.Entry) bool {
+    _ = room;
+    const len = length.value + extra_value(loop.buffer, length);
+    // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits; `step` refuses the rest.
+    if (len == constants.match_len_max and length.used_bits != length.code_bits) return false;
+    const after_length = past(loop.buffer, length);
+    const distance_entry = loop.look_up_distance(after_length);
+    if (distance_entry.kind != .distance) return false;
+    const distance = distance_entry.value + extra_value(after_length, distance_entry);
+    if (distance > loop.written or distance > loop.distance_max or distance < constants.copy_word_len) return false;
+    if (options.claims.chunk_copies) {
+        if (distance >= constants.copy_chunk_len) {
+            fast_copy.copy_chunks(constants.copy_chunk_len, loop.output, loop.written, @intCast(distance), @intCast(len));
+        } else {
+            fast_copy.copy_chunks(constants.copy_word_len, loop.output, loop.written, @intCast(distance), @intCast(len));
+        }
+    } else {
+        fast_copy.copy_exact(loop.output, loop.written, @intCast(distance), @intCast(len));
+    }
+    loop.consume_pair(length, after_length, distance_entry);
+    loop.written += @intCast(len);
+    if (options.count_lookups) {
+        count_symbol(loop, length);
+        count_symbol(loop, distance_entry);
+    }
+    return true;
+}
+
+/// Decodes one symbol, whose table entry is `first`, with its distance when it is a length, and
+/// handles every case: a code longer than the table, a literal, the end of the block, and a match
+/// from anywhere in the history. Returns why the loop stops, or `go_on`.
 inline fn step(comptime mode: Mode, comptime options: Options, loop: *Loop, codes: Codes, history: History, first: lookup.Entry) Next {
     var entry = first;
     if (entry.kind == .long) {
-        @branchHint(.cold);
-        entry = resolve_literal_length(codes, loop.buffer) orelse return .checked;
+        entry = lookup.resolve_literal_length(codes.literal_length_code, loop.buffer) orelse return .checked;
     }
     switch (entry.kind) {
-        .literal => return step_literals(mode, options, loop, codes, entry),
+        .literal => {
+            if (mode == .tail and loop.room() == 0) return .margin;
+            if (options.count_lookups) count_symbol(loop, entry);
+            loop.output[loop.written] = @truncate(entry.value);
+            loop.written += 1;
+            loop.consume_entry(entry);
+            return .go_on;
+        },
         .end_of_block => {
             if (options.count_lookups) count_symbol(loop, entry);
-            loop.consume(entry.used_bits);
+            loop.consume_entry(entry);
             return .end_of_block;
         },
         .length => return copy_pair(mode, options, loop, codes, history, entry),
@@ -311,57 +434,18 @@ inline fn step(comptime mode: Mode, comptime options: Options, loop: *Loop, code
     }
 }
 
-/// Writes a literal, and in the wide loop the literals after it while the buffer holds their
-/// codes.
-inline fn step_literals(comptime mode: Mode, comptime options: Options, loop: *Loop, codes: Codes, entry: lookup.Entry) Next {
-    // The tail writes one literal an iteration, into room it checks first.
-    if (mode == .tail) {
-        if (loop.room() == 0) return .margin;
-        write_literal(options, loop, entry);
-        return .go_on;
+/// The tail: a symbol at a time, while the input holds a whole pair's bits.
+inline fn decode_tail(comptime options: Options, loop: *Loop, codes: Codes, history: History) End {
+    // Each iteration consumes at least a bit, or ends the loop.
+    const iterations_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
+    for (0..iterations_max) |_| {
+        loop.refill_exact();
+        // Near the input's end, the checked path decodes what is left, and asks for more.
+        if (loop.count < constants.pair_bits_max) return .checked;
+        const next = step(.tail, options, loop, codes, history, loop.look_up());
+        if (next != .go_on) return next.end();
     }
-    write_literal(options, loop, entry);
-    // More literals while the buffer holds a whole table code: the first may have been a long
-    // code.
-    for (1..literals_per_refill) |_| {
-        if (loop.count < constants.literal_length_table_bits) return .go_on;
-        const next = loop.look_up(codes.literal_length_table);
-        // The next iteration looks the entry up again, from the same bits.
-        if (next.kind != .literal) return .go_on;
-        write_literal(options, loop, next);
-    }
-    return .go_on;
-}
-
-/// Writes a literal.
-inline fn write_literal(comptime options: Options, loop: *Loop, entry: lookup.Entry) void {
-    if (options.count_lookups) count_symbol(loop, entry);
-    loop.output[loop.written] = @truncate(entry.value);
-    loop.written += 1;
-    loop.consume_entry(entry);
-}
-
-fn resolve_literal_length(codes: Codes, buffer: u64) ?lookup.Entry {
-    var resolved = switch (codes.literal_length_code.decode(buffer, constants.code_len_max)) {
-        .symbol => |symbol| lookup.literal_length_entry(symbol.value, @intCast(symbol.len)),
-        .needs_bits, .invalid => return null,
-    };
-    resolved.canonical = true;
-    return resolved;
-}
-
-/// The distance entry of a table entry that is not a distance's: a long code's, decoded with the
-/// canonical code from `buffer`, or null for the checked path.
-fn resolve_distance(codes: Codes, entry: lookup.Entry, buffer: u64) ?lookup.Entry {
-    if (entry.kind != .long) return null;
-    var resolved = switch (codes.distance_code.decode(buffer, constants.code_len_max)) {
-        .symbol => |symbol| lookup.distance_entry(symbol.value, @intCast(symbol.len)),
-        .needs_bits, .invalid => return null,
-    };
-    // RFC 1951 §3.2.6: distance codes 30 and 31 never occur; the checked path refuses them.
-    if (resolved.kind != .distance) return null;
-    resolved.canonical = true;
-    return resolved;
+    unreachable;
 }
 
 /// Reads a length's extra bits and its distance, and copies the match, or stops before using any
@@ -370,38 +454,40 @@ inline fn copy_pair(comptime mode: Mode, comptime options: Options, loop: *Loop,
     const len = length.value + extra_value(loop.buffer, length);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
     if (len == constants.match_len_max) {
-        @branchHint(.unlikely);
         if (length.used_bits != length.code_bits) return .checked;
     }
     const after_length = past(loop.buffer, length);
-    var distance_entry = codes.distance_table.entries[@as(lookup.DistanceTable.Index, @truncate(after_length)) & loop.distance_mask];
+    var distance_entry = loop.look_up_distance(after_length);
     if (distance_entry.kind != .distance) {
-        @branchHint(.cold);
-        distance_entry = resolve_distance(codes, distance_entry, after_length) orelse return .checked;
+        distance_entry = lookup.resolve_distance(codes.distance_code, distance_entry, after_length) orelse return .checked;
     }
     const distance = distance_entry.value + extra_value(after_length, distance_entry);
-    const used = @as(u32, length.used_bits) + distance_entry.used_bits;
     // The tail copies a match whole or leaves it to the checked path, which copies what fits.
     if (mode == .tail and loop.room() < len) return .margin;
-    // Most matches reach only octets this call wrote, inside the container's window, and copy
-    // straight from the output; the rest go out of line.
-    const target = loop.written;
-    if (distance <= target and distance <= history.distance_max) {
-        loop.consume_pair(after_length, distance_entry, used);
-        loop.written += @intCast(len);
-        copy_in_output(mode, options, loop.output, target, @intCast(distance), @intCast(len));
-    } else {
-        @branchHint(.unlikely);
-        if (!copy_from_window(loop.output, target, loop.start, loop.reach_before, history, @intCast(distance), @intCast(len))) return .checked;
-        loop.consume_pair(after_length, distance_entry, used);
-        loop.written += @intCast(len);
-    }
+    if (!copy_match(mode, options, loop, history, @intCast(distance), @intCast(len))) return .checked;
+    loop.consume_pair(length, after_length, distance_entry);
+    loop.written += @intCast(len);
     if (options.count_lookups) {
         count_symbol(loop, length);
         count_symbol(loop, distance_entry);
     }
-    if (builtin.is_test) loop.decoded += 1;
     return .go_on;
+}
+
+/// Copies a match from anywhere in the history: from this call's output, in chunks in the wide
+/// loop (S4) and an octet at a time in the tail or with the claim off, or from the window. Returns
+/// false, having copied nothing, for a distance past the history or the container's window.
+inline fn copy_match(comptime mode: Mode, comptime options: Options, loop: *Loop, history: History, distance: usize, len: usize) bool {
+    if (distance <= loop.written and distance <= loop.distance_max) {
+        if (mode == .wide and options.claims.chunk_copies) {
+            fast_copy.copy_within(loop.output, loop.written, distance, len);
+        } else {
+            fast_copy.copy_exact(loop.output, loop.written, distance, len);
+        }
+        return true;
+    }
+    const window: fast_copy.Window = .{ .window = history.window, .synced = history.synced, .distance_max = history.distance_max };
+    return fast_copy.copy_from_window(loop.output, loop.written, window, distance, len);
 }
 
 /// Counts a symbol the fast path decoded, for S2's count (options.zig). Each call is under a
@@ -409,82 +495,4 @@ inline fn copy_pair(comptime mode: Mode, comptime options: Options, loop: *Loop,
 /// for it, and keeps no entry alive for it.
 inline fn count_symbol(loop: *Loop, entry: lookup.Entry) void {
     if (entry.canonical) loop.lookups.canonical += 1 else loop.lookups.table += 1;
-}
-
-/// Copies a match within this call's output: in chunks in the wide loop (S4), and an octet at a
-/// time in the tail or with the claim off.
-inline fn copy_in_output(comptime mode: Mode, comptime options: Options, output: []u8, target: usize, distance: usize, len: usize) void {
-    if (mode == .wide and options.claims.chunk_copies) copy_within(output, target, distance, len) else copy_exact(output, target, distance, len);
-}
-
-/// Copies a match that reaches before this call's output: its first octets from the window, the
-/// rest from the output, octet by octet. Returns false, having copied nothing, for a distance past
-/// the history or the container's window, which the checked path refuses. It takes the loop's
-/// state as values, so the loop's state stays in registers.
-noinline fn copy_from_window(output: []u8, written: usize, start: usize, reach_before: usize, history: History, distance: usize, len: usize) bool {
-    assert(distance > written or distance > history.distance_max);
-    assert(start <= written);
-    const reach = @min(constants.window_len, reach_before + written - start);
-    if (distance > reach or distance > history.distance_max) return false;
-    const from_window = @min(len, distance - written);
-    // The window's newest octet is the one before `start`.
-    history.window.copy_back(distance - written + start, output[written..][0..from_window]);
-    if (from_window == len) return true;
-    // The rest, when a match runs from the window into this call's output, is short.
-    copy_exact(output, written + from_window, distance, len - from_window);
-    return true;
-}
-
-/// Copies `len` octets to `target` from `distance` before it, octet by octet, so the copy reads
-/// what it wrote when the match overlaps itself, and writes nothing past `len`.
-inline fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
-    const source = target - distance;
-    for (0..len) |index| output[target + index] = output[source + index];
-}
-
-/// Copies `len` octets to `target` from `distance` before it: in chunks of `copy_chunk_len` or
-/// `copy_word_len` octets where the distance leaves room for one, a fill for a distance of 1, and
-/// octet by octet otherwise. A chunk may write up to its length less one past `len`, into the
-/// margin, and reads only octets written before.
-inline fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
-    const source = target - distance;
-    if (distance >= constants.copy_chunk_len) {
-        copy_chunks(constants.copy_chunk_len, output, target, distance, len);
-    } else if (distance >= constants.copy_word_len) {
-        copy_chunks(constants.copy_word_len, output, target, distance, len);
-    } else if (distance == 1) {
-        fill(output, target, output[source], len);
-    } else {
-        for (0..len) |index| output[target + index] = output[source + index];
-    }
-}
-
-/// The chunks a match copy writes before it looks at the length: most matches are that short.
-const chunks_unconditional = 2;
-
-/// Copies `len` octets in chunks of `chunk_len`: the first `chunks_unconditional` whatever the
-/// length, and the rest in a loop.
-inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
-    // The first chunks' source and target lie in one span, bounded once: the chunks inside it
-    // sit at offsets its length covers, so their bounds need no check.
-    const head_len = chunks_unconditional * chunk_len;
-    const source = target - distance;
-    const span = output[source..][0 .. distance + head_len];
-    inline for (0..chunks_unconditional) |chunk| {
-        span[distance..][chunk * chunk_len ..][0..chunk_len].* = span[chunk * chunk_len ..][0..chunk_len].*;
-    }
-    if (len <= head_len) return;
-    const chunks = std.math.divCeil(usize, len, chunk_len) catch unreachable;
-    for (chunks_unconditional..chunks) |chunk| {
-        const offset = chunk * chunk_len;
-        output[target + offset ..][0..chunk_len].* = output[source + offset ..][0..chunk_len].*;
-    }
-}
-
-/// Writes `len` copies of `octet`, a chunk at a time.
-inline fn fill(output: []u8, target: usize, octet: u8, len: usize) void {
-    const chunk_len = constants.copy_chunk_len;
-    const chunk: [chunk_len]u8 = @splat(octet);
-    const chunks = std.math.divCeil(usize, len, chunk_len) catch unreachable;
-    for (0..chunks) |index| output[target + index * chunk_len ..][0..chunk_len].* = chunk;
 }

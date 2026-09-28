@@ -75,9 +75,12 @@ pub fn Table(comptime bits_max: u4, comptime entry_of: fn (u16, u4) Entry) type 
     return struct {
         const Self = @This();
 
-        entries: [1 << bits_max]Entry,
+        entries: [len]Entry,
         /// The bits this block's table is indexed by: its longest code, up to `bits_max`.
         bits: u4,
+
+        /// The entries of the widest table.
+        pub const len = 1 << bits_max;
 
         /// An index into `entries`: its type holds every index and no other, so indexing by it
         /// needs no bounds check.
@@ -171,6 +174,31 @@ fn longest(counts: [constants.code_len_max + 1]u16) u4 {
 
 pub const LiteralLengthTable = Table(constants.literal_length_table_bits, literal_length_entry);
 pub const DistanceTable = Table(constants.distance_table_bits, distance_entry);
+
+/// The entry of a literal/length code longer than the table, decoded with the canonical code from
+/// `buffer`, or null for the checked path: a value no code names.
+pub fn resolve_literal_length(code: *const huffman.Code(constants.literal_length_alphabet_len), buffer: u64) ?Entry {
+    var resolved = switch (code.decode(buffer, constants.code_len_max)) {
+        .symbol => |symbol| literal_length_entry(symbol.value, @intCast(symbol.len)),
+        .needs_bits, .invalid => return null,
+    };
+    resolved.canonical = true;
+    return resolved;
+}
+
+/// The distance entry of a table entry that is not a distance's: a long code's, decoded with the
+/// canonical code from `buffer`, or null for the checked path.
+pub fn resolve_distance(code: *const huffman.Code(constants.distance_alphabet_len), entry: Entry, buffer: u64) ?Entry {
+    if (entry.kind != .long) return null;
+    var resolved = switch (code.decode(buffer, constants.code_len_max)) {
+        .symbol => |symbol| distance_entry(symbol.value, @intCast(symbol.len)),
+        .needs_bits, .invalid => return null,
+    };
+    // RFC 1951 §3.2.6: distance codes 30 and 31 never occur; the checked path refuses them.
+    if (resolved.kind != .distance) return null;
+    resolved.canonical = true;
+    return resolved;
+}
 
 /// A code of `len` bits, most significant first, as the stream packs it: least significant first
 /// (RFC 1951 §3.1.1).
