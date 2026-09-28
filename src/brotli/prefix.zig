@@ -283,15 +283,30 @@ fn reversed(code: u32, len: u8) u32 {
 /// A code length of the code length code, and the bits its fixed code takes (RFC 7932 §3.5).
 pub const CodeLengthCodeLength = struct { value: u8, len: u7 };
 
-/// The code length the fixed code of RFC 7932 §3.5 gives the bits, least significant first, or null
-/// when fewer than its code's bits are present. The code is a prefix code, so at most one of its
-/// codes matches the bits present.
-pub fn decode_code_length_code_length(bits: u64, available: u7) ?CodeLengthCodeLength {
-    for (constants.code_length_code_length_codes, 0..) |code, value| {
-        if (code.len > available) continue;
-        if (bits & ((@as(u64, 1) << code.len) - 1) == code.code) return .{ .value = @intCast(value), .len = code.len };
+/// The fixed code of RFC 7932 §3.5 as a table of its longest code's bits, least significant first:
+/// each entry the code length whose code those bits start with, and its code's length. The code is
+/// complete, so every 4 bits start exactly one of its codes.
+const code_length_code_length_table = table: {
+    var entries: [1 << constants.code_length_code_length_bits_max]CodeLengthCodeLength = undefined;
+    for (&entries, 0..) |*entry, bits| {
+        var matches = 0;
+        for (constants.code_length_code_length_codes, 0..) |code, value| {
+            if (bits & ((1 << code.len) - 1) != code.code) continue;
+            entry.* = .{ .value = value, .len = code.len };
+            matches += 1;
+        }
+        assert(matches == 1);
     }
-    return null;
+    break :table entries;
+};
+
+/// The code length the fixed code of RFC 7932 §3.5 gives the bits, least significant first, or null
+/// when fewer than its code's bits are present. The bits past those present are zeros, so the code
+/// the table names for them matches the stream whenever its bits are all present.
+pub fn decode_code_length_code_length(bits: u64, available: u7) ?CodeLengthCodeLength {
+    const entry = code_length_code_length_table[@as(u4, @truncate(bits))];
+    if (entry.len > available) return null;
+    return entry;
 }
 
 test {

@@ -167,6 +167,9 @@ test "the fixed code of the code length code's lengths" {
         const decoded = prefix.decode_code_length_code_length(code[0], code[1]).?;
         try testing.expectEqual(value, decoded.value);
         try testing.expectEqual(code[1], decoded.len);
+        // With a bit fewer than its code takes, the code is not whole.
+        const cut = code[0] & ((@as(u32, 1) << (code[1] - 1)) - 1);
+        try testing.expectEqual(null, prefix.decode_code_length_code_length(cut, code[1] - 1));
         if (code[1] > 2) try testing.expectEqual(null, prefix.decode_code_length_code_length(code[0], code[1] - 1));
     }
     try testing.expectEqual(null, prefix.decode_code_length_code_length(0, 1));
