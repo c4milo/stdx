@@ -27,6 +27,8 @@ const Claims = @import("../claims.zig").Claims;
 const state_module = @import("decoder_state.zig");
 const commands = @import("decoder_commands.zig");
 const copies = @import("decoder_fast_copy.zig");
+const dictionary = @import("../dictionary.zig");
+const transform = @import("../transform.zig");
 const State = state_module.State;
 const Category = state_module.Category;
 const Phase = state_module.Phase;
@@ -284,14 +286,19 @@ inline fn on_literal(comptime claims: Claims, loop: *Loop, literal_tables: *Lite
     return if (ready(claims, loop)) .distance else .stop;
 }
 
-/// The command's distance, after its block switch when its block is spent; then its copy or word.
+/// The command's distance, after its block switch when its block is spent; then its copy, or a
+/// word the checked path started. A word the distance wrote straight into the output ends the
+/// command and the chain.
 inline fn on_distance(comptime claims: Claims, loop: *Loop, state: *State) Link {
     if (!state.command.last_distance and commands.needs_switch(state, .distance)) {
         block_switch(loop, state, .distance);
         if (!ready(claims, loop)) return .stop;
     }
     if (distance(loop, state) == .stop) return .stop;
-    return link_of(state.phase);
+    return switch (state.phase) {
+        .copy, .dictionary_copy => link_of(state.phase),
+        else => .go_on,
+    };
 }
 
 inline fn on_copy(comptime claims: Claims, loop: *Loop, state: *State, window: anytype) Link {
@@ -424,12 +431,43 @@ inline fn distance(loop: *Loop, state: *State) Next {
     const extra_bits = commands.distance_extra_bits(state, code);
     const extra: u32 = @intCast(low_bits(loop.buffer >> @intCast(symbol.len), extra_bits));
     const value = commands.distance_of(state, code, extra) catch return .stop;
+    const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
+    if (value > reach) {
+        const len = word_straight(loop, state, value - reach - 1) orelse return .stop;
+        take_distance(loop, blocks, symbol.len + extra_bits);
+        loop.wrote(len);
+        produce(state, len);
+        state.phase = commands.after_copy(state);
+        return .go_on;
+    }
     // RFC 7932 §4: the distance code 0 does not push its distance to the ring of last distances.
     _ = commands.resolve_distance(state, value, code != 0) catch return .stop;
-    loop.take(symbol.len + extra_bits);
+    take_distance(loop, blocks, symbol.len + extra_bits);
+    return .go_on;
+}
+
+/// Takes a distance's bits, and the distance from its block.
+inline fn take_distance(loop: *Loop, blocks: *state_module.Blocks, bit_count: u32) void {
+    loop.take(bit_count);
     if (builtin.is_test) loop.decoded += 1;
     commands.take_element(blocks);
-    return .go_on;
+}
+
+/// The dictionary word a reference past the window names (RFC 7932 §8), transformed straight into
+/// the output past what the loop wrote, and its length; null, having taken nothing, for a reference
+/// the checked path refuses. The margins hold the room the wide copies take, and a word near DICT's
+/// end, whose head DICT does not hold, takes the exact copies.
+inline fn word_straight(loop: *Loop, state: *const State, word_id: u32) ?usize {
+    const reference = commands.word_reference(state, word_id) catch return null;
+    const offset = dictionary.word_offset(reference.len, reference.index);
+    const room = loop.output[loop.written..][0..transform.wide_output_len];
+    const len = if (offset + transform.wide_input_len <= dictionary.data.len)
+        transform.apply_wide(reference.transform_id, dictionary.data[offset..][0..transform.wide_input_len], reference.len, room)
+    else
+        transform.apply(reference.transform_id, dictionary.word(reference.len, reference.index), room[0..constants.transformed_word_len_max]);
+    // RFC 7932 §9.3: a dictionary word that would exceed MLEN; the checked path refuses it.
+    if (len > state.meta_block_left) return null;
+    return len;
 }
 
 /// Up to `chunk_len_max` octets of a back-reference: from this call's output, or from the window

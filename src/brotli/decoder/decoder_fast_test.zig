@@ -230,3 +230,53 @@ test "a command whose symbols and extra bits pass one refill decodes on the fast
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &expected, output[0..whole.written]);
 }
+
+/// The dictionary's last two words of 24 octets, 30 and 31 (RFC 7932 §8): two commands of insert
+/// length 0 and copy length 24, copy code 12, 22 and 3 extra bits, in the symbol 196 of the cell of
+/// insert codes 0 to 7 and copy codes 8 to 15 that takes a distance code. NPOSTFIX 2 and NDIRECT
+/// 56 make the distances 31 and 56 the direct codes 46 and 71: word 30 of the identity transform
+/// with nothing produced, and word 31 with the first word's 24 octets produced (RFC 7932 §4, §5).
+const last_word_len = constants.word_len_max;
+const last_word_copy_code = 12;
+const last_words_symbol = 196;
+const postfix_two = 2;
+const direct_high_fourteen = 14;
+const direct_count_56 = direct_high_fourteen << postfix_two;
+const last_words_alphabet_len = constants.distance_short_codes_count + direct_count_56 + (constants.distance_code_groups << postfix_two);
+const last_word_index = dictionary_word_count_24 - 1;
+const dictionary_word_count_24 = 32;
+const last_words = 2;
+
+/// The direct distance code of `distance`: 16 + distance - 1 (RFC 7932 §4).
+fn direct_code(distance: u16) u16 {
+    return constants.distance_short_codes_count + distance - 1;
+}
+
+/// Word 30 at distance 31 with nothing produced, then word 31 at 24 + 32 = 56.
+fn last_words_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.meta_block(true, last_words * last_word_len);
+    stream.simple_header(postfix_two, direct_high_fourteen, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{'q'}, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{last_words_symbol}, false);
+    // Distance codes 46 and 71 take 1 bit each: 0 and 1.
+    stream.simple_code(last_words_alphabet_len, &.{ direct_code(last_word_index), direct_code(last_word_len + last_word_index + 1) }, false);
+    const copy = constants.copy_length_codes[last_word_copy_code];
+    stream.put(last_word_len - copy.base, copy.extra_bits);
+    stream.put_code(0, 1);
+    stream.put(last_word_len - copy.base, copy.extra_bits);
+    stream.put_code(1, 1);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+
+test "the dictionary's last words decode on the fast path, the last from its exact copy" {
+    var stream: Stream = .{};
+    last_words_stream(&stream);
+    var output: [512]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    const whole = try decoder.decode_all(stream.written(), &output);
+    const dictionary = @import("../dictionary.zig");
+    try testing.expectEqualSlices(u8, dictionary.data[dictionary.data.len - last_words * last_word_len ..], output[0..whole.written]);
+}

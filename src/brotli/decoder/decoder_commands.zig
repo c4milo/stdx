@@ -241,6 +241,19 @@ pub inline fn resolve_distance(state: *State, distance: u32, push: bool) Error!?
 
 /// The static dictionary word a reference past the window names, transformed (RFC 7932 §8).
 fn start_word(state: *State, word_id: u32) Error!void {
+    const reference = try word_reference(state, word_id);
+    state.word_len = @intCast(transform.apply(reference.transform_id, dictionary.word(reference.len, reference.index), &state.word));
+    // RFC 7932 §9.3: a dictionary word that would exceed MLEN should be rejected as invalid.
+    if (state.word_len > state.meta_block_left) return error.LengthPastMetaBlock;
+    state.word_written = 0;
+}
+
+/// A static dictionary reference: the base word's length and index, and the transformation.
+pub const WordReference = struct { len: u32, index: u32, transform_id: u32 };
+
+/// The word a reference past the window names, from the command's copy length and the distance
+/// past the window, less 1 (RFC 7932 §8).
+pub inline fn word_reference(state: *const State, word_id: u32) Error!WordReference {
     const len = state.command.copy_len;
     // RFC 7932 §8: a copy length below 4 or above 24 should be rejected as invalid.
     if (len < constants.word_len_min or len > constants.word_len_max) return error.InvalidDictionaryReference;
@@ -248,10 +261,7 @@ fn start_word(state: *State, word_id: u32) Error!void {
     const transform_id = word_id >> dictionary.bits[len];
     // RFC 7932 §8: a transform_id greater than 120 should be rejected as invalid.
     if (transform_id >= constants.transforms_count) return error.InvalidDictionaryReference;
-    state.word_len = @intCast(transform.apply(transform_id, dictionary.word(len, index), &state.word));
-    // RFC 7932 §9.3: a dictionary word that would exceed MLEN should be rejected as invalid.
-    if (state.word_len > state.meta_block_left) return error.LengthPastMetaBlock;
-    state.word_written = 0;
+    return .{ .len = len, .index = index, .transform_id = transform_id };
 }
 
 /// One octet of a back-reference, from `distance` back in the window (RFC 7932 §10): the copy may

@@ -38,9 +38,14 @@ pub fn word_count(length: usize) u32 {
 /// The base word of `length` octets at `index` (RFC 7932 §8): DICT from offset(length, index), for
 /// `length` octets. The caller has checked the length and reduced the index modulo `word_count`.
 pub fn word(length: usize, index: u32) []const u8 {
+    return data[word_offset(length, index)..][0..length];
+}
+
+/// offset(length, index) of RFC 7932 §8: where the word starts in DICT.
+pub fn word_offset(length: usize, index: u32) usize {
     assert(length >= constants.word_len_min and length <= constants.word_len_max);
     assert(index < word_count(length));
-    return data[offsets[length] + index * length ..][0..length];
+    return offsets[length] + index * length;
 }
 
 // Tests.

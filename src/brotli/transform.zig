@@ -100,14 +100,80 @@ pub fn apply(id: usize, word: []const u8, output: *[constants.transformed_word_l
     return len;
 }
 
-/// The octets of `word` an elementary transform keeps (RFC 7932 §8): OmitFirstk keeps the last
-/// length - k octets and OmitLastk the first length - k, or none when the word is shorter than k.
+/// The octets of `word` an elementary transform keeps.
 fn elementary(kind: Kind, word: []const u8) []const u8 {
+    const body = body_of(kind, word.len);
+    return word[body.start..][0..body.len];
+}
+
+/// Where the octets an elementary transform keeps start in a word of `word_len`, and how many
+/// (RFC 7932 §8): OmitFirstk keeps the last length - k octets and OmitLastk the first length - k,
+/// or none when the word is shorter than k.
+const Body = struct { start: usize, len: usize };
+
+fn body_of(kind: Kind, word_len: usize) Body {
     const omitted = kind.omitted_len();
-    if (omitted == 0) return word;
-    if (word.len < omitted) return word[0..0];
-    if (@intFromEnum(kind) >= @intFromEnum(Kind.omit_last_1)) return word[0 .. word.len - omitted];
-    return word[omitted..];
+    if (omitted == 0) return .{ .start = 0, .len = word_len };
+    if (word_len < omitted) return .{ .start = 0, .len = 0 };
+    if (@intFromEnum(kind) >= @intFromEnum(Kind.omit_last_1)) return .{ .start = 0, .len = word_len - omitted };
+    return .{ .start = omitted, .len = word_len - omitted };
+}
+
+/// The octets `apply_wide` moves in one copy: a prefix or a suffix, padded to `affix_copy_len`, and
+/// a word's body with the octets after it, `body_copy_len`.
+pub const affix_copy_len = 16;
+pub const body_copy_len = 32;
+
+/// The most octets an elementary transform omits: OmitFirst9 and OmitLast9.
+const omitted_len_max = Kind.omit_last_9.omitted_len();
+
+/// What `apply_wide` reads from a word's first octet in DICT, the most an omitted head and a body's
+/// copy take; and the room it writes into, the longest prefix and a body's copy, or the longest
+/// prefix and body and a suffix's copy.
+pub const wide_input_len = omitted_len_max + body_copy_len;
+pub const wide_output_len = 64;
+
+/// Each transformation's prefix and suffix padded with zeros to `affix_copy_len`.
+const Wide = struct {
+    prefix: [affix_copy_len]u8,
+    suffix: [affix_copy_len]u8,
+    prefix_len: u8,
+    suffix_len: u8,
+    kind: Kind,
+};
+
+const wide_table: [constants.transforms_count]Wide = wide: {
+    var wides: [constants.transforms_count]Wide = undefined;
+    for (&wides, table) |*wide, transform| {
+        wide.* = .{ .prefix = @splat(0), .suffix = @splat(0), .prefix_len = transform.prefix.len, .suffix_len = transform.suffix.len, .kind = transform.kind };
+        @memcpy(wide.prefix[0..transform.prefix.len], transform.prefix);
+        @memcpy(wide.suffix[0..transform.suffix.len], transform.suffix);
+    }
+    break :wide wides;
+};
+
+comptime {
+    for (table) |transform| {
+        assert(transform.prefix.len <= affix_copy_len and transform.suffix.len <= affix_copy_len);
+        assert(transform.prefix.len + body_copy_len <= wide_output_len);
+        assert(transform.prefix.len + constants.word_len_max + affix_copy_len <= wide_output_len);
+    }
+}
+
+/// As `apply`, with the prefix, the body and the suffix each moved in one copy of fixed length, for
+/// the fast path, whose margin holds the room past the word (decision 16). `head` is DICT from the
+/// word's first octet, and the word is `word_len` octets of it.
+pub fn apply_wide(id: usize, head: *const [wide_input_len]u8, word_len: usize, output: *[wide_output_len]u8) usize {
+    assert(id < constants.transforms_count);
+    assert(word_len >= constants.word_len_min and word_len <= constants.word_len_max);
+    const wide = wide_table[id];
+    output[0..affix_copy_len].* = wide.prefix;
+    const body = body_of(wide.kind, word_len);
+    output[wide.prefix_len..][0..body_copy_len].* = head[body.start..][0..body_copy_len].*;
+    ferment_body(wide.kind, output[wide.prefix_len..][0..body.len]);
+    const suffix_start = wide.prefix_len + body.len;
+    output[suffix_start..][0..affix_copy_len].* = wide.suffix;
+    return suffix_start + wide.suffix_len;
 }
 
 /// FermentFirst and FermentAll of RFC 7932 §8, in place.
@@ -186,4 +252,19 @@ test "the longest transformation of the longest word fits the output" {
         longest = @max(longest, apply(id, word, &output));
     }
     try testing.expectEqual(constants.transformed_word_len_max, longest);
+}
+
+test "a wide transformation writes what the exact one writes, for every ID and word length" {
+    for (constants.word_len_min..constants.word_len_max + 1) |len| {
+        // The word, then octets past it, as DICT holds a word and the words after it.
+        var head: [wide_input_len]u8 = undefined;
+        for (&head, 0..) |*octet, index| octet.* = "\xc3\xa9tAb-z\xe0\xa4\xaaqr"[index % 13];
+        for (0..constants.transforms_count) |id| {
+            var exact: [constants.transformed_word_len_max]u8 = undefined;
+            const exact_len = apply(id, head[0..len], &exact);
+            var wide: [wide_output_len]u8 = undefined;
+            const wide_len = apply_wide(id, &head, len, &wide);
+            try testing.expectEqualSlices(u8, exact[0..exact_len], wide[0..wide_len]);
+        }
+    }
 }
