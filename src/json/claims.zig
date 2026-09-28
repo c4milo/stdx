@@ -25,9 +25,9 @@ pub const Claims = struct {
     /// J4, whitespace skipped a vector at a time, left with its code (decision 27, design §8 step
     /// 16): the runs that measured it carried a fault of the benchmark's, and none shows it faster.
     utf8_vectors: bool = constants.vectors,
-    /// J7: the vector paths of J1, J2, J3 and J5 take the widest vector the caller's CPU features
-    /// allow, AVX2's 32 octets or AVX-512's 64 on x86-64, in variant objects of their own (decision
-    /// 29, wide.zig). Off, they take 16 octets whatever the features.
+    /// J7: the vector paths of J1, J2 and J3 take the widest vector the caller's CPU features allow,
+    /// AVX2's 32 octets or AVX-512's 64 on x86-64, in variant objects of their own (decision 29,
+    /// wide.zig). Off, they take 16 octets whatever the features. J5's stays at 16.
     wide_vectors: bool = true,
     /// J8: the decoder takes the next token in one straight line when the input holds all of it and
     /// the output has room for its octets (decision 30). Off, every token takes the checked path.

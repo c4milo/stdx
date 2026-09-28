@@ -1234,12 +1234,13 @@ to 12 are reordered and nothing else changes.
   - The calls and switches each token passes through, cut where the profile finds them, each cut
     measured by the same counters, before the index.
   - The index's vector path returns what its scalar path returns on every input the tests draw and
-    the fuzzer finds, at 16, 32 and 64 octets a block, across a block's end and a call's.
+    the fuzzer finds, at 16, 32 and 64 octets a block, across a block's end and a call's. Dropped
+    with J6, which the owner ruled out after the profile (decision 29).
   - The decoder gives the same tokens and verdicts with J6 on and off, whole, under seeded splits
-    and through the fuzzer, and the reference parser's verdicts still hold.
+    and through the fuzzer, and the reference parser's verdicts still hold. Dropped with J6.
   - Every level's kernels return what the 16-octet ones return, with the tests passing the
     features of every level the CPU runs.
-  - J6's and J7's A/Bs on both runners of decision 20, and the baselines again.
+  - J7's A/B on both runners of decision 20, and the baselines again.
   - Mutations.
 
   A run names the commit it ran at on the json branch, which was then rebased onto main: there
@@ -1367,6 +1368,24 @@ to 12 are reordered and nothing else changes.
   - a long run's rest one octet short at the target's level;
   - AVX-512's features picking AVX2;
   - J7 off keeping the wide level.
+
+  **J7 measured, 2026-09-28.** bench-json run
+  [36483083861](https://github.com/c4milo/stdx/actions/runs/36483083861) at 2252816, on a Neoverse
+  N2 and an AMD EPYC 9V74 with AVX-512. On the N2, where J7 picks no kernel, every J7 column stayed
+  within 1% of all on. On the EPYC, with J7 off:
+  - runs of plain ASCII and hex strings ran at 0.69 to 0.77 of all on, decoding and encoding: E.coli
+    as a string, and every hex string;
+  - text of Cyrillic and CJK characters ran at 1.58 of all on decoding and 1.57 encoding, and
+    English text encoded at 1.05 to 1.08: J7's losses.
+
+  So J5's UTF-8 scan left J7, and a run now takes 16 octets a block for its first 64
+  (`constants.wide_run_len_min`) before a kernel takes the rest (decision 29). The E.coli loss of
+  run 36480120596 is gone: J9 off ran at 1.000 of all on. Mutations, every one CAUGHT, the kernels'
+  under Rosetta:
+  - a stop in the head's last lane passed to the kernel, which a new test of a stop at every octet
+    of a long input catches;
+  - the kernel's run counted from the head's start;
+  - a short rest sent to the head's slice.
 
   **The API, 2026-09-28.** `Decoder.init`, `Encoder.init`, `TextWriter.init` and `TextReader.init`
   take the caller's `codec.Features` last, and each state keeps them (decision 29). The kernels of

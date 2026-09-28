@@ -70,7 +70,7 @@ fn string_octet(comptime claims: Claims, decoder: *Decoder, octet: u8, reader: *
     // Claim J5 starts past the delimiters, so text of ASCII runs what it runs with J5 off.
     if (claims.decoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
         reader.unread(1);
-        if (@call(.never_inline, copy_characters, .{ decoder.level.with(claims), reader, writer }) > 0) return null;
+        if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return null;
         _ = reader.read_octet() catch unreachable;
     }
     // RFC 8259 §8.1 and RFC 3629 §4: a text is UTF-8.
@@ -83,10 +83,10 @@ fn string_octet(comptime claims: Claims, decoder: *Decoder, octet: u8, reader: *
 /// far as the output has room, and returns how many octets it copied (claim J5). It copies none
 /// when the first character is not UTF-8, or the input or the room cuts it: the scalar validation
 /// then takes it.
-fn copy_characters(level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) usize {
+fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    const run = reader.take(wide.content_len(level, window)) catch unreachable;
+    const run = reader.take(scan.content_len_vector(constants.vector_len, window)) catch unreachable;
     writer.write_all(run) catch unreachable;
     return run.len;
 }

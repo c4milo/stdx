@@ -1,7 +1,7 @@
 //! Tests for scan.zig: each vector path returns what its scalar path returns, on every input the
 //! tests draw and the fuzzer finds, at the codecs' `vector_len` of 16 octets a block, and at 32 and
-//! 64, AVX2's and AVX-512's (decision 21). So does each of wide.zig's scans at every level of claim
-//! J7 this CPU runs, which on x86-64 calls the kernels of the variant objects (decision 29). The
+//! 64, AVX2's and AVX-512's (decision 21). So do wide.zig's string and hex scans at every level of
+//! claim J7 this CPU runs, which on x86-64 call the kernels of the variant objects (decision 29). The
 //! scalar paths are the reference (decision 16), and `utf8.zig`'s tests hold the UTF-8 they use to
 //! RFC 3629 §4.
 
@@ -32,10 +32,7 @@ fn expect_same(input: []const u8) !void {
         try testing.expectEqual(scan.plain_len_scalar(input), scan.plain_len_vector(width, input));
         try testing.expectEqual(scan.content_len_scalar(input), scan.content_len_vector(width, input));
     }
-    for (levels_run()) |level| {
-        try testing.expectEqual(scan.plain_len_scalar(input), wide.plain_len(level, input));
-        try testing.expectEqual(scan.content_len_scalar(input), wide.content_len(level, input));
-    }
+    for (levels_run()) |level| try testing.expectEqual(scan.plain_len_scalar(input), wide.plain_len(level, input));
     try expect_same_hex(input);
 }
 
@@ -170,6 +167,18 @@ test "a run of every length up to four blocks scans alike, ending on each kind o
             for (0..len / 3) |index| buffer[3 * index ..][0..3].* = "\xe2\x82\xac".*;
             try expect_same(buffer[0..@min(len + ending.len, input_len_max)]);
         }
+    }
+}
+
+test "a run that stops at every octet of a long input scans alike at every level" {
+    // Plain octets after the stop too, so each stop falls in the first block, in the 16-octet head
+    // before claim J7's kernels, or in a kernel's block, with the input longer than both.
+    var buffer: [input_len_max]u8 = undefined;
+    @memset(&buffer, 'a');
+    for (0..input_len_max) |stop| {
+        buffer[stop] = constants.quotation_mark;
+        for (levels_run()) |level| try testing.expectEqual(stop, wide.plain_len(level, &buffer));
+        buffer[stop] = 'a';
     }
 }
 

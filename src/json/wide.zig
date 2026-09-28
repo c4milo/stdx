@@ -1,7 +1,9 @@
-//! Claim J7 (decision 29): the scans of scan.zig at the widest vector the caller's CPU features
-//! allow. On x86-64, AVX2's 32 octets and AVX-512's 64 run in variant objects of their own
-//! (decision 21, variants.zig), called through the symbols below. Everywhere else, and without
-//! those features, the module's own 16-octet paths run.
+//! Claim J7 (decision 29): a name's or a string's run and a hex string's digits at the widest
+//! vector the caller's CPU features allow. On x86-64, AVX2's 32 octets and AVX-512's 64 run in
+//! variant objects of their own (decision 21, variants.zig), called through the symbols below.
+//! Everywhere else, and without those features, the module's own 16-octet paths run. The UTF-8
+//! scan of claim J5 stays at 16 octets: at 64 it ran text of Cyrillic and CJK characters 37% slower,
+//! rescanning the block each escape stopped it in (design §8 step 17).
 //!
 //! A call costs what a short run saves, so a run no longer than the level's width stays on the
 //! 16-octet path, which compiles into its caller. A name's or a string's run starts there too, and
@@ -50,8 +52,6 @@ pub const Level = enum(u8) {
 
 extern fn stdx_json_plain_len_x86_64_avx2(octets: [*]const u8, len: usize) callconv(.c) usize;
 extern fn stdx_json_plain_len_x86_64_avx512(octets: [*]const u8, len: usize) callconv(.c) usize;
-extern fn stdx_json_content_len_x86_64_avx2(octets: [*]const u8, len: usize) callconv(.c) usize;
-extern fn stdx_json_content_len_x86_64_avx512(octets: [*]const u8, len: usize) callconv(.c) usize;
 extern fn stdx_json_hex_len_x86_64_avx2(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize;
 extern fn stdx_json_hex_len_x86_64_avx512(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize;
 
@@ -65,26 +65,18 @@ pub inline fn plain_len(level: Level, octets: []const u8) usize {
 }
 
 /// The rest of a run past its first 16 octets, in a function of its own: a long run's loop compiled
-/// inside its caller's ran 13% slower on the N2 (design §8 step 17). The level's kernel takes a
-/// rest longer than its width.
+/// inside its caller's ran 13% slower on the N2 (design §8 step 17). The level's kernel takes what
+/// the run holds past `wide_run_len_min` octets.
 noinline fn plain_len_past_first(level: Level, octets: []const u8) usize {
-    if (comptime has_kernels) {
-        if (level != .target and octets.len > level.width()) return switch (level) {
-            .avx2 => stdx_json_plain_len_x86_64_avx2(octets.ptr, octets.len),
-            .avx512 => stdx_json_plain_len_x86_64_avx512(octets.ptr, octets.len),
-            .target => unreachable,
-        };
-    }
-    return scan.plain_len_vector(constants.vector_len, octets);
-}
-
-/// `scan.content_len_vector` at `level`'s width.
-pub inline fn content_len(level: Level, octets: []const u8) usize {
-    if (comptime !has_kernels) return scan.content_len_vector(constants.vector_len, octets);
-    if (level == .target or octets.len <= level.width()) return scan.content_len_vector(constants.vector_len, octets);
-    return switch (level) {
-        .avx2 => stdx_json_content_len_x86_64_avx2(octets.ptr, octets.len),
-        .avx512 => stdx_json_content_len_x86_64_avx512(octets.ptr, octets.len),
+    const head_len_max = constants.wide_run_len_min - constants.vector_len;
+    if (comptime !has_kernels) return scan.plain_len_vector(constants.vector_len, octets);
+    if (level == .target or octets.len <= head_len_max + level.width()) return scan.plain_len_vector(constants.vector_len, octets);
+    const head_len = scan.plain_len_vector(constants.vector_len, octets[0..head_len_max]);
+    if (head_len < head_len_max) return head_len;
+    const rest = octets[head_len_max..];
+    return head_len_max + switch (level) {
+        .avx2 => stdx_json_plain_len_x86_64_avx2(rest.ptr, rest.len),
+        .avx512 => stdx_json_plain_len_x86_64_avx512(rest.ptr, rest.len),
         .target => unreachable,
     };
 }

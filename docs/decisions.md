@@ -1452,11 +1452,25 @@ numbers, and entry 30 out of design §8 step 17's profile.
     - `init` keeping its arguments, with an `init_with` that takes the features. The owner ruled for
       one way to start each type.
 
-30. **A fast path for each token of the `json` decoder and encoder (claims J8 and J9).** **owner** Proposed on
-    2026-09-28 from design §8 step 17's profile. On the N2, stdx's decoder takes 600 to 625
-    instructions a token, five to six times simdjson's and yyjson's. perf put about a quarter of them
-    in the scans entry 29's index would replace, and the rest in the calls and switches each token
-    passes through.
+    **What design §8 step 17 measured, and the owner's rulings on it, 2026-09-28.**
+    - J6 is dropped, ruled by the owner. The step's profile put the scans at a quarter of a token's
+      time on the N2, and at 10% to 15% once entry 30's fast paths had cut the calls. An index built
+      within one call does more vector work for a token than the 16-octet scan it replaces, and one
+      kept across calls is refused above. It returns only if a call ever takes many tokens.
+    - J7 stays, for a name's or a string's run and a hex string's digits. On an AMD EPYC 9V74 it ran
+      the runs of plain ASCII and the hex strings 1.3 to 1.45 times as fast.
+    - J5's UTF-8 scan stays at 16 octets. At 64 it ran text of Cyrillic and CJK characters 37% slower,
+      as each escape that stops a run sends the whole block to the scalar path.
+    - A run takes the 16-octet path for its first 64 octets (`constants.wide_run_len_min`) before a
+      kernel takes the rest. English text encoded 5% to 8% slower with the kernels from the 17th
+      octet, its lines ending before a call paid for itself.
+
+30. **A fast path for each token of the `json` decoder and encoder (claims J8 and J9).** Ruled by
+    the owner on 2026-09-28, who accepted both after design §8 step 17 measured them; proposed the
+    same day from that step's profile. On the N2, stdx's decoder took 600 to 625 instructions a
+    token, five to six times simdjson's and yyjson's. perf put about a quarter of them in the scans
+    entry 29's index would replace, and the rest in the calls and switches each token passes
+    through.
 
     **The fast path.** At the start of a call between tokens, the decoder takes the next token in
     one straight line, when the input holds all of it and the output has room for its octets:

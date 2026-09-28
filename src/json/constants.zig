@@ -22,6 +22,12 @@ pub const vector_len: usize = 16;
 pub const avx2_vector_len: usize = 32;
 pub const avx512_vector_len: usize = 64;
 
+/// The octets of a name's or a string's run the 16-octet path takes before claim J7's kernels take
+/// the rest. Lines of English text are runs of 50 to 100 octets, which ended before a kernel's call
+/// paid for itself: 5% to 8% slower to encode on an AMD EPYC 9V74 with the kernels from the 17th
+/// octet (design §8 step 17).
+pub const wide_run_len_min: usize = 64;
+
 /// Whether the target's vector registers hold `vector_len` octets, so the claims' vector paths are
 /// on by default. Where they do not, LLVM would split each vector or run each lane in turn, and the
 /// scalar paths run instead.
