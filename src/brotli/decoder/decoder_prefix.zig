@@ -12,6 +12,7 @@ const header = @import("decoder_header.zig");
 const State = state_module.State;
 const Target = state_module.Target;
 const Error = state_module.Error;
+const count_work = state_module.count_work;
 
 /// Starts reading the prefix code `target` names, over an alphabet of `alphabet_len` symbols.
 pub fn start(state: *State, target: Target, alphabet_len: u16) void {
@@ -34,6 +35,7 @@ pub fn read_kind(state: *State, bits: *codec.BitReader) ?codec.Status {
     state.reading.space = constants.code_length_code_space;
     state.reading.nonzero_count = 0;
     @memset(state.lengths[0..constants.code_length_alphabet_len], 0);
+    count_work(state, constants.code_length_alphabet_len);
     state.phase = .code_length_code;
     return null;
 }
@@ -71,6 +73,7 @@ pub fn read_simple_symbol(state: *State, bits: *codec.BitReader) Error!?codec.St
     bits.consume(symbol_bits);
     reading.simple_symbols[reading.simple_read] = symbol;
     reading.simple_read += 1;
+    count_work(state, 1);
     if (reading.simple_read == reading.simple_count and reading.simple_count < constants.simple_symbols_max) build_simple(state, false);
     return null;
 }
@@ -84,6 +87,7 @@ fn build_simple(state: *State, tree_select: bool) void {
     if (symbols.len == 1) return finish(state, symbols[0]);
     const lengths = if (tree_select) &constants.simple_code_lengths_tree_select else constants.simple_code_lengths[symbols.len - constants.code_symbols_min];
     @memset(state.lengths[0..reading.alphabet_len], 0);
+    count_work(state, reading.alphabet_len);
     for (symbols, lengths) |symbol, len| state.lengths[symbol] = len;
     finish(state, null);
 }
@@ -95,6 +99,7 @@ pub fn read_code_length_code(state: *State, bits: *codec.BitReader) Error!?codec
     _ = bits.ensure(constants.code_length_code_length_bits_max);
     const decoded = prefix.decode_code_length_code_length(bits.peek(@min(bits.bits.count, codec.constants.ensure_bits_max)), @min(bits.bits.count, codec.constants.ensure_bits_max)) orelse return .needs_input;
     bits.consume(decoded.len);
+    count_work(state, 1);
     const symbol = constants.code_length_code_order[reading.index];
     state.lengths[symbol] = decoded.value;
     reading.index += 1;
@@ -115,15 +120,16 @@ fn build_code_length_code(state: *State) Error!void {
     // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
     if (reading.space < 0) return error.OverSubscribedCodeLengthCode;
     if (reading.space == 0) {
-        _ = state.code_length_code.build(lengths);
+        count_work(state, state.code_length_code.build(lengths));
     } else if (reading.nonzero_count == 1) {
         // RFC 7932 §3.5: one non-zero code length gives a code of one symbol, of no bits.
-        _ = state.code_length_code.build_single(@intCast(std.mem.indexOfNone(u8, lengths, &.{0}).?));
+        count_work(state, state.code_length_code.build_single(@intCast(std.mem.indexOfNone(u8, lengths, &.{0}).?)));
     } else {
         // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
         return error.IncompleteCodeLengthCode;
     }
     @memset(state.lengths[0..reading.alphabet_len], 0);
+    count_work(state, reading.alphabet_len);
     reading.index = 0;
     reading.space = constants.code_lengths_space;
     reading.previous_len = constants.previous_len_initial;
@@ -163,6 +169,7 @@ fn read_code_length(state: *State, bits: *codec.BitReader) Error!?u7 {
     if (decoded.len + extra_bits > available) return null;
     const extra: u32 = @intCast((buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
     bits.consume(decoded.len + extra_bits);
+    count_work(state, 1);
     if (symbol < constants.repeat_previous_symbol) {
         set_length(state, symbol);
     } else {
@@ -206,6 +213,7 @@ fn repeat_length(state: *State, symbol: u8, extra: u32) Error!void {
     if (reading.index + added > reading.alphabet_len) return error.RepeatPastEnd;
     const len: u8 = if (zeros) 0 else reading.previous_len;
     @memset(state.lengths[reading.index..][0..added], len);
+    count_work(state, added);
     reading.index += @intCast(added);
     reading.repeat_symbol = symbol;
     reading.repeat_count = count;
@@ -216,17 +224,19 @@ fn repeat_length(state: *State, symbol: u8, extra: u32) Error!void {
 /// symbol when `single` holds it, otherwise the code `state.lengths` defines.
 fn finish(state: *State, single: ?u16) void {
     const lengths = state.lengths[0..state.reading.alphabet_len];
-    switch (state.reading.target) {
+    const entries = switch (state.reading.target) {
         .block_type => |category| build(&state.blocks[@intFromEnum(category)].type_code, lengths, single),
         .block_count => |category| build(&state.blocks[@intFromEnum(category)].count_code, lengths, single),
         .map => build(&state.map_code, lengths, single),
         .literal => |index| build(&state.literal_codes[index], lengths, single),
         .insert_copy => |index| build(&state.insert_copy_codes[index], lengths, single),
         .distance => |index| build(&state.distance_codes[index], lengths, single),
-    }
+    };
+    count_work(state, entries);
     header.after_code(state);
 }
 
-fn build(code: anytype, lengths: []const u8, single: ?u16) void {
-    _ = if (single) |symbol| code.build_single(symbol) else code.build(lengths);
+/// Builds the table, and returns the entries it wrote.
+fn build(code: anytype, lengths: []const u8, single: ?u16) usize {
+    return if (single) |symbol| code.build_single(symbol) else code.build(lengths);
 }

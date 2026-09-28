@@ -1,5 +1,6 @@
 //! The limits RFC 7932 fixes for a brotli stream.
 const std = @import("std");
+const codec = @import("codec");
 
 /// The largest WBITS a stream header may carry (RFC 7932 §9.1).
 pub const window_bits_max: u6 = 24;
@@ -334,3 +335,62 @@ pub const context_map_table_len_max = 646;
 /// resolves them all.
 pub const code_length_table_root_bits = code_length_code_len_max;
 pub const code_length_table_len = 1 << code_length_table_root_bits;
+
+/// Invariant 17's count for one prefix code at most, over an alphabet of `alphabet_len` symbols
+/// whose table takes at most `table_len_max` entries (RFC 7932 §3.5): a complex code's code length
+/// code, its 18 lengths cleared and read and its table; the alphabet's lengths cleared; a symbol and
+/// a length for each symbol; and the table. A simple code does less.
+pub fn code_work_max(alphabet_len: usize, table_len_max: usize) usize {
+    return 2 * code_length_alphabet_len + code_length_table_len + 3 * alphabet_len + table_len_max;
+}
+
+/// The fewest bits any prefix code takes: a simple code of one symbol over an alphabet of two, a
+/// context map's of two trees and no RLEMAX (RFC 7932 §3.4, §7.3).
+pub const code_bits_min = prefix_kind_bits + simple_count_bits + 1;
+
+/// The fewest bits a literal prefix code takes: a simple code of one symbol, or a complex one of
+/// HSKIP, two code length code lengths of 1 and two code lengths of 1 bit each (RFC 7932 §3.4,
+/// §3.5).
+pub const literal_code_bits_min: usize = @min(
+    prefix_kind_bits + simple_count_bits + std.math.log2_int(usize, literal_alphabet_len),
+    prefix_kind_bits + 2 * @as(usize, code_length_code_length_codes[1].len) + 2,
+);
+
+/// Invariant 17's count for one context map entry at most (RFC 7932 §7.3): its value, or its share
+/// of a run of zeros and of the run's symbol, at most 2; the inverse move-to-front's moves past up
+/// to `trees_max` values; and the check that every tree appears.
+pub const map_entry_work_max = 3 + trees_max;
+
+/// Invariant 17's bound per bit consumed: a meta-block of 256 literal block types and 256 literal
+/// trees, whose literal context map and literal codes do their most work over the context modes'
+/// bits and the literal codes' fewest. Fewer block types or trees give less work per bit, and no
+/// prefix code, distance context map or command gives more.
+pub const work_per_bit_max = std.math.divCeil(
+    usize,
+    literal_contexts_count * block_types_max * map_entry_work_max + trees_max * code_work_max(literal_alphabet_len, literal_table_len_max),
+    context_mode_bits * block_types_max + trees_max * literal_code_bits_min,
+) catch unreachable;
+
+/// Invariant 17's bound per octet consumed.
+pub const work_per_octet_max = work_per_bit_max * @bitSizeOf(u8);
+
+/// Invariant 17's bound per octet written: a literal writes its octet, and a command's
+/// insert-and-copy and distance symbols come with a copy of 2 octets or more, or a dictionary word
+/// of 3 or more. The bits pay for the rest: a block switch's count, the distance of a word its
+/// transform empties, and the next meta-block's header for a command whose literals end the last
+/// one. A call its room cuts short leaves one command's symbols to the bound per call.
+pub const work_per_written_max = 1;
+
+/// Invariant 17's bound per call, beyond the bounds per bit and per octet written: a call can take
+/// the last bits of both context maps and do their whole work, which the context modes and the
+/// prefix codes after the maps pay for, and the steps of the bits an earlier call left behind.
+pub const work_per_call_max = (literal_contexts_count + distance_contexts_count) * block_types_max * map_entry_work_max +
+    work_per_bit_max * codec.constants.bit_buffer_bits;
+
+comptime {
+    std.debug.assert(literal_code_bits_min == 12);
+    // No prefix code does more work per bit than the literal context map's meta-block.
+    std.debug.assert(code_work_max(insert_copy_alphabet_len, insert_copy_table_len_max) <= work_per_bit_max * code_bits_min);
+    std.debug.assert(code_work_max(context_map_alphabet_len_max, context_map_table_len_max) <= work_per_bit_max * code_bits_min);
+    std.debug.assert(code_work_max(distance_alphabet_len_max, distance_table_len_max) <= work_per_bit_max * code_bits_min);
+}

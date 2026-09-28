@@ -13,6 +13,7 @@ const State = state_module.State;
 const Category = state_module.Category;
 const Map = state_module.Map;
 const Error = state_module.Error;
+const count_work = state_module.count_work;
 
 /// NBLTYPESx or NTREESx, 1 to 256, from its code (RFC 7932 §9.2): a 0 bit is 1; otherwise three bits
 /// n and n more bits x give (1 << n) + 1 + x. Null while its bits are not all present.
@@ -85,6 +86,7 @@ fn block_count_code(symbol: u16) constants.LengthCode {
 /// The first block count of a category with two block types or more (RFC 7932 §9.2).
 pub fn read_first_block_count(state: *State, bits: *codec.BitReader) ?codec.Status {
     const count = read_block_count(state, state.category, bits) orelse return .needs_input;
+    count_work(state, 1);
     state.blocks[@intFromEnum(state.category)].count_left = count;
     next_category(state);
     return null;
@@ -147,6 +149,7 @@ pub fn read_trees_count(state: *State, bits: *codec.BitReader) ?codec.Status {
         return null;
     }
     @memset(map_entries(state, map), 0);
+    count_work(state, map_len(state, map));
     after_map(state);
     return null;
 }
@@ -200,6 +203,7 @@ fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?u7 {
     const entries = map_entries(state, reading.map);
     if (decoded.value == 0 or decoded.value > reading.run_length_codes) {
         bits.consume(decoded.len);
+        count_work(state, 1);
         // RLEMAX + n is the value n; 0 is the value 0.
         entries[reading.index] = @intCast(if (decoded.value == 0) 0 else decoded.value - reading.run_length_codes);
         reading.index += 1;
@@ -213,6 +217,7 @@ fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?u7 {
     if (reading.index + run > len) return error.RepeatPastEnd;
     bits.consume(decoded.len + extra_bits);
     fill_zeros(entries, reading.index, run);
+    count_work(state, 1 + run);
     reading.index += run;
     return decoded.len + extra_bits;
 }
@@ -229,30 +234,35 @@ pub fn read_map_inverse_transform(state: *State, bits: *codec.BitReader) Error!?
     if (!bits.ensure(1)) return .needs_input;
     const map = state.map_reading.map;
     const entries = map_entries(state, map);
-    if (bits.read(1).? == 1) inverse_move_to_front(entries);
+    if (bits.read(1).? == 1) count_work(state, inverse_move_to_front(entries));
     const trees_count = state.trees_counts[@intFromEnum(map)];
     var seen: [constants.trees_max]bool = @splat(false);
     for (entries) |entry| {
         assert(entry < trees_count);
         seen[entry] = true;
     }
+    count_work(state, entries.len);
     // RFC 7932 §7.3: the different values in the context map must be the interval 0 to NTREES - 1.
     for (seen[0..trees_count]) |value_seen| if (!value_seen) return error.InvalidContextMap;
     after_map(state);
     return null;
 }
 
-/// InverseMoveToFrontTransform of RFC 7932 §7.3.
-fn inverse_move_to_front(entries: []u8) void {
+/// InverseMoveToFrontTransform of RFC 7932 §7.3. Returns the entries of its list it wrote: for each
+/// map entry, the values it moves down and the one it moves to the front.
+fn inverse_move_to_front(entries: []u8) usize {
     var order: [constants.trees_max]u8 = undefined;
     for (&order, 0..) |*value, index| value.* = @intCast(index);
+    var written: usize = 0;
     for (entries) |*entry| {
         const index = entry.*;
         const value = order[index];
         entry.* = value;
         std.mem.copyBackwards(u8, order[1 .. @as(usize, index) + 1], order[0..index]);
         order[0] = value;
+        written += @as(usize, index) + 1;
     }
+    return written;
 }
 
 /// After the literal context map, the distance one; after both, the prefix codes.

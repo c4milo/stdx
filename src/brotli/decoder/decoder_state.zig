@@ -164,9 +164,15 @@ pub const Command = struct {
     copy_left: u32,
 };
 
-/// Invariant 17's count, which test builds alone keep.
+/// Invariant 17's count, which test builds alone keep: each symbol decoded, and each entry a table
+/// build, a clear, a repeat, a run or the inverse move-to-front writes.
 pub const Work = if (builtin.is_test) u64 else void;
 pub const work_zero: Work = if (builtin.is_test) 0 else {};
+
+/// Adds `work` to invariant 17's count, in a test build.
+pub fn count_work(state: *State, work: usize) void {
+    if (builtin.is_test) state.work += work;
+}
 
 pub const State = struct {
     bits: codec.Bits,

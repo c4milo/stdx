@@ -1,12 +1,13 @@
 //! The brotli decoder's split property, over inputs the fuzzer or a seed draws: any input, valid or
 //! not, decoded in one call and under a seeded split that moves the state between calls, gives the
 //! same octets, the same verdict and the same `consumed` (decision 11; invariants 5, 12 and 13). No
-//! input may reach a panic.
+//! input may reach a panic, and no call may work past invariant 17's bound.
 
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const decoder_module = @import("decoder.zig");
+const work_test = @import("decoder_work_test.zig");
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
 const test_window_bits = 16;
@@ -41,19 +42,33 @@ fn verdict_of(result: decoder_module.Error!codec.Progress) Verdict {
     return .{ .progress = progress };
 }
 
-fn step(decoder: *Decoder, input: []const u8, output: []u8) decoder_module.Error!codec.Progress {
-    return decoder.decode(input, output);
+fn step(decoder: *Decoder, input: []const u8, output: []u8) (decoder_module.Error || error{TestWorkPastBound})!codec.Progress {
+    const before = decoder.state.work;
+    const progress = try decoder.decode(input, output);
+    if (!work_test.within_bound(decoder.state.work - before, progress.consumed, progress.written)) return error.TestWorkPastBound;
+    return progress;
+}
+
+/// Decodes `input` in one call, and requires its count within invariant 17's bound.
+fn decode_whole(decoder: *Decoder, input: []const u8, output: []u8) !Verdict {
+    decoder.init(.{});
+    const verdict = verdict_of(decoder.decode(input, output));
+    switch (verdict) {
+        .progress => |progress| try testing.expect(work_test.within_bound(decoder.state.work, progress.consumed, progress.written)),
+        .refused => {},
+    }
+    return verdict;
 }
 
 /// Decodes `input` in one call and under `seed`'s split, and requires both to agree.
 fn check_split(input: []const u8, seed: u64) !void {
     var states: [codec.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
-    states[0].init(.{});
-    const whole = verdict_of(states[0].decode(input, &whole_output));
+    const whole = try decode_whole(&states[0], input, &whole_output);
     states[0].init(.{});
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
+        if (err == error.TestWorkPastBound) return err;
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
         return;
     };

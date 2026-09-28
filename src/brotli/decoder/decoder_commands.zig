@@ -15,6 +15,7 @@ const State = state_module.State;
 const Phase = state_module.Phase;
 const Category = state_module.Category;
 const Error = state_module.Error;
+const count_work = state_module.count_work;
 
 fn blocks_of(state: *State, category: Category) *state_module.Blocks {
     return &state.blocks[@intFromEnum(category)];
@@ -42,6 +43,7 @@ fn start_switch(state: *State, category: Category, after: Phase) ?codec.Status {
 pub fn read_block_type(state: *State, bits: *codec.BitReader) ?codec.Status {
     const blocks = blocks_of(state, state.category);
     const symbol = decode_symbol(bits, &blocks.type_code) orelse return .needs_input;
+    count_work(state, 1);
     const block_type: u8 = switch (symbol) {
         0 => blocks.type_previous,
         1 => @intCast((@as(u16, blocks.type_current) + 1) % blocks.types_count),
@@ -57,6 +59,7 @@ pub fn read_block_type(state: *State, bits: *codec.BitReader) ?codec.Status {
 /// The block count that follows a block type code (RFC 7932 §6).
 pub fn read_block_count(state: *State, bits: *codec.BitReader) ?codec.Status {
     blocks_of(state, state.category).count_left = header.read_block_count(state, state.category, bits) orelse return .needs_input;
+    count_work(state, 1);
     state.phase = state.after_switch;
     return null;
 }
@@ -80,6 +83,7 @@ pub fn read_command(state: *State, bits: *codec.BitReader) ?codec.Status {
     if (needs_switch(state, .insert_copy)) return start_switch(state, .insert_copy, .command);
     const blocks = blocks_of(state, .insert_copy);
     const symbol = decode_symbol(bits, &state.insert_copy_codes[blocks.type_current]) orelse return .needs_input;
+    count_work(state, 1);
     blocks.count_left -= 1;
     set_command_codes(&state.command, symbol);
     state.phase = .command_extra;
@@ -134,6 +138,7 @@ pub fn read_literal(state: *State, bits: *codec.BitReader, out: anytype) ?codec.
     const id = context.literal_id(state.context_modes[block_type], state.p1, state.p2);
     const tree = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count + id];
     const literal = decode_symbol(bits, &state.literal_codes[tree]) orelse return .needs_input;
+    count_work(state, 1);
     blocks.count_left -= 1;
     state.command.insert_left -= 1;
     out.emit(state, @intCast(literal));
@@ -164,6 +169,7 @@ pub fn read_distance(state: *State, bits: *codec.BitReader) Error!?codec.Status 
     const extra: u32 = @intCast((buffer >> @intCast(decoded.len)) & low_mask(extra_bits));
     const distance = try distance_of(state, code, extra);
     bits.consume(decoded.len + extra_bits);
+    count_work(state, 1);
     blocks.count_left -= 1;
     // RFC 7932 §4: the distance code 0 does not push its distance to the ring of last distances.
     return try resolve_distance(state, distance, code != 0);
