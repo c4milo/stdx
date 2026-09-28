@@ -50,7 +50,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
 
         comptime {
             // Decision 12: the window of 1 << `window_bits_max` octets and the state, pinned.
-            assert(@sizeOf(Self) == (@as(usize, 1) << options.window_bits_max) + constants.decoder_state_len);
+            assert(@sizeOf(Self) == (@as(usize, 1) << options.window_bits_max) + constants.decoder_state_len + @sizeOf(state_module.Work));
         }
 
         /// Starts a stream. Writes no octet of the window and no table (decision 11).

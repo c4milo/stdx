@@ -312,5 +312,6 @@ pub const coded_distance_bias = 4;
 
 /// The octets a decoder takes beside its window's octets (decision 12): the ring's two counters and
 /// the checked path's state, of which the prefix codes of every tree take 783,872 and the context
-/// maps 17,408. Pinned, so that the state grows only by a change of this line.
-pub const decoder_state_len = 805_016;
+/// maps 17,408; a test build adds invariant 17's count. Pinned, so that the state grows only by a
+/// change of this line.
+pub const decoder_state_len = 805_008;
