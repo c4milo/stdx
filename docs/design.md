@@ -1119,9 +1119,8 @@ and one that does not beat the noise is removed.
 Decisions 11 to 20 are ruled. Decision 27 leaves two to the owner:
 
 - A dependency for the `json` module's checks: a conformance corpus such as JSONTestSuite, or an
-  oracle and benchmark baseline such as Zig's std.json, simdjson or yyjson. Until one is ruled in,
-  an independent parser in the tests is the decoder's judge, and its scalar paths are its vector
-  paths' baseline.
+  oracle. Until one is ruled in, an independent parser in the tests is the decoder's judge. The
+  benchmark's baselines, simdjson, yyjson and Zig's std.json, were ruled in on 2026-09-28.
 - Proofs in Lean of the `json` module's finite-state parts: that its UTF-8 and number state
   machines accept exactly RFC 3629 §4's and RFC 8259 §6's languages, and that the vector UTF-8
   check agrees with the scalar one on every window of four octets. pepegrillo's `lean` engine

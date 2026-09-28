@@ -10,10 +10,11 @@
 //!   vector path is priced against.
 //!
 //! Decoding counts the text's octets; encoding counts the octets it writes. Every candidate's
-//! output is compared with the reference's before any is timed.
+//! output is compared with the reference's before any is timed. The timed decode counts each token
+//! into a tally, the work the baselines do too.
 //!
-//! No other JSON library is a candidate: each is a dependency the owner has not ruled on
-//! (decision 27).
+//! simdjson, yyjson and Zig's std.json run in the same interleaved run, after the candidates
+//! (baselines/baselines.zig, decision 27).
 //!
 //! stdx is built for the architecture's baseline CPU and ReleaseSafe, as a caller shipping one
 //! binary builds it (decisions 17 and 21), so the vectors are SSE2's and NEON's 16 octets.
@@ -24,7 +25,9 @@
 const std = @import("std");
 const timing = @import("timing");
 const json = @import("json");
+const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
+const baselines = @import("baselines/baselines.zig");
 const Item = workloads.Item;
 const Workload = workloads.Workload;
 
@@ -33,6 +36,8 @@ const candidates = [_]json.Claims{.{}} ++ json.claims.each_off ++ [_]json.Claims
 const candidate_count = candidates.len;
 /// Where the candidate with every claim off stands in `candidates`.
 const scalar_index = candidate_count - 1;
+/// Every operation a workload's run times: the candidates, then the baselines.
+const operation_count = candidate_count + baselines.count;
 
 comptime {
     // The workloads' own calls must not share a candidate's codec (`encode` below).
@@ -58,8 +63,31 @@ fn Decode(comptime claims: json.Claims) type {
     };
 }
 
-/// Decodes every text of `workload` and returns a hash of its tokens, so candidates compare.
-fn decode(comptime claims: json.Claims, workload: *const Workload, output: []u8) u64 {
+/// Decodes every text of `workload` and returns the tally of its tokens.
+fn decode(comptime claims: json.Claims, workload: *const Workload, output: []u8) abi.Tally {
+    var tally: abi.Tally = .{};
+    for (workload.texts) |text| {
+        var decoder: json.Decoder = undefined;
+        decoder.init(workload.framing);
+        var consumed: usize = 0;
+        for (0..text.len + 2) |_| {
+            // Inline, so every candidate's loop takes the same shape (below, in `encode`).
+            const progress = @call(.always_inline, json.Decoder.decode_with, .{ &decoder, claims, text[consumed..], output, .last }) catch unreachable;
+            consumed += progress.consumed;
+            switch (progress.status) {
+                .token => baselines.count_token(&tally, progress.kind.?, progress.written),
+                .done => break,
+                .needs_input, .needs_room => unreachable,
+            }
+        } else unreachable;
+        std.debug.assert(consumed == text.len);
+    }
+    return tally;
+}
+
+/// Decodes every text of `workload` and returns a hash of its tokens, so candidates compare
+/// before any is timed.
+fn tokens_hash(comptime claims: json.Claims, workload: *const Workload, output: []u8) u64 {
     var hash = std.hash.Wyhash.init(0);
     for (workload.texts) |text| {
         var decoder: json.Decoder = undefined;
@@ -118,10 +146,10 @@ fn encode(comptime claims: json.Claims, workload: *const Workload, output: []u8)
     return written;
 }
 
-/// The median throughput of each candidate, in MB/s, and its spread, a share of the median.
-const Rates = struct { median: [candidate_count]f64, spread: [candidate_count]f64 };
+/// The median throughput of each operation, in MB/s, and its spread, a share of the median.
+const Rates = struct { median: [operation_count]f64, spread: [operation_count]f64 };
 
-fn rates_of(runs: *const [candidate_count][timing.run_count]f64, octets: usize) Rates {
+fn rates_of(runs: *const [operation_count][timing.run_count]f64, octets: usize) Rates {
     var rates: Rates = undefined;
     for (runs, 0..) |candidate_runs, index| {
         const summary = timing.summarize(candidate_runs);
@@ -133,15 +161,22 @@ fn rates_of(runs: *const [candidate_count][timing.run_count]f64, octets: usize) 
 
 fn time_decode(arena: std.mem.Allocator, io: std.Io, workload: *const Workload) !Rates {
     const output = try arena.alloc(u8, @max(workload.content_len_max, 1));
-    var operations: [candidate_count]timing.Operation = undefined;
+    var operations: [operation_count]timing.Operation = undefined;
     const reference = decode(json.claims.scalar, workload, output);
+    const reference_hash = tokens_hash(json.claims.scalar, workload, output);
     inline for (candidates, 0..) |claims, index| {
         const state = try arena.create(Decode(claims));
         state.* = .{ .workload = workload, .output = output };
-        if (decode(claims, workload, output) != reference) return error.CandidatesDiffer;
+        if (!std.meta.eql(decode(claims, workload, output), reference)) return error.CandidatesDiffer;
+        if (tokens_hash(claims, workload, output) != reference_hash) return error.CandidatesDiffer;
         operations[index] = .{ .context = state, .run_once = Decode(claims).run_once };
     }
-    var runs: [candidate_count][timing.run_count]f64 = undefined;
+    var baseline_memory: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer baseline_memory.deinit();
+    var prepared = try baselines.prepare(baseline_memory.allocator(), workload);
+    defer prepared.deinit();
+    operations[candidate_count..].* = try baselines.decode_operations(&prepared, reference);
+    var runs: [operation_count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &operations, &runs);
     return rates_of(&runs, workload.octets);
 }
@@ -151,7 +186,7 @@ fn time_encode(arena: std.mem.Allocator, io: std.Io, workload: *const Workload) 
     for (workload.items) |items| output_len += workloads.encoded_len_max(items);
     const output = try arena.alloc(u8, output_len);
     const reference = try arena.dupe(u8, output[0..encode(json.claims.scalar, workload, output)]);
-    var operations: [candidate_count]timing.Operation = undefined;
+    var operations: [operation_count]timing.Operation = undefined;
     inline for (candidates, 0..) |claims, index| {
         const state = try arena.create(Encode(claims));
         state.* = .{ .workload = workload, .output = output };
@@ -159,9 +194,27 @@ fn time_encode(arena: std.mem.Allocator, io: std.Io, workload: *const Workload) 
         if (!std.mem.eql(u8, reference, output[0..len])) return error.CandidatesDiffer;
         operations[index] = .{ .context = state, .run_once = Encode(claims).run_once };
     }
-    var runs: [candidate_count][timing.run_count]f64 = undefined;
+    var baseline_memory: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer baseline_memory.deinit();
+    var prepared = try baselines.prepare(baseline_memory.allocator(), workload);
+    defer prepared.deinit();
+    const storage = try baseline_memory.allocator().alloc(u8, output_len);
+    operations[candidate_count..].* = try baselines.encode_operations(&prepared, workload, storage);
+    var runs: [operation_count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &operations, &runs);
     return rates_of(&runs, reference.len);
+}
+
+/// stdx's throughput with every claim on, beside the baselines'.
+fn baseline_row(workload: *const Workload, rates: Rates, octets: usize) baselines.Row {
+    var row: baselines.Row = .{ .name = workload.name, .octets = octets, .median = undefined, .spread = undefined };
+    row.median[0] = rates.median[0];
+    row.spread[0] = rates.spread[0];
+    for (0..baselines.count) |index| {
+        row.median[1 + index] = rates.median[candidate_count + index];
+        row.spread[1 + index] = rates.spread[candidate_count + index];
+    }
+    return row;
 }
 
 /// A claim whose path lost to the scalar one: off ran faster than on by more than the noise.
@@ -204,17 +257,21 @@ pub fn main(init: std.process.Init) !void {
     const out = &stdout.interface;
     const all = try load(arena, io, try init.minimal.args.toSlice(arena));
     var losses: std.ArrayList(Loss) = .empty;
+    const decoding = try arena.alloc(baselines.Row, all.len);
+    const encoding = try arena.alloc(baselines.Row, all.len);
 
     try header(out, "Decoding", &decoder_claims, "Octets are the text's.");
-    for (all) |*workload| {
+    for (all, decoding) |*workload, *row| {
         const rates = try time_decode(arena, io, workload);
+        row.* = baseline_row(workload, rates, workload.octets);
         try report_row(out, workload, rates, &decoder_claims, workload.octets);
         try record_losses(arena, &losses, workload, "decoding", rates, &decoder_claims);
         try out.flush();
     }
     try header(out, "Encoding", &encoder_claims, "Octets are the ones written.");
-    for (all) |*workload| {
+    for (all, encoding) |*workload, *row| {
         const rates = try time_encode(arena, io, workload);
+        row.* = baseline_row(workload, rates, workload.octets);
         try report_row(out, workload, rates, &encoder_claims, workload.octets);
         try record_losses(arena, &losses, workload, "encoding", rates, &encoder_claims);
         try out.flush();
@@ -225,6 +282,7 @@ pub fn main(init: std.process.Init) !void {
         const name = if (loss.claim < json.claims.each_off.len) json.claims.each_off_names[loss.claim] else "every claim";
         try out.print("- {s}, {s}: {s} off runs at {d:.3} of all on.\n", .{ loss.workload, loss.side, name, loss.ratio });
     }
+    try baselines.report(out, decoding, encoding);
     try out.flush();
 }
 

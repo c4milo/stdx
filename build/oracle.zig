@@ -18,7 +18,8 @@
 //! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
 //!   and Zstandard decoder, where the host exposes the counters (`bench/profile/profile.zig`).
 //! - `zig build bench-json -Doracles` times the json module's vector paths against its scalar ones
-//!   over CLDR's JSON texts and texts made from the corpus (`bench/json/json.zig`).
+//!   and beside simdjson, yyjson and Zig's std.json, over CLDR's JSON texts and texts made from the
+//!   corpus (`bench/json/json.zig`, build/oracle_json.zig).
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
 //!   agree with zlib and Wuffs over the corpora, and on seeded corruptions
 //!   (`tools/differential/deflate.zig`).
@@ -36,6 +37,7 @@ const std = @import("std");
 const modules = @import("modules.zig");
 const baselines = @import("baselines.zig");
 const oracle_corpus = @import("oracle_corpus.zig");
+const oracle_json = @import("oracle_json.zig");
 
 /// The zlib sources the oracle compiles: the library without its gz* file layer, which would need
 /// the host's file I/O.
@@ -331,7 +333,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
-    bench_json_step.dependOn(&add_bench_json(b, timing, corpus, graph, baseline).step);
+    if (oracle_json.add_bench_json(b, timing, corpus, graph, baseline)) |bench_json| bench_json_step.dependOn(&bench_json.step);
 
     const tested = .{ oracle, corpus_names, shuffle_module, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, zstd_module, brotli_module, profile_module };
     inline for (tested) |module| {
@@ -374,25 +376,6 @@ fn add_bench_decoder(b: *std.Build, inputs: BenchInputs, graph: modules.Modules,
     const run = b.addRunArtifact(program);
     run.has_side_effects = true;
     oracle_corpus.add_args(b, run, inputs.corpus);
-    return run;
-}
-
-/// `bench/json/json.zig` over the corpus files and CLDR's JSON texts: the json module's vector paths
-/// against its scalar ones (decision 27), built as the other benchmarks build stdx.
-fn add_bench_json(b: *std.Build, timing: *std.Build.Module, corpus: oracle_corpus.Corpus, graph: modules.Modules, baseline: std.Build.ResolvedTarget) *std.Build.Step.Run {
-    const module = b.createModule(.{
-        .root_source_file = b.path("bench/json/json.zig"),
-        .target = baseline,
-        .optimize = .ReleaseSafe,
-    });
-    module.addImport("timing", timing);
-    module.addImport("json", graph.json);
-    const program = b.addExecutable(.{ .name = "bench_json", .root_module = module });
-    b.installArtifact(program);
-    const run = b.addRunArtifact(program);
-    run.has_side_effects = true;
-    oracle_corpus.add_args(b, run, corpus);
-    run.addPrefixedDirectoryArg("cldr=", corpus.cldr_supplemental);
     return run;
 }
 

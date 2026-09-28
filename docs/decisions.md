@@ -1210,9 +1210,8 @@ entry 26 out of the owner's review of CI, and entry 27 out of the owner's reques
     than the noise, on each runner of entry 20; design §8 step 16 records the runs. Wider vectors
     behind entry 21's per-level objects wait until a measurement asks for them.
 
-    **The checks, with no oracle.** A conformance corpus such as JSONTestSuite, an oracle, and a
-    benchmark baseline such as Zig's std.json, simdjson or yyjson are each a dependency, which
-    CLAUDE.md asks the owner about; none is added. In their place:
+    **The checks, with no oracle.** A conformance corpus such as JSONTestSuite and an oracle are
+    each a dependency, which CLAUDE.md asks the owner about; neither is added. In their place:
     - an independent recursive-descent parser in the tests, written from RFC 8259 §2 to §7 and RFC
       7464 §2.1 and §2.4, whose verdict and tokens the decoder must match on every seeded and fuzzed
       input;
@@ -1221,6 +1220,23 @@ entry 26 out of the owner's review of CI, and entry 27 out of the owner's reques
     - every text under seeded splits of the input and the output with the state moved between
       calls (invariants 5 and 12), and every vector path against its scalar one;
     - the fuzzer over every property above, on each runner of entry 26.
+
+    **The baselines.** Ruled by the owner on 2026-09-28, after the first A/Bs: simdjson, yyjson
+    and Zig's std.json time beside stdx in `bench-json`, in the same interleaved run as the claims'
+    candidates. Each reaches the benchmark through its documented API alone, and nobody working on
+    stdx reads its source (entry 9).
+    - simdjson 4.6.11 and yyjson 0.13.0 are lazy packages pinned by hash, compiled in `bench/` for
+      the host in ReleaseFast, as the codecs' baselines are. simdjson picks its kernel at run time.
+    - std.json comes with Zig 0.16.0, so it adds no package; the benchmark builds it for the host in
+      ReleaseFast.
+    - Decoding visits every value of each text: names and strings unescaped, numbers checked, and
+      the text's end checked. Every baseline must count what stdx counts before any is timed.
+    - Encoding writes each text from its tokens. A hex string's digits and a decimal's text are
+      formatted as a caller of that library would, since none has either, and yyjson writes
+      numbers from values, as its API documents no raw number for a document it builds. Each
+      baseline's text must decode, through stdx, to what stdx's own text decodes to.
+    - Zig 0.16.0 builds no libc++ for macOS 26, so a macOS host builds the benchmark without
+      simdjson; the benchmark's numbers come from the Linux runners (entry 10).
 
     The alternatives refused:
     - A JSON writer in each project that needs one, colibri's today. Each copies the escapes and
