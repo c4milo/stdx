@@ -1,5 +1,5 @@
 //! bench-json: the json module's vector paths, claims J1, J2, J3 and J5 of decision 27, their
-//! widths, claim J7 of decision 29, and its fast paths, claims J8 and J9 of decision 30, each off
+//! widths, claim J7 of decision 30, and its fast paths, claims J8 and J9 of decision 31, each off
 //! against all on, measured the way
 //! decisions 10, 20 and 21 fix: every candidate in this one program, interleaved in the same run,
 //! five runs each, the median and the spread reported, and the losses shown. The timing is

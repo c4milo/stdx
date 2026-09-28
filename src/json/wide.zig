@@ -1,4 +1,4 @@
-//! Claim J7 (decision 29): a name's or a string's run and a hex string's digits at the widest
+//! Claim J7 (decision 30): a name's or a string's run and a hex string's digits at the widest
 //! vector the caller's CPU features allow. On x86-64, AVX2's 32 octets and AVX-512's 64 run in
 //! variant objects of their own (decision 21, variants.zig), called through the symbols below.
 //! Everywhere else, and without those features, the module's own 16-octet paths run. The UTF-8

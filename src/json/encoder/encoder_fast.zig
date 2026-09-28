@@ -1,4 +1,4 @@
-//! Claim J9 (decision 30): the encoder's whole token in one straight line. At the start of a
+//! Claim J9 (decision 31): the encoder's whole token in one straight line. At the start of a
 //! token, when the call's input holds all of its octets and the output has room for every octet it
 //! writes, the encoder writes them without holding any in `pending`: the record separator that
 //! starts a sequence's text, the value separator before the token, the token, and the line feed

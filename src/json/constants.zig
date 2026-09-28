@@ -13,12 +13,12 @@ pub const depth_max: u16 = 1024;
 /// The octets the encoder's and the decoder's SIMD paths take at once: 16, the width of SSE2's and
 /// NEON's registers, which every x86-64 and aarch64 CPU has, so no feature detection chooses these
 /// paths (decision 27). A build for a CPU with wider registers takes 16 as well; the wider widths
-/// are claim J7's, which the caller's features pick at run time (decision 29).
+/// are claim J7's, which the caller's features pick at run time (decision 30).
 pub const vector_len: usize = 16;
 
 /// The octets claim J7's paths take at once on x86-64: AVX2's 32 and AVX-512's 64, in variant
 /// objects compiled for those levels (decision 21), which the module calls when the caller's
-/// features name the level (decision 29).
+/// features name the level (decision 30).
 pub const avx2_vector_len: usize = 32;
 pub const avx512_vector_len: usize = 64;
 

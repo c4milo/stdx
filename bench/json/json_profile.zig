@@ -1,7 +1,7 @@
 //! bench-json's `--profile` mode, which `zig build bench-profile` runs (design §8 step 17): the
 //! hardware counters of stdx's JSON decoder and encoder and of the baselines, per token and per
 //! octet, over one workload of each shape. It shows how many instructions and branch misses each
-//! spends on a token, the costs decision 29's structural index is priced against.
+//! spends on a token, the costs decision 30's structural index is priced against.
 //!
 //! Each operation is one bench-json times, built and checked the same way (json.zig). It runs
 //! once, then as many times as it takes to count `counted_len_min` octets, between the counters of

@@ -1,7 +1,7 @@
 //! Tests for scan.zig: each vector path returns what its scalar path returns, on every input the
 //! tests draw and the fuzzer finds, at the codecs' `vector_len` of 16 octets a block, and at 32 and
 //! 64, AVX2's and AVX-512's (decision 21). So do wide.zig's string and hex scans at every level of
-//! claim J7 this CPU runs, which on x86-64 call the kernels of the variant objects (decision 29). The
+//! claim J7 this CPU runs, which on x86-64 call the kernels of the variant objects (decision 30). The
 //! scalar paths are the reference (decision 16), and `utf8.zig`'s tests hold the UTF-8 they use to
 //! RFC 3629 §4.
 

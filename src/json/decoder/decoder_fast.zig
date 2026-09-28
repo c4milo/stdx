@@ -1,4 +1,4 @@
-//! Claim J8 (decision 30): the decoder's next token in one straight line. At the start of a call
+//! Claim J8 (decision 31): the decoder's next token in one straight line. At the start of a call
 //! between tokens, when the input holds all of the token and the output has room for its octets,
 //! it takes whitespace, at most one separator, and then a structural character, a name or a string
 //! of plain ASCII, a whole number with the octet that ends it, or a literal name.

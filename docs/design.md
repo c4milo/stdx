@@ -1227,7 +1227,7 @@ to 12 are reordered and nothing else changes.
   - `TextReader`: a sequence ending after its first text.
 
 - **Step 17: the `json` decoder's structural index, and the module's vector paths picked at run
-  time (decision 29).** The owner ruled both on 2026-09-28, after step 16's baselines.
+  time (decision 30).** The owner ruled both on 2026-09-28, after step 16's baselines.
   **Check:**
   - A profile first: cycles, instructions and branch misses per token and per octet for stdx's
     decoder and encoder, and for simdjson's and yyjson's, on the N2, through `bench-profile`.
@@ -1235,7 +1235,7 @@ to 12 are reordered and nothing else changes.
     measured by the same counters, before the index.
   - The index's vector path returns what its scalar path returns on every input the tests draw and
     the fuzzer finds, at 16, 32 and 64 octets a block, across a block's end and a call's. Dropped
-    with J6, which the owner ruled out after the profile (decision 29).
+    with J6, which the owner ruled out after the profile (decision 30).
   - The decoder gives the same tokens and verdicts with J6 on and off, whole, under seeded splits
     and through the fuzzer, and the reference parser's verdicts still hold. Dropped with J6.
   - Every level's kernels return what the 16-octet ones return, with the tests passing the
@@ -1270,11 +1270,11 @@ to 12 are reordered and nothing else changes.
     3%. CLDR's took the same shape. qlog's encoding spent 51% in its loop with `encode_with`
     inline, 22% in `Encoder.open` and 11% in `memcpy`, called for copies of a few octets.
   - The scans the index would replace, of whitespace, strings and numbers, take about a quarter of
-    qlog's decoding time, and decision 29 keeps their checks. The rest is the calls and switches
+    qlog's decoding time, and decision 30 keeps their checks. The rest is the calls and switches
     each token passes through. So the step cuts those first, and builds the index where the
     profile then finds the scans.
 
-  **J8, 2026-09-28.** The fast path of decision 30, in `decoder_fast.zig`.
+  **J8, 2026-09-28.** The fast path of decision 31, in `decoder_fast.zig`.
   `decoder_fast_test.zig` requires the same progress, octets, error and state after every call
   with J8 on and off:
   - over its texts and 1,500 seeded corruptions of them, and over every input the fuzzer draws;
@@ -1303,7 +1303,7 @@ to 12 are reordered and nothing else changes.
   and 344.8, and CLDR's from 169.8 and 601.5 to 84.2 and 307.3. simdjson and yyjson stayed at 27 to
   31 cycles and 107 to 109 instructions.
 
-  **J9, 2026-09-28.** The encoder's fast path of decision 30, in `encoder_fast.zig`.
+  **J9, 2026-09-28.** The encoder's fast path of decision 31, in `encoder_fast.zig`.
   `encoder_fast_test.zig` requires the same progress, octets, error and state after every call
   with J9 on and off:
   - over a qlog-shaped record, lists with escapes, non-ASCII octets and refusals, a list past the
@@ -1379,7 +1379,7 @@ to 12 are reordered and nothing else changes.
     English text encoded at 1.05 to 1.08: J7's losses.
 
   So J5's UTF-8 scan left J7, and a run now takes 16 octets a block for its first 64
-  (`constants.wide_run_len_min`) before a kernel takes the rest (decision 29). The E.coli loss of
+  (`constants.wide_run_len_min`) before a kernel takes the rest (decision 30). The E.coli loss of
   run 36480120596 is gone: J9 off ran at 1.000 of all on. Mutations, every one CAUGHT, the kernels'
   under Rosetta:
   - a stop in the head's last lane passed to the kernel, which a new test of a stop at every octet
@@ -1388,7 +1388,7 @@ to 12 are reordered and nothing else changes.
   - a short rest sent to the head's slice.
 
   **The API, 2026-09-28.** `Decoder.init`, `Encoder.init`, `TextWriter.init` and `TextReader.init`
-  take the caller's `codec.Features` last, and each state keeps them (decision 29). The kernels of
+  take the caller's `codec.Features` last, and each state keeps them (decision 30). The kernels of
   J7's wider levels come after. `round_trip_test.zig` requires `none()`, `target()` and `detect()`
   to give the same octets and tokens, as invariant 5 now states.
 

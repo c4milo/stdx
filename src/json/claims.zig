@@ -1,5 +1,5 @@
-//! Decision 27's claims for the `json` module's vector paths, decision 29's for their widths, and
-//! decision 30's for its fast paths, each switchable at comptime, so the benchmark can time the
+//! Decision 27's claims for the `json` module's vector paths, decision 30's for their widths, and
+//! decision 31's for its fast paths, each switchable at comptime, so the benchmark can time the
 //! encoder and the decoder with one claim off against all on (decision 21). A claim that does not
 //! win by more than the noise leaves with its code. `encode` and `decode` take every vector claim
 //! on where the target's vector registers hold `constants.vector_len` octets
@@ -26,14 +26,14 @@ pub const Claims = struct {
     /// 16): the runs that measured it carried a fault of the benchmark's, and none shows it faster.
     utf8_vectors: bool = constants.vectors,
     /// J7: the vector paths of J1, J2 and J3 take the widest vector the caller's CPU features allow,
-    /// AVX2's 32 octets or AVX-512's 64 on x86-64, in variant objects of their own (decision 29,
+    /// AVX2's 32 octets or AVX-512's 64 on x86-64, in variant objects of their own (decision 30,
     /// wide.zig). Off, they take 16 octets whatever the features. J5's stays at 16.
     wide_vectors: bool = true,
     /// J8: the decoder takes the next token in one straight line when the input holds all of it and
-    /// the output has room for its octets (decision 30). Off, every token takes the checked path.
+    /// the output has room for its octets (decision 31). Off, every token takes the checked path.
     decoder_fast_path: bool = true,
     /// J9: the encoder writes a token in one straight line when the call's input holds all of it
-    /// and the output has room for every octet it writes (decision 30). Off, every token takes the
+    /// and the output has room for every octet it writes (decision 31). Off, every token takes the
     /// checked path.
     encoder_fast_path: bool = true,
 };
@@ -72,7 +72,7 @@ pub const each_off = [_]Claims{
     .{ .encoder_fast_path = false },
 };
 
-/// The claim each entry of `each_off` switches off, as decisions 27, 29 and 30 number them.
+/// The claim each entry of `each_off` switches off, as decisions 27, 30 and 31 number them.
 pub const each_off_names = [each_off.len][]const u8{
     "J1 encoder string vectors",
     "J2 hex vectors",

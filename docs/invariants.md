@@ -73,7 +73,7 @@ check lands with its step.
   octets; the SHA-256 of every encoder output over the corpora is committed and must match on macOS
   arm64 and Linux x86_64, in Debug and ReleaseSafe. Steps 5 and 9. The `json` module's round trip
   requires the same octets and tokens under `codec.Features.none()`, `target()` and `detect()`
-  (decision 29, `src/json/round_trip_test.zig`).
+  (decision 30, `src/json/round_trip_test.zig`).
 - **Violation.** An encoder that ends a block when its input buffer runs dry, so a caller feeding
   one octet at a time gets different octets.
 

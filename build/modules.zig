@@ -76,7 +76,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 
     const json = library(b, "json", settings);
     json.addImport("codec", codec);
-    // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 29).
+    // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
     variants.add_levels(b, json, "json", settings.target, settings.optimize, &.{ .x86_64_avx2, .x86_64_avx512 });
 
     return .{

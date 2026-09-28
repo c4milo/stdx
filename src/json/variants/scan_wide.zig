@@ -1,4 +1,4 @@
-//! Claim J7 (decision 29): a name's or a string's run and a hex string's digits at the width of one
+//! Claim J7 (decision 30): a name's or a string's run and a hex string's digits at the width of one
 //! x86-64 level, AVX2's 32 octets or AVX-512's 64, compiled into that level's variant object. Each
 //! is exported under a name that carries the level, and wide.zig calls it only when the caller's
 //! features name the level.

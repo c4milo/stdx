@@ -77,7 +77,7 @@ pub const Program = struct {
 };
 
 /// The feature sets each text is encoded and decoded under: none, the build target's and the
-/// host's. Each must give the same octets and tokens (decision 29, invariant 5).
+/// host's. Each must give the same octets and tokens (decision 30, invariant 5).
 const feature_sets = [_]*const fn () codec.Features{ codec.Features.none, codec.Features.target, codec.Features.detect };
 
 /// Encodes `program` whole and under splits, requires the reference parser to accept the text and

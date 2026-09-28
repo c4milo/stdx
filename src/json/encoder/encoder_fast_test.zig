@@ -1,4 +1,4 @@
-//! Claim J9's property (decision 30): the fast path writes a token as the checked path writes it,
+//! Claim J9's property (decision 31): the fast path writes a token as the checked path writes it,
 //! or leaves the call to the checked path. Two encoders, one with the fast path on and one with it
 //! off, encode the same tokens with the same pieces of input and output, and every call must give
 //! the same progress, octets and error, and leave the same state. Whole calls take the fast path's

@@ -1,4 +1,4 @@
-//! Claim J8's property (decision 30): the fast path takes a token as the checked path takes it, or
+//! Claim J8's property (decision 31): the fast path takes a token as the checked path takes it, or
 //! leaves the call to the checked path. Two decoders, one with the fast path on and one with it
 //! off, decode the same input with the same pieces of input and output, and every call must give
 //! the same progress, octets and error, and leave the same state. Whole calls take the fast path's

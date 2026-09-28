@@ -9,8 +9,9 @@ stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
 and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to 25 out of step 11,
 entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, entry 28
-out of the owner's request that its state machines be proved, entry 29 out of the baselines'
-numbers, and entry 30 out of design §8 step 17's profile.
+out of the owner's request that its state machines be proved, entry 29 out of [issue
+13](https://github.com/c4milo/stdx/issues/13)'s DEFLATE decoder, entry 30 out of the JSON
+baselines' numbers, and entry 31 out of design §8 step 17's profile.
 
 ## Scope and shape
 
@@ -1407,7 +1408,7 @@ numbers, and entry 30 out of design §8 step 17's profile.
     - C compiled into the library. Its compiler would be LLVM, as Zig's is, so it would reach
       about ReleaseFast's speed, and the library would hold a second language.
 
-29. **A structural index for the `json` decoder, and the module's vector paths picked at run
+30. **A structural index for the `json` decoder, and the module's vector paths picked at run
     time.** Ruled by the owner on 2026-09-28, after entry 27's baselines measured stdx at a sixth or
     a seventh of simdjson's and yyjson's speed on texts of short tokens: a structural index for the
     decoder, and every vector path chosen at run time, by the caller's `codec.Features` passed to
@@ -1454,7 +1455,7 @@ numbers, and entry 30 out of design §8 step 17's profile.
 
     **What design §8 step 17 measured, and the owner's rulings on it, 2026-09-28.**
     - J6 is dropped, ruled by the owner. The step's profile put the scans at a quarter of a token's
-      time on the N2, and at 10% to 15% once entry 30's fast paths had cut the calls. An index built
+      time on the N2, and at 10% to 15% once entry 31's fast paths had cut the calls. An index built
       within one call does more vector work for a token than the 16-octet scan it replaces, and one
       kept across calls is refused above. It returns only if a call ever takes many tokens.
     - J7 stays, for a name's or a string's run and a hex string's digits. On an AMD EPYC 9V74 it ran
@@ -1465,11 +1466,11 @@ numbers, and entry 30 out of design §8 step 17's profile.
       kernel takes the rest. English text encoded 5% to 8% slower with the kernels from the 17th
       octet, its lines ending before a call paid for itself.
 
-30. **A fast path for each token of the `json` decoder and encoder (claims J8 and J9).** Ruled by
+31. **A fast path for each token of the `json` decoder and encoder (claims J8 and J9).** Ruled by
     the owner on 2026-09-28, who accepted both after design §8 step 17 measured them; proposed the
     same day from that step's profile. On the N2, stdx's decoder took 600 to 625 instructions a
     token, five to six times simdjson's and yyjson's. perf put about a quarter of them in the scans
-    entry 29's index would replace, and the rest in the calls and switches each token passes
+    entry 30's index would replace, and the rest in the calls and switches each token passes
     through.
 
     **The fast path.** At the start of a call between tokens, the decoder takes the next token in
@@ -1509,6 +1510,6 @@ numbers, and entry 30 out of design §8 step 17's profile.
     - Inlining the checked path's functions alone. The calls go, but each token still passes the
       same switches, and what LLVM inlines changes with the callers each build gives it, the fault
       entry 27's benchmark found.
-    - Many tokens a call. The owner kept one token a call (entry 29).
+    - Many tokens a call. The owner kept one token a call (entry 30).
     - A fast path that indexes the input itself, as DEFLATE's does. Entry 16 would have to name it,
       and the profile did not find the checked reader's cost.
