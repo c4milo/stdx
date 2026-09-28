@@ -37,6 +37,17 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) deflate.Error!codec.
     return deflate.decode(decoder, input, output);
 }
 
+/// The paths a decode that combines every dynamic block's tables takes (S11).
+pub const combining: deflate.Options = .{ .combine_bits_min = 0 };
+
+/// `step`, combining every dynamic block's tables.
+fn step_combining(decoder: *Decoder, input: []const u8, output: []u8) deflate.Error!codec.Progress {
+    return deflate.decode_with(combining, decoder, input, output);
+}
+
+/// The splits' step functions: the default decode, and one that combines every block's tables.
+const steps = [_]*const fn (*Decoder, []const u8, []u8) deflate.Error!codec.Progress{ step, step_combining };
+
 /// The octets appended after a stream, so the fast path's input margin holds at the stream's last
 /// symbols, and the most octets a padded stream takes.
 const padding_len = 16;
@@ -67,14 +78,16 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
     const checked = try deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output);
     try testing.expectEqual(whole, checked);
     try testing.expectEqualSlices(u8, expected, output[0..checked.written]);
-    for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
-        deflate.init(&states[0], .{});
-        var split_output: [output_len_max]u8 = undefined;
-        const outcome = try codec.split.drive(Decoder, &states, step, input, split_output[0..expected.len], seed);
-        try testing.expectEqual(codec.Status.done, outcome.status);
-        try testing.expectEqual(input.len, outcome.consumed);
-        try testing.expectEqualSlices(u8, expected, split_output[0..outcome.written]);
+    for (steps) |split_step| {
+        for (0..split_seeds) |seed| {
+            var states: [codec.split.state_slots]Decoder = undefined;
+            deflate.init(&states[0], .{});
+            var split_output: [output_len_max]u8 = undefined;
+            const outcome = try codec.split.drive(Decoder, &states, split_step, input, split_output[0..expected.len], seed);
+            try testing.expectEqual(codec.Status.done, outcome.status);
+            try testing.expectEqual(input.len, outcome.consumed);
+            try testing.expectEqualSlices(u8, expected, split_output[0..outcome.written]);
+        }
     }
 }
 
@@ -82,12 +95,19 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
 /// 14 off in turn (claims.zig).
 fn expect_each_claim_off(input: []const u8, expected_progress: codec.Progress, expected: []const u8) !void {
     inline for (claims.each_off) |off| {
-        var output: [output_len_max]u8 = undefined;
-        var decoder = fresh();
-        const progress = try deflate.decode_with(.{ .claims = off }, &decoder, input, &output);
-        try testing.expectEqual(expected_progress, progress);
-        try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
+        inline for (.{ deflate.Options{ .claims = off }, deflate.Options{ .claims = off, .combine_bits_min = 0 } }) |options| {
+            var output: [output_len_max]u8 = undefined;
+            var decoder = fresh();
+            const progress = try deflate.decode_with(options, &decoder, input, &output);
+            try testing.expectEqual(expected_progress, progress);
+            try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
+        }
     }
+    var output: [output_len_max]u8 = undefined;
+    var decoder = fresh();
+    const progress = try deflate.decode_with(combining, &decoder, input, &output);
+    try testing.expectEqual(expected_progress, progress);
+    try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
 }
 
 /// Requires the stream to be refused with `expected`: in one call, padded, through the checked
@@ -99,11 +119,15 @@ pub fn expect_refused(input: []const u8, expected: deflate.Error) !void {
     try testing.expectError(expected, decode_whole(padded(input, &buffer), &output));
     var decoder = fresh();
     try testing.expectError(expected, deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &output));
+    decoder = fresh();
+    try testing.expectError(expected, deflate.decode_with(combining, &decoder, input, &output));
     try testing.expectEqual(codec.Refusal.corrupt, deflate.refusal(expected));
-    for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
-        deflate.init(&states[0], .{});
-        try testing.expectError(expected, codec.split.drive(Decoder, &states, step, input, &output, seed));
+    for (steps) |split_step| {
+        for (0..split_seeds) |seed| {
+            var states: [codec.split.state_slots]Decoder = undefined;
+            deflate.init(&states[0], .{});
+            try testing.expectError(expected, codec.split.drive(Decoder, &states, split_step, input, &output, seed));
+        }
     }
 }
 
@@ -353,6 +377,7 @@ test "a distance of 32,768, the whole window, is in reach without a limit (RFC 1
 
 test {
     _ = @import("decoder_dynamic_test.zig");
+    _ = @import("decoder_combining_test.zig");
     _ = @import("decoder_fuzz_test.zig");
     _ = @import("decoder_work_test.zig");
 }

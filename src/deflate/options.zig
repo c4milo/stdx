@@ -2,6 +2,7 @@
 //! and the benchmarks switch the rest (decision 16, design §8 step 7).
 
 const Claims = @import("claims.zig").Claims;
+const constants = @import("constants.zig");
 
 pub const Options = struct {
     /// The fast path of decision 16, for the symbols of a block while the margins hold.
@@ -11,6 +12,9 @@ pub const Options = struct {
     /// Counts how each symbol was decoded, S2's test (decision 14). `decode_counting` sets it, and
     /// `decode_with` refuses it.
     count_lookups: bool = false,
+    /// The bits the fast path decodes between two combinations of a block's tables (S11). The
+    /// tests set none, so every dynamic block's tables combine.
+    combine_bits_min: u32 = constants.combine_bits_min,
 };
 
 /// How a decode took its symbols. A literal/length symbol and a distance count once each.
@@ -22,12 +26,24 @@ pub const Lookups = struct {
     /// By the checked path.
     checked: u64 = 0,
 
+    /// Counts a symbol the fast path took `how`.
+    pub fn count(self: *Lookups, how: How) void {
+        switch (how) {
+            .table => self.table += 1,
+            .canonical => self.canonical += 1,
+        }
+    }
+
     pub fn add(self: *Lookups, other: Lookups) void {
         self.table += other.table;
         self.canonical += other.canonical;
         self.checked += other.checked;
     }
 };
+
+/// How the fast path took a symbol: by one lookup in a table, or by the canonical code after a
+/// lookup found a code longer than the table.
+pub const How = enum { table, canonical };
 
 /// Where a decode on `options` counts: the caller's `Lookups` when it counts, and nothing when it
 /// does not, so a decode that does not count carries no counter.

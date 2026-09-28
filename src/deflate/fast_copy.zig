@@ -20,11 +20,22 @@ pub const Window = struct {
     distance_max: usize,
 };
 
+/// Copies a match from anywhere in the history: from this call's output, in chunks when `chunked`
+/// (S4) and an octet at a time otherwise, or from the window. Returns false, having copied nothing,
+/// for a distance past the history or the container's window.
+pub inline fn copy_match(comptime chunked: bool, output: []u8, written: usize, history: Window, distance: usize, len: usize) bool {
+    if (distance <= written and distance <= history.distance_max) {
+        if (chunked) copy_within(output, written, distance, len) else copy_exact(output, written, distance, len);
+        return true;
+    }
+    return copy_from_window(output, written, history, distance, len);
+}
+
 /// Copies a match that reaches before this call's output: its first octets from the window, the
 /// rest from the output, octet by octet. Returns false, having copied nothing, for a distance past
 /// the history or the container's window, which the checked path refuses. It copies from the ring
 /// by an index it wraps itself, so it calls no function.
-pub inline fn copy_from_window(output: []u8, written: usize, history: Window, distance: usize, len: usize) bool {
+inline fn copy_from_window(output: []u8, written: usize, history: Window, distance: usize, len: usize) bool {
     assert(distance > written or distance > history.distance_max);
     assert(history.synced <= written);
     const reach = @min(constants.window_len, history.window.reach() + written - history.synced);
@@ -52,7 +63,7 @@ pub inline fn copy_exact(output: []u8, target: usize, distance: usize, len: usiz
 /// `copy_word_len` octets where the distance leaves room for one, a fill for a distance of 1, and
 /// octet by octet otherwise. A chunk may write up to its length less one past `len`, into the
 /// room, and reads only octets written before.
-pub inline fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
     const source = target - distance;
     if (distance >= constants.copy_chunk_len) {
         copy_chunks(constants.copy_chunk_len, output, target, distance, len);

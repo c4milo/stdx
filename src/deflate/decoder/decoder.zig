@@ -100,6 +100,11 @@ pub const Decoder = struct {
     window_synced: usize,
     /// The caller's CPU features (decision 21), which the fast path of design §8 step 7 reads.
     features: codec.Features,
+    /// The bits the fast path decoded since the last combination of a block's tables (S11), which
+    /// the next is due after (`constants.combine_bits_min`), and whether this call made the one
+    /// combination its long input allows (`constants.combine_input_min`).
+    bits_since_combination: u32,
+    combined_for_input: bool,
     /// Invariant 17's count, which test builds alone keep: the table entries the decoder has
     /// touched and the symbols it has decoded since `init`, one per entry and one per decode, and
     /// at most `constants.build_work_max` per code built.
@@ -123,6 +128,8 @@ pub fn init(decoder: *Decoder, features: codec.Features) void {
     decoder.distance_max = constants.window_len;
     decoder.window_synced = 0;
     decoder.features = features;
+    decoder.bits_since_combination = 0;
+    decoder.combined_for_input = false;
     decoder.work = huffman.work_zero;
 }
 
@@ -179,6 +186,7 @@ fn decode_counted(comptime options: Options, decoder: *Decoder, input: []const u
     var bits = codec.BitReader.init(input, decoder.bits);
     var writer = codec.Writer.init(output);
     decoder.window_synced = 0;
+    decoder.combined_for_input = false;
     const status = run(options, decoder, &bits, &writer, input.len, output.len, lookups) catch |err| {
         decoder.phase = .refused;
         return err;
@@ -212,7 +220,7 @@ fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, wr
         .stored_copy => copy_stored(options.claims, decoder, bits, writer),
         .table_counts => try header.read_table_counts(decoder, bits),
         .code_length_code => try header.read_code_length_code(decoder, bits),
-        .code_lengths => try header.read_code_lengths(options.claims, decoder, bits),
+        .code_lengths => try header.read_code_lengths(options, decoder, bits),
         .symbols => if (options.fast_paths) try read_symbols_fast(options, decoder, bits, writer, lookups) else try read_symbol(options, decoder, bits, writer, lookups),
         .copy => copy_match(decoder, writer),
         .done, .refused => unreachable,
@@ -265,7 +273,7 @@ fn read_block_header(comptime claims: Claims, decoder: *Decoder, bits: *codec.Bi
         .fixed => {
             decoder.fixed_codes = true;
             // S7 off: the fixed codes' tables are built for this block.
-            if (!claims.comptime_fixed_tables) header.build_tables(claims, decoder, &huffman.fixed_literal_length, &huffman.fixed_distance);
+            if (!claims.comptime_fixed_tables) header.build_tables(claims, decoder, &huffman.fixed_literal_length, &huffman.fixed_distance, true);
             decoder.phase = .symbols;
         },
         .dynamic => {
@@ -332,10 +340,12 @@ fn read_symbols_fast(comptime options: Options, decoder: *Decoder, bits: *codec.
         .work = &decoder.work,
         .lookups = if (options.count_lookups) lookups else null,
     };
+    const before = bits.*;
     const end = switch (fast.run(options, codes, history, bits, writer)) {
         .margin => fast.run_tail(options, codes, history, bits, writer),
         .end_of_block, .checked => |end| end,
     };
+    decoder.bits_since_combination +|= @truncate(used_bits(&before, bits));
     return switch (end) {
         .end_of_block => end_block(decoder),
         .margin, .checked => {
@@ -343,6 +353,14 @@ fn read_symbols_fast(comptime options: Options, decoder: *Decoder, bits: *codec.
             return read_symbol(options, decoder, bits, writer, lookups);
         },
     };
+}
+
+/// The bits the stream used between the bit reader's states `before` and `after`: the octets taken
+/// in between, and the bits the buffer held before, less those it holds after.
+fn used_bits(before: *const codec.BitReader, after: *const codec.BitReader) u64 {
+    assert(after.reader.position >= before.reader.position);
+    const taken = @bitSizeOf(u8) * @as(u64, after.reader.position - before.reader.position);
+    return taken + before.bits.count - after.bits.count;
 }
 
 fn block_literal_length_code(decoder: *const Decoder) *const huffman.Code(constants.literal_length_alphabet_len) {

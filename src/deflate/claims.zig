@@ -21,6 +21,12 @@ pub const Claims = struct {
     window_once: bool = true,
     /// S7: the fixed codes' tables built at comptime. Off, they are built for each fixed block.
     comptime_fixed_tables: bool = true,
+    /// S11: a length and its distance's code in one literal/length entry, when both fit its index,
+    /// so one lookup decodes both. Off, each takes its own table's lookup. It needs S12.
+    combined_entries: bool = true,
+    /// S12: a length's extra bits in its literal/length entry, when the code and the extra bits fit
+    /// the table, so the fast path reads none for most matches. Off, every table builds plain.
+    resolved_lengths: bool = true,
 };
 
 /// Each claim off in turn, the A/Bs design §8 step 7 runs.
@@ -30,6 +36,8 @@ pub const each_off = [_]Claims{
     .{ .chunk_copies = false },
     .{ .window_once = false },
     .{ .comptime_fixed_tables = false },
+    .{ .combined_entries = false },
+    .{ .resolved_lengths = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
@@ -39,4 +47,6 @@ pub const each_off_names = [each_off.len][]const u8{
     "S4 chunk copies",
     "S5 one window copy",
     "S7 comptime fixed tables",
+    "S11 combined entries",
+    "S12 resolved lengths",
 };

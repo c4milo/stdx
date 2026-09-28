@@ -26,7 +26,7 @@ const code_length_lengths: [constants.code_length_alphabet_len]u8 = lengths: {
 const code_length_codes = decoder_test.assign_codes(constants.code_length_alphabet_len, code_length_lengths);
 
 /// A dynamic block's code lengths and the codes they assign.
-const Dynamic = struct {
+pub const Dynamic = struct {
     literal_lengths: [constants.literal_length_alphabet_len]u8 = @splat(0),
     literal_count: u16,
     distance_lengths: [constants.distance_alphabet_len]u8 = @splat(0),
@@ -50,7 +50,7 @@ const Dynamic = struct {
     }
 
     /// The whole header, with the code lengths run-length coded as RFC 1951 §3.2.7 allows.
-    fn header(self: *const Dynamic, stream: *Stream, last: bool) void {
+    pub fn header(self: *const Dynamic, stream: *Stream, last: bool) void {
         self.header_start(stream, last);
         var sequence: [constants.literal_length_alphabet_len + constants.distance_alphabet_len]u8 = undefined;
         @memcpy(sequence[0..self.literal_count], self.literal_lengths[0..self.literal_count]);
@@ -58,12 +58,22 @@ const Dynamic = struct {
         write_lengths(stream, sequence[0 .. self.literal_count + self.distance_count]);
     }
 
-    fn literal(self: *const Dynamic, stream: *Stream, symbol: u16) void {
+    pub fn literal(self: *const Dynamic, stream: *Stream, symbol: u16) void {
         stream.code(self.literal_codes()[symbol], self.literal_lengths[symbol]);
     }
 
-    fn distance(self: *const Dynamic, stream: *Stream, symbol: u16) void {
+    pub fn distance(self: *const Dynamic, stream: *Stream, symbol: u16) void {
         stream.code(self.distance_codes()[symbol], self.distance_lengths[symbol]);
+    }
+
+    /// A length/distance pair, each code followed by its extra bits (RFC 1951 §3.2.5).
+    pub fn pair(self: *const Dynamic, stream: *Stream, len: u16, distance_value: u16) void {
+        const length_index = test_stream.last_at_most(&constants.length_base, len);
+        self.literal(stream, constants.first_length_symbol + @as(u16, @intCast(length_index)));
+        stream.bits(len - constants.length_base[length_index], constants.length_extra_bits[length_index]);
+        const distance_index = test_stream.last_at_most(&constants.distance_base, distance_value);
+        self.distance(stream, @intCast(distance_index));
+        stream.bits(distance_value - constants.distance_base[distance_index], constants.distance_extra_bits[distance_index]);
     }
 };
 

@@ -116,6 +116,40 @@ pub fn build_work_max(lengths_len: usize) usize {
     return 3 * lengths_len + 5 * (code_len_max + 1);
 }
 
+/// Invariant 17's count for the entries a literal/length table's build writes, at most, beyond
+/// `table_build_work_max`, to take the extra bits of the lengths whose code and extra bits fit the
+/// table into its entries: an entry for each value of each length code's extra bits (decision 14,
+/// S2).
+pub const resolved_length_entries_max: usize = resolved: {
+    var entries: usize = 0;
+    for (length_extra_bits) |extra_bits| {
+        if (extra_bits > 0) entries += @as(usize, 1) << extra_bits;
+    }
+    break :resolved entries;
+};
+
+/// Invariant 17's count for combining a literal/length table with its block's distances, at
+/// most: every entry read, and each rewritten (lookup.zig, `combine`).
+pub fn combine_work_max(table_bits: u4) usize {
+    return 2 * (@as(usize, 1) << table_bits);
+}
+
+/// Invariant 17's count for a combination beyond a block's plain tables, at most: the entries of
+/// the lengths the table resolves, and the combining (decision 14, S11).
+pub fn combination_work_max(table_bits: u4) usize {
+    return resolved_length_entries_max + combine_work_max(table_bits);
+}
+
+/// The bits the fast path decodes, at least, before a block's tables combine: a combination costs
+/// `combination_work_max`, and pays off only over a long stream, so the bits before it both show
+/// the stream is long and bound its cost per octet consumed.
+pub const combine_bits_min = 32768;
+
+/// The input octets a call must hold, at least, after a block's header, for the block's tables to
+/// combine before `combine_bits_min` bits: a call whose input holds this much is decoding a long
+/// stream. Once per call, which bounds its cost by a constant per call.
+pub const combine_input_min = 16384;
+
 /// The code lengths a dynamic block's header writes: the code length code's and the block's own.
 pub const code_lengths_len = literal_length_alphabet_len + distance_alphabet_len;
 
@@ -145,18 +179,23 @@ pub const dynamic_block_bits_min = final_bits + type_bits + hlit_bits + hdist_bi
 /// A dynamic block's table work spread over its fewest octets.
 pub const table_work_per_octet_max = std.math.divCeil(usize, block_table_work_max * @bitSizeOf(u8), dynamic_block_bits_min) catch unreachable;
 
-/// Invariant 17's bound per octet consumed: the table work, and one symbol decoded per bit, since
-/// every symbol the decoder accepts takes a bit.
-pub const work_per_octet_max = table_work_per_octet_max + @bitSizeOf(u8);
+/// The combinations' work spread over the bits that pay for each (`combine_bits_min`).
+pub const combine_work_per_octet_max = std.math.divCeil(usize, combination_work_max(literal_length_table_bits) * @bitSizeOf(u8), combine_bits_min) catch unreachable;
+
+/// Invariant 17's bound per octet consumed: the table work, the combinations' work, and one symbol
+/// decoded per bit, since every symbol the decoder accepts takes a bit.
+pub const work_per_octet_max = table_work_per_octet_max + combine_work_per_octet_max + @bitSizeOf(u8);
 
 /// The most symbols one step decodes: a literal/length symbol and a distance.
 pub const decodes_per_step_max = 2;
 
 /// Invariant 17's bound per call, beyond `work_per_octet_max` per octet consumed: a call can
 /// finish the table work of a block whose bits an earlier call consumed and start the next one's,
-/// decode a symbol per bit the state carried in, and decode the symbols of a step it ends on for
-/// want of bits.
-pub const work_per_call_max = 2 * block_table_work_max + codec.constants.bit_buffer_bits + decodes_per_step_max;
+/// make a combination whose bits earlier calls decoded and one for its long input
+/// (`combine_input_min`), decode a symbol per bit the state carried in, and decode the symbols of a
+/// step it ends on for want of bits.
+pub const work_per_call_max = 2 * block_table_work_max + 2 * combination_work_max(literal_length_table_bits) +
+    codec.constants.bit_buffer_bits + decodes_per_step_max;
 
 /// The encoder's window: the 32 KiB of history its matches reach, and 32 KiB of input ahead of the
 /// position it encodes (decision 12).
@@ -245,6 +284,11 @@ comptime {
 pub const length_base: [literal_length_used - first_length_symbol]u16 = length_table().base;
 pub const length_extra_bits: [literal_length_used - first_length_symbol]u7 = length_table().extra;
 
+/// The distance codes that take no extra bits, 0 - 3 for distances 1 - 4, and the codes that
+/// share each count of extra bits after them, two by two (RFC 1951 §3.2.5).
+pub const distance_codes_plain = 4;
+pub const distance_codes_per_extra_bits = 2;
+
 /// Each distance code's least distance and extra bits, codes 0 to 29 (RFC 1951 §3.2.5).
 pub const distance_base: [distance_used]u16 = distance_table().base;
 pub const distance_extra_bits: [distance_used]u7 = distance_table().extra;
@@ -311,6 +355,8 @@ comptime {
     // The last distance code reaches the window's whole length.
     assert(distance_base[29] + (1 << 13) - 1 == window_len);
     assert(pair_bits_max == 48);
+    // Four length codes each take 1 to 5 extra bits (RFC 1951 §3.2.5).
+    assert(resolved_length_entries_max == 4 * (2 + 4 + 8 + 16 + 32));
     // A block ending at a slide holds at most the window's input, which one stored block holds.
     assert(encoder_window_len - lookahead_min <= stored_len_max);
     assert(block_symbols_max * @sizeOf(u32) + encoder_window_len <= level(1).state_budget_len);

@@ -71,7 +71,7 @@ pub const Stream = struct {
 };
 
 /// The index of the last entry of an ascending table at most `value`.
-fn last_at_most(table: []const u16, value: u16) usize {
+pub fn last_at_most(table: []const u16, value: u16) usize {
     var found: usize = 0;
     for (table, 0..) |entry, index| {
         if (entry <= value) found = index;

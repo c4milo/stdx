@@ -27,9 +27,11 @@ const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const lookup = @import("lookup.zig");
 const fast_copy = @import("fast_copy.zig");
+const fast_step = @import("fast_step.zig");
 const options_module = @import("options.zig");
 const Options = options_module.Options;
 const Lookups = options_module.Lookups;
+const How = options_module.How;
 
 /// Decision 16's margins: the input one iteration may read, a refill of 8 octets, and the output
 /// it may write, a longest match and the overrun of its last chunk.
@@ -55,7 +57,7 @@ comptime {
 /// past a match's end, and the tail, which takes octets one at a time through the input's end and
 /// checks the room each symbol writes, so the octets of a call that the margins leave out need
 /// not go through the checked path.
-const Mode = enum { wide, tail };
+pub const Mode = enum { wide, tail };
 
 /// Why the loop stopped.
 pub const End = enum(u2) {
@@ -69,14 +71,14 @@ pub const End = enum(u2) {
 
 /// What a step says: go on, or why the loop stops, numbered as `End` numbers it. A step returns
 /// this rather than an optional `End`, which the compiler builds in memory.
-const Next = enum(u2) {
+pub const Next = enum(u2) {
     margin = @intFromEnum(End.margin),
     end_of_block = @intFromEnum(End.end_of_block),
     checked = @intFromEnum(End.checked),
     go_on,
 
     /// The end a step other than `go_on` says.
-    fn end(next: Next) End {
+    pub fn end(next: Next) End {
         assert(next != .go_on);
         return @enumFromInt(@intFromEnum(next));
     }
@@ -110,7 +112,7 @@ pub const History = struct {
 /// The loop's state: the bit buffer and the input not yet taken into it, from the checked reader,
 /// the output position taken from the checked writer, and what the loop reads on every iteration,
 /// copied here once because the output's stores might alias the structures they came from.
-const Loop = struct {
+pub const Loop = struct {
     input: []const u8,
     /// The input after the octets the buffer took: its end, as the checked reader's position.
     rest: []const u8,
@@ -125,17 +127,19 @@ const Loop = struct {
     distance_entries: *const [lookup.DistanceTable.len]lookup.Entry,
     distance_mask: u64,
     distance_max: usize,
+    /// Whether the literal/length table holds most lengths whole (lookup.zig, `build`).
+    lengths_resolved: bool,
     decoded: usize = 0,
     /// S2's count for this run, which `run_loop` adds to the decode's when it keeps one.
     lookups: Lookups = .{},
 
     /// The literal/length entry of the code the buffer starts with.
-    inline fn look_up(self: *const Loop) lookup.Entry {
+    pub inline fn look_up(self: *const Loop) lookup.Entry {
         return self.literal_length_entries[@intCast(self.buffer & self.literal_length_mask)];
     }
 
     /// The distance entry of the code `buffer` starts with.
-    inline fn look_up_distance(self: *const Loop, buffer: u64) lookup.Entry {
+    pub inline fn look_up_distance(self: *const Loop, buffer: u64) lookup.Entry {
         return self.distance_entries[@intCast(buffer & self.distance_mask)];
     }
 
@@ -163,7 +167,7 @@ const Loop = struct {
 
     /// Takes whole octets, one at a time, while they fit the buffer and the input has them. The
     /// bits above `count` stay zero.
-    inline fn refill_exact(self: *Loop) void {
+    pub inline fn refill_exact(self: *Loop) void {
         for (0..@sizeOf(u64)) |_| {
             if (self.count > refill_bits or self.rest.len == 0) return;
             self.buffer |= @as(u64, self.rest[0]) << @intCast(self.count);
@@ -173,13 +177,13 @@ const Loop = struct {
     }
 
     /// The room left in the output.
-    inline fn room(self: *const Loop) usize {
+    pub inline fn room(self: *const Loop) usize {
         return self.output.len - self.written;
     }
 
     /// Uses a table entry's code. The shift takes the entry's low six bits, which hold the code's
     /// length, so the length need not be taken out first.
-    inline fn consume_entry(self: *Loop, entry: lookup.Entry) void {
+    pub inline fn consume_entry(self: *Loop, entry: lookup.Entry) void {
         self.buffer = past(self.buffer, entry);
         self.count -= entry.used_bits;
         if (builtin.is_test) self.decoded += 1;
@@ -199,13 +203,13 @@ inline fn low_bits(value: u64, count: u32) u64 {
 }
 
 /// The value of the extra bits after a length's or a distance's code, which `buffer` starts with.
-inline fn extra_value(buffer: u64, entry: lookup.Entry) u64 {
+pub inline fn extra_value(buffer: u64, entry: lookup.Entry) u64 {
     return low_bits(buffer, entry.used_bits) >> entry.code_bits;
 }
 
 /// The bits of `buffer` past the symbol it starts with, and the symbol's extra bits: the entry's
 /// low octet says how many, and a 64-bit shift takes the low six bits of its amount.
-inline fn past(buffer: u64, entry: lookup.Entry) u64 {
+pub inline fn past(buffer: u64, entry: lookup.Entry) u64 {
     return buffer >> @truncate(@as(u32, @bitCast(entry)));
 }
 
@@ -234,11 +238,12 @@ inline fn run_loop(comptime mode: Mode, comptime options: Options, codes: Codes,
         .distance_entries = &codes.distance_table.entries,
         .distance_mask = codes.distance_table.mask(),
         .distance_max = history.distance_max,
+        .lengths_resolved = codes.literal_length_table.resolved,
     };
     assert(loop.count <= @bitSizeOf(u64));
     const end: End = switch (mode) {
         .wide => if (loop.has_margin()) decode_symbols(options, &loop, codes, history) else .margin,
-        .tail => decode_tail(options, &loop, codes, history),
+        .tail => fast_step.decode_tail(options, &loop, codes, history),
     };
     assert(loop.written <= loop.output.len and loop.rest.len <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
@@ -306,9 +311,11 @@ inline fn decode_common(comptime options: Options, state: *Loop) Stop {
         const iteration = margins(&loop) orelse return .margin;
         // The buffer holds at least `refill_bits` bits, and `entry` is the next symbol's.
         var known: ?lookup.Entry = null;
-        if (entry.kind == .literal) {
+        if (entry.literal) {
             known = literal_run(options, &loop, iteration.room, entry);
-        } else if (entry.kind != .length or !copy_common(options, &loop, iteration.room, entry)) {
+        } else if (entry.combined) {
+            if (!copy_combined(options, &loop, entry)) return .rare;
+        } else if (!entry.direct or !copy_common(options, &loop, entry)) {
             @branchHint(.unlikely);
             return .rare;
         }
@@ -322,7 +329,7 @@ inline fn decode_common(comptime options: Options, state: *Loop) Stop {
 noinline fn decode_rare(comptime options: Options, state: *Loop, codes: Codes, history: History) Next {
     var loop = state.*;
     defer state.* = loop;
-    return step(.wide, options, &loop, codes, history, loop.look_up());
+    return fast_step.step(.wide, options, &loop, codes, history, loop.look_up());
 }
 
 /// Refills from `word`, and gives the next symbol's entry: `known`, which a literal run looked up
@@ -356,7 +363,7 @@ inline fn literal_run(comptime options: Options, loop: *Loop, room: *[output_sla
     write_literal(options, loop, room, 0, first, &run_bits);
     inline for (1..literals_per_refill) |index| {
         const next = loop.look_up();
-        if (next.kind != .literal) {
+        if (!next.literal) {
             loop.count -= run_bits;
             loop.written += index;
             return next;
@@ -370,7 +377,7 @@ inline fn literal_run(comptime options: Options, loop: *Loop, room: *[output_sla
 
 /// Writes a literal at `index` of the iteration's room, and adds its bits to the run's.
 inline fn write_literal(comptime options: Options, loop: *Loop, room: *[output_slack]u8, comptime index: usize, entry: lookup.Entry, run_bits: *u32) void {
-    if (options.count_lookups) count_symbol(loop, entry);
+    if (options.count_lookups) count_symbol(loop, .table);
     room[index] = @truncate(entry.value);
     loop.buffer = past(loop.buffer, entry);
     run_bits.* += entry.used_bits;
@@ -379,16 +386,37 @@ inline fn write_literal(comptime options: Options, loop: *Loop, room: *[output_s
 
 /// Decodes a pair whose codes the tables hold and copies its match, when the match lies in this
 /// call's output at least a word back. Returns false, having used no bit, for any other pair.
-inline fn copy_common(comptime options: Options, loop: *Loop, room: *[output_slack]u8, length: lookup.Entry) bool {
-    _ = room;
-    const len = length.value + extra_value(loop.buffer, length);
-    // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits; `step` refuses the rest.
-    if (len == constants.match_len_max and length.used_bits != length.code_bits) return false;
+inline fn copy_common(comptime options: Options, loop: *Loop, length: lookup.Entry) bool {
+    const len = length_of(loop.buffer, length, loop.lengths_resolved) orelse return false;
     const after_length = past(loop.buffer, length);
     const distance_entry = loop.look_up_distance(after_length);
-    if (distance_entry.kind != .distance) return false;
+    if (!distance_entry.direct) return false;
     const distance = distance_entry.value + extra_value(after_length, distance_entry);
-    if (distance > loop.written or distance > loop.distance_max or distance < constants.copy_word_len) return false;
+    if (!copy_near(options, loop, distance, len)) return false;
+    loop.consume_pair(length, after_length, distance_entry);
+    return true;
+}
+
+/// Copies the match a combined entry decodes, its distance's extra bits read after the entry's
+/// bits, when the match lies in this call's output at least a word back. Returns false, having
+/// used no bit, for any other.
+inline fn copy_combined(comptime options: Options, loop: *Loop, entry: lookup.Entry) bool {
+    const distance = combined_distance(loop.buffer, entry);
+    if (!copy_near(options, loop, distance, entry.combined_length())) return false;
+    loop.buffer = past(loop.buffer, entry);
+    loop.count -= entry.used_bits;
+    if (builtin.is_test) loop.decoded += constants.decodes_per_step_max;
+    return true;
+}
+
+/// Copies a match of `len` octets from `distance` back, when it lies in this call's output at
+/// least a word back, and counts its octets written and its two symbols. Returns false, having
+/// written nothing, for any other.
+inline fn copy_near(comptime options: Options, loop: *Loop, distance: u64, len: u64) bool {
+    // The source is in this call's output when the subtraction does not pass its start.
+    _ = std.math.sub(u64, loop.written, distance) catch return false;
+    if (distance > loop.distance_max) return false;
+    if (distance < constants.copy_word_len) return false;
     if (options.claims.chunk_copies) {
         if (distance >= constants.copy_chunk_len) {
             fast_copy.copy_chunks(constants.copy_chunk_len, loop.output, loop.written, @intCast(distance), @intCast(len));
@@ -398,101 +426,50 @@ inline fn copy_common(comptime options: Options, loop: *Loop, room: *[output_sla
     } else {
         fast_copy.copy_exact(loop.output, loop.written, @intCast(distance), @intCast(len));
     }
-    loop.consume_pair(length, after_length, distance_entry);
     loop.written += @intCast(len);
     if (options.count_lookups) {
-        count_symbol(loop, length);
-        count_symbol(loop, distance_entry);
+        count_symbol(loop, .table);
+        count_symbol(loop, .table);
     }
     return true;
 }
 
-/// Decodes one symbol, whose table entry is `first`, with its distance when it is a length, and
-/// handles every case: a code longer than the table, a literal, the end of the block, and a match
-/// from anywhere in the history. Returns why the loop stops, or `go_on`.
-inline fn step(comptime mode: Mode, comptime options: Options, loop: *Loop, codes: Codes, history: History, first: lookup.Entry) Next {
-    var entry = first;
-    if (entry.kind == .long) {
-        entry = lookup.resolve_literal_length(codes.literal_length_code, loop.buffer) orelse return .checked;
+/// A distance symbol's base, and the mask of its extra bits (RFC 1951 §3.2.5).
+const DistanceCode = packed struct(u32) { base: u16, mask: u16 };
+
+/// Each distance symbol's base and extra bits' mask, with a slot for each value of a symbol's
+/// bits, so a combined entry's symbol indexes it with no bounds check. Symbols 30 and 31 never
+/// occur (§3.2.6), and no combined entry holds them.
+const distance_codes: [1 << @bitSizeOf(u5)]DistanceCode = codes: {
+    var codes: [1 << @bitSizeOf(u5)]DistanceCode = @splat(.{ .base = 0, .mask = 0 });
+    for (constants.distance_base, constants.distance_extra_bits, 0..) |base, extra_bits, symbol| {
+        codes[symbol] = .{ .base = base, .mask = (1 << extra_bits) - 1 };
     }
-    switch (entry.kind) {
-        .literal => {
-            if (mode == .tail and loop.room() == 0) return .margin;
-            if (options.count_lookups) count_symbol(loop, entry);
-            loop.output[loop.written] = @truncate(entry.value);
-            loop.written += 1;
-            loop.consume_entry(entry);
-            return .go_on;
-        },
-        .end_of_block => {
-            if (options.count_lookups) count_symbol(loop, entry);
-            loop.consume_entry(entry);
-            return .end_of_block;
-        },
-        .length => return copy_pair(mode, options, loop, codes, history, entry),
-        .distance, .long, .invalid => return .checked,
-    }
+    break :codes codes;
+};
+
+/// The distance a combined entry decodes: its symbol's base, and the extra bits after the codes
+/// of the length and the distance, which the entry's `code_bits` say where they start.
+pub inline fn combined_distance(buffer: u64, entry: lookup.Entry) u64 {
+    const code = distance_codes[entry.combined_distance_symbol()];
+    return code.base + ((buffer >> entry.code_bits) & code.mask);
 }
 
-/// The tail: a symbol at a time, while the input holds a whole pair's bits.
-inline fn decode_tail(comptime options: Options, loop: *Loop, codes: Codes, history: History) End {
-    // Each iteration consumes at least a bit, or ends the loop.
-    const iterations_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
-    for (0..iterations_max) |_| {
-        loop.refill_exact();
-        // Near the input's end, the checked path decodes what is left, and asks for more.
-        if (loop.count < constants.pair_bits_max) return .checked;
-        const next = step(.tail, options, loop, codes, history, loop.look_up());
-        if (next != .go_on) return next.end();
-    }
-    unreachable;
-}
-
-/// Reads a length's extra bits and its distance, and copies the match, or stops before using any
-/// bit of the pair when the checked path must see it.
-inline fn copy_pair(comptime mode: Mode, comptime options: Options, loop: *Loop, codes: Codes, history: History, length: lookup.Entry) Next {
-    const len = length.value + extra_value(loop.buffer, length);
+/// The length a length's entry and the bits after its code give: the entry's value, or its base
+/// and the extra bits after the code; null for a length of 258 from extra bits, which the checked
+/// path refuses. A table built plain leaves every length's extra bits in the stream, none for a
+/// length of 3 to 10, so each length reads them, with no branch on which it is; a table that
+/// `resolved` its lengths holds most whole.
+pub inline fn length_of(buffer: u64, length: lookup.Entry, resolved: bool) ?u64 {
+    if (resolved and !length.extra) return length.value;
+    const len = length.value + extra_value(buffer, length);
     // RFC 1951 §3.2.5: 258 has code 285 alone, which takes no extra bits.
-    if (len == constants.match_len_max) {
-        if (length.used_bits != length.code_bits) return .checked;
-    }
-    const after_length = past(loop.buffer, length);
-    var distance_entry = loop.look_up_distance(after_length);
-    if (distance_entry.kind != .distance) {
-        distance_entry = lookup.resolve_distance(codes.distance_code, distance_entry, after_length) orelse return .checked;
-    }
-    const distance = distance_entry.value + extra_value(after_length, distance_entry);
-    // The tail copies a match whole or leaves it to the checked path, which copies what fits.
-    if (mode == .tail and loop.room() < len) return .margin;
-    if (!copy_match(mode, options, loop, history, @intCast(distance), @intCast(len))) return .checked;
-    loop.consume_pair(length, after_length, distance_entry);
-    loop.written += @intCast(len);
-    if (options.count_lookups) {
-        count_symbol(loop, length);
-        count_symbol(loop, distance_entry);
-    }
-    return .go_on;
-}
-
-/// Copies a match from anywhere in the history: from this call's output, in chunks in the wide
-/// loop (S4) and an octet at a time in the tail or with the claim off, or from the window. Returns
-/// false, having copied nothing, for a distance past the history or the container's window.
-inline fn copy_match(comptime mode: Mode, comptime options: Options, loop: *Loop, history: History, distance: usize, len: usize) bool {
-    if (distance <= loop.written and distance <= loop.distance_max) {
-        if (mode == .wide and options.claims.chunk_copies) {
-            fast_copy.copy_within(loop.output, loop.written, distance, len);
-        } else {
-            fast_copy.copy_exact(loop.output, loop.written, distance, len);
-        }
-        return true;
-    }
-    const window: fast_copy.Window = .{ .window = history.window, .synced = history.synced, .distance_max = history.distance_max };
-    return fast_copy.copy_from_window(loop.output, loop.written, window, distance, len);
+    if (len == constants.match_len_max and length.extra) return null;
+    return len;
 }
 
 /// Counts a symbol the fast path decoded, for S2's count (options.zig). Each call is under a
-/// comptime test of `Options.count_lookups`, so a decode that does not count evaluates nothing
-/// for it, and keeps no entry alive for it.
-inline fn count_symbol(loop: *Loop, entry: lookup.Entry) void {
-    if (entry.canonical) loop.lookups.canonical += 1 else loop.lookups.table += 1;
+/// comptime test of `Options.count_lookups`, so a decode that does not count evaluates nothing.
+pub inline fn count_symbol(loop: *Loop, how: How) void {
+    loop.lookups.count(how);
 }

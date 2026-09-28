@@ -13,6 +13,7 @@ const count_work = decoder_module.count_work;
 const low_bits = decoder_module.low_bits;
 const Claims = @import("../claims.zig").Claims;
 const huffman = @import("../huffman.zig");
+const lookup = @import("../lookup.zig");
 
 /// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills.
 pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
@@ -46,8 +47,8 @@ pub fn read_code_length_code(decoder: *Decoder, bits: *codec.BitReader) Error!?c
 }
 
 /// Reads the code length symbols, with their repeats' extra bits, while the input holds them, then
-/// builds the block's codes after the last length, its tables in the shape `claims` gives.
-pub fn read_code_lengths(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+/// builds the block's codes after the last length, its tables in the shape `options` gives.
+pub fn read_code_lengths(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const total = decoder.literal_length_count + decoder.distance_count;
     // Each symbol writes at least one length.
     for (0..total - decoder.header_index) |_| {
@@ -55,7 +56,7 @@ pub fn read_code_lengths(comptime claims: Claims, decoder: *Decoder, bits: *code
         if (try read_code_length(decoder, bits, total)) |status| return status;
     }
     assert(decoder.header_index == total);
-    try build_block_codes(claims, decoder);
+    try build_block_codes(options, decoder, bits.reader.remaining_len());
     decoder.phase = .symbols;
     return null;
 }
@@ -110,24 +111,44 @@ fn fill_lengths(lengths: []u8, start: usize, count: usize, len: u8) void {
     }
 }
 
-/// Builds a dynamic block's literal/length and distance codes from the lengths just read.
-fn build_block_codes(comptime claims: Claims, decoder: *Decoder) Error!void {
+/// Builds a dynamic block's literal/length and distance codes from the lengths just read, with
+/// `input_left` octets of the call's input after them.
+fn build_block_codes(comptime options: decoder_module.Options, decoder: *Decoder, input_left: usize) Error!void {
+    const claims = options.claims;
     const literal_lengths = decoder.lengths[0..decoder.literal_length_count];
     // RFC 1951 §3.2.7: every block ends with symbol 256, so its code must have a length.
     if (literal_lengths[constants.end_of_block] == 0) return error.MissingEndOfBlock;
     try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
     try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
-    build_tables(claims, decoder, &decoder.literal_length_code, &decoder.distance_code);
+    // S12 and S11: once the stream shows itself long, a block's lengths take their extra bits and
+    // their distances' codes into its table; until then, the table builds plain, as it builds
+    // fastest.
+    const resolves = claims.resolved_lengths and combination_due(options, decoder, input_left);
+    build_tables(claims, decoder, &decoder.literal_length_code, &decoder.distance_code, resolves);
+    if (!resolves or !claims.combined_entries) return;
+    count_work(decoder, lookup.combine(&decoder.literal_length_table, &decoder.distance_table));
+    decoder.bits_since_combination = 0;
 }
 
-/// Builds the block's lookup tables from its canonical codes, in the shape `claims` gives.
+/// Whether a block's tables combine: after `combine_bits_min` bits since the last combination, or
+/// once a call when the call's input holds `combine_input_min` octets after the block's header.
+fn combination_due(comptime options: decoder_module.Options, decoder: *Decoder, input_left: usize) bool {
+    if (decoder.bits_since_combination >= options.combine_bits_min) return true;
+    if (decoder.combined_for_input or input_left < constants.combine_input_min) return false;
+    decoder.combined_for_input = true;
+    return true;
+}
+
+/// Builds the block's lookup tables from its canonical codes, in the shape `claims` gives, the
+/// lengths' extra bits resolved when it `resolves`.
 pub fn build_tables(
     comptime claims: Claims,
     decoder: *Decoder,
     literal_length_code: *const huffman.Code(constants.literal_length_alphabet_len),
     distance_code: *const huffman.Code(constants.distance_alphabet_len),
+    resolves: bool,
 ) void {
-    count_work(decoder, decoder.literal_length_table.build_shaped(claims.literal_length_table_bits, &literal_length_code.counts, &literal_length_code.symbols));
-    count_work(decoder, decoder.distance_table.build_shaped(claims.distance_table_bits, &distance_code.counts, &distance_code.symbols));
+    count_work(decoder, decoder.literal_length_table.build_shaped(claims.literal_length_table_bits, &literal_length_code.counts, &literal_length_code.symbols, resolves));
+    count_work(decoder, decoder.distance_table.build_shaped(claims.distance_table_bits, &distance_code.counts, &distance_code.symbols, false));
 }
