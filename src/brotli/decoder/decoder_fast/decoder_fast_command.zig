@@ -1,14 +1,14 @@
-//! The brotli fast path's straight-line command (decision 16): a command of no literals, its
-//! values in locals, with the state written once, where the chain of phases in decoder_fast.zig
-//! would store and reload them at each phase. It takes an insert-and-copy symbol whose block is not
-//! spent, its extra bits, and a distance that names a back-reference within the call's output, of
-//! a copy of one chunk at most (RFC 7932 §9.3, §10).
+//! The brotli fast path's straight-line command (decision 16): a command's phases in one call, its
+//! values in locals, where the chain of phases in decoder_fast.zig would go back through its
+//! dispatch between them. It takes an insert-and-copy symbol whose block is not spent, its extra
+//! bits, its literals when one run of their block takes them all, and a distance that names a
+//! back-reference within the call's output, of a copy of one chunk at most (RFC 7932 §9.3, §10).
 //!
-//! Anything else it leaves where the chain goes on: a command with literals after its extra bits, a
-//! block switch before its symbol or its distance, a dictionary word, a copy from the window or of
-//! more than a chunk. It leaves the state as the phases would have at that point, and returns the
-//! phase's link, or `stop` before a refusal, with the bits of the step the checked path takes again
-//! unused.
+//! Anything else it leaves where the chain goes on: literals past their block or the input's
+//! margin, a block switch before its symbol, its literals or its distance, a dictionary word, a copy
+//! from the window or of more than a chunk. It leaves the state as the phases would have at that
+//! point, and returns the phase's link, or `stop` before a refusal, with the bits of the step the
+//! checked path takes again unused.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -19,6 +19,7 @@ const Claims = @import("../../claims.zig").Claims;
 const state_module = @import("../decoder_state.zig");
 const commands = @import("../decoder_commands.zig");
 const copies = @import("decoder_fast_copy.zig");
+const literal_runs = @import("decoder_fast_literals.zig");
 const fast = @import("decoder_fast.zig");
 const State = state_module.State;
 const Loop = fast.Loop;
@@ -29,7 +30,7 @@ const distance_bits_max = constants.code_len_max + constants.distance_extra_bits
 
 /// A command whose insert-and-copy symbol's block is not spent, from its symbol on. The chain has
 /// checked the margins and refilled the buffer.
-pub inline fn straight_command(comptime claims: Claims, loop: *Loop, state: *State) Link {
+pub inline fn straight_command(comptime claims: Claims, loop: *Loop, literal_tables: *fast.LiteralTables, state: *State) Link {
     const blocks = commands.blocks_of(state, .insert_copy);
     if (commands.needs_switch(state, .insert_copy)) return .command;
     const symbol = loop.decode(&state.insert_copy_codes[blocks.type_current]);
@@ -54,11 +55,21 @@ pub inline fn straight_command(comptime claims: Claims, loop: *Loop, state: *Sta
     state.command.copy_len = code.copy_base + @as(u32, @intCast(extra >> code.insert_extra_bits));
     if (insert_len > 0) {
         state.phase = .literal;
-        return .literal;
+        return straight_literals(claims, loop, literal_tables, state);
     }
     // A command starts only while the meta-block has octets left, so no literal ends it here.
     assert(state.meta_block_left > 0);
     state.phase = .distance;
+    return straight_distance(claims, loop, state);
+}
+
+/// The command's literals when one run of the current block takes them all, then its distance and
+/// copy as for a command of no literals; otherwise the link of the phase the literals stop at.
+inline fn straight_literals(comptime claims: Claims, loop: *Loop, literal_tables: *fast.LiteralTables, state: *State) Link {
+    if (commands.needs_switch(state, .literal)) return .literal;
+    literal_runs.literals(claims, loop, literal_tables, state);
+    if (state.phase != .distance) return .go_on;
+    if (!fast.ready(claims, loop)) return .stop;
     return straight_distance(claims, loop, state);
 }
 

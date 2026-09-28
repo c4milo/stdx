@@ -195,3 +195,50 @@ test "the last distance a command of no literals reuses stays out of the ring" {
     // Distance 3 copies "fg", the last distance "hf", and the second last, 4, "fg".
     try testing.expectEqualStrings("abcdefghfghffg", output[0..whole.written]);
 }
+
+/// Symbol 539, insert code 11 and copy code 19 (RFC 7932 §5): 32 literals, 26 and 3 extra bits,
+/// then a copy of 250, 198 and 7 extra bits, at the fourth last distance, 16. The literals repeat
+/// "abcd" from a simple code of four, 2 bits each; the copy goes on with it.
+const room_symbol = 539;
+const room_insert_code = 11;
+const room_copy_code = 19;
+const room_literals_len = 32;
+const room_copy_len = 250;
+const room_pattern = "abcd";
+/// A simple code of four symbols gives each 2 bits (RFC 7932 §3.4).
+const room_literal_code_bits = 2;
+/// The distance code 3: the fourth last distance (RFC 7932 §4).
+const fourth_last_distance_code = constants.last_distances_count - 1;
+
+fn room_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.meta_block(true, room_literals_len + room_copy_len);
+    stream.simple_header(0, 0, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{ 'a', 'b', 'c', 'd' }, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{room_symbol}, false);
+    stream.simple_code(constants.distance_short_codes_count + constants.distance_code_groups, &.{fourth_last_distance_code}, false);
+    const insert = constants.insert_length_codes[room_insert_code];
+    const copy = constants.copy_length_codes[room_copy_code];
+    stream.put(room_literals_len - insert.base, insert.extra_bits);
+    stream.put(room_copy_len - copy.base, copy.extra_bits);
+    // The four literals' codes are 00, 01, 10 and 11, in the order of their symbols.
+    for (0..room_literals_len) |index| stream.put_code(@intCast(index % room_pattern.len), room_literal_code_bits);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+
+test "a copy after a command's literals waits for the output's margin, at every room" {
+    var stream: Stream = .{};
+    room_stream(&stream);
+    const input = stream.written();
+    var expected: [room_literals_len + room_copy_len]u8 = undefined;
+    for (&expected, 0..) |*octet, index| octet.* = room_pattern[index % room_pattern.len];
+    var output: [expected.len]u8 = undefined;
+    for (0..expected.len + 1) |room| {
+        var decoder: Decoder = undefined;
+        decoder.init(.{});
+        const progress = try decoder.decode(input, output[0..room]);
+        try testing.expectEqual(room, progress.written);
+        try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
+    }
+}

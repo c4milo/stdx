@@ -77,7 +77,7 @@ pub fn has_margin(phase: Phase, bits: *const codec.BitReader, writer: *const cod
 /// What a phase says: go on, or stop for the checked path.
 const Next = enum { go_on, stop };
 
-const LiteralTables = literal_runs.LiteralTables;
+pub const LiteralTables = literal_runs.LiteralTables;
 
 /// The octets before a literal that its context reads, p1 and p2 (RFC 7932 §7.1).
 const context_octets = 2;
@@ -252,7 +252,7 @@ inline fn decode_chain(comptime claims: Claims, loop: *Loop, literal_tables: *Li
         return .go_on;
     }
     if (!ready(claims, loop)) return .stop;
-    var link = if (state.phase == .command) straight.straight_command(claims, loop, state) else link_of(state.phase);
+    var link = if (state.phase == .command) straight.straight_command(claims, loop, literal_tables, state) else link_of(state.phase);
     for (0..links_per_chain_max) |_| {
         link = switch (link) {
             .command => on_command(claims, loop, state),
@@ -336,7 +336,7 @@ inline fn on_word(loop: *Loop, state: *State) Link {
 /// Whether the margins hold for another phase, and when they do, a buffer refilled to at least
 /// `refill_bits`: the state may bring a full buffer of 64 bits, and every later refill finds 63
 /// or fewer.
-inline fn ready(comptime claims: Claims, loop: *Loop) bool {
+pub inline fn ready(comptime claims: Claims, loop: *Loop) bool {
     if (!loop.has_margin()) return false;
     if (loop.count < refill_bits) refill(claims, loop);
     return true;
