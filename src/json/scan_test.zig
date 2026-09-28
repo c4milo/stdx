@@ -1,7 +1,7 @@
 //! Tests for scan.zig: each vector path returns what its scalar path returns, on every input the
-//! tests draw and the fuzzer finds, at 16, 32 and 64 octets a block and at the target's width
-//! (decision 21). The scalar paths are the reference (decision 16), and `utf8.zig`'s tests hold the
-//! UTF-8 they use to RFC 3629 §4.
+//! tests draw and the fuzzer finds, at the codecs' `vector_len` of 16 octets a block, and at 32 and
+//! 64, AVX2's and AVX-512's (decision 21). The scalar paths are the reference (decision 16), and
+//! `utf8.zig`'s tests hold the UTF-8 they use to RFC 3629 §4.
 
 const std = @import("std");
 const testing = std.testing;
@@ -9,11 +9,12 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
 
-/// The widths every vector path runs at: SSE2's and NEON's, AVX2's, AVX-512's, and the target's.
+/// The widths every vector path runs at: the codecs' `vector_len`, SSE2's and NEON's, then AVX2's
+/// and AVX-512's.
 const width_128_bits = 16;
 const width_256_bits = 32;
 const width_512_bits = 64;
-const widths = [_]usize{ width_128_bits, width_256_bits, width_512_bits, constants.vector_len };
+const widths = [_]usize{ constants.vector_len, width_256_bits, width_512_bits };
 
 /// The longest input a case draws: several blocks at the widest width.
 const input_len_max = 300;

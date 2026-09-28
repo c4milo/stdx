@@ -1,6 +1,7 @@
 //! The limits and the octets of the `json` module: the grammar of RFC 8259, the UTF-8 of RFC 3629,
 //! the framing of RFC 7464, and the sizes of the encoder's and the decoder's states.
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 /// The most objects and arrays one text may hold open at once. RFC 8259 §9 lets an implementation
@@ -9,17 +10,16 @@ const assert = std.debug.assert;
 /// state.
 pub const depth_max: u16 = 1024;
 
-/// The octets the decoder's SIMD paths take at once: the width of the target's vector registers,
-/// 16 on x86-64 and aarch64 at their baselines (decision 21).
-pub const vector_len: usize = std.simd.suggestVectorLength(u8) orelse vector_len_default;
+/// The octets the encoder's and the decoder's SIMD paths take at once: 16, the width of SSE2's and
+/// NEON's registers, which every x86-64 and aarch64 CPU has, so no feature detection chooses the
+/// paths (decision 27). A build for a CPU with wider registers takes 16 as well: the benchmark
+/// measured 16, and a wider width waits for decision 21's objects and a measurement of its own.
+pub const vector_len: usize = 16;
 
-/// The width a target without vector registers would use, where `vectors` is false and no vector
-/// path runs by default.
-pub const vector_len_default: usize = 16;
-
-/// Whether the target has vector registers, so the claims' vector paths are on by default. Where it
-/// has none, LLVM would run each lane in turn, and the scalar paths run instead.
-pub const vectors = std.simd.suggestVectorLength(u8) != null;
+/// Whether the target's vector registers hold `vector_len` octets, so the claims' vector paths are
+/// on by default. Where they do not, LLVM would split each vector or run each lane in turn, and the
+/// scalar paths run instead.
+pub const vectors = (std.simd.suggestVectorLength(u8) orelse 0) >= vector_len;
 
 /// The six structural characters (RFC 8259 §2).
 pub const begin_array: u8 = '[';
@@ -175,6 +175,10 @@ pub const decoder_steps_max = 4;
 comptime {
     assert(depth_max % @bitSizeOf(u8) == 0);
     assert(vector_len >= utf8_len_max);
+    // The width is SSE2's and NEON's on every target, never the target's own (decision 27), and
+    // every x86-64 and aarch64 CPU has one of the two.
+    assert(vector_len * @bitSizeOf(u8) == 128);
+    if (builtin.cpu.arch == .x86_64 or builtin.cpu.arch == .aarch64) assert(vectors);
     assert(escape_letters.len == escaped_characters.len);
     assert(control_max + 1 == unescaped_min);
     assert(hex_digits_lower.len == 1 << nibble_bits);

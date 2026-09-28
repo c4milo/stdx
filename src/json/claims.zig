@@ -1,8 +1,8 @@
 //! Decision 27's claims for the `json` module's vector paths, each switchable at comptime, so the
 //! benchmark can time the encoder and the decoder with one claim off against all on (decision 21).
 //! A claim that does not win by more than the noise leaves with its code. `encode` and `decode`
-//! take every claim on where the target has vector registers; the tests, the fuzzer and the
-//! benchmark switch them.
+//! take every claim on where the target's vector registers hold `constants.vector_len` octets
+//! (`constants.vectors`); the tests, the fuzzer and the benchmark switch them.
 
 const constants = @import("constants.zig");
 
