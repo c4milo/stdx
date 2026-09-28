@@ -78,9 +78,11 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// The canonical code the lengths define, one per symbol, 0 for a symbol with no code (RFC
         /// 7932 §3.2). The caller has checked that they form a complete code of two symbols or more.
         /// Returns the entries written: each entry of the root and of the second levels once.
-        pub fn build(self: *Self, lengths: []const u8) usize {
+        /// Its lengths come as an array, so the buffer of their canonical order takes as many
+        /// entries as there are symbols: a safe build fills a buffer it declares with 0xAA.
+        pub fn build(self: *Self, lengths: anytype) usize {
             const counts = counts_of(lengths);
-            var buffer: [constants.insert_copy_alphabet_len]Coded = undefined;
+            var buffer: [lengths.len]Coded = undefined;
             return self.build_sorted(sort_canonical(lengths, &counts, &buffer), &counts);
         }
 

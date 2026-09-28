@@ -259,9 +259,31 @@ const Code = union(enum) {
 /// `single` holds it, and moves the header on.
 fn finish(state: *State, single: ?u16) void {
     if (single) |symbol| return finish_code(state, .{ .single = symbol });
+    switch (std.meta.activeTag(state.reading.target)) {
+        inline else => |target| finish_sorted(sort_len_max(target), state),
+    }
+}
+
+/// The largest alphabet of a code for `target` (RFC 7932 §3.3): the size of the buffer that sorts
+/// its symbols, which a safe build fills with 0xAA, so each target's is no larger than it needs.
+fn sort_len_max(comptime target: std.meta.Tag(state_module.Target)) usize {
+    return switch (target) {
+        .block_type => constants.block_types_max + constants.block_type_symbol_offset,
+        .block_count => constants.block_count_alphabet_len,
+        .map => constants.context_map_alphabet_len_max,
+        .literal => constants.literal_alphabet_len,
+        .insert_copy => constants.insert_copy_alphabet_len,
+        .distance => constants.distance_alphabet_len_max,
+    };
+}
+
+/// The complex code of an alphabet of at most `len_max` symbols, sorted into canonical order and
+/// built.
+fn finish_sorted(comptime len_max: usize, state: *State) void {
     const lengths = state.lengths[0..state.reading.alphabet_len];
+    assert(lengths.len <= len_max);
     const counts = prefix.counts_of(lengths);
-    var buffer: [constants.insert_copy_alphabet_len]prefix.Coded = undefined;
+    var buffer: [len_max]prefix.Coded = undefined;
     const sorted = prefix.sort_canonical(lengths, &counts, &buffer);
     finish_code(state, .{ .sorted = .{ .symbols = sorted, .counts = &counts } });
 }
@@ -303,4 +325,19 @@ fn build_literal(table: anytype, code: Code, mode: context.Mode) usize {
             .sorted => |sorted| table.build_sorted_valued(sorted.symbols, sorted.counts, context.literal_entry_value(entry_mode)),
         },
     };
+}
+
+// Tests.
+
+test "each code's sort buffer holds its target's largest alphabet" {
+    const testing = std.testing;
+    // RFC 7932 §6: 256 block types and 2 codes more; 26 block count codes.
+    try testing.expectEqual(258, sort_len_max(.block_type));
+    try testing.expectEqual(26, sort_len_max(.block_count));
+    // §7.3: 256 trees and RLEMAX's 16 run-length codes.
+    try testing.expectEqual(272, sort_len_max(.map));
+    // §5: 256 literals and 704 insert-and-copy symbols; §4: 16, NDIRECT's 120 and 48 << 3.
+    try testing.expectEqual(256, sort_len_max(.literal));
+    try testing.expectEqual(704, sort_len_max(.insert_copy));
+    try testing.expectEqual(520, sort_len_max(.distance));
 }

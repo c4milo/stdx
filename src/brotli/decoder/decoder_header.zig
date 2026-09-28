@@ -246,11 +246,18 @@ pub fn read_map_inverse_transform(state: *State, bits: *codec.BitReader) Error!?
     return null;
 }
 
+/// The move-to-front list the inverse transform starts from: each value at its own place (RFC 7932
+/// §7.3). A copy of it costs no fill of a list declared undefined.
+const identity_order = order: {
+    var order: [constants.trees_max]u8 = undefined;
+    for (&order, 0..) |*value, index| value.* = index;
+    break :order order;
+};
+
 /// InverseMoveToFrontTransform of RFC 7932 §7.3. Returns the entries of its list it wrote: for each
 /// map entry, the values it moves down and the one it moves to the front.
 fn inverse_move_to_front(entries: []u8) usize {
-    var order: [constants.trees_max]u8 = undefined;
-    for (&order, 0..) |*value, index| value.* = @intCast(index);
+    var order = identity_order;
     var written: usize = 0;
     for (entries) |*entry| {
         const index = entry.*;
