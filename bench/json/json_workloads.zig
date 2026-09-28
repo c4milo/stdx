@@ -17,11 +17,8 @@ const std = @import("std");
 const json = @import("json");
 const codec = @import("codec");
 
-/// One token and all of its octets.
-pub const Item = struct {
-    token: json.Token,
-    octets: []const u8 = "",
-};
+/// One token and all of its octets, as the encoder's batches take them (decision 33).
+pub const Item = json.Encoder.Item;
 
 /// A workload: the texts to decode, and the tokens that encode to them.
 pub const Workload = struct {

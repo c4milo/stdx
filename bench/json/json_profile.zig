@@ -31,9 +31,9 @@ const profiled = [_][]const u8{
 };
 
 /// Where the operations the profile counts stand in a side's operations: stdx with every claim
-/// on, stdx with every claim off, and the first baseline, which the others follow in
-/// `baselines.names` order.
-pub const Places = struct { all_on: usize, all_off: usize, first_baseline: usize };
+/// on, many tokens a call and one token a call, stdx with every claim off, and the first baseline,
+/// which the others follow in `baselines.names` order.
+pub const Places = struct { all_on: usize, one_token: usize, all_off: usize, first_baseline: usize };
 
 /// Whether the profile counts `workload`.
 pub fn is_profiled(workload: *const Workload) bool {
@@ -66,6 +66,7 @@ pub fn header(out: *std.Io.Writer, side: []const u8) !void {
 /// `workload`, whose runs each count `octets`, and prints a row for each.
 pub fn rows(out: *std.Io.Writer, open: *const counters.Counters, workload: *const Workload, operations: []const timing.Operation, octets: usize, places: Places) !void {
     try row(out, open, workload, operations[places.all_on], octets, "stdx, every claim on");
+    try row(out, open, workload, operations[places.one_token], octets, "stdx, one token a call");
     try row(out, open, workload, operations[places.all_off], octets, "stdx, every claim off");
     for (baselines.names, baselines.built(), 0..) |name, is_built, index| {
         if (is_built) try row(out, open, workload, operations[places.first_baseline + index], octets, name);
