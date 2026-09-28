@@ -1075,6 +1075,49 @@ to 12 are reordered and nothing else changes.
       (1677ec9, f8dbbae).
   - Mutations: the 53 below, on the first commit, and those in the body of each commit after it.
 
+  **After the check, 2026-09-28**, the owner's two further rulings, at ad14324:
+  - The baselines of decision 27. `bench-json` run
+    [36439380850](https://github.com/c4milo/stdx/actions/runs/36439380850) at e468bb5, which main
+    holds as bf8f7fd, timed simdjson, yyjson and Zig's std.json beside stdx with every claim on,
+    on a Neoverse N2 and an AMD EPYC 9V74. Each cell is stdx's throughput over the baseline's, on
+    the N2 and then on the EPYC; below 1, stdx is slower.
+
+    | Workload | Side | simdjson | yyjson | std.json |
+    |---|---|---|---|---|
+    | CLDR's texts | Decoding | 0.167, 0.151 | 0.151, 0.161 | 0.504, 0.531 |
+    | qlog's records | Decoding | 0.140, 0.155 | 0.149, 0.131 | 0.485, 0.461 |
+    | dickens as a string | Decoding | 0.546, 0.355 | 0.379, 0.394 | 2.553, 3.851 |
+    | E.coli as a string | Decoding | 2.288, 1.018 | 2.243, 3.165 | 7.620, 14.224 |
+    | Cyrillic and CJK | Decoding | 0.379, 0.181 | 0.716, 1.091 | 1.746, 2.695 |
+    | dickens as hex | Decoding | 2.328, 1.047 | 2.281, 3.315 | 14.594, 28.020 |
+    | CLDR's texts | Encoding | 0.199, 0.213 | 0.217, 0.220 | 0.531, 0.587 |
+    | qlog's records | Encoding | 0.196, 0.214 | 0.248, 0.254 | 0.508, 0.534 |
+    | dickens as a string | Encoding | 0.409, 0.361 | 0.409, 0.398 | 2.578, 3.709 |
+    | E.coli as a string | Encoding | 0.884, 1.205 | 1.929, 3.115 | 4.957, 7.879 |
+    | Cyrillic and CJK | Encoding | 0.259, 0.200 | 1.157, 1.638 | 1.953, 2.661 |
+    | dickens as hex | Encoding | 10.802, 11.519 | 14.590, 16.719 | 31.874, 45.828 |
+
+    - On texts of short tokens, CLDR's and qlog's, stdx runs at a sixth or a seventh of simdjson's
+      and yyjson's speed, and at about half of std.json's, both ways. Each call of stdx's decoder
+      returns one token, and the octets between strings are taken one at a time, so both costs
+      grow with the tokens.
+    - On long strings the vector runs pay. stdx decodes a string with no escape, E.coli, at least
+      as fast as all three, and writes hex strings 11 to 46 times as fast, as none of them has a hex
+      string.
+    - The reports list every workload where a baseline wins, in bench/results/.
+  - The proofs of decision 28. `zig build lean` built spec/lean/ on macOS 26.6 arm64, where every
+    theorem rests on Lean's standard axioms alone, and found src/json/utf8_vectors.txt and
+    number_vectors.txt, 2,048 steps and 2,313 lines, to be what the proved machines give;
+    `zig build test` replays them against `Utf8` and `Number`. Mutations, each applied and
+    reverted:
+    - Zig, against `zig build test-json`: F4 followed by any continuation octet; a refused octet
+      that moves the state; a digit after a lone zero ending the number; a sign taken after an
+      exponent's digit; a vector line flipped to refused. Each CAUGHT, the four that change the
+      machines by the replay tests alone.
+    - Lean, against `lake build`: the machine taking F4 then 80 to 9F; the grammar taking E0 then
+      80 to BF; the machine taking a digit after a lone zero; the grammar's exponent without a
+      digit. Each fails the build.
+
   **Mutations, 2026-09-28**, each applied, run against `zig build test-json` and reverted: 53, all
   CAUGHT. Nine at first did not compile, as a local or a parameter they left unused; each was
   written again so it compiled, and each was then CAUGHT.
