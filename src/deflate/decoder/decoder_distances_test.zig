@@ -223,3 +223,61 @@ test "a distance past the window a container declares is refused from combined a
         }
     }
 }
+
+/// The octet the test fills the memory past an output with, to find a write there.
+const canary = 0xa5;
+
+/// The distance of `longest_matches`' pairs, and how many it writes.
+const longest_distance = 100;
+const longest_pairs = 8;
+
+/// A block of `history` literals, then `longest_pairs` pairs of the longest length; the octets it
+/// stands for into `expected`, whose length it returns.
+fn longest_matches(stream: *Stream, history: usize, expected: *[output_len_max]u8) usize {
+    const dynamic = block();
+    dynamic.header(stream, true);
+    for (expected[0..history], 0..) |*octet, index| {
+        octet.* = literals[index % literals.len];
+        dynamic.literal(stream, octet.*);
+    }
+    var len = history;
+    for (0..longest_pairs) |_| {
+        dynamic.pair(stream, constants.match_len_max, longest_distance);
+        for (0..constants.match_len_max) |_| {
+            expected[len] = expected[len - longest_distance];
+            len += 1;
+        }
+    }
+    dynamic.literal(stream, constants.end_of_block);
+    return len;
+}
+
+/// Decodes `input` with `options` into an output of `output_len` octets that the canary follows,
+/// and requires the octets it wrote to be `expected`'s and every octet past the output the canary.
+fn expect_within(comptime options: deflate.Options, input: []const u8, expected: []const u8, output_len: usize) !void {
+    var decoder: deflate.Decoder = undefined;
+    deflate.init(&decoder, codec.Features.detect());
+    var output: [output_len_max + room_extra]u8 = @splat(canary);
+    const progress = try deflate.decode_with(options, &decoder, input, output[0..output_len]);
+    try testing.expectEqualSlices(u8, expected[0..progress.written], output[0..progress.written]);
+    for (output[output_len..]) |octet| try testing.expectEqual(canary, octet);
+}
+
+test "invariant 6: a call writes nothing past its output, where a run of literals meets a longest match" {
+    // Histories of 258 and 259 literals end in runs of 3 and 4 after the fast path's last full run
+    // of 5, then pairs of 258 octets back to back. Outputs of every length from the history to
+    // the stream's end make the loop meet its margin at each place a write past the output could
+    // come, after runs of literals and after runs of longest matches.
+    const room_extra_max = longest_pairs * constants.match_len_max + constants.match_len_max;
+    for ([_]usize{ 258, 259 }) |history| {
+        var stream: Stream = .{};
+        var expected: [output_len_max]u8 = undefined;
+        const len = longest_matches(&stream, history, &expected);
+        var buffer: [input_len_max]u8 = undefined;
+        const input = padded(&stream, &buffer);
+        for (history..history + room_extra_max) |output_len| {
+            try expect_within(.{}, input, expected[0..len], output_len);
+            try expect_within(decoder_test.combining, input, expected[0..len], output_len);
+        }
+    }
+}

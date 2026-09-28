@@ -45,12 +45,29 @@ const State = extern struct {
     distance_entries: [*]const lookup.Entry,
     distance_bits: u64,
     distance_max: u64,
-    /// Each distance symbol's base and mask, in place, so a combined entry's distance takes one
-    /// load from the state.
-    distance_codes: [fast.distance_codes.len]fast.DistanceCode,
+    /// The farthest distance less a chunk: the span a distance less a chunk may take.
+    distance_span: u64,
+    /// Each distance symbol's base and its extra bits' count, in place, so a combined entry's
+    /// distance takes its loads from the state.
+    distance_codes: [fast.distance_codes.len]DistanceCode,
     repeats: *const fast_copy.Repeats,
     /// The symbols decoded, which a test build counts (invariant 17).
     decoded: u64,
+    /// The caller's rbp, which the loop counts its iterations in.
+    saved_frame: u64,
+};
+
+/// A distance symbol's base and the count of its extra bits (RFC 1951 §3.2.5), which BZHI takes.
+const DistanceCode = extern struct { base: u16, extra_bits: u16 };
+
+/// Each distance symbol's code, a slot for each value of a symbol's bits as in `fast`; symbols 30
+/// and 31 never occur (RFC 1951 §3.2.6), and no combined entry holds them.
+const distance_codes: [fast.distance_codes.len]DistanceCode = codes: {
+    var codes: [fast.distance_codes.len]DistanceCode = @splat(.{ .base = 0, .extra_bits = 0 });
+    for (constants.distance_base, constants.distance_extra_bits, 0..) |base, extra_bits, symbol| {
+        codes[symbol] = .{ .base = base, .extra_bits = extra_bits };
+    }
+    break :codes codes;
 };
 
 /// Runs the common loop as `fast.decode_common` does, for a caller that checked `takes` and that the
@@ -74,9 +91,11 @@ pub fn decode_common(loop: *fast.Loop) fast.Stop {
         .distance_entries = loop.distance_entries,
         .distance_bits = @popCount(loop.distance_mask),
         .distance_max = loop.distance_max,
-        .distance_codes = fast.distance_codes,
+        .distance_span = loop.distance_max - constants.copy_chunk_len,
+        .distance_codes = distance_codes,
         .repeats = &fast_copy.repeats,
         .decoded = 0,
+        .saved_frame = 0,
     };
     const stop: fast.Stop = @enumFromInt(execute(&state));
     const taken = @intFromPtr(state.input) - @intFromPtr(loop.rest.ptr);
@@ -133,6 +152,12 @@ comptime {
     assert(@typeInfo(@TypeOf(lookup.Entry.combined_distance_symbol)).@"fn".return_type.? == u5);
     assert(@bitOffsetOf(fast.DistanceCode, "mask") == 16);
     assert(std.math.log2_int(u64, constants.copy_chunk_len) == 4);
+    assert((1 << lookup.combined_length_bits) - 1 == 0x1ff and fast.refill_bits == 56);
+    // The iterations' count: an iteration takes 7 input octets at most, below 8, and writes a
+    // longest match and a literal at most, below 512.
+    assert(@sizeOf(u64) - 1 < 8 and constants.match_len_max + 1 < 512);
+    // The shortest window a container declares is longer than a chunk, so the span is not negative.
+    assert(constants.copy_chunk_len < 256);
 }
 
 /// The chunks a match copy writes before it looks at the length, and the chunks two moves take
@@ -168,9 +193,11 @@ const template_arguments = .{
     .distance_bits = @offsetOf(State, "distance_bits"),
     .distance_max = @offsetOf(State, "distance_max"),
     .distance_codes = @offsetOf(State, "distance_codes"),
+    .distance_extra_at = @offsetOf(State, "distance_codes") + @offsetOf(DistanceCode, "extra_bits"),
     .repeats = @offsetOf(State, "repeats"),
     .steps = @offsetOf(fast_copy.Repeats, "steps"),
-    .refill_bits = fast.refill_bits,
+    .saved_frame = @offsetOf(State, "saved_frame"),
+    .distance_span = @offsetOf(State, "distance_span"),
     .match_len_max = constants.match_len_max,
     .literal_bit = 1 << @bitOffsetOf(lookup.Entry, "literal"),
     .direct_bit = 1 << @bitOffsetOf(lookup.Entry, "direct"),
@@ -178,7 +205,6 @@ const template_arguments = .{
     .combined_bit = 1 << @bitOffsetOf(lookup.Entry, "combined"),
     .value_at = @bitOffsetOf(lookup.Entry, "value"),
     .code_bits_at = @bitOffsetOf(lookup.Entry, "code_bits"),
-    .combined_length_mask = (1 << lookup.combined_length_bits) - 1,
     .distance_symbol_at = @bitOffsetOf(lookup.Entry, "value") + lookup.combined_length_bits,
     .chunk = constants.copy_chunk_len,
     .third_chunk_at = constants.copy_chunk_len * (chunks_unconditional - 1),
