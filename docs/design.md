@@ -547,6 +547,31 @@ to 12 are reordered and nothing else changes.
       input's end, where the margins no longer hold. The count asks for a test build, and no
       test build reads the corpora, so the benchmark counts in its ReleaseSafe build.
     - S9 is step 4's.
+    - The candidates, checked on 2026-09-28 after step 16 found its own benchmark's fault. LLVM
+      inlines a function by how many callers it has, so a candidate that shares a function with
+      other code can compile unlike the rest. Each benchmark was built as the runners build it,
+      for each architecture's baseline CPU, and `llvm-nm` and `llvm-objdump` listed what each
+      candidate's `run_once` calls out of line. Here the paths A/B's checked candidate took all
+      on's claims, so the two shared the functions over the claims that read a block's header,
+      copy a stored block and read the code lengths, and LLVM kept those out of line in both,
+      where each claim candidate inlined its own. The gzip decoder and S10's decodes reach all
+      on's entry through `deflate.decode`, so LLVM kept that entry out of line too. Since 91238df
+      the checked candidate turns off S1 and S4, which only the fast path reads, and every
+      candidate's entry stays out of line. All on's `run` is then the same size as S1's, S2's
+      and S4's on both architectures.
+    - Those calls, a few for each block and one for each decode, changed no verdict. Between
+      `bench-deflate` runs
+      [36440477042](https://github.com/c4milo/stdx/actions/runs/36440477042) at eb0f0c7 and
+      [36440501312](https://github.com/c4milo/stdx/actions/runs/36440501312) at 94a5098, every
+      candidate's speed on the N2 moves by less than 2% at the median, each claim's median by at
+      most 0.03 (S4's, from 0.65 to 0.62), and no file's ratio by more than 0.05. The checked
+      candidate runs 1% faster, and the fast path at 11.51 times its speed, from 11.66.
+    - On the EPYC 7763, which both runs drew, all on, S2, S5 and S7 ran about 5% faster, and S1,
+      S4 and the baselines did not. Those four run one fast loop: LLVM folds their loops into one
+      function, whose code the change leaves as it was but whose place in the program it moves.
+      So that place, not the fix, most likely moved them. S1's median fell from 0.82 to 0.80 and
+      S4's from 0.69 to 0.64 with it: on x86-64, where a claim's loop lands can move its A/B by
+      about decision 20's 5% floor.
   - Decision 17: the same program built ReleaseFast runs the fast path at a median of 1.012 of its
     ReleaseSafe speed on the N2 (1.003 to 1.094) and 0.997 on the EPYC (0.981 to 1.067). The
     safety checks cost about 1%.
@@ -859,6 +884,19 @@ to 12 are reordered and nothing else changes.
       and on the N2 (±0.3%), beyond decision 20's 5% floor on both. Over the other 38 files its
       median stays 1.00, and no file runs faster with it off by more than 3%. stdx decodes the
       shuffled text at 1.14 of libzstd's speed on the EPYC 7763 and 1.03 on the N2.
+    - The runs above timed all on beside a candidate that shared one of its functions, found as
+      step 7's note on its candidates describes. With Z1 off, `decode_each` set Z1 on for each
+      stream, which gave all on's claims, so all on's `fast_literals.decode` of one stream had a
+      second caller. LLVM kept it out of line in all on, where Z2, Z4 and Z6 inlined their own,
+      so all on paid a call for each block whose literals take one stream. Since 94a5098 each
+      stream decodes under Z1's own claims, and all on's `block.prepare` compiles to the same
+      code as Z4's and Z6's on both architectures.
+    - That call changed no verdict. Between `bench-zstd` runs
+      [36440484969](https://github.com/c4milo/stdx/actions/runs/36440484969) at eb0f0c7 and
+      [36440509396](https://github.com/c4milo/stdx/actions/runs/36440509396) at 94a5098, each
+      claim's median on the N2 stays the same, and no file's ratio moves by more than 0.03. The
+      x86-64 runner drew a Xeon 8573C for the first run and an EPYC 9V74 for the second, so its
+      two reports cannot be compared.
   - Decision 17: built ReleaseFast, stdx runs at a median of 1.00 of its ReleaseSafe speed on the
     EPYC 7763 (0.88 to 1.05), 1.02 on the N2 (0.98 to 1.09), and 0.99 to 1.02 on the Xeons, each
     as a ratio of the two builds' ratios to libzstd in one run.
@@ -899,6 +937,27 @@ to 12 are reordered and nothing else changes.
   comptime assert; the exact table budget of decision 12 computed and pinned; decision 15 against
   Google's brotli; the large-window signature refused as `error.LargeWindow`; then as step 7;
   mutations.
+
+  **The benchmark's candidates, 2026-09-28**, checked as step 7's note on its candidates
+  describes, before this step's check. The checked candidate took all on's claims, so the two
+  shared the checked path's functions over `Output`, and LLVM kept `read_literal`, `copy_match`
+  and `copy_uncompressed` out of line in both, where S1, S4 and S5 inlined their own. All on paid
+  a call for each octet the checked path writes: the last 272 of every stream. Since 496ec5c the
+  checked candidate turns off S1 and S4, which only the fast path reads. `bench-brotli` runs at
+  eb0f0c7 and at 94a5098, compared on the same CPU:
+  - On the N2, runs [36440493352](https://github.com/c4milo/stdx/actions/runs/36440493352),
+    [36443953184](https://github.com/c4milo/stdx/actions/runs/36443953184) and
+    [36443972510](https://github.com/c4milo/stdx/actions/runs/36443972510) before, and
+    [36443962138](https://github.com/c4milo/stdx/actions/runs/36443962138) and
+    [36443982242](https://github.com/c4milo/stdx/actions/runs/36443982242) after: all on decodes
+    the 1 KiB bodies 1 to 2% faster, and each claim's ratio on them falls by up to 0.02. An A/B
+    run before 496ec5c favours a claim off by that much on those bodies.
+  - On the N2, an EPYC 7763 (36443953184 before, 36440517055 after) and a Xeon 8573C (36443972510
+    before, 36443962138 and 36443982242 after), no claim's median moves by more than 0.01, and
+    the checked candidate's own functions make the fast path's ratio to it fall by 3 to 5%.
+  - The aarch64 runner drew a Neoverse V3 for run
+    [36440517055](https://github.com/c4milo/stdx/actions/runs/36440517055), whose aarch64 report
+    cannot be compared with the N2's.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
