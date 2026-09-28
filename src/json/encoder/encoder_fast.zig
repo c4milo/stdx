@@ -166,7 +166,7 @@ inline fn number_body(piece: encoder_file.Piece, reader: *codec.Reader) ?Body {
     if (piece == .more) return null;
     const input = reader.take_partial(reader.remaining_len());
     reader.unread(input.len);
-    const number = number_grammar.whole_number(input) orelse return null;
+    const number = @call(.always_inline, number_grammar.whole_number, .{input}) orelse return null;
     return .{ .content_len = input.len, .number = number };
 }
 

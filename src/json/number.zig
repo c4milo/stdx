@@ -100,7 +100,7 @@ const transitions = std.enums.EnumArray(State, [std.enums.values(Class).len]?Sta
 });
 
 /// The state after `octet`, or null when the number cannot take it there.
-fn next_state(state: State, octet: u8) ?State {
+inline fn next_state(state: State, octet: u8) ?State {
     return transitions.get(state)[@intFromEnum(class_of(octet))];
 }
 

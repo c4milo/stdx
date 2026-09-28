@@ -57,9 +57,9 @@ extern fn stdx_json_hex_len_x86_64_avx512(input: [*]const u8, input_len: usize, 
 /// `scan.plain_len_vector` at `level`'s width: the first 16 octets inline, and a run past them in
 /// the level's kernel.
 pub inline fn plain_len(level: Level, octets: []const u8) usize {
-    if (comptime !has_kernels) return scan.plain_len_vector(constants.vector_len, octets);
-    if (level == .target or octets.len <= level.width()) return scan.plain_len_vector(constants.vector_len, octets);
-    const first_len = scan.plain_len_vector(constants.vector_len, octets[0..constants.vector_len]);
+    if (comptime !has_kernels) return @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets });
+    if (level == .target or octets.len <= level.width()) return @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets });
+    const first_len = @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, octets[0..constants.vector_len] });
     if (first_len < constants.vector_len) return first_len;
     const rest = octets[constants.vector_len..];
     return constants.vector_len + switch (level) {

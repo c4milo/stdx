@@ -64,7 +64,7 @@ inline fn token_at(decoder: *Decoder, comptime claims: Claims, expect: Expect, o
     if (expect == .end_of_text) return null;
     const names = expect == .name or expect == .name_or_end_object;
     if (octet == constants.quotation_mark) return string(decoder, claims, if (names) .name else .string, reader, writer);
-    if (names) return if (octet == constants.end_object and expect == .name_or_end_object) decoder.end_container(.end_object) else null;
+    if (names) return if (octet == constants.end_object and expect == .name_or_end_object) end_container(decoder, .end_object) else null;
     return value(decoder, expect, octet, reader, writer);
 }
 
@@ -79,19 +79,19 @@ inline fn after_separator(decoder: *const Decoder, expect: Expect, octet: u8) ?E
 inline fn container_end(decoder: *Decoder, expect: Expect, octet: u8) ?Outcome {
     if (expect != .separator_or_end) return null;
     const in_object = decoder.containers.isSet(decoder.depth - 1);
-    if (octet == constants.end_object and in_object) return decoder.end_container(.end_object);
-    if (octet == constants.end_array and !in_object) return decoder.end_container(.end_array);
+    if (octet == constants.end_object and in_object) return end_container(decoder, .end_object);
+    if (octet == constants.end_array and !in_object) return end_container(decoder, .end_array);
     return null;
 }
 
 /// Takes a value that is not a string, or the end of the array just opened.
 inline fn value(decoder: *Decoder, expect: Expect, octet: u8, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
     switch (octet) {
-        constants.end_array => return if (expect == .value_or_end_array) decoder.end_container(.end_array) else null,
+        constants.end_array => return if (expect == .value_or_end_array) end_container(decoder, .end_array) else null,
         constants.begin_object, constants.begin_array => {
             // The checked path refuses a container past the depth limit.
             if (decoder.depth == constants.depth_max) return null;
-            return decoder.begin_container(octet) catch unreachable;
+            return @call(.always_inline, Decoder.begin_container, .{ decoder, octet }) catch unreachable;
         },
         constants.literal_true[0], constants.literal_false[0], constants.literal_null[0] => return literal(decoder, octet, reader),
         else => {},
@@ -122,11 +122,14 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
 /// Takes a whole number the output has room for, and leaves the octet that ends it unread.
 inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
     // One octet past the room, so a number that fills the output shows the octet that ends it.
-    const window = reader.take_partial(writer.room_len() +| 1);
+    // The reader's and the writer's steps are inline here: in the caller's loop, LLVM left them
+    // calls.
+    const window = @call(.always_inline, codec.Reader.take_partial, .{ reader, writer.room_len() +| 1 });
     reader.unread(window.len);
-    const ended = number_grammar.ended_in(window) orelse return null;
+    const ended = @call(.always_inline, number_grammar.ended_in, .{window}) orelse return null;
     if (ended.len > writer.room_len()) return null;
-    writer.write_all(reader.take(ended.len) catch unreachable) catch unreachable;
+    const octets = @call(.always_inline, codec.Reader.take, .{ reader, ended.len }) catch unreachable;
+    @call(.always_inline, codec.Writer.write_all, .{ writer, octets }) catch unreachable;
     started(decoder, 1, ended.number);
     decoder.value_ended(.number);
     return .{ .status = .token, .kind = .number };
@@ -134,17 +137,29 @@ inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer
 
 /// Takes the rest of the literal name whose first letter the caller read, `first`.
 inline fn literal(decoder: *Decoder, first: u8, reader: *codec.Reader) ?Outcome {
-    const kind: Kind, const text: []const u8 = switch (first) {
-        constants.literal_true[0] => .{ .true, constants.literal_true },
-        constants.literal_false[0] => .{ .false, constants.literal_false },
-        constants.literal_null[0] => .{ .null, constants.literal_null },
+    return switch (first) {
+        constants.literal_true[0] => literal_of(decoder, .true, constants.literal_true, reader),
+        constants.literal_false[0] => literal_of(decoder, .false, constants.literal_false, reader),
+        constants.literal_null[0] => literal_of(decoder, .null, constants.literal_null, reader),
         else => unreachable,
     };
-    const rest = reader.take(text.len - 1) catch return null;
-    if (!std.mem.eql(u8, rest, text[1..])) return null;
-    started(decoder, @intCast(text.len), .{});
+}
+
+/// Takes the letters of `text` after its first, a letter at a time, which a text known at
+/// comptime unrolls.
+inline fn literal_of(decoder: *Decoder, kind: Kind, comptime text: []const u8, reader: *codec.Reader) ?Outcome {
+    const rest = @call(.always_inline, codec.Reader.take, .{ reader, text.len - 1 }) catch return null;
+    inline for (text[1..], 0..) |letter, index| {
+        if (rest[index] != letter) return null;
+    }
+    started(decoder, text.len, .{});
     decoder.value_ended(kind);
     return .{ .status = .token, .kind = kind };
+}
+
+/// `Decoder.end_container`, inline here alone: the checked path calls it too.
+inline fn end_container(decoder: *Decoder, kind: Kind) Outcome {
+    return @call(.always_inline, Decoder.end_container, .{ decoder, kind });
 }
 
 /// Leaves the fields `Decoder.start_token` sets as the checked path leaves them at the token's end:
