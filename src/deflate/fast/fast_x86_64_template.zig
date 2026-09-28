@@ -29,8 +29,7 @@ pub const prologue =
     \\    // its 64 bits is the stream's; a full one is the stream's already.
     \\    cmp r9, 64
     \\    jae 20f
-    \\    mov rax, qword ptr [rsi]
-    \\    shlx rax, rax, r9
+    \\    shlx rax, qword ptr [rsi], r9
     \\    or r8, rax
     \\    movzx eax, r9b
     \\    xor eax, 63
@@ -78,8 +77,7 @@ pub const literal_next =
 
 /// The refill of r8 and r9d from the input.
 const refill =
-    \\    mov rax, qword ptr [rsi]
-    \\    shlx rax, rax, r9
+    \\    shlx rax, qword ptr [rsi], r9
     \\    or r8, rax
     \\    movzx eax, r9b
     \\    xor eax, 63
@@ -111,8 +109,7 @@ pub const combined =
     \\    // §3.2.5), where the entry's code bits say they start.
     \\    rorx eax, r12d, {[distance_symbol_at]}
     \\    and eax, 31
-    \\    mov rcx, qword ptr [rdi + {[distance_codes]}]
-    \\    mov eax, dword ptr [rcx + rax*4]
+    \\    mov eax, dword ptr [rdi + rax*4 + {[distance_codes]}]
     \\    rorx ecx, r12d, {[code_bits_at]}
     \\    and ecx, 15
     \\    shrx rcx, r8, rcx
@@ -127,7 +124,7 @@ pub const combined =
     \\    mov r14d, r9d
     \\    sub r14d, r12d
     \\    // The checks: the match reads this call's output (invariant 10), no farther than the
-    \\    // stream's window, and two chunks back at least.
+    \\    // stream's window, and a chunk back at least.
     \\    mov rbx, rdx
     \\    sub rbx, rax
     \\    jb 70f
@@ -135,17 +132,17 @@ pub const combined =
     \\    jb 70f
     \\    cmp rax, qword ptr [rdi + {[distance_max]}]
     \\    ja 70f
-    \\    cmp rax, {[pair_below]}
-    \\    jbe 70f
+    \\    cmp rax, {[chunk]}
+    \\    jb 70f
 ;
 
-/// The match's copy, where the distance is two chunks at least, and the next symbol, a literal
-/// after the match taking its octet before the refill.
+/// The match's copy, where the distance is a chunk at least, and the next symbol, a literal after
+/// the match taking its octet before the refill.
 pub const copy =
     \\6:
     \\    movdqu xmm0, xmmword ptr [rbx]
-    \\    movdqu xmm1, xmmword ptr [rbx + {[chunk]}]
     \\    movdqu xmmword ptr [rdx], xmm0
+    \\    movdqu xmm1, xmmword ptr [rbx + {[chunk]}]
     \\    movdqu xmmword ptr [rdx + {[chunk]}], xmm1
     \\    movdqu xmm2, xmmword ptr [rbx + {[third_chunk_at]}]
     \\    movdqu xmmword ptr [rdx + {[third_chunk_at]}], xmm2
@@ -168,8 +165,7 @@ pub const copy =
     \\    mov r12d, dword ptr [r10 + rax*4]
     \\8:
     \\    mov r8, r13
-    \\    mov rax, qword ptr [rsi]
-    \\    shlx rax, rax, r14
+    \\    shlx rax, qword ptr [rsi], r14
     \\    or r8, rax
     \\    movzx eax, r14b
     \\    xor eax, 63
@@ -227,12 +223,12 @@ pub const plain =
     \\    jb 70f
     \\    cmp rax, qword ptr [rdi + {[distance_max]}]
     \\    ja 70f
-    \\    cmp rax, {[pair_below]}
-    \\    ja 6b
+    \\    cmp rax, {[chunk]}
+    \\    jae 6b
 ;
 
-/// A match's other cases: the window, a distance past the stream's window, a distance below two
-/// chunks, and the rest of a long match.
+/// A match's other cases: the window, a distance past the stream's window, and a distance below a
+/// chunk, the last case left once the others are not; then the rest of a long match.
 pub const other_cases =
     \\70:
     \\    mov rbx, rdx
@@ -242,29 +238,6 @@ pub const other_cases =
     \\    jb 90f
     \\    cmp rax, qword ptr [rdi + {[distance_max]}]
     \\    ja 90f
-    \\    cmp rax, {[chunk]}
-    \\    jb 73f
-    \\    // A distance of a chunk to two: a chunk at a time, each reading octets written before it.
-    \\    movdqu xmm0, xmmword ptr [rbx]
-    \\    movdqu xmmword ptr [rdx], xmm0
-    \\    movdqu xmm0, xmmword ptr [rbx + {[chunk]}]
-    \\    movdqu xmmword ptr [rdx + {[chunk]}], xmm0
-    \\    movdqu xmm0, xmmword ptr [rbx + {[third_chunk_at]}]
-    \\    movdqu xmmword ptr [rdx + {[third_chunk_at]}], xmm0
-    \\    cmp r15, {[chunks_len]}
-    \\    jbe 7b
-    \\    lea rcx, [rbx + {[chunks_len]}]
-    \\    lea rax, [rdx + {[chunks_len]}]
-    \\    lea rbx, [rdx + r15]
-    \\74:
-    \\    movdqu xmm0, xmmword ptr [rcx]
-    \\    movdqu xmmword ptr [rax], xmm0
-    \\    add rcx, {[chunk]}
-    \\    add rax, {[chunk]}
-    \\    cmp rax, rbx
-    \\    jb 74b
-    \\    jmp 7b
-    \\73:
     \\    // A distance below a chunk, the match overlapping itself (RFC 1951 §3.2.3): the first chunk
     \\    // is the distance's octets repeated, from the chunk before the target, which one shuffle
     \\    // arranges; the rest repeats it where the distance divides a chunk, and otherwise goes a
@@ -306,10 +279,13 @@ pub const other_cases =
     \\    jb 72b
     \\    jmp 7b
     \\75:
-    \\    // The rest of a match past its first three chunks, two chunks at a time.
+    \\    // The rest of a match past its first three chunks: two chunks at a time where the
+    \\    // distance holds two, and one at a time below.
+    \\    cmp rax, {[pair]}
     \\    lea rcx, [rbx + {[chunks_len]}]
     \\    lea rax, [rdx + {[chunks_len]}]
     \\    lea rbx, [rdx + r15]
+    \\    jb 74f
     \\76:
     \\    movdqu xmm0, xmmword ptr [rcx]
     \\    movdqu xmm1, xmmword ptr [rcx + {[chunk]}]
@@ -319,6 +295,14 @@ pub const other_cases =
     \\    add rax, {[pair]}
     \\    cmp rax, rbx
     \\    jb 76b
+    \\    jmp 7b
+    \\74:
+    \\    movdqu xmm0, xmmword ptr [rcx]
+    \\    movdqu xmmword ptr [rax], xmm0
+    \\    add rcx, {[chunk]}
+    \\    add rax, {[chunk]}
+    \\    cmp rax, rbx
+    \\    jb 74b
     \\    jmp 7b
 ;
 

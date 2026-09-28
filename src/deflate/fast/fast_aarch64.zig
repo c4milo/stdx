@@ -216,8 +216,6 @@ const template_arguments = .{
     .chunks_len = constants.copy_chunk_len * chunks_unconditional,
     .chunk_shift = std.math.log2_int(u64, constants.copy_chunk_len),
     .pair = constants.copy_chunk_len * chunks_paired,
-    // The largest distance below a pair of chunks, which a check's immediate holds.
-    .pair_below = constants.copy_chunk_len * chunks_paired - 1,
     .load_decoded = counts.load,
     .store_decoded = counts.store,
     .count_literal = counts.literal,

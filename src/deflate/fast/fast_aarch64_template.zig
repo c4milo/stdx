@@ -21,8 +21,8 @@
 //!
 //! The numbered labels: 1 an iteration, 3 a match, 4 a length's own entry, 5 the refill after
 //! literals, 6 the match's copy, 7 the next symbol, 8 the refill after a match, 70 and 71 a match's
-//! other cases, 73 a distance below a chunk, 72, 74, 76, 77 and 78 the rest of a match, 80 and 90
-//! the exits, 99 the state stored back.
+//! other cases, the last a distance below a chunk, 72, 74, 76, 77 and 78 the rest of a match, 80
+//! and 90 the exits, 99 the state stored back.
 
 /// The prologue: the state, a refill, and the first symbol's entry.
 pub const prologue =
@@ -123,22 +123,24 @@ pub const combined =
     \\    lsr x26, x6, x14
     \\    sub w27, w7, w14
     \\    // The checks, in one branch: the match reads this call's output (invariant 10), no
-    \\    // farther than the stream's window, and two chunks back at least. x20 its source.
+    \\    // farther than the stream's window, and a chunk back at least. x20 its source.
     \\    subs x20, x3, x19
     \\    ccmp x20, x5, #0, hs
     \\    ccmp x19, x12, #2, hs
-    \\    ccmp x19, #{[pair_below]}, #0, ls
-    \\    b.ls 70f
+    \\    ccmp x19, #{[chunk]}, #0, ls
+    \\    b.lo 70f
 ;
 
 /// The match's copy, where the distance is a chunk at least, and the next symbol.
 pub const copy =
     \\6:
-    \\    // Three chunks, which cover most matches, then the rest two chunks at a time. The distance
-    \\    // is two chunks at least, so each pair reads octets written before it, and the margin's
-    \\    // room holds the last one's overrun.
-    \\    ldp q0, q1, [x20]
-    \\    stp q0, q1, [x3]
+    \\    // Three chunks, which cover most matches, then the rest. The distance is a chunk at
+    \\    // least, so each chunk reads octets written before it, and the margin's room holds the
+    \\    // last one's overrun.
+    \\    ldr q0, [x20]
+    \\    str q0, [x3]
+    \\    ldr q1, [x20, #{[chunk]}]
+    \\    str q1, [x3, #{[chunk]}]
     \\    ldr q2, [x20, #{[third_chunk_at]}]
     \\    str q2, [x3, #{[third_chunk_at]}]
     \\    cmp x15, #{[chunks_len]}
@@ -201,12 +203,13 @@ pub const plain =
     \\    ccmp x20, x5, #0, hs
     \\    ccmp x19, x12, #2, hs
     \\    ccmp x28, x24, #4, ls
-    \\    ccmp x19, #{[pair_below]}, #0, ne
-    \\    b.hi 6b
+    \\    ccmp x19, #{[chunk]}, #0, ne
+    \\    b.hs 6b
 ;
 
 /// A match's other cases: a length of 258 from extra bits, the window, a distance past the
-/// stream's window, and a distance below a chunk; then the rest of a long match.
+/// stream's window, and a distance below a chunk, the last case left once the others are not;
+/// then the rest of a long match.
 pub const other_cases =
     \\71:
     \\    cmp x28, x24
@@ -216,27 +219,6 @@ pub const other_cases =
     \\    ccmp x20, x5, #0, hs
     \\    ccmp x19, x12, #2, hs
     \\    b.hi 90f
-    \\    cmp x19, #{[chunk]}
-    \\    b.lo 73f
-    \\    // A distance of a chunk to two: a chunk at a time, each reading octets written before it.
-    \\    ldr q0, [x20]
-    \\    str q0, [x3]
-    \\    ldr q1, [x20, #{[chunk]}]
-    \\    str q1, [x3, #{[chunk]}]
-    \\    ldr q2, [x20, #{[third_chunk_at]}]
-    \\    str q2, [x3, #{[third_chunk_at]}]
-    \\    cmp x15, #{[chunks_len]}
-    \\    b.ls 7b
-    \\    add x16, x20, #{[chunks_len]}
-    \\    add x17, x3, #{[chunks_len]}
-    \\    add x21, x3, x15
-    \\74:
-    \\    ldr q0, [x16], #{[chunk]}
-    \\    str q0, [x17], #{[chunk]}
-    \\    cmp x17, x21
-    \\    b.lo 74b
-    \\    b 7b
-    \\73:
     \\    // A distance below a chunk, the match overlapping itself (RFC 1951 §3.2.3). Its first chunk
     \\    // is the distance's octets repeated, from the chunk before the target, which one table
     \\    // lookup arranges; past it the octets repeat every multiple of the distance, so the rest
@@ -277,15 +259,25 @@ pub const other_cases =
     \\    b.lo 72b
     \\    b 7b
     \\75:
-    \\    // The rest of a match past its first three chunks, two chunks at a time.
+    \\    // The rest of a match past its first three chunks: two chunks at a time where the
+    \\    // distance holds two, so each pair reads octets written before it, and one at a time
+    \\    // below.
     \\    add x16, x20, #{[chunks_len]}
     \\    add x17, x3, #{[chunks_len]}
     \\    add x21, x3, x15
+    \\    cmp x19, #{[pair]}
+    \\    b.lo 74f
     \\76:
     \\    ldp q0, q1, [x16], #{[pair]}
     \\    stp q0, q1, [x17], #{[pair]}
     \\    cmp x17, x21
     \\    b.lo 76b
+    \\    b 7b
+    \\74:
+    \\    ldr q0, [x16], #{[chunk]}
+    \\    str q0, [x17], #{[chunk]}
+    \\    cmp x17, x21
+    \\    b.lo 74b
     \\    b 7b
 ;
 

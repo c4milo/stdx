@@ -45,7 +45,9 @@ const State = extern struct {
     distance_entries: [*]const lookup.Entry,
     distance_bits: u64,
     distance_max: u64,
-    distance_codes: [*]const fast.DistanceCode,
+    /// Each distance symbol's base and mask, in place, so a combined entry's distance takes one
+    /// load from the state.
+    distance_codes: [fast.distance_codes.len]fast.DistanceCode,
     repeats: *const fast_copy.Repeats,
     /// The symbols decoded, which a test build counts (invariant 17).
     decoded: u64,
@@ -72,7 +74,7 @@ pub fn decode_common(loop: *fast.Loop) fast.Stop {
         .distance_entries = loop.distance_entries,
         .distance_bits = @popCount(loop.distance_mask),
         .distance_max = loop.distance_max,
-        .distance_codes = &fast.distance_codes,
+        .distance_codes = fast.distance_codes,
         .repeats = &fast_copy.repeats,
         .decoded = 0,
     };
@@ -182,7 +184,6 @@ const template_arguments = .{
     .third_chunk_at = constants.copy_chunk_len * (chunks_unconditional - 1),
     .chunks_len = constants.copy_chunk_len * chunks_unconditional,
     .pair = constants.copy_chunk_len * chunks_paired,
-    .pair_below = constants.copy_chunk_len * chunks_paired - 1,
     .count_literal = counts.literal,
     .count_match = counts.match,
 };
