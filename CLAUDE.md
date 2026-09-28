@@ -218,7 +218,9 @@ Change this section when a step adds or renames a command.
   `zig build test-<module>` runs one module's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build test-self-hosted` builds every module's tests with
   Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux, and runs them there; any
-  other host only compiles them.
+  other host only compiles them. `zig build test-avx512` builds every module's tests with LLVM in
+  Debug for an x86-64 CPU with AVX-512, and runs none: LLVM's Debug build there cannot pass a
+  vector of bool across a call.
 - brotli tables: `zig build brotli-tables` writes `src/brotli/dictionary.bin` and
   `src/brotli/rfc_tables.zig` from RFC 7932's Appendices A and B with
   `tools/brotli_tables.zig`; `zig build brotli-tables-check` fails when the committed files differ

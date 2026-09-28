@@ -21,6 +21,7 @@ const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const oracle = @import("build/oracle.zig");
 const self_hosted = @import("build/self_hosted.zig");
+const avx512 = @import("build/avx512.zig");
 const brotli_tables = @import("build/brotli_tables.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
@@ -132,8 +133,10 @@ pub fn build(b: *std.Build) void {
         tool_test_step.dependOn(run);
     }
 
-    // The tests again, built by Zig's own x86-64 backend, the Debug default on x86-64 Linux.
+    // The tests again, built by Zig's own x86-64 backend, the Debug default on x86-64 Linux; and
+    // built by LLVM in Debug for a CPU with AVX-512.
     _ = self_hosted.add(b);
+    _ = avx512.add(b);
 
     // Decisions 8 and 15: the oracles and the corpora are lazy packages, requested only when the
     // build is given -Doracles, so a plain `zig build test` fetches none of them.

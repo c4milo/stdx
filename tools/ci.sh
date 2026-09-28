@@ -57,6 +57,9 @@ run_check "test" zig build test
 # The unit tests built by Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux: run
 # there, and only compiled on every other runner. The summary shows which, module by module.
 run_check "self-hosted backend" zig build test-self-hosted --summary all
+# The tests built by LLVM in Debug for an x86-64 CPU with AVX-512, which no runner is sure to have:
+# compiled on every runner, run on none.
+run_check "avx-512 build" zig build test-avx512
 run_check "oracle tests" zig build test-oracle -Doracles
 # Every program the build installs, the benchmarks included: no check above compiles bench/zstd or
 # bench/checksum, which run only when a person asks for numbers.
