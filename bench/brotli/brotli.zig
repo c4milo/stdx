@@ -9,7 +9,8 @@
 //!   quality and window. Throughput counts decoded octets. Each decoder's output is compared with
 //!   the input before any is timed.
 //! - stdx's paths: its HTTP decoder with the fast path of decision 16 and on its checked path
-//!   alone, the A/B that admits the fast path.
+//!   alone, the A/B that admits the fast path. The checked path's decoder takes claims no other
+//!   candidate takes (`checked_claims`).
 //! - The claims: stdx's decoder with each claim off in turn against the decoder with all on (design
 //!   §8 step 12), each claim's A/B, reported as the ratio of the two throughputs.
 //! - Decision 17's measurement: `bench_brotli_release_fast`, this program with stdx built
@@ -68,8 +69,22 @@ fn StdxDecode(comptime paths: brotli.claims.Paths) type {
     };
 }
 
+/// The claims of the checked path's candidate. Window-once, the one claim its path reads, stays on,
+/// as all on has it; word refill and chunk copies, which only the fast path reads, are off, so no
+/// other candidate takes this value. LLVM inlines a function by how many callers it has, and with
+/// all on's claims the two decoders shared the checked path's functions over their `Output`: in
+/// both, LLVM kept a call for each literal and each octet of a copy the checked path writes, where
+/// each claim candidate inlined its own.
+const checked_claims: brotli.claims.Claims = .{ .word_refill = false, .chunk_copies = false };
+
+comptime {
+    // The checked path's candidate must not share a claim candidate's codec (`checked_claims`).
+    std.debug.assert(!std.meta.eql(checked_claims, brotli.claims.Claims{}));
+    for (brotli.claims.each_off) |off| std.debug.assert(!std.meta.eql(off, checked_claims));
+}
+
 const Fast = StdxDecode(.{});
-const Checked = StdxDecode(.{ .fast_paths = false });
+const Checked = StdxDecode(.{ .fast_paths = false, .claims = checked_claims });
 
 /// A corpus file and Google's stream of it.
 const File = struct {
