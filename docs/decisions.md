@@ -7,8 +7,8 @@ Entries marked **owner** wait on a ruling and are not settled. Everything else i
 re-argued, not edited. Entries 1 to 10 record the rules the owner set in the brief that started
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
-and 20 came out of that review, entry 21 out of design §8 step 2, and entries 22 to 25 out of step
-11.
+and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to 25 out of step 11,
+and entry 26 out of the owner's review of CI.
 
 ## Scope and shape
 
@@ -675,7 +675,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
     - The seed corpus is the committed fixtures of each module. A crash or a disagreement the
       fuzzer finds becomes a fixture and a named test.
     - Zig's fuzzer runs on Linux, so fuzzing runs there, and each step's entry in design §8
-      records how long it ran and what it found.
+      records how long it ran and what it found. Entry 26 amends this item: fuzzing runs on macOS
+      arm64 too.
 
     **Worst cases (invariant 17).** Generators build valid and invalid streams that maximize work
     per octet: a DEFLATE stream of minimal dynamic blocks, each forcing a full table build; a
@@ -830,6 +831,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
       owner then ruled that costs, benchmarks and fuzzing run on the hosted runners too, in jobs of
       their own.
     - Both land with design §8 step 2.
+    - Entry 26 amends this item: `main.yml` runs `tools/ci.sh` on three runners, macOS arm64 among
+      them.
 
     The alternative refused: every check run by hand, with each step's entry recording what was run.
     A check nobody runs between steps drifts, and the owner asked for CI.
@@ -858,6 +861,8 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
     - Fuzzing runs in scheduled jobs of fixed length per target, within the runner's job time
       limit. The corpus a run grows is kept between runs, and a finding becomes a committed
       fixture and a named test (decision 15).
+    - Entry 26 amends this item: fuzzing runs on macOS arm64 too. The costs and the benchmarks stay
+      on Linux.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
@@ -1042,7 +1047,7 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
        between two pages that fault on any access: the input, the output, the window, the
        literals buffer and the tables. An access past a bound then stops the tool, where
        octets a loop read or wrote past a bound could otherwise go unnoticed. It joins
-       `tools/ci.sh` (decision 19) and runs on both runners.
+       `tools/ci.sh` (decision 19) and runs on every runner of decision 26.
     3. Boundary tests: one per check of each loop, with the checked value on each side of its
        bound, as c6197bf's test does for an output below Window_Size.
     4. The Zig fast path stays the reference on every target: each test and the fuzzer compare
@@ -1075,3 +1080,26 @@ and 20 came out of that review, entry 21 out of design §8 step 2, and entries 2
     - Random dictionary words: the word list differs from host to host.
     - Base64 or hexadecimal text: every literal takes a code of one length, and Z2 pairs no two.
     - A fetched file: none of the corpora holds text that level 3 leaves mostly as literals.
+
+26. **The checks and the fuzzer run on macOS arm64 too.** Ruled by the owner on 2026-09-27, who
+    asked that stdx be tested on Linux on x86-64 and aarch64 and on macOS on arm64. It amends
+    entries 15, 19 and 20.
+    - `.github/workflows/main.yml` runs `tools/ci.sh` on `ubuntu-24.04`, `ubuntu-24.04-arm` and
+      `macos-26` on each push to main, and the `fuzz` workflow fuzzes each module on the same
+      three. The labels are pinned, as entry 20 pins Linux's: `macos-latest` moves to each new
+      macOS. macOS 26 is the owner's.
+    - Some code runs on macOS alone. There, `codec.Features.detect()` returns a fixed set, since
+      every aarch64 Mac is an Apple M-series part, and the set's `madd_addend_slow` puts XXH64 on
+      its aarch64 path. No Linux runner reaches either; before this entry, only a person's run on
+      the Mac did.
+    - Zig 0.16's fuzzer runs on macOS as well as on Linux, so fuzzing need not stay on Linux, as
+      entry 15 had it.
+    - Numbers stay on Linux (decision 10): macOS runs the checks and the fuzzer, never the costs or
+      the benchmarks.
+
+    Cost: a macOS runner has 3 virtual CPUs, so its CI job takes the longest; like the Linux
+    runners, it is free for a public repository.
+
+    The alternatives refused:
+    - macOS by hand alone: a check nobody runs between steps drifts (entry 19).
+    - `macos-latest`: the macOS under the checks would change without a commit.

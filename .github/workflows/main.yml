@@ -1,6 +1,6 @@
 # Decision 19: every check that needs no fixed machine runs on each push to main, through
-# tools/ci.sh, on both hosted runners of decision 20. A new check joins tools/ci.sh, never this
-# file.
+# tools/ci.sh, on the hosted runners of decision 26: Linux on x86-64 and aarch64, and macOS on
+# arm64. A new check joins tools/ci.sh, never this file.
 name: ci
 
 on:
@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:

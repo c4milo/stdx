@@ -1,5 +1,5 @@
-# Decision 20: fuzzing runs in scheduled jobs of fixed length per target, one job per fuzzed module
-# on each runner, so each module has the job time limit to itself. The corpus a job grows is
+# Decisions 20 and 26: fuzzing runs in scheduled jobs of fixed length per target, one job per fuzzed
+# module on each runner, so each module has the job time limit to itself. The corpus a job grows is
 # the part of .zig-cache Zig 0.16's fuzzer keeps between runs, f and v, which GitHub's cache keeps
 # from one run to the next per runner and module; the builds beside it are not kept.
 name: fuzz
@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
         module: ${{ fromJSON(needs.modules.outputs.modules) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
