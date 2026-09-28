@@ -102,7 +102,7 @@ pub fn read_code_length_code(state: *State, bits: *codec.BitReader) Error!?codec
         reading.space -= @as(i32, constants.code_length_code_space) >> @intCast(decoded.value);
         reading.nonzero_count += 1;
     }
-    // A sum past 32 stops the lengths, and the build refuses it.
+    // A sum that reaches 32 or passes it ends the lengths, as does the alphabet's end.
     if (reading.space > 0 and reading.index < constants.code_length_alphabet_len) return null;
     try build_code_length_code(state);
     return null;
@@ -112,6 +112,8 @@ pub fn read_code_length_code(state: *State, bits: *codec.BitReader) Error!?codec
 fn build_code_length_code(state: *State) Error!void {
     const reading = &state.reading;
     const lengths = state.lengths[0..constants.code_length_alphabet_len];
+    // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
+    if (reading.space < 0) return error.OverSubscribedCodeLengthCode;
     if (reading.space == 0) {
         state.code_length_code.build(lengths);
     } else if (reading.nonzero_count == 1) {
@@ -119,7 +121,7 @@ fn build_code_length_code(state: *State) Error!void {
         state.code_length_code.build_single(@intCast(std.mem.indexOfNone(u8, lengths, &.{0}).?));
     } else {
         // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
-        return error.InvalidCodeLengthCode;
+        return error.IncompleteCodeLengthCode;
     }
     @memset(state.lengths[0..reading.alphabet_len], 0);
     reading.index = 0;
@@ -167,12 +169,12 @@ fn read_code_length(state: *State, bits: *codec.BitReader) Error!?u7 {
         try repeat_length(state, symbol, extra);
     }
     // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
-    if (reading.space < 0) return error.InvalidCodeLengths;
+    if (reading.space < 0) return error.OverSubscribedCode;
     if (reading.space == 0) {
         finish(state, null);
     } else if (reading.index == reading.alphabet_len) {
         // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
-        return error.InvalidCodeLengths;
+        return error.IncompleteCode;
     }
     return decoded.len + extra_bits;
 }

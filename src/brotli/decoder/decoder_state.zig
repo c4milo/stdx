@@ -25,10 +25,14 @@ pub const Corrupt = error{
     /// A simple prefix code's symbol past its alphabet, or one it gives twice (RFC 7932 §3.4).
     InvalidSymbol,
     DuplicateSymbol,
-    /// A complex prefix code whose code length code, or whose code lengths, do not form a complete
-    /// code (RFC 7932 §3.5).
-    InvalidCodeLengthCode,
-    InvalidCodeLengths,
+    /// A complex prefix code's code length code whose lengths sum past 32, or end short of it
+    /// without being the one length of a single symbol (RFC 7932 §3.5).
+    OverSubscribedCodeLengthCode,
+    IncompleteCodeLengthCode,
+    /// A complex prefix code's code lengths that sum past 32768, or end the alphabet short of it
+    /// (RFC 7932 §3.5).
+    OverSubscribedCode,
+    IncompleteCode,
     /// A repeat of code lengths past the alphabet, or a run of zeros past the context map (RFC 7932
     /// §3.5, §7.3).
     RepeatPastEnd,

@@ -164,11 +164,11 @@ test "a code length code that over-subscribes or has no length is refused" {
     literal_code_start(&over);
     // Lengths 2, 1 and 1 for code length symbols 1, 2 and 3: 8 + 16 + 16 is past 32.
     over.complex_code(0, &.{ 2, 1, 1 }, &.{});
-    try expect_refused(error.InvalidCodeLengthCode, over.written());
+    try expect_refused(error.OverSubscribedCodeLengthCode, over.written());
     var none: Stream = .{};
     literal_code_start(&none);
     none.complex_code(0, &(.{0} ** 18), &.{});
-    try expect_refused(error.InvalidCodeLengthCode, none.written());
+    try expect_refused(error.IncompleteCodeLengthCode, none.written());
 }
 
 test "code lengths that over-subscribe, fall short, or repeat past the alphabet are refused" {
@@ -176,13 +176,13 @@ test "code lengths that over-subscribe, fall short, or repeat past the alphabet 
     var over: Stream = .{};
     literal_code_start(&over);
     over.complex_code(0, &.{ 1, 1 }, &.{ .{ .symbol = 2 }, .{ .symbol = 1 }, .{ .symbol = 1 } });
-    try expect_refused(error.InvalidCodeLengths, over.written());
+    try expect_refused(error.OverSubscribedCode, over.written());
     // Code length symbols 1 and 17, one bit each: one length of 1, then 255 zeros in three 17s.
     const one_and_zeros = [_]u8{ 1, 0, 0, 0, 0, 0, 1 };
     var short: Stream = .{};
     literal_code_start(&short);
     short.complex_code(0, &one_and_zeros, &.{ .{ .symbol = 1 }, .{ .symbol = 17, .extra = 2 }, .{ .symbol = 17, .extra = 6 }, .{ .symbol = 17, .extra = 4 } });
-    try expect_refused(error.InvalidCodeLengths, short.written());
+    try expect_refused(error.IncompleteCode, short.written());
     var past: Stream = .{};
     literal_code_start(&past);
     past.complex_code(0, &one_and_zeros, &.{ .{ .symbol = 1 }, .{ .symbol = 17, .extra = 7 }, .{ .symbol = 17, .extra = 7 }, .{ .symbol = 17, .extra = 7 } });
