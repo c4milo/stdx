@@ -58,6 +58,7 @@ pub const setup_claims: json.Claims = .{
     .decoder_string_vectors = false,
     .utf8_vectors = true,
     .decoder_fast_path = false,
+    .encoder_fast_path = false,
 };
 
 /// The qlog-shaped records the log holds, and the seed they are drawn from.

@@ -93,7 +93,7 @@ const EncodeDrive = struct {
 };
 
 /// `token` with its piece set to `last` or `more`.
-fn piece_token(token: Token, last: bool) Token {
+pub fn piece_token(token: Token, last: bool) Token {
     const piece: Piece = if (last) .last else .more;
     return switch (token) {
         .name => .{ .name = piece },

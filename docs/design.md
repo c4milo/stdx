@@ -1286,12 +1286,43 @@ to 12 are reordered and nothing else changes.
     - a value separator in an object expecting a value, and a name separator unchecked;
     - an object's end closing an array, and no depth limit;
     - a literal name's later letters unchecked, and a name taken as a string;
-    - `matched` left at 0, and `number` not set;
+    - `matched` one short, and `number` not set;
     - a token taken after the text's value;
     - whitespace's first octet tested inverted;
     - the fast path tried before the text's tokens, and a fallback keeping the octets it read.
   - NOT CAUGHT: the reset of the UTF-8 check. It changed nothing, since the check stands at `.{}`
     between tokens, so an assertion of that replaced it.
+
+  J8's counters, from `bench-profile` run
+  [36476811910](https://github.com/c4milo/stdx/actions/runs/36476811910) at d8e68c3 on the N2, per
+  token with every claim on: qlog's decoding fell from 187.6 cycles and 623.6 instructions to 99.1
+  and 344.8, and CLDR's from 169.8 and 601.5 to 84.2 and 307.3. simdjson and yyjson stayed at 27 to
+  31 cycles and 107 to 109 instructions.
+
+  **J9, 2026-09-28.** The encoder's fast path of decision 30, in `encoder_fast.zig`.
+  `encoder_fast_test.zig` requires the same progress, octets, error and state after every call
+  with J9 on and off:
+  - over a qlog-shaped record, lists with escapes, non-ASCII octets and refusals, a list past the
+    depth limit, 400 seeded lists of the round trip's tokens, and every list the fuzzer draws;
+  - in both framings, whole and under 4 seeded splits of the input and the output;
+  - beside every other claim on, and beside every other claim off.
+
+  It also requires the fast path to write every token of the record, none of the escaped or
+  non-ASCII strings, and a string, a hex string and a number that fill the output exactly.
+  Mutations, each against `zig build test-json`, every one CAUGHT:
+  - a string that needs escapes written as it is, and one whose octets go on written whole;
+  - a hex string whose octets go on written whole, and its digits counted once an octet;
+  - a number's text unchecked, and `whole_number` taking a number that is not whole;
+  - no depth limit;
+  - a value separator before a container's end, a record separator before every token, and a line
+    feed after every token;
+  - the outermost container's end not ending the text, and the text never done;
+  - a token that fills the output left to the checked path, and one an octet longer than the room
+    written;
+  - a name closed without its separator, and a token's opening not written;
+  - `number` not set.
+
+  The reset of the UTF-8 check left for an assertion, as J8's did.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

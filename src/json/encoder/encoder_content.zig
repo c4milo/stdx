@@ -128,7 +128,7 @@ fn end_of_hex(piece: Piece) ?codec.Status {
 
 /// Writes the digits of as many octets as the output has room for both digits of (claim J2), and
 /// returns how many octets it took.
-fn hex_run(comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) usize {
+pub fn hex_run(comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) usize {
     const window = reader.take_partial(writer.room_len() / constants.hex_digits_per_octet);
     const room = writer.octets[writer.position..];
     const taken = if (claims.hex_vectors)

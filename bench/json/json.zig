@@ -1,5 +1,5 @@
 //! bench-json: the json module's vector paths, claims J1, J2, J3 and J5 of decision 27, and its
-//! decoder's fast path, claim J8 of decision 30, each off against all on, measured the way
+//! fast paths, claims J8 and J9 of decision 30, each off against all on, measured the way
 //! decisions 10, 20 and 21 fix: every candidate in this one program, interleaved in the same run,
 //! five runs each, the median and the spread reported, and the losses shown. The timing is
 //! bench/timing/timing.zig's.
@@ -48,9 +48,9 @@ comptime {
 }
 
 /// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3, J5
-/// and J8, and the encoder J1, J2 and J5.
+/// and J8, and the encoder J1, J2, J5 and J9.
 const decoder_claims = [_]usize{ 2, 3, 4 };
-const encoder_claims = [_]usize{ 0, 1, 3 };
+const encoder_claims = [_]usize{ 0, 1, 3, 5 };
 
 /// A decode of every text of a workload by a candidate, one token a call.
 fn Decode(comptime claims: json.Claims) type {

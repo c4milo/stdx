@@ -129,11 +129,16 @@ pub fn starts_number(octet: u8) bool {
 
 /// True when all of `text` is one number (RFC 8259 §6).
 pub fn is_number(text: []const u8) bool {
+    return whole_number(text) != null;
+}
+
+/// The machine after all of `text`, when `text` is one whole number (RFC 8259 §6), or null.
+pub fn whole_number(text: []const u8) ?Number {
     var number: Number = .{};
     for (text) |octet| {
-        if (number.accept(octet) != .taken) return false;
+        if (number.accept(octet) != .taken) return null;
     }
-    return number.whole();
+    return if (number.whole()) number else null;
 }
 
 // Tests.

@@ -18,6 +18,7 @@ const Framing = framing_file.Framing;
 const Utf8 = @import("../utf8.zig").Utf8;
 const Number = @import("../number.zig").Number;
 const content = @import("encoder_content.zig");
+const fast = @import("encoder_fast.zig");
 
 /// Whether the octets of a name, a string, a hex string or a number end with a call's input.
 pub const Piece = framing_file.Piece;
@@ -159,7 +160,7 @@ pub const Encoder = struct {
     /// the benchmark's build with every claim off, where it had a second caller, each token paid a
     /// call of its own.
     inline fn run(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
-        if (self.part == .between_tokens) try self.open(token) else assert(self.kind == std.meta.activeTag(token));
+        if (try self.start(claims, token, reader, writer)) |status| return status;
         for (0..constants.token_parts) |_| {
             if (!self.write_pending(writer)) return .needs_room;
             switch (self.part) {
@@ -176,6 +177,20 @@ pub const Encoder = struct {
         }
         // The closing ends every token, and a call reaches it within the parts it passes.
         unreachable;
+    }
+
+    /// Starts a call. Between tokens, it writes `token` whole on claim J9's fast path, and returns
+    /// the status, or opens the token for `run`'s loop. Inside one, the token goes on.
+    inline fn start(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!?codec.Status {
+        if (self.part != .between_tokens) {
+            assert(self.kind == std.meta.activeTag(token));
+            return null;
+        }
+        if (claims.encoder_fast_path) {
+            if (fast.token(self, claims, token, reader, writer)) |status| return status;
+        }
+        try self.open(token);
+        return null;
     }
 
     /// Starts `token`: checks where it goes, moves the grammar past it, and holds its opening.
@@ -221,7 +236,7 @@ pub const Encoder = struct {
     }
 
     /// Moves the grammar past a token of `kind`, which `allowed` let through.
-    fn advance(self: *Encoder, kind: Kind) void {
+    pub fn advance(self: *Encoder, kind: Kind) void {
         switch (kind) {
             .begin_object, .begin_array => {
                 self.containers.setValue(self.depth, kind == .begin_object);
@@ -289,7 +304,7 @@ pub const Encoder = struct {
 };
 
 /// True when a token of `kind` may come at `position` (RFC 8259 §2 to §5).
-fn allowed(position: Position, kind: Kind) bool {
+pub fn allowed(position: Position, kind: Kind) bool {
     return switch (position) {
         .text_start, .member_value => is_value(kind),
         .object_first, .object_next => kind == .name or kind == .end_object,
@@ -323,5 +338,7 @@ fn piece_of(token: Token) Piece {
 
 test {
     _ = content;
+    _ = fast;
     _ = @import("encoder_test.zig");
+    _ = @import("encoder_fast_test.zig");
 }

@@ -19,7 +19,7 @@ const reference = @import("decoder/decoder_reference_test.zig");
 
 /// The most tokens and octets one list holds, and the longest text it encodes to.
 const items_max = 96;
-const storage_len_max = 2048;
+pub const storage_len_max = 2048;
 const text_len_max = 8192;
 
 /// The seeded lists each normal test run takes, and the splits each is encoded and decoded under.
@@ -28,7 +28,7 @@ const case_seeds = 4;
 
 /// Choices drawn from the fuzzer's octets, so its mutations steer the list: four octets a choice,
 /// and zeros once they run out.
-const Choices = struct {
+pub const Choices = struct {
     octets: []const u8,
     position: usize = 0,
 
@@ -44,7 +44,7 @@ const Choices = struct {
 };
 
 /// A list of tokens, the octets they take, and the tokens the decoder must give back.
-const Program = struct {
+pub const Program = struct {
     items: [items_max]Item = undefined,
     count: usize = 0,
     storage: [storage_len_max]u8 = undefined,
@@ -98,7 +98,7 @@ fn check(framing: Framing, program: *const Program, seed: u64) !void {
 
 /// Draws a list of tokens from any source with a `below(bound)`: a seed's generator or the fuzzer's
 /// choices.
-const Draw = struct {
+pub const Draw = struct {
     const depth_limit = 6;
     const container_len_max = 5;
     const string_len_max = 12;
@@ -118,7 +118,7 @@ const Draw = struct {
     /// The sides of a draw that says yes or no.
     const coin_sides = 2;
 
-    fn coin(source: anytype) bool {
+    pub fn coin(source: anytype) bool {
         return source.below(coin_sides) == 0;
     }
 
@@ -126,7 +126,7 @@ const Draw = struct {
         return @enumFromInt(source.below(std.enums.values(T).len));
     }
 
-    fn value(source: anytype, program: *Program, depth: usize) void {
+    pub fn value(source: anytype, program: *Program, depth: usize) void {
         const kind = pick(Value, source);
         switch (kind) {
             .object, .array => if (depth < depth_limit and program.fits(0, depth + closing_room)) return container(source, program, depth, kind == .object),

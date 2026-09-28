@@ -1452,7 +1452,7 @@ numbers, and entry 30 out of design §8 step 17's profile.
     - `init` keeping its arguments, with an `init_with` that takes the features. The owner ruled for
       one way to start each type.
 
-30. **A fast path for each token of the `json` decoder (claim J8).** **owner** Proposed on
+30. **A fast path for each token of the `json` decoder and encoder (claims J8 and J9).** **owner** Proposed on
     2026-09-28 from design §8 step 17's profile. On the N2, stdx's decoder takes 600 to 625
     instructions a token, five to six times simdjson's and yyjson's. perf put about a quarter of them
     in the scans entry 29's index would replace, and the rest in the calls and switches each token
@@ -1477,7 +1477,19 @@ numbers, and entry 30 out of design §8 step 17's profile.
     - It is claim J8, switched at comptime as J1 to J5 are. Off, every token takes the checked path,
       the reference (entry 16).
 
-    The encoder's profile has the same shape. Its fast path waits on J8's measure.
+    **J9, the encoder.** The encoder's profile had the same shape, with up to five calls of
+    `memcpy` a token, each copying a few octets held in `pending`. At the start of a token, when
+    the call's input holds all of its octets and the output has room for every octet it writes,
+    the encoder writes them in one straight line, holding none:
+    - the record separator that starts a sequence's text, the value separator before a value, the
+      token, and the line feed that ends a sequence's text;
+    - a structural character, a name or a string of plain ASCII, a hex string, a number's text that
+      is one whole number, a number it formats, or a literal name.
+
+    Every other case writes nothing and changes nothing, and the checked path takes the call: an
+    octet to escape, a non-ASCII octet, a token whose octets go on in a later call, an output
+    without the room, and every refusal. It leaves the state the checked path leaves, and the tests
+    require that as they require it of J8.
 
     The alternatives refused:
     - Inlining the checked path's functions alone. The calls go, but each token still passes the
