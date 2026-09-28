@@ -314,9 +314,9 @@ Change this section when a step adds or renames a command.
   17's measure of what the safety checks cost. The `bench` workflow offers it.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
-  branch misses per decoded octet for each gzip decoder, and for libzstd's and stdx's Zstandard
-  decoders, over every corpus file, through Linux's perf_event_open, and says so where the host
-  exposes no counters. Last, `bench_json --profile` counts them per token and per octet for the
+  branch misses per decoded octet for each gzip decoder, for libzstd's and stdx's Zstandard
+  decoders, and for Google's and stdx's brotli decoders over each file's first MiB, over every
+  corpus file, through Linux's perf_event_open, and says so where the host exposes no counters. Last, `bench_json --profile` counts them per token and per octet for the
   `json` module's decoder and encoder, with every claim on and every claim off, and for simdjson,
   yyjson and Zig's std.json, over one workload of each shape (`bench/json/json_profile.zig`). The
   `bench` workflow's `profile` option runs it on both hosted runners, after allowing a process to

@@ -16,9 +16,9 @@
 //!   (`bench/zstd/zstd.zig`).
 //! - `zig build bench-brotli -Doracles` times brotli decoding against Google's brotli over the
 //!   corpora (`bench/brotli/brotli.zig`).
-//! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
-//!   and Zstandard decoder, where the host exposes the counters (`bench/profile/profile.zig`), and
-//!   then per JSON token (`bench/json/json_profile.zig`).
+//! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip,
+//!   Zstandard and brotli decoder, where the host exposes the counters (`bench/profile/profile.zig`),
+//!   and then per JSON token (`bench/json/json_profile.zig`).
 //! - `zig build bench-json -Doracles` times the json module's vector paths against its scalar ones
 //!   and beside simdjson, yyjson and Zig's std.json, over CLDR's JSON texts and texts made from the
 //!   corpus (`bench/json/json.zig`, build/oracle_json.zig).
@@ -114,7 +114,7 @@ pub fn add(b: *std.Build, options: Options) void {
     const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
     const bench_brotli_step = b.step("bench-brotli", "Time brotli decoding against Google's brotli over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
-    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip and Zstandard decoder, and per json token (-Doracles)");
+    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, and per json token (-Doracles)");
     const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
     const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step };
     if (!options.enabled) {
@@ -292,6 +292,7 @@ pub fn add(b: *std.Build, options: Options) void {
     profile_module.addImport("gzip", graph.gzip);
     profile_module.addImport("deflate", graph.deflate);
     profile_module.addImport("zstd", graph.zstd);
+    profile_module.addImport("brotli", graph.brotli);
     profile_module.addImport("baselines", baselines_module);
     profile_module.addImport("timing", timing);
     const profile = b.addExecutable(.{ .name = "bench_profile", .root_module = profile_module });
