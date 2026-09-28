@@ -55,8 +55,18 @@ fn alphabet_bits(alphabet_len: u16) u7 {
     return if (alphabet_len <= 1) 0 else std.math.log2_int_ceil(u16, alphabet_len);
 }
 
+/// A simple code's symbols, and its tree-select bit after four (RFC 7932 §3.4), until the code is
+/// whole or the input runs out.
+pub fn read_simple_symbols(state: *State, bits: *codec.BitReader) Error!?codec.Status {
+    for (0..constants.simple_symbols_max + 1) |_| {
+        if (try read_simple_symbol(state, bits)) |status| return status;
+        if (state.phase != .simple_symbols) return null;
+    }
+    unreachable;
+}
+
 /// One symbol of a simple code, or its tree-select bit after four (RFC 7932 §3.4).
-pub fn read_simple_symbol(state: *State, bits: *codec.BitReader) Error!?codec.Status {
+fn read_simple_symbol(state: *State, bits: *codec.BitReader) Error!?codec.Status {
     const reading = &state.reading;
     if (reading.simple_read == reading.simple_count) {
         assert(reading.simple_count == constants.simple_symbols_max);
@@ -102,12 +112,22 @@ fn canonical_before(_: void, a: prefix.Coded, b: prefix.Coded) bool {
     return a.len < b.len or (a.len == b.len and a.symbol < b.symbol);
 }
 
-/// One code length of the code length code, in the order of RFC 7932 §3.5, until their sum of
-/// 32 >> length reaches 32, or all 18 are read.
+/// The code lengths of the code length code, in the order of RFC 7932 §3.5, until their sum of
+/// 32 >> length reaches 32 or all 18 are read, or the input runs out.
 pub fn read_code_length_code(state: *State, bits: *codec.BitReader) Error!?codec.Status {
+    for (0..constants.code_length_alphabet_len) |_| {
+        try read_code_length_code_length(state, bits) orelse return .needs_input;
+        if (state.phase != .code_length_code) return null;
+    }
+    unreachable;
+}
+
+/// One code length of the code length code, and the code when its lengths end; null while its
+/// bits are not all present.
+fn read_code_length_code_length(state: *State, bits: *codec.BitReader) Error!?void {
     const reading = &state.reading;
     _ = bits.ensure(constants.code_length_code_length_bits_max);
-    const decoded = prefix.decode_code_length_code_length(bits.peek(@min(bits.bits.count, codec.constants.ensure_bits_max)), @min(bits.bits.count, codec.constants.ensure_bits_max)) orelse return .needs_input;
+    const decoded = prefix.decode_code_length_code_length(bits.peek(@min(bits.bits.count, codec.constants.ensure_bits_max)), @min(bits.bits.count, codec.constants.ensure_bits_max)) orelse return null;
     bits.consume(decoded.len);
     count_work(state, 1);
     const symbol = constants.code_length_code_order[reading.index];
@@ -118,9 +138,8 @@ pub fn read_code_length_code(state: *State, bits: *codec.BitReader) Error!?codec
         reading.nonzero_count += 1;
     }
     // A sum that reaches 32 or passes it ends the lengths, as does the alphabet's end.
-    if (reading.space > 0 and reading.index < constants.code_length_alphabet_len) return null;
+    if (reading.space > 0 and reading.index < constants.code_length_alphabet_len) return;
     try build_code_length_code(state);
-    return null;
 }
 
 /// The code length code, once its lengths are read, and the start of the code lengths.
