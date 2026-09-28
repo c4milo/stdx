@@ -1226,6 +1226,20 @@ to 12 are reordered and nothing else changes.
   - UTF-8: C0 and C1 taken as first octets; E0 and F4 followed by any continuation octet.
   - `TextReader`: a sequence ending after its first text.
 
+- **Step 17: the `json` decoder's structural index, and the module's vector paths picked at run
+  time (decision 29).** The owner ruled both on 2026-09-28, after step 16's baselines.
+  **Check:**
+  - A profile first: cycles, instructions and branch misses per token and per octet for stdx's
+    decoder and encoder, and for simdjson's and yyjson's, on the N2, through `bench-profile`.
+  - The index's vector path returns what its scalar path returns on every input the tests draw and
+    the fuzzer finds, at 16, 32 and 64 octets a block, across a block's end and a call's.
+  - The decoder gives the same tokens and verdicts with J6 on and off, whole, under seeded splits
+    and through the fuzzer, and the reference parser's verdicts still hold.
+  - Every level's kernels return what the 16-octet ones return, with the tests passing the
+    features of every level the CPU runs.
+  - J6's and J7's A/Bs on both runners of decision 20, and the baselines again.
+  - Mutations.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

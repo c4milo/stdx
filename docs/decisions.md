@@ -8,8 +8,9 @@ re-argued, not edited. Entries 1 to 10 record the rules the owner set in the bri
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
 and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to 25 out of step 11,
-entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, and entry
-28 out of the owner's request that its state machines be proved.
+entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, entry 28
+out of the owner's request that its state machines be proved, and entry 29 out of the baselines'
+numbers.
 
 ## Scope and shape
 
@@ -1405,3 +1406,48 @@ entry 26 out of the owner's review of CI, entry 27 out of the owner's request fo
     - Staying in Zig: the last two commits measured inside the noise.
     - C compiled into the library. Its compiler would be LLVM, as Zig's is, so it would reach
       about ReleaseFast's speed, and the library would hold a second language.
+
+29. **A structural index for the `json` decoder, and the module's vector paths picked at run
+    time.** Ruled by the owner on 2026-09-28, after entry 27's baselines measured stdx at a sixth or
+    a seventh of simdjson's and yyjson's speed on texts of short tokens: a structural index for the
+    decoder, and every vector path chosen at run time, by the caller's `codec.Features` passed to
+    `init` as the codecs pass theirs. The design below is proposed with those rulings, and design
+    §8 step 17 measures it before any of it stays.
+
+    **The structural index.** Each decoder call classifies the next block of its input, 64 octets
+    or what the call holds, a vector at a time, into masks of its octets:
+    - the octets inside strings, found from the quotation marks and the parity of the reverse
+      solidi before each, carried from the decoder's state;
+    - the structural characters outside strings, and whitespace;
+    - the octets that start and end a number or a literal name.
+
+    The call finds its token's start and end with bit scans of those masks, not an octet at a time.
+    - The index holds no octet the call has not consumed. A call builds it from its own input,
+      since the streaming contract lets a caller pass other octets past the ones consumed (entry
+      11).
+    - It locates, and checks nothing. A string's, a number's and a literal name's octets go through
+      the checks they go through today, so every refusal and every theorem of entry 28 stands.
+    - It is claim J6, switched at comptime as J1 to J5 are, and the decoder without it stays the
+      reference (entry 16).
+    - One token per call stays (entry 27). The index removes the scans between tokens, not the call
+      each token costs. On compact texts such as qlog's records those scans are short, and step 17's
+      profile says how much of a token's cost each part is before the index is built.
+
+    **Picked at run time.** The vector paths of J1, J2, J3, J5 and J6 are compiled once per feature
+    level of entry 21, by build/variants.zig: x86-64 with AVX2, 32 octets a block, and with
+    AVX-512, 64. The module's own target keeps SSE2's and NEON's 16.
+    - `Encoder.init`, `Decoder.init`, `TextWriter.init` and `TextReader.init` take a
+      `codec.Features`, and each keeps the level those features allow, which each call reads once.
+      A caller passes `codec.Features.detect()`, read once per process, or `codec.Features.target()`.
+    - Each level is claim J7's candidate, timed against the 16-octet paths on the same machine.
+    - It changes the API entry 27 gave: each caller adds the argument.
+
+    The alternatives refused:
+    - A tape of the whole text's structure, as simdjson builds. It needs the whole text at once and
+      storage that grows with it, which entries 2 and 3 refuse.
+    - An index kept from one call to the next over octets not yet consumed. A caller may pass other
+      octets there.
+    - The width the build target suggests. Entry 21 refuses choosing instructions from the build
+      target alone, and entry 27 found that width measured by nothing.
+    - `init` keeping its arguments, with an `init_with` that takes the features. The owner ruled for
+      one way to start each type.
