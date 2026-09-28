@@ -142,22 +142,6 @@ pub fn combined_entry(length: Entry, distance: Entry, symbol: u5) Entry {
     };
 }
 
-/// The distance symbol whose base is `base` (RFC 1951 §3.2.5): the first four stand for 1 to 4,
-/// then each pair of symbols starts at the next power of two and at one and a half times it,
-/// counting from a distance of 1.
-pub fn distance_symbol(base: u16) u5 {
-    assert(base >= 1);
-    const from_one = base - 1;
-    if (from_one < constants.distance_codes_plain) return @intCast(from_one);
-    const high: u4 = @intCast(std.math.log2_int(u16, from_one));
-    const half: u1 = @truncate(from_one >> (high - 1));
-    return @intCast(constants.distance_codes_per_extra_bits * @as(u5, high) + half);
-}
-
-comptime {
-    for (constants.distance_base, 0..) |base, symbol| assert(distance_symbol(base) == symbol);
-}
-
 /// The entry for a distance symbol whose code takes `code_bits`.
 pub fn distance_entry(symbol: u16, code_bits: u4) Entry {
     if (symbol >= constants.distance_used) return Entry.invalid;
@@ -349,22 +333,104 @@ fn longest(counts: [constants.code_len_max + 1]u16) u4 {
 pub const LiteralLengthTable = Table(constants.literal_length_table_bits, literal_length_entry);
 pub const DistanceTable = Table(constants.distance_table_bits, distance_entry);
 
-/// Combines each entry of `literal_length`, built with its lengths resolved, whose length leaves room in its index for the
-/// whole code of the next bits' distance with that distance's entry in `distance`, so a lookup
-/// decodes the length and the distance's code at once. The distance's extra bits stay in the
-/// stream after its code. Returns the entries it read or wrote.
-pub fn combine(literal_length: *LiteralLengthTable, distance: *const DistanceTable) usize {
-    const bits = literal_length.bits;
-    const entries = literal_length.entries[0 .. @as(usize, 1) << bits];
-    for (entries, 0..) |*entry, index| {
-        if (!entry.direct or entry.extra or entry.used_bits >= bits) continue;
-        // The index's bits past the length's start the distance's code, and those past the index
-        // are unknown: the distance's entry stands whatever they are when its code fits.
-        const next = distance.lookup(index >> @intCast(entry.used_bits));
-        if (!next.direct or entry.used_bits + next.code_bits > bits) continue;
-        entry.* = combined_entry(entry.*, next, distance_symbol(next.value));
+/// The canonical codes of a block's literal/length and distance alphabets (huffman.zig).
+pub const LiteralLengthCode = huffman.Code(constants.literal_length_alphabet_len);
+pub const DistanceCode = huffman.Code(constants.distance_alphabet_len);
+
+/// Combines each resolved length of `literal_length`, built with its lengths resolved, with each
+/// distance code that fits the index after it and that `distance` holds: one entry for the pair,
+/// written into every index whose bits start with the length's code, its extra bits and the
+/// distance's code, so a lookup decodes the length and the distance's code at once (S11). The
+/// distance's extra bits stay in the stream after its code. It visits the pairs alone, from the
+/// canonical codes (RFC 1951 §3.2.2), and makes each pair's entry once. Returns the entries it
+/// wrote.
+pub fn combine(literal_length: *LiteralLengthTable, literal_length_code: *const LiteralLengthCode, distance: *const DistanceTable, distance_code: *const DistanceCode) usize {
+    assert(literal_length.resolved);
+    const distances: Distances = .init(distance_code, distance.bits);
+    var written: usize = 0;
+    var code: u16 = 0;
+    var placed: u16 = 0;
+    // A code as long as the table leaves no room for a distance's.
+    for (1..literal_length.bits) |len| {
+        // RFC 1951 §3.2.2, step 2: the first code of this length.
+        code = (code + literal_length_code.counts[len - 1]) << 1;
+        const group = literal_length_code.symbols[placed..][0..literal_length_code.counts[len]];
+        written += combine_group(literal_length, group, @intCast(len), code, &distances);
+        placed += literal_length_code.counts[len];
     }
-    return constants.combine_work_max(bits);
+    // Each index takes one pair at most: both codes are prefix codes.
+    assert(written <= @as(usize, 1) << literal_length.bits);
+    return written;
+}
+
+/// The distance codes a combination joins, by length: the first code of each length and the place
+/// of its first symbol among the code's symbols (RFC 1951 §3.2.2), up to the table's width.
+const Distances = struct {
+    code: *const DistanceCode,
+    bits: u4,
+    first_codes: Counts,
+    first_places: Counts,
+
+    fn init(code: *const DistanceCode, bits: u4) Distances {
+        var distances: Distances = .{ .code = code, .bits = bits, .first_codes = @splat(0), .first_places = @splat(0) };
+        var first: u16 = 0;
+        var place: u16 = 0;
+        for (1..@as(usize, bits) + 1) |len| {
+            first = (first + code.counts[len - 1]) << 1;
+            distances.first_codes[len] = first;
+            distances.first_places[len] = place;
+            place += code.counts[len];
+        }
+        return distances;
+    }
+};
+
+/// `combine` for the codes of `len` bits, `first_code` and on, whose symbols are `group`: each
+/// length among them, which sort last, whose code and extra bits leave room for a distance's code.
+fn combine_group(table: *LiteralLengthTable, group: []const u16, len: u4, first_code: u16, distances: *const Distances) usize {
+    var written: usize = 0;
+    for (0..group.len) |from_end| {
+        const index = group.len - 1 - from_end;
+        const symbol = group[index];
+        if (symbol < constants.first_length_symbol) break;
+        if (symbol >= constants.literal_length_used) continue;
+        const extra_bits = constants.length_extra_bits[symbol - constants.first_length_symbol];
+        if (len + extra_bits >= table.bits) continue;
+        const prefix = reversed(@intCast(first_code + index), len);
+        for (0..@as(usize, 1) << @intCast(extra_bits)) |extra| {
+            const length = resolved_length_entry(symbol, len, @intCast(extra));
+            // A length of 258 from code 284 is invalid, and stays so (RFC 1951 §3.2.5).
+            if (!length.direct) continue;
+            written += combine_length(table, length, prefix | extra << len, distances);
+        }
+    }
+    return written;
+}
+
+/// Writes the entries that join `length`, a resolved length whose indices start with the bits of
+/// `start`, with each distance code that fits the table after it.
+fn combine_length(table: *LiteralLengthTable, length: Entry, start: usize, distances: *const Distances) usize {
+    const used: u4 = @intCast(length.used_bits);
+    var written: usize = 0;
+    for (1..@as(usize, @min(table.bits - used, distances.bits)) + 1) |len| {
+        const symbols = distances.code.symbols[distances.first_places[len]..][0..distances.code.counts[len]];
+        for (symbols, 0..) |symbol, index| {
+            // Distance codes 30 and 31 never occur (RFC 1951 §3.2.6): the checked path refuses them.
+            if (symbol >= constants.distance_used) continue;
+            const entry = combined_entry(length, distance_entry(symbol, @intCast(len)), @intCast(symbol));
+            const code = reversed(@intCast(distances.first_codes[len] + index), @intCast(len));
+            written += fill(table, start | code << used, used + @as(u5, @intCast(len)), entry);
+        }
+    }
+    return written;
+}
+
+/// Writes `entry` into every index of `table` whose low `bits` bits are those of `start`.
+fn fill(table: *LiteralLengthTable, start: usize, bits: u5, entry: Entry) usize {
+    assert(bits <= table.bits and start >> bits == 0);
+    const count = @as(usize, 1) << @intCast(table.bits - bits);
+    for (0..count) |index| table.entries[start + (index << @intCast(bits))] = entry;
+    return count;
 }
 
 /// The entry of a literal/length code longer than the table, decoded with the canonical code from

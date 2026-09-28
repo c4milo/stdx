@@ -140,8 +140,11 @@ test "combining joins each resolved length with the distance code after it, wher
         var generator = codec.split.Generator.init(seed);
         var literal_lengths: [constants.literal_length_used]u8 = @splat(0);
         deal(&generator, &literal_lengths, generator.between(2, combining_symbols_max), constants.first_length_symbol);
-        var distance_lengths: [constants.distance_used]u8 = @splat(0);
-        deal(&generator, &distance_lengths, generator.between(2, constants.distance_used), constants.distance_used);
+        // Every other code takes the whole distance alphabet, codes 30 and 31 favored, which never
+        // occur (RFC 1951 §3.2.6) and join no length.
+        var distance_lengths: [constants.distance_alphabet_len]u8 = @splat(0);
+        const alphabet: usize = if (seed % 2 == 0) constants.distance_used else constants.distance_alphabet_len;
+        deal(&generator, distance_lengths[0..alphabet], generator.between(2, alphabet), constants.distance_used);
         var work: huffman.Work = 0;
         var literal_length_code: huffman.Code(constants.literal_length_alphabet_len) = undefined;
         try literal_length_code.build(&literal_lengths, .complete, &work);
@@ -152,7 +155,7 @@ test "combining joins each resolved length with the distance code after it, wher
         var distance_table: lookup.DistanceTable = undefined;
         _ = distance_table.build(&distance_code.counts, &distance_code.symbols, false);
         const entries = literal_length_table.entries;
-        const touched = lookup.combine(&literal_length_table, &distance_table);
+        const touched = lookup.combine(&literal_length_table, &literal_length_code, &distance_table, &distance_code);
         try testing.expect(touched <= constants.combine_work_max(literal_length_table.bits));
         for (0..@as(usize, 1) << literal_length_table.bits) |index| {
             const expected = expected_combined(entries[index], index, literal_length_table.bits, distance_table.bits, &distance_code);
@@ -167,7 +170,7 @@ const combining_symbols_max = 48;
 
 /// The entry `index` of a table of `bits` holds after combining, from the one it held before,
 /// `plain`: a resolved length whose index holds the whole code of the distance after it, a code
-/// the distance table holds, takes that code; any other stays.
+/// the distance table holds of a distance that occurs, takes that code; any other stays.
 fn expected_combined(plain: lookup.Entry, index: usize, bits: u4, distance_bits: u4, distance_code: anytype) lookup.Entry {
     if (!plain.direct or plain.extra or plain.used_bits >= bits) return plain;
     const rest_bits: u7 = bits - plain.used_bits;
@@ -176,8 +179,9 @@ fn expected_combined(plain: lookup.Entry, index: usize, bits: u4, distance_bits:
         .symbol => |symbol| symbol,
         .needs_bits, .invalid => return plain,
     };
-    if (symbol.len > distance_bits) return plain;
-    return lookup.combined_entry(plain, lookup.distance_entry(symbol.value, @intCast(symbol.len)), @intCast(symbol.value));
+    const distance = lookup.distance_entry(symbol.value, @intCast(symbol.len));
+    if (symbol.len > distance_bits or !distance.direct) return plain;
+    return lookup.combined_entry(plain, distance, @intCast(symbol.value));
 }
 
 /// Gives the lengths of a seeded complete code over `count` symbols to symbols of `lengths` the

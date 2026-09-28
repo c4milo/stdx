@@ -284,11 +284,6 @@ comptime {
 pub const length_base: [literal_length_used - first_length_symbol]u16 = length_table().base;
 pub const length_extra_bits: [literal_length_used - first_length_symbol]u7 = length_table().extra;
 
-/// The distance codes that take no extra bits, 0 - 3 for distances 1 - 4, and the codes that
-/// share each count of extra bits after them, two by two (RFC 1951 §3.2.5).
-pub const distance_codes_plain = 4;
-pub const distance_codes_per_extra_bits = 2;
-
 /// Each distance code's least distance and extra bits, codes 0 to 29 (RFC 1951 §3.2.5).
 pub const distance_base: [distance_used]u16 = distance_table().base;
 pub const distance_extra_bits: [distance_used]u7 = distance_table().extra;

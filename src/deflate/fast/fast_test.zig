@@ -85,7 +85,7 @@ const Built = struct {
     fn build_tables(self: *Built) void {
         _ = self.literal_length_table.build(&self.literal_length_code.counts, &self.literal_length_code.symbols, true);
         _ = self.distance_table.build(&self.distance_code.counts, &self.distance_code.symbols, false);
-        _ = lookup.combine(&self.literal_length_table, &self.distance_table);
+        _ = lookup.combine(&self.literal_length_table, &self.literal_length_code, &self.distance_table, &self.distance_code);
     }
 
     fn codes(self: *const Built) fast.Codes {

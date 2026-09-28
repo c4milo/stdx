@@ -127,7 +127,7 @@ fn build_block_codes(comptime options: decoder_module.Options, decoder: *Decoder
     const resolves = claims.resolved_lengths and combination_due(options, decoder, input_left);
     build_tables(claims, decoder, &decoder.literal_length_code, &decoder.distance_code, resolves);
     if (!resolves or !claims.combined_entries) return;
-    count_work(decoder, lookup.combine(&decoder.literal_length_table, &decoder.distance_table));
+    count_work(decoder, lookup.combine(&decoder.literal_length_table, &decoder.literal_length_code, &decoder.distance_table, &decoder.distance_code));
     decoder.bits_since_combination = 0;
 }
 
