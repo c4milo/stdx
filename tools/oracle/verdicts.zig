@@ -9,6 +9,16 @@
 //! with another cause. `shape` says in prose what `holds` checks.
 
 const std = @import("std");
+const verdicts_brotli = @import("verdicts_brotli.zig");
+
+pub const BrotliFacts = verdicts_brotli.BrotliFacts;
+pub const BrotliEntry = verdicts_brotli.BrotliEntry;
+pub const brotli_entries = verdicts_brotli.entries;
+pub const find_brotli = verdicts_brotli.find;
+
+test {
+    _ = verdicts_brotli;
+}
 
 /// A verdict of any decoder: the stream ended and every check passed; the input was refused; the
 /// input ended before the stream did; or the output filled first.

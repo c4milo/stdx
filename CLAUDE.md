@@ -224,8 +224,8 @@ Change this section when a step adds or renames a command.
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
   zlib encodes from the corpora, at every level and strategy in all three containers, to the same
   octets. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The
-  first build with `-Doracles` fetches about 265 MB of oracles and corpora, libzstd among them;
-  without the option, these steps fail and say so.
+  first build with `-Doracles` fetches about 265 MB of oracles and corpora, libzstd and Google's
+  brotli among them; without the option, these steps fail and say so.
 - Differential checks: `zig build differential-checksum -Doracles` requires every CRC-32 and
   Adler-32 path this CPU runs to equal the RFCs' sample code, zlib and Wuffs over every corpus
   file, at every length from 0 to 4096 at seeded offsets and starts, and whole under a seeded
@@ -253,6 +253,13 @@ Change this section when a step adds or renames a command.
   It then corrupts frames of each file's first 4 KiB, the frame header's fields included, and
   requires stdx's verdict to equal that of libzstd's streaming decoder, limited to the same 2^23
   window, or to match an entry of `tools/oracle/verdicts.zig`.
+  `zig build differential-brotli -Doracles` has Google's brotli encode the first 256 KiB of every
+  corpus file at qualities 0, 1, 5 and 9 with WBITS 22, 10, 16 and 24, and at quality 11 with 22 and
+  10, NPOSTFIX, NDIRECT and flush points seeded. stdx's HTTP decoder must decode each stream whole
+  and under a seeded split, and Google's decoder must decode it too, all to the input; longer files
+  also run whole at quality 5. It then corrupts streams of each file's first 4 KiB and requires
+  stdx's verdict to equal that of Google's streaming decoder, or to match an entry of
+  `tools/oracle/verdicts_brotli.zig`.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB,
   shuffles dickens's first MiB into `shuffled/dickens-1m`, and installs every corpus file under
   `zig-out/corpus/`.

@@ -18,6 +18,8 @@
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
 //!   agree with zlib and Wuffs over the corpora, and on seeded corruptions
 //!   (`tools/differential/deflate.zig`).
+//! - `zig build differential-brotli -Doracles` requires the brotli decoder to agree with Google's
+//!   brotli over the corpora, and on seeded corruptions (`tools/differential/brotli.zig`).
 //! - `zig build differential-checksum -Doracles` requires stdx's CRC-32 and Adler-32 to equal the
 //!   RFCs' sample code, zlib and Wuffs over the corpora (`tools/differential/checksum.zig`).
 //!
@@ -53,6 +55,23 @@ const zstd_sources = [_][]const u8{
     "decompress/zstd_decompress.c",      "decompress/zstd_decompress_block.c",
 };
 
+/// The C files of Google's brotli the oracle compiles: its common, decoder and encoder files, by the
+/// names its c/ directory lists, without its one C++ file (design §8 step 12).
+const brotli_sources = [_][]const u8{
+    "common/constants.c",               "common/context.c",             "common/dictionary.c",
+    "common/platform.c",                "common/shared_dictionary.c",   "common/transform.c",
+    "dec/bit_reader.c",                 "dec/decode.c",                 "dec/huffman.c",
+    "dec/prefix.c",                     "dec/state.c",                  "dec/static_init.c",
+    "enc/backward_references.c",        "enc/backward_references_hq.c", "enc/bit_cost.c",
+    "enc/block_splitter.c",             "enc/brotli_bit_stream.c",      "enc/cluster.c",
+    "enc/command.c",                    "enc/compound_dictionary.c",    "enc/compress_fragment.c",
+    "enc/compress_fragment_two_pass.c", "enc/dictionary_hash.c",        "enc/encode.c",
+    "enc/encoder_dict.c",               "enc/entropy_encode.c",         "enc/fast_log.c",
+    "enc/histogram.c",                  "enc/literal_cost.c",           "enc/memory.c",
+    "enc/metablock.c",                  "enc/static_dict.c",            "enc/static_dict_lut.c",
+    "enc/static_init.c",                "enc/utf8_util.c",
+};
+
 /// The assembly of libzstd's Huffman decoding loops, which x86-64 builds link.
 const zstd_x86_64_assembly = "decompress/huf_decompress_amd64.S";
 
@@ -83,10 +102,11 @@ pub fn add(b: *std.Build, options: Options) void {
     const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
     const encode_step = b.step("differential-encode", "Require the encoders' output to decode through the oracles (-Doracles)");
     const zstd_step = b.step("differential-zstd", "Require the Zstandard decoder to agree with libzstd (-Doracles)");
+    const brotli_step = b.step("differential-brotli", "Require the brotli decoder to agree with Google's brotli (-Doracles)");
     const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip and Zstandard decoder (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, bench_zstd_step, profile_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, profile_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -244,6 +264,22 @@ pub fn add(b: *std.Build, options: Options) void {
     oracle_corpus.add_args(b, zstd_run, corpus);
     zstd_step.dependOn(&zstd_run.step);
 
+    const brotli_module = b.createModule(.{
+        .root_source_file = b.path("tools/differential/brotli.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    brotli_module.addImport("oracle", oracle);
+    brotli_module.addImport("corpus", corpus_names);
+    brotli_module.addImport("codec", graph.codec);
+    brotli_module.addImport("brotli", graph.brotli);
+    brotli_module.addImport("verdicts", verdicts);
+    const brotli_check = b.addExecutable(.{ .name = "differential_brotli", .root_module = brotli_module });
+    const brotli_run = b.addRunArtifact(brotli_check);
+    brotli_run.has_side_effects = true;
+    oracle_corpus.add_args(b, brotli_run, corpus);
+    brotli_step.dependOn(&brotli_run.step);
+
     // Decision 17's measurement for Zstandard, after the benchmark: stdx built ReleaseFast.
     const bench_zstd_run = add_bench_zstd(b, .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline }, graph, false);
     const bench_zstd_fast_run = add_bench_zstd(b, .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline }, release_fast_graph, true);
@@ -286,7 +322,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
-    const tested = .{ oracle, corpus_names, shuffle_module, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, zstd_module, profile_module };
+    const tested = .{ oracle, corpus_names, shuffle_module, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, zstd_module, brotli_module, profile_module };
     inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
@@ -360,6 +396,7 @@ fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
     const zlib = b.lazyDependency("madler_zlib", .{}) orelse return null;
     const wuffs = b.lazyDependency("wuffs", .{}) orelse return null;
     const zstd = b.lazyDependency("libzstd", .{}) orelse return null;
+    const brotli = b.lazyDependency("google_brotli", .{}) orelse return null;
     const library = b.addLibrary(.{
         .name = "oracle_c",
         .linkage = .static,
@@ -379,6 +416,9 @@ fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
     }
     library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/oracle.c") });
     library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/oracle_zstd.c") });
+    library.root_module.addIncludePath(brotli.path("c/include"));
+    library.root_module.addCSourceFiles(.{ .root = brotli.path("c"), .files = &brotli_sources });
+    library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/oracle_brotli.c") });
     library.root_module.addCSourceFile(.{ .file = b.path("tools/oracle/rfc_samples.c") });
     const module = host_module(b, "tools/oracle/oracle.zig");
     module.link_libc = true;

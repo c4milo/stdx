@@ -67,6 +67,7 @@ run_check "differential checksum" zig build differential-checksum -Doracles
 run_check "differential deflate" zig build differential-deflate -Doracles
 run_check "differential encode" zig build differential-encode -Doracles
 run_check "differential zstd" zig build differential-zstd -Doracles
+run_check "differential brotli" zig build differential-brotli -Doracles
 
 {
   echo "# CI report"

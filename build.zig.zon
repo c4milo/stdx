@@ -73,6 +73,12 @@
             .hash = "N-V-__8AAPZ7fwBg4JoCzM_0o2A8wxH2hsUUeiU1iuZv53L5",
             .lazy = true,
         },
+        // The brotli oracle of decision 8, from design §8 step 12: Google's brotli 1.2.0.
+        .google_brotli = .{
+            .url = "https://github.com/google/brotli/archive/refs/tags/v1.2.0.tar.gz",
+            .hash = "N-V-__8AAJudKgCQCuIiH6MJjAiIJHfg_tT_Ew-0vZwVkCo_",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

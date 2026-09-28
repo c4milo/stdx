@@ -1,5 +1,7 @@
-//! The oracles of decision 8, zlib and Wuffs, as Zig calls over `tools/oracle/oracle.c`, and the
-//! sample code of RFC 1952 §8 and RFC 1950 §9, over `tools/oracle/rfc_samples.c`.
+//! The oracles of decision 8, zlib and Wuffs, as Zig calls over `tools/oracle/oracle.c`, libzstd over
+//! `tools/oracle/oracle_zstd.c`, and Google's brotli over `tools/oracle/oracle_brotli.c`, whose
+//! binding is oracle_brotli.zig; and the sample code of RFC 1952 §8 and RFC 1950 §9, over
+//! `tools/oracle/rfc_samples.c`.
 //!
 //! Each decode and encode takes a whole input and a whole output and returns what the oracle did: a
 //! verdict, the octets it consumed and the octets it wrote. Each checksum returns its value. The C file calls each oracle through its public API
@@ -9,6 +11,16 @@
 //! module can import it (invariant 14, `zig build graph-check`).
 
 const std = @import("std");
+const oracle_brotli = @import("oracle_brotli.zig");
+
+pub const BrotliEncoding = oracle_brotli.BrotliEncoding;
+pub const brotli_bound = oracle_brotli.brotli_bound;
+pub const brotli_encode = oracle_brotli.brotli_encode;
+pub const brotli_decode_verdict = oracle_brotli.brotli_decode_verdict;
+
+test {
+    _ = oracle_brotli;
+}
 
 /// The three containers of the DEFLATE family.
 pub const Container = enum(c_int) { raw = 0, zlib = 1, gzip = 2 };
