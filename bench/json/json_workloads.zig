@@ -10,8 +10,8 @@
 //!   and three octets, claim J5's input.
 //! - Each corpus file's first 256 KiB as a hex string: claim J2's input.
 //!
-//! Every text is written by stdx's encoder with every claim off, the reference path, so no
-//! workload depends on the paths it times.
+//! Every text is written, and every CLDR text read, by stdx with every path scalar, the reference,
+//! so no workload depends on the paths it times.
 
 const std = @import("std");
 const json = @import("json");
@@ -48,6 +48,17 @@ const hex_len_max = 256 << 10;
 /// A file becomes a string workload when this much of it, at least, is UTF-8.
 const string_len_min = 64 << 10;
 
+/// The claims the workloads are built with. J1 and J3 off turn J5 off with them, so every path is
+/// scalar, as with every claim off; but no candidate takes this value, so building the workloads
+/// gives no candidate's codec a second caller, which would change how LLVM inlines it (`encode` in
+/// json.zig).
+pub const setup_claims: json.Claims = .{
+    .encoder_string_vectors = false,
+    .hex_vectors = false,
+    .decoder_string_vectors = false,
+    .utf8_vectors = true,
+};
+
 /// The qlog-shaped records the log holds, and the seed they are drawn from.
 const qlog_records = 6000;
 const qlog_seed = 0x71_6c_6f_67;
@@ -66,26 +77,41 @@ pub fn cldr(arena: std.mem.Allocator, files: []const File) !Workload {
 
 fn tokens_of(arena: std.mem.Allocator, text: []const u8, content_len_max: *usize) ![]const Item {
     const storage = try arena.alloc(u8, text.len);
-    var reader = json.TextReader.init(text, storage, .text);
-    std.debug.assert(reader.next_text());
+    var decoder: json.Decoder = undefined;
+    decoder.init(.text);
     var items: std.ArrayList(Item) = .empty;
-    while (try reader.next()) |item| {
-        const converted: Item = switch (item) {
-            .begin_object => .{ .token = .begin_object },
-            .end_object => .{ .token = .end_object },
-            .begin_array => .{ .token = .begin_array },
-            .end_array => .{ .token = .end_array },
-            .name => |octets| .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, octets) },
-            .string => |octets| .{ .token = .{ .string = .last }, .octets = try arena.dupe(u8, octets) },
-            .number => |octets| .{ .token = .{ .number = .last }, .octets = try arena.dupe(u8, octets) },
-            .true => .{ .token = .{ .boolean = true } },
-            .false => .{ .token = .{ .boolean = false } },
-            .null => .{ .token = .null },
-        };
-        content_len_max.* = @max(content_len_max.*, converted.octets.len);
-        try items.append(arena, converted);
+    var consumed: usize = 0;
+    // A call takes at least one octet or ends the text, and the last call finds its end.
+    for (0..text.len + 1) |_| {
+        const progress = try decoder.decode_with(setup_claims, text[consumed..], storage, .last);
+        consumed += progress.consumed;
+        switch (progress.status) {
+            .token => {
+                const item = try item_of(arena, progress.kind.?, storage[0..progress.written]);
+                content_len_max.* = @max(content_len_max.*, item.octets.len);
+                try items.append(arena, item);
+            },
+            .done => return items.toOwnedSlice(arena),
+            .needs_input, .needs_room => return error.Truncated,
+        }
     }
-    return items.toOwnedSlice(arena);
+    unreachable;
+}
+
+/// A decoded token as the encoder's input, with a copy of its octets.
+fn item_of(arena: std.mem.Allocator, kind: json.Kind, octets: []const u8) !Item {
+    return switch (kind) {
+        .begin_object => .{ .token = .begin_object },
+        .end_object => .{ .token = .end_object },
+        .begin_array => .{ .token = .begin_array },
+        .end_array => .{ .token = .end_array },
+        .name => .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, octets) },
+        .string => .{ .token = .{ .string = .last }, .octets = try arena.dupe(u8, octets) },
+        .number => .{ .token = .{ .number = .last }, .octets = try arena.dupe(u8, octets) },
+        .true => .{ .token = .{ .boolean = true } },
+        .false => .{ .token = .{ .boolean = false } },
+        .null => .{ .token = .null },
+    };
 }
 
 /// A log of qlog-shaped records, each a text of a sequence.
@@ -230,7 +256,7 @@ fn encode_scalar(framing: json.Framing, items: []const Item, output: []u8) !usiz
     encoder.init(framing);
     var written: usize = 0;
     for (items) |item| {
-        const progress = try encoder.encode_with(json.claims.scalar, item.token, item.octets, output[written..]);
+        const progress = try encoder.encode_with(setup_claims, item.token, item.octets, output[written..]);
         written += progress.written;
         std.debug.assert(progress.status != .needs_room and progress.consumed == item.octets.len);
     }

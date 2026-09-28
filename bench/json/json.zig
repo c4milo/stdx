@@ -34,6 +34,11 @@ const candidate_count = candidates.len;
 /// Where the candidate with every claim off stands in `candidates`.
 const scalar_index = candidate_count - 1;
 
+comptime {
+    // The workloads' own calls must not share a candidate's codec (`encode` below).
+    for (candidates) |claims| std.debug.assert(!std.meta.eql(claims, workloads.setup_claims));
+}
+
 /// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3 and
 /// J5, and the encoder J1, J2 and J5.
 const decoder_claims = [_]usize{ 2, 3 };
@@ -61,7 +66,8 @@ fn decode(comptime claims: json.Claims, workload: *const Workload, output: []u8)
         decoder.init(workload.framing);
         var consumed: usize = 0;
         for (0..text.len + 2) |_| {
-            const progress = decoder.decode_with(claims, text[consumed..], output, .last) catch unreachable;
+            // Inline, so every candidate's loop takes the same shape (below, in `encode`).
+            const progress = @call(.always_inline, json.Decoder.decode_with, .{ &decoder, claims, text[consumed..], output, .last }) catch unreachable;
             consumed += progress.consumed;
             switch (progress.status) {
                 .token => {
@@ -98,7 +104,13 @@ fn encode(comptime claims: json.Claims, workload: *const Workload, output: []u8)
         var encoder: json.Encoder = undefined;
         encoder.init(workload.framing);
         for (items) |item| {
-            const progress = encoder.encode_with(claims, item.token, item.octets, output[written..]) catch unreachable;
+            // Inline, so every candidate's loop takes the same shape. LLVM inlines a codec by how
+            // many callers it has, and in bench run 36411317000 the workloads' own calls gave two
+            // candidates a second one: every claim on read CLDR's texts, and every claim off built
+            // the others. Those two alone called their codec once a token, and the ratios on texts
+            // of short tokens measured that call, not the claims. The workloads now take
+            // `setup_claims`.
+            const progress = @call(.always_inline, json.Encoder.encode_with, .{ &encoder, claims, item.token, item.octets, output[written..] }) catch unreachable;
             written += progress.written;
         }
         std.debug.assert(encoder.is_done());
