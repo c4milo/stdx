@@ -167,10 +167,10 @@ pub const pending_len_max = 1 + 1 + number_text_len_max;
 /// The parts of one token the encoder writes in turn: its opening, its content and its closing.
 pub const token_parts = 3;
 
-/// The most separators and whitespace runs one decoder call passes before the next token: a name
-/// separator or a value separator, each with whitespace before and after it, and a record
-/// separator's run.
-pub const decoder_steps_max = 8;
+/// The most steps one decoder call takes before it returns: a sequence's record separators, the
+/// check for a byte order mark, one name separator or value separator, and the next token, each
+/// with the whitespace before it.
+pub const decoder_steps_max = 4;
 
 comptime {
     assert(depth_max % @bitSizeOf(u8) == 0);
