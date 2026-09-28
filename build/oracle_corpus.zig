@@ -38,6 +38,8 @@ pub const Corpus = struct {
     files: []const File,
     /// The directory holding the derived files and a copy of every other file.
     pieces: std.Build.LazyPath,
+    /// CLDR's supplemental directory, whose JSON files bench-json decodes whole (decision 27).
+    cldr_supplemental: std.Build.LazyPath,
 };
 
 /// The modules of the tools that derive corpus files.
@@ -80,7 +82,7 @@ pub fn add(b: *std.Build, tools: Tools) ?Corpus {
 
     const shuffle = b.addExecutable(.{ .name = "corpus_shuffle", .root_module = tools.shuffle });
     gathering.add_shuffled(shuffle, "dickens", silesia.path("dickens"));
-    return .{ .files = gathering.files.items, .pieces = gathering.copies.getDirectory() };
+    return .{ .files = gathering.files.items, .pieces = gathering.copies.getDirectory(), .cldr_supplemental = cldr_core.path("supplemental") };
 }
 
 /// Passes every corpus file to `run` as `<name>=<path>`.

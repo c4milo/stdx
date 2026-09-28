@@ -17,6 +17,8 @@
 //!   corpora (`bench/brotli/brotli.zig`).
 //! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip
 //!   and Zstandard decoder, where the host exposes the counters (`bench/profile/profile.zig`).
+//! - `zig build bench-json -Doracles` times the json module's vector paths against its scalar ones
+//!   over CLDR's JSON texts and texts made from the corpus (`bench/json/json.zig`).
 //! - `zig build differential-deflate -Doracles` requires the DEFLATE, zlib and gzip decoders to
 //!   agree with zlib and Wuffs over the corpora, and on seeded corruptions
 //!   (`tools/differential/deflate.zig`).
@@ -109,7 +111,8 @@ pub fn add(b: *std.Build, options: Options) void {
     const bench_brotli_step = b.step("bench-brotli", "Time brotli decoding against Google's brotli over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip and Zstandard decoder (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step };
+    const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -328,6 +331,8 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
 
+    bench_json_step.dependOn(&add_bench_json(b, timing, corpus, graph, baseline).step);
+
     const tested = .{ oracle, corpus_names, shuffle_module, timing, baselines_module, selftest_module, bench_module, checksum_module, verdicts, deflate_module, encode_module, zstd_module, brotli_module, profile_module };
     inline for (tested) |module| {
         const tests = b.addTest(.{ .root_module = module });
@@ -369,6 +374,25 @@ fn add_bench_decoder(b: *std.Build, inputs: BenchInputs, graph: modules.Modules,
     const run = b.addRunArtifact(program);
     run.has_side_effects = true;
     oracle_corpus.add_args(b, run, inputs.corpus);
+    return run;
+}
+
+/// `bench/json/json.zig` over the corpus files and CLDR's JSON texts: the json module's vector paths
+/// against its scalar ones (decision 27), built as the other benchmarks build stdx.
+fn add_bench_json(b: *std.Build, timing: *std.Build.Module, corpus: oracle_corpus.Corpus, graph: modules.Modules, baseline: std.Build.ResolvedTarget) *std.Build.Step.Run {
+    const module = b.createModule(.{
+        .root_source_file = b.path("bench/json/json.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    module.addImport("timing", timing);
+    module.addImport("json", graph.json);
+    const program = b.addExecutable(.{ .name = "bench_json", .root_module = module });
+    b.installArtifact(program);
+    const run = b.addRunArtifact(program);
+    run.has_side_effects = true;
+    oracle_corpus.add_args(b, run, corpus);
+    run.addPrefixedDirectoryArg("cldr=", corpus.cldr_supplemental);
     return run;
 }
 

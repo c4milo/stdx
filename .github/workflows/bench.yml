@@ -9,7 +9,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate, checksum, profile, zstd, brotli]
+        options: [costs, deflate, checksum, profile, zstd, brotli, json]
         default: deflate
 
 permissions:
@@ -48,6 +48,9 @@ jobs:
       - name: Measure brotli
         if: inputs.benchmark == 'brotli'
         run: bench/run.sh bench-report.md bench-brotli -Doracles
+      - name: Measure JSON
+        if: inputs.benchmark == 'json'
+        run: bench/run.sh bench-report.md bench-json -Doracles
       - name: Count cycles and branch misses
         if: inputs.benchmark == 'profile'
         run: |

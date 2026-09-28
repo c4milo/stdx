@@ -302,6 +302,12 @@ Change this section when a step adds or renames a command.
   decoders, over every corpus file, through Linux's perf_event_open, and says so where the host
   exposes no counters. The `bench` workflow's `profile` option runs it
   on both hosted runners, after allowing a process to count its own events.
+- JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder
+  with every vector path on, each of claims J1 to J5 off in turn, and every one off, over CLDR's
+  JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text
+  and hex strings: every candidate interleaved in one run, the median of five runs with the
+  spread, and the losses listed (decision 27). `bench/run.sh <report.md> bench-json -Doracles`
+  pins and records it, and the `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
   fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
