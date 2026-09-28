@@ -1621,3 +1621,25 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
       comptime callback inlines, but compiles every caller's handling into the decoder's loop.
     - An iterator over a whole text: it needs the whole text in one call, which the streaming
       contract refuses (non-negotiable 3).
+
+34. **The DEFLATE decoder's losing files: smaller gains, a wider table measured, and an x86-64-v3
+    benchmark.** Ruled by the owner on 2026-09-28, during
+    [issue 13](https://github.com/c4milo/stdx/issues/13). At 11b5b8a, stdx decoded gzip faster than
+    libdeflate at the median on every runner CPU drawn: 1.101 of libdeflate's speed on the N2, 1.028
+    on an AMD EPYC 9V74 and 1.005 to 1.021 on Intel Xeons. It was slower on 13 to 20 of the 39
+    corpus files, depending on the CPU. The owner asked for every file ahead of libdeflate, and was
+    asked which rules to relax for it. The rulings:
+    - A change for the losing files may stay when it beats those files' own run-to-run spread in
+      two jobs and costs no other file more than that file's spread. It amends decision 20's noise
+      floor, the larger of 5% and the job's spread, for this work: the losing files need several
+      gains of 1 to 3%.
+    - The fast path's literal/length table may be measured at 12 bits (`literal_length_table_bits`,
+      decision 14's S2), with the decoder's state budget of decision 12 raised to hold it. The
+      limits change only if the runners' numbers earn it and the owner rules on it.
+    - On x86-64, `bench-deflate` also times the gzip decoders with stdx built for x86-64-v3, beside
+      the build for the architecture's baseline, which decision 21's caller ships: what a caller
+      that builds for its servers' CPUs gets. The program runs where the host has x86-64-v3's
+      instructions.
+
+    Kept as they were: assertions in production (decision 17), the RFCs as the only source
+    (decision 9), and decision 16's margins.

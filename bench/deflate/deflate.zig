@@ -18,6 +18,9 @@
 //! - Decision 17's measurement: `bench_deflate_release_fast`, this program with stdx built
 //!   ReleaseFast, prints the same A/B after it. The difference bounds what the safety checks
 //!   cost; ReleaseFast is never offered to a caller.
+//! - x86-64-v3: on an x86-64 host with its instructions, `bench_deflate_x86_64_v3`, this program
+//!   with stdx built for x86-64-v3, prints the decoding table again after both: what a caller
+//!   that builds for its servers' CPUs gets (decision 34).
 //! - Encoding: the gzip encoders of zlib, zlib-ng, libdeflate and stdx at levels 1, 6 and 9, the
 //!   levels decision 13 gives stdx's encoder: deflate_encode.zig.
 //!
@@ -148,10 +151,14 @@ pub fn main(init: std.process.Init) !void {
         try out.flush();
         return;
     }
+    if (bench_options.x86_64_v3) {
+        try out.print("\n## Decoding, gzip at zlib level {d}, stdx built for x86-64-v3\n\n", .{decode_level});
+        try report_decodes(arena, io, out, files.items);
+        try out.flush();
+        return;
+    }
     try out.print("## Decoding, gzip at zlib level {d}\n\n", .{decode_level});
-    try out.print("| File | Octets | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
-    try out.print("|---|---|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_decode(arena, io, out, file);
+    try report_decodes(arena, io, out, files.items);
     try out.print("\n## stdx's fast path against its checked path, raw DEFLATE at zlib level {d}\n\n", .{decode_level});
     try out.print("| File | Octets | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_paths(arena, io, out, file);
@@ -187,6 +194,13 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
         result[1][index] = summary.spread * 100;
     }
     return result;
+}
+
+/// The decoding table: every gzip decoder over each file.
+fn report_decodes(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, files: []const File) !void {
+    try out.print("| File | Octets | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|---|\n", .{});
+    for (files) |file| try report_decode(arena, io, out, file);
 }
 
 fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {

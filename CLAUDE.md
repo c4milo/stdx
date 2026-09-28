@@ -295,7 +295,9 @@ Change this section when a step adds or renames a command.
   libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, each claim
   of decision 14 off against all on, and the gzip encoders of zlib, zlib-ng, libdeflate and stdx
   at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one run, the median of five runs with the spread. A second program then repeats the raw A/B with
-  stdx built ReleaseFast, decision 17's measure of what the safety checks cost. `bench/run.sh <report.md> bench-deflate -Doracles`
+  stdx built ReleaseFast, decision 17's measure of what the safety checks cost. On an x86-64 host
+  with x86-64-v3's instructions, a third program then times the gzip decoders again with stdx built
+  for x86-64-v3 (decision 34). `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
   person asks (decision 20). Each published report is committed under `bench/results/`, as the workflow wrote it.
 - Zstandard benchmark: `zig build bench-zstd -Doracles` times libzstd's decoder, with a context

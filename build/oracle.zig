@@ -8,7 +8,8 @@
 //!   (build/oracle_corpus.zig).
 //! - `zig build test-oracle -Doracles` runs the tests of the oracle bindings and the self-test.
 //! - `zig build bench-deflate -Doracles` times DEFLATE decoding and encoding over the corpora
-//!   (`bench/deflate/deflate.zig`).
+//!   (`bench/deflate/deflate.zig`), and on an x86-64 host with x86-64-v3's instructions, decoding
+//!   again with stdx built for x86-64-v3 (decision 34).
 //! - `zig build bench-checksum -Doracles` times CRC-32 and Adler-32 against zlib, Wuffs,
 //!   libdeflate and zlib-ng (`bench/checksum/checksum.zig`).
 //! - `zig build bench-zstd -Doracles` times Zstandard decoding against libzstd over the corpora
@@ -155,46 +156,16 @@ pub fn add(b: *std.Build, options: Options) void {
     oracle_corpus.add_args(b, run, corpus);
     selftest_step.dependOn(&run.step);
 
-    const bench_module = b.createModule(.{
-        .root_source_file = b.path("bench/deflate/deflate.zig"),
-        .target = baseline,
-        .optimize = .ReleaseSafe,
-    });
-    bench_module.addImport("oracle", oracle);
-    bench_module.addImport("timing", timing);
-    bench_module.addImport("codec", graph.codec);
-    bench_module.addImport("deflate", graph.deflate);
-    bench_module.addImport("gzip", graph.gzip);
-    bench_module.addImport("checksum", graph.checksum);
-    bench_module.addOptions("bench_options", bench_options(b, false));
-    const bench = b.addExecutable(.{ .name = "bench_deflate", .root_module = bench_module });
-    b.installArtifact(bench);
-    const bench_run = b.addRunArtifact(bench);
-    bench_run.has_side_effects = true;
-    oracle_corpus.add_args(b, bench_run, corpus);
+    const inputs: BenchInputs = .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline };
+    const bench_module = deflate_bench_module(b, inputs, graph, baseline, .release_safe);
+    const bench_run = run_program(b, inputs, "bench_deflate", bench_module);
     bench_step.dependOn(&bench_run.step);
     // Decision 17's measurement: the same A/B with stdx built ReleaseFast, a measuring device
     // only, run after the benchmark on the same host. The two graphs share source files, which one
-    // compilation cannot hold twice, so it is a program of its own. Its root is ReleaseFast too:
-    // Zig 0.16 takes runtime safety from the root module for every module the program imports.
+    // compilation cannot hold twice, so it is a program of its own.
     const release_fast_graph = modules.add(b, .{ .target = baseline, .optimize = .ReleaseFast, .visibility = .private });
-    const release_fast_module = b.createModule(.{
-        .root_source_file = b.path("bench/deflate/deflate.zig"),
-        .target = baseline,
-        .optimize = .ReleaseFast,
-    });
-    release_fast_module.addImport("oracle", oracle);
-    release_fast_module.addImport("timing", timing);
-    release_fast_module.addImport("codec", release_fast_graph.codec);
-    release_fast_module.addImport("deflate", release_fast_graph.deflate);
-    release_fast_module.addImport("gzip", release_fast_graph.gzip);
-    release_fast_module.addImport("checksum", release_fast_graph.checksum);
-    release_fast_module.addOptions("bench_options", bench_options(b, true));
-    const release_fast = b.addExecutable(.{ .name = "bench_deflate_release_fast", .root_module = release_fast_module });
-    b.installArtifact(release_fast);
-    const release_fast_run = b.addRunArtifact(release_fast);
-    release_fast_run.has_side_effects = true;
-    oracle_corpus.add_args(b, release_fast_run, corpus);
+    const release_fast_module = deflate_bench_module(b, inputs, release_fast_graph, baseline, .release_fast);
+    const release_fast_run = run_program(b, inputs, "bench_deflate_release_fast", release_fast_module);
     release_fast_run.step.dependOn(&bench_run.step);
     bench_step.dependOn(&release_fast_run.step);
 
@@ -290,7 +261,6 @@ pub fn add(b: *std.Build, options: Options) void {
     brotli_step.dependOn(&brotli_run.step);
 
     // Decision 17's measurement for each decoder, after its benchmark: stdx built ReleaseFast.
-    const inputs: BenchInputs = .{ .oracle = oracle, .timing = timing, .corpus = corpus, .baseline = baseline };
     inline for (.{ .{ bench_zstd_step, zstd_bench }, .{ bench_brotli_step, brotli_bench } }) |decoder_bench| {
         const safe_run = add_bench_decoder(b, inputs, graph, false, decoder_bench[1]);
         const fast_run = add_bench_decoder(b, inputs, release_fast_graph, true, decoder_bench[1]);
@@ -301,6 +271,17 @@ pub fn add(b: *std.Build, options: Options) void {
     const baselines_module = host_module(b, "bench/baselines/baselines.zig");
     if (!baselines.link(b, baselines_module)) return;
     bench_module.addImport("baselines", baselines_module);
+    // Decision 34: on an x86-64 host with x86-64-v3's instructions, the decoding table again with
+    // stdx built for x86-64-v3, after the two programs above.
+    if (x86_64_v3_host(b)) {
+        const v3 = b.resolveTargetQuery(.{ .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 } });
+        const v3_graph = modules.add(b, .{ .target = v3, .optimize = .ReleaseSafe, .visibility = .private });
+        const v3_module = deflate_bench_module(b, inputs, v3_graph, v3, .x86_64_v3);
+        v3_module.addImport("baselines", baselines_module);
+        const v3_run = run_program(b, inputs, "bench_deflate_x86_64_v3", v3_module);
+        v3_run.step.dependOn(&release_fast_run.step);
+        bench_step.dependOn(&v3_run.step);
+    }
     const profile_module = b.createModule(.{
         .root_source_file = b.path("bench/profile/profile.zig"),
         .target = baseline,
@@ -378,8 +359,28 @@ fn add_bench_decoder(b: *std.Build, inputs: BenchInputs, graph: modules.Modules,
     module.addImport("timing", inputs.timing);
     module.addImport("codec", graph.codec);
     module.addImport(bench.codec, @field(graph, bench.codec));
-    module.addOptions("bench_options", bench_options(b, release_fast));
-    const name = if (release_fast) bench.name ++ "_release_fast" else bench.name;
+    module.addOptions("bench_options", bench_options(b, if (release_fast) .release_fast else .release_safe));
+    return run_program(b, inputs, if (release_fast) bench.name ++ "_release_fast" else bench.name, module);
+}
+
+/// bench/deflate/deflate.zig over the library `graph` holds, built for `target`: ReleaseSafe, or
+/// ReleaseFast for decision 17's measurement, where the root is ReleaseFast too, since Zig 0.16
+/// takes runtime safety from the root module for every module the program imports.
+fn deflate_bench_module(b: *std.Build, inputs: BenchInputs, graph: modules.Modules, target: std.Build.ResolvedTarget, mode: BenchMode) *std.Build.Module {
+    const module = b.createModule(.{
+        .root_source_file = b.path("bench/deflate/deflate.zig"),
+        .target = target,
+        .optimize = if (mode == .release_fast) .ReleaseFast else .ReleaseSafe,
+    });
+    module.addImport("oracle", inputs.oracle);
+    module.addImport("timing", inputs.timing);
+    inline for (.{ "codec", "deflate", "gzip", "checksum" }) |name| module.addImport(name, @field(graph, name));
+    module.addOptions("bench_options", bench_options(b, mode));
+    return module;
+}
+
+/// A benchmark program named `name`, installed, and run over the corpora.
+fn run_program(b: *std.Build, inputs: BenchInputs, name: []const u8, module: *std.Build.Module) *std.Build.Step.Run {
     const program = b.addExecutable(.{ .name = name, .root_module = module });
     b.installArtifact(program);
     const run = b.addRunArtifact(program);
@@ -388,11 +389,26 @@ fn add_bench_decoder(b: *std.Build, inputs: BenchInputs, graph: modules.Modules,
     return run;
 }
 
-/// A benchmark program's options: whether it is decision 17's ReleaseFast measuring device.
-fn bench_options(b: *std.Build, release_fast: bool) *std.Build.Step.Options {
+/// What a benchmark program measures: stdx as a caller builds it, decision 17's ReleaseFast
+/// measuring device, or DEFLATE decoding with stdx built for x86-64-v3 (decision 34).
+const BenchMode = enum { release_safe, release_fast, x86_64_v3 };
+
+/// A benchmark program's options: its mode, as one flag each.
+fn bench_options(b: *std.Build, mode: BenchMode) *std.Build.Step.Options {
     const options = b.addOptions();
-    options.addOption(bool, "release_fast", release_fast);
+    options.addOption(bool, "release_fast", mode == .release_fast);
+    options.addOption(bool, "x86_64_v3", mode == .x86_64_v3);
     return options;
+}
+
+/// Whether the build host runs x86-64-v3's instructions, which `bench_deflate_x86_64_v3` needs: the
+/// level's instruction sets alone, since Zig's model of the level also names tuning features a
+/// CPU's detection need not report.
+fn x86_64_v3_host(b: *std.Build) bool {
+    const cpu = b.graph.host.result.cpu;
+    return cpu.arch == .x86_64 and std.Target.x86.featureSetHasAll(cpu.features, .{
+        .avx2, .bmi, .bmi2, .f16c, .fma, .lzcnt, .movbe, .xsave, .cx16, .popcnt, .sahf, .sse4_2, .ssse3,
+    });
 }
 
 /// The SIMD features Zig's own detection finds on the build host, which runs the checks: the
