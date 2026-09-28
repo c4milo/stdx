@@ -1,6 +1,7 @@
 .zig-cache/
 zig-out/
 zig-pkg/
+spec/lean/.lake/
 ci-report.md
 costs-report.md
 fuzz-report.md

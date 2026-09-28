@@ -60,6 +60,14 @@ run_check "self-hosted backend" zig build test-self-hosted --summary all
 # The tests built by LLVM in Debug for an x86-64 CPU with AVX-512, which no runner is sure to have:
 # compiled on every runner, run on none.
 run_check "avx-512 build" zig build test-avx512
+# Decision 28: the Lean proofs of spec/lean/, and the check that the vectors the unit tests replay
+# are what the proved machines give, where lake is on the path. The workflow installs Lean on the
+# x86-64 Linux runner alone.
+if command -v lake >/dev/null 2>&1 || [[ -x "${HOME}/.elan/bin/lake" ]]; then
+  run_check "lean proofs" zig build lean
+else
+  rows+=("| lean proofs | skipped: no lake | 0 s |")
+fi
 run_check "oracle tests" zig build test-oracle -Doracles
 # Every program the build installs, the benchmarks included: no check above compiles bench/zstd or
 # bench/checksum, which run only when a person asks for numbers.

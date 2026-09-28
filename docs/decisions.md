@@ -8,7 +8,8 @@ re-argued, not edited. Entries 1 to 10 record the rules the owner set in the bri
 stdx on 2026-09-25. Entries 11 to 18 were proposed the same day, as the decision records the
 brief asked for before any codec code, and the owner ruled on each after reviewing it. Entries 19
 and 20 came out of that review, entry 21 out of design §8 step 2, entries 22 to 25 out of step 11,
-entry 26 out of the owner's review of CI, and entry 27 out of the owner's request for JSON.
+entry 26 out of the owner's review of CI, entry 27 out of the owner's request for JSON, and entry
+28 out of the owner's request that its state machines be proved.
 
 ## Scope and shape
 
@@ -1296,3 +1297,46 @@ entry 26 out of the owner's review of CI, and entry 27 out of the owner's reques
       shows itself faster before it stays.
     - Each target's own width. It needs a measurement of its own, and entry 21's objects to choose
       it at run time.
+
+28. **The `json` module's state machines, proved in Lean.** Ruled by the owner on 2026-09-28, who
+    asked for the proofs design §10 had left open after entry 27. The UTF-8 machine of
+    `src/json/utf8.zig` and the number machine of `src/json/number.zig` each have a twin in
+    `spec/lean/`, a Lake package built with Lean's core alone, and each twin is proved against its
+    RFC's grammar, transcribed one ABNF rule to one definition:
+    - `Utf8.accepts_iff`: from the start, the UTF-8 machine ends between characters exactly on the
+      sequences RFC 3629 §4's `UTF8-octets` derives. `Utf8.refuses_iff`: it refuses an octet exactly
+      when no such sequence starts with the octets up to it, so it refuses at the first octet that
+      rules a text out.
+    - `Number.accepts_iff`: from the start, the number machine takes every octet and ends whole
+      exactly on the texts RFC 8259 §6's `number` derives. `Number.refuses_iff` is its
+      `refuses_iff`.
+    - `Number.accept_taken`, `ended_spec` and `invalid_spec`: what each verdict of `Number.accept`
+      tells the decoder, which ends a number at the first octet the machine does not take. A number
+      it ends is whole, and no number goes on with the octet it ends before; after an octet it
+      refuses, no number goes on at all.
+
+    **What ties a proof to the Zig code.** `spec/lean/Vectors.lean` writes every step of each proved
+    machine, from every state and for every octet, into `src/json/utf8_vectors.txt` and
+    `src/json/number_vectors.txt`. A unit test of each Zig machine replays every line: the same
+    verdict, and the same state after it, and for UTF-8 an unchanged state after a refused octet. The
+    number machine has nine states, and the UTF-8 machine reaches eight from its start, so the
+    replay covers every step either Zig machine can take, and what is proved of the Lean machines
+    holds of the Zig ones.
+    - `zig build lean` builds the proofs through pepegrillo's `lean` engine, then checks the vector
+      files are what the proved machines give; `zig build lean -- write` rewrites them.
+      `zig build test` replays them, with no Lean needed.
+    - `spec/lean/Stdx/Axioms.lean` pins each theorem's axioms with `#guard_msgs`, so a proof left as
+      `sorry` fails `lake build`. Each rests on Lean's standard axioms alone.
+    - `spec/lean/lean-toolchain` pins Lean 4.34.0, the release colibri's proofs pin. On each push,
+      `tools/install_lean.sh` installs it on the x86-64 Linux runner, checked against the SHA-256
+      GitHub records for the release, and `tools/ci.sh` builds the proofs where lake is on the path.
+
+    The alternatives refused:
+    - A Zig tool that writes the Zig machines' tables into Lean, with the proofs about those tables.
+      It ties the proofs to the code as tightly, but puts the code under test in the grammar's
+      place: the proofs would start from the code, not from the RFC.
+    - Mathlib, whose tactics would shorten the proofs, at the cost of a package of gigabytes for a
+      proof of two small machines; Lean's core, `omega` included, is enough.
+    - The vector UTF-8 check of claim J5 proved equal to the scalar one on every window of four
+      octets, which design §10 first listed with these proofs. The owner asked for the machines;
+      design §10 keeps it open.

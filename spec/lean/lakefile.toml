@@ -1,0 +1,15 @@
+name = "stdx"
+defaultTargets = ["Stdx"]
+
+# The proofs of decision 28, about the state machines of src/json/. Lean's core alone: no package.
+[[lean_lib]]
+name = "Stdx"
+# Every public declaration says what it is, and an unused name in a proof is an error.
+leanOptions = [
+  { name = "linter.missingDocs", value = true },
+  { name = "linter.unusedVariables", value = true },
+]
+
+[[lean_exe]]
+name = "vectors"
+root = "Vectors"

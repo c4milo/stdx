@@ -174,3 +174,61 @@ test "character_len takes one whole character, and nothing of a cut or invalid o
     try testing.expectEqual(null, character_len("\xed\xa0\x80"));
     try testing.expectEqual(null, character_len(""));
 }
+
+/// The steps of spec/lean/Stdx/Json/Utf8.lean's machine, which the proofs there hold to RFC 3629
+/// §4 (decision 28): a line per state and octet, the state as `Utf8`'s fields, the octet, and then
+/// the fields after it or `refused`. `zig build lean` checks the file is what that machine gives.
+const Proved = struct {
+    const vectors = @embedFile("utf8_vectors.txt");
+    const states = 8;
+    const octets = 256;
+    const radix = 10;
+    /// A state's fields: `needed`, `low` and `high`.
+    const state_len = 3;
+    /// A refused step's fields: a state, the octet and `refused`.
+    const refused_len = 5;
+    /// A step's fields: a state, the octet and the state after it.
+    const step_len = 7;
+
+    fn step(line: []const u8) !void {
+        var fields: [step_len][]const u8 = undefined;
+        var tokens = std.mem.tokenizeScalar(u8, line, ' ');
+        var len: usize = 0;
+        while (tokens.next()) |token| : (len += 1) {
+            if (len == step_len) return error.TestVectorTooLong;
+            fields[len] = token;
+        }
+        const before = try state(fields[0..state_len]);
+        const octet = try std.fmt.parseInt(u8, fields[state_len], radix);
+        var utf8 = before;
+        if (len == refused_len) {
+            try testing.expectEqualStrings("refused", fields[state_len + 1]);
+            try testing.expect(!utf8.accept(octet));
+            return testing.expectEqual(before, utf8);
+        }
+        try testing.expectEqual(step_len, len);
+        try testing.expect(utf8.accept(octet));
+        try testing.expectEqual(try state(fields[state_len + 1 ..]), utf8);
+    }
+
+    fn state(fields: []const []const u8) !Utf8 {
+        return .{
+            .needed = try std.fmt.parseInt(u2, fields[0], radix),
+            .low = try std.fmt.parseInt(u8, fields[1], radix),
+            .high = try std.fmt.parseInt(u8, fields[state_len - 1], radix),
+        };
+    }
+};
+
+test "Utf8 takes every step of the machine proved to accept exactly RFC 3629 §4's UTF-8" {
+    var lines = std.mem.splitScalar(u8, Proved.vectors, '\n');
+    try testing.expect(std.mem.startsWith(u8, lines.first(), "#"));
+    var steps: usize = 0;
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        try Proved.step(line);
+        steps += 1;
+    }
+    try testing.expectEqual(Proved.states * Proved.octets, steps);
+    try testing.expectEqual(Utf8{}, try Proved.state(&.{ "0", "128", "191" }));
+}

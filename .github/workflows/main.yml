@@ -28,6 +28,17 @@ jobs:
           key: zig-pkg-${{ hashFiles('build.zig.zon') }}
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      # The Lean release for the proofs of decision 28, which tools/ci.sh builds where lake is on
+      # the path: on the x86-64 runner alone, as the proofs need one machine.
+      - name: Restore Lean
+        if: matrix.runner == 'ubuntu-24.04'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/lean
+          key: lean-${{ hashFiles('spec/lean/lean-toolchain', 'tools/install_lean.sh') }}
+      - name: Install Lean
+        if: matrix.runner == 'ubuntu-24.04'
+        run: tools/install_lean.sh "$HOME/lean" >> "$GITHUB_PATH"
       - name: Run tools/ci.sh
         run: tools/ci.sh ci-report.md
       - name: Summarize

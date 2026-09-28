@@ -23,6 +23,7 @@ const oracle = @import("build/oracle.zig");
 const self_hosted = @import("build/self_hosted.zig");
 const avx512 = @import("build/avx512.zig");
 const brotli_tables = @import("build/brotli_tables.zig");
+const lean = @import("build/lean.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -152,6 +153,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(brotli_tables.add_budget_check(b, host_graph.brotli));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
+    lean.add(b, tool_module(b, pepegrillo, "tools/lean.zig"));
     add_hooks_step(b);
 
     const fmt_step = b.step("fmt", "Check formatting of every Zig source");

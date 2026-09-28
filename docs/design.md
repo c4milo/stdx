@@ -1116,15 +1116,14 @@ and one that does not beat the noise is removed.
 
 ## 10. Open questions for the owner
 
-Decisions 11 to 20 are ruled. Decision 27 leaves two to the owner:
+Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the owner:
 
 - A dependency for the `json` module's checks: a conformance corpus such as JSONTestSuite, or an
   oracle. Until one is ruled in, an independent parser in the tests is the decoder's judge. The
   benchmark's baselines, simdjson, yyjson and Zig's std.json, were ruled in on 2026-09-28.
-- Proofs in Lean of the `json` module's finite-state parts: that its UTF-8 and number state
-  machines accept exactly RFC 3629 §4's and RFC 8259 §6's languages, and that the vector UTF-8
-  check agrees with the scalar one on every window of four octets. pepegrillo's `lean` engine
-  would build them in `tools/`, with the Lean toolchain a new dependency.
+- A proof in Lean that the vector UTF-8 check of claim J5 agrees with the scalar one on every
+  window of four octets. Decision 28 proves the scalar machines against their RFCs, and leaves
+  this one.
 
 ## 11. Risks
 

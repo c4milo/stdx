@@ -154,6 +154,8 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
   (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
 - `docs/` is the design set. `docs/rfcs/` holds the RFCs.
+- `spec/lean/` holds the Lean proofs of decision 28, a Lake package pepegrillo's `lean` engine
+  builds. Its `Vectors.lean` writes the vector files the unit tests of `src/json/` replay.
 
 ## Performance
 
@@ -187,7 +189,9 @@ tree. Decision 14 holds the claims and design §8 the steps that measure them.
 - Changing a named limit.
 - Adding a dependency. The library has none and imports no package. The ruled exceptions, none of
   which the library imports:
-  - pepegrillo, the tooling `tools/` builds on (decision 7);
+  - pepegrillo, the tooling `tools/` builds on (decision 7), and the Lean release
+    `spec/lean/lean-toolchain` pins, which the proofs of decision 28 build with and which they
+    import no package into;
   - the oracles and baselines of `tools/` and `bench/` (decision 8): zlib and Wuffs, added at
     design §8 step 2, and libzstd, Google's brotli, zlib-ng and libdeflate, each added in the
     commit that first uses it; and simdjson and yyjson, bench-json's baselines beside Zig's
@@ -228,6 +232,12 @@ Change this section when a step adds or renames a command.
   from what it writes. `zig build brotli-table-budget-check` fails when a lookup table budget
   `src/brotli/constants.zig` pins differs from the worst table `tools/brotli_table_budget.zig`
   finds for its alphabet (decision 12).
+- Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
+  then checks `src/json/utf8_vectors.txt` and `number_vectors.txt` are what the proved machines
+  give; `zig build lean -- write` rewrites them. `zig build test` replays them against the Zig
+  machines, with no Lean needed. The step needs lake, from elan or a Lean release;
+  `tools/install_lean.sh` installs the pinned release on x86-64 Linux, and `tools/ci.sh` runs the
+  step where lake is on the path.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec, a
   package or the oracle bindings from inside `src/deflate/`, and requires each compile to fail.
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
@@ -320,7 +330,8 @@ Change this section when a step adds or renames a command.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine, builds every
   program with `zig build -Doracles`, and writes the report; `.github/workflows/main.yml` runs it
   on each push to main, on Linux on x86-64 and aarch64 and on macOS on arm64 (decisions 19 and
-  26). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned SHA-256.
+  26). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned SHA-256, and
+  `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
 - Format: `zig fmt --check build.zig bench build src tools`, or `zig build fmt`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the

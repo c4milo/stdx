@@ -168,6 +168,54 @@ test "every text of up to six octets of the grammar's letters is judged as RFC 8
     try testing.expect(!starts_number('+') and !starts_number('.') and !starts_number('e'));
 }
 
+/// The verdicts of spec/lean/Stdx/Json/Number.lean's machine, which the proofs there hold to RFC
+/// 8259 §6 (decision 28): whether each state is whole, then a line per state and octet with
+/// `accept`'s verdict and the state after a taken one. `zig build lean` checks the file is what that
+/// machine gives.
+const Proved = struct {
+    const vectors = @embedFile("number_vectors.txt");
+    const octets = 256;
+    const radix = 10;
+    /// `accept`, the state, the octet, `taken` and the state after it.
+    const fields_max = 5;
+    const state_field = 1;
+    const octet_field = 2;
+    const verdict_field = 3;
+    const after_field = 4;
+
+    /// Checks one line, and returns 1 for a verdict, 0 for a state's wholeness.
+    fn check(line: []const u8) !usize {
+        var fields: [fields_max][]const u8 = @splat("");
+        var tokens = std.mem.tokenizeScalar(u8, line, ' ');
+        for (&fields) |*field| field.* = tokens.next() orelse break;
+        if (tokens.next() != null) return error.TestVectorTooLong;
+        const state = std.meta.stringToEnum(State, fields[state_field]) orelse return error.TestUnknownState;
+        if (std.mem.eql(u8, fields[0], "whole")) {
+            try testing.expectEqual(std.mem.eql(u8, fields[octet_field], "1"), (Number{ .state = state }).whole());
+            return 0;
+        }
+        try testing.expectEqualStrings("accept", fields[0]);
+        var number: Number = .{ .state = state };
+        const verdict = number.accept(try std.fmt.parseInt(u8, fields[octet_field], radix));
+        const expected = std.meta.stringToEnum(Step, fields[verdict_field]) orelse return error.TestUnknownVerdict;
+        try testing.expectEqual(expected, verdict);
+        const after = if (expected == .taken) std.meta.stringToEnum(State, fields[after_field]) orelse return error.TestUnknownState else state;
+        try testing.expectEqual(after, number.state);
+        return 1;
+    }
+};
+
+test "Number gives every verdict of the machine proved to accept exactly RFC 8259 §6's numbers" {
+    var lines = std.mem.splitScalar(u8, Proved.vectors, '\n');
+    try testing.expect(std.mem.startsWith(u8, lines.first(), "#"));
+    var verdicts: usize = 0;
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        verdicts += try Proved.check(line);
+    }
+    try testing.expectEqual(std.enums.values(State).len * Proved.octets, verdicts);
+}
+
 /// RFC 8259 §6's rules read one after another, for the tests to judge by:
 /// `[ minus ] int [ frac ] [ exp ]`.
 const Grammar = struct {
