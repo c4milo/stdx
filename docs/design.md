@@ -1340,6 +1340,25 @@ to 12 are reordered and nothing else changes.
     formatted number's text not written, and a name's closing counted as a string's. The other
     J9 mutations above ran again, and each was CAUGHT.
 
+  **J7, 2026-09-28.** `wide.zig` picks each scan's width from the level `init` keeps:
+  - AVX-512's 64 octets or AVX2's 32 on x86-64, in the variant objects `variants.zig` builds for
+    those two levels alone;
+  - the module's own 16 octets everywhere else.
+
+  A run no longer than the level's width stays inline at 16 octets. A name's or a string's run
+  reaches the kernel only past its first 16 octets, so a short one pays no call.
+  - `scan_test.zig` requires each scan at every level this CPU runs to return what the scalar path
+    returns, on its seeded inputs, and `wide.zig`'s tests pin the level the features pick.
+  - The AVX2 kernels ran under Rosetta 2 with `-Dtarget=x86_64-macos -Dcpu=x86_64_v3`, whose
+    features `detect()` adds. The AVX-512 kernels run on the x86-64 runners that have AVX-512.
+
+  Mutations, the kernels' under Rosetta, every one CAUGHT:
+  - the AVX2 string, UTF-8 and hex kernels each one octet short;
+  - a stop in the last lane of the first block passed to the kernel;
+  - the kernel's run counted from the string's start;
+  - AVX-512's features picking AVX2;
+  - J7 off keeping the wide level.
+
   **The API, 2026-09-28.** `Decoder.init`, `Encoder.init`, `TextWriter.init` and `TextReader.init`
   take the caller's `codec.Features` last, and each state keeps them (decision 29). The kernels of
   J7's wider levels come after. `round_trip_test.zig` requires `none()`, `target()` and `detect()`

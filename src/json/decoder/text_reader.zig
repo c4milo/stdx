@@ -39,6 +39,8 @@ pub const TextReader = struct {
     consumed: usize,
     storage: []u8,
     framing: Framing,
+    /// The caller's CPU features, which each text's `Decoder.init` takes.
+    features: codec.Features,
     /// Whether a text has started, and whether the current one has ended.
     started: bool,
     ended: bool,
@@ -52,6 +54,7 @@ pub const TextReader = struct {
             .consumed = 0,
             .storage = storage,
             .framing = framing,
+            .features = features,
             .started = false,
             .ended = false,
         };
@@ -68,7 +71,7 @@ pub const TextReader = struct {
         }
         assert(self.ended);
         if (self.framing == .text or self.consumed == self.input.len) return false;
-        self.decoder.init(self.framing, self.decoder.features);
+        self.decoder.init(self.framing, self.features);
         self.ended = false;
         return true;
     }

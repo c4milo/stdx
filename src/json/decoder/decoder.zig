@@ -20,6 +20,7 @@ const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
 const Piece = framing_file.Piece;
 const Utf8 = @import("../utf8.zig").Utf8;
+const wide = @import("../wide.zig");
 const strings = @import("decoder_string.zig");
 const values = @import("decoder_value.zig");
 const fast = @import("decoder_fast.zig");
@@ -157,8 +158,8 @@ pub const Decoder = struct {
     pending: [constants.utf8_len_max]u8,
     pending_len: u8,
     pending_written: u8,
-    /// The caller's CPU features, which pick the width of the vector paths (decision 29).
-    features: codec.Features,
+    /// The widest vector the caller's CPU features allow the vector paths (claim J7).
+    level: wide.Level,
 
     /// Starts a text, with the CPU features the caller detected once or took from the build
     /// target (`codec.Features`). `init` again after `done` or after an error.
@@ -181,7 +182,7 @@ pub const Decoder = struct {
             .pending = undefined,
             .pending_len = 0,
             .pending_written = 0,
-            .features = features,
+            .level = .of(features),
         };
     }
 

@@ -17,6 +17,7 @@ const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
 const Utf8 = @import("../utf8.zig").Utf8;
 const Number = @import("../number.zig").Number;
+const wide = @import("../wide.zig");
 const content = @import("encoder_content.zig");
 const fast = @import("encoder_fast.zig");
 
@@ -101,8 +102,8 @@ pub const Encoder = struct {
     utf8: Utf8,
     /// Where a number's text stands in RFC 8259 §6's grammar.
     number: Number,
-    /// The caller's CPU features, which pick the width of the vector paths (decision 29).
-    features: codec.Features,
+    /// The widest vector the caller's CPU features allow the vector paths (claim J7).
+    level: wide.Level,
 
     /// Starts a text, with the CPU features the caller detected once or took from the build
     /// target (`codec.Features`). `init` again after `done` or after an error.
@@ -120,7 +121,7 @@ pub const Encoder = struct {
             .pending_written = 0,
             .utf8 = .{},
             .number = .{},
-            .features = features,
+            .level = .of(features),
         };
     }
 

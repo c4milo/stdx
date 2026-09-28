@@ -10,6 +10,7 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
+const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
@@ -29,7 +30,7 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
             try escape_octet(decoder, reader.read_octet() catch return .{ .status = .needs_input, .kind = kind });
             continue;
         }
-        if (claims.decoder_string_vectors and after_ascii) copy_run(decoder, reader, writer);
+        if (claims.decoder_string_vectors and after_ascii) copy_run(decoder, decoder.level.with(claims), reader, writer);
         const octet = reader.read_octet() catch return .{ .status = .needs_input, .kind = kind };
         after_ascii = octet < constants.non_ascii_min;
         if (try string_octet(claims, decoder, octet, reader, writer)) |outcome| return outcome;
@@ -39,8 +40,8 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
 }
 
 /// Copies the run of plain ASCII octets a string carries as they are, as far as the output has room
-/// (claim J3).
-fn copy_run(decoder: *const Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
+/// (claim J3), `level`'s vector at a time (claim J7).
+fn copy_run(decoder: *const Decoder, level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) void {
     // An ASCII octet inside a character is not UTF-8, so after one the loop took, and after the
     // escape a reverse solidus starts, the check stands between characters.
     assert(decoder.utf8.between_characters());
@@ -49,7 +50,7 @@ fn copy_run(decoder: *const Decoder, reader: *codec.Reader, writer: *codec.Write
     // A run that starts where the scan stops would load a vector for nothing, as it does after each
     // space in text of non-ASCII words.
     if (window.len == 0 or !scan.is_plain_ascii(window[0])) return;
-    const run_len = scan.plain_len_vector(constants.vector_len, window);
+    const run_len = wide.plain_len(level, window);
     const run = reader.take(run_len) catch unreachable;
     writer.write_all(run) catch unreachable;
 }
@@ -69,7 +70,7 @@ fn string_octet(comptime claims: Claims, decoder: *Decoder, octet: u8, reader: *
     // Claim J5 starts past the delimiters, so text of ASCII runs what it runs with J5 off.
     if (claims.decoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
         reader.unread(1);
-        if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return null;
+        if (@call(.never_inline, copy_characters, .{ decoder.level.with(claims), reader, writer }) > 0) return null;
         _ = reader.read_octet() catch unreachable;
     }
     // RFC 8259 §8.1 and RFC 3629 §4: a text is UTF-8.
@@ -82,10 +83,10 @@ fn string_octet(comptime claims: Claims, decoder: *Decoder, octet: u8, reader: *
 /// far as the output has room, and returns how many octets it copied (claim J5). It copies none
 /// when the first character is not UTF-8, or the input or the room cuts it: the scalar validation
 /// then takes it.
-fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
+fn copy_characters(level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) usize {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    const run = reader.take(scan.content_len_vector(constants.vector_len, window)) catch unreachable;
+    const run = reader.take(wide.content_len(level, window)) catch unreachable;
     writer.write_all(run) catch unreachable;
     return run.len;
 }

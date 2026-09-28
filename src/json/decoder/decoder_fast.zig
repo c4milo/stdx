@@ -21,6 +21,7 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
+const wide = @import("../wide.zig");
 const number_grammar = @import("../number.zig");
 const Claims = @import("../claims.zig").Claims;
 const decoder_file = @import("decoder.zig");
@@ -106,7 +107,7 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
     const run_len = if (claims.decoder_string_vectors)
-        @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, window })
+        wide.plain_len(decoder.level.with(claims), window)
     else
         scan.plain_len_scalar(window);
     const content = reader.take(run_len) catch unreachable;

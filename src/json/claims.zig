@@ -1,9 +1,10 @@
-//! Decision 27's claims for the `json` module's vector paths, and decision 30's for its fast paths,
-//! each switchable at comptime, so the benchmark can time the encoder and the decoder with one
-//! claim off against all on (decision 21). A claim that does not win by more than the noise leaves
-//! with its code. `encode` and `decode` take every vector claim on where the target's vector
-//! registers hold `constants.vector_len` octets (`constants.vectors`), and the fast paths on every
-//! target; the tests, the fuzzer and the benchmark switch them.
+//! Decision 27's claims for the `json` module's vector paths, decision 29's for their widths, and
+//! decision 30's for its fast paths, each switchable at comptime, so the benchmark can time the
+//! encoder and the decoder with one claim off against all on (decision 21). A claim that does not
+//! win by more than the noise leaves with its code. `encode` and `decode` take every vector claim
+//! on where the target's vector registers hold `constants.vector_len` octets
+//! (`constants.vectors`), and the other claims on every target; the tests, the fuzzer and the
+//! benchmark switch them.
 
 const constants = @import("constants.zig");
 
@@ -24,6 +25,10 @@ pub const Claims = struct {
     /// J4, whitespace skipped a vector at a time, left with its code (decision 27, design §8 step
     /// 16): the runs that measured it carried a fault of the benchmark's, and none shows it faster.
     utf8_vectors: bool = constants.vectors,
+    /// J7: the vector paths of J1, J2, J3 and J5 take the widest vector the caller's CPU features
+    /// allow, AVX2's 32 octets or AVX-512's 64 on x86-64, in variant objects of their own (decision
+    /// 29, wide.zig). Off, they take 16 octets whatever the features.
+    wide_vectors: bool = true,
     /// J8: the decoder takes the next token in one straight line when the input holds all of it and
     /// the output has room for its octets (decision 30). Off, every token takes the checked path.
     decoder_fast_path: bool = true,
@@ -40,6 +45,7 @@ pub const scalar: Claims = .{
     .hex_vectors = false,
     .decoder_string_vectors = false,
     .utf8_vectors = false,
+    .wide_vectors = false,
     .decoder_fast_path = false,
     .encoder_fast_path = false,
 };
@@ -50,6 +56,7 @@ pub const vector: Claims = .{
     .hex_vectors = true,
     .decoder_string_vectors = true,
     .utf8_vectors = true,
+    .wide_vectors = true,
     .decoder_fast_path = true,
     .encoder_fast_path = true,
 };
@@ -60,16 +67,18 @@ pub const each_off = [_]Claims{
     .{ .hex_vectors = false },
     .{ .decoder_string_vectors = false },
     .{ .utf8_vectors = false },
+    .{ .wide_vectors = false },
     .{ .decoder_fast_path = false },
     .{ .encoder_fast_path = false },
 };
 
-/// The claim each entry of `each_off` switches off, as decisions 27 and 30 number them.
+/// The claim each entry of `each_off` switches off, as decisions 27, 29 and 30 number them.
 pub const each_off_names = [each_off.len][]const u8{
     "J1 encoder string vectors",
     "J2 hex vectors",
     "J3 decoder string vectors",
     "J5 UTF-8 vectors",
+    "J7 wide vectors",
     "J8 decoder fast path",
     "J9 encoder fast path",
 };

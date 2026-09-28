@@ -21,6 +21,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const format = @import("../format.zig");
 const scan = @import("../scan.zig");
+const wide = @import("../wide.zig");
 const number_grammar = @import("../number.zig");
 const Claims = @import("../claims.zig").Claims;
 const encoder_file = @import("encoder.zig");
@@ -99,7 +100,7 @@ pub inline fn token(encoder: *Encoder, comptime claims: Claims, value: Token, re
     if (frame.len() + body.len() > writer.room_len()) return null;
     if (frame.record_separator) writer.write_octet(constants.record_separator) catch unreachable;
     if (frame.value_separator) writer.write_octet(constants.value_separator) catch unreachable;
-    write_body(claims, body, reader, writer);
+    write_body(claims, encoder.level, body, reader, writer);
     if (frame.line_feed) writer.write_octet(constants.line_feed) catch unreachable;
     ended(encoder, kind, ends_text, body.number);
     return if (ends_text) .done else .needs_input;
@@ -109,7 +110,7 @@ pub inline fn token(encoder: *Encoder, comptime claims: Claims, value: Token, re
 inline fn body_of(encoder: *const Encoder, comptime claims: Claims, value: Token, reader: *codec.Reader, buffer: *format.Buffer) ?Body {
     return switch (value) {
         .begin_object, .begin_array, .end_object, .end_array => structural_body(encoder, value),
-        .name, .string, .hex, .number => content_body(claims, value, reader),
+        .name, .string, .hex, .number => content_body(claims, encoder.level, value, reader),
         .unsigned => |number| .{ .text = format.unsigned(buffer, number) },
         .signed => |number| .{ .text = format.signed(buffer, number) },
         .decimal => |number| .{ .text = format.decimal(buffer, number) },
@@ -134,11 +135,11 @@ inline fn structural_body(encoder: *const Encoder, value: Token) ?Body {
 }
 
 /// A token whose octets are the call's input, when the call holds all of them.
-inline fn content_body(comptime claims: Claims, value: Token, reader: *codec.Reader) ?Body {
+inline fn content_body(comptime claims: Claims, level: wide.Level, value: Token, reader: *codec.Reader) ?Body {
     return switch (value) {
         .name, .string => |piece| .{
             .opening = constants.quotation_mark,
-            .content_len = plain_input_len(claims, piece, reader) orelse return null,
+            .content_len = plain_input_len(claims, level, piece, reader) orelse return null,
             .closing = if (value == .name) .name else .string,
         },
         .hex => |piece| if (piece == .more) null else .{ .opening = constants.quotation_mark, .content_len = reader.remaining_len(), .hex = true, .closing = .string },
@@ -149,12 +150,12 @@ inline fn content_body(comptime claims: Claims, value: Token, reader: *codec.Rea
 
 /// The length of a name's or a string's octets, when the call holds all of them and they are plain
 /// ASCII, which a string carries as it is (RFC 8259 §7), or null.
-inline fn plain_input_len(comptime claims: Claims, piece: encoder_file.Piece, reader: *codec.Reader) ?usize {
+inline fn plain_input_len(comptime claims: Claims, level: wide.Level, piece: encoder_file.Piece, reader: *codec.Reader) ?usize {
     if (piece == .more) return null;
     const input = reader.take_partial(reader.remaining_len());
     reader.unread(input.len);
     const run_len = if (claims.encoder_string_vectors)
-        @call(.always_inline, scan.plain_len_vector, .{ constants.vector_len, input })
+        wide.plain_len(level.with(claims), input)
     else
         scan.plain_len_scalar(input);
     return if (run_len == input.len) input.len else null;
@@ -179,18 +180,18 @@ inline fn ends_text_after(encoder: *const Encoder, kind: Kind) bool {
     };
 }
 
-inline fn write_body(comptime claims: Claims, body: Body, reader: *codec.Reader, writer: *codec.Writer) void {
+inline fn write_body(comptime claims: Claims, level: wide.Level, body: Body, reader: *codec.Reader, writer: *codec.Writer) void {
     if (body.opening) |opening| writer.write_octet(opening) catch unreachable;
     if (body.text.len > 0) writer.write_all(body.text) catch unreachable;
-    write_content(claims, body, reader, writer);
+    write_content(claims, level, body, reader, writer);
     if (body.closing != .none) writer.write_octet(constants.quotation_mark) catch unreachable;
     if (body.closing == .name) writer.write_octet(constants.name_separator) catch unreachable;
 }
 
 /// Writes the call's input as it is, or as hex digits.
-inline fn write_content(comptime claims: Claims, body: Body, reader: *codec.Reader, writer: *codec.Writer) void {
+inline fn write_content(comptime claims: Claims, level: wide.Level, body: Body, reader: *codec.Reader, writer: *codec.Writer) void {
     if (body.hex) {
-        const taken = content.hex_run(claims, reader, writer);
+        const taken = content.hex_run(claims, level, reader, writer);
         assert(taken == body.content_len);
     } else if (body.content_len > 0) {
         writer.write_all(reader.take(body.content_len) catch unreachable) catch unreachable;

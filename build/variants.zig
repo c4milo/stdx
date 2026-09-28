@@ -48,7 +48,21 @@ pub fn add(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
+    add_levels(b, module, name, target, optimize, levels_of(target.result.cpu.arch));
+}
+
+/// `add`, for the levels of `wanted` alone that the target's architecture has: a module whose
+/// kernels need few levels builds no empty object for the others.
+pub fn add_levels(
+    b: *std.Build,
+    module: *std.Build.Module,
+    comptime name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    wanted: []const Level,
+) void {
     for (levels_of(target.result.cpu.arch)) |level| {
+        if (std.mem.indexOfScalar(Level, wanted, level) == null) continue;
         const options = b.addOptions();
         options.addOption(Level, "level", level);
         const root = b.createModule(.{

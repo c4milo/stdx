@@ -1,13 +1,16 @@
 //! Tests for scan.zig: each vector path returns what its scalar path returns, on every input the
 //! tests draw and the fuzzer finds, at the codecs' `vector_len` of 16 octets a block, and at 32 and
-//! 64, AVX2's and AVX-512's (decision 21). The scalar paths are the reference (decision 16), and
-//! `utf8.zig`'s tests hold the UTF-8 they use to RFC 3629 §4.
+//! 64, AVX2's and AVX-512's (decision 21). So does each of wide.zig's scans at every level of claim
+//! J7 this CPU runs, which on x86-64 calls the kernels of the variant objects (decision 29). The
+//! scalar paths are the reference (decision 16), and `utf8.zig`'s tests hold the UTF-8 they use to
+//! RFC 3629 §4.
 
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
+const wide = @import("wide.zig");
 
 /// The widths every vector path runs at: the codecs' `vector_len`, SSE2's and NEON's, then AVX2's
 /// and AVX-512's.
@@ -29,7 +32,17 @@ fn expect_same(input: []const u8) !void {
         try testing.expectEqual(scan.plain_len_scalar(input), scan.plain_len_vector(width, input));
         try testing.expectEqual(scan.content_len_scalar(input), scan.content_len_vector(width, input));
     }
+    for (levels_run()) |level| {
+        try testing.expectEqual(scan.plain_len_scalar(input), wide.plain_len(level, input));
+        try testing.expectEqual(scan.content_len_scalar(input), wide.content_len(level, input));
+    }
     try expect_same_hex(input);
+}
+
+/// The levels of claim J7 this CPU runs: the target's, and each wider one its features allow.
+fn levels_run() []const wide.Level {
+    const levels = comptime std.enums.values(wide.Level);
+    return levels[0 .. @intFromEnum(wide.Level.of(codec.Features.detect())) + 1];
 }
 
 fn expect_same_hex(input: []const u8) !void {
@@ -41,6 +54,14 @@ fn expect_same_hex(input: []const u8) !void {
             const scalar_len = scan.hex_len_scalar(input, scalar_output[0..room]);
             const vector_len = scan.hex_len_vector(width, input, vector_output[0..room]);
             try testing.expectEqual(scalar_len, vector_len);
+            const digits_len = constants.hex_digits_per_octet * scalar_len;
+            try testing.expectEqualSlices(u8, scalar_output[0..digits_len], vector_output[0..digits_len]);
+        }
+    }
+    for (levels_run()) |level| {
+        for (rooms) |room| {
+            const scalar_len = scan.hex_len_scalar(input, scalar_output[0..room]);
+            try testing.expectEqual(scalar_len, wide.hex_len(level, input, vector_output[0..room]));
             const digits_len = constants.hex_digits_per_octet * scalar_len;
             try testing.expectEqualSlices(u8, scalar_output[0..digits_len], vector_output[0..digits_len]);
         }

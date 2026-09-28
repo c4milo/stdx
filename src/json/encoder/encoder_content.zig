@@ -10,6 +10,7 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
+const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
 const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
@@ -32,7 +33,7 @@ fn string(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *cod
         if (!encoder.write_pending(writer)) return .needs_room;
         if (reader.remaining_len() == 0) return end_of_string(encoder, piece);
         if (claims.encoder_string_vectors and encoder.utf8.between_characters()) {
-            copy_run(reader, writer);
+            copy_run(encoder.level.with(claims), reader, writer);
             if (reader.remaining_len() == 0) continue;
         }
         if (!try string_octet(claims, encoder, reader, writer)) return .needs_room;
@@ -41,11 +42,12 @@ fn string(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *cod
     unreachable;
 }
 
-/// Copies the run of plain ASCII octets, as far as the output has room (claim J1).
-fn copy_run(reader: *codec.Reader, writer: *codec.Writer) void {
+/// Copies the run of plain ASCII octets, as far as the output has room (claim J1), `level`'s vector
+/// at a time (claim J7).
+fn copy_run(level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) void {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    const run = reader.take(scan.plain_len_vector(constants.vector_len, window)) catch unreachable;
+    const run = reader.take(wide.plain_len(level, window)) catch unreachable;
     writer.write_all(run) catch unreachable;
 }
 
@@ -65,7 +67,7 @@ fn string_octet(comptime claims: Claims, encoder: *Encoder, reader: *codec.Reade
     // Claim J5 starts past the escapes, so a string of ASCII runs what it runs with J5 off.
     if (claims.encoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
         reader.unread(1);
-        if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return true;
+        if (@call(.never_inline, copy_characters, .{ encoder.level.with(claims), reader, writer }) > 0) return true;
         _ = reader.read_octet() catch unreachable;
     }
     // RFC 8259 §8.1 and RFC 3629 §4: a string's octets are UTF-8.
@@ -78,10 +80,10 @@ fn string_octet(comptime claims: Claims, encoder: *Encoder, reader: *codec.Reade
 /// far as the output has room, and returns how many octets it copied (claim J5). It copies none
 /// when the first character is not UTF-8, or the input or the room cuts it: the scalar validation
 /// then takes it.
-fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
+fn copy_characters(level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) usize {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
-    const run = reader.take(scan.content_len_vector(constants.vector_len, window)) catch unreachable;
+    const run = reader.take(wide.content_len(level, window)) catch unreachable;
     writer.write_all(run) catch unreachable;
     return run.len;
 }
@@ -115,7 +117,7 @@ fn hex(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *codec.
         if (reader.remaining_len() == 0) return end_of_hex(piece);
         if (writer.room_len() == 0) return .needs_room;
         // With room for one digit, the next octet's two wait in `pending`.
-        if (hex_run(claims, reader, writer) == 0) encoder.hold(&hex_pair(reader.read_octet() catch unreachable));
+        if (hex_run(claims, encoder.level, reader, writer) == 0) encoder.hold(&hex_pair(reader.read_octet() catch unreachable));
     }
     // Each pass that does not return takes at least one octet.
     unreachable;
@@ -126,13 +128,13 @@ fn end_of_hex(piece: Piece) ?codec.Status {
     return if (piece == .more) .needs_input else null;
 }
 
-/// Writes the digits of as many octets as the output has room for both digits of (claim J2), and
-/// returns how many octets it took.
-pub fn hex_run(comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) usize {
+/// Writes the digits of as many octets as the output has room for both digits of (claim J2),
+/// `level`'s vector at a time (claim J7), and returns how many octets it took.
+pub fn hex_run(comptime claims: Claims, level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) usize {
     const window = reader.take_partial(writer.room_len() / constants.hex_digits_per_octet);
     const room = writer.octets[writer.position..];
     const taken = if (claims.hex_vectors)
-        scan.hex_len_vector(constants.vector_len, window, room)
+        wide.hex_len(level.with(claims), window, room)
     else
         scan.hex_len_scalar(window, room);
     assert(taken == window.len);

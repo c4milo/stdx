@@ -39,6 +39,7 @@ test {
     _ = constants;
     _ = @import("utf8.zig");
     _ = @import("scan.zig");
+    _ = @import("wide.zig");
     _ = @import("number.zig");
     _ = @import("format.zig");
     _ = encoder;
