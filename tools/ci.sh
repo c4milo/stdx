@@ -54,6 +54,9 @@ run_check "format" zig fmt --check build.zig bench build src tools
 run_check "rfcs and specs" check_copies
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "test" zig build test
+# The unit tests built by Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux: run
+# there, and only compiled on every other runner. The summary shows which, module by module.
+run_check "self-hosted backend" zig build test-self-hosted --summary all
 run_check "oracle tests" zig build test-oracle -Doracles
 # Every program the build installs, the benchmarks included: no check above compiles bench/zstd or
 # bench/checksum, which run only when a person asks for numbers.

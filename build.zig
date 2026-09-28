@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const oracle = @import("build/oracle.zig");
+const self_hosted = @import("build/self_hosted.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -127,6 +128,9 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(run);
         tool_test_step.dependOn(run);
     }
+
+    // The tests again, built by Zig's own x86-64 backend, the Debug default on x86-64 Linux.
+    _ = self_hosted.add(b);
 
     // Decisions 8 and 15: the oracles and the corpora are lazy packages, requested only when the
     // build is given -Doracles, so a plain `zig build test` fetches none of them.

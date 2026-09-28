@@ -212,7 +212,9 @@ Change this section when a step adds or renames a command.
   tree in `build/lint.zig` proves it.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
   `graph-check` and `hook-check`. `zig build test-<module>` runs one module's tests with nothing
-  else in the graph, which is what a mutation is measured against.
+  else in the graph, which is what a mutation is measured against. `zig build test-self-hosted`
+  builds every module's tests with Zig's own x86-64 backend, a caller's Debug default on x86-64
+  Linux, and runs them there; any other host only compiles them.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec, a
   package or the oracle bindings from inside `src/deflate/`, and requires each compile to fail.
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
