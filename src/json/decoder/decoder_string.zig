@@ -40,6 +40,9 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
 fn copy_run(reader: *codec.Reader, writer: *codec.Writer) void {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
+    // A run that starts where the scan stops would load a vector for nothing, and text of non-ASCII
+    // characters starts one at every character: it ran at 0.7 to 0.8 of the scalar path's speed.
+    if (window.len == 0 or !scan.is_plain_ascii(window[0])) return;
     const run_len = scan.plain_len_vector(constants.vector_len, window);
     const run = reader.take(run_len) catch unreachable;
     writer.write_all(run) catch unreachable;
