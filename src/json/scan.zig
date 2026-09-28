@@ -153,7 +153,37 @@ pub fn plain_len_vector(comptime width: usize, octets: []const u8) usize {
         if (any(width, stops)) return index + first_lane(width, stops);
         index += width;
     }
+    return index + plain_len_words(octets[index..]);
+}
+
+/// `plain_len_scalar` over the tail a vector does not fill: 8 octets at a time in a 64-bit word,
+/// then the last few one at a time.
+fn plain_len_words(octets: []const u8) usize {
+    var index: usize = 0;
+    for (0..octets.len / constants.word_len) |_| {
+        // Least significant octet first, so the first stop is the lowest bit that holds.
+        const word = std.mem.readInt(u64, octets[index..][0..constants.word_len], .little);
+        const stops = plain_stops_word(word);
+        if (stops != 0) return index + @ctz(stops) / @bitSizeOf(u8);
+        index += constants.word_len;
+    }
     return index + plain_len_scalar(octets[index..]);
+}
+
+/// The high bit of each octet of `word` a string must escape or that is not ASCII (RFC 8259 §7),
+/// exact up to the first, which is all the caller reads: a borrow from an octet below a bound can
+/// mark an octet after it.
+fn plain_stops_word(word: u64) u64 {
+    const control = (word -% constants.word_ones * constants.unescaped_min) & ~word & constants.word_highs;
+    const non_ascii = word & constants.word_highs;
+    const quotation_mark = zero_octets(word ^ constants.word_ones * constants.quotation_mark);
+    const reverse_solidus = zero_octets(word ^ constants.word_ones * constants.reverse_solidus);
+    return control | non_ascii | quotation_mark | reverse_solidus;
+}
+
+/// The high bit of each octet of `word` that is zero, exact up to the first.
+fn zero_octets(word: u64) u64 {
+    return (word -% constants.word_ones) & ~word & constants.word_highs;
 }
 
 /// The lanes of `block` whose octet UTF-8 rules out there, given the lanes before it and the last
