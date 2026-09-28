@@ -780,6 +780,7 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |
     | Every encoder's bit writer (E5) | 9, 13, 14 | none | 8 octets | Encode throughput against the checked writer |
+    | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time | 16 octets: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `Decoder.run`, over bench-json's workloads |
 
     The alternatives refused:
     - The checked reader and writer everywhere, with no fast path. It is the simplest, and

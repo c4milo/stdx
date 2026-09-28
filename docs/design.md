@@ -1439,6 +1439,36 @@ to 12 are reordered and nothing else changes.
     them per token.
   - Mutations.
 
+  **The batches, 2026-09-28.** `decoder_batch.zig` and `encoder_batch.zig`, with `TextWriter`'s
+  `write_items`. `decoder_batch_test.zig` requires one slot a call, a seeded count and 64 to give
+  one token a call's tokens and verdict, whole and under 3 seeded splits that move the state,
+  over its texts, 800 seeded corruptions and the fuzzer's inputs. A refused text fails the batch
+  that meets the refusal, so there the batch's tokens are a start of one token a call's.
+  `encoder_batch_test.zig` requires the same octets or error over a record, lists with escapes and
+  refusals, 300 of the round trip's seeded lists and the fuzzer's, with seeded counts of items.
+  Mutations, each CAUGHT:
+  - decoding: a slot marked ended, starting at the output's start, or not counted; a cut token's
+    slot dropped; the text's end reported as input to come; a refusal leaving the decoder open;
+  - encoding: an item not counted; the octets taken of a cut item not reported; the list's end
+    reported as the text's; the item that ends the text not counted; a refusal leaving the encoder
+    open; `write_items` ignoring a full buffer.
+
+  **J10, 2026-09-28.** `decoder_loop.zig`, decision 16's row for the JSON decoder token loop.
+  `decoder_loop_test.zig` requires every batch to give the same counts, slots, octets, error and
+  state with J10 on and off, beside every other claim on and every other off, over its texts, 800
+  seeded corruptions, a text past the depth limit and the fuzzer's inputs, whole and under 3
+  seeded splits with seeded counts of slots. It also requires the loop to take the 20 tokens of a
+  text after its first. Mutations, each CAUGHT:
+  - a string's stop taken though it is no quotation mark, by the vector path and the scalar one;
+  - a string's closing quotation mark left unread, a block not copied, and a number's octets
+    counted one short;
+  - a value separator in an object expecting a value, an object's end closing an array, and no
+    depth limit, which only the depth test catches;
+  - a literal name's later letters unchecked;
+  - the outermost container's end not delimiting the text;
+  - `matched` and the expectation not written back, and a failed token's position kept;
+  - the batch's reader not moved past the loop's tokens.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

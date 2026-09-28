@@ -32,6 +32,10 @@ pub const Claims = struct {
     /// J8: the decoder takes the next token in one straight line when the input holds all of it and
     /// the output has room for its octets (decision 31). Off, every token takes the checked path.
     decoder_fast_path: bool = true,
+    /// J10: a batch takes its tokens in decision 16's JSON decoder token loop, straight from the
+    /// input slice into the output slice (decision 33, decoder_loop.zig). Off, each takes the path
+    /// one token a call takes.
+    decoder_token_loop: bool = true,
     /// J9: the encoder writes a token in one straight line when the call's input holds all of it
     /// and the output has room for every octet it writes (decision 31). Off, every token takes the
     /// checked path.
@@ -47,6 +51,7 @@ pub const scalar: Claims = .{
     .utf8_vectors = false,
     .wide_vectors = false,
     .decoder_fast_path = false,
+    .decoder_token_loop = false,
     .encoder_fast_path = false,
 };
 
@@ -58,6 +63,7 @@ pub const vector: Claims = .{
     .utf8_vectors = true,
     .wide_vectors = true,
     .decoder_fast_path = true,
+    .decoder_token_loop = true,
     .encoder_fast_path = true,
 };
 
@@ -70,6 +76,7 @@ pub const each_off = [_]Claims{
     .{ .wide_vectors = false },
     .{ .decoder_fast_path = false },
     .{ .encoder_fast_path = false },
+    .{ .decoder_token_loop = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decisions 27, 30 and 31 number them.
@@ -81,4 +88,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "J7 wide vectors",
     "J8 decoder fast path",
     "J9 encoder fast path",
+    "J10 decoder token loop",
 };

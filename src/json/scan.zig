@@ -138,6 +138,13 @@ inline fn escape_lanes(comptime width: usize, block: Block(width)) Lanes(width) 
     return control | quotation_mark | reverse_solidus;
 }
 
+/// The first lane of `block` that a string must escape or that is not ASCII, or null when all 16
+/// are plain ASCII: the stop claim J10's loop finds in each block of a string.
+pub inline fn plain_stop(block: Block(constants.vector_len)) ?usize {
+    const stops = plain_stops(constants.vector_len, block);
+    return if (any(constants.vector_len, stops)) first_lane(constants.vector_len, stops) else null;
+}
+
 /// `plain_len_scalar`, `width` octets at a time (claims J1 and J3).
 pub fn plain_len_vector(comptime width: usize, octets: []const u8) usize {
     var index: usize = 0;

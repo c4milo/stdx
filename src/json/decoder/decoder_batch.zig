@@ -13,6 +13,7 @@ const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Error = decoder_file.Error;
 const Kind = decoder_file.Kind;
+const token_loop = @import("decoder_loop.zig");
 
 /// One token of a batch.
 pub const Slot = struct {
@@ -60,26 +61,52 @@ pub fn decode_batch_with(decoder: *Decoder, comptime claims: Claims, input: []co
     var reader = codec.Reader.init(input);
     var writer = codec.Writer.init(output);
     var filled: usize = 0;
-    const status: Status = for (slots) |*slot| {
-        const start = writer.position;
-        const outcome = decoder.run(claims, &reader, &writer, piece) catch |err| {
+    // Each pass fills a slot at least, or ends the batch.
+    const status: Status = for (0..slots.len) |_| {
+        const ended = pass(decoder, claims, input, output, piece, slots, &filled, &reader, &writer) catch |err| {
             decoder.stage = .refused;
             return err;
         };
-        if (outcome.kind) |kind| {
-            slot.* = .{ .kind = kind, .ended = outcome.status == .token, .start = start, .len = writer.position - start };
-            filled += 1;
-        }
-        switch (outcome.status) {
-            .token => {},
-            .needs_input => break .needs_input,
-            .needs_room => break .needs_room,
-            .done => break .done,
-        }
+        if (ended) |batch_status| break batch_status;
     } else .needs_slots;
     const batch: Batch = .{ .consumed = reader.consumed(), .written = writer.position, .filled = filled, .status = status };
     check_batch(input.len, output.len, slots, batch);
     return batch;
+}
+
+/// Fills the slots from `filled` on: the token loop's tokens first (claim J10), then one token
+/// through `Decoder.run`. Returns the batch's status when the pass ends it, and null when it filled
+/// a slot and the batch goes on.
+inline fn pass(
+    decoder: *Decoder,
+    comptime claims: Claims,
+    input: []const u8,
+    output: []u8,
+    piece: Piece,
+    slots: []Slot,
+    filled: *usize,
+    reader: *codec.Reader,
+    writer: *codec.Writer,
+) Error!?Status {
+    if (claims.decoder_token_loop and decoder.stage == .tokens and decoder.open == .none) {
+        var cursor: token_loop.Cursor = .{ .consumed = reader.consumed(), .written = writer.position };
+        filled.* += token_loop.take(decoder, claims, input, output, &cursor, slots[filled.*..]);
+        reader.position = cursor.consumed;
+        writer.position = cursor.written;
+        if (filled.* == slots.len) return .needs_slots;
+    }
+    const start = writer.position;
+    const outcome = try decoder.run(claims, reader, writer, piece);
+    if (outcome.kind) |kind| {
+        slots[filled.*] = .{ .kind = kind, .ended = outcome.status == .token, .start = start, .len = writer.position - start };
+        filled.* += 1;
+    }
+    return switch (outcome.status) {
+        .token => if (filled.* == slots.len) .needs_slots else null,
+        .needs_input => .needs_input,
+        .needs_room => .needs_room,
+        .done => .done,
+    };
 }
 
 /// The checks every batch makes at its exit: invariant 7 for the counts; a token that did not end

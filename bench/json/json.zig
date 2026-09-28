@@ -56,8 +56,8 @@ comptime {
 }
 
 /// The claims each side runs, by their place in `json.claims.each_off`: the decoder takes J3, J5,
-/// J7 and J8, and the encoder J1, J2, J5, J7 and J9.
-const decoder_claims = [_]usize{ 2, 3, 4, 5 };
+/// J7, J8 and J10, and the encoder J1, J2, J5, J7 and J9.
+const decoder_claims = [_]usize{ 2, 3, 4, 5, 7 };
 const encoder_claims = [_]usize{ 0, 1, 3, 4, 6 };
 
 /// The median throughput of each operation, in MB/s, and its spread, a share of the median.

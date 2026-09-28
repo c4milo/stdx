@@ -57,6 +57,7 @@ pub const setup_claims: json.Claims = .{
     .utf8_vectors = true,
     .wide_vectors = false,
     .decoder_fast_path = false,
+    .decoder_token_loop = false,
     .encoder_fast_path = false,
 };
 
