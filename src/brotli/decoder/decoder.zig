@@ -127,7 +127,7 @@ fn run(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, 
 /// One step, and the status that ends the call, or null to go on. A step of a command first lets
 /// the fast path decode what its margins allow.
 fn step(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, out: anytype) Error!?codec.Status {
-    if (options.paths.fast_paths and fast.takes(state.phase) and fast.has_margin(bits, out.writer)) {
+    if (options.paths.fast_paths and fast.takes(state.phase) and fast.has_margin(state.phase, bits, out.writer)) {
         fast.run(options.paths.claims, state, out.window, bits, out.writer);
     }
     return switch (state.phase) {

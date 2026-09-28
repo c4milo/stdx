@@ -62,9 +62,16 @@ pub fn takes(phase: Phase) bool {
     };
 }
 
-/// Whether the margins hold for the input and the room left.
-pub fn has_margin(bits: *const codec.BitReader, writer: *const codec.Writer) bool {
-    return bits.reader.octets.len - bits.reader.position >= input_slack and writer.room_len() >= output_slack;
+/// Whether a phase reads no input: a copy, or the rest of a dictionary word.
+fn reads_no_input(phase: Phase) bool {
+    return phase == .copy or phase == .dictionary_copy;
+}
+
+/// Whether the margins hold for the input and the room left: the room's alone for a phase that
+/// reads no input, so that a copy which ends the stream takes the fast path.
+pub fn has_margin(phase: Phase, bits: *const codec.BitReader, writer: *const codec.Writer) bool {
+    const input_holds = bits.reader.octets.len - bits.reader.position >= input_slack;
+    return (input_holds or reads_no_input(phase)) and writer.room_len() >= output_slack;
 }
 
 /// What a phase says: go on, or stop for the checked path.
@@ -96,8 +103,12 @@ pub const Loop = struct {
         return self.input.len - self.position >= input_slack;
     }
 
+    inline fn has_output_margin(self: *const Loop) bool {
+        return self.output.len - self.written >= output_slack;
+    }
+
     inline fn has_margin(self: *const Loop) bool {
-        return self.has_input_margin() and self.output.len - self.written >= output_slack;
+        return self.has_input_margin() and self.has_output_margin();
     }
 
     /// Fills the buffer to at least `refill_bits` bits with one 8-octet load, taking the whole
@@ -232,8 +243,14 @@ fn link_of(phase: Phase) Link {
 /// them again only where a phase may lack them: after a block switch, before a distance's block
 /// switch, and before a distance that literals or the command's extra bits preceded. A chain ends
 /// with a copy or a word, where its phase leaves the command for the next iteration, or at a phase
-/// the checked path takes.
+/// the checked path takes. A chain at a copy or at the rest of a word reads no input, and needs the
+/// output's margin alone.
 inline fn decode_chain(comptime claims: Claims, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
+    if (reads_no_input(state.phase)) {
+        if (!loop.has_output_margin()) return .stop;
+        if (state.phase == .copy) copy(claims, loop, state, window) else word(loop, state);
+        return .go_on;
+    }
     if (!ready(claims, loop)) return .stop;
     var link = if (state.phase == .command) straight.straight_command(claims, loop, state) else link_of(state.phase);
     for (0..links_per_chain_max) |_| {

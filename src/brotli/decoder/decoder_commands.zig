@@ -304,28 +304,30 @@ pub inline fn word_reference(state: *const State, word_id: u32) Error!WordRefere
     return .{ .len = len, .index = index, .transform_id = transform_id };
 }
 
-/// One octet of a back-reference, from `distance` back in the window (RFC 7932 §10): the copy may
-/// overlap the octets it writes.
+/// The octets of a back-reference that fit the output, each from `distance` back in the window
+/// (RFC 7932 §10), one at a time, since the copy may overlap the octets it writes.
 pub fn copy_match(state: *State, out: anytype) ?codec.Status {
     if (state.command.copy_left == 0) {
         state.phase = after_copy(state);
         return null;
     }
     if (!out.has_room()) return .needs_room;
-    out.emit(state, out.back(state.command.distance));
-    state.command.copy_left -= 1;
+    const len: u32 = @intCast(@min(state.command.copy_left, out.room_len()));
+    for (0..len) |_| out.emit(state, out.back(state.command.distance));
+    state.command.copy_left -= len;
     return null;
 }
 
-/// One octet of a dictionary word.
+/// The octets of a dictionary word that fit the output.
 pub fn copy_word(state: *State, out: anytype) ?codec.Status {
     if (state.word_written == state.word_len) {
         state.phase = after_copy(state);
         return null;
     }
     if (!out.has_room()) return .needs_room;
-    out.emit(state, state.word[state.word_written]);
-    state.word_written += 1;
+    const len: u8 = @intCast(@min(state.word_len - state.word_written, out.room_len()));
+    for (state.word[state.word_written..][0..len]) |octet| out.emit(state, octet);
+    state.word_written += len;
     return null;
 }
 

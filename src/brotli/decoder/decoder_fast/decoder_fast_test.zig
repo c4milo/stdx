@@ -3,7 +3,9 @@
 
 const std = @import("std");
 const testing = std.testing;
+const codec = @import("codec");
 const decoder_module = @import("../decoder.zig");
+const fast = @import("decoder_fast.zig");
 const constants = @import("../../constants.zig");
 const test_stream = @import("../test_stream.zig");
 const Stream = test_stream.Stream;
@@ -65,6 +67,38 @@ test "a long copy writes nothing past any room it is decoded into" {
             try testing.expectEqual(input.len - trailer.len, progress.consumed);
         }
     }
+}
+
+test "a long copy that ends the stream, past the input's margin, writes nothing past any room" {
+    var stream: Stream = .{};
+    long_copy_stream(&stream);
+    // With no octets after the stream, the copy starts with fewer than a refill's 8 left, and the
+    // fast path takes it on the output's margin alone.
+    const input = stream.written()[0 .. stream.written().len - trailer.len];
+    var expected: [pattern.len + copy_len]u8 = undefined;
+    for (&expected, 0..) |*octet, index| octet.* = pattern[index % pattern.len];
+    var output: [expected.len]u8 = undefined;
+    for (0..expected.len + 1) |room| {
+        var decoder: Decoder = undefined;
+        decoder.init(.{});
+        const progress = try decoder.decode(input, output[0..room]);
+        try testing.expectEqual(room, progress.written);
+        try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
+        if (room == expected.len) try testing.expectEqual(.done, progress.status);
+    }
+}
+
+test "a copy or a word's rest takes the fast path on the output's margin alone, a command on both" {
+    const input: [fast.input_slack - 1]u8 = @splat(0);
+    var bits = codec.BitReader.init(&input, .{});
+    var output: [fast.output_slack]u8 = undefined;
+    var writer = codec.Writer.init(&output);
+    try testing.expect(fast.has_margin(.copy, &bits, &writer));
+    try testing.expect(fast.has_margin(.dictionary_copy, &bits, &writer));
+    try testing.expect(!fast.has_margin(.command, &bits, &writer));
+    try testing.expect(!fast.has_margin(.literal, &bits, &writer));
+    var short_writer = codec.Writer.init(output[1..]);
+    try testing.expect(!fast.has_margin(.copy, &bits, &short_writer));
 }
 
 /// Symbol 389: insert length 0 and copy code 21, 582 and 9 extra bits, which takes a distance

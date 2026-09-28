@@ -24,6 +24,10 @@ pub fn Output(comptime Window: type, comptime claims: Claims) type {
             return self.writer.room_len() > 0;
         }
 
+        pub fn room_len(self: *const Self) usize {
+            return self.writer.room_len();
+        }
+
         /// Writes one octet of the meta-block: to the caller's output, and as p1 of the next
         /// literal's context (RFC 7932 §7.1).
         pub fn emit(self: *Self, state: *State, octet: u8) void {
