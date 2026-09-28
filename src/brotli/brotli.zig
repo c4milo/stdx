@@ -9,10 +9,22 @@ pub const constants = @import("constants.zig");
 pub const dictionary = @import("dictionary.zig");
 pub const transform = @import("transform.zig");
 pub const context = @import("context.zig");
+pub const prefix = @import("prefix.zig");
+
+const decoder = @import("decoder/decoder.zig");
+pub const Decoder = decoder.Decoder;
+pub const DecoderOptions = decoder.DecoderOptions;
+pub const HttpDecoder = decoder.HttpDecoder;
+pub const Corrupt = decoder.Corrupt;
+pub const Unsupported = decoder.Unsupported;
+pub const Error = decoder.Error;
+pub const refusal = decoder.refusal;
 
 test {
     _ = constants;
     _ = dictionary;
     _ = transform;
     _ = context;
+    _ = prefix;
+    _ = decoder;
 }
