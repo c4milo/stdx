@@ -275,6 +275,7 @@ Change this section when a step adds or renames a command.
   JSON. It builds ReleaseSafe: Zig 0.16.0's test runner does not compile in fuzz mode in Debug.
   `tools/ci.sh` runs a short pass on every push, and the `fuzz` workflow a long one every night,
   one job per module on each runner, keeping each job's corpus in GitHub's cache (decision 20).
+  A person may run the workflow for one module, named in its `module` input.
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
   `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
