@@ -212,7 +212,8 @@ pub const Decoder = struct {
         for (0..constants.decoder_steps_max) |_| {
             if (try self.step(claims, reader, writer, piece)) |outcome| return outcome;
         }
-        // A step returns, or passes a separator; no more than two separators stand between tokens.
+        // A step returns, or passes the record separators, the byte order mark's check or one
+        // separator, each at most once between two tokens.
         unreachable;
     }
 
@@ -420,10 +421,13 @@ pub fn kind_of(open: Open) Kind {
     };
 }
 
-/// Takes the whitespace at the reader's position (RFC 8259 §2), and returns how much.
+/// Takes the whitespace at the reader's position (RFC 8259 §2), and returns how much. Most tokens
+/// follow the one before with none between them, so the first octet is tested here, before either
+/// path is called.
 fn skip_whitespace(comptime claims: Claims, reader: *codec.Reader) usize {
     const window = reader.take_partial(reader.remaining_len());
     reader.unread(window.len);
+    if (window.len == 0 or !scan.is_whitespace(window[0])) return 0;
     const len = if (claims.whitespace_vectors)
         scan.whitespace_len_vector(constants.vector_len, window)
     else

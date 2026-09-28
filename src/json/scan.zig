@@ -182,14 +182,6 @@ fn shift_mask(comptime width: usize, comptime count: usize) @Vector(width, i32) 
     return mask;
 }
 
-/// True when the last lanes of `block` start a character that needs octets past it (RFC 3629 §3).
-fn ends_inside_character(comptime width: usize, block: Block(width)) bool {
-    inline for (1..constants.utf8_len_max) |back| {
-        if (block[width - back] >= constants.reaching_lead_min[back]) return true;
-    }
-    return false;
-}
-
 /// The octets at the end of `octets` that start a character it cuts, when all before them is whole
 /// UTF-8 and the last character's continuation octets are right for their first octet.
 fn cut_character_len(octets: []const u8) usize {
@@ -207,32 +199,42 @@ fn cut_character_len(octets: []const u8) usize {
     return 0;
 }
 
-/// `content_len_scalar`, `width` octets at a time (claim J5). After a whole character, a block
-/// takes `plain_len_vector`'s one test, and one of plain ASCII goes on at once. A block of ASCII
-/// that holds an octet to escape stops at it. Any other block is checked whole as UTF-8, and the
-/// first that holds an octet to escape or one UTF-8 rules out ends the vector loop: the scalar
-/// path goes on from the start of the last character before it.
+/// `content_len_scalar`, `width` octets at a time (claim J5). Plain ASCII takes
+/// `plain_len_vector`'s loop, so text of ASCII costs what it costs without the claim. At a
+/// non-ASCII octet, `utf8_run` checks whole blocks as UTF-8 and hands back to that loop after a
+/// block of ASCII. A block that holds an octet to escape, or one UTF-8 rules out, ends the vector
+/// path: the scalar path goes on from the start of the last character before it.
 pub fn content_len_vector(comptime width: usize, octets: []const u8) usize {
+    var index: usize = 0;
+    // Each pass takes octets or returns: a UTF-8 run that hands back takes at least a block.
+    for (0..octets.len + 1) |_| {
+        index += plain_len_vector(width, octets[index..]);
+        if (index == octets.len or octets[index] < constants.non_ascii_min) return index;
+        const run = utf8_run(width, octets[index..]);
+        index += run.len;
+        if (!run.ascii_next) return index + content_len_scalar(octets[index..]);
+    }
+    unreachable;
+}
+
+/// What `utf8_run` took: whole characters, and whether a block of ASCII ended them.
+const Run = struct { len: usize, ascii_next: bool };
+
+/// The blocks of `octets`, which starts a non-ASCII character, that are whole UTF-8 characters
+/// with no octet to escape (RFC 8259 §7, RFC 3629 §4), up to one of ASCII alone, which ends the run
+/// on a character's end. Without one, the run stops before the block that fails, less a character
+/// it cuts.
+fn utf8_run(comptime width: usize, octets: []const u8) Run {
     var previous = splat(width, 0);
-    var whole = true;
     var index: usize = 0;
     for (0..octets.len / width) |_| {
         const block = load(width, octets[index..]);
-        const stops = plain_stops(width, block);
-        if (whole and !any(width, stops)) {
-            previous = block;
-            index += width;
-            continue;
-        }
-        const ascii = !any(width, block >= splat(width, constants.non_ascii_min));
-        if (whole and ascii) return index + first_lane(width, stops);
         if (any(width, escape_lanes(width, block) | utf8_error_lanes(width, previous, block))) break;
         previous = block;
-        whole = !ends_inside_character(width, block);
         index += width;
+        if (!any(width, block >= splat(width, constants.non_ascii_min))) return .{ .len = index, .ascii_next = true };
     }
-    index -= cut_character_len(octets[0..index]);
-    return index + content_len_scalar(octets[index..]);
+    return .{ .len = index - cut_character_len(octets[0..index]), .ascii_next = false };
 }
 
 /// `whitespace_len_scalar`, `width` octets at a time (claim J4). Most tokens follow the one before
