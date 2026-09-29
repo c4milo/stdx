@@ -34,11 +34,14 @@ pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, out
     assert(encoder.part == .between_tokens and encoder.pending_len == 0);
     assert(written.* <= output.len);
     var loop: Loop = .{ .encoder = encoder, .output = output, .written = written.* };
+    // The digits of a number the loop formats. Declared in `item`, its fill of undefined octets in
+    // a safe build ran at every item.
+    var buffer: format.Buffer = undefined;
     var taken: usize = 0;
     for (items) |entry| {
         codec.check_entry(entry.octets, output);
         assert(entry.octets.len == 0 or encoder_file.takes_input(entry.token));
-        if (!loop.item(claims, entry)) break;
+        if (!loop.item(claims, entry, &buffer)) break;
         taken += 1;
         if (encoder.part == .done) break;
     }
@@ -65,10 +68,9 @@ const Loop = struct {
     written: usize,
 
     /// Writes `entry` whole and returns true, or writes nothing, changes nothing and returns false.
-    inline fn item(self: *Loop, comptime claims: Claims, entry: Item) bool {
+    inline fn item(self: *Loop, comptime claims: Claims, entry: Item, buffer: *format.Buffer) bool {
         const kind = std.meta.activeTag(entry.token);
         assert(encoder_file.allowed(self.encoder.position, kind));
-        var buffer: format.Buffer = undefined;
         return switch (entry.token) {
             .begin_object => self.structural(kind, constants.begin_object),
             .begin_array => self.structural(kind, constants.begin_array),
@@ -77,9 +79,9 @@ const Loop = struct {
             .name, .string => |piece| self.string(claims, kind, entry.octets, piece),
             .hex => |piece| self.hex(claims, entry.octets, piece),
             .number => |piece| self.number_text(entry.octets, piece),
-            .unsigned => |value| self.text(kind, format.unsigned(&buffer, value)),
-            .signed => |value| self.text(kind, format.signed(&buffer, value)),
-            .decimal => |value| self.text(kind, format.decimal(&buffer, value)),
+            .unsigned => |value| self.text(kind, format.unsigned(buffer, value)),
+            .signed => |value| self.text(kind, format.signed(buffer, value)),
+            .decimal => |value| self.text(kind, format.decimal(buffer, value)),
             .boolean => |truth| self.text(kind, if (truth) constants.literal_true else constants.literal_false),
             .null => self.text(kind, constants.literal_null),
         };
