@@ -1580,6 +1580,73 @@ to 12 are reordered and nothing else changes.
     one claim off, J7's included. What the all-on build inlined slowed its checked content loop, so
     `Encoder.run` now calls that loop out of line in every build.
 
+  bench-json run [36502826435](https://github.com/c4milo/stdx/actions/runs/36502826435) at d90d8f6
+  listed no loss on the N2. On an AMD EPYC 7763 it listed seven, each 5% to 8%: 1 KiB hex strings
+  decoded faster with J10 off, CLDR's texts encoded faster with J2 off, a claim none of their tokens
+  take, and qlog's records with J1 or J2 off.
+
+  **Where the cycles went, 2026-09-28.** perf record sampled bench_json's decoder and encoder over
+  qlog's records and CLDR's texts on the N2, by source line and by instruction, on unmerged branches
+  `exp-json-perf-5` to `exp-json-perf-10`, whose `bench` workflow adds a `json-perf` option. Each
+  cost it found, and what removed it:
+  - The decoder's loop built each token's slot on the stack with narrower stores and loaded it back
+    whole: a store-forwarding stall on about a third of the loop's samples. It writes the slot from
+    registers.
+  - `std.StaticBitSet.isSet` takes the set by value, and the loops copied its 128 octets to the stack
+    at each read; the number machine's `get` copied a 14-octet row at each step. Both read through
+    pointers, and the loops keep their depth and their container's kind in locals.
+  - Each item of the encoder's loop ran about 60 instructions before its own work: the switches of
+    `allowed`, now a table; a fill of undefined digits, now once a batch; the token's value loaded
+    whole before its kind was known; and its frame of four bools and the loop's fields in memory.
+  - A name under 16 octets left the encoder's inline scan for an out-of-line loop, 12% to 18% of
+    encoding; a short run now fills one block from two overlapping halves, and so does a short hex
+    string. A longer run ends in a block overlapping the last.
+  - NEON's UMAXV slowed each block's stop test; SHRN serves both it and the stop's lane. A string's
+    closing quotation mark is read from the block's own compare, not loaded again.
+  - The formatter took a division a digit, 6% of encoding qlog's records; it writes two a division,
+    inline. A number's `@memcpy` in the decoder's loop was a call; a short one takes two moves.
+  - The checked path took each text's record separator, byte order mark check and end, about a
+    sixth of decoding qlog's records; the decoder's loop takes them, with a slot left.
+  - `check_batch` tested for each slot whether it was the last, 6% of decoding qlog's records.
+  - The loops left short strings near an input's end to J8 and J9, which then tried every token the
+    loops left, and failed. The loops take them, and a batch skips J8 and J9.
+  - The loops left every string with an escape or a non-ASCII octet to the checked path. They take
+    their runs of ASCII and whole UTF-8 characters, and each escape RFC 8259 §7 names; any other
+    octet leaves the string, whole, to the checked path.
+  - The benchmark declared each text's decoder and encoder undefined, which a safe build filled.
+
+  Mutations, each CAUGHT and listed in the commits, cover every change above; the tests of the
+  loops now also require them to take a text whole, strings with every escape they name, and short
+  texts cut at every octet.
+
+  **The safety checks, 2026-09-28.** Decision 17's measurement, counted with perf's counters on the
+  N2, found the compiler's checks costing the json fast paths past its 5%, and the loops' own
+  checks about 13% of decoding and 11% to 12% of encoding (decision 17 has the runs). By
+  construction, with every check on:
+  - The decoder's loop keeps the input it has not taken and the output it has not written as
+    slices, reads and writes from their starts, and moves past what it took. Its indices into the
+    whole input and output had cost each read and store a check the compiler could not prove.
+  - The loops' paths for a string's escapes and UTF-8 walk the string and its room the same way.
+  - Each of the encoder loop's arms checks the item's contract its kind asks for: the grammar as a
+    shift of a mask built at compile time, an empty input where the kind takes none, and the
+    overlap with the output where it takes octets.
+
+  Per token on the N2, at 6b7157c before the slices, bench-profile run
+  [36507872439](https://github.com/c4milo/stdx/actions/runs/36507872439) counted:
+
+  | Workload | Side | stdx | simdjson | yyjson |
+  |---|---|---|---|---|
+  | CLDR | decoding | 37.6 cycles, 152.0 instructions | 31.3, 109.0 | 27.9, 107.1 |
+  | qlog | decoding | 37.7 cycles, 165.6 instructions | 29.1, 108.7 | 28.4, 106.7 |
+  | CLDR | encoding | 29.6 cycles, 128.0 instructions | 24.9, 102.1 | 26.7, 105.4 |
+  | qlog | encoding | 27.9 cycles, 128.8 instructions | 22.4, 100.1 | 28.2, 117.7 |
+
+  From 49.5, 58.8, 48.6 and 46.5 cycles a token at 1dde0ba. bench-json run
+  [36507002814](https://github.com/c4milo/stdx/actions/runs/36507002814) at 311b142 had stdx
+  decoding CLDR's texts and qlog's records at 0.789 and 0.744 of simdjson's speed on the N2, and
+  encoding them at 0.773 and 0.681, from 0.630, 0.498, 0.517 and 0.491 at 1dde0ba, with no loss
+  listed on the N2 or on an AMD EPYC 7763.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
@@ -1592,7 +1659,8 @@ and one that does not beat the noise is removed.
 
 ## 10. Open questions for the owner
 
-Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the owner:
+Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the owner, and
+decision 17's measurement of the `json` fast paths a third:
 
 - A dependency for the `json` module's checks: a conformance corpus such as JSONTestSuite, or an
   oracle. Until one is ruled in, an independent parser in the tests is the decoder's judge. The
@@ -1600,6 +1668,10 @@ Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the
 - A proof in Lean that the vector UTF-8 check of claim J5 agrees with the scalar one on every
   window of four octets. Decision 28 proves the scalar machines against their RFCs, and leaves
   this one.
+- Decision 17's measurement of the `json` fast paths: the compiler's checks cost the decoder's
+  token loop about 15% of its cycles on the N2, and the encoder's about 27%, past 5% (design §8
+  step 18). Whether to propose an exception under decision 16 for the loops of claims J10 and J11,
+  with the A/B that entry asks for, once construction has removed what it can.
 
 ## 11. Risks
 

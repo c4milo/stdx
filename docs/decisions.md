@@ -838,6 +838,24 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
     so the compiler proves its bounds and writes nothing it need not, with every check still on;
     measure on the runners; and propose an exception under decision 16 only for what remains.
 
+    **json's measurement, 2026-09-28**, counted with perf's counters on the N2 in one run of each
+    build, not decision 20's five (design §8 step 18). Built ReleaseFast, bench_json's stdx takes
+    16% to 18% fewer cycles a token decoding CLDR's texts and qlog's records, and 29% to 36% fewer
+    encoding them (runs [36508599164](https://github.com/c4milo/stdx/actions/runs/36508599164)
+    and [36508601413](https://github.com/c4milo/stdx/actions/runs/36508601413)), past this entry's
+    5%. With stdx's own assertions turned off and the compiler's checks on, it takes 1% to 3% fewer
+    decoding and 6% to 10% fewer encoding (runs
+    [36509679849](https://github.com/c4milo/stdx/actions/runs/36509679849) and
+    [36509681736](https://github.com/c4milo/stdx/actions/runs/36509681736)): the rest is the
+    compiler's bounds and overflow checks. With safety off in the files of claims J10's and J11's
+    token loops alone, it takes 13% fewer cycles decoding and 11% to 12% fewer encoding (runs
+    [36511601584](https://github.com/c4milo/stdx/actions/runs/36511601584) and
+    [36511603467](https://github.com/c4milo/stdx/actions/runs/36511603467)). The json fast paths
+    take the route the owner ruled for brotli's. Construction took the decoder loop's share first:
+    it reads and writes slices whose lengths the compiler knows, where indices into the whole input
+    and output cost each access a check (design §8 step 18). An exception under decision 16 waits
+    on the owner (design §10).
+
     The alternatives refused:
     - Safety off in the hot functions only, with `@setRuntimeSafety(false)`. It turns every
       assertion there into an assumption the optimizer relies on, which is the opposite of a
