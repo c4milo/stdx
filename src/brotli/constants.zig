@@ -333,7 +333,7 @@ pub const decoder_state_len = 2_705_808;
 /// memory of any width but 7 and resolves more codes than it.
 pub const table_root_bits = 8;
 /// The widest root a build doubles with loads and stores of a fixed width, in entries; a wider
-/// doubling goes through memcpy, whose call costs more than a copy of 64 octets.
+/// doubling copies blocks of this many entries, 64 octets, with no call to memcpy.
 pub const root_copy_inline_max = 16;
 
 /// The most entries a lookup table of each alphabet takes over every code RFC 7932 allows it, as
