@@ -247,11 +247,13 @@ const Loop = struct {
         const first = self.position + 1;
         var len: usize = 0;
         for (0..constants.wide_run_len_min / constants.vector_len) |_| {
-            if (self.input.len - first - len < constants.vector_len or self.output.len - self.written - len < constants.vector_len) {
-                return self.copy_short(claims, first, len);
-            }
-            const block: @Vector(constants.vector_len, u8) = self.input[first + len ..][0..constants.vector_len].*;
-            self.output[self.written + len ..][0..constants.vector_len].* = block;
+            // Each block's slices first: their lengths' test then proves the load and the store in
+            // bounds, which a test of the lengths left over did not, and each paid a check again.
+            const input_rest = self.input[first + len ..];
+            const output_rest = self.output[self.written + len ..];
+            if (input_rest.len < constants.vector_len or output_rest.len < constants.vector_len) return self.copy_short(claims, first, len);
+            const block: @Vector(constants.vector_len, u8) = input_rest[0..constants.vector_len].*;
+            output_rest[0..constants.vector_len].* = block;
             if (scan.plain_stop(block)) |lane| {
                 if (scan.is_quotation_mark(block, lane)) return .{ .input_len = len + lane, .output_len = len + lane };
                 return self.copy_rest(claims, first, len + lane);
