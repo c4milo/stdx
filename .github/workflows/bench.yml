@@ -31,8 +31,8 @@ jobs:
     timeout-minutes: 120
     env:
       RUNNER_LABEL: ${{ matrix.runner }}
-      # Zig's global cache in the directory the cache step keeps, so that a run fetches only what
-      # no earlier run fetched.
+      # Zig's global cache in the directory the cache keeps, so that a run fetches only what no
+      # earlier run fetched.
       ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/zig-pkg
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,12 +47,39 @@ jobs:
           # that are missing there. The base uses the checkout's zig-pkg, which the cache restores,
           # in place of an empty one of its own.
           ln -s "$GITHUB_WORKSPACE/zig-pkg" base/zig-pkg
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # GitHub's cache never replaces an entry, so each run's key holds the run's ID. The step
+      # restores the newest entry a run kept for this build.zig.zon, or else the newest of any, so
+      # that a changed build.zig.zon downloads only the packages it adds. The dash keeps the first
+      # restore key from matching an entry's whole key, which the cache would prefer.
+      - name: Restore the packages
+        id: packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
-          key: zig-pkg-${{ hashFiles('build.zig.zon') }}
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}
+          restore-keys: |
+            zig-pkg-${{ hashFiles('build.zig.zon') }}-
+            zig-pkg-
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Fetch the packages
+        id: fetch
+        run: |
+          # Zig keeps an archive of each package it downloads in its global cache's p directory.
+          archives="$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)"
+          tools/fetch_packages.sh
+          # The base's packages too, so that the entry the next step keeps holds them.
+          if [ -d base ]; then (cd base && "$GITHUB_WORKSPACE/tools/fetch_packages.sh"); fi
+          if [ "$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)" != "$archives" ]; then
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+          fi
+      # A new entry only when the restored one lacked a package.
+      - name: Keep the packages
+        if: steps.fetch.outputs.downloaded == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: ${{ steps.packages.outputs.cache-primary-key }}
       - name: Name the step
         run: |
           case "${{ inputs.benchmark }}" in

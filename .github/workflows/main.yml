@@ -20,18 +20,46 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     env:
-      # Zig's global cache in the directory the cache step keeps, so that a run fetches only what
-      # no earlier run fetched.
+      # Zig's global cache in the directory the cache keeps, so that a run fetches only what no
+      # earlier run fetched.
       ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/zig-pkg
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # GitHub's cache never replaces an entry, so each run's key holds the run's ID. The step
+      # restores the newest entry a run kept for this build.zig.zon, or else the newest of any, so
+      # that a changed build.zig.zon downloads only the packages it adds. The dash keeps the first
+      # restore key from matching an entry's whole key, which the cache would prefer.
+      - name: Restore the packages
+        id: packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
-          key: zig-pkg-${{ hashFiles('build.zig.zon') }}
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}
+          restore-keys: |
+            zig-pkg-${{ hashFiles('build.zig.zon') }}-
+            zig-pkg-
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      # tools/ci.sh fetches the packages again as its first check. Fetching them here lets the next
+      # step keep them whatever the checks do, and a failure here leaves the report to tools/ci.sh.
+      - name: Fetch the packages
+        id: fetch
+        continue-on-error: true
+        run: |
+          # Zig keeps an archive of each package it downloads in its global cache's p directory.
+          archives="$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)"
+          tools/fetch_packages.sh
+          if [ "$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)" != "$archives" ]; then
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+          fi
+      # A new entry only when the restored one lacked a package.
+      - name: Keep the packages
+        if: steps.fetch.outputs.downloaded == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: ${{ steps.packages.outputs.cache-primary-key }}
       # The Lean release for the proofs of decision 28, which tools/ci.sh builds where lake is on
       # the path: on the x86-64 runner alone, as the proofs need one machine.
       - name: Restore Lean

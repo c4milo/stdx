@@ -48,15 +48,21 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     env:
-      # Zig's global cache in the directory the cache step keeps, so that a run fetches only what
-      # no earlier run fetched.
+      # Zig's global cache in the directory the cache keeps, so that a run fetches only what no
+      # earlier run fetched.
       ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/zig-pkg
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The packages the ci and bench workflows keep, restored as they restore them. A fuzz build
+      # fetches pepegrillo alone, so this job keeps no entry: one it kept would lack the rest.
+      - name: Restore the packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
-          key: zig-pkg-${{ hashFiles('build.zig.zon') }}
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}
+          restore-keys: |
+            zig-pkg-${{ hashFiles('build.zig.zon') }}-
+            zig-pkg-
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
