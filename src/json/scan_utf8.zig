@@ -91,6 +91,29 @@ pub fn cut_character_len(octets: []const u8) usize {
     return 0;
 }
 
+/// Whether `octets` is UTF-8 whole (RFC 3629 §4): the check a string's octets go through in the
+/// walk, run alone over a buffer, a block of 16 at a time and the last octets through utf8.zig's
+/// machine. The json module's `is_utf8` for a caller, and bench-json's candidate beside simdutf's
+/// `validate_utf8`.
+pub fn valid(octets: []const u8) bool {
+    var previous: Block(constants.vector_len) = @splat(0);
+    var index: usize = 0;
+    for (0..octets.len / constants.vector_len) |_| {
+        const block: Block(constants.vector_len) = octets[index..][0..constants.vector_len].*;
+        if (@reduce(.Or, error_lanes(constants.vector_len, previous, block))) return false;
+        previous = block;
+        index += constants.vector_len;
+    }
+    // The blocks judged every octet but a character the last one cuts; the machine takes that
+    // character's first octets again with the tail, and must end between characters.
+    const cut_len = cut_character_len(octets[0..index]);
+    var machine: utf8.Utf8 = .{};
+    for (octets[index - cut_len ..]) |octet| {
+        if (!machine.accept(octet)) return false;
+    }
+    return machine.between_characters();
+}
+
 // The lookup (decision 37).
 
 /// What a pair of octets, the one before and the one on a lane, can break of RFC 3629 §4, one bit
@@ -305,14 +328,46 @@ fn expect_triple_judged(comptime start: usize, sequence: [sequence_len]u8) !void
     var octets: [width]u8 = @splat(0);
     octets[start..][0..sequence_len].* = sequence;
     const block: Block(width) = octets;
-    const valid = is_utf8(&octets);
-    if (comptime has_lookup) try testing.expectEqual(!valid, @reduce(.Or, error_lanes_lookup(previous, block)));
-    try testing.expectEqual(!valid, @reduce(.Or, error_lanes_compares(width, previous, block)));
+    const sequence_valid = is_utf8(&octets);
+    if (comptime has_lookup) try testing.expectEqual(!sequence_valid, @reduce(.Or, error_lanes_lookup(previous, block)));
+    try testing.expectEqual(!sequence_valid, @reduce(.Or, error_lanes_compares(width, previous, block)));
 }
 
 test "the lookup and the compares flag a block exactly when its sequence is not UTF-8" {
     try expect_triples_judged(0);
     try expect_triples_judged(constants.vector_len - sequence_len - 1);
+}
+
+/// `valid` an octet at a time, the reference: utf8.zig's machine over the whole buffer.
+fn valid_scalar(octets: []const u8) bool {
+    var machine: utf8.Utf8 = .{};
+    for (octets) |octet| {
+        if (!machine.accept(octet)) return false;
+    }
+    return machine.between_characters();
+}
+
+/// Buffers of letters with an edge sequence at each offset across three blocks, and at the end.
+const valid_buffer_blocks = 3;
+const valid_buffer_len = valid_buffer_blocks * constants.vector_len + 1;
+
+test "valid judges a buffer as the machine does, with a sequence at every offset" {
+    var buffer: [valid_buffer_len]u8 = undefined;
+    for (0..valid_buffer_len - sequence_len + 1) |offset| for (edge_octets) |first| for (edge_octets) |second| for (edge_octets) |third| {
+        buffer = @splat('a');
+        buffer[offset..][0..sequence_len].* = .{ first, second, third };
+        for ([_]usize{ offset + sequence_len, valid_buffer_len }) |len| try testing.expectEqual(valid_scalar(buffer[0..len]), valid(buffer[0..len]));
+    };
+}
+
+test "valid takes whole characters that blocks cut, and refuses a cut one at the end" {
+    try testing.expect(valid(""));
+    try testing.expect(valid("a" ** 15 ++ "\xe2\x82\xac" ++ "b" ** 14));
+    try testing.expect(valid("\xf0\x9f\x98\x80" ** 5));
+    try testing.expect(!valid("a" ** 16 ++ "\xe2\x82"));
+    try testing.expect(!valid("a" ** 15 ++ "\xe2\x82"));
+    try testing.expect(!valid("\x80"));
+    try testing.expect(!valid("a" ** 17 ++ "\xc0\xaf"));
 }
 
 test "cut_character_len takes a cut character's first octets and nothing of a whole one" {

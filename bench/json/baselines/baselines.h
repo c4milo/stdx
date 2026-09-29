@@ -61,6 +61,11 @@ size_t stdx_bench_format_hex(const stdx_bench_token *token, char *out);
 
 /* 1 where simdjson's bindings are built, and 0 where they are absent. */
 int stdx_bench_simdjson_built(void);
+
+/* simdutf 9.2.1, the UTF-8 check's baseline (decision 38): whether it was built, and its
+ * validate_utf8 over `len` octets, 1 for UTF-8 whole and 0 otherwise. */
+int stdx_bench_simdutf_built(void);
+int stdx_bench_simdutf_validate_utf8(const uint8_t *octets, size_t len);
 void *stdx_bench_simdjson_parser_new(void);
 void stdx_bench_simdjson_parser_free(void *parser);
 size_t stdx_bench_simdjson_padding(void);

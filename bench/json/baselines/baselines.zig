@@ -28,6 +28,8 @@ pub const names = [_][]const u8{ "simdjson", "yyjson", "std.json" };
 pub const count = names.len;
 
 extern fn stdx_bench_simdjson_built() c_int;
+extern fn stdx_bench_simdutf_built() c_int;
+extern fn stdx_bench_simdutf_validate_utf8(octets: [*]const u8, len: usize) c_int;
 extern fn stdx_bench_simdjson_parser_new() ?*anyopaque;
 extern fn stdx_bench_simdjson_parser_free(parser: *anyopaque) void;
 extern fn stdx_bench_simdjson_padding() usize;
@@ -80,6 +82,17 @@ pub const Prepared = struct {
 /// libc++ (build/oracle.zig). An absent one is timed as nothing and reported as not built.
 pub fn built() [count]bool {
     return .{ stdx_bench_simdjson_built() != 0, true, true };
+}
+
+/// Whether simdutf, the UTF-8 check's baseline (decision 38), was built: on macOS it is not, as
+/// simdjson is not.
+pub fn simdutf_built() bool {
+    return stdx_bench_simdutf_built() != 0;
+}
+
+/// simdutf's `validate_utf8` over `octets`.
+pub fn simdutf_validate_utf8(octets: []const u8) bool {
+    return stdx_bench_simdutf_validate_utf8(octets.ptr, octets.len) != 0;
 }
 
 /// Makes the baselines' inputs for `workload` in `arena`, which the caller frees after timing it.

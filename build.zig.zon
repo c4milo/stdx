@@ -91,6 +91,12 @@
             .hash = "N-V-__8AABFlbgB11C3wOoHo9lqDatPMvTuIdHI0vwVxDpTe",
             .lazy = true,
         },
+        // The UTF-8 check's baseline of decision 38, from design §8 step 18: simdutf 9.2.1.
+        .simdutf = .{
+            .url = "https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.1.tar.gz",
+            .hash = "N-V-__8AAAE8mgCr14BJ3sUSbvr855Du4KvLAmHxCb_adpr6",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

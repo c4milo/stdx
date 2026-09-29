@@ -200,8 +200,8 @@ stdx's appendix to it.
     import no package into;
   - the oracles and baselines of `tools/` and `bench/` (decision 8): zlib and Wuffs, added at
     design §8 step 2, and libzstd, Google's brotli, zlib-ng and libdeflate, each added in the
-    commit that first uses it; and simdjson and yyjson, bench-json's baselines beside Zig's
-    std.json (decision 27);
+    commit that first uses it; simdjson and yyjson, bench-json's baselines beside Zig's std.json
+    (decision 27); and simdutf, the baseline of the `json` module's UTF-8 check (decision 38);
   - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
     fetches and checks against a pinned SHA-256 because Zig fetches archives only.
@@ -336,8 +336,10 @@ Change this section when a step adds or renames a command.
   JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text,
   decoded also with its characters as `\u` escapes, and hex strings, beside simdjson, yyjson and
   Zig's std.json: every candidate interleaved in one
-  run, the median of five runs with the spread, and the losses listed (decision 27). A macOS host
-  builds it without simdjson, as Zig 0.16.0 builds no libc++ there. `bench/run.sh <report.md> bench-json -Doracles`
+  run, the median of five runs with the spread, and the losses listed (decision 27). It then times
+  the module's `is_utf8` alone over each string workload's octets beside simdutf's `validate_utf8`
+  (decision 38). A macOS host builds it without simdjson and simdutf, as Zig 0.16.0 builds no
+  libc++ there. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the

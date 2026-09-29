@@ -15,7 +15,8 @@ baselines' numbers, entry 31 out of design §8 step 17's profile, entry 32 out o
 decoder, entry 33 out of the owner's ruling on what step 17's profile left, entry 34 out of the
 losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 out of decision
 17's json measurement, entry 36 out of design §8 step 9's comparison with libdeflate's output,
-and entry 37 out of design §8 step 18's non-ASCII rows.
+entry 37 out of design §8 step 18's non-ASCII rows, and entry 38 out of the question entry 37
+left, how fast the check runs alone.
 
 ## Scope and shape
 
@@ -1926,3 +1927,37 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
     - No check. RFC 8259 §8.1 requires UTF-8, and entry 27's decoder refuses a text that is not.
     - A lookup written in plain Zig from selects. Sixteen selects a lookup, more than the compares
       it replaces.
+
+38. **simdutf as the baseline of the `json` module's UTF-8 check.** Proposed and taken on
+    2026-09-29, from the question entry 37 left. Entry 37 measured the check inside the loops, where
+    it is one cost among the stops, the copies and the escapes, against simdjson's and yyjson's
+    whole parsers. The owner asked how the check itself compares with simdutf, the library that
+    publishes the fastest UTF-8 validation and the algorithm entry 37 built from its paper. Only a
+    check run alone answers that, so the module exports one, and bench-json times it beside
+    simdutf's.
+    - `json.is_utf8(octets)`, `scan_utf8.valid`: whether a buffer is UTF-8 whole (RFC 3629 §4),
+      through the same `error_lanes` the loops run a block of 16 octets at a time, and utf8.zig's
+      machine, entry 28's reference, over the character the last block cuts and the octets after
+      it. It is a function of its input alone, keeps no state, and follows the module's rules: no
+      heap, no I/O, a loop bounded by the input.
+    - simdutf 9.2.1 joins bench-json's baselines as a lazy package pinned by hash (entry 8), built
+      from its sources with Zig's clang as simdjson is, its AVX-512 kernel left out on an x86-64
+      host without `evex512` for entry 27's reason, and absent on macOS with simdjson (entry 10).
+      Its binding calls `validate_utf8` and nothing else (`bench/json/baselines/`).
+    - bench-json's section "UTF-8 validation against simdutf" (`bench/json/json_utf8.zig`) runs
+      both over each string workload's octets, the ASCII texts and the non-ASCII one, interleaved
+      in one run, the median of five with the spread, and lists the losses under entry 20's floor.
+      Before it times anything, both must judge every buffer alike.
+    - Nothing in `src/` reads simdutf's source or its output; the bench holds the only call.
+
+    What it costs: a third C++ baseline in `bench/`, about 4 MB of source the first `-Doracles`
+    build fetches, and one public function the module must keep.
+
+    The alternatives:
+    - No measurement of the check alone: entry 37's rows against simdjson and yyjson stand for it.
+      Refused because they mix the check with the rest of the loop, and a check slower than the
+      state of the art would hide behind a faster copy.
+    - simdjson's `validate_utf8`, already built. It is the same family of algorithm in a copy
+      simdjson keeps, not the library that leads on UTF-8, and the owner named simdutf.
+    - Timing the check through the walk with the copies and stops taken out. The walk's shape is
+      the walk's; a validator that a caller may run over a buffer is what a caller compares.

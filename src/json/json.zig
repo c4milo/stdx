@@ -33,6 +33,11 @@ pub const DecodeError = decoder.Error;
 pub const refusal = decoder.refusal;
 const text_reader = @import("decoder/text_reader.zig");
 pub const TextReader = text_reader.TextReader;
+
+/// Whether `octets` is UTF-8 whole (RFC 3629 §4, RFC 8259 §8.1): the check the encoder applies to
+/// a string's octets and the decoder to a text's, run alone. A caller that must know before it
+/// encodes, or that holds octets from elsewhere, asks here.
+pub const is_utf8 = @import("scan_utf8.zig").valid;
 pub const Item = text_reader.Item;
 
 test {

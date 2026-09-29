@@ -20,7 +20,8 @@
 //! into a tally, the work the baselines do too.
 //!
 //! simdjson, yyjson and Zig's std.json run in the same interleaved run, after the candidates
-//! (baselines/baselines.zig, decision 27).
+//! (baselines/baselines.zig, decision 27), and the UTF-8 check runs alone beside simdutf's over
+//! each string workload's octets (json_utf8.zig, decision 38).
 //!
 //! stdx is built for the architecture's baseline CPU and ReleaseSafe, as a caller shipping one
 //! binary builds it (decisions 17 and 21), so the vectors are SSE2's and NEON's 16 octets.
@@ -37,6 +38,7 @@ const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
 const baselines = @import("baselines/baselines.zig");
 const json_profile = @import("json_profile.zig");
+const json_utf8 = @import("json_utf8.zig");
 const calls = @import("json_calls.zig");
 const Item = workloads.Item;
 const Workload = workloads.Workload;
@@ -259,6 +261,7 @@ pub fn main(init: std.process.Init) !void {
         const name = if (loss.claim < json.claims.each_off.len) json.claims.each_off_names[loss.claim] else if (loss.claim == batches_loss) "many tokens a call (decision 33)" else "every claim";
         try out.print("- {s}, {s}: {s} off runs at {d:.3} of all on.\n", .{ loss.workload, loss.side, name, loss.ratio });
     }
+    try json_utf8.report(arena, io, out, all);
     try baselines.report(out, &.{
         .{ .title = "Decoding against the baselines", .octets_are = "Octets are the text's.", .side = "decoding", .rows = decoding_rows },
         .{ .title = "Encoding against the baselines", .octets_are = "Octets are the ones stdx writes.", .side = "encoding", .rows = encoding_rows },
