@@ -120,7 +120,8 @@ pub fn valid(octets: []const u8) bool {
     }
     if (@reduce(.Max, errors) != 0) return false;
     for (0..(octets.len - index) / width) |_| {
-        const block: Block(width) = octets[index..][0..width].*;
+        // As in a group, through `loaded`: without it LLVM split this block's load into six.
+        const block = loaded(width, octets[index..][0..width].*);
         if (@reduce(.Or, error_lanes(width, previous, block))) return false;
         previous = block;
         index += width;
@@ -164,8 +165,8 @@ fn group_error_octets(previous: *Block(constants.vector_len), group: *const [con
 /// split each block's load into a load of 13 lanes and three loads of one lane, with a copy of the
 /// register between them: 24 loads and 12 copies a group of four blocks in place of 4 loads. An
 /// empty assembly statement that takes the block in a vector register and gives it back makes the
-/// whole register the value the shuffles read. `valid`'s groups and scan.zig's `utf8_run` take
-/// each block through it; a block wider than 16 octets, which only the tests scan, passes as it is.
+/// whole register the value the shuffles read. `valid` and scan.zig's `utf8_run` take each block
+/// through it; a block wider than 16 octets, which only the tests scan, passes as it is.
 pub inline fn loaded(comptime width: usize, block: Block(width)) Block(width) {
     if (comptime width != constants.vector_len) return block;
     return switch (builtin.cpu.arch) {
