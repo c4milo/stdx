@@ -18,6 +18,7 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
 const number_grammar = @import("../number.zig");
+const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
@@ -157,7 +158,7 @@ const Loop = struct {
     /// mark, a block of 16 at a time.
     inline fn string(self: *Loop, comptime claims: Claims, kind: Kind) ?Slot {
         const start = self.written;
-        const content_len = (if (claims.decoder_string_vectors) self.copy_blocks() else self.copy_scalar()) orelse return null;
+        const content_len = (if (claims.decoder_string_vectors) self.copy_blocks(claims) else self.copy_scalar()) orelse return null;
         self.position += 1 + content_len + 1;
         self.written += content_len;
         self.last = .{ .matched = 1, .number = .{} };
@@ -165,13 +166,14 @@ const Loop = struct {
         return self.ended(kind, start);
     }
 
-    /// Copies a string's content a block of 16 at a time up to its closing quotation mark, and
-    /// returns its length, or null when an octet to escape, a control character, a non-ASCII octet
-    /// or the end of a slice comes first.
-    inline fn copy_blocks(self: *Loop) ?usize {
+    /// Copies a string's content up to its closing quotation mark, and returns its length, or null
+    /// when an octet to escape, a control character, a non-ASCII octet or the end of a slice comes
+    /// first. Its first `constants.wide_run_len_min` octets go a block of 16 at a time, and a run
+    /// past them to `copy_long`.
+    inline fn copy_blocks(self: *Loop, comptime claims: Claims) ?usize {
         const first = self.position + 1;
         var len: usize = 0;
-        for (0..self.input.len) |_| {
+        for (0..constants.wide_run_len_min / constants.vector_len) |_| {
             if (self.input.len - first - len < constants.vector_len) return null;
             if (self.output.len - self.written - len < constants.vector_len) return null;
             const block: @Vector(constants.vector_len, u8) = self.input[first + len ..][0..constants.vector_len].*;
@@ -181,7 +183,20 @@ const Loop = struct {
             }
             len += constants.vector_len;
         }
-        unreachable;
+        return self.copy_long(claims, first, len);
+    }
+
+    /// The rest of a run past its first `head_len` octets, scanned at the widest vector the caller's
+    /// features allow (claim J7), in a function of its own as `wide.plain_len` scans it, and copied
+    /// whole: 16 at a time, the loop ran long hex strings up to 10% slower than the checked path on
+    /// an AMD EPYC 7763 (design §8 step 18).
+    fn copy_long(self: *Loop, comptime claims: Claims, first: usize, head_len: usize) ?usize {
+        const rest = self.input[first + head_len ..];
+        const window = rest[0..@min(rest.len, self.output.len - self.written - head_len)];
+        const run_len = wide.plain_len(self.decoder.level.with(claims), window);
+        if (run_len == rest.len or rest[run_len] != constants.quotation_mark) return null;
+        @memcpy(self.output[self.written + head_len ..][0..run_len], window[0..run_len]);
+        return head_len + run_len;
     }
 
     /// `copy_blocks` an octet at a time (claim J3 off).

@@ -1469,6 +1469,14 @@ to 12 are reordered and nothing else changes.
   - `matched` and the expectation not written back, and a failed token's position kept;
   - the batch's reader not moved past the loop's tokens.
 
+  bench-json run [36499277567](https://github.com/c4milo/stdx/actions/runs/36499277567) at
+  f5a781d found the loop 6% to 10% slower than the checked path on 1 KiB hex strings on an AMD
+  EPYC 7763: it copied every block of 16, where the checked path takes J7's kernel of 32. A run
+  past its first 64 octets now goes to `wide.plain_len`, as J7's scans do. Mutations, each CAUGHT:
+  a long run's stop taken though it is no quotation mark, its head not counted, its copy over its
+  head, and its window not bounded by the room, which a test of a long string that fills the output
+  exactly catches.
+
   **J11, 2026-09-28.** `encoder_loop.zig`, decision 16's row for the JSON encoder token loop.
   `encoder_loop_test.zig` requires every batch to give the same counts, octets, error and state
   with J11 on and off, beside every other claim on and every other off, over a record, lists with
