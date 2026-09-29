@@ -15,9 +15,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Block = @import("encoder_block.zig").Block;
+const walk = @import("encoder_match_walk.zig");
+const best = walk.best;
+const best_pair = walk.best_pair;
 
 /// A match: its length, 0 for none, and its distance.
-const Match = struct {
+pub const Match = struct {
     len: u16 = 0,
     distance: u16 = 0,
 
@@ -180,30 +183,53 @@ fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level)) ?
 fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block) void {
     comptime assert(level.chains);
     const end = lookahead_end(level, self) orelse return;
-    var position = self.position;
-    var previous = self.previous;
-    var waiting = self.waiting;
-    while (position < end and !block.full()) {
-        self.position = position;
-        insert(level, self, position);
-        // A waiting match at least `lazy_len` long is taken without a search here.
-        const skip = waiting and previous.len >= level.lazy_len;
-        assert(waiting or previous.len == 0);
-        const current = if (skip) Match{} else best(level, self, constants.match_len_max, previous.len);
-        if (waiting and previous.len >= constants.match_len_taken_min and previous.score() >= current.score()) {
-            position = take_waiting(level, self, block, position, previous);
-            waiting = false;
-            previous = .{};
-            continue;
+    var state: LazyState = .{ .position = self.position, .previous = self.previous, .waiting = self.waiting };
+    while (state.position < end and !block.full()) {
+        insert(level, self, state.position);
+        var current: Match = .{};
+        if (level.pair_walks and !state.waiting and state.position + 1 < end) {
+            // A fresh start: this position's search waits, the next position's is compared with
+            // it, and the two walks share one loop.
+            insert(level, self, state.position + 1);
+            const pair = best_pair(level, self, state.position);
+            state.previous = pair.first;
+            state.waiting = true;
+            state.position += 1;
+            if (state.previous.len < level.lazy_len) current = pair.second;
+        } else {
+            // A waiting match at least `lazy_len` long is taken without a search here.
+            assert(state.waiting or state.previous.len == 0);
+            self.position = state.position;
+            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = best(level, self, constants.match_len_max, state.previous.len);
         }
-        if (waiting) block.add_literal(self.window[position - 1]);
-        previous = current;
-        waiting = true;
-        position += 1;
+        decide_lazy(level, self, block, &state, current);
     }
-    self.position = position;
-    self.previous = previous;
-    self.waiting = waiting;
+    self.position = state.position;
+    self.previous = state.previous;
+    self.waiting = state.waiting;
+}
+
+/// The lazy step's state through `advance_lazy`: the next position, and the match waiting from the
+/// position before it when `waiting`.
+const LazyState = struct {
+    position: usize,
+    previous: Match,
+    waiting: bool,
+};
+
+/// Takes the waiting match when it is worth at least the `current` one, else adds the position
+/// before as a literal and lets `current` wait.
+fn decide_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block, state: *LazyState, current: Match) void {
+    if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score() >= current.score()) {
+        state.position = take_waiting(level, self, block, state.position, state.previous);
+        state.waiting = false;
+        state.previous = .{};
+        return;
+    }
+    if (state.waiting) block.add_literal(self.window[state.position - 1]);
+    state.previous = current;
+    state.waiting = true;
+    state.position += 1;
 }
 
 /// Adds the match waiting from the position before `position`, every position it covers joining
@@ -323,54 +349,6 @@ fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: 
     self.previous = .{};
 }
 
-/// The longest match at `position` of at least `match_len_taken_min` octets, or none, among
-/// `candidates_max` earlier positions with its hash, the nearest first, up to `len_max` octets; a
-/// search ends early at `nice_len`. When the match waiting from the position before is
-/// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`.
-fn best(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
-    var found: Match = .{};
-    if (self.position + constants.hash_len > self.filled) return found;
-    assert(len_max >= constants.match_len_taken_min and self.position + len_max <= self.filled);
-    const cut = previous_len >= level.cut_len;
-    const candidates_max = if (cut) level.cut_candidates_max else level.candidates_max;
-    const later = self.window[self.position..][0..len_max];
-    // A match longer than `found` agrees on the 4 octets that end where `found` stops, and no
-    // match under `match_len_taken_min` is taken, so while `found` is shorter the first 4 decide.
-    // One compare of those 4 turns away most candidates before `match_len` compares from the
-    // start, and a candidate rarely passes it by chance, so its branch stays predictable.
-    var tail: u8 = 0;
-    var later_tail = tail_octets(later, tail);
-    var candidate = self.chain[slot(self.position)];
-    for (0..candidates_max) |_| {
-        // The chain names earlier positions, each farther than the one before it.
-        if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < self.position) break;
-        assert(candidate < self.position);
-        const next = self.chain[slot(candidate)];
-        if (tail_octets(self.window[candidate..], tail) == later_tail) {
-            found = longer_match(level, self, candidate, later, found);
-            if (found.len >= level.nice_len or found.len >= len_max) break;
-            tail = tail_of(found);
-            later_tail = tail_octets(later, tail);
-        }
-        candidate = next;
-    }
-    return found;
-}
-
-/// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,
-/// less the 4, or the match's first octets while none is found.
-inline fn tail_of(found: Match) u8 {
-    assert(found.len == 0 or found.len >= constants.match_len_taken_min);
-    return @intCast(found.len -| (constants.match_len_taken_min - 1));
-}
-
-/// The match at `candidate` when it is longer than `found`, else `found`.
-inline fn longer_match(comptime level: constants.Level, self: *const Matcher(level), candidate: u16, later: []const u8, found: Match) Match {
-    const len = match_len(self.window[candidate..][0..later.len], later);
-    if (len <= found.len) return found;
-    return .{ .len = @intCast(len), .distance = @intCast(self.position - candidate) };
-}
-
 /// The match at `candidate`, of at least `match_len_taken_min` octets, or none: the greedy level's
 /// one candidate, the head. Its first 4 octets decide before `match_len` compares.
 fn greedy_match(comptime level: constants.Level, self: *const Matcher(level), candidate: u16, len_max: usize) Match {
@@ -384,13 +362,13 @@ fn greedy_match(comptime level: constants.Level, self: *const Matcher(level), ca
 }
 
 /// The `match_len_taken_min` octets of `run` at `at`, least significant first.
-inline fn tail_octets(run: []const u8, at: usize) u32 {
+pub inline fn tail_octets(run: []const u8, at: usize) u32 {
     comptime assert(constants.match_len_taken_min == @sizeOf(u32));
     return std.mem.readInt(u32, run[at..][0..constants.match_len_taken_min], .little);
 }
 
 /// A position's slot in the chain.
-inline fn slot(position: usize) Slot {
+pub inline fn slot(position: usize) Slot {
     return @truncate(position);
 }
 
@@ -415,7 +393,7 @@ inline fn hash_of_word(comptime level: constants.Level, octets: u32) Hash(level)
 /// How many octets from the start of `earlier` equal those of `later`: 8 octets at a time, the
 /// first that differs found by the trailing zeros of their XOR (decision 14, E1). Both runs are
 /// walked as slices of words and then of octets, so no read checks its bounds on its own.
-fn match_len(earlier: []const u8, later: []const u8) usize {
+pub fn match_len(earlier: []const u8, later: []const u8) usize {
     assert(earlier.len == later.len and earlier.len <= constants.match_len_max);
     const word_len = @sizeOf(u64);
     const words_len = earlier.len - earlier.len % word_len;
