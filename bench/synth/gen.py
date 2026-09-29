@@ -196,6 +196,19 @@ def family_near(out, D, target):
     write(out, f'near{D}', block)
 
 
+def family_rand(out, W, target):
+    rng = random.Random(5000 + W)
+    # Pairs of length 8 at distances drawn uniformly from 64 to W, every distance code of 4 bits
+    # (symbols 10 to 25: 33 to 8192; W at most 8192), so the reads spread over the last W octets.
+    ll = [8] * 64 + [0] * 192 + [2] + [0] * 5 + [1]
+    d = [0] * 10 + [4] * 16
+    block = Block(ll, d)
+    for _ in range(W + 64): block.literal(rng.randrange(64))
+    while block.octets < target:
+        block.pair(8, rng.randrange(64, W + 1))
+    write(out, f'rand{W}', block)
+
+
 if __name__ == '__main__':
     out = sys.argv[1]; os.makedirs(out, exist_ok=True)
     which = sys.argv[2] if len(sys.argv) > 2 else 'all'
@@ -210,5 +223,7 @@ if __name__ == '__main__':
         for L in (3, 4, 8, 12, 16, 17, 24, 32, 33, 40, 48, 49, 64, 96, 128, 200, 258): family_len(out, L, target)
     if which in ('all', 'near'):
         for D in (5, 6, 8, 12, 20, 36, 52, 68, 100, 132, 200, 264, 400, 600, 1000): family_near(out, D, target)
+    if which in ('all', 'rand'):
+        for W in (256, 1024, 2048, 4096, 8192): family_rand(out, W, target)
     if which in ('all', 'plain'):
         for p in (0, 2, 5, 10, 20, 30, 50, 70, 100): family_plain(out, p, target)
