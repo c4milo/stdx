@@ -324,6 +324,22 @@ pub const Encoder = struct {
 
 /// True when a token of `kind` may come at `position` (RFC 8259 §2 to §5).
 pub fn allowed(position: Position, kind: Kind) bool {
+    return allowed_table[@intFromEnum(position)][@intFromEnum(kind)];
+}
+
+/// `allowed_by_grammar` for each position and kind, read in one load: its switches took about 25
+/// instructions of each item in the encoder's token loop, which asserts it (design §8 step 18).
+const allowed_table = table: {
+    const positions = std.enums.values(Position);
+    const kinds = std.enums.values(Kind);
+    var table: [positions.len][kinds.len]bool = undefined;
+    for (positions) |position| {
+        for (kinds) |kind| table[@intFromEnum(position)][@intFromEnum(kind)] = allowed_by_grammar(position, kind);
+    }
+    break :table table;
+};
+
+fn allowed_by_grammar(position: Position, kind: Kind) bool {
     return switch (position) {
         .text_start, .member_value => is_value(kind),
         .object_first, .object_next => kind == .name or kind == .end_object,

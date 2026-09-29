@@ -142,6 +142,24 @@ fn expect_refused(items: []const Item, expected: encoder_file.Error) !void {
     }
 }
 
+test "a token is allowed where RFC 8259's grammar puts it, and nowhere else (§2 to §5)" {
+    const Position = encoder_file.Position;
+    const Kind = encoder_file.Kind;
+    const values = [_]Kind{ .begin_object, .begin_array, .string, .hex, .number, .unsigned, .signed, .decimal, .boolean, .null };
+    for (std.enums.values(Position)) |position| {
+        for (std.enums.values(Kind)) |kind| {
+            const value = std.mem.indexOfScalar(Kind, &values, kind) != null;
+            const expected = switch (position) {
+                .text_start, .member_value => value,
+                .object_first, .object_next => kind == .name or kind == .end_object,
+                .array_first, .array_next => value or kind == .end_array,
+                .text_end => false,
+            };
+            try testing.expectEqual(expected, encoder_file.allowed(position, kind));
+        }
+    }
+}
+
 test "an object and an array place every separator (RFC 8259 §4, §5)" {
     try expect_encodes(.text, &.{
         .{ .token = .begin_object },
