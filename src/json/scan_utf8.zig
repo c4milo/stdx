@@ -144,7 +144,7 @@ fn group_error_octets(previous: *Block(constants.vector_len), group: *const [con
     var blocks: [constants.utf8_group_blocks]Block(width) = undefined;
     var all: Block(width) = @splat(0);
     inline for (&blocks, 0..) |*block, block_index| {
-        block.* = loaded(group[block_index * width ..][0..width].*);
+        block.* = loaded(width, group[block_index * width ..][0..width].*);
         all |= block.*;
     }
     if (!has_non_ascii(all)) {
@@ -164,15 +164,17 @@ fn group_error_octets(previous: *Block(constants.vector_len), group: *const [con
 /// split each block's load into a load of 13 lanes and three loads of one lane, with a copy of the
 /// register between them: 24 loads and 12 copies a group of four blocks in place of 4 loads. An
 /// empty assembly statement that takes the block in a vector register and gives it back makes the
-/// whole register the value the shuffles read.
-inline fn loaded(block: Block(constants.vector_len)) Block(constants.vector_len) {
+/// whole register the value the shuffles read. `valid`'s groups and scan.zig's `utf8_run` take
+/// each block through it; a block wider than 16 octets, which only the tests scan, passes as it is.
+pub inline fn loaded(comptime width: usize, block: Block(width)) Block(width) {
+    if (comptime width != constants.vector_len) return block;
     return switch (builtin.cpu.arch) {
         .aarch64 => asm (""
-            : [ret] "=w" (-> Block(constants.vector_len)),
+            : [ret] "=w" (-> Block(width)),
             : [block] "0" (block),
         ),
         .x86_64 => asm (""
-            : [ret] "=x" (-> Block(constants.vector_len)),
+            : [ret] "=x" (-> Block(width)),
             : [block] "0" (block),
         ),
         else => block,

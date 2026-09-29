@@ -352,12 +352,13 @@ const Run = struct { len: usize, ascii_next: bool };
 /// with no octet to escape (RFC 8259 §7, RFC 3629 §4), up to one of ASCII alone, which ends the run
 /// on a character's end. A block that fails ends the run at its first lane that fails, less a
 /// character that lane cuts: ended at the block's start, each line of a text ended by an escape
-/// left up to 15 octets to the scalar path (design §8 step 18).
+/// left up to 15 octets to the scalar path (design §8 step 18). Each block goes through
+/// `scan_utf8.loaded`: LLVM split its load for the check's shuffles, as it did in `valid`.
 fn utf8_run(comptime width: usize, octets: []const u8) Run {
     var previous = splat(width, 0);
     var index: usize = 0;
     for (0..octets.len / width) |_| {
-        const block = load(width, octets[index..]);
+        const block = scan_utf8.loaded(width, load(width, octets[index..]));
         const stops = escape_lanes(width, block) | scan_utf8.error_lanes(width, previous, block);
         if (any(width, stops)) {
             const end = index + first_lane(width, stops);
