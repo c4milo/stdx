@@ -1496,6 +1496,21 @@ to 12 are reordered and nothing else changes.
   - a name closed without its separator, and a copy's last move or middle octet left out;
   - `number` not set, and the batch's writer not moved past the loop's items.
 
+  J11's measure, bench-json run
+  [36501194063](https://github.com/c4milo/stdx/actions/runs/36501194063) at 1dde0ba, on a
+  Neoverse N2 and an Intel Xeon Platinum 8573C:
+  - Encoding CLDR and qlog, J11 off ran at 0.62 to 0.67 of all on on both. stdx encoded at 0.517
+    and 0.491 of simdjson's speed on the N2, from 0.322 and 0.311 at f5a781d, and at 0.596 and
+    0.547 on the Intel. It now encodes faster than Zig's std.json, 1.25 to 1.39 times.
+  - Decoding, which J11 does not touch, stayed at 0.630 and 0.498 of simdjson on the N2.
+
+  The run listed two kinds of loss, and two changes answer them:
+  - On the Intel, J7's AVX-512 kernels lost: hex strings encoded 14% faster with J7 off, and
+    English text 5% to 12% faster. J7 now takes AVX2's kernels alone (decision 30).
+  - On the N2, where J7 takes no kernel, long strings with escapes encoded 4% to 8% faster with any
+    one claim off, J7's included. What the all-on build inlined slowed its checked content loop, so
+    `Encoder.run` now calls that loop out of line in every build.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

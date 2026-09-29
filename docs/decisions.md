@@ -1482,6 +1482,9 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
     - A run takes the 16-octet path for its first 64 octets (`constants.wide_run_len_min`) before a
       kernel takes the rest. English text encoded 5% to 8% slower with the kernels from the 17th
       octet, its lines ending before a call paid for itself.
+    - J7 takes AVX2's 32 octets alone, on a CPU with AVX-512 too. On an Intel Xeon Platinum 8573C
+      its 64-octet kernels ran hex strings 14% slower than 16 octets, and English text 5% to 12%
+      slower, where the AMD EPYC 9V74's won and AVX2's won on the EPYC 7763 (design §8 step 18).
 
 31. **A fast path for each token of the `json` decoder and encoder (claims J8 and J9).** Ruled by
     the owner on 2026-09-28, who accepted both after design §8 step 17 measured them; proposed the

@@ -1,7 +1,6 @@
-//! Claim J7 (decision 30): a name's or a string's run and a hex string's digits at the width of one
-//! x86-64 level, AVX2's 32 octets or AVX-512's 64, compiled into that level's variant object. Each
-//! is exported under a name that carries the level, and wide.zig calls it only when the caller's
-//! features name the level.
+//! Claim J7 (decision 30): a name's or a string's run and a hex string's digits at AVX2's 32
+//! octets, compiled into that level's variant object. Each is exported under a name that carries
+//! the level, and wide.zig calls it only when the caller's features name the level.
 
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
@@ -10,7 +9,6 @@ const level = @import("variant_level").level;
 /// The octets one vector holds at this level.
 const width: usize = switch (level) {
     .x86_64_avx2 => constants.avx2_vector_len,
-    .x86_64_avx512 => constants.avx512_vector_len,
     else => @compileError("claim J7 has no kernels at this level"),
 };
 
