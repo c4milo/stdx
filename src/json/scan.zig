@@ -13,6 +13,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const utf8 = @import("utf8.zig");
+const scan_utf8 = @import("scan_utf8.zig");
 
 /// True for an octet a string carries as it is that is ASCII: U+0020 to U+007F, but for quotation
 /// mark and reverse solidus, which a string must escape (RFC 8259 §7).
@@ -208,7 +209,7 @@ pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(co
     // A return of its own, so the UTF-8 check does not run for a block of ASCII: computed
     // beside it and selected, it ran for every block of a text of escapes.
     if (previous_ascii and is_ascii(block)) return if (any(width, escapes)) first_lane(width, escapes) else null;
-    const errors = utf8_error_lanes(width, previous, block);
+    const errors = scan_utf8.error_lanes(width, previous, block);
     const stops = escapes | errors;
     if (!any(width, stops)) return null;
     const lane = first_lane(width, stops);
@@ -285,60 +286,8 @@ inline fn halves_stop(comptime half: usize, octets: []const u8) usize {
     return if (lane < half) lane else len + lane - halves_len;
 }
 
-/// The lanes of `block` whose octet UTF-8 rules out there, given the lanes before it and the last
-/// three of `previous` (RFC 3629 §4). A lane holds when:
-/// - a continuation octet stands where no first octet asks for one, or another octet stands where
-///   one does;
-/// - the octet is C0, C1 or from F5 up, which UTF-8 never holds;
-/// - the octet follows E0, ED, F0 or F4 outside the narrower range RFC 3629 §4 gives it there.
-///
-/// `previous` ends between characters, or inside a character whose octets `block` goes on with.
-inline fn utf8_error_lanes(comptime width: usize, previous: Block(width), block: Block(width)) Lanes(width) {
-    var asked: Lanes(width) = @splat(false);
-    inline for (1..constants.utf8_len_max) |back| {
-        asked |= shifted_in(width, back, previous, block) >= splat(width, constants.reaching_lead_min[back]);
-    }
-    const continuation = (block >= splat(width, constants.continuation_min)) & (block <= splat(width, constants.continuation_max));
-    const overlong_first = (block >= splat(width, constants.overlong_lead_2_min)) & (block < splat(width, constants.lead_2_min));
-    const never = overlong_first | (block >= splat(width, constants.invalid_min));
-    const back_1 = shifted_in(width, 1, previous, block);
-    const overlong_3 = (back_1 == splat(width, constants.lead_3_overlong)) & (block < splat(width, constants.lead_3_overlong_second_min));
-    const surrogate = (back_1 == splat(width, constants.lead_3_surrogate)) & (block > splat(width, constants.lead_3_surrogate_second_max));
-    const overlong_4 = (back_1 == splat(width, constants.lead_4_overlong)) & (block < splat(width, constants.lead_4_overlong_second_min));
-    const past_last = (back_1 == splat(width, constants.lead_4_largest)) & (block > splat(width, constants.lead_4_largest_second_max));
-    return (continuation != asked) | never | overlong_3 | surrogate | overlong_4 | past_last;
-}
-
-/// The lanes of `block` moved up by `count`, with the last `count` lanes of `previous` below them.
-fn shifted_in(comptime width: usize, comptime count: usize, previous: Block(width), block: Block(width)) Block(width) {
-    const mask = comptime shift_mask(width, count);
-    return @shuffle(u8, previous, block, mask);
-}
-
-fn shift_mask(comptime width: usize, comptime count: usize) @Vector(width, i32) {
-    var mask: [width]i32 = undefined;
-    for (&mask, 0..) |*lane, index| {
-        lane.* = if (index >= count) ~@as(i32, @intCast(index - count)) else @intCast(width - count + index);
-    }
-    return mask;
-}
-
-/// The octets at the end of `octets` that start a character it cuts, when all before them is whole
-/// UTF-8 and the last character's continuation octets are right for their first octet.
-pub fn cut_character_len(octets: []const u8) usize {
-    // `@min` with a comptime operand narrows its type, so the bound is widened before the `+ 1`.
-    const from_end_max: usize = @min(octets.len, constants.utf8_len_max - 1);
-    for (1..from_end_max + 1) |from_end| {
-        const octet = octets[octets.len - from_end];
-        if (octet < constants.continuation_min or octet > constants.continuation_max) {
-            // A first octet asks for as many continuation octets as it reaches past itself.
-            var reach: usize = 0;
-            for (constants.reaching_lead_min[1..]) |lead_min| reach += @intFromBool(octet >= lead_min);
-            return if (reach >= from_end) from_end else 0;
-        }
-    }
-    return 0;
-}
+/// `scan_utf8.cut_character_len`, for the callers that reach it through this file.
+pub const cut_character_len = scan_utf8.cut_character_len;
 
 /// `content_len_scalar`, `width` octets at a time (claim J5). Plain ASCII takes
 /// `plain_len_vector`'s loop, so text of ASCII costs what it costs without the claim. At a
@@ -371,7 +320,7 @@ fn utf8_run(comptime width: usize, octets: []const u8) Run {
     var index: usize = 0;
     for (0..octets.len / width) |_| {
         const block = load(width, octets[index..]);
-        const stops = escape_lanes(width, block) | utf8_error_lanes(width, previous, block);
+        const stops = escape_lanes(width, block) | scan_utf8.error_lanes(width, previous, block);
         if (any(width, stops)) {
             const end = index + first_lane(width, stops);
             return .{ .len = end - cut_character_len(octets[0..end]), .ascii_next = false };
@@ -460,5 +409,6 @@ fn interleave_mask(comptime width: usize) @Vector(constants.hex_digits_per_octet
 }
 
 test {
+    _ = scan_utf8;
     _ = @import("scan_test.zig");
 }

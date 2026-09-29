@@ -9,6 +9,7 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("constants.zig");
+const utf8 = @import("utf8.zig");
 const scan = @import("scan.zig");
 const wide = @import("wide.zig");
 
@@ -212,4 +213,39 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     var input: [input_len_max]u8 = undefined;
     const len = smith.slice(&input);
     try expect_same(input[0..len]);
+}
+
+/// The run a string carries as it is, by utf8.zig's machine: the whole characters before the
+/// first octet a string must escape (RFC 8259 §7) or UTF-8 rules out (RFC 3629 §4).
+fn whole_characters_len(octets: []const u8) usize {
+    var machine: utf8.Utf8 = .{};
+    var whole: usize = 0;
+    for (octets, 1..) |octet, len| {
+        if (octet < constants.non_ascii_min and !scan.is_plain_ascii(octet)) return whole;
+        if (!machine.accept(octet)) return whole;
+        if (machine.between_characters()) whole = len;
+    }
+    return whole;
+}
+
+/// The offsets a three-octet sequence takes in a run of three blocks of letters: at the first
+/// block's start and inside it, straddling its end by two octets and by one, at the second block's
+/// start, and inside the second block.
+const inside_first_block = 12;
+const straddling_by_two = 14;
+const straddling_by_one = 15;
+const second_block_start = 16;
+const inside_second_block = 28;
+const sequence_offsets = [_]usize{ 0, inside_first_block, straddling_by_two, straddling_by_one, second_block_start, inside_second_block };
+const run_len = sequence_len * constants.vector_len;
+const sequence_len = 3;
+
+test "a run of UTF-8 ends where the machine says, wherever a sequence lies across blocks" {
+    // The edge octets of RFC 3629 §4's ranges, with one inside each, as scan_utf8.zig lists them.
+    const edge_octets = "\x00\x41\x7f\x80\x9f\xa0\xbf\xc0\xc1\xc2\xdf\xe0\xe1\xec\xed\xee\xef\xf0\xf1\xf3\xf4\xf5\xf7\xf8\xff";
+    for (sequence_offsets) |offset| for (edge_octets) |first| for (0..std.math.maxInt(u8) + 1) |second| for (0..std.math.maxInt(u8) + 1) |third| {
+        var octets: [run_len]u8 = @splat('A');
+        octets[offset..][0..sequence_len].* = .{ first, @intCast(second), @intCast(third) };
+        try testing.expectEqual(whole_characters_len(&octets), scan.content_len_vector(constants.vector_len, &octets));
+    };
 }
