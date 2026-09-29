@@ -203,12 +203,18 @@ pub inline fn is_quotation_mark(block: Block(constants.vector_len), lane: usize)
 /// of ASCII after one skips the UTF-8 check, which it cannot fail. For the loops that copy a block
 /// as they check it: checked a run at a time, a text whose lines end in escapes restarted its run
 /// at each, and the check took under half of its time (design §8 step 18).
-pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(constants.vector_len), previous_ascii: bool) ?usize {
+pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(constants.vector_len), ascii_so_far: *bool) ?usize {
     const width = constants.vector_len;
     const escapes = escape_lanes(width, block);
-    // A return of its own, so the UTF-8 check does not run for a block of ASCII: computed
-    // beside it and selected, it ran for every block of a text of escapes.
-    if (previous_ascii and is_ascii(block)) return if (any(width, escapes)) first_lane(width, escapes) else null;
+    // While the run has been ASCII, a test for ASCII first and a return of its own, so the UTF-8
+    // check does not run for a block of ASCII: computed beside it and selected, it ran for every
+    // block of a text of escapes. Once a block is not ASCII, the test stops: each is a transfer
+    // from a vector to a word, and the check with the lookup costs less than the test, so a run of
+    // non-ASCII text pays one transfer a block, the stop test's, and not two (design §8 step 18).
+    if (ascii_so_far.*) {
+        if (is_ascii(block)) return if (any(width, escapes)) first_lane(width, escapes) else null;
+        ascii_so_far.* = false;
+    }
     const errors = scan_utf8.error_lanes(width, previous, block);
     const stops = escapes | errors;
     if (!any(width, stops)) return null;

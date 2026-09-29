@@ -22,9 +22,10 @@ pub const Walk = struct {
     input: []const u8,
     output: []u8,
     /// The block before the input's first octet, for a character that crosses into it, and
-    /// whether it is all ASCII. At the start and after an octet the loop took, none crosses.
+    /// whether every block since the last octet the loop took was ASCII, so that none crosses. At
+    /// the start and after an octet the loop took, none crosses.
     previous: @Vector(constants.vector_len, u8) = @splat(0),
-    previous_ascii: bool = true,
+    ascii_so_far: bool = true,
 
     /// Copies blocks of 16 while the input and the output hold one, each as it is checked, up to
     /// the first octet that stops the run: an octet a string must escape, or one UTF-8 rules out
@@ -36,18 +37,17 @@ pub const Walk = struct {
             if (self.input.len < constants.vector_len or self.output.len < constants.vector_len) break;
             const block: @Vector(constants.vector_len, u8) = self.input[0..constants.vector_len].*;
             self.output[0..constants.vector_len].* = block;
-            if (scan.string_stop(self.previous, block, self.previous_ascii)) |stop| {
+            if (scan.string_stop(self.previous, block, &self.ascii_so_far)) |stop| {
                 if (stop >= scan.ruled_out) return .ruled_out;
                 self.input = self.input[stop..];
                 self.output = self.output[stop..];
                 return .octet;
             }
             self.previous = block;
-            self.previous_ascii = scan.is_ascii(block);
             self.input = self.input[constants.vector_len..];
             self.output = self.output[constants.vector_len..];
         }
-        if (!self.previous_ascii) {
+        if (!self.ascii_so_far) {
             const taken_len = input.len - self.input.len;
             const cut_len = scan.cut_character_len(input[0..taken_len]);
             self.input = input[taken_len - cut_len ..];
@@ -92,7 +92,7 @@ pub const Walk = struct {
 
     inline fn took_octet(self: *Walk) void {
         self.previous = @splat(0);
-        self.previous_ascii = true;
+        self.ascii_so_far = true;
     }
 };
 
