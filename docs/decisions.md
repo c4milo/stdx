@@ -962,6 +962,19 @@ left, how fast the check runs alone.
       from run to run, four models on 2026-09-28, and a ratio against Google's brotli differs by
       12% between two of them, so the workflow's `base` input benchmarks the change's base first
       in the same job, and an x86-64 pair counts only when one job holds both.
+    - Amended by the owner on 2026-09-29, after design §8 step 18's UTF-8 run: a file that moves
+      past the larger of its spread and 1% in both jobs counts as placement, neither the change's
+      loss nor its gain, when the bench program built at both commits runs that file on code
+      identical apart from its addresses. The change is then judged on the code it touches. The
+      proof builds the benchmark for the runner's target at both commits with `zig build-exe` and
+      the module flags `build/` gives it, the C baselines replaced by stand-ins, and compares every
+      function with its addresses masked; a file whose path runs a function that differs still
+      counts. There, `content_len_vector` shrank by 52 octets and moved the 167 functions after
+      it, the walks among them, by 48 or 52 octets: on the N2, five text files lost 1.2% to 4.3%
+      in both runs and bible.txt encoded 12% to 15% faster, on the walks' unchanged instructions.
+      The alternatives refused: counting such a move as a loss on its architecture, which blocks a
+      change for where the linker placed code the change did not touch; and reading "every job"
+      across both architectures alone, which lets a real loss on one of them pass.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,

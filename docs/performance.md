@@ -18,9 +18,11 @@ hold the rulings, and [costs.md](costs.md) the prices.
   measures the base and the change in one job on one VM and one CPU. The aarch64 runner is a
   Neoverse-N2 or a V3; the x86-64 runner draws an EPYC 7763, 9V45, 9V74 or a Xeon from run to run,
   so a comparison holds inside a job and never across two runs.
-- The admission rule (decision 20, amended 2026-09-28): a file wins or loses when it moves past the
-  larger of its own spread and 1% in every job; a change stays when it wins somewhere and no file
-  loses. Two paired runs a change, compared with each job's base report.
+- The admission rule (decision 20, amended 2026-09-28 and 2026-09-29): a file wins or loses when it
+  moves past the larger of its own spread and 1% in every job; a change stays when it wins somewhere
+  and no file loses. Two paired runs a change, compared with each job's base report. A move is
+  placement, neither a win nor a loss, when the bench program built at both commits runs that file
+  on code identical apart from its addresses; decision 20 says how to prove it.
 - Every speed states the stream's compression beside it, as `bench-brotli`, `bench-deflate` and
   `bench-zstd` print it.
 - `bench-profile` gives cycles, instructions and branch misses per octet on the runners, beside

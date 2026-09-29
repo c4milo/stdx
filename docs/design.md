@@ -2144,7 +2144,8 @@ to 12 are reordered and nothing else changes.
   same instructions. The baselines, linked into the same program, moved the same way: yyjson
   encoded json-1m at 1.095 and 1.098. By performance.md's rule, the non-ASCII text wins in every
   job and no file loses in every job, and the N2's moves are the placement of code the change
-  does not touch; the change stays. Main took it at 33b458d.
+  does not touch; the change stays. Main took it at 33b458d. The owner ruled the same day that a
+  move proved this way counts as placement (decision 20).
 
   **`valid`'s tail loads, 2026-09-29.** `valid`'s tail loop takes the whole blocks left after its
   last group, at most three, which are every block of a buffer shorter than a group. It had the
