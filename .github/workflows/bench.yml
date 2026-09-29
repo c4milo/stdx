@@ -14,7 +14,7 @@ on:
         options: [costs, deflate, checksum, profile, zstd, brotli, json]
         default: deflate
       base:
-        description: "A commit or branch to benchmark first, in the same job; empty for none"
+        description: "A commit, branch or tag to benchmark first, in the same job; empty for none"
         type: string
         default: ""
 
@@ -33,11 +33,12 @@ jobs:
       RUNNER_LABEL: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: inputs.base != ''
         with:
-          ref: ${{ inputs.base }}
-          path: base
+          # The whole history, so that `base` resolves any commit, branch or tag.
+          fetch-depth: 0
+      - name: Check the base out
+        if: inputs.base != ''
+        run: git worktree add base "${{ inputs.base }}"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
