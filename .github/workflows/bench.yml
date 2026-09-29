@@ -31,6 +31,9 @@ jobs:
     timeout-minutes: 120
     env:
       RUNNER_LABEL: ${{ matrix.runner }}
+      # Zig's global cache in the directory the cache step keeps, so that a run fetches only what
+      # no earlier run fetched.
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/zig-pkg
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
