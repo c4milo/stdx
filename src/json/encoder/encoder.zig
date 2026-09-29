@@ -342,6 +342,18 @@ const allowed_table = table: {
     break :table table;
 };
 
+/// The positions a token of `kind` may come at, a bit for each (`allowed`), for a caller that knows
+/// the kind at compile time: its check is a shift and a test, with no table to index.
+pub fn positions_allowed(comptime kind: Kind) u8 {
+    return comptime positions: {
+        var mask: u8 = 0;
+        for (std.enums.values(Position)) |position| {
+            if (allowed_by_grammar(position, kind)) mask |= 1 << @intFromEnum(position);
+        }
+        break :positions mask;
+    };
+}
+
 fn allowed_by_grammar(position: Position, kind: Kind) bool {
     return switch (position) {
         .text_start, .member_value => is_value(kind),

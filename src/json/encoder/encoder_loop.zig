@@ -43,8 +43,6 @@ pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, out
     // Each item is read through a pointer, so each kind's path loads only the fields it reads: read
     // whole, an item's value took four loads before its kind was known.
     for (items) |*entry| {
-        codec.check_entry(entry.octets, output);
-        assert(entry.octets.len == 0 or encoder_file.takes_input(entry.token));
         if (!loop.item(claims, entry, &buffer)) break;
         taken += 1;
         if (loop.position == .text_end) break;
@@ -87,25 +85,41 @@ const Loop = struct {
     /// Writes `entry` whole and returns true, or writes nothing, changes nothing and returns false.
     /// Each kind's path takes its kind at compile time.
     inline fn item(self: *Loop, comptime claims: Claims, entry: *const Item, buffer: *format.Buffer) bool {
-        const kind = std.meta.activeTag(entry.token);
-        assert(encoder_file.allowed(self.position, kind));
         // A switch on the kind alone, each arm reading its own field: a switch on the token loaded
         // its value whole, in four loads, before any arm ran.
-        return switch (kind) {
-            .begin_object => self.structural(.begin_object, constants.begin_object),
-            .begin_array => self.structural(.begin_array, constants.begin_array),
-            .end_object => self.structural(.end_object, constants.end_object),
-            .end_array => self.structural(.end_array, constants.end_array),
-            .name => self.string(claims, .name, entry.octets, entry.token.name),
-            .string => self.string(claims, .string, entry.octets, entry.token.string),
-            .hex => self.hex(claims, entry.octets, entry.token.hex),
-            .number => self.number_text(entry.octets, entry.token.number),
-            .unsigned => self.text(.unsigned, format.unsigned(buffer, entry.token.unsigned)),
-            .signed => self.text(.signed, format.signed(buffer, entry.token.signed)),
-            .decimal => self.text(.decimal, format.decimal(buffer, entry.token.decimal)),
-            .boolean => self.text(.boolean, if (entry.token.boolean) constants.literal_true else constants.literal_false),
-            .null => self.text(.null, constants.literal_null),
+        return switch (std.meta.activeTag(entry.token)) {
+            .begin_object => self.structural(.begin_object, constants.begin_object, entry),
+            .begin_array => self.structural(.begin_array, constants.begin_array, entry),
+            .end_object => self.structural(.end_object, constants.end_object, entry),
+            .end_array => self.structural(.end_array, constants.end_array, entry),
+            .name => self.string(claims, .name, self.octets_of(entry), entry.token.name),
+            .string => self.string(claims, .string, self.octets_of(entry), entry.token.string),
+            .hex => self.hex(claims, self.octets_of(entry), entry.token.hex),
+            .number => self.number_text(self.octets_of(entry), entry.token.number),
+            .unsigned => self.text(.unsigned, format.unsigned(buffer, entry.token.unsigned), entry),
+            .signed => self.text(.signed, format.signed(buffer, entry.token.signed), entry),
+            .decimal => self.text(.decimal, format.decimal(buffer, entry.token.decimal), entry),
+            .boolean => self.text(.boolean, if (entry.token.boolean) constants.literal_true else constants.literal_false, entry),
+            .null => self.text(.null, constants.literal_null, entry),
         };
+    }
+
+    /// The octets of an item whose token takes them, checked against the output they must not
+    /// overlap, as each call checks its input (decision 11).
+    inline fn octets_of(self: *const Loop, entry: *const Item) []const u8 {
+        codec.check_entry(entry.octets, self.output);
+        return entry.octets;
+    }
+
+    /// The checks each item's token makes of the caller: it comes where the grammar allows it
+    /// (`Encoder.encode`), and with no octets when it takes none. Its kind is known at compile time
+    /// here, so each check is a test or two, where one of the token read from the item indexed a
+    /// table.
+    inline fn check_item(self: *const Loop, comptime kind: Kind, entry: ?*const Item) void {
+        // Seven positions, so the shift of a mask of eight bits holds each.
+        const shift: u3 = @truncate(@intFromEnum(self.position));
+        assert(encoder_file.positions_allowed(kind) >> shift & 1 != 0);
+        if (entry) |taking_none| assert(taking_none.octets.len == 0);
     }
 
     /// Writes an item's separators before it when the output holds them and the item's own
@@ -133,6 +147,7 @@ const Loop = struct {
     /// or end one at depth 0, and only at the text's start; a name follows a value separator after
     /// a member, and any other value after an element.
     inline fn frame_of(self: *const Loop, comptime kind: Kind) Frame {
+        self.check_item(kind, null);
         const position = self.position;
         const ends = kind == .end_object or kind == .end_array;
         const value = !ends and kind != .name;
@@ -167,7 +182,8 @@ const Loop = struct {
         self.encoder.part = if (self.position == .text_end) .done else .between_tokens;
     }
 
-    inline fn structural(self: *Loop, comptime kind: Kind, octet: u8) bool {
+    inline fn structural(self: *Loop, comptime kind: Kind, octet: u8, entry: *const Item) bool {
+        self.check_item(kind, entry);
         // The checked path refuses a container past the depth limit.
         const opens = kind == .begin_object or kind == .begin_array;
         if (opens and self.depth == constants.depth_max) return false;
@@ -233,7 +249,8 @@ const Loop = struct {
     }
 
     /// Writes a number the encoder formatted, or a literal name.
-    inline fn text(self: *Loop, comptime kind: Kind, octets: []const u8) bool {
+    inline fn text(self: *Loop, comptime kind: Kind, octets: []const u8, entry: *const Item) bool {
+        self.check_item(kind, entry);
         const frame = self.frame_of(kind);
         if (!self.open(frame, octets.len)) return false;
         self.copy(octets);
