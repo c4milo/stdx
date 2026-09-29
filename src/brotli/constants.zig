@@ -94,6 +94,9 @@ pub const block_count_alphabet_len = 26;
 /// NTREESx run 1 to 256 (RFC 7932 §9.2), so a block type code's alphabet takes up to 258 symbols.
 pub const block_types_max = 256;
 pub const trees_max = 256;
+/// The values at the front of the inverse move-to-front list that one vector shift moves up, so a
+/// map entry below it costs no loop (RFC 7932 §7.3).
+pub const move_to_front_vector_len = 16;
 pub const block_type_alphabet_len_max = block_types_max + block_type_symbol_offset;
 
 /// The distance parameters of RFC 7932 §4: NPOSTFIX 0 to 3, NDIRECT 0 to 120 in steps of

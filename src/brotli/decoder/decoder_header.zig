@@ -263,9 +263,20 @@ fn inverse_move_to_front(entries: []u8) usize {
         const index = entry.*;
         const value = order[index];
         entry.* = value;
+        written += @as(usize, index) + 1;
+        // The value at the front moves nothing; one below `move_to_front_vector_len` moves the
+        // values before it up by one in a single vector shift, the rest of the vector kept.
+        if (index == 0) continue;
+        if (index < constants.move_to_front_vector_len) {
+            const Chunk = @Vector(constants.move_to_front_vector_len, u8);
+            const head: Chunk = order[0..constants.move_to_front_vector_len].*;
+            const moved = std.simd.shiftElementsRight(head, 1, value);
+            const lanes = std.simd.iota(u8, constants.move_to_front_vector_len);
+            order[0..constants.move_to_front_vector_len].* = @select(u8, lanes <= @as(Chunk, @splat(index)), moved, head);
+            continue;
+        }
         std.mem.copyBackwards(u8, order[1 .. @as(usize, index) + 1], order[0..index]);
         order[0] = value;
-        written += @as(usize, index) + 1;
     }
     return written;
 }
