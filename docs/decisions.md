@@ -769,6 +769,11 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
       same function with safety on and off on the Linux runners, five runs each over all three
       corpora, a gain above the 5% noise floor, a new row in this entry with the numbers, and the
       owner's ruling.
+      The brotli command loop's A/B exists since 2026-09-29 as the claim `loop_checks` of
+      `src/brotli/claims.zig`, on by default: off, every function under the loop's `run` sets
+      `@setRuntimeSafety(false)`, which bench-brotli's claims table prices in one job and the fuzzer
+      compares with the checked path. The owner asked for the measurement after the by-construction
+      work decision 17 puts first (design §8 step 12); the ruling waits on the runners' numbers.
     - A lint rule, `input-index`, lands with the `codec` module (design §8 step 3). Outside the
       reader, the writer and the functions below, it refuses an index or a slice bound derived
       from a value the reader produced, as colibri's `peer-index` rule does for peer input.

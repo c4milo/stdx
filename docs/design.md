@@ -1140,6 +1140,36 @@ to 12 are reordered and nothing else changes.
     none loses; the 1 KiB bodies +40 to +49%, the median +5.4%. css-1m moves -6% on the Xeon and
     +19% on the EPYC, as it did between CPUs before.
 
+  **The straight loop and the small cuts, 2026-09-29**, paired the same way. The command loop's one
+  function had held the straight-line command beside the chain's rarer phases, and the compiler
+  spilled the loop's state around the hot path; `straight_loop` takes command after command in a
+  frame of its own, `decoder_fast_chain.zig` takes the rest.
+  - The loop and the literal-margin fix, a80ce70 against b89b153 (runs
+    [36512652996](https://github.com/c4milo/stdx/actions/runs/36512652996) and
+    [36512657652](https://github.com/c4milo/stdx/actions/runs/36512657652)): on the N2, 25 files
+    gain in both jobs, the 16 KiB bodies +12 to +15%, the small Canterbury files +7 to +12%, the 1
+    MiB bodies +3 to +5%, the median +3.8%; css-1m loses 1.8 and 2.1%, since a copy of more than a
+    chunk left the loop for the chain at every chunk, which 017afb8 ends (M1 Pro: css-1m 7% fewer
+    instructions). On x86-64, a Xeon 6973P-C job too noisy to count and an EPYC 9V74 job: 9 files
+    gain in both, none loses.
+  - The two cuts, the phase in a local and `produced` derived from the meta-block's end, 46ea902
+    against a80ce70 (runs [36514756367](https://github.com/c4milo/stdx/actions/runs/36514756367)
+    and [36514760819](https://github.com/c4milo/stdx/actions/runs/36514760819)): the N2 median
+    +1.2%, 9 files past the bar in both jobs and none behind; x86-64, EPYC 7763 and 9V45, the median
+    +4.1%, 12 past and none behind.
+  - Decision 17's measurement at 46ea902, in those runs: built ReleaseFast, stdx runs at a median of
+    1.26 of its ReleaseSafe speed on the N2 (json-1m 1.26, kennedy.xls 1.32, html-1m 1.23, the 1
+    KiB bodies 1.55 to 1.60, the all-literal dickens-1m 1.04) and 1.08 to 1.11 on the EPYCs. The
+    command loop is where those files spend their time, so the checks cost about a fifth of a
+    command-heavy decode on the N2. Decision 16's A/B of the loop alone follows: claim `loop_checks`
+    (d045b88) runs every function under `run` with `@setRuntimeSafety(false)` when off, on by
+    default; on the M1 Pro, off takes 13 to 25% fewer instructions and 7 to 11% fewer cycles on
+    command-heavy files. The runner numbers and the row, if the owner rules for it, follow.
+  - Compression: Google's quality 11 and window 22 leave the HTTP 1 KiB bodies at 19 to 39% of
+    their size, the 16 KiB bodies at 7 to 22%, the 1 MiB bodies at 2.4 to 14%, Silesia at 4.8 to
+    63% and Canterbury at 6 to 35%; `bench-brotli` states each stream's percentage beside its speed
+    since 38fbf7e.
+
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
   8,000,000 octets at the HTTP levels (decision 12).
