@@ -321,14 +321,19 @@ const Run = struct { len: usize, ascii_next: bool };
 
 /// The blocks of `octets`, which starts a non-ASCII character, that are whole UTF-8 characters
 /// with no octet to escape (RFC 8259 §7, RFC 3629 §4), up to one of ASCII alone, which ends the run
-/// on a character's end. Without one, the run stops before the block that fails, less a character
-/// it cuts.
+/// on a character's end. A block that fails ends the run at its first lane that fails, less a
+/// character that lane cuts: ended at the block's start, each line of a text ended by an escape
+/// left up to 15 octets to the scalar path (design §8 step 18).
 fn utf8_run(comptime width: usize, octets: []const u8) Run {
     var previous = splat(width, 0);
     var index: usize = 0;
     for (0..octets.len / width) |_| {
         const block = load(width, octets[index..]);
-        if (any(width, escape_lanes(width, block) | utf8_error_lanes(width, previous, block))) break;
+        const stops = escape_lanes(width, block) | utf8_error_lanes(width, previous, block);
+        if (any(width, stops)) {
+            const end = index + first_lane(width, stops);
+            return .{ .len = end - cut_character_len(octets[0..end]), .ascii_next = false };
+        }
         previous = block;
         index += width;
         if (!any(width, block >= splat(width, constants.non_ascii_min))) return .{ .len = index, .ascii_next = true };
