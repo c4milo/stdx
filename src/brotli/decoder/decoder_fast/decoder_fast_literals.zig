@@ -35,9 +35,11 @@ const Tables = [constants.literal_contexts_count]*const LiteralTable;
 
 /// Up to `chunk_len_max` literals of the current block, each with the tree its context picks (RFC
 /// 7932 §7.1, §7.3), refilling while the input's margin holds; and the phase after the command's
-/// last literal.
+/// last literal. The caller has checked that the buffer holds a code's bits or that the margin
+/// holds, so the run writes at least one literal.
 pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *LiteralTables, state: *State) void {
     assert(state.command.insert_left > 0);
+    assert(loop.count >= constants.code_len_max or loop.has_input_margin());
     const blocks = commands.blocks_of(state, .literal);
     const block_type = blocks.type_current;
     if (literal_tables.block_type != block_type) look_up_literal_tables(literal_tables, state, block_type);

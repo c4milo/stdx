@@ -7,10 +7,12 @@ const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
 const test_stream = @import("../test_stream.zig");
+const fast = @import("decoder_fast.zig");
 const Stream = test_stream.Stream;
 const trailer = test_stream.trailer;
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
+const CheckedDecoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .fast_paths = false } });
 const test_window_bits = 16;
 
 /// Symbol 703, insert code 23 and copy code 23 (RFC 7932 §5), whose 48 extra bits are the most a
@@ -37,8 +39,8 @@ const widest_fourth_zeros_extra = 5;
 
 /// `widest_history` uncompressed, then a meta-block of `short_commands` commands of symbol 0 and
 /// the widest command, its literals and its distance code each of a code of one symbol, which
-/// takes no bits.
-fn widest_command_stream(stream: *Stream, short_commands: usize) void {
+/// takes no bits; `trailed`, the trailer follows, so that the fast path's margin holds to the end.
+fn widest_command_stream(stream: *Stream, short_commands: usize, trailed: bool) void {
     const insert = constants.insert_length_codes[widest_code];
     const copy = constants.copy_length_codes[widest_code];
     stream.window_bits_16();
@@ -59,7 +61,7 @@ fn widest_command_stream(stream: *Stream, short_commands: usize) void {
     stream.put(0, insert.extra_bits);
     stream.put(0, copy.extra_bits);
     stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
-    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+    if (trailed) for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
 }
 
 test "a command's extra bits a bit past the buffer's wait for the next refill" {
@@ -69,7 +71,7 @@ test "a command's extra bits a bit past the buffer's wait for the next refill" {
     var output: [expected.len + 512]u8 = undefined;
     for (0..short_commands_max + 1) |short_commands| {
         var stream: Stream = .{};
-        widest_command_stream(&stream, short_commands);
+        widest_command_stream(&stream, short_commands, true);
         const short_len = widest_history.len + short_commands * short_copy_len;
         for (expected[0..short_len], 0..) |*octet, index| octet.* = widest_history[index % widest_history.len];
         @memset(expected[short_len..][0..widest_len], widest_literal);
@@ -77,6 +79,37 @@ test "a command's extra bits a bit past the buffer's wait for the next refill" {
         decoder.init(.{});
         const whole = try decoder.decode_all(stream.written(), &output);
         try testing.expectEqualSlices(u8, expected[0 .. short_len + widest_len], output[0..whole.written]);
+    }
+}
+
+test "a command's literals with the input's margin gone after its extra bits wait for the next call" {
+    // The 48 extra bits can leave the buffer short of a literal's code, 15 bits, with the input
+    // ending within the margin behind them, when the stream ends where the extra bits do and fewer
+    // octets than the margin follow. Both paths then give the same status and octets: every code
+    // here takes no bits, so the checked path decodes the rest of the meta-block from none.
+    const widest_len = constants.insert_length_codes[widest_code].base + constants.copy_length_codes[widest_code].base;
+    const output_len = widest_history.len + short_commands_max * short_copy_len + widest_len + 512;
+    var output: [output_len]u8 = undefined;
+    var checked_output: [output_len]u8 = undefined;
+    var padded: [test_stream.capacity + fast.input_slack]u8 = undefined;
+    for (0..short_commands_max + 1) |short_commands| {
+        for (0..fast.input_slack) |padding| {
+            var stream: Stream = .{};
+            widest_command_stream(&stream, short_commands, false);
+            const written = stream.written();
+            @memcpy(padded[0..written.len], written);
+            @memset(padded[written.len..][0..padding], 0);
+            const input = padded[0 .. written.len + padding];
+            var decoder: Decoder = undefined;
+            decoder.init(.{});
+            var checked: CheckedDecoder = undefined;
+            checked.init(.{});
+            const progress = try decoder.decode(input, &output);
+            const expected = try checked.decode(input, &checked_output);
+            try testing.expectEqual(expected.status, progress.status);
+            try testing.expectEqual(expected.written, progress.written);
+            try testing.expectEqualSlices(u8, checked_output[0..expected.written], output[0..progress.written]);
+        }
     }
 }
 

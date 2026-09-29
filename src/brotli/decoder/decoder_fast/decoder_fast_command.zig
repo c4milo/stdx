@@ -76,6 +76,10 @@ inline fn straight_extra_bits(comptime claims: Claims, comptime room: fast.Room,
     state.command.copy_len = code.copy_base + @as(u32, @intCast(extra >> code.insert_extra_bits));
     if (insert_len > 0) {
         state.phase = .literal;
+        // The extra bits can leave the buffer short of a literal's code with the input's margin gone
+        // behind them, and a run starts only with one or the other (`literals`): the checked path
+        // takes the literals.
+        if (loop.count < constants.code_len_max and !loop.has_input_margin()) return .stop;
         return straight_literals(claims, room, loop, literal_tables, state);
     }
     // A command starts only while the meta-block has octets left, so no literal ends it here.
