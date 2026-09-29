@@ -13,8 +13,8 @@ out of the owner's request that its state machines be proved, entry 29 out of [i
 13](https://github.com/c4milo/stdx/issues/13)'s DEFLATE decoder, entry 30 out of the JSON
 baselines' numbers, entry 31 out of design §8 step 17's profile, entry 32 out of step 12's brotli
 decoder, entry 33 out of the owner's ruling on what step 17's profile left, entry 34 out of the
-losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 35 out of decision
-17's json measurement.
+losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 out of decision
+17's json measurement, and entry 36 out of design §8 step 9's comparison with libdeflate's output.
 
 ## Scope and shape
 
@@ -1777,3 +1777,54 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
     - Both loops. The decoder's gain on the token workloads is under the floor, and the decoder
       reads a peer's octets, where a wrong margin reads or writes outside the buffers.
     - Neither. Every check stays, and the encoder gives up 5% to 9% on the token workloads.
+
+36. **The finder's two rules that spend speed on size: the greedy level's covered inserts, and the
+    lazy step's distance penalty.** Ruled by the owner on 2026-09-29, from a comparison of
+    libdeflate's output with stdx's that keeps decision 9: the symbols of each stream, parsed and
+    counted by a scratch tool, and never its source.
+
+    What the comparison found, on the corpus of decision 15:
+    - Level 1 emitted twice libdeflate's literals on dickens. A position a match covers never
+      entered the hash heads, so a later match could not start there, and a head named a farther
+      position than the nearest.
+    - Levels 6 and 9 paid 13.3 bits a distance on json-1m against libdeflate's 10.6. The lazy step
+      took the longer of its two matches whatever their distances, and a distance 8 KiB back costs
+      13 more extra bits (RFC 1951 §3.2.5) than one under 32.
+
+    The rules:
+    - The greedy level makes every position a match covers, after its first, its hash's head, for
+      a match of `covered_insert_len_max` octets or fewer, 8 at level 1: the 4 octets slide through
+      a word, one octet loaded a position. Output over libdeflate's, the median of dickens,
+      json-1m, css-1m, html-16k, x-ray, mozilla, E.coli, webster, kennedy.xls and nci: 1.121 to
+      1.054, E.coli 1.215 to 1.016.
+    - The lazy step compares the match waiting from the position before with the next position's
+      by length less `lazy_distance_penalty_octets`, octets of literals a distance costs: 0 under
+      32, 1 under 512, 2 under 4096, 3 beyond. Level 6's median goes from 1.017 to 1.007 and
+      json-1m from 1.077 to 0.994; level 9's from 1.029 to 1.026 and json-1m from 1.108 to 1.013.
+      No file grows more than 0.5%.
+    - What they cost, run [36559451595](https://github.com/c4milo/stdx/actions/runs/36559451595)
+      against run 36556604513 on the same CPU models, a Neoverse N2 and an EPYC 7763: level 1 at
+      0.91 and 0.93 of its speed, the text files 0.80 to 0.88 and E.coli 0.68 and 0.73; level 6 at
+      0.98 and 0.97, json-1m 0.75 on both; level 9 at 0.98 and 0.99, json-1m 0.63 and 0.66, samba
+      0.70 and 0.74. The 39 files' median output over libdeflate's: level 1 1.101 to 1.055, level
+      6 1.000 to 0.999, level 9 1.011 to 1.010.
+
+    The alternatives refused, each measured on the same ten files (speed on the M1, which publishes
+    no number, decision 10):
+    - Inserting every covered position at level 1: 1.048, and json-1m a quarter slower, as its
+      matches run long.
+    - 15 and 16 hash bits at level 1, 64 and 128 KiB of heads against the 32 of decision 12: 1.048
+      and 1.047 with the inserts above. Not worth the state.
+    - The same penalty inside the chain walk, a farther candidate having to beat the found match by
+      it: nothing on json-1m, E.coli 0.5% worse. The walk visits candidates nearest first and keeps
+      the nearer of two equals already.
+    - A `lazy_len` of 16 or 8 at level 6, the waiting match's length that skips the next search:
+      json-1m 3.9% and 6.5% larger.
+    - The four most recent positions of each hash in one row of the heads, with a 13-bit hash so
+      the heads keep their 64 KiB: four times the false candidates, level 6 a fifth slower, level
+      1's output 5% larger.
+    - A second table keyed by 8 octets, another 64 KiB, so one probe finds a long match: skipping
+      the walk after a match of 16 octets or more cost json-1m 3.2%, and after 32 or more the walk
+      ran anyway for the table's insert.
+    - A budget of 64 candidates at level 6 instead of 128: 0.3 to 0.6% larger for 12 to 27% of
+      the time. Not ruled; the budget stays.
