@@ -290,7 +290,7 @@ const Loop = struct {
     /// The string past its first `head_len` octets of content, copied and plain ASCII: its escapes,
     /// its UTF-8 and the runs between them (decoder_loop_string.zig).
     inline fn copy_rest(self: *Loop, comptime claims: Claims, content: []const u8, head_len: usize) ?Copied {
-        const rest = loop_string.copy_rest(claims, self.decoder.level, content[head_len..], self.out[head_len..]) orelse return null;
+        const rest = loop_string.copy_rest_at(claims, self.decoder.level, content[head_len..], self.out[head_len..]) orelse return null;
         return .{ .input_len = head_len + rest.input_len, .output_len = head_len + rest.output_len };
     }
 

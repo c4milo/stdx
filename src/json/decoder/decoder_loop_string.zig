@@ -51,6 +51,25 @@ const hex_digit_values = table: {
 const not_hex_digit = std.math.maxInt(u8);
 const hex_digit_max = constants.nibble_mask;
 
+/// `copy_rest` compiled into the AVX2 variant object with every claim on (variants/loop_string.zig),
+/// where the UTF-8 check takes decision 37's lookup, VPSHUFB, which the baseline target lacks.
+extern fn stdx_json_copy_rest_x86_64_avx2(rest: [*]const u8, rest_len: usize, room: [*]u8, room_len: usize, copied: *Copied) callconv(.c) bool;
+
+/// `copy_rest`, in the variant object of `level` on x86-64 with every claim on, and here for every
+/// other target, level and set of claims. The call is once a string, outside every loop: inside
+/// the walk's block loop, it kept the walk's state in memory across the loop on every x86-64 CPU,
+/// the kernel called or not (design §8 step 18).
+pub inline fn copy_rest_at(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
+    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{})) {
+        if (level == .avx2) {
+            var copied: Copied = undefined;
+            if (!stdx_json_copy_rest_x86_64_avx2(rest.ptr, rest.len, room.ptr, room.len, &copied)) return null;
+            return copied;
+        }
+    }
+    return copy_rest(claims, level, rest, room);
+}
+
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.

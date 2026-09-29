@@ -1532,7 +1532,9 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
     - J6 is dropped, ruled by the owner. The step's profile put the scans at a quarter of a token's
       time on the N2, and at 10% to 15% once entry 31's fast paths had cut the calls. An index built
       within one call does more vector work for a token than the 16-octet scan it replaces, and one
-      kept across calls is refused above. It returns only if a call ever takes many tokens.
+      kept across calls is refused above. It returns only if a call ever takes many tokens. Entry
+      33's batches take many; the owner ruled on 2026-09-29 that J6 returns as an experiment over a
+      batch's input, design §8 step 19, landed on its A/B alone.
     - J7 stays, for a name's or a string's run and a hex string's digits. On an AMD EPYC 9V74 it ran
       the runs of plain ASCII and the hex strings 1.3 to 1.45 times as fast.
     - J5's UTF-8 scan stays at 16 octets. At 64 it ran text of Cyrillic and CJK characters 37% slower,
@@ -1873,6 +1875,23 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
 
     What it costs: a second kernel per architecture for one function, assembly that no lint reads,
     and a build variant on x86-64 the lookup alone needs; the module's first inline assembly.
+
+    **What was built, 2026-09-29.** `scan_utf8.zig` holds the check apart from `scan.zig`, in both
+    forms, and takes the lookup where the target has one: every aarch64 target, and x86-64 with
+    AVX2, which the module's baseline target lacks and its AVX2 variant object has. There the
+    loops' string functions compile into the object whole (`variants/loop_string.zig`), and each
+    loop calls its kernel once a string when the caller's level is AVX2. A first cut called the
+    walk's block loop from inside the string function, and on an AMD EPYC 7763 the text files
+    decoded at 0.62 to 0.83 of main's speed and encoded at 0.52 to 0.72, ASCII files included,
+    the kernel called or not (run
+    [36558900057](https://github.com/c4milo/stdx/actions/runs/36558900057)): x86-64 saves no
+    vector register across a call, so a call inside the block loop kept the walk's state in memory
+    through the loop. The call now sits outside every loop. The tables are built from RFC 3629 §4's
+    constants at compile time. Two tests pin them: every pair of octets judged as utf8.zig's
+    machine judges it, an octet UTF-8 never holds counted by its place alone since the tables flag
+    it on the lane after; and every sequence of an edge octet and two more, at six places across
+    two blocks of letters, run to the length the machine gives (`scan_test.zig`). Nine mutations
+    were CAUGHT (commits b7baada and 7957e71).
 
     The alternatives:
     - The compares, as today. The reference, and the non-ASCII rows stay where the table above

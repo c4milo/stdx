@@ -1822,7 +1822,42 @@ to 12 are reordered and nothing else changes.
   instructions from a token is decision 30's structural index, which decision 33 left to the
   owner. The owner ruled on 2026-09-29: before any index, measure bench-json with stdx built for
   x86-64-v3 on the x86-64 runner, as decision 34 does for the DEFLATE decoder, since the Xeon's
-  gap to simdjson is far wider than the N2's and may be the baseline build's.
+  gap to simdjson is far wider than the N2's and may be the baseline build's. Run
+  [36556972630](https://github.com/c4milo/stdx/actions/runs/36556972630), on the unmerged branch
+  `exp-json-v3`, paired the v3 build against the baseline build of 1247c3e on an AMD EPYC 7763: the
+  v3 build decoded CLDR's texts at 0.967 of the baseline's speed and qlog's records at 0.960, and
+  encoded them at 0.988 and 0.975; the non-ASCII text ran 1.13 times as fast, the text files a
+  median of 1.04 decoding and 1.01 encoding, and the hex strings 1.02 and 1.00. The build is not
+  the token gap, and bench-json gains no v3 program. On that EPYC, stdx decoded CLDR's texts and
+  qlog's records at 0.831 and 0.771 of simdjson's speed, between the N2's 0.929 and 0.826 and the
+  Xeon 8573C's 0.689 and 0.642: the gap is the CPU's as much as stdx's. The owner ruled the same
+  day: build decision 30's structural index as an experiment, step 19.
+
+- **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
+  Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
+  in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
+  J6 for one token a call and said it returns if a call ever takes many tokens; decision 33's
+  batches do. It is built on an unmerged branch and lands on its A/B alone.
+  **The design.** Inside `decoder_loop.zig`, the loop classifies its input a chunk of 64 octets at
+  a time, as it reaches each, into one bit per octet: quotation marks, reverse solidi, structural
+  characters, whitespace, and whether the chunk holds an octet from 0x80 up. A reverse solidus's
+  parity marks the escaped quotation marks, and a prefix XOR of the rest gives the octets inside
+  strings, so the loop finds a token's start and a string's end with bit scans, not an octet at a
+  time. The chunk lives in the loop's locals for one call: the index holds no octet the call has not
+  consumed, and a token the chunk cuts takes today's path from where the chunk ends. A string with
+  no reverse solidus and no octet from 0x80 up in its chunk is copied whole, its end known; every
+  other string, every number and every literal name go through the checks they go through today,
+  so every refusal and every theorem of decision 28 stands.
+  **Check:**
+  - The chunk's masks equal a scalar classification of the same octets, over every seeded chunk and
+    every chunk the fuzzer draws.
+  - `decoder_loop_test.zig`'s lockstep property, J6 on against off beside every other claim on and
+    every other off: the same counts, slots, octets, error and state on every text, corruption and
+    split.
+  - bench-json's A/B of J6 on against off on both runners, and the profile's instructions a token.
+    J6 stays only where it gains past decision 20's noise on CLDR's texts and qlog's records with no
+    loss past the noise elsewhere.
+  - Mutations.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

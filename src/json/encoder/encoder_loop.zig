@@ -241,7 +241,7 @@ const Loop = struct {
         if (self.rest.len < around_len) return null;
         const start = @as(usize, @intFromBool(frame.record_separator)) + @intFromBool(frame.value_separator) + 1;
         const room = self.rest[start..][0 .. self.rest.len - around_len];
-        return loop_string.copy_escaped(claims, self.encoder.level, octets, room);
+        return loop_string.copy_escaped_at(claims, self.encoder.level, octets, room);
     }
 
     inline fn hex(self: *Loop, comptime claims: Claims, octets: []const u8, piece: Piece) bool {

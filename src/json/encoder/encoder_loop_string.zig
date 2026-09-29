@@ -35,6 +35,33 @@ const escape_letters = table: {
     break :table letters;
 };
 
+/// What the variant object's `copy_escaped` returns for a string left to the checked path: more
+/// than any room holds.
+pub const left = std.math.maxInt(usize);
+
+/// `copy_escaped` compiled into the AVX2 variant object (variants/loop_string.zig), where the UTF-8
+/// check takes decision 37's lookup, VPSHUFB, which the baseline target lacks: with every claim on,
+/// and with claim J11's runtime safety off at the caller's choice (decision 35).
+extern fn stdx_json_copy_escaped_x86_64_avx2(octets: [*]const u8, len: usize, room: [*]u8, room_len: usize) callconv(.c) usize;
+extern fn stdx_json_copy_escaped_unchecked_x86_64_avx2(octets: [*]const u8, len: usize, room: [*]u8, room_len: usize) callconv(.c) usize;
+
+/// `copy_escaped`, in the variant object of `level` on x86-64 with every claim on, and here for
+/// every other target, level and set of claims. The call is once a string, outside every loop
+/// (decoder_loop_string.zig's `copy_rest_at`).
+pub inline fn copy_escaped_at(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
+    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{})) {
+        if (level == .avx2) return kernel_result(stdx_json_copy_escaped_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len));
+    }
+    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{ .encoder_token_loop_runtime_safety = false })) {
+        if (level == .avx2) return kernel_result(stdx_json_copy_escaped_unchecked_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len));
+    }
+    return copy_escaped(claims, level, octets, room);
+}
+
+inline fn kernel_result(written: usize) ?usize {
+    return if (written == left) null else written;
+}
+
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
 pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {

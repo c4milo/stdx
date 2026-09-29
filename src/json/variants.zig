@@ -11,7 +11,7 @@ comptime {
     switch (level) {
         .x86_64_avx2 => {
             _ = @import("variants/scan_wide.zig");
-            _ = @import("variants/string_walk_blocks.zig");
+            _ = @import("variants/loop_string.zig");
         },
         else => {},
     }
