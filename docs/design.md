@@ -876,20 +876,20 @@ to 12 are reordered and nothing else changes.
     the finder at 46% to 76% of levels 1 and 6 and the symbol writer at 19% to 37%, and a
     ReleaseFast build showed 36% to 42% of the instructions were safety checks. Five commits change
     no output:
-    - 2193e9e stores the bit writer's 8 octets at once when the output has the room (E5); 404c4f4
-      puts a pair's length and its distance in one put each, from entries the plan fills; db39fb6
+    - 6ed7806 stores the bit writer's 8 octets at once when the output has the room (E5); f547a67
+      puts a pair's length and its distance in one put each, from entries the plan fills; 134ff8e
       indexes the writer's tables by types that fit them, a u5 for a code and a u8 for a literal,
       so no read checks its bounds.
-    - df32d65 runs the symbol loop on a local buffer, count and position, written back once: the
+    - 13bedd6 runs the symbol loop on a local buffer, count and position, written back once: the
       count in memory was a store-to-load hop on every symbol's critical path. The block records a
       pair's distance code when the pair is added, so the writer looks nothing up twice.
-    - 8eae6af hoists the chain walk's checks out of the candidate loop and recomputes the found
+    - f4fca5c hoists the chain walk's checks out of the candidate loop and recomputes the found
       match's tail only on a longer match; the greedy and lazy levels decide the positions with the
       whole lookahead ahead in loops that keep the position and the waiting match in locals, and
       the general step takes the input's end; the slide is a vector saturating subtract. A test
       requires a match at exactly `encoder_distance_max`, which the walk's break had to spare.
     - Bench run [36556604513](https://github.com/c4milo/stdx/actions/runs/36556604513), main
-      (26f6f22) and 8eae6af in one job, stdx's speed over libdeflate's, the median of the 39 files,
+      (26f6f22) and f4fca5c in one job, stdx's speed over libdeflate's, the median of the 39 files,
       and stdx's speed over its own before. On the N2: level 1 from 0.49 to 0.84 (1.68 times, no
       file slower), level 6 from 0.47 to 0.59 (1.26), level 9 from 0.73 to 0.89 (1.25). On an
       EPYC 7763: level 1 from 0.52 to 0.85 (1.71), level 6 from 0.51 to 0.60 (1.18), level 9 from
@@ -897,16 +897,16 @@ to 12 are reordered and nothing else changes.
       speed before, beyond the spreads). Output unchanged, over libdeflate's: 1.101, 1.000 and
       1.011 at levels 1, 6 and 9. The 1 KiB files stay the slowest against libdeflate, 0.41 to
       0.45 at level 1 on the N2.
-    - Then decision 36's two rules (5d8aa6c), from a comparison of libdeflate's output symbols with
+    - Then decision 36's two rules (04a6e86), from a comparison of libdeflate's output symbols with
       stdx's: level 1's covered positions enter the heads, and the lazy step prices distance. Output
       over libdeflate's, the median of ten files: level 1 1.121 to 1.054, level 6 1.017 to 1.007,
       level 9 1.029 to 1.026. Bench run
-      [36559451595](https://github.com/c4milo/stdx/actions/runs/36559451595), 5d8aa6c alone: its
-      two runs with 8eae6af as the base died fetching the Canterbury corpora for the base, so its
+      [36559451595](https://github.com/c4milo/stdx/actions/runs/36559451595), 04a6e86 alone: its
+      two runs with f4fca5c as the base died fetching the Canterbury corpora for the base, so its
       tables stand against run 36556604513's on the same CPU models, not the same job. stdx over
       libdeflate at levels 1, 6 and 9 on the N2 from 0.84, 0.59 and 0.89 to 0.71, 0.58 and 0.84,
       and on the EPYC 7763 from 0.85, 0.60 and 0.96 to 0.77, 0.57 and 0.88. stdx's own speed over
-      8eae6af's: level 1 at 0.91 and 0.93 on the two, the text files 0.80 to 0.88 and E.coli 0.68
+      f4fca5c's: level 1 at 0.91 and 0.93 on the two, the text files 0.80 to 0.88 and E.coli 0.68
       and 0.73, where the inserts are most; level 6 at 0.98 and 0.97, json-1m 0.75 on both; level
       9 at 0.98 and 0.99, json-1m 0.63 and 0.66, samba 0.70 and 0.74. Output over libdeflate's,
       the 39 files' median: 1.101 to 1.055, 1.000 to 0.999 and 1.011 to 1.010; json-1m at level 6
