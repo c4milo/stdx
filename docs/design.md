@@ -686,6 +686,52 @@ to 12 are reordered and nothing else changes.
     bound at which no distance code fits and the stop after a code length's lengths, which only
     skip work.
 
+  **The losing files, checked on 2026-09-29.** Decision 34's rulings, measured with libdeflate as a
+  black box: raw DEFLATE streams whose symbol statistics vary one at a time, each decoded by
+  libdeflate and by stdx in one program on each runner CPU drawn (the temporary branches
+  `perf-deflate-synth` and `perf-deflate-synth-ab`, which never land; runs [36504398125](https://github.com/c4milo/stdx/actions/runs/36504398125),
+  [36505458044](https://github.com/c4milo/stdx/actions/runs/36505458044), [36506506249](https://github.com/c4milo/stdx/actions/runs/36506506249), [36507428104](https://github.com/c4milo/stdx/actions/runs/36507428104) and [36508216806](https://github.com/c4milo/stdx/actions/runs/36508216806)). What they found, and
+  what came of each:
+  - Streams of literals alone, at every code length: stdx at 0.93 to 0.97 of libdeflate on every
+    CPU. The refill after a run's last literal sat on the lookup chain, its shift waiting for the
+    bit count. The lookup before the refill landed for aarch64 (f4c60e3): on the N2, six jobs of
+    runs [36499238157](https://github.com/c4milo/stdx/actions/runs/36499238157) and [36506008880](https://github.com/c4milo/stdx/actions/runs/36506008880), sao, osdb, samba and mozilla gain 1 to 3% and no
+    file loses beyond its spread. Its x86-64 form won 0.7% on an EPYC 7763 but lost ooffice 3.6% on
+    a 9V74 and text 2 to 6% on an Intel Xeon 6973P-C, and four literals per refill with no check
+    lost to it on every CPU (runs [36506008880](https://github.com/c4milo/stdx/actions/runs/36506008880) and [36506010404](https://github.com/c4milo/stdx/actions/runs/36506010404)), so the x86-64 loop
+    keeps its refill first.
+  - Matches of one length at each distance: at distances 17 to 31 the copy's second chunk loads
+    octets the first chunk's store has not committed, 18 cycles a match on the N2 (2575 to 846
+    MB/s) and 10 on x86-64, where every distance below 32 pays it. libdeflate is fast at 1, 2, 3,
+    4, 8, 16, 24 and 32 and slow elsewhere (290 to 540 MB/s at 12 and 15, where stdx keeps 2400).
+    A source over the previous match's store stalls both decoders; one over octets that literals
+    wrote does not. Two copies without the stall won the streams and lost the corpus (runs
+    [36508538318](https://github.com/c4milo/stdx/actions/runs/36508538318) and [36508536342](https://github.com/c4milo/stdx/actions/runs/36508536342)): a rolling copy that takes each chunk from the two
+    before it through a table lookup, 2.5 to 2.8 times faster at those distances on the N2 yet
+    0.985 of main over the corpus there (reymont 0.945, css-1m 0.963) and 0.959 on an EPYC 9V45;
+    and the first chunks loaded before any is stored, 0.991 on the N2 and 4 to 7% off every match
+    on x86-64. Those distances are 3 to 9% of a file's matches, so a branch into a separate path is
+    mispredicted nearly every time it is taken, about the stall it saves, and a branch-free select
+    of the chunks' sources costs six to eight instructions a match. The copy stays as it is.
+  - Random distances up to 8 KiB, and the table load's addressing mode: no effect on any CPU.
+  - Mixes: a mispredicted length or literal-after-match branch costs 10 to 17 cycles on every CPU,
+    the latter alike for both decoders. A 50% mix of combined and plain entries costs stdx 1 to 6%
+    alone, yet S11 off wins css-1m 6% and nci 9% on an Intel 8573C. Plain tables for the blocks
+    whose combined share falls under a threshold, on x86-64 alone: at 7/8, nci +9.7% and css-1m +8%
+    on the 8573C but world192.txt -5%; at 4/5, ptt5 +4% and nci +3% there, and css-1m -5% on an
+    EPYC 7763 in two jobs; at 5/6, css-1m +4.4% and nci +4% on the 8573C against osdb -2.9% and xml
+    -2.1%, a median of 0.995 (runs [36502611127](https://github.com/c4milo/stdx/actions/runs/36502611127),
+    [36506773582](https://github.com/c4milo/stdx/actions/runs/36506773582),
+    [36508536342](https://github.com/c4milo/stdx/actions/runs/36508536342) and
+    [36509002928](https://github.com/c4milo/stdx/actions/runs/36509002928)). Not kept.
+  - An alignment-only change to the x86-64 loop moved Intel files by -3.2% to +2.1% (run
+    [36508643283](https://github.com/c4milo/stdx/actions/runs/36508643283)): an Intel per-file delta under 3% is layout noise.
+  - Where it stands at f4c60e3, each from the A/B jobs' own baselines: N2 1.094 to
+    1.094 of libdeflate, faster on 28 to 29 files, behind on ooffice 0.90, nci 0.90, mozilla 0.91, ptt5 0.94, osdb 0.95, sao 0.96, samba 0.96, dickens-1m 0.97, xml 0.99; EPYC
+    7763 1.015 to 1.026, faster on 24 or 25; EPYC 9V45 1.032, faster on 21, behind on ptt5 0.86,
+    nci 0.88, css-1m 0.89 and html-1m 0.90; Intel Xeon 8573C 0.984 and 0.997, faster on 18 or 19,
+    behind on ptt5 0.84, css-1m 0.87, html-1m 0.87 and nci 0.89.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
