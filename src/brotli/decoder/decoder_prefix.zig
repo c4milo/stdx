@@ -37,6 +37,7 @@ pub fn read_kind(state: *State, bits: *codec.BitReader) ?codec.Status {
     state.reading.space = constants.code_length_code_space;
     state.reading.nonzero_count = 0;
     @memset(state.lengths[0..constants.code_length_alphabet_len], 0);
+    state.reading.counts = @splat(0);
     count_work(state, constants.code_length_alphabet_len);
     state.phase = .code_length_code;
     return null;
@@ -114,33 +115,53 @@ fn canonical_before(_: void, a: prefix.Coded, b: prefix.Coded) bool {
 }
 
 /// The code lengths of the code length code, in the order of RFC 7932 §3.5, until their sum of
-/// 32 >> length reaches 32 or all 18 are read, or the input runs out.
-pub fn read_code_length_code(state: *State, bits: *codec.BitReader) Error!?codec.Status {
-    for (0..constants.code_length_alphabet_len) |_| {
+/// 32 >> length reaches 32 or all 18 are read, or the input runs out. Each is a code of the fixed
+/// code §3.5 gives; the loop of decoder_fast_lengths.zig reads them while the input's margin holds,
+/// and the checked step reads the rest.
+pub fn read_code_length_code(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+    // Each step reads one length, so the alphabet ends the loop, with one iteration more for the
+    // checks after its last length.
+    for (0..constants.code_length_alphabet_len + 1) |_| {
+        if (fast_paths) lengths_fast.read_code_length_code(state, bits);
+        if (try settle_code_length_code(state)) return null;
         try read_code_length_code_length(state, bits) orelse return .needs_input;
-        if (state.phase != .code_length_code) return null;
     }
     unreachable;
 }
 
-/// One code length of the code length code, and the code when its lengths end; null while its
-/// bits are not all present.
-fn read_code_length_code_length(state: *State, bits: *codec.BitReader) Error!?void {
+/// The checks after each length of the code length code: whether its lengths have ended, and the
+/// code is built or refused.
+pub fn settle_code_length_code(state: *State) Error!bool {
     const reading = &state.reading;
-    _ = bits.ensure(constants.code_length_code_length_bits_max);
-    const decoded = prefix.decode_code_length_code_length(bits.peek(@min(bits.bits.count, codec.constants.ensure_bits_max)), @min(bits.bits.count, codec.constants.ensure_bits_max)) orelse return null;
-    bits.consume(decoded.len);
-    count_work(state, 1);
-    const symbol = constants.code_length_code_order[reading.index];
-    state.lengths[symbol] = decoded.value;
-    reading.index += 1;
-    if (decoded.value != 0) {
-        reading.space -= @as(i32, constants.code_length_code_space) >> @intCast(decoded.value);
-        reading.nonzero_count += 1;
-    }
     // A sum that reaches 32 or passes it ends the lengths, as does the alphabet's end.
-    if (reading.space > 0 and reading.index < constants.code_length_alphabet_len) return;
+    if (reading.space > 0 and reading.index < constants.code_length_alphabet_len) return false;
     try build_code_length_code(state);
+    return true;
+}
+
+/// One code length of the code length code through the checked reader; null while its bits are not
+/// all present.
+pub fn read_code_length_code_length(state: *State, bits: *codec.BitReader) Error!?void {
+    _ = bits.ensure(constants.code_length_code_length_bits_max);
+    const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
+    const decoded = prefix.decode_code_length_code_length(bits.peek(available), available) orelse return null;
+    bits.consume(decoded.len);
+    set_code_length_code_length(state, decoded.value);
+}
+
+/// A code length of the code length code for the next symbol of the order of RFC 7932 §3.5. Inline,
+/// so that the loop of decoder_fast_lengths.zig keeps the reading's fields in registers.
+pub inline fn set_code_length_code_length(state: *State, len: u8) void {
+    const reading = &state.reading;
+    assert(reading.index < constants.code_length_alphabet_len);
+    const symbol = constants.code_length_code_order[reading.index];
+    state.lengths[symbol] = len;
+    reading.index += 1;
+    count_work(state, 1);
+    if (len == 0) return;
+    reading.counts[len] += 1;
+    reading.space -= @as(i32, constants.code_length_code_space) >> @intCast(len);
+    reading.nonzero_count += 1;
 }
 
 /// The code length code, once its lengths are read, and the start of the code lengths.
@@ -150,7 +171,7 @@ fn build_code_length_code(state: *State) Error!void {
     // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
     if (reading.space < 0) return error.OverSubscribedCodeLengthCode;
     if (reading.space == 0) {
-        count_work(state, state.code_length_code.build(lengths));
+        count_work(state, state.code_length_code.build_within_root(lengths, &reading.counts));
     } else if (reading.nonzero_count == 1) {
         // RFC 7932 §3.5: one non-zero code length gives a code of one symbol, of no bits.
         count_work(state, state.code_length_code.build_single(@intCast(std.mem.indexOfNone(u8, lengths, &.{0}).?)));

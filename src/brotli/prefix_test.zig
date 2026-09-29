@@ -174,3 +174,73 @@ test "the fixed code of the code length code's lengths" {
     }
     try testing.expectEqual(null, prefix.decode_code_length_code_length(0, 1));
 }
+
+/// Symbols of a test code spread over a literal alphabet: every `spread_stride`th from
+/// `spread_offset`, so that runs of one length hold one symbol and the lists hold many.
+const spread_stride = 16;
+const spread_offset = 3;
+/// A complete code within and past the root: 1 to 14 bits once each and 15 bits twice, a Kraft
+/// sum of 1.
+const spread_codes = constants.code_len_max + 1;
+/// A complete code within the root: two codes of 2 bits and four of 3 bits.
+const within_short_len = 2;
+const within_short_codes = 2;
+const within_long_len = 3;
+const within_long_codes = 4;
+
+/// Requires the runs' build and the sorted build to write the same table from `lengths`, the runs
+/// appended as the reader appends them: one per maximal stretch of one length.
+fn expect_builds_alike(lengths: []const u8) !void {
+    const counts = prefix.counts_of(lengths);
+    var buffer: [constants.literal_alphabet_len]prefix.Coded = undefined;
+    const sorted = prefix.sort_canonical(lengths, &counts, &buffer);
+    var ranges: prefix.Ranges = undefined;
+    ranges.reset();
+    var start: usize = 0;
+    for (0..lengths.len) |_| {
+        if (start >= lengths.len) break;
+        var end = start + 1;
+        while (end < lengths.len and lengths[end] == lengths[start]) end += 1;
+        if (lengths[start] != 0) ranges.append(lengths[start], @intCast(start), @intCast(end - start));
+        start = end;
+    }
+    const Literal = prefix.Table(constants.literal_table_len_max, constants.table_root_bits);
+    var by_sort: Literal = undefined;
+    var by_runs: Literal = undefined;
+    const sorted_len = by_sort.build_sorted(sorted, &counts);
+    const runs_len = by_runs.build_ranged(&ranges, &counts);
+    try testing.expectEqual(sorted_len, runs_len);
+    try testing.expectEqualSlices(prefix.Entry, by_sort.entries[0..sorted_len], by_runs.entries[0..runs_len]);
+}
+
+test "the runs' build writes the table the sorted build writes, within the root and past it" {
+    var spread: [constants.literal_alphabet_len]u8 = @splat(0);
+    for (0..spread_codes) |index| spread[index * spread_stride + spread_offset] = @intCast(@min(index + 1, constants.code_len_max));
+    try expect_builds_alike(&spread);
+    var within: [constants.literal_alphabet_len]u8 = @splat(0);
+    for (0..within_short_codes) |index| within[index * spread_stride + spread_offset] = within_short_len;
+    for (within_short_codes..within_short_codes + within_long_codes) |index| within[index * spread_stride + spread_offset] = within_long_len;
+    try expect_builds_alike(&within);
+}
+
+test "the build within the root writes the table the sorted build writes" {
+    // Complete codes of the code length code's shape: 18 symbols, lengths of at most 5 bits.
+    const within_root_cases = [_][constants.code_length_alphabet_len]u8{
+        .{ 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        .{ 1, 0, 2, 0, 3, 0, 4, 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0 },
+        .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1 },
+        .{ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 1, 0 },
+        .{ 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0 },
+        .{ 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
+    const CodeLengthTable = prefix.Table(constants.code_length_table_len, constants.code_length_table_root_bits);
+    for (within_root_cases) |lengths| {
+        const counts = prefix.counts_of(&lengths);
+        var by_sort: CodeLengthTable = undefined;
+        var within: CodeLengthTable = undefined;
+        const sorted_len = by_sort.build(&lengths);
+        const within_len = within.build_within_root(&lengths, &counts);
+        try testing.expectEqual(sorted_len, within_len);
+        try testing.expectEqualSlices(prefix.Entry, by_sort.entries[0..sorted_len], within.entries[0..within_len]);
+    }
+}

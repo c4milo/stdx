@@ -147,6 +147,37 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
             return fill_ranged(root_bits, value_of, &self.entries, ranges, counts);
         }
 
+        /// The canonical code of `lengths` (RFC 7932 §3.2), every length at most `root_bits`, which
+        /// the root holds whole: each code is written once at every root entry whose low bits are
+        /// its bits as the stream holds them, so no entry is copied and no second level is linked.
+        /// `counts` counts the lengths, as the reading counted them. The caller has checked that
+        /// they form a complete code. Returns the entries written: the whole root.
+        pub fn build_within_root(self: *Self, lengths: []const u8, counts: *const Counts) usize {
+            // RFC 7932 §3.2: a length's codes are consecutive in symbol order, and its first code is
+            // the code after the shorter lengths' last, doubled.
+            var next_code: [root_bits + 1]u32 = undefined;
+            var code: u32 = 0;
+            for (1..root_bits + 1) |len| {
+                next_code[len] = code;
+                code = (code + counts[len]) << 1;
+            }
+            // A complete code takes every value of its longest length, so the doubling ends here.
+            assert(code == @as(u32, 1) << (root_bits + 1));
+            for (lengths, 0..) |len, symbol| {
+                if (len == 0) continue;
+                assert(len <= root_bits);
+                const entry: Entry = .{ .value = @intCast(symbol), .len = len, .second_bits = 0 };
+                var index = reversed(next_code[len], len);
+                next_code[len] += 1;
+                // The code names every root entry whose low `len` bits are its bits: one per 1 << len.
+                for (0..@as(usize, 1) << @intCast(root_bits - len)) |_| {
+                    self.entries[index] = entry;
+                    index += @as(u32, 1) << @intCast(len);
+                }
+            }
+            return 1 << root_bits;
+        }
+
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
         /// are present.
         pub fn decode(self: *const Self, bits: u64, available: u7) Decoded {
@@ -430,55 +461,12 @@ pub fn decode_code_length_code_length(bits: u64, available: u7) ?CodeLengthCodeL
     return entry;
 }
 
+/// The code length the fixed code of RFC 7932 §3.5 gives the bits, least significant first, of which
+/// its longest code's are present: the fast path's lookup, whose margin keeps them present.
+pub inline fn decode_code_length_code_length_whole(bits: u64) CodeLengthCodeLength {
+    return code_length_code_length_table[@as(u4, @truncate(bits))];
+}
+
 test {
     _ = @import("prefix_test.zig");
-}
-
-/// Symbols of a test code spread over a literal alphabet: every `spread_stride`th from
-/// `spread_offset`, so that runs of one length hold one symbol and the lists hold many.
-const spread_stride = 16;
-const spread_offset = 3;
-/// A complete code within and past the root: 1 to 14 bits once each and 15 bits twice, a Kraft
-/// sum of 1.
-const spread_codes = constants.code_len_max + 1;
-/// A complete code within the root: two codes of 2 bits and four of 3 bits.
-const short_len = 2;
-const short_codes = 2;
-const long_len = 3;
-const long_codes = 4;
-
-/// Requires the runs' build and the sorted build to write the same table from `lengths`, the runs
-/// appended as the reader appends them: one per maximal stretch of one length.
-fn expect_builds_alike(lengths: []const u8) !void {
-    const testing = std.testing;
-    const counts = counts_of(lengths);
-    var buffer: [constants.literal_alphabet_len]Coded = undefined;
-    const sorted = sort_canonical(lengths, &counts, &buffer);
-    var ranges: Ranges = undefined;
-    ranges.reset();
-    var start: usize = 0;
-    for (0..lengths.len) |_| {
-        if (start >= lengths.len) break;
-        var end = start + 1;
-        while (end < lengths.len and lengths[end] == lengths[start]) end += 1;
-        if (lengths[start] != 0) ranges.append(lengths[start], @intCast(start), @intCast(end - start));
-        start = end;
-    }
-    const Literal = Table(constants.literal_table_len_max, constants.table_root_bits);
-    var by_sort: Literal = undefined;
-    var by_runs: Literal = undefined;
-    const sorted_len = by_sort.build_sorted(sorted, &counts);
-    const runs_len = by_runs.build_ranged(&ranges, &counts);
-    try testing.expectEqual(sorted_len, runs_len);
-    try testing.expectEqualSlices(Entry, by_sort.entries[0..sorted_len], by_runs.entries[0..runs_len]);
-}
-
-test "the runs' build writes the table the sorted build writes, within the root and past it" {
-    var spread: [constants.literal_alphabet_len]u8 = @splat(0);
-    for (0..spread_codes) |index| spread[index * spread_stride + spread_offset] = @intCast(@min(index + 1, constants.code_len_max));
-    try expect_builds_alike(&spread);
-    var within: [constants.literal_alphabet_len]u8 = @splat(0);
-    for (0..short_codes) |index| within[index * spread_stride + spread_offset] = short_len;
-    for (short_codes..short_codes + long_codes) |index| within[index * spread_stride + spread_offset] = long_len;
-    try expect_builds_alike(&within);
 }

@@ -1,14 +1,15 @@
-//! The brotli header's fast path for a complex code's code lengths (RFC 7932 §3.5), an experiment
-//! under decision 16 during design §8 step 12. The symbols of the code length code, each with its
-//! extra bits, come from a 64-bit buffer refilled by whole words while at least `input_slack`
-//! octets of input remain, and each is applied through the checked path's own functions. The loop
-//! leaves the reader and the state where the checked steps would, and the checked path finishes
-//! the code: the checks after its last symbol, and every refusal.
+//! The brotli header's fast paths for a complex code's code length code and its code lengths (RFC
+//! 7932 §3.5), under decision 16 during design §8 step 12. The symbols, each with its extra bits,
+//! come from a 64-bit buffer refilled by whole words while at least `input_slack` octets of input
+//! remain, and each is applied through the checked path's own functions. A loop leaves the reader
+//! and the state where the checked steps would, and the checked path finishes the code: the checks
+//! after its last symbol, and every refusal.
 
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../../constants.zig");
+const prefix = @import("../../prefix.zig");
 const state_module = @import("../decoder_state.zig");
 const prefix_reader = @import("../decoder_prefix.zig");
 const fast = @import("decoder_fast.zig");
@@ -23,6 +24,8 @@ const refill_bits = @bitSizeOf(u64) - @bitSizeOf(u8);
 
 comptime {
     assert(symbol_bits_max <= @bitSizeOf(u8));
+    // A length of the code length code is a code of the fixed code, which takes at most 4 bits.
+    assert(constants.code_length_code_length_bits_max <= symbol_bits_max);
 }
 
 /// The reader's state in locals: the input, the position of the next octet, and the bits taken from
@@ -32,6 +35,12 @@ const Bits = struct {
     position: usize,
     buffer: u64,
     count: u32,
+
+    /// The reader's state, as a loop takes it.
+    inline fn of(bits: *const codec.BitReader) Bits {
+        assert(bits.bits.count <= @bitSizeOf(u64));
+        return .{ .input = bits.reader.octets, .position = bits.reader.position, .buffer = bits.bits.buffer, .count = bits.bits.count };
+    }
 
     /// Whether the buffer holds a symbol's bits, after a refill when it holds fewer than eight and
     /// the input's margin holds: one 8-octet load, of which seven whole octets fit. The bits above
@@ -52,20 +61,40 @@ const Bits = struct {
         self.buffer >>= @intCast(bit_count);
         self.count -= bit_count;
     }
+
+    /// Hands the reader back as the checked reader keeps it: no bit above `count` set.
+    inline fn hand_back(self: *const Bits, bits: *codec.BitReader) void {
+        assert(self.position <= self.input.len);
+        bits.bits = .{
+            .buffer = if (self.count >= @bitSizeOf(u64)) self.buffer else fast.low_bits(self.buffer, self.count),
+            .count = @intCast(self.count),
+        };
+        bits.reader.position = self.position;
+    }
 };
+
+/// Reads code lengths of the code length code while the input's margin holds and the lengths go on,
+/// applying each as the checked path does, and hands the reader back.
+pub fn read_code_length_code(state: *State, bits: *codec.BitReader) void {
+    const reading = &state.reading;
+    var local = Bits.of(bits);
+    for (0..constants.code_length_alphabet_len) |_| {
+        // A sum that reaches 32 or passes it ends the lengths, as does the alphabet's end.
+        if (reading.space <= 0 or reading.index >= constants.code_length_alphabet_len) break;
+        if (!local.has_symbol_bits()) break;
+        const decoded = prefix.decode_code_length_code_length_whole(local.buffer);
+        local.take(decoded.len);
+        prefix_reader.set_code_length_code_length(state, decoded.value);
+    }
+    local.hand_back(bits);
+}
 
 /// Reads code length symbols while the input's margin holds and the code goes on, applying each as
 /// the checked path does, and hands the reader back. A repeat that would pass the alphabet's end
 /// stays unread, for the checked path to refuse.
 pub fn read(state: *State, bits: *codec.BitReader) void {
     const reading = &state.reading;
-    var local: Bits = .{
-        .input = bits.reader.octets,
-        .position = bits.reader.position,
-        .buffer = bits.bits.buffer,
-        .count = bits.bits.count,
-    };
-    assert(local.count <= @bitSizeOf(u64));
+    var local = Bits.of(bits);
     // Each symbol gives at least one length, so the alphabet ends the loop.
     for (0..reading.alphabet_len) |_| {
         if (reading.space <= 0 or reading.index >= reading.alphabet_len) break;
@@ -87,13 +116,7 @@ pub fn read(state: *State, bits: *codec.BitReader) void {
         }
         count_work(state, 1);
     }
-    assert(local.position <= local.input.len);
-    // Hand the reader back as the checked reader keeps it: no bit above `count` set.
-    bits.bits = .{
-        .buffer = if (local.count >= @bitSizeOf(u64)) local.buffer else fast.low_bits(local.buffer, local.count),
-        .count = @intCast(local.count),
-    };
-    bits.reader.position = local.position;
+    local.hand_back(bits);
 }
 
 // Tests.
@@ -105,7 +128,7 @@ const Stream = test_stream.Stream;
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
 const test_window_bits = 16;
 
-/// Zero octets after the stream, two margins, so that the loop's margin holds to the code's end.
+/// Zero octets after the stream, two margins, so that a loop's margin holds to the code's end.
 const padding_margins = 2;
 const padding_len = padding_margins * fast.input_slack;
 
@@ -115,6 +138,13 @@ const padding_len = padding_margins * fast.input_slack;
 const repeat_code_len = 2;
 const len_code_len = 1;
 const code_length_lengths = [_]u8{ 0, 0, 0, 0, 0, 0, repeat_code_len, len_code_len, repeat_code_len };
+/// A code length code of 68 bits, so that its loop refills: 5 at the first sixteen places of the
+/// order of RFC 7932 §3.5 and 1 at the seventeenth, a sum of sixteen 32 >> 5 and one 32 >> 1, each
+/// a 4-bit code of the fixed code. The symbols the literal code uses, 6, 16 and 17, take 5 bits.
+const wide_code_len = 5;
+const wide_codes = 16;
+const narrow_code_len = 1;
+const long_code_length_lengths = [_]u8{wide_code_len} ** wide_codes ++ [_]u8{narrow_code_len};
 const coded_len = 6;
 /// The repeat symbols among the code lengths: the leading zeros, the repeat and the middle zeros.
 const repeat_symbols = 3;
@@ -144,17 +174,32 @@ const code_lengths = code_lengths: {
     break :code_lengths symbols;
 };
 
-/// The stream up to the literal code's code lengths, padded.
-fn code_lengths_stream(padded: *[test_stream.capacity + padding_len]u8) []const u8 {
+/// The stream up to the literal code's code lengths, its code length code's lengths given, padded.
+fn stream_with(code_length_code_lengths: []const u8, padded: *[test_stream.capacity + padding_len]u8) []const u8 {
     var stream: Stream = .{};
     stream.window_bits_16();
     stream.meta_block(true, 1);
     stream.simple_header(0, 0, 0);
-    stream.complex_code(0, &code_length_lengths, &code_lengths);
+    stream.complex_code(0, code_length_code_lengths, &code_lengths);
     const written = stream.written();
     @memcpy(padded[0..written.len], written);
     @memset(padded[written.len..][0..padding_len], 0);
     return padded[0 .. written.len + padding_len];
+}
+
+/// Decodes `input` an octet at a time until the decoder stands at `phase`, and returns how many
+/// octets that took.
+fn feed_until(decoder: *Decoder, input: []const u8, phase: state_module.Phase) !usize {
+    var fed: usize = 0;
+    var output: [1]u8 = undefined;
+    for (0..input.len) |_| {
+        if (decoder.state.phase == phase) break;
+        const progress = try decoder.decode(input[fed .. fed + 1], &output);
+        try testing.expectEqual(.needs_input, progress.status);
+        fed += 1;
+    }
+    try testing.expectEqual(phase, decoder.state.phase);
+    return fed;
 }
 
 /// The bit a reader stands at, counted from the input's first octet: the loop takes whole octets
@@ -175,22 +220,31 @@ fn finish_checked(state: *State, bits: *codec.BitReader) !Outcome {
     unreachable;
 }
 
+/// As `finish_checked`, for the code length code, as `read_code_length_code` takes its steps.
+fn finish_code_length_code_checked(state: *State, bits: *codec.BitReader) !Outcome {
+    for (0..constants.code_length_alphabet_len + 1) |_| {
+        if (try prefix_reader.settle_code_length_code(state)) return .whole;
+        (try prefix_reader.read_code_length_code_length(state, bits)) orelse return .needs_input;
+    }
+    unreachable;
+}
+
+/// Requires a loop's state and reader to stand where the checked steps' do.
+fn expect_alike(fast_state: *const State, fast_reader: *const codec.BitReader, checked_state: *const State, checked_reader: *const codec.BitReader) !void {
+    try testing.expectEqual(bit_position(checked_reader), bit_position(fast_reader));
+    try testing.expectEqual(checked_state.reading, fast_state.reading);
+    try testing.expectEqual(checked_state.lengths, fast_state.lengths);
+    try testing.expectEqual(checked_state.phase, fast_state.phase);
+    try testing.expectEqual(checked_state.work, fast_state.work);
+}
+
 test "the loop leaves the state and the reader where the checked steps leave them, at every input" {
     var padded: [test_stream.capacity + padding_len]u8 = undefined;
-    const input = code_lengths_stream(&padded);
+    const input = stream_with(&code_length_lengths, &padded);
     // An octet at a time, until the code length code is built and the code lengths begin.
     var decoder: Decoder = undefined;
     decoder.init(.{});
-    var fed: usize = 0;
-    var output: [1]u8 = undefined;
-    for (0..input.len) |_| {
-        if (decoder.state.phase == .code_lengths) break;
-        const progress = try decoder.decode(input[fed .. fed + 1], &output);
-        try testing.expectEqual(.needs_input, progress.status);
-        fed += 1;
-    }
-    try testing.expectEqual(.code_lengths, decoder.state.phase);
-    const rest = input[fed..];
+    const rest = input[try feed_until(&decoder, input, .code_lengths)..];
     var refilled = false;
     for (0..rest.len + 1) |available| {
         var fast_state: State = decoder.state;
@@ -199,13 +253,29 @@ test "the loop leaves the state and the reader where the checked steps leave the
         var checked_reader = codec.BitReader.init(rest[0..available], decoder.state.bits);
         read(&fast_state, &fast_reader);
         if (fast_reader.reader.position > 0) refilled = true;
-        const fast_outcome = try finish_checked(&fast_state, &fast_reader);
-        const checked_outcome = try finish_checked(&checked_state, &checked_reader);
-        try testing.expectEqual(checked_outcome, fast_outcome);
-        try testing.expectEqual(bit_position(&checked_reader), bit_position(&fast_reader));
-        try testing.expectEqual(checked_state.reading, fast_state.reading);
-        try testing.expectEqual(checked_state.phase, fast_state.phase);
-        try testing.expectEqual(checked_state.work, fast_state.work);
+        try testing.expectEqual(try finish_checked(&checked_state, &checked_reader), try finish_checked(&fast_state, &fast_reader));
+        try expect_alike(&fast_state, &fast_reader, &checked_state, &checked_reader);
+    }
+    try testing.expect(refilled);
+}
+
+test "the code length code's loop leaves the state and the reader where the checked steps leave them, at every input" {
+    var padded: [test_stream.capacity + padding_len]u8 = undefined;
+    const input = stream_with(&long_code_length_lengths, &padded);
+    // An octet at a time, until the code's kind is read and its code length code begins.
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    const rest = input[try feed_until(&decoder, input, .code_length_code)..];
+    var refilled = false;
+    for (0..rest.len + 1) |available| {
+        var fast_state: State = decoder.state;
+        var checked_state: State = decoder.state;
+        var fast_reader = codec.BitReader.init(rest[0..available], decoder.state.bits);
+        var checked_reader = codec.BitReader.init(rest[0..available], decoder.state.bits);
+        read_code_length_code(&fast_state, &fast_reader);
+        if (fast_reader.reader.position > 0) refilled = true;
+        try testing.expectEqual(try finish_code_length_code_checked(&checked_state, &checked_reader), try finish_code_length_code_checked(&fast_state, &fast_reader));
+        try expect_alike(&fast_state, &fast_reader, &checked_state, &checked_reader);
     }
     try testing.expect(refilled);
 }
