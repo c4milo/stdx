@@ -191,7 +191,6 @@ test "the loop leaves the state and the reader where the checked steps leave the
     }
     try testing.expectEqual(.code_lengths, decoder.state.phase);
     const rest = input[fed..];
-    const alphabet_len = decoder.state.reading.alphabet_len;
     var refilled = false;
     for (0..rest.len + 1) |available| {
         var fast_state: State = decoder.state;
@@ -205,7 +204,6 @@ test "the loop leaves the state and the reader where the checked steps leave the
         try testing.expectEqual(checked_outcome, fast_outcome);
         try testing.expectEqual(bit_position(&checked_reader), bit_position(&fast_reader));
         try testing.expectEqual(checked_state.reading, fast_state.reading);
-        try testing.expectEqualSlices(u8, checked_state.lengths[0..alphabet_len], fast_state.lengths[0..alphabet_len]);
         try testing.expectEqual(checked_state.phase, fast_state.phase);
         try testing.expectEqual(checked_state.work, fast_state.work);
     }

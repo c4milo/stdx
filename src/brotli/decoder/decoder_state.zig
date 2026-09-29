@@ -146,6 +146,9 @@ pub const Reading = struct {
     /// A complex code: how many of the lengths read so far take each length, 1 to 15, so its build
     /// counts none of them again.
     counts: prefix.Counts,
+    /// A complex code: the runs of equal lengths read so far, one list per length in symbol order,
+    /// which the build walks in canonical order with no sort.
+    ranges: prefix.Ranges,
 };
 
 /// A context map being read (RFC 7932 §7.3): which map, RLEMAX, and the entries written so far.
@@ -227,7 +230,7 @@ pub const State = struct {
     /// A prefix code being read, the code of its code lengths, and its lengths so far.
     reading: Reading,
     code_length_code: prefix.Table(constants.code_length_table_len, constants.code_length_table_root_bits),
-    lengths: [constants.insert_copy_alphabet_len]u8,
+    lengths: [constants.code_length_alphabet_len]u8,
     /// A context map being read, and the prefix code of its values.
     map_reading: MapReading,
     map_code: prefix.Table(constants.context_map_table_len_max, constants.table_root_bits),

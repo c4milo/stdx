@@ -18,7 +18,7 @@ const count_work = state_module.count_work;
 
 /// Starts reading the prefix code `target` names, over an alphabet of `alphabet_len` symbols.
 pub fn start(state: *State, target: Target, alphabet_len: u16) void {
-    assert(alphabet_len >= 1 and alphabet_len <= state.lengths.len);
+    assert(alphabet_len >= 1 and alphabet_len <= constants.insert_copy_alphabet_len);
     state.reading.target = target;
     state.reading.alphabet_len = alphabet_len;
     state.phase = .prefix_kind;
@@ -160,6 +160,7 @@ fn build_code_length_code(state: *State) Error!void {
     }
     reading.index = 0;
     reading.counts = @splat(0);
+    reading.ranges.reset();
     reading.space = constants.code_lengths_space;
     reading.previous_len = constants.previous_len_initial;
     reading.repeat_symbol = 0;
@@ -235,10 +236,11 @@ pub fn repeat_extra_bits(symbol: u8) u7 {
 pub fn set_length(state: *State, len: u8) void {
     const reading = &state.reading;
     assert(reading.index < reading.alphabet_len);
-    state.lengths[reading.index] = len;
+    const symbol = reading.index;
     reading.index += 1;
     reading.repeat_symbol = 0;
     if (len == 0) return;
+    reading.ranges.append(len, symbol, 1);
     reading.counts[len] += 1;
     reading.previous_len = len;
     reading.space -= @as(i32, constants.code_lengths_space) >> @intCast(len);
@@ -262,12 +264,13 @@ pub fn repeat_of(reading: *const state_module.Reading, symbol: u8, extra: u32) R
 pub fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
     const reading = &state.reading;
     assert(reading.index + repeat.added <= reading.alphabet_len);
-    @memset(state.lengths[reading.index..][0..repeat.added], repeat.len);
+    const first = reading.index;
     count_work(state, repeat.added);
     reading.index += @intCast(repeat.added);
     reading.repeat_symbol = symbol;
     reading.repeat_count = repeat.count;
     if (repeat.len == 0) return;
+    reading.ranges.append(repeat.len, first, @intCast(repeat.added));
     reading.counts[repeat.len] += @intCast(repeat.added);
     reading.space -= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
 }
@@ -277,41 +280,14 @@ pub fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
 const Code = union(enum) {
     single: u16,
     sorted: struct { symbols: []const prefix.Coded, counts: *const prefix.Counts },
+    ranged: struct { ranges: *const prefix.Ranges, counts: *const prefix.Counts },
 };
 
-/// Builds the complex code whose lengths `state.lengths` holds, or the code of one symbol when
-/// `single` holds it, and moves the header on.
+/// Builds the complex code whose runs of lengths the reading appended, or the code of one symbol
+/// when `single` holds it, and moves the header on.
 fn finish(state: *State, single: ?u16) void {
     if (single) |symbol| return finish_code(state, .{ .single = symbol });
-    switch (std.meta.activeTag(state.reading.target)) {
-        inline else => |target| finish_sorted(sort_len_max(target), state),
-    }
-}
-
-/// The largest alphabet of a code for `target` (RFC 7932 §3.3): the size of the buffer that sorts
-/// its symbols, which a safe build fills with 0xAA, so each target's is no larger than it needs.
-fn sort_len_max(comptime target: std.meta.Tag(state_module.Target)) usize {
-    return switch (target) {
-        .block_type => constants.block_types_max + constants.block_type_symbol_offset,
-        .block_count => constants.block_count_alphabet_len,
-        .map => constants.context_map_alphabet_len_max,
-        .literal => constants.literal_alphabet_len,
-        .insert_copy => constants.insert_copy_alphabet_len,
-        .distance => constants.distance_alphabet_len_max,
-    };
-}
-
-/// The complex code of an alphabet of at most `len_max` symbols, sorted into canonical order and
-/// built.
-fn finish_sorted(comptime len_max: usize, state: *State) void {
-    // RFC 7932 §3.5: trailing zero lengths are omitted, so the symbols after the last length read
-    // have none, and the lengths the reading left there belong to an earlier code.
-    const lengths = state.lengths[0..state.reading.index];
-    assert(lengths.len <= len_max);
-    const counts = &state.reading.counts;
-    var buffer: [len_max]prefix.Coded = undefined;
-    const sorted = prefix.sort_canonical(lengths, counts, &buffer);
-    finish_code(state, .{ .sorted = .{ .symbols = sorted, .counts = counts } });
+    finish_code(state, .{ .ranged = .{ .ranges = &state.reading.ranges, .counts = &state.reading.counts } });
 }
 
 /// Builds `code` into the place the reading's target names, and moves the header on.
@@ -333,6 +309,7 @@ fn build(table: anytype, code: Code) usize {
     return switch (code) {
         .single => |symbol| table.build_single(symbol),
         .sorted => |sorted| table.build_sorted(sorted.symbols, sorted.counts),
+        .ranged => |ranged| table.build_ranged(ranged.ranges, ranged.counts),
     };
 }
 
@@ -349,21 +326,9 @@ fn build_literal(table: anytype, code: Code, mode: context.Mode) usize {
         inline else => |entry_mode| switch (code) {
             .single => |symbol| table.build_single_valued(symbol, context.literal_entry_value(entry_mode)),
             .sorted => |sorted| table.build_sorted_valued(sorted.symbols, sorted.counts, context.literal_entry_value(entry_mode)),
+            .ranged => |ranged| table.build_ranged_valued(ranged.ranges, ranged.counts, context.literal_entry_value(entry_mode)),
         },
     };
 }
 
 // Tests.
-
-test "each code's sort buffer holds its target's largest alphabet" {
-    const testing = std.testing;
-    // RFC 7932 §6: 256 block types and 2 codes more; 26 block count codes.
-    try testing.expectEqual(258, sort_len_max(.block_type));
-    try testing.expectEqual(26, sort_len_max(.block_count));
-    // §7.3: 256 trees and RLEMAX's 16 run-length codes.
-    try testing.expectEqual(272, sort_len_max(.map));
-    // §5: 256 literals and 704 insert-and-copy symbols; §4: 16, NDIRECT's 120 and 48 << 3.
-    try testing.expectEqual(256, sort_len_max(.literal));
-    try testing.expectEqual(704, sort_len_max(.insert_copy));
-    try testing.expectEqual(520, sort_len_max(.distance));
-}

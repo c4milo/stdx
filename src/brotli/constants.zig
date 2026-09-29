@@ -232,6 +232,14 @@ pub const meta_block_len_max = 1 << 24;
 /// 7932 §10).
 pub const block_count_single_type = 16_777_216;
 
+/// The most runs of equal code lengths a complex code's reading appends (`prefix.Ranges`): each
+/// code length symbol gives at least one length, so a code appends at most as many runs as its
+/// alphabet has symbols, and the insert-and-copy alphabet is the largest.
+pub const code_ranges_max = insert_copy_alphabet_len;
+
+/// The head or link of a run list that names no run (`prefix.Ranges`).
+pub const range_none = std.math.maxInt(u16);
+
 /// NBLTYPESx's and NTREESx's code (RFC 7932 §9.2): a 0 bit is 1; else three bits n above it, and n
 /// bits above those, give (1 << n) + 1 + the n bits.
 pub const count_field_bits = 3;
@@ -313,9 +321,10 @@ pub const coded_distance_bias = 4;
 
 /// The octets a decoder takes beside its window's octets (decision 12): the ring's two counters and
 /// the state, of which the lookup tables of every tree take 2,683,592, under decision 12's 3 MiB,
-/// the context maps 17,408, and the counts of a code's lengths as they are read 32; a test build
-/// adds invariant 17's count. Pinned, so that the state grows only by a change of this line.
-pub const decoder_state_len = 2_702_208;
+/// the context maps 17,408, the counts of a code's lengths as they are read 32, and the runs of
+/// equal lengths a reading appends 4,290; a test build adds invariant 17's count. Pinned, so that
+/// the state grows only by a change of this line.
+pub const decoder_state_len = 2_705_808;
 
 /// The bits a prefix code's lookup table resolves in its root (claim B3): 8, which gives the least
 /// memory of any width but 7 and resolves more codes than it.
