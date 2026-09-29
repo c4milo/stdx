@@ -57,8 +57,8 @@ The architecture depends on every rule in this section.
 7. **TigerStyle.** Every loop and queue bounded. Every limit named in the module's
    `constants.zig`, with a doc comment, and never written inline. Assertions stay on in
    production, about two per function, covering positive and negative space, for programmer error
-   only (decision 17). Hostile input returns an error value and fails closed; no input reaches an
-   assertion.
+   only (decision 17); the one loop that runs without them is decision 16's ruled exception.
+   Hostile input returns an error value and fails closed; no input reaches an assertion.
 8. **One module per codec, plus the checksums and JSON.** Each is exported by name with
    `b.addModule`, so a dependent reaches it with `dependency.module("gzip")` (decision 6). The
    library keeps no process-wide mutable state, so a dependent may run codecs on as many threads as

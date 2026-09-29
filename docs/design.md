@@ -1181,7 +1181,8 @@ to 12 are reordered and nothing else changes.
     xml 1.15, alice29 1.14, json-1m 1.14, kennedy.xls 1.11, the 16 KiB bodies 1.10 to 1.13, the 1
     KiB bodies 1.03 to 1.06, whose time is the header's, the all-literal dickens-1m 1.04); the
     EPYC 9V74 median 1.10 (css-1m 1.31, dickens 1.17, js-1m 1.14, css-16k 1.14, json-1m 1.10, and
-    E.coli 0.90). Above decision 16's 5% floor on both; the exception is proposed there.
+    E.coli 0.90). Above decision 16's 5% floor on both; the owner ruled the exception the same day,
+    and the claim, renamed `unchecked_loop`, is on by default from the commit after 8c2a3b8.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over

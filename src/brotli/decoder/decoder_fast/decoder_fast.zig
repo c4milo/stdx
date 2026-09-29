@@ -190,8 +190,8 @@ pub inline fn low_bits(value: u64, bit_count: u32) u64 {
 
 /// Refills with one 8-octet load (as S1), or with the claim off, an octet at a time.
 pub inline fn refill(comptime claims: Claims, loop: *Loop) void {
-    @setRuntimeSafety(claims.loop_checks);
-    if (claims.word_refill) loop.refill_word(claims.loop_checks) else loop.refill_octets(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
+    if (claims.word_refill) loop.refill_word(!claims.unchecked_loop) else loop.refill_octets(!claims.unchecked_loop);
 }
 
 /// Decodes command phases from `bits` into `writer` while the margins hold, until a phase the
@@ -240,7 +240,7 @@ pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State,
 /// on here, a chunk at a time, and gives null; a copy from the window, or the rest of a word the
 /// checked path started, gives the chain's link, and a copy the room lacks `stop`.
 inline fn no_input_step(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State, phase: *Phase) ?Link {
-    @setRuntimeSafety(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
     if (phase.* != .copy or state.command.distance > loop.written) return link_of(phase.*);
     if (copy_within_output(claims, room, loop, state, phase) == .stop) return .stop;
     return null;
@@ -263,7 +263,7 @@ inline fn iterations_max(comptime checks: bool, loop: *const Loop) usize {
 /// the margin's mode, only while the margin holds; the checked path then starts the mode that checks
 /// each write (decision 32).
 noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: *Loop, literal_tables: *LiteralTables, state: *State) Link {
-    @setRuntimeSafety(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
     var loop = shared.*;
     defer shared.* = loop;
     // The straight path moves the phase several times a command; the state needs it where this
@@ -272,8 +272,8 @@ noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: 
     defer state.phase = phase;
     // Each iteration that goes on writes a copy, a word or a run of literals, or takes a symbol's
     // bits, so the room and the input end the loop; one that does neither returns.
-    for (0..iterations_max(claims.loop_checks, &loop)) |_| {
-        if (room == .margin and loop.room(claims.loop_checks) < output_margin) return .stop;
+    for (0..iterations_max(!claims.unchecked_loop, &loop)) |_| {
+        if (room == .margin and loop.room(!claims.unchecked_loop) < output_margin) return .stop;
         if (reads_no_input(phase)) {
             if (no_input_step(claims, room, &loop, state, &phase)) |link| return link;
             continue;
@@ -306,9 +306,9 @@ pub fn link_of(phase: Phase) Link {
 /// margin's mode, the next chain when the literals left less than the margin, since that chain then
 /// checks each write.
 pub inline fn to_distance(comptime claims: Claims, comptime room: Room, loop: *Loop) Link {
-    @setRuntimeSafety(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
     if (!ready(claims, loop)) return .stop;
-    if (room == .margin and loop.room(claims.loop_checks) < output_margin) return .go_on;
+    if (room == .margin and loop.room(!claims.unchecked_loop) < output_margin) return .go_on;
     return .distance;
 }
 
@@ -316,8 +316,8 @@ pub inline fn to_distance(comptime claims: Claims, comptime room: Room, loop: *L
 /// least `refill_bits`: the state may bring a full buffer of 64 bits, and every later refill finds 63
 /// or fewer.
 pub inline fn ready(comptime claims: Claims, loop: *Loop) bool {
-    @setRuntimeSafety(claims.loop_checks);
-    if (!loop.has_input_margin(claims.loop_checks)) return false;
+    @setRuntimeSafety(!claims.unchecked_loop);
+    if (!loop.has_input_margin(!claims.unchecked_loop)) return false;
     if (loop.count < refill_bits) refill(claims, loop);
     return true;
 }
@@ -333,15 +333,15 @@ pub inline fn produce(comptime checks: bool, state: *State, len: usize) void {
 /// loop takes too. Below the margin, a copy whose chunks the room lacks goes an octet at a time, as
 /// with S4 off, and a copy the room lacks returns to the checked path.
 pub inline fn copy_within_output(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State, phase: *Phase) Next {
-    @setRuntimeSafety(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
     const len = @min(state.command.copy_left, constants.chunk_len_max);
     const back = state.command.distance;
     assert(back <= loop.written);
     // Decision 32: the room of the copy's octets, and of its chunks.
-    if (room == .each_write and loop.room(claims.loop_checks) < len) return .stop;
-    const chunks = room == .margin or loop.room(claims.loop_checks) >= copies.stored_len_max(claims.chunk_copies, len);
-    if (chunks) copies.within(claims.chunk_copies, claims.loop_checks, loop.output, loop.written, back, len) else copies.within(false, claims.loop_checks, loop.output, loop.written, back, len);
-    copied(claims.loop_checks, loop, state, phase, len);
+    if (room == .each_write and loop.room(!claims.unchecked_loop) < len) return .stop;
+    const chunks = room == .margin or loop.room(!claims.unchecked_loop) >= copies.stored_len_max(claims.chunk_copies, len);
+    if (chunks) copies.within(claims.chunk_copies, !claims.unchecked_loop, loop.output, loop.written, back, len) else copies.within(false, !claims.unchecked_loop, loop.output, loop.written, back, len);
+    copied(!claims.unchecked_loop, loop, state, phase, len);
     return .go_on;
 }
 

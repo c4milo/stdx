@@ -765,31 +765,31 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
     - SIMD uses `@Vector` through the same slices. Inline assembly, for carry-less multiplication
       or the CRC32 instructions, takes register operands only, loaded through checked slices, and
       never an address.
-    - `@setRuntimeSafety(false)` appears nowhere in version one. An exception needs an A/B of the
-      same function with safety on and off on the Linux runners, five runs each over all three
-      corpora, a gain above the 5% noise floor, a new row in this entry with the numbers, and the
-      owner's ruling.
-      The brotli command loop's A/B exists since 2026-09-29 as the claim `loop_checks` of
-      `src/brotli/claims.zig`, on by default: off, every function under the loop's `run` sets
-      `@setRuntimeSafety(false)`, which bench-brotli's claims table prices in one job and the fuzzer
-      compares with the checked path. The owner asked for the measurement after the by-construction
-      work decision 17 puts first (design §8 step 12); the ruling waits on the runners' numbers.
+    - `@setRuntimeSafety(false)` appears in one place, the brotli command loop, ruled below on
+      2026-09-29. An exception needs an A/B of the same function with safety on and off on the
+      Linux runners, five runs each over all three corpora, a gain above the 5% noise floor, a new
+      row in this entry with the numbers, and the owner's ruling.
     - A lint rule, `input-index`, lands with the `codec` module (design §8 step 3). Outside the
       reader, the writer and the functions below, it refuses an index or a slice bound derived
       from a value the reader produced, as colibri's `peer-index` rule does for peer input.
 
-    **Proposed on 2026-09-29: the brotli command loop without Zig's checks.** **owner** The A/B
-    the rule above asks for, the claim `loop_checks` off against on in one job on both runners
-    (runs [36542507833](https://github.com/c4milo/stdx/actions/runs/36542507833) and
-    [36542514694](https://github.com/c4milo/stdx/actions/runs/36542514694), at 0957f69): the N2
+    **The brotli command loop without Zig's checks.** Ruled by the owner on 2026-09-29, after the
+    A/B the rule above asks for: the claim then named `loop_checks`, off against on in one job on
+    both runners (runs [36542507833](https://github.com/c4milo/stdx/actions/runs/36542507833) and
+    [36542514694](https://github.com/c4milo/stdx/actions/runs/36542514694), at 0957f69). The N2
     decodes the command-heavy files 1.10 to 1.22 times as fast without the checks, 1.11 and 1.12 at
     the corpus's median, the 1 KiB bodies 1.03 to 1.06, whose time is the header's, and the
     all-literal text 1.04; an EPYC 9V74 1.10 at the median, css-1m 1.31 and E.coli 0.90. The
-    exception would make `loop_checks` false by default: every function under `decoder_fast.run`,
-    the straight loop, the chain and what they inline, with `@setRuntimeSafety(false)`; the margins
-    and the per-write checks of this entry and decision 32 stay, as does the checked path. The
-    tests and the fuzzer compare the setting with the checked path, and decision 24's measures,
-    once ruled, would cover this loop as they cover the assembly loops. The owner rules.
+    proposal came after the by-construction work decision 17 puts first (design §8 step 12): the
+    straight loop in a frame of its own and the cuts around it.
+    - Every function under `decoder_fast.run`, the straight loop, the chain and what they inline,
+      runs with `@setRuntimeSafety(false)`: no bounds, overflow or `unreachable` check, the loop's
+      own assertions among them. The margins and the per-write checks of this entry and decision 32
+      stay, as does the checked path, which every refusal still reaches.
+    - The claim `unchecked_loop` of `src/brotli/claims.zig` holds it, on by default. Off, the checks
+      return: bench-brotli prices them in each run, and the tests and the fuzzer compare both
+      settings with the checked path.
+    - Decision 24's measures, once ruled, cover this loop as they cover the assembly loops.
 
     **The fast paths, with the measurement each must show.** The DEFLATE rows exist since design
     §8 step 7, which records their A/Bs. Each row's numbers are filled in by the step that writes
@@ -826,7 +826,9 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
 
     **What stays on.** The build offers Debug and ReleaseSafe only. In ReleaseSafe the compiler
     keeps three kinds of check: slice bounds, integer overflow, and `unreachable`, which is what
-    `std.debug.assert` compiles to. stdx adds its own assertions, about two per function.
+    `std.debug.assert` compiles to. stdx adds its own assertions, about two per function. One
+    exception stands, ruled under decision 16 on 2026-09-29: the brotli command loop runs without
+    them, its margins and per-write checks in force.
 
     **Where assertions live.**
     - At every public call's entry and exit: the state is valid, `input` and `output` do not

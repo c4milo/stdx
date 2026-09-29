@@ -21,12 +21,12 @@ const Next = fast.Next;
 /// `wide_output_len` octets whatever the word's length, and a word near DICT's end, whose head DICT
 /// does not hold, takes the exact one, which stores at most `transformed_word_len_max`.
 pub inline fn word_straight(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *const State, word_id: u32) ?usize {
-    @setRuntimeSafety(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
     const reference = commands.word_reference(state, word_id) catch return null;
     const offset = dictionary.word_offset(reference.len, reference.index);
     const wide = offset + transform.wide_input_len <= dictionary.data.len;
     // Decision 32: below the margin, the room the transform stores into.
-    if (room == .each_write and loop.room(claims.loop_checks) < @as(usize, if (wide) transform.wide_output_len else constants.transformed_word_len_max)) return null;
+    if (room == .each_write and loop.room(!claims.unchecked_loop) < @as(usize, if (wide) transform.wide_output_len else constants.transformed_word_len_max)) return null;
     const len = if (wide)
         transform.apply_wide(reference.transform_id, dictionary.data[offset..][0..transform.wide_input_len], reference.len, loop.output[loop.written..][0..transform.wide_output_len])
     else
@@ -39,13 +39,13 @@ pub inline fn word_straight(comptime claims: Claims, comptime room: Room, loop: 
 /// The rest of a dictionary word, transformed (RFC 7932 §8): at most `transformed_word_len_max`
 /// octets; or `stop` when the output's room is short of them.
 pub inline fn word(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State) Next {
-    @setRuntimeSafety(claims.loop_checks);
+    @setRuntimeSafety(!claims.unchecked_loop);
     const octets = state.word[state.word_written..state.word_len];
     // Decision 32: below the margin, the word's rest.
-    if (room == .each_write and loop.room(claims.loop_checks) < octets.len) return .stop;
+    if (room == .each_write and loop.room(!claims.unchecked_loop) < octets.len) return .stop;
     @memcpy(loop.output[loop.written..][0..octets.len], octets);
-    loop.wrote(claims.loop_checks, octets.len);
-    fast.produce(claims.loop_checks, state, octets.len);
+    loop.wrote(!claims.unchecked_loop, octets.len);
+    fast.produce(!claims.unchecked_loop, state, octets.len);
     state.word_written = state.word_len;
     state.phase = commands.after_copy(state);
     return .go_on;
