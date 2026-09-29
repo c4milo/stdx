@@ -313,9 +313,9 @@ pub const coded_distance_bias = 4;
 
 /// The octets a decoder takes beside its window's octets (decision 12): the ring's two counters and
 /// the state, of which the lookup tables of every tree take 2,683,592, under decision 12's 3 MiB,
-/// and the context maps 17,408; a test build adds invariant 17's count. Pinned, so that the state
-/// grows only by a change of this line.
-pub const decoder_state_len = 2_702_176;
+/// the context maps 17,408, and the counts of a code's lengths as they are read 32; a test build
+/// adds invariant 17's count. Pinned, so that the state grows only by a change of this line.
+pub const decoder_state_len = 2_702_208;
 
 /// The bits a prefix code's lookup table resolves in its root (claim B3): 8, which gives the least
 /// memory of any width but 7 and resolves more codes than it.

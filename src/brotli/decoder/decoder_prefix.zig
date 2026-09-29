@@ -158,6 +158,7 @@ fn build_code_length_code(state: *State) Error!void {
         return error.IncompleteCodeLengthCode;
     }
     reading.index = 0;
+    reading.counts = @splat(0);
     reading.space = constants.code_lengths_space;
     reading.previous_len = constants.previous_len_initial;
     reading.repeat_symbol = 0;
@@ -220,6 +221,7 @@ fn set_length(state: *State, len: u8) void {
     reading.index += 1;
     reading.repeat_symbol = 0;
     if (len == 0) return;
+    reading.counts[len] += 1;
     reading.previous_len = len;
     reading.space -= @as(i32, constants.code_lengths_space) >> @intCast(len);
 }
@@ -243,7 +245,9 @@ fn repeat_length(state: *State, symbol: u8, extra: u32) Error!void {
     reading.index += @intCast(added);
     reading.repeat_symbol = symbol;
     reading.repeat_count = count;
-    if (len != 0) reading.space -= @intCast(added * (@as(u32, constants.code_lengths_space) >> @intCast(len)));
+    if (len == 0) return;
+    reading.counts[len] += @intCast(added);
+    reading.space -= @intCast(added * (@as(u32, constants.code_lengths_space) >> @intCast(len)));
 }
 
 /// A code read, as its table takes it: one symbol, whose code takes no bits, or the symbols with a
@@ -282,10 +286,10 @@ fn finish_sorted(comptime len_max: usize, state: *State) void {
     // have none, and the lengths the reading left there belong to an earlier code.
     const lengths = state.lengths[0..state.reading.index];
     assert(lengths.len <= len_max);
-    const counts = prefix.counts_of(lengths);
+    const counts = &state.reading.counts;
     var buffer: [len_max]prefix.Coded = undefined;
-    const sorted = prefix.sort_canonical(lengths, &counts, &buffer);
-    finish_code(state, .{ .sorted = .{ .symbols = sorted, .counts = &counts } });
+    const sorted = prefix.sort_canonical(lengths, counts, &buffer);
+    finish_code(state, .{ .sorted = .{ .symbols = sorted, .counts = counts } });
 }
 
 /// Builds `code` into the place the reading's target names, and moves the header on.

@@ -133,7 +133,11 @@ pub fn sort_canonical(lengths: []const u8, counts: *const Counts, sorted: []Code
     }
     place(lengths[chunks * lengths_chunk_len ..], chunks * lengths_chunk_len, &next, sorted);
     // The counts count the lengths: each length's codes end where the next length's begin.
-    assert(next[constants.code_len_max] == total);
+    var end: u16 = 0;
+    for (1..constants.code_len_max + 1) |len| {
+        end += counts[len];
+        assert(next[len] == end);
+    }
     return sorted[0..total];
 }
 

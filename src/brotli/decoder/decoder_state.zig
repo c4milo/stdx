@@ -143,6 +143,9 @@ pub const Reading = struct {
     previous_len: u8,
     repeat_symbol: u8,
     repeat_count: u32,
+    /// A complex code: how many of the lengths read so far take each length, 1 to 15, so its build
+    /// counts none of them again.
+    counts: prefix.Counts,
 };
 
 /// A context map being read (RFC 7932 §7.3): which map, RLEMAX, and the entries written so far.
