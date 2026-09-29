@@ -1057,6 +1057,29 @@ to 12 are reordered and nothing else changes.
     KiB per prefix code to its alphabet's size. The owner ruled on the proposal decision 17 then
     asks for (see there).
 
+  **The day's runs after 7520761, 2026-09-28**, each from a `perf-brotli-*` branch, two jobs a
+  side, compared file by file under decision 20's amended rule. The N2 pairs are given; the x86-64
+  jobs drew four CPUs, and pair only where one job holds both, which the workflow's `base` input
+  gives from here on.
+  - Decision 32, d238737 against 5bf6b54 (runs 36497674142, 36497679595, 36497685015 and
+    36497690375): the 1 KiB HTTP bodies +4 to +13%, the json files -0.6 to -1.0%, the 16 KiB bodies
+    tie; kept (see decision 32).
+  - The header's two commits, d478f94 against d238737 (runs 36501231721 and 36501237307): the 1
+    KiB bodies +8 to +11%, the 16 KiB bodies +2 to +5%, grammar.lsp +6%, fields.c +5%, sum +4%,
+    json-1m and css-1m +2%; no file behind by more than 1% in both jobs.
+  - The code lengths loop, 442ea0c against d478f94 (runs 36503381259 and 36503386029): the 1 KiB
+    bodies +2.7 to +4.0%, json-16k +2%, xargs.1 +3 to +5%, sum +2%; no file behind by more than 1%
+    in both jobs.
+  - bench-profile's brotli section, 4c0d5c6, run
+    [36498010645](https://github.com/c4milo/stdx/actions/runs/36498010645): on the N2, stdx runs at
+    a median of 1.31 times Google's cycles per octet and 1.88 times its instructions, at a higher
+    IPC (3.3 against 2.3) and with fewer branch misses on most files; the 1 KiB bodies take 2.2 to
+    2.5 times both. The x86-64 runner, an Intel Xeon 8573C, refused the counters.
+  - Two header experiments lost on the M1 Pro and never reached the runners: a sort of a code's
+    symbols with no branch on the length, +18% of the header's instructions, since most symbols of
+    a sparse alphabet have no code; and the root's doubling copies written inline in place of
+    memcpy, +11%.
+
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
   8,000,000 octets at the HTTP levels (decision 12).

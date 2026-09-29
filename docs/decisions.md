@@ -779,6 +779,7 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
     | Zstandard literal decoding, four streams (Z1, Z2) | 11 | 8 octets before each stream's position, read backward | none: literals go to the state's literal buffer, whose size is fixed | As above |
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |
+    | brotli code lengths, in the header | 12 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput against the loop off, two N2 jobs a side at 442ea0c against d478f94 (runs 36503381259 and 36503386029 against 36501231721 and 36501237307): the 1 KiB HTTP bodies +2.7 to +4.0%, json-16k +2%, xargs.1 +3 to +5%, no file behind by more than 1% in both; the x86-64 jobs drew different CPUs. The experiment the owner allowed on 2026-09-28; the owner approved the row on the N2 numbers the same day, and the x86-64 pair follows from the workflow's `base` input |
     | Every encoder's bit writer (E5) | 9, 13, 14 | none | 8 octets | Encode throughput against the checked writer |
     | JSON encoder token loop (J11) | 18 | none: an item's octets are its own slice, read inside it | none: it checks the room an item takes before it writes the item | Throughput of batches against every item through `Encoder.run`, over bench-json's workloads |
     | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time | 16 octets: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `Decoder.run`, over bench-json's workloads |
@@ -903,6 +904,16 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
       fixture and a named test (decision 15).
     - Entry 26 amends this item: fuzzing runs on macOS arm64 too. The costs and the benchmarks stay
       on Linux.
+    - Amended by the owner on 2026-09-28, for [issue 13](https://github.com/c4milo/stdx/issues/13)'s
+      losing DEFLATE files and again for the brotli decoder, in two ways. A change may stay when
+      it beats the target files' own run-to-run spread in two jobs and costs no other file more
+      than the larger of its spread and 1% in both, in place of the 5% floor above; the 1% is for
+      the shifts of code placement, which measured 0.6 to 1.0% on 1 MiB files whose decode never
+      ran the changed code. And a temporary `perf-*` branch may run the bench workflow for a
+      change's A/B, deleted once its numbers are recorded. The x86-64 runner draws a different CPU
+      from run to run, four models on 2026-09-28, and a ratio against Google's brotli differs by
+      12% between two of them, so the workflow's `base` input benchmarks the change's base first
+      in the same job, and an x86-64 pair counts only when one job holds both.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
@@ -1574,6 +1585,18 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
 
     **The measurement that admits it:** bench-brotli on both runners, the 1 KiB and 16 KiB HTTP
     files ahead of the fixed margin by more than the noise, and no corpus file behind it.
+
+    **Measured** on 2026-09-28, at d238737 against 5bf6b54, two jobs a side (runs
+    [36497674142](https://github.com/c4milo/stdx/actions/runs/36497674142), [36497679595](https://github.com/c4milo/stdx/actions/runs/36497679595),
+    [36497685015](https://github.com/c4milo/stdx/actions/runs/36497685015) and [36497690375](https://github.com/c4milo/stdx/actions/runs/36497690375)). On the N2: the 1 KiB HTTP
+    bodies +4 to +13%, json-1k -0.6%; the 16 KiB bodies tie, json-16k and json-1m -0.7%;
+    grammar.lsp +3%, dickens-1m +2%, the rest within the noise. The x86-64 jobs drew two CPUs, so
+    one pair compared like with like: html-1k +9%, css-1k +7%, css-1m -8%. The json files never
+    run the second mode, decoded whole in one call, so their loss is the margin instance's
+    placement; the owner kept the decision the same day under decision 20's 1% floor, and the
+    x86-64 pair waits for the workflow's `base` input. Inlining the wide transform into both
+    instances, which two instances had left out of line, gained nothing on the N2 and cost
+    html-16k 2% (runs [36501364058](https://github.com/c4milo/stdx/actions/runs/36501364058) and [36501370200](https://github.com/c4milo/stdx/actions/runs/36501370200)); dropped.
 
     The alternatives refused:
     - The fixed margin, as decision 16 ruled it: every call's last 272 octets at the checked path's
