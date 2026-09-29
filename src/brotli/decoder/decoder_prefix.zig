@@ -10,6 +10,7 @@ const context = @import("../context.zig");
 const prefix = @import("../prefix.zig");
 const state_module = @import("decoder_state.zig");
 const header = @import("decoder_header.zig");
+const lengths_fast = @import("decoder_fast/decoder_fast_lengths.zig");
 const State = state_module.State;
 const Target = state_module.Target;
 const Error = state_module.Error;
@@ -168,19 +169,34 @@ fn build_code_length_code(state: *State) Error!void {
 
 /// Code lengths of the alphabet's symbols, until their sum of 32768 >> length reaches 32768 (RFC
 /// 7932 §3.5) or the input runs out.
-pub fn read_code_lengths(state: *State, bits: *codec.BitReader) Error!?codec.Status {
-    // Each code length symbol gives at least one length, so the alphabet ends the loop.
-    for (0..state.reading.alphabet_len) |_| {
+pub fn read_code_lengths(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+    // Each code length symbol gives at least one length, so the alphabet ends the loop, with one
+    // iteration more for the checks after its last symbol.
+    for (0..state.reading.alphabet_len + 1) |_| {
+        if (fast_paths) lengths_fast.read(state, bits);
+        if (try settle(state)) return null;
         try read_code_length(state, bits) orelse return .needs_input;
-        if (state.phase != .code_lengths) return null;
     }
     unreachable;
 }
 
-/// One code length symbol and its extra bits, and the lengths it gives; null while they are not all
-/// present.
-fn read_code_length(state: *State, bits: *codec.BitReader) Error!?void {
+/// The checks after each length: whether the code is whole, and built, or refused.
+pub fn settle(state: *State) Error!bool {
     const reading = &state.reading;
+    // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
+    if (reading.space < 0) return error.OverSubscribedCode;
+    if (reading.space == 0) {
+        finish(state, null);
+        return true;
+    }
+    // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
+    if (reading.index == reading.alphabet_len) return error.IncompleteCode;
+    return false;
+}
+
+/// One code length symbol and its extra bits through the checked reader, and the lengths it gives;
+/// null while they are not all present.
+pub fn read_code_length(state: *State, bits: *codec.BitReader) Error!?void {
     _ = bits.ensure(constants.code_length_code_len_max + constants.repeat_zero_extra_bits);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);
@@ -189,11 +205,7 @@ fn read_code_length(state: *State, bits: *codec.BitReader) Error!?void {
         .needs_bits => return null,
     };
     const symbol: u8 = @intCast(decoded.value);
-    const extra_bits: u7 = switch (symbol) {
-        constants.repeat_previous_symbol => constants.repeat_previous_extra_bits,
-        constants.repeat_zero_symbol => constants.repeat_zero_extra_bits,
-        else => 0,
-    };
+    const extra_bits = repeat_extra_bits(symbol);
     if (decoded.len + extra_bits > available) return null;
     const extra: u32 = @intCast((buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
     bits.consume(decoded.len + extra_bits);
@@ -201,20 +213,26 @@ fn read_code_length(state: *State, bits: *codec.BitReader) Error!?void {
     if (symbol < constants.repeat_previous_symbol) {
         set_length(state, symbol);
     } else {
-        try repeat_length(state, symbol, extra);
-    }
-    // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
-    if (reading.space < 0) return error.OverSubscribedCode;
-    if (reading.space == 0) {
-        finish(state, null);
-    } else if (reading.index == reading.alphabet_len) {
-        // RFC 7932 §3.5: the sum of 32768 >> code length must equal 32768.
-        return error.IncompleteCode;
+        const repeat = repeat_of(&state.reading, symbol, extra);
+        // RFC 7932 §3.5: a repeat that would give more lengths than the alphabet has symbols should
+        // be rejected as invalid.
+        if (state.reading.index + repeat.added > state.reading.alphabet_len) return error.RepeatPastEnd;
+        apply_repeat(state, symbol, repeat);
     }
 }
 
+/// The extra bits a code length symbol takes: 2 for a repeat of the previous length, 3 for a repeat
+/// of zero (RFC 7932 §3.5), none for a length.
+pub fn repeat_extra_bits(symbol: u8) u7 {
+    return switch (symbol) {
+        constants.repeat_previous_symbol => constants.repeat_previous_extra_bits,
+        constants.repeat_zero_symbol => constants.repeat_zero_extra_bits,
+        else => 0,
+    };
+}
+
 /// A code length of 0 to 15 for the next symbol.
-fn set_length(state: *State, len: u8) void {
+pub fn set_length(state: *State, len: u8) void {
     const reading = &state.reading;
     assert(reading.index < reading.alphabet_len);
     state.lengths[reading.index] = len;
@@ -226,28 +244,32 @@ fn set_length(state: *State, len: u8) void {
     reading.space -= @as(i32, constants.code_lengths_space) >> @intCast(len);
 }
 
-/// Code 16 or 17 (RFC 7932 §3.5): 3 or more copies of the previous non-zero length, or of zero. The
-/// same code right after itself makes the count (factor * (count - 2)) + its own, the factor 4 or 8.
-fn repeat_length(state: *State, symbol: u8, extra: u32) Error!void {
-    const reading = &state.reading;
+/// What code 16 or 17 gives (RFC 7932 §3.5): 3 or more copies of the previous non-zero length, or
+/// of zero. The same code right after itself makes the count (factor * (count - 2)) + its own, the
+/// factor 4 or 8; `added` is what the count adds to the lengths the earlier code gave.
+pub const Repeat = struct { count: u32, added: u32, len: u8 };
+
+pub fn repeat_of(reading: *const state_module.Reading, symbol: u8, extra: u32) Repeat {
     const zeros = symbol == constants.repeat_zero_symbol;
     const extra_bits: u5 = if (zeros) constants.repeat_zero_extra_bits else constants.repeat_previous_extra_bits;
     const factor: u32 = @as(u32, 1) << extra_bits;
     const earlier: u32 = if (reading.repeat_symbol == symbol) reading.repeat_count else 0;
     const count: u32 = if (earlier == 0) constants.repeat_len_min + extra else factor * (earlier - constants.repeat_count_offset) + constants.repeat_len_min + extra;
-    const added = count - earlier;
-    // RFC 7932 §3.5: a repeat that would give more lengths than the alphabet has symbols should be
-    // rejected as invalid.
-    if (reading.index + added > reading.alphabet_len) return error.RepeatPastEnd;
-    const len: u8 = if (zeros) 0 else reading.previous_len;
-    @memset(state.lengths[reading.index..][0..added], len);
-    count_work(state, added);
-    reading.index += @intCast(added);
+    return .{ .count = count, .added = count - earlier, .len = if (zeros) 0 else reading.previous_len };
+}
+
+/// Writes a repeat's lengths, which the caller has checked fit the alphabet.
+pub fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
+    const reading = &state.reading;
+    assert(reading.index + repeat.added <= reading.alphabet_len);
+    @memset(state.lengths[reading.index..][0..repeat.added], repeat.len);
+    count_work(state, repeat.added);
+    reading.index += @intCast(repeat.added);
     reading.repeat_symbol = symbol;
-    reading.repeat_count = count;
-    if (len == 0) return;
-    reading.counts[len] += @intCast(added);
-    reading.space -= @intCast(added * (@as(u32, constants.code_lengths_space) >> @intCast(len)));
+    reading.repeat_count = repeat.count;
+    if (repeat.len == 0) return;
+    reading.counts[repeat.len] += @intCast(repeat.added);
+    reading.space -= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
 }
 
 /// A code read, as its table takes it: one symbol, whose code takes no bits, or the symbols with a
