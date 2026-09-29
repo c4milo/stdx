@@ -256,29 +256,7 @@ pub const Encoder = struct {
 
     /// Moves the grammar past a token of `kind`, which `allowed` let through.
     pub fn advance(self: *Encoder, kind: Kind) void {
-        switch (kind) {
-            .begin_object, .begin_array => {
-                self.containers.set(self.depth, kind == .begin_object);
-                self.depth += 1;
-                self.position = if (kind == .begin_object) .object_first else .array_first;
-            },
-            .end_object, .end_array => {
-                assert(self.depth > 0 and self.containers.is_object(self.depth - 1) == (kind == .end_object));
-                self.depth -= 1;
-                self.after_value();
-            },
-            .name => self.position = .member_value,
-            else => self.after_value(),
-        }
-    }
-
-    /// The position after a value: the end of the text at depth 0, and else the container's next.
-    fn after_value(self: *Encoder) void {
-        if (self.depth == 0) {
-            self.position = .text_end;
-        } else {
-            self.position = if (self.containers.is_object(self.depth - 1)) .object_next else .array_next;
-        }
+        advance_with(&self.position, &self.depth, &self.containers, kind);
     }
 
     /// Holds the octets that end the token in progress: a name's quotation mark and name
@@ -321,6 +299,31 @@ pub const Encoder = struct {
         return true;
     }
 };
+
+/// `Encoder.advance` on the fields it moves, which the token loop keeps in its own locals. A value
+/// that is no container's end leaves the position its own position names: its container is an
+/// object after a name, an array at an array's first or next value, and none at the text's start.
+pub inline fn advance_with(position: *Position, depth: *u16, containers: *Containers, kind: Kind) void {
+    switch (kind) {
+        .begin_object, .begin_array => {
+            containers.set(depth.*, kind == .begin_object);
+            depth.* += 1;
+            position.* = if (kind == .begin_object) .object_first else .array_first;
+        },
+        .end_object, .end_array => {
+            assert(depth.* > 0 and containers.is_object(depth.* - 1) == (kind == .end_object));
+            depth.* -= 1;
+            position.* = if (depth.* == 0) .text_end else if (containers.is_object(depth.* - 1)) .object_next else .array_next;
+        },
+        .name => position.* = .member_value,
+        else => position.* = switch (position.*) {
+            .text_start => .text_end,
+            .member_value => .object_next,
+            .array_first, .array_next => .array_next,
+            .object_first, .object_next, .text_end => unreachable,
+        },
+    }
+}
 
 /// True when a token of `kind` may come at `position` (RFC 8259 §2 to §5).
 pub fn allowed(position: Position, kind: Kind) bool {
