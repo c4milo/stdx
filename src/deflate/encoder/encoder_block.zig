@@ -8,19 +8,21 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const code = @import("encoder_code.zig");
 
+/// A length or distance code's index: every code of either alphabet fits, so a table of
+/// `codes_len` entries indexed by it needs no bounds check.
+pub const CodeIndex = u5;
+pub const codes_len = 1 << @bitSizeOf(CodeIndex);
+
 /// A literal, or a length/distance pair (RFC 1951 §3.2.5).
 pub const Symbol = packed struct(u32) {
     /// A literal's octet, or a pair's length less `match_len_min`.
     value: u8,
     /// A pair's distance, or 0 for a literal.
     distance: u16,
-    reserved: u8 = 0,
+    /// A pair's distance code, found once when the pair is added; 0 for a literal.
+    distance_code: CodeIndex = 0,
+    reserved: u3 = 0,
 };
-
-/// A length or distance code's index: every code of either alphabet fits, so a table of
-/// `codes_len` entries indexed by it needs no bounds check.
-pub const CodeIndex = u5;
-pub const codes_len = 1 << @bitSizeOf(CodeIndex);
 
 comptime {
     assert(constants.length_base.len <= codes_len and constants.distance_used <= codes_len);
@@ -65,19 +67,19 @@ fn distance_codes(comptime far: bool) [if (far) constants.window_len >> far_dist
 }
 
 /// The code of a length, as its index from 257.
-pub fn length_code(len: usize) CodeIndex {
+pub inline fn length_code(len: usize) CodeIndex {
     assert(len >= constants.match_len_min and len <= constants.match_len_max);
     return length_code_of(@intCast(len - constants.match_len_min));
 }
 
 /// `length_code` for a `Symbol`'s value, the length less `match_len_min`.
-pub fn length_code_of(value: u8) CodeIndex {
+pub inline fn length_code_of(value: u8) CodeIndex {
     return length_codes[value];
 }
 
 /// The code of a distance. Both tables are read, so the choice is a select and not a branch, which
 /// the distances of a block would mispredict. Each index is a u8, so neither read is checked.
-pub fn distance_code(distance: usize) CodeIndex {
+pub inline fn distance_code(distance: usize) CodeIndex {
     assert(distance >= 1 and distance <= constants.window_len);
     const near = near_codes[@as(u8, @truncate(@min(distance, near_distances) - 1))];
     const far = far_codes[@as(u8, @truncate((distance - 1) >> far_distance_shift))];
@@ -118,7 +120,7 @@ pub const Block = struct {
         return self.symbol_count == constants.block_symbols_max;
     }
 
-    pub fn add_literal(self: *Block, octet: u8) void {
+    pub inline fn add_literal(self: *Block, octet: u8) void {
         assert(!self.full());
         self.symbols[self.symbol_count] = .{ .value = octet, .distance = 0 };
         self.symbol_count += 1;
@@ -126,13 +128,14 @@ pub const Block = struct {
         self.input_len += 1;
     }
 
-    pub fn add_pair(self: *Block, len: usize, distance: usize) void {
+    pub inline fn add_pair(self: *Block, len: usize, distance: usize) void {
         assert(!self.full());
         assert(distance >= 1 and distance <= constants.encoder_distance_max);
-        self.symbols[self.symbol_count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance) };
+        const distance_index = distance_code(distance);
+        self.symbols[self.symbol_count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
         self.symbol_count += 1;
         self.literal_length_counts[constants.first_length_symbol + length_code(len)] += 1;
-        self.distance_counts[distance_code(distance)] += 1;
+        self.distance_counts[distance_index] += 1;
         self.input_len += len;
     }
 };

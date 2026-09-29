@@ -96,7 +96,7 @@ fn next_phase(phase: Phase, kind: constants.BlockType) Phase {
 }
 
 /// Puts `count` bits, and counts them.
-fn put(emit: *Emit, writer: *codec.BitWriter, value: u64, count: u7) void {
+inline fn put(emit: *Emit, writer: *codec.BitWriter, value: u64, count: u7) void {
     writer.put(value, count);
     emit.bits += count;
 }
@@ -139,31 +139,75 @@ fn write_items(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
 }
 
 fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {
-    // While the output has room for a store, each symbol's codes go into the buffer and one store
-    // follows: a pair's 48 bits at most on the 7 a store leaves (decision 14, E5). The first store
-    // drops the whole octets a header left, so the first symbol has room.
-    if (writer.has_store_room()) writer.store();
-    for (block.symbols[emit.index..block.symbol_count]) |symbol| {
-        if (!writer.has_store_room()) break;
-        if (symbol.distance == 0) {
-            put_literal(emit, plan, symbol.value, writer);
-        } else {
-            put_pair(emit, plan, symbol, writer);
-        }
-        writer.store();
-        emit.index += 1;
-    }
+    write_symbols_stored(emit, plan, block, writer);
     // The rest, an octet at a time, as the output fills.
     for (block.symbols[emit.index..block.symbol_count]) |symbol| {
         if (!writer.make_room(constants.pair_bits_max)) return false;
         if (symbol.distance == 0) {
             put_code(emit, plan, symbol.value, writer);
         } else {
-            put_pair(emit, plan, symbol, writer);
+            emit.bits += put_pair(plan, symbol, writer);
         }
         emit.index += 1;
     }
     return true;
+}
+
+/// Writes symbols while the output has room for a store: each symbol's codes go into the buffer
+/// and one store follows, a pair's 48 bits at most on the 7 a store leaves (decision 14, E5). The
+/// loop runs on a copy of the bit writer, so its buffer, count and position stay in registers
+/// through the loop, and the bits it wrote are counted once at the end.
+fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) void {
+    const store_len = codec.BitWriter.store_len;
+    // The first store drops the whole octets a header left, a full buffer included, so the loop
+    // starts with under 8 bits and every store in it moves under 8 octets.
+    if (!writer.has_store_room()) return;
+    writer.store();
+    const octets = writer.writer.octets;
+    var position = writer.writer.position;
+    var buffer = writer.bits.buffer;
+    var count: usize = writer.bits.count;
+    assert(count < @bitSizeOf(u8));
+    const start_position = position;
+    const start_count = count;
+    var index = emit.index;
+    // Each pass puts one symbol, at most 48 bits on at most 7, then stores the buffer whole, its
+    // whole octets counting as written (`BitWriter.store`).
+    for (block.symbols[index..block.symbol_count]) |symbol| {
+        if (position + store_len > octets.len) break;
+        if (symbol.distance == 0) {
+            buffer |= @as(u64, plan.literal_length_codes[symbol.value]) << @intCast(count);
+            count += plan.literal_length_lengths[symbol.value];
+        } else {
+            const length = plan.length_entries[block_module.length_code_of(symbol.value)];
+            buffer |= entry_bits(length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
+            count += length.code_bits + length.extra_bits;
+            const distance = plan.distance_entries[symbol.distance_code];
+            buffer |= entry_bits(distance, symbol.distance) << @intCast(count);
+            count += distance.code_bits + distance.extra_bits;
+        }
+        assert(count <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
+        std.mem.writeInt(u64, octets[position..][0..store_len], buffer, .little);
+        const whole = count / @bitSizeOf(u8);
+        position += whole;
+        buffer >>= @intCast(whole * @bitSizeOf(u8));
+        count %= @bitSizeOf(u8);
+        index += 1;
+    }
+    writer.writer.position = position;
+    writer.bits.buffer = buffer;
+    writer.bits.count = @intCast(count);
+    emit.bits += (position - start_position) * @bitSizeOf(u8) + count - start_count;
+    emit.index = index;
+}
+
+/// The code of `entry` and, above it, `value` less the entry's base in its extra bits: the bits
+/// one put of the entry holds.
+inline fn entry_bits(entry: block_module.CodeEntry, value: usize) u64 {
+    assert(entry.code_bits != 0 and value >= entry.base);
+    const extra = value - entry.base;
+    assert(extra >> @intCast(entry.extra_bits) == 0);
+    return entry.code | @as(u64, extra) << @intCast(entry.code_bits);
 }
 
 fn write_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) bool {
@@ -172,31 +216,25 @@ fn write_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWri
     return true;
 }
 
-fn put_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) void {
+inline fn put_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) void {
     assert(plan.literal_length_lengths[symbol] != 0);
     put(emit, writer, plan.literal_length_codes[symbol], @intCast(plan.literal_length_lengths[symbol]));
 }
 
-/// `put_code` for a literal, whose octet indexes the codes without a bounds check.
-fn put_literal(emit: *Emit, plan: *const Plan, octet: u8, writer: *codec.BitWriter) void {
-    assert(plan.literal_length_lengths[octet] != 0);
-    put(emit, writer, plan.literal_length_codes[octet], @intCast(plan.literal_length_lengths[octet]));
-}
-
 /// A length's code and extra bits, then its distance's (RFC 1951 §3.2.5), each in one put from its
-/// code's entry.
-fn put_pair(emit: *Emit, plan: *const Plan, symbol: block_module.Symbol, writer: *codec.BitWriter) void {
+/// code's entry. Returns the bits put.
+inline fn put_pair(plan: *const Plan, symbol: block_module.Symbol, writer: *codec.BitWriter) u7 {
     const len = @as(usize, symbol.value) + constants.match_len_min;
-    put_entry(emit, writer, plan.length_entries[block_module.length_code_of(symbol.value)], len);
-    put_entry(emit, writer, plan.distance_entries[block_module.distance_code(symbol.distance)], symbol.distance);
+    const length_bits = put_entry(writer, plan.length_entries[block_module.length_code_of(symbol.value)], len);
+    const distance_bits = put_entry(writer, plan.distance_entries[symbol.distance_code], symbol.distance);
+    return length_bits + distance_bits;
 }
 
-/// The code of `entry` and, above it, `value` less the entry's base in its extra bits.
-fn put_entry(emit: *Emit, writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) void {
-    assert(entry.code_bits != 0 and value >= entry.base);
-    const extra = value - entry.base;
-    assert(extra >> @intCast(entry.extra_bits) == 0);
-    put(emit, writer, entry.code | @as(u64, extra) << @intCast(entry.code_bits), @intCast(entry.code_bits + entry.extra_bits));
+/// One put of `entry_bits`. Returns the bits put.
+inline fn put_entry(writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) u7 {
+    const count: u7 = @intCast(entry.code_bits + entry.extra_bits);
+    writer.put(entry_bits(entry, value), count);
+    return count;
 }
 
 fn write_stored_header(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {

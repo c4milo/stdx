@@ -25,7 +25,7 @@ pub const BitWriter = struct {
     }
 
     /// Whether `count` more bits fit the buffer.
-    pub fn has_room(self: *const BitWriter, count: u7) bool {
+    pub inline fn has_room(self: *const BitWriter, count: u7) bool {
         return self.bits.count + count <= constants.bit_buffer_bits;
     }
 
@@ -41,7 +41,7 @@ pub const BitWriter = struct {
 
     /// Puts the low `count` bits of `value`, the least significant first. The buffer must have
     /// room, and `value` no bit above `count`.
-    pub fn put(self: *BitWriter, value: u64, count: u7) void {
+    pub inline fn put(self: *BitWriter, value: u64, count: u7) void {
         assert(self.has_room(count));
         assert(count == constants.bit_buffer_bits or value >> @intCast(count) == 0);
         if (count == 0) return;
@@ -65,7 +65,7 @@ pub const BitWriter = struct {
     pub const store_len = constants.bit_buffer_bits / @bitSizeOf(u8);
 
     /// Whether the output has room for a `store`.
-    pub fn has_store_room(self: *const BitWriter) bool {
+    pub inline fn has_store_room(self: *const BitWriter) bool {
         return self.writer.room_len() >= store_len;
     }
 
@@ -73,7 +73,7 @@ pub const BitWriter = struct {
     /// bits above them staying, so a caller that checked `has_store_room` may put up to 57 bits
     /// between stores and never drains an octet at a time (decision 14, E5). The octets written
     /// past the count lie in the output's room, which the next write fills.
-    pub fn store(self: *BitWriter) void {
+    pub inline fn store(self: *BitWriter) void {
         assert(self.has_store_room());
         const octets = self.bits.count / @bitSizeOf(u8);
         std.mem.writeInt(u64, self.writer.octets[self.writer.position..][0..store_len], self.bits.buffer, .little);
