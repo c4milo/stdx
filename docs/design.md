@@ -951,6 +951,14 @@ to 12 are reordered and nothing else changes.
         to 0.99. Level 9's median is unchanged, and the files under 16 KiB move 3 to 6% either
         way at levels 1 and 9, whose code the change does not touch: layout. Output identical at
         every level. The reports are `bench/results/2026-09-29-deflate-encoder-pair-*.md`.
+      - Three structures that spend state on the walk's own latency, each with the same output,
+        measured on the M1 against the paired walk and refused before any runner: a second link two
+        positions back (+64 KiB), whose insert reads the head's own link, one more dependent load,
+        level 6 at 1.10 to 1.17 of its time; rows of the four most recent positions per hash at 15
+        bits (+192 KiB), 1.04 to 1.11 and x-ray 0.99; rows of two (+64 KiB), 1.03 to 1.10 and
+        x-ray 0.97. At a budget of 64 the insert's larger footprint misses more than the hops it
+        saves, and the runners' caches are smaller than the M1's. Level 6's walk stays as it is:
+        two dependent loads a candidate, at 0.67 to 0.69 of libdeflate's speed and its size.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
