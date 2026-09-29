@@ -51,8 +51,8 @@ const digit_pairs = pairs: {
 /// Writes the decimal digits of `value` so that they end at `end`, with zeros before them up to
 /// `digits_min` digits, and returns where they start. It takes two digits a step from
 /// `digit_pairs`: a digit a step, the digits took about 6% of encoding qlog's records on the N2
-/// (design §8 step 18).
-fn digits_ending_at(buffer: *Buffer, end: usize, value: u64, digits_min: usize) usize {
+/// (design §8 step 18). Inline, so the encoder's token loop pays no call for an unsigned number.
+inline fn digits_ending_at(buffer: *Buffer, end: usize, value: u64, digits_min: usize) usize {
     var start = end;
     var rest = value;
     for (0..constants.unsigned_digits_max / pair_len) |_| {
