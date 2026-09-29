@@ -446,6 +446,25 @@ fn interleave_mask(comptime width: usize) @Vector(constants.hex_digits_per_octet
     return mask;
 }
 
+// `content_len_vector` hands what `utf8_run` leaves to the scalar path, which counts the same run,
+// so scan_test.zig's tests pass with the run taking nothing. This one requires the run's own count.
+test "a UTF-8 run takes whole blocks itself, up to a block of ASCII, a stop or the input's end" {
+    const width = constants.vector_len;
+    const euro_sign = "\xe2\x82\xac";
+    // Three blocks of U+20AC, 16 characters of three octets each, then two blocks of ASCII.
+    var octets: [5 * width]u8 = @splat('a');
+    for (0..3 * width / euro_sign.len) |index| octets[euro_sign.len * index ..][0..euro_sign.len].* = euro_sign.*;
+    try std.testing.expectEqual(Run{ .len = 4 * width, .ascii_next = true }, utf8_run(width, &octets));
+    // The input ends inside the second block, and the first block's end cuts the sixth character.
+    try std.testing.expectEqual(Run{ .len = width - 1, .ascii_next = false }, utf8_run(width, octets[0 .. width + 2]));
+    // A quotation mark in the fourth block, which a string must escape (RFC 8259 §7).
+    octets[3 * width + 5] = constants.quotation_mark;
+    try std.testing.expectEqual(Run{ .len = 3 * width + 5, .ascii_next = false }, utf8_run(width, &octets));
+    // An ASCII octet where the twelfth character's second octet belongs (RFC 3629 §4).
+    octets[2 * width + 2] = 'a';
+    try std.testing.expectEqual(Run{ .len = 2 * width + 1, .ascii_next = false }, utf8_run(width, &octets));
+}
+
 test {
     _ = scan_utf8;
     _ = @import("scan_test.zig");
