@@ -319,6 +319,20 @@ pub fn add(b: *std.Build, options: Options) void {
     profile_run.has_side_effects = true;
     oracle_corpus.add_args(b, profile_run, corpus);
     profile_step.dependOn(&profile_run.step);
+    // A temporary experiment for https://github.com/c4milo/stdx/issues/13: bench/synth/synth.zig,
+    // installed for the synth workflow to run over the streams bench/synth/gen.py writes.
+    const synth_step = b.step("bench-synth", "Build the synthetic-stream decoder benchmark (-Doracles)");
+    const synth_module = b.createModule(.{
+        .root_source_file = b.path("bench/synth/synth.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    synth_module.addImport("timing", timing);
+    synth_module.addImport("baselines", baselines_module);
+    synth_module.addImport("codec", graph.codec);
+    synth_module.addImport("gzip", graph.gzip);
+    const synth = b.addExecutable(.{ .name = "bench_synth", .root_module = synth_module });
+    synth_step.dependOn(&b.addInstallArtifact(synth, .{}).step);
     const bench_checksum_module = b.createModule(.{
         .root_source_file = b.path("bench/checksum/checksum.zig"),
         .target = baseline,

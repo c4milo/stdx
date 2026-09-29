@@ -1,0 +1,71 @@
+# A temporary experiment for https://github.com/c4milo/stdx/issues/13, on a branch of its own that
+# never lands: libdeflate's and stdx's gzip decoders over synthetic streams whose symbol statistics
+# vary one at a time, on each runner CPU drawn, and a microbenchmark of the table load's addressing
+# modes.
+name: synth-deflate
+
+on:
+  push:
+    branches: [perf-deflate-synth]
+
+permissions:
+  contents: read
+
+jobs:
+  synth:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        draw: [1, 2, 3, 4, 5, 6]
+        exclude:
+          - runner: ubuntu-24.04-arm
+            draw: 3
+          - runner: ubuntu-24.04-arm
+            draw: 4
+          - runner: ubuntu-24.04-arm
+            draw: 5
+          - runner: ubuntu-24.04-arm
+            draw: 6
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}
+      - name: Install Zig
+        run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Build
+        run: |
+          tools/fetch_packages.sh
+          zig build bench-synth -Doracles
+          zig build-exe -O ReleaseFast -mcpu baseline bench/synth/loadchain.zig -femit-bin=loadchain
+      - name: Generate the streams
+        run: python3 bench/synth/gen.py streams all
+      - name: Time
+        run: |
+          {
+            echo "# synth"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| CPU model | $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//' || lscpu | grep -m1 'Model name' | cut -d: -f2- | sed 's/^ *//') |"
+            echo "| Commit | $(git rev-parse --short HEAD) |"
+            echo
+            echo "## Load chain"
+            echo
+            echo '```'
+            taskset -c 1 ./loadchain
+            echo '```'
+            echo
+            args=""
+            for f in streams/*.gz; do n="$(basename "$f" .gz)"; args="$args $n=$f"; done
+            taskset -c 1 zig-out/bin/bench_synth $args
+          } > synth-report.md
+          cat synth-report.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synth-${{ matrix.runner }}-${{ matrix.draw }}
+          path: synth-report.md
