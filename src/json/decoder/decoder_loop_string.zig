@@ -56,18 +56,22 @@ const hex_digit_max = constants.nibble_mask;
 extern fn stdx_json_copy_rest_x86_64_avx2(rest: [*]const u8, rest_len: usize, room: [*]u8, room_len: usize, copied: *Copied) callconv(.c) bool;
 
 /// `copy_rest`, in the variant object of `level` on x86-64 with every claim on, and here for every
-/// other target, level and set of claims. The call is once a string, outside every loop: inside
-/// the walk's block loop, it kept the walk's state in memory across the loop on every x86-64 CPU,
-/// the kernel called or not (design §8 step 18).
+/// other target, level and set of claims. On x86-64 the choice is made out of line, so that the
+/// kernel's call site stays out of the token loop: inlined there, the call kept the loop's state
+/// in memory on every x86-64 CPU, whether or not it ran, and hex strings and tokens, which never
+/// reach it, ran 5% to 10% slower on an AMD EPYC 7763 (design §8 step 18).
 pub inline fn copy_rest_at(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
-    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{})) {
-        if (level == .avx2) {
-            var copied: Copied = undefined;
-            if (!stdx_json_copy_rest_x86_64_avx2(rest.ptr, rest.len, room.ptr, room.len, &copied)) return null;
-            return copied;
-        }
+    if (comptime !wide.has_kernels or !std.meta.eql(claims, Claims{})) return copy_rest(claims, level, rest, room);
+    return copy_rest_kernel_or_here(level, rest, room);
+}
+
+noinline fn copy_rest_kernel_or_here(level: wide.Level, rest: []const u8, room: []u8) ?Copied {
+    if (level == .avx2) {
+        var copied: Copied = undefined;
+        if (!stdx_json_copy_rest_x86_64_avx2(rest.ptr, rest.len, room.ptr, room.len, &copied)) return null;
+        return copied;
     }
-    return copy_rest(claims, level, rest, room);
+    return copy_rest(.{}, level, rest, room);
 }
 
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into

@@ -46,19 +46,18 @@ extern fn stdx_json_copy_escaped_x86_64_avx2(octets: [*]const u8, len: usize, ro
 extern fn stdx_json_copy_escaped_unchecked_x86_64_avx2(octets: [*]const u8, len: usize, room: [*]u8, room_len: usize) callconv(.c) usize;
 
 /// `copy_escaped`, in the variant object of `level` on x86-64 with every claim on, and here for
-/// every other target, level and set of claims. The call is once a string, outside every loop
-/// (decoder_loop_string.zig's `copy_rest_at`).
+/// every other target, level and set of claims. On x86-64 the choice is made out of line, so that
+/// the kernel's call site stays out of the token loop (decoder_loop_string.zig's `copy_rest_at`).
 pub inline fn copy_escaped_at(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
-    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{})) {
-        if (level == .avx2) return kernel_result(stdx_json_copy_escaped_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len));
-    }
-    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{ .encoder_token_loop_runtime_safety = false })) {
-        if (level == .avx2) return kernel_result(stdx_json_copy_escaped_unchecked_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len));
-    }
+    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{})) return copy_escaped_kernel_or_here(true, level, octets, room);
+    if (comptime wide.has_kernels and std.meta.eql(claims, Claims{ .encoder_token_loop_runtime_safety = false })) return copy_escaped_kernel_or_here(false, level, octets, room);
     return copy_escaped(claims, level, octets, room);
 }
 
-inline fn kernel_result(written: usize) ?usize {
+noinline fn copy_escaped_kernel_or_here(comptime checked: bool, level: wide.Level, octets: []const u8, room: []u8) ?usize {
+    const claims: Claims = .{ .encoder_token_loop_runtime_safety = checked };
+    if (level != .avx2) return copy_escaped(claims, level, octets, room);
+    const written = if (checked) stdx_json_copy_escaped_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len) else stdx_json_copy_escaped_unchecked_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len);
     return if (written == left) null else written;
 }
 
