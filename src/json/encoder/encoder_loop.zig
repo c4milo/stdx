@@ -35,7 +35,7 @@ const loop_string = @import("encoder_loop_string.zig");
 pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, output: []u8, written: *usize) usize {
     assert(encoder.part == .between_tokens and encoder.pending_len == 0);
     assert(written.* <= output.len);
-    var loop: Loop = .{ .encoder = encoder, .output = output, .written = written.*, .position = encoder.position, .depth = encoder.depth, .sequence = encoder.framing == .sequence };
+    var loop: Loop = .{ .encoder = encoder, .output = output, .rest = output[written.*..], .position = encoder.position, .depth = encoder.depth, .sequence = encoder.framing == .sequence };
     // The digits of a number the loop formats. Declared in `item`, its fill of undefined octets in
     // a safe build ran at every item.
     var buffer: format.Buffer = undefined;
@@ -48,7 +48,7 @@ pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, out
         if (loop.position == .text_end) break;
     }
     loop.write_back(if (taken > 0) items[taken - 1] else null);
-    written.* = loop.written;
+    written.* = output.len - loop.rest.len;
     return taken;
 }
 
@@ -75,8 +75,12 @@ const Frame = packed struct(u8) {
 /// kind and number are found again from the item, once.
 const Loop = struct {
     encoder: *Encoder,
+    /// The batch's whole output, which each item's octets must not overlap.
     output: []u8,
-    written: usize,
+    /// The output not yet written. Each item writes from its start, and the loop moves past what
+    /// it wrote: a slice whose length the compiler knows, where an index into the output cost each
+    /// store a check of its own (decision 17).
+    rest: []u8,
     position: Position,
     depth: u16,
     /// Whether the text is one of a sequence's.
@@ -126,7 +130,7 @@ const Loop = struct {
     /// `len` octets, and returns true; else returns false. The frame is a value of the caller's:
     /// returned as an optional, it went through the stack at every item.
     inline fn open(self: *Loop, frame: Frame, len: usize) bool {
-        if (frame.len() + len > self.output.len - self.written) return false;
+        if (frame.len() + len > self.rest.len) return false;
         if (frame.record_separator) self.put(constants.record_separator);
         if (frame.value_separator) self.put(constants.value_separator);
         return true;
@@ -138,8 +142,8 @@ const Loop = struct {
     /// keeps in memory, for a check of its own.
     inline fn open_body(self: *Loop, frame: Frame, len: usize) ?[]u8 {
         if (!self.open(frame, len)) return null;
-        const body = self.output[self.written..][0..len];
-        self.written += len;
+        const body = self.rest[0..len];
+        self.rest = self.rest[len..];
         return body;
     }
 
@@ -217,9 +221,9 @@ const Loop = struct {
     inline fn escaped(self: *const Loop, comptime claims: Claims, frame: Frame, closing_len: usize, octets: []const u8) ?usize {
         if (!claims.encoder_string_vectors) return null;
         const around_len = frame.len() + 1 + closing_len;
-        if (self.output.len - self.written < around_len) return null;
-        const start = self.written + @intFromBool(frame.record_separator) + @intFromBool(frame.value_separator) + 1;
-        const room = self.output[start..][0 .. self.output.len - self.written - around_len];
+        if (self.rest.len < around_len) return null;
+        const start = @as(usize, @intFromBool(frame.record_separator)) + @intFromBool(frame.value_separator) + 1;
+        const room = self.rest[start..][0 .. self.rest.len - around_len];
         return loop_string.copy_escaped(claims, self.encoder.level, octets, room);
     }
 
@@ -259,12 +263,12 @@ const Loop = struct {
     }
 
     inline fn put(self: *Loop, octet: u8) void {
-        self.output[self.written] = octet;
-        self.written += 1;
+        self.rest[0] = octet;
+        self.rest = self.rest[1..];
     }
 
     inline fn copy(self: *Loop, octets: []const u8) void {
-        scan.copy(self.output[self.written..][0..octets.len], octets);
-        self.written += octets.len;
+        scan.copy(self.rest[0..octets.len], octets);
+        self.rest = self.rest[octets.len..];
     }
 };
