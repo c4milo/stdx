@@ -39,8 +39,9 @@ const Tables = [constants.literal_contexts_count]*const LiteralTable;
 /// last literal, into `phase`. The caller has checked that the buffer holds a code's bits or that
 /// the margin holds, so the run writes at least one literal.
 pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, phase: *Phase) void {
+    @setRuntimeSafety(claims.loop_checks);
     assert(state.command.insert_left > 0);
-    assert(loop.count >= constants.code_len_max or loop.has_input_margin());
+    assert(loop.count >= constants.code_len_max or loop.has_input_margin(claims.loop_checks));
     const blocks = commands.blocks_of(state, .literal);
     const block_type = blocks.type_current;
     if (literal_tables.block_type != block_type) look_up_literal_tables(literal_tables, state, block_type);
@@ -48,14 +49,14 @@ pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: 
     var batch: u32 = @min(state.command.insert_left, blocks.count_left, constants.chunk_len_max);
     // Decision 32: below the margin, the batch fits the room, which the caller has checked holds an
     // octet; above it, the margin holds a whole batch.
-    if (room == .each_write and loop.room() < batch) batch = @intCast(loop.room());
+    if (room == .each_write and loop.room(claims.loop_checks) < batch) batch = @intCast(loop.room(claims.loop_checks));
     assert(batch >= 1);
     const written = run(claims, loop, literal_tables, state.context_modes[block_type], prefix_reader.literal_entry_mode(state), batch);
     assert(written >= 1);
-    loop.wrote(written);
+    loop.wrote(claims.loop_checks, written);
     if (blocks.types_count >= constants.block_switch_types_min) blocks.count_left -= written;
     state.command.insert_left -= written;
-    produce(state, written);
+    produce(claims.loop_checks, state, written);
     if (state.command.insert_left == 0) phase.* = commands.after_literals(state);
 }
 
@@ -89,6 +90,7 @@ fn run_kind(one_tree: bool, mode: context.Mode, entry_mode: context.Mode) RunKin
 
 /// Writes up to `batch` literals past the loop's output as `run_kind` picks, and returns how many.
 inline fn run(comptime claims: Claims, loop: *Loop, literal_tables: *const LiteralTables, mode: context.Mode, entry_mode: context.Mode, batch: u32) u32 {
+    @setRuntimeSafety(claims.loop_checks);
     return switch (run_kind(literal_tables.one_tree, mode, entry_mode)) {
         .one_tree => one_tree_run(claims, loop, literal_tables.tables[0], batch),
         .entry_parts => switch (mode) {
@@ -103,8 +105,9 @@ inline fn run(comptime claims: Claims, loop: *Loop, literal_tables: *const Liter
 /// Whether the buffer holds the bits of a literal's code, after a refill when it needs one and the
 /// input's margin holds.
 inline fn has_code_bits(comptime claims: Claims, loop: *Loop) bool {
+    @setRuntimeSafety(claims.loop_checks);
     if (loop.count >= constants.code_len_max) return true;
-    if (!loop.has_input_margin()) return false;
+    if (!loop.has_input_margin(claims.loop_checks)) return false;
     refill(claims, loop);
     return true;
 }
@@ -112,10 +115,11 @@ inline fn has_code_bits(comptime claims: Claims, loop: *Loop) bool {
 /// Literals of one table, which every context of the block type takes. A table's value holds the
 /// literal in its low octet.
 inline fn one_tree_run(comptime claims: Claims, loop: *Loop, table: *const LiteralTable, batch: u32) u32 {
+    @setRuntimeSafety(claims.loop_checks);
     const out = loop.output[loop.written..][0..batch];
     for (out, 0..) |*octet, index| {
         if (!has_code_bits(claims, loop)) return @intCast(index);
-        octet.* = @truncate(loop.decode(table));
+        octet.* = @truncate(loop.decode(claims.loop_checks, table));
     }
     return batch;
 }
@@ -125,13 +129,14 @@ inline fn one_tree_run(comptime claims: Claims, loop: *Loop, table: *const Liter
 /// no load of a Lut. The parts stay 32 bits wide until the index: a 6-bit variable carried from
 /// one literal to the next goes through memory.
 inline fn entry_run(comptime claims: Claims, comptime mode: context.Mode, loop: *Loop, tables: *const Tables, batch: u32) u32 {
+    @setRuntimeSafety(claims.loop_checks);
     var p1 = loop.p1;
     var p1_part: u32 = context.p1_part(mode, loop.p1);
     var p2_part: u32 = context.p2_part(mode, loop.p2);
     const out = loop.output[loop.written..][0..batch];
     for (out, 0..) |*octet, index| {
         if (!has_code_bits(claims, loop)) return @intCast(index);
-        const value = loop.decode(tables[@as(u6, @truncate(p1_part | p2_part))]);
+        const value = loop.decode(claims.loop_checks, tables[@as(u6, @truncate(p1_part | p2_part))]);
         const literal: u8 = @truncate(value);
         octet.* = literal;
         p2_part = context.p2_part(mode, p1);
@@ -143,12 +148,13 @@ inline fn entry_run(comptime claims: Claims, comptime mode: context.Mode, loop: 
 
 /// Literals of a mode other than the entries': each context ID from p1 and p2 (RFC 7932 §7.1).
 inline fn literal_run(comptime claims: Claims, comptime mode: context.Mode, loop: *Loop, tables: *const Tables, batch: u32) u32 {
+    @setRuntimeSafety(claims.loop_checks);
     var p1 = loop.p1;
     var p2 = loop.p2;
     const out = loop.output[loop.written..][0..batch];
     for (out, 0..) |*octet, index| {
         if (!has_code_bits(claims, loop)) return @intCast(index);
-        const literal: u8 = @truncate(loop.decode(tables[context.literal_id(mode, p1, p2)]));
+        const literal: u8 = @truncate(loop.decode(claims.loop_checks, tables[context.literal_id(mode, p1, p2)]));
         octet.* = literal;
         p2 = p1;
         p1 = literal;

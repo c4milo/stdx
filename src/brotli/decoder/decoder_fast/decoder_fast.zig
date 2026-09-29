@@ -118,20 +118,23 @@ pub const Loop = struct {
     /// Invariant 17's count of the symbols the loop decoded, which a test build keeps.
     decoded: usize = 0,
 
-    pub inline fn has_input_margin(self: *const Loop) bool {
+    pub inline fn has_input_margin(self: *const Loop, comptime checks: bool) bool {
+        @setRuntimeSafety(checks);
         return self.input.len - self.position >= input_slack;
     }
 
     /// The output room past the octets the loop wrote, against which each write checks the most it
     /// stores (decision 32).
-    pub inline fn room(self: *const Loop) usize {
+    pub inline fn room(self: *const Loop, comptime checks: bool) usize {
+        @setRuntimeSafety(checks);
         return self.output.len - self.written;
     }
 
     /// Fills the buffer to at least `refill_bits` bits with one 8-octet load, taking the whole
     /// octets that fit, with no branch: the bits above `count` repeat the input's next octets,
     /// which a later load writes again unchanged. The buffer holds at most 63 bits before it.
-    inline fn refill_word(self: *Loop) void {
+    inline fn refill_word(self: *Loop, comptime checks: bool) void {
+        @setRuntimeSafety(checks);
         const loaded = std.mem.readInt(u64, self.input[self.position..][0..@sizeOf(u64)], .little);
         self.buffer |= loaded << @intCast(self.count);
         self.position += (@bitSizeOf(u64) - 1 - self.count) / @bitSizeOf(u8);
@@ -140,7 +143,8 @@ pub const Loop = struct {
 
     /// Takes whole octets, one at a time, while they fit the buffer. The bits above `count` stay
     /// zero.
-    inline fn refill_octets(self: *Loop) void {
+    inline fn refill_octets(self: *Loop, comptime checks: bool) void {
+        @setRuntimeSafety(checks);
         for (0..@sizeOf(u64)) |_| {
             if (self.count > refill_bits) return;
             self.buffer |= @as(u64, self.input[self.position]) << @intCast(self.count);
@@ -151,21 +155,24 @@ pub const Loop = struct {
 
     /// Takes `bit_count` bits, at most `phase_bits_max`, so the shift truncates unchecked; the
     /// count's subtraction checks it.
-    pub inline fn take(self: *Loop, bit_count: u32) void {
+    pub inline fn take(self: *Loop, comptime checks: bool, bit_count: u32) void {
+        @setRuntimeSafety(checks);
         self.buffer >>= @as(u6, @truncate(bit_count));
         self.count -= bit_count;
     }
 
     /// The symbol of `table`'s code the buffer starts with, its bits taken.
-    pub inline fn decode(self: *Loop, table: anytype) u16 {
-        const symbol = table.decode_whole(self.buffer);
-        self.take(symbol.len);
+    pub inline fn decode(self: *Loop, comptime checks: bool, table: anytype) u16 {
+        @setRuntimeSafety(checks);
+        const symbol = table.decode_whole(checks, self.buffer);
+        self.take(checks, symbol.len);
         if (builtin.is_test) self.decoded += 1;
         return symbol.value;
     }
 
     /// Moves past `len` octets written, and keeps the last two as p1 and p2 (RFC 7932 §7.1).
-    pub inline fn wrote(self: *Loop, len: usize) void {
+    pub inline fn wrote(self: *Loop, comptime checks: bool, len: usize) void {
+        @setRuntimeSafety(checks);
         self.written += len;
         if (len >= context_octets) {
             self.p2 = self.output[self.written - context_octets];
@@ -183,7 +190,8 @@ pub inline fn low_bits(value: u64, bit_count: u32) u64 {
 
 /// Refills with one 8-octet load (as S1), or with the claim off, an octet at a time.
 pub inline fn refill(comptime claims: Claims, loop: *Loop) void {
-    if (claims.word_refill) loop.refill_word() else loop.refill_octets();
+    @setRuntimeSafety(claims.loop_checks);
+    if (claims.word_refill) loop.refill_word(claims.loop_checks) else loop.refill_octets(claims.loop_checks);
 }
 
 /// Decodes command phases from `bits` into `writer` while the margins hold, until a phase the
@@ -209,7 +217,7 @@ pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State,
     };
     assert(loop.count <= @bitSizeOf(u64));
     var literal_tables: LiteralTables = .{};
-    for (0..iterations_max(&loop)) |_| {
+    for (0..iterations_max(true, &loop)) |_| {
         const link = straight_loop(claims, room, &loop, &literal_tables, state);
         if (link == .stop) break;
         if (chain.take(claims, room, link, &loop, &literal_tables, state, window) == .stop) break;
@@ -232,6 +240,7 @@ pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State,
 /// on here, a chunk at a time, and gives null; a copy from the window, or the rest of a word the
 /// checked path started, gives the chain's link, and a copy the room lacks `stop`.
 inline fn no_input_step(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State, phase: *Phase) ?Link {
+    @setRuntimeSafety(claims.loop_checks);
     if (phase.* != .copy or state.command.distance > loop.written) return link_of(phase.*);
     if (copy_within_output(claims, room, loop, state, phase) == .stop) return .stop;
     return null;
@@ -240,7 +249,8 @@ inline fn no_input_step(comptime claims: Claims, comptime room: Room, loop: *Loo
 /// The most chains a loop from the loop's point takes: each chain takes a bit or writes an octet,
 /// or is one of the few chains of a command that lead to one that does, as the checked path's steps
 /// are. Inline, so that taking the loop's address here leaves it in registers.
-inline fn iterations_max(loop: *const Loop) usize {
+inline fn iterations_max(comptime checks: bool, loop: *const Loop) usize {
+    @setRuntimeSafety(checks);
     const units = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + (loop.output.len - loop.written);
     return constants.decoder_steps_per_unit * units + constants.decoder_steps_floor;
 }
@@ -253,6 +263,7 @@ inline fn iterations_max(loop: *const Loop) usize {
 /// the margin's mode, only while the margin holds; the checked path then starts the mode that checks
 /// each write (decision 32).
 noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: *Loop, literal_tables: *LiteralTables, state: *State) Link {
+    @setRuntimeSafety(claims.loop_checks);
     var loop = shared.*;
     defer shared.* = loop;
     // The straight path moves the phase several times a command; the state needs it where this
@@ -261,8 +272,8 @@ noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: 
     defer state.phase = phase;
     // Each iteration that goes on writes a copy, a word or a run of literals, or takes a symbol's
     // bits, so the room and the input end the loop; one that does neither returns.
-    for (0..iterations_max(&loop)) |_| {
-        if (room == .margin and loop.room() < output_margin) return .stop;
+    for (0..iterations_max(claims.loop_checks, &loop)) |_| {
+        if (room == .margin and loop.room(claims.loop_checks) < output_margin) return .stop;
         if (reads_no_input(phase)) {
             if (no_input_step(claims, room, &loop, state, &phase)) |link| return link;
             continue;
@@ -295,8 +306,9 @@ pub fn link_of(phase: Phase) Link {
 /// margin's mode, the next chain when the literals left less than the margin, since that chain then
 /// checks each write.
 pub inline fn to_distance(comptime claims: Claims, comptime room: Room, loop: *Loop) Link {
+    @setRuntimeSafety(claims.loop_checks);
     if (!ready(claims, loop)) return .stop;
-    if (room == .margin and loop.room() < output_margin) return .go_on;
+    if (room == .margin and loop.room(claims.loop_checks) < output_margin) return .go_on;
     return .distance;
 }
 
@@ -304,13 +316,15 @@ pub inline fn to_distance(comptime claims: Claims, comptime room: Room, loop: *L
 /// least `refill_bits`: the state may bring a full buffer of 64 bits, and every later refill finds 63
 /// or fewer.
 pub inline fn ready(comptime claims: Claims, loop: *Loop) bool {
-    if (!loop.has_input_margin()) return false;
+    @setRuntimeSafety(claims.loop_checks);
+    if (!loop.has_input_margin(claims.loop_checks)) return false;
     if (loop.count < refill_bits) refill(claims, loop);
     return true;
 }
 
 /// Counts `len` octets of the meta-block as produced.
-pub inline fn produce(state: *State, len: usize) void {
+pub inline fn produce(comptime checks: bool, state: *State, len: usize) void {
+    @setRuntimeSafety(checks);
     assert(len <= state.meta_block_left);
     state.meta_block_left -= @intCast(len);
 }
@@ -319,21 +333,23 @@ pub inline fn produce(state: *State, len: usize) void {
 /// loop takes too. Below the margin, a copy whose chunks the room lacks goes an octet at a time, as
 /// with S4 off, and a copy the room lacks returns to the checked path.
 pub inline fn copy_within_output(comptime claims: Claims, comptime room: Room, loop: *Loop, state: *State, phase: *Phase) Next {
+    @setRuntimeSafety(claims.loop_checks);
     const len = @min(state.command.copy_left, constants.chunk_len_max);
     const back = state.command.distance;
     assert(back <= loop.written);
     // Decision 32: the room of the copy's octets, and of its chunks.
-    if (room == .each_write and loop.room() < len) return .stop;
-    const chunks = room == .margin or loop.room() >= copies.stored_len_max(claims.chunk_copies, len);
-    if (chunks) copies.within(claims.chunk_copies, loop.output, loop.written, back, len) else copies.within(false, loop.output, loop.written, back, len);
-    copied(loop, state, phase, len);
+    if (room == .each_write and loop.room(claims.loop_checks) < len) return .stop;
+    const chunks = room == .margin or loop.room(claims.loop_checks) >= copies.stored_len_max(claims.chunk_copies, len);
+    if (chunks) copies.within(claims.chunk_copies, claims.loop_checks, loop.output, loop.written, back, len) else copies.within(false, claims.loop_checks, loop.output, loop.written, back, len);
+    copied(claims.loop_checks, loop, state, phase, len);
     return .go_on;
 }
 
 /// Moves past the `len` octets a copy wrote, and ends the command with its last chunk.
-pub inline fn copied(loop: *Loop, state: *State, phase: *Phase, len: u32) void {
-    loop.wrote(len);
-    produce(state, len);
+pub inline fn copied(comptime checks: bool, loop: *Loop, state: *State, phase: *Phase, len: u32) void {
+    @setRuntimeSafety(checks);
+    loop.wrote(checks, len);
+    produce(checks, state, len);
     state.command.copy_left -= len;
     if (state.command.copy_left == 0) phase.* = commands.after_copy(state);
 }

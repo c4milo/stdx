@@ -8,9 +8,10 @@ const constants = @import("../../constants.zig");
 
 /// Copies `len` octets to `target` from `distance` before it, within `output`: in chunks (S4) when
 /// `chunks` holds, and an octet at a time otherwise.
-pub inline fn within(comptime chunks: bool, output: []u8, target: usize, distance: usize, len: usize) void {
+pub inline fn within(comptime chunks: bool, comptime checks: bool, output: []u8, target: usize, distance: usize, len: usize) void {
+    @setRuntimeSafety(checks);
     assert(distance >= 1 and distance <= target);
-    if (chunks) copy_within(output, target, distance, len) else copy_exact(output, target, distance, len);
+    if (chunks) copy_within(checks, output, target, distance, len) else copy_exact(checks, output, target, distance, len);
 }
 
 /// The most octets `within` stores for a copy of `len`: in chunks, up to the end of the last chunk,
@@ -24,18 +25,20 @@ pub fn stored_len_max(comptime chunks: bool, len: usize) usize {
 /// window, whose newest octet is the one before `start` in the output, and the rest from the
 /// output, an octet at a time. The caller has kept `distance` within the octets produced and the
 /// window (RFC 7932 §4, §9.1).
-pub fn from_window(window: anytype, output: []u8, target: usize, start: usize, distance: usize, len: usize) void {
+pub fn from_window(comptime checks: bool, window: anytype, output: []u8, target: usize, start: usize, distance: usize, len: usize) void {
+    @setRuntimeSafety(checks);
     assert(distance > target);
     assert(start <= target);
     const window_len = @min(len, distance - target);
     window.copy_back(distance - target + start, output[target..][0..window_len]);
     if (window_len == len) return;
-    copy_exact(output, target + window_len, distance, len - window_len);
+    copy_exact(checks, output, target + window_len, distance, len - window_len);
 }
 
 /// Copies `len` octets to `target` from `distance` before it, an octet at a time, so the copy reads
 /// what it wrote when it overlaps itself, and writes nothing past `len`.
-inline fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_exact(comptime checks: bool, output: []u8, target: usize, distance: usize, len: usize) void {
+    @setRuntimeSafety(checks);
     const source = target - distance;
     for (0..len) |index| output[target + index] = output[source + index];
 }
@@ -44,15 +47,16 @@ inline fn copy_exact(output: []u8, target: usize, distance: usize, len: usize) v
 /// `copy_word_len` octets where the distance leaves room for one, a fill for a distance of 1, and
 /// an octet at a time otherwise. A chunk may write up to its length less one past `len`, into the
 /// margin, and reads only octets written before.
-inline fn copy_within(output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_within(comptime checks: bool, output: []u8, target: usize, distance: usize, len: usize) void {
+    @setRuntimeSafety(checks);
     if (distance >= constants.copy_chunk_len) {
-        copy_chunks(constants.copy_chunk_len, output, target, distance, len);
+        copy_chunks(constants.copy_chunk_len, checks, output, target, distance, len);
     } else if (distance >= constants.copy_word_len) {
-        copy_chunks(constants.copy_word_len, output, target, distance, len);
+        copy_chunks(constants.copy_word_len, checks, output, target, distance, len);
     } else if (distance == 1) {
-        fill(output, target, output[target - 1], len);
+        fill(checks, output, target, output[target - 1], len);
     } else {
-        copy_exact(output, target, distance, len);
+        copy_exact(checks, output, target, distance, len);
     }
 }
 
@@ -62,7 +66,8 @@ const chunks_unconditional = 2;
 /// Copies `len` octets in chunks of `chunk_len`, which the distance is at least, so each chunk reads
 /// octets written before it: the first `chunks_unconditional` whatever the length, and the rest in a
 /// loop.
-inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
+inline fn copy_chunks(comptime chunk_len: usize, comptime checks: bool, output: []u8, target: usize, distance: usize, len: usize) void {
+    @setRuntimeSafety(checks);
     // The first chunks' source and target lie in one span, bounded once: the chunks inside it sit
     // at offsets its length covers, so their bounds need no check.
     const head_len = chunks_unconditional * chunk_len;
@@ -80,7 +85,8 @@ inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize, di
 }
 
 /// Writes `len` copies of `octet`, a chunk at a time.
-inline fn fill(output: []u8, target: usize, octet: u8, len: usize) void {
+inline fn fill(comptime checks: bool, output: []u8, target: usize, octet: u8, len: usize) void {
+    @setRuntimeSafety(checks);
     const chunk: [constants.copy_chunk_len]u8 = @splat(octet);
     const chunks = std.math.divCeil(usize, len, constants.copy_chunk_len) catch unreachable;
     for (0..chunks) |index| output[target + index * constants.copy_chunk_len ..][0..constants.copy_chunk_len].* = chunk;
@@ -99,8 +105,8 @@ test "a chunked copy writes what an exact copy writes, at every short distance" 
             b.* = @intCast(index + 1);
         }
         const len = constants.chunk_len_max - distance;
-        within(true, &chunked, distance, distance, len);
-        within(false, &exact, distance, distance, len);
+        within(true, true, &chunked, distance, distance, len);
+        within(false, true, &exact, distance, distance, len);
         try testing.expectEqualSlices(u8, exact[0 .. distance + len], chunked[0 .. distance + len]);
     }
 }

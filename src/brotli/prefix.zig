@@ -101,15 +101,15 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
         /// are present.
         pub fn decode(self: *const Self, bits: u64, available: u7) Decoded {
-            const whole = look_up(root_bits, &self.entries, bits);
+            const whole = look_up(root_bits, true, &self.entries, bits);
             if (whole.len > available) return .needs_bits;
             return .{ .symbol = .{ .value = whole.value, .len = @intCast(whole.len) } };
         }
 
         /// The symbol whose code starts `bits`, which hold a longest code's bits at least: the fast
         /// path's lookup, whose margin keeps the buffer that full (decision 16).
-        pub inline fn decode_whole(self: *const Self, bits: u64) WholeSymbol {
-            return look_up(root_bits, &self.entries, bits);
+        pub inline fn decode_whole(self: *const Self, comptime checks: bool, bits: u64) WholeSymbol {
+            return look_up(root_bits, checks, &self.entries, bits);
         }
     };
 }
@@ -272,7 +272,8 @@ fn fill_second(comptime root_bits: u5, entries: []Entry, value: u16, code: u32, 
 /// second level that the bits after the root's pick. Bits past the stream's end read as zeros, so a
 /// symbol longer than the bits present is one the caller asks more bits for. The build writes no
 /// second level wider than `code_len_max`, so its width truncates to a shift's type unchecked.
-inline fn look_up(comptime root_bits: u5, entries: anytype, bits: u64) WholeSymbol {
+inline fn look_up(comptime root_bits: u5, comptime checks: bool, entries: anytype, bits: u64) WholeSymbol {
+    @setRuntimeSafety(checks);
     const root = entries[@intCast(bits & ((1 << root_bits) - 1))];
     if (root.second_bits == 0) return .{ .value = root.value, .len = root.len };
     const second_index = (bits >> root_bits) & ((@as(u64, 1) << @as(u6, @truncate(root.second_bits))) - 1);

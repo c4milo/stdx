@@ -70,7 +70,7 @@ pub fn read(state: *State, bits: *codec.BitReader) void {
     for (0..reading.alphabet_len) |_| {
         if (reading.space <= 0 or reading.index >= reading.alphabet_len) break;
         if (!local.has_symbol_bits()) break;
-        const decoded = state.code_length_code.decode_whole(local.buffer);
+        const decoded = state.code_length_code.decode_whole(true, local.buffer);
         const symbol: u8 = @intCast(decoded.value);
         const extra_bits = prefix_reader.repeat_extra_bits(symbol);
         const extra: u32 = @intCast((local.buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
