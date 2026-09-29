@@ -209,6 +209,21 @@ def family_rand(out, W, target):
     write(out, f'rand{W}', block)
 
 
+def family_litnear(out, D, target):
+    rng = random.Random(6000 + D)
+    # Twenty literals, then a pair of length 4 at distance D: the pair's source lies among the
+    # literals' octets alone, past the reach of the pair before it and its overrun. The near
+    # family's codes.
+    ll = [8] * 253 + [9, 0, 0] + [9] + [0] + [7]
+    d = [0] * 4 + [4] * 16
+    block = Block(ll, d)
+    for _ in range(1024): block.literal(rng.randrange(253))
+    while block.octets < target:
+        for _ in range(20): block.literal(rng.randrange(253))
+        block.pair(4, D)
+    write(out, f'litnear{D}', block)
+
+
 if __name__ == '__main__':
     out = sys.argv[1]; os.makedirs(out, exist_ok=True)
     which = sys.argv[2] if len(sys.argv) > 2 else 'all'
@@ -223,6 +238,8 @@ if __name__ == '__main__':
         for L in (3, 4, 8, 12, 16, 17, 24, 32, 33, 40, 48, 49, 64, 96, 128, 200, 258): family_len(out, L, target)
     if which in ('all', 'near'):
         for D in (5, 6, 8, 12, 20, 36, 52, 68, 100, 132, 200, 264, 400, 600, 1000): family_near(out, D, target)
+    if which in ('all', 'litnear'):
+        for D in (17, 18, 20, 24, 31, 33, 40, 64): family_litnear(out, D, target)
     if which in ('all', 'rand'):
         for W in (256, 1024, 2048, 4096, 8192): family_rand(out, W, target)
     if which in ('all', 'plain'):
