@@ -1,22 +1,20 @@
 //! The text of the loop of `decoder_fast_aarch64.zig`, continued from decoder_fast_aarch64_template.zig:
-//! a command's distance, its copy, a dictionary word and the exits. The registers and the labels are
-//! as that file names them.
+//! a command's distance, its copy, a dictionary word, the blocks the common path passes over and the
+//! exits. The registers and the labels are as that file names them.
 
 const std = @import("std");
 const text = @import("decoder_fast_aarch64_template.zig");
 const refill = text.refill;
 const lookup = text.lookup;
+const second_level = text.second_level;
 
 /// The command's distance (RFC 7932 §4): the last distance for a symbol below 128, or the code of
 /// the tree its block type and copy length pick, its extra bits and the distance they give.
 pub const distance =
     \\30:
+    \\    // A refill (32) when the buffer holds fewer than a distance's bits.
     \\    cmp w7, #{[distance_bits_max]}
-    \\    b.hs 31f
-    \\    cmp x1, x2
-    \\    b.hi 89f
-++ "\n" ++ refill("x13") ++
-    \\
+    \\    b.lo 32f
     \\31:
     \\    tbnz x24, #63, 40f
     \\    // RFC 7932 §9.3: a spent block takes a block switch first, in Zig.
@@ -30,7 +28,7 @@ pub const distance =
     \\    mov w14, #{[distance_table_size]}
     \\    mul x13, x13, x14
     \\    add x13, x9, x13
-++ "\n" ++ lookup("x13", "x23", "x14", "x28", "52") ++
+++ "\n" ++ lookup("x13", "x23", "x14", "x28", "52", "56") ++
     \\    and w14, w23, #0xffff
     \\    ubfx w23, w23, #16, #8
     \\    // The extra bits (RFC 7932 §4): none below 16 + NDIRECT, 1 + ((dcode - NDIRECT - 16) >>
@@ -262,6 +260,39 @@ pub const word =
     \\    cbz w12, 88f
     \\    b 1b
 ;
+
+/// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
+/// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
+/// a run's literal (28 and 29) and a distance (32), and the second level of each lookup (50 to 53).
+pub const cold =
+    \\12:
+    \\    cmp x1, x2
+    \\    b.hi 82f
+++ "\n" ++ refill("x13") ++
+    \\
+    \\    b 11b
+    \\28:
+    \\    cmp x1, x2
+    \\    b.hi 86f
+++ "\n" ++ refill("x14") ++
+    \\
+    \\    b 22b
+    \\29:
+    \\    cmp x1, x2
+    \\    b.hi 86f
+++ "\n" ++ refill("x14") ++
+    \\
+    \\    b 27b
+    \\32:
+    \\    cmp x1, x2
+    \\    b.hi 89f
+++ "\n" ++ refill("x13") ++
+    \\
+    \\    b 31b
+++ "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
+    "\n" ++ second_level("x23", "x27", "x14", "x28", "51", "55") ++
+    "\n" ++ second_level("x13", "x23", "x14", "x28", "52", "56") ++
+    "\n" ++ second_level("x23", "x27", "x14", "x28", "53", "57");
 
 /// The exits: the link in x13 and the phase in x14, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.

@@ -375,7 +375,6 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .p1 = @offsetOf(Machine, "p1"),
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.command, .{
     .refill_bits = fast.refill_bits,
-    .root_bits_at_len = root_bits_at_len,
     .command_codes = @offsetOf(Machine, "command_codes"),
     .last_distance_symbols = constants.insert_copy_last_distance_symbols,
     .count_symbol = counts.symbol,
@@ -389,16 +388,12 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .batch = @offsetOf(Machine, "batch"),
     .lut_p1 = @offsetOf(Machine, "lut_p1"),
     .one_tree = @offsetOf(Machine, "one_tree"),
-    .refill_bits = fast.refill_bits,
-    .root_bits_at_len = root_bits_at_len,
     .count_literal = counts.symbol,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.distance, .{
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,
-    .refill_bits = fast.refill_bits,
     .distance_context_last_copy_len = constants.distance_context_last_copy_len,
     .distance_context_copy_len_min = constants.distance_context_copy_len_min,
     .distance_table_size = @sizeOf(@TypeOf(@as(State, undefined).distance_codes[0])),
-    .root_bits_at_len = root_bits_at_len,
     .direct_count = @offsetOf(Machine, "direct_count"),
     .distance_short_codes_count = constants.distance_short_codes_count,
     .postfix_bits = @offsetOf(Machine, "postfix_bits"),
@@ -425,7 +420,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .ic_table = @offsetOf(Machine, "ic_table"),
     .lit_tables = @offsetOf(Machine, "lit_tables"),
     .count_distance = counts.distance,
-}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
+}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{ .refill_bits = fast.refill_bits, .root_bits_at_len = root_bits_at_len }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
     .link_go_on = @intFromEnum(Link.go_on),
     .link_command = @intFromEnum(Link.command),
     .link_literal = @intFromEnum(Link.literal),

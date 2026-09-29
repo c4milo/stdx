@@ -18,8 +18,10 @@
 //!
 //! The numbered labels: 1 a command, 10 its symbol, 11 its extra bits, 20 its literals, 21 to 27
 //! their runs, 30 to 36 its distance, 40 the last distance reused, 41 the copy and 42 to 45 and 60
-//! to 63 the copy's kinds, 37 and 46 to 48 a dictionary word, 50 to 52 the second level of a
-//! lookup, 80 to 91 the exits, 99 the machine stored back.
+//! to 63 the copy's kinds, 37 and 46 to 48 a dictionary word, 80 to 91 the exits, 99 the machine
+//! stored back. The common path falls through: the refills that need the slack checked (12, 28,
+//! 29 and 32) and the second level of each lookup (50 to 53, back at 54 to 57) stand after the
+//! word, in `cold`, each reached by a branch the common path leaves untaken and ending in one back.
 //!
 //! The accesses (decision 24), each with the check that bounds it:
 //! - The refill's 8-octet load at the input's next octet: the slack check before every refill,
@@ -59,14 +61,25 @@ pub fn refill(comptime scratch: []const u8) []const u8 {
 }
 
 /// The symbol the buffer starts with, from `table`, into `entry`: its value in the low 16 bits and
-/// its length in the next 8 (`prefix.Entry`), through the second level when the root entry links one
-/// (RFC 7932 §3.2). `t1` and `t2` are scratch; `label` numbers the piece's own label.
-pub fn lookup(comptime table: []const u8, comptime entry: []const u8, comptime t1: []const u8, comptime t2: []const u8, comptime label: []const u8) []const u8 {
+/// its length in the next 8 (`prefix.Entry`), through `second_level` when the root entry links one
+/// (RFC 7932 §3.2), which comes back to `back`. `t1` and `t2` are scratch.
+pub fn lookup(comptime table: []const u8, comptime entry: []const u8, comptime t1: []const u8, comptime t2: []const u8, comptime second: []const u8, comptime back: []const u8) []const u8 {
     return std.fmt.comptimePrint(
         \\    and {[t1]s}, x6, #0xff
         \\    ldr {[entry_w]s}, [{[table]s}, {[t1]s}, lsl #2]
         \\    lsr {[t2_w]s}, {[entry_w]s}, #24
-        \\    cbz {[t2_w]s}, {[label]s}f
+        \\    cbnz {[t2_w]s}, {[second]s}f
+        \\{[back]s}:
+        \\
+    , .{ .table = table, .entry_w = w_of(entry), .t1 = t1, .t2_w = w_of(t2), .second = second, .back = back });
+}
+
+/// The second level of a `lookup` with the same registers and labels, out of the common path's way:
+/// the root entry's value names the level and `t2` holds its bits (`prefix.Table`); the entry it
+/// finds takes the root's bits into its length.
+pub fn second_level(comptime table: []const u8, comptime entry: []const u8, comptime t1: []const u8, comptime t2: []const u8, comptime second: []const u8, comptime back: []const u8) []const u8 {
+    return std.fmt.comptimePrint(
+        \\{[second]s}:
         \\    mov {[t1]s}, #-1
         \\    lsl {[t1]s}, {[t1]s}, {[t2]s}
         \\    lsr {[t2]s}, x6, #8
@@ -75,9 +88,8 @@ pub fn lookup(comptime table: []const u8, comptime entry: []const u8, comptime t
         \\    add {[t2]s}, {[t2]s}, {[entry]s}
         \\    ldr {[entry_w]s}, [{[table]s}, {[t2]s}, lsl #2]
         \\    add {[entry_w]s}, {[entry_w]s}, #{{[root_bits_at_len]}}
-        \\{[label]s}:
-        \\
-    , .{ .table = table, .entry = entry, .entry_w = w_of(entry), .t1 = t1, .t2 = t2, .t2_w = w_of(t2), .label = label });
+        \\    b {[back]s}b
+    , .{ .table = table, .entry = entry, .entry_w = w_of(entry), .t1 = t1, .t2 = t2, .second = second, .back = back });
 }
 
 /// The 32-bit name of a register: `x14` gives `w14`.
@@ -116,7 +128,7 @@ pub const command =
     \\10:
     \\    // RFC 7932 §9.3: a spent block takes a block switch first, in Zig.
     \\    cbz x15, 81f
-++ "\n" ++ lookup("x8", "x13", "x14", "x23", "50") ++
+++ "\n" ++ lookup("x8", "x13", "x14", "x23", "50", "54") ++
     \\    ubfx w14, w13, #16, #8
     \\    lsr x6, x6, x14
     \\    sub w7, w7, w14
@@ -129,15 +141,10 @@ pub const command =
     \\    cset x25, lo
     \\    orr x24, x24, x25, lsl #63
     \\    {[count_symbol]s}
-    \\    // The extra bits (RFC 7932 §5), after a second refill when the buffer holds fewer, which
-    \\    // needs the slack again.
+    \\    // The extra bits (RFC 7932 §5), after a second refill (12) when the buffer holds fewer.
     \\    ubfx x26, x24, #{[extra_bits_at]}, #8
     \\    cmp w26, w7
-    \\    b.ls 11f
-    \\    cmp x1, x2
-    \\    b.hi 82f
-++ "\n" ++ refill("x13") ++
-    \\
+    \\    b.hi 12f
     \\11:
     \\    mov x27, #-1
     \\    lsl x27, x27, x26
@@ -180,19 +187,16 @@ pub const literals =
     \\    cbnz x23, 25f
     \\    ldp x25, x26, [x0, #{[lut_p1]}]
     \\21:
+    \\    // A refill (28) when the buffer holds fewer than a code's bits.
     \\    cmp w7, #{[code_len_max]}
-    \\    b.hs 22f
-    \\    cmp x1, x2
-    \\    b.hi 86f
-++ "\n" ++ refill("x14") ++
-    \\
+    \\    b.lo 28f
     \\22:
     \\    // The context ID from p1 and p2 (RFC 7932 §7.1), its table, and the literal.
     \\    ldrb w14, [x25, x21]
     \\    ldrb w23, [x26, x22]
     \\    orr w14, w14, w23
     \\    ldr x23, [x10, x14, lsl #3]
-++ "\n" ++ lookup("x23", "x27", "x14", "x28", "51") ++
+++ "\n" ++ lookup("x23", "x27", "x14", "x28", "51", "55") ++
     \\    ubfx w14, w27, #16, #8
     \\    lsr x6, x6, x14
     \\    sub w7, w7, w14
@@ -208,13 +212,9 @@ pub const literals =
     \\    ldr x23, [x10]
     \\26:
     \\    cmp w7, #{[code_len_max]}
-    \\    b.hs 27f
-    \\    cmp x1, x2
-    \\    b.hi 86f
-++ "\n" ++ refill("x14") ++
-    \\
+    \\    b.lo 29f
     \\27:
-++ "\n" ++ lookup("x23", "x27", "x14", "x28", "53") ++
+++ "\n" ++ lookup("x23", "x27", "x14", "x28", "53", "57") ++
     \\    ubfx w14, w27, #16, #8
     \\    lsr x6, x6, x14
     \\    sub w7, w7, w14
