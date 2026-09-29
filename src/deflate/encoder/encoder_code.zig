@@ -74,61 +74,91 @@ pub fn build_lengths_package_merge(counts: anytype, comptime len_max: u4, length
 /// Huffman's tree: the two lightest nodes join, a leaf before a joined node of the same weight,
 /// until one node remains. Returns false when a depth passes `len_max`, leaving `lengths` as they
 /// were.
+///
+/// Moffat and Katajainen's in-place method (1995) computes the depths in one array of the weights,
+/// lightest first, in three passes: the joins, each joined node's depth, and each leaf's. A leaf
+/// is never shallower than a heavier one, as the joins take the lighter nodes first, so the depths
+/// the third pass hands out from the heaviest leaf down are each leaf's own.
 fn huffman_lengths(comptime n: usize, counts: *const [n]u16, order: []const u16, len_max: u4, lengths: *[n]u8) bool {
     assert(order.len >= coded_symbols_min and order.len <= n);
-    // Leaf i is node i; joined node j is node `order.len + j`. Each node records its parent's
-    // joined index, and each joined node its weight.
-    var parent: [tree_arity * n]u16 = undefined;
-    var joined_weights: [n]u32 = undefined;
-    var queues: Queues = .{};
-    const joined_count = order.len - 1;
-    for (0..joined_count) |joined| {
-        joined_weights[joined] = 0;
-        for (0..tree_arity) |_| {
-            const node = queues.take_lightest(counts, order, joined_weights[0..joined]);
-            parent[node] = @intCast(joined);
-            joined_weights[joined] += node_weight(counts, order, &joined_weights, node);
-        }
-    }
-    // Each joined node's parent comes after it, and the last is the root, at depth 0.
-    var depths: [n]u16 = undefined;
-    var joined = joined_count - 1;
-    depths[joined] = 0;
-    for (0..joined_count - 1) |_| {
-        joined -= 1;
-        depths[joined] = depths[parent[order.len + joined]] + 1;
-    }
-    var depth_max: u16 = 0;
-    for (parent[0..order.len]) |leaf_parent| depth_max = @max(depth_max, depths[leaf_parent] + 1);
-    if (depth_max > len_max) return false;
-    for (order, parent[0..order.len]) |symbol, leaf_parent| lengths[symbol] = @intCast(depths[leaf_parent] + 1);
+    var nodes: [n]u32 = undefined;
+    for (order, nodes[0..order.len]) |symbol, *node| node.* = weight(counts[symbol]);
+    join_in_place(nodes[0..order.len]);
+    depths_in_place(nodes[0..order.len]);
+    leaf_depths_in_place(nodes[0..order.len]);
+    // The lightest leaf is the deepest.
+    if (nodes[0] > len_max) return false;
+    for (order, nodes[0..order.len]) |symbol, depth| lengths[symbol] = @intCast(depth);
     return true;
 }
 
-/// The fronts of Huffman's two queues: the leaves, lightest first, and the joined nodes, which
-/// come out lightest first because each joins two nodes no lighter than the one before.
-const Queues = struct {
-    leaf: usize = 0,
-    joined: usize = 0,
-
-    /// Takes the lightest node at either front, a leaf when the weights tie. Returns its node
-    /// number.
-    fn take_lightest(queues: *Queues, counts: []const u16, order: []const u16, joined_weights: []const u32) usize {
-        const leaf_left = queues.leaf < order.len;
-        const joined_left = queues.joined < joined_weights.len;
-        assert(leaf_left or joined_left);
-        if (leaf_left and (!joined_left or weight(counts[order[queues.leaf]]) <= joined_weights[queues.joined])) {
-            queues.leaf += 1;
-            return queues.leaf - 1;
+/// The first pass: joined node `next` takes slot `next`, and holds its weight until a later node
+/// joins it, which then leaves its parent's slot there. Leaves come from `leaf` on and joined
+/// nodes from `root` on, the lighter first and a leaf on a tie.
+fn join_in_place(nodes: []u32) void {
+    const count = nodes.len;
+    nodes[0] += nodes[1];
+    var root: usize = 0;
+    var leaf: usize = tree_arity;
+    for (1..count - 1) |next| {
+        // Every joined node before `next` exists, and none is `next` itself.
+        assert(root < next and leaf > next);
+        if (leaf >= count or nodes[root] < nodes[leaf]) {
+            nodes[next] = nodes[root];
+            nodes[root] = @intCast(next);
+            root += 1;
+        } else {
+            nodes[next] = nodes[leaf];
+            leaf += 1;
         }
-        queues.joined += 1;
-        return order.len + queues.joined - 1;
+        if (leaf >= count or (root < next and nodes[root] < nodes[leaf])) {
+            assert(root < next);
+            nodes[next] += nodes[root];
+            nodes[root] = @intCast(next);
+            root += 1;
+        } else {
+            nodes[next] += nodes[leaf];
+            leaf += 1;
+        }
     }
-};
+}
 
-/// The weight of `node`: its symbol's for a leaf, the sum of its two for a joined node.
-fn node_weight(counts: []const u16, order: []const u16, joined_weights: []const u32, node: usize) u32 {
-    return if (node < order.len) weight(counts[order[node]]) else joined_weights[node - order.len];
+/// The second pass: each joined node's depth from its parent's, the root, the last, at 0.
+fn depths_in_place(nodes: []u32) void {
+    const count = nodes.len;
+    var next = count - tree_arity;
+    nodes[next] = 0;
+    for (0..count - tree_arity) |_| {
+        next -= 1;
+        assert(nodes[next] > next);
+        nodes[next] = nodes[nodes[next]] + 1;
+    }
+}
+
+/// The third pass: at each depth from the root down, the nodes there that are not joined nodes are
+/// leaves, which take their depth from the heaviest slot down.
+fn leaf_depths_in_place(nodes: []u32) void {
+    const count = nodes.len;
+    // Joined nodes not yet counted, from the root down, and the next leaf slot, from the end.
+    var joined_left: usize = count - 1;
+    var next: usize = count;
+    var available: usize = 1;
+    for (0..count) |depth| {
+        if (available == 0) break;
+        var joined: usize = 0;
+        for (0..joined_left) |_| {
+            if (nodes[joined_left - 1] != depth) break;
+            joined += 1;
+            joined_left -= 1;
+        }
+        assert(joined <= available and available - joined <= next);
+        for (0..available - joined) |_| {
+            next -= 1;
+            nodes[next] = @intCast(depth);
+        }
+        available = tree_arity * joined;
+    }
+    assert(next == 0 and joined_left == 0);
 }
 
 /// Sets the lengths of the symbols of `order`, lightest first, by package-merge.
@@ -357,30 +387,36 @@ pub const items_max = constants.literal_length_used + constants.distance_used;
 /// each. A run may cross from `first` into `second`, as §3.2.7 lets it cross from the literal and
 /// length lengths into the distance lengths. Returns how many.
 pub fn run_lengths(first: []const u8, second: []const u8, items: *[items_max]Item) usize {
-    const total = first.len + second.len;
-    assert(total <= items_max);
-    var count: usize = 0;
-    var index: usize = 0;
-    // Each pass writes at least one item and takes at least one length.
-    for (0..total) |_| {
-        if (index == total) break;
-        const len = length_at(first, second, index);
-        var run: usize = 1;
-        for (index + 1..total) |next| {
-            if (length_at(first, second, next) != len) break;
-            run += 1;
-        }
-        count += run_items(len, run, items[count..]);
-        index += run;
-    }
-    assert(index == total);
-    return count;
+    assert(first.len + second.len > 0 and first.len + second.len <= items_max);
+    // One pass over both tables, one compare a length: a run ends where a length differs.
+    var runs: Runs = .{ .value = if (first.len > 0) first[0] else second[0] };
+    for (first) |len| runs.take(len, items);
+    for (second) |len| runs.take(len, items);
+    runs.count += run_items(runs.value, runs.run, items[runs.count..]);
+    assert(runs.taken == first.len + second.len);
+    return runs.count;
 }
 
-/// The length at `index` of `first` and then `second`.
-inline fn length_at(first: []const u8, second: []const u8, index: usize) u8 {
-    return if (index < first.len) first[index] else second[index - first.len];
-}
+/// The run `run_lengths` has open: its length and how many it holds, the items written before it,
+/// and the lengths taken in all.
+const Runs = struct {
+    value: u8,
+    run: usize = 0,
+    count: usize = 0,
+    taken: usize = 0,
+
+    /// Adds `len` to the open run, or writes the run and opens one of `len`.
+    inline fn take(runs: *Runs, len: u8, items: *[items_max]Item) void {
+        runs.taken += 1;
+        if (len == runs.value) {
+            runs.run += 1;
+            return;
+        }
+        runs.count += run_items(runs.value, runs.run, items[runs.count..]);
+        runs.value = len;
+        runs.run = 1;
+    }
+};
 
 /// Writes a run of `run` lengths `len` as items, and returns how many.
 fn run_items(len: u8, run: usize, items: []Item) usize {
