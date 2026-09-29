@@ -1,0 +1,50 @@
+# A temporary experiment for https://github.com/c4milo/stdx/issues/13, on a branch of its own that
+# never lands: ab.yml's comparison on Intel CPUs alone. The x86-64 runner draws AMD or Intel CPUs
+# at random, so twelve jobs draw, and each that finds an Intel CPU builds and times the commits.
+name: ab-deflate-intel
+
+on:
+  push:
+    branches: [perf-deflate-abi]
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    strategy:
+      fail-fast: false
+      matrix:
+        draw: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Keep an Intel CPU
+        id: cpu
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          if grep -q GenuineIntel /proc/cpuinfo; then echo "intel=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.cpu.outputs.intel == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ab
+          fetch-depth: 0
+      - if: steps.cpu.outputs.intel == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ab/zig-pkg
+          key: zig-pkg-${{ hashFiles('ab/build.zig.zon') }}
+      - if: steps.cpu.outputs.intel == 'true'
+        name: Install Zig
+        run: ab/tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - if: steps.cpu.outputs.intel == 'true'
+        name: Build each commit
+        run: python3 ab/.github/ab/build.py
+      - if: steps.cpu.outputs.intel == 'true'
+        name: Time the commits in turns
+        run: python3 ab/.github/ab/run.py
+      - if: steps.cpu.outputs.intel == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ab-intel-${{ matrix.draw }}
+          path: ab-*.md
