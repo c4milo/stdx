@@ -42,7 +42,16 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
     assert(decoder.stage != .done and decoder.stage != .refused);
     assert(decoder.open == .none and decoder.pending_len == 0);
     assert(cursor.consumed <= input.len and cursor.written <= output.len);
-    var loop: Loop = .{ .decoder = decoder, .input = input, .output = output, .position = cursor.consumed, .written = cursor.written, .expect = decoder.expect };
+    var loop: Loop = .{
+        .decoder = decoder,
+        .input = input,
+        .output = output,
+        .position = cursor.consumed,
+        .written = cursor.written,
+        .expect = decoder.expect,
+        .depth = decoder.depth,
+        .in_object = decoder.depth > 0 and decoder.containers.is_object(decoder.depth - 1),
+    };
     if (decoder.stage != .tokens and !loop.text_start()) return 0;
     var filled: usize = 0;
     // Each slot is written here, from values in registers: built on the stack by each kind's path
@@ -56,6 +65,7 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
     // With every slot filled, the checked path asks for slots before it takes the text's end.
     if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
     decoder.expect = loop.expect;
+    decoder.depth = loop.depth;
     if (loop.last) |last| {
         decoder.matched = last.matched;
         decoder.number = last.number;
@@ -76,6 +86,10 @@ const Loop = struct {
     position: usize,
     written: usize,
     expect: Expect,
+    /// The decoder's depth, and whether the container it is in is an object, kept here for the
+    /// batch: read from the decoder, they took a load at every separator and container.
+    depth: u16,
+    in_object: bool,
     last: ?Last = null,
 
     /// Takes the record separator that starts a sequence's text (RFC 7464 §2.1) and passes the check
@@ -159,13 +173,13 @@ const Loop = struct {
     inline fn after_separator(self: *const Loop, octet: u8) ?Expect {
         if (self.expect == .name_separator) return if (octet == constants.name_separator) .value else null;
         if (octet != constants.value_separator) return null;
-        return if (self.decoder.containers.is_object(self.decoder.depth - 1)) .name else .value;
+        return if (self.in_object) .name else .value;
     }
 
     /// The end of the container `octet` closes after one of its values, or null.
     inline fn container_end(self: *Loop, octet: u8) ?Kind {
         if (self.expect != .separator_or_end) return null;
-        const in_object = self.decoder.containers.is_object(self.decoder.depth - 1);
+        const in_object = self.in_object;
         if (octet == constants.end_object and in_object) return self.end(.end_object);
         if (octet == constants.end_array and !in_object) return self.end(.end_array);
         return null;
@@ -191,18 +205,21 @@ const Loop = struct {
 
     /// Opens an object or an array below the depth limit, where the checked path refuses one.
     inline fn begin(self: *Loop, octet: u8) ?Kind {
-        if (self.decoder.depth == constants.depth_max) return null;
+        if (self.depth == constants.depth_max) return null;
         const object = octet == constants.begin_object;
-        self.decoder.containers.set(self.decoder.depth, object);
-        self.decoder.depth += 1;
+        self.decoder.containers.set(self.depth, object);
+        self.depth += 1;
+        self.in_object = object;
         self.expect = if (object) .name_or_end_object else .value_or_end_array;
         self.position += 1;
         return if (object) .begin_object else .begin_array;
     }
 
     inline fn end(self: *Loop, kind: Kind) Kind {
-        assert(self.decoder.depth > 0 and self.decoder.containers.is_object(self.decoder.depth - 1) == (kind == .end_object));
-        self.decoder.depth -= 1;
+        assert(self.depth > 0 and self.in_object == (kind == .end_object));
+        assert(self.in_object == self.decoder.containers.is_object(self.depth - 1));
+        self.depth -= 1;
+        self.in_object = self.depth > 0 and self.decoder.containers.is_object(self.depth - 1);
         self.position += 1;
         self.value_ended(kind);
         return kind;
@@ -291,7 +308,7 @@ const Loop = struct {
 
     /// Moves the grammar past a value of `kind` that just ended, as `Decoder.value_ended` does.
     inline fn value_ended(self: *Loop, kind: Kind) void {
-        if (self.decoder.depth > 0) {
+        if (self.depth > 0) {
             self.expect = .separator_or_end;
             return;
         }
