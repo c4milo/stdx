@@ -13,6 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
+const utf8 = @import("../utf8.zig");
 const scan = @import("../scan.zig");
 const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
@@ -101,9 +102,9 @@ inline fn unescape_unicode(escape: []const u8, room: []u8) ?Copied {
         code_point = constants.supplementary_min + ((high_bits << constants.surrogate_bits) | low_bits);
     }
     // No surrogate, and at most U+10FFFF, so UTF-8 holds it (RFC 3629 §3).
-    const len = std.unicode.utf8CodepointSequenceLength(code_point) catch unreachable;
+    const len = utf8.encoded_len(code_point);
     if (room.len < len) return null;
-    _ = std.unicode.utf8Encode(code_point, room[0..len]) catch unreachable;
+    utf8.encode(code_point, room[0..len]);
     const first: Copied = .{ .input_len = if (high) pair_escape_len else unicode_escape_len, .output_len = len };
     return unicode_run(escape, room, first);
 }
@@ -116,9 +117,9 @@ inline fn unicode_run(escape: []const u8, room: []u8, taken: Copied) Copied {
     for (0..escape.len / unicode_escape_len) |_| {
         const unit = code_unit(escape[run.input_len..], 0) orelse break;
         if (unit >= constants.high_surrogate_min and unit <= constants.surrogate_max) break;
-        const len = std.unicode.utf8CodepointSequenceLength(unit) catch unreachable;
+        const len = utf8.encoded_len(unit);
         if (room.len - run.output_len < len) break;
-        _ = std.unicode.utf8Encode(unit, room[run.output_len..][0..len]) catch unreachable;
+        utf8.encode(unit, room[run.output_len..][0..len]);
         run.input_len += unicode_escape_len;
         run.output_len += len;
     }

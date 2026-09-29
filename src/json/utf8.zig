@@ -1,6 +1,7 @@
 //! UTF-8 validation, one octet at a time, as RFC 3629 §4's syntax defines it: the scalar path the
 //! encoder and the decoder check every non-ASCII octet of a string with, which keeps a character
-//! split across calls in its state, and the reference the vector path of claim J5 must match.
+//! split across calls in its state, and the reference the vector path of claim J5 must match. And
+//! the UTF-8 of a code point (RFC 3629 §3), which the decoder writes for a `\u` escape.
 //!
 //! JSON text exchanged between systems must be UTF-8 (RFC 8259 §8.1), and a string holds
 //! characters (RFC 8259 §7), so the encoder refuses input that is not UTF-8 and the decoder refuses
@@ -69,6 +70,38 @@ pub fn character_len(octets: []const u8) ?usize {
         if (utf8.between_characters()) return len;
     }
     return null;
+}
+
+/// The octets of `code_point`'s UTF-8, for a code point that is no surrogate and at most U+10FFFF
+/// (RFC 3629 §3).
+pub inline fn encoded_len(code_point: u21) usize {
+    assert(code_point <= constants.code_point_max);
+    return 1 + @as(usize, @intFromBool(code_point > constants.one_octet_max)) + @intFromBool(code_point > constants.two_octets_max) + @intFromBool(code_point > constants.three_octets_max);
+}
+
+/// Writes `code_point`'s UTF-8 into `octets`, `encoded_len` of them (RFC 3629 §3). Inline, one length
+/// at a time: std.unicode's `utf8Encode` took a call at each `\u` escape, about an eighth of
+/// decoding a text of them on the N2 (design §8 step 18).
+pub inline fn encode(code_point: u21, octets: []u8) void {
+    inline for (1..constants.utf8_len_max + 1) |len| {
+        if (octets.len == len) {
+            octets[0..len].* = encoded(len, code_point);
+            return;
+        }
+    }
+    unreachable;
+}
+
+/// `code_point`'s UTF-8 in `len` octets: the first holds `len`'s mark and the highest bits, and each
+/// after it the continuation octet's mark and the next `continuation_bits` (RFC 3629 §3).
+inline fn encoded(comptime len: usize, code_point: u21) [len]u8 {
+    var octets: [len]u8 = undefined;
+    octets[0] = constants.lead_marks[len] | @as(u8, @intCast(code_point >> (len - 1) * constants.continuation_bits));
+    inline for (1..len) |index| {
+        const bits: u8 = @truncate(code_point >> (len - 1 - index) * constants.continuation_bits);
+        octets[index] = constants.continuation_min | (bits & constants.continuation_mask);
+    }
+    return octets;
 }
 
 // Tests.
@@ -231,4 +264,17 @@ test "Utf8 takes every step of the machine proved to accept exactly RFC 3629 §4
     }
     try testing.expectEqual(Proved.states * Proved.octets, steps);
     try testing.expectEqual(Utf8{}, try Proved.state(&.{ "0", "128", "191" }));
+}
+
+test "encode writes every code point outside the surrogates as std.unicode does" {
+    for (0..constants.code_point_max + 1) |value| {
+        const code_point: u21 = @intCast(value);
+        if (code_point >= constants.high_surrogate_min and code_point <= constants.surrogate_max) continue;
+        var expected: [constants.utf8_len_max]u8 = undefined;
+        const expected_len = try std.unicode.utf8Encode(code_point, &expected);
+        try testing.expectEqual(expected_len, encoded_len(code_point));
+        var octets: [constants.utf8_len_max]u8 = undefined;
+        encode(code_point, octets[0..expected_len]);
+        try testing.expectEqualSlices(u8, expected[0..expected_len], octets[0..expected_len]);
+    }
 }

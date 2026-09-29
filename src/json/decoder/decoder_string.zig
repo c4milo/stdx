@@ -9,6 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
+const utf8 = @import("../utf8.zig");
 const scan = @import("../scan.zig");
 const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
@@ -190,11 +191,12 @@ fn end_unicode(decoder: *Decoder) Error!void {
 }
 
 /// Holds the UTF-8 of `code_point`, which is no surrogate and at most U+10FFFF: the callers check
-/// both, so `utf8Encode` cannot refuse it (RFC 3629 §3). The escape's digits are then cleared, so
-/// between tokens they are always zero, whichever path took the string.
+/// both, as `utf8.encode` asks (RFC 3629 §3). The escape's digits are then cleared, so between
+/// tokens they are always zero, whichever path took the string.
 fn hold_code_point(decoder: *Decoder, code_point: u21) void {
     var octets: [constants.utf8_len_max]u8 = undefined;
-    const len = std.unicode.utf8Encode(code_point, &octets) catch unreachable;
+    const len = utf8.encoded_len(code_point);
+    utf8.encode(code_point, octets[0..len]);
     hold(decoder, octets[0..len]);
     decoder.escape_digits = 0;
     decoder.code_unit = 0;
