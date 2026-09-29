@@ -12,6 +12,7 @@ const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
 const Error = encoder_file.Error;
 const Token = encoder_file.Token;
+const token_loop = @import("encoder_loop.zig");
 
 /// One token and its octets, as one call of `encode` takes them.
 pub const Item = struct {
@@ -42,29 +43,56 @@ pub fn encode_batch_with(encoder: *Encoder, comptime claims: Claims, items: []co
     var writer = codec.Writer.init(output);
     var written_items: usize = 0;
     var consumed: usize = 0;
-    const status: codec.Status = for (items) |item| {
-        codec.check_entry(item.octets, output);
-        assert(item.octets.len == 0 or encoder_file.takes_input(item.token));
-        var reader = codec.Reader.init(item.octets);
-        const status = encoder.run(claims, item.token, &reader, &writer) catch |err| {
+    // Each pass writes an item at least, or ends the batch.
+    const status: codec.Status = for (0..items.len) |_| {
+        const ended = pass(encoder, claims, items, output, &written_items, &consumed, &writer) catch |err| {
             encoder.part = .refused;
             return err;
         };
-        switch (status) {
-            .needs_input => written_items += 1,
-            .needs_room => {
-                consumed = reader.consumed();
-                break .needs_room;
-            },
-            .done => {
-                written_items += 1;
-                break .done;
-            },
-        }
+        if (ended) |batch_status| break batch_status;
     } else .needs_input;
     const batch: Batch = .{ .items = written_items, .consumed = consumed, .written = writer.position, .status = status };
     check_batch(items, output.len, batch);
     return batch;
+}
+
+/// Writes the items from `written_items` on: the token loop's first (claim J11), then one through
+/// `Encoder.run`. Returns the batch's status when the pass ends it, and null when it wrote an item
+/// and the batch goes on.
+inline fn pass(
+    encoder: *Encoder,
+    comptime claims: Claims,
+    items: []const Item,
+    output: []u8,
+    written_items: *usize,
+    consumed: *usize,
+    writer: *codec.Writer,
+) Error!?codec.Status {
+    if (claims.encoder_token_loop and encoder.part == .between_tokens) {
+        var written = writer.position;
+        written_items.* += token_loop.take(encoder, claims, items[written_items.*..], output, &written);
+        writer.position = written;
+        if (encoder.part == .done) return .done;
+        if (written_items.* == items.len) return .needs_input;
+    }
+    const item = items[written_items.*];
+    codec.check_entry(item.octets, output);
+    assert(item.octets.len == 0 or encoder_file.takes_input(item.token));
+    var reader = codec.Reader.init(item.octets);
+    switch (try encoder.run(claims, item.token, &reader, writer)) {
+        .needs_input => {
+            written_items.* += 1;
+            return if (written_items.* == items.len) .needs_input else null;
+        },
+        .needs_room => {
+            consumed.* = reader.consumed();
+            return .needs_room;
+        },
+        .done => {
+            written_items.* += 1;
+            return .done;
+        },
+    }
 }
 
 /// The checks every batch makes at its exit: invariant 7 for the counts, with `needs_room` only

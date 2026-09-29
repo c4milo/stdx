@@ -59,6 +59,7 @@ pub const setup_claims: json.Claims = .{
     .decoder_fast_path = false,
     .decoder_token_loop = false,
     .encoder_fast_path = false,
+    .encoder_token_loop = false,
 };
 
 /// The qlog-shaped records the log holds, and the seed they are drawn from.
