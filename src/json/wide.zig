@@ -16,6 +16,7 @@ const builtin = @import("builtin");
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
+const scan_utf8 = @import("scan_utf8.zig");
 const Claims = @import("claims.zig").Claims;
 
 /// Whether this target has J7's kernels, and decision 37's block walk: x86-64 alone builds the
@@ -50,6 +51,7 @@ pub const Level = enum(u8) {
 
 extern fn stdx_json_plain_len_x86_64_avx2(octets: [*]const u8, len: usize) callconv(.c) usize;
 extern fn stdx_json_hex_len_x86_64_avx2(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize;
+extern fn stdx_json_is_utf8_x86_64_avx2(octets: [*]const u8, len: usize) callconv(.c) bool;
 
 /// `scan.plain_len_vector` at `level`'s width: the first 16 octets inline, and a run past them out
 /// of line.
@@ -87,6 +89,16 @@ pub inline fn hex_len(level: Level, input: []const u8, output: []u8) usize {
     };
 }
 
+/// `scan_utf8.valid` at `level` (decision 38): the AVX2 object's copy takes decision 37's lookup,
+/// VPSHUFB, which the module's own x86-64 target lacks; everywhere else the module's own copy runs.
+pub fn is_utf8(level: Level, octets: []const u8) bool {
+    if (comptime !has_kernels) return scan_utf8.valid(octets);
+    return switch (level) {
+        .target => scan_utf8.valid(octets),
+        .avx2 => stdx_json_is_utf8_x86_64_avx2(octets.ptr, octets.len),
+    };
+}
+
 // Tests. scan_test.zig requires every level this CPU runs to scan as the scalar paths do; these pin
 // which level the features pick.
 
@@ -103,4 +115,14 @@ test "Level.with keeps the level with claim J7 on, and takes the target's with i
         try testing.expectEqual(level, level.with(.{ .wide_vectors = true }));
         try testing.expectEqual(Level.target, level.with(.{ .wide_vectors = false }));
     }
+}
+
+test "is_utf8 gives the target's verdict at the level this CPU's features pick" {
+    const level = Level.of(codec.Features.detect());
+    const group = "a" ** constants.utf8_group_len;
+    for ([_][]const u8{ "", group ** 3, "a" ** 61 ++ "\xe2\x82\xac" ++ group, "\xd0\xb0" ** 100, "\xd0\xb0" ** 100 ++ "\x80", "a" ** 62 ++ "\xe2\x82" ++ group, group ++ "\xc3" }) |octets| {
+        try testing.expectEqual(is_utf8(.target, octets), is_utf8(level, octets));
+    }
+    try testing.expect(is_utf8(level, "a" ** 61 ++ "\xe2\x82\xac" ++ group));
+    try testing.expect(!is_utf8(level, "a" ** 62 ++ "\xe2\x82" ++ group));
 }

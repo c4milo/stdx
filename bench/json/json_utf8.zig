@@ -7,6 +7,7 @@
 const std = @import("std");
 const timing = @import("timing");
 const json = @import("json");
+const codec = @import("codec");
 const baselines = @import("baselines/baselines.zig");
 const workloads = @import("json_workloads.zig");
 const Workload = workloads.Workload;
@@ -20,10 +21,11 @@ const simdutf_index = 1;
 fn Validate(comptime candidate: usize) type {
     return struct {
         octets: []const u8,
+        features: codec.Features,
 
         fn run_once(context: *const anyopaque) void {
             const self: *const @This() = @ptrCast(@alignCast(context));
-            const verdict = if (candidate == stdx_index) json.is_utf8(self.octets) else baselines.simdutf_validate_utf8(self.octets);
+            const verdict = if (candidate == stdx_index) json.is_utf8(self.octets, self.features) else baselines.simdutf_validate_utf8(self.octets);
             std.mem.doNotOptimizeAway(verdict);
         }
     };
@@ -31,7 +33,7 @@ fn Validate(comptime candidate: usize) type {
 
 fn operation(arena: std.mem.Allocator, comptime candidate: usize, octets: []const u8) !timing.Operation {
     const state = try arena.create(Validate(candidate));
-    state.* = .{ .octets = octets };
+    state.* = .{ .octets = octets, .features = codec.Features.detect() };
     return .{ .context = state, .run_once = Validate(candidate).run_once };
 }
 
@@ -50,7 +52,7 @@ pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []
         // to the same octets as the text it came from, and is left out.
         if (workload.decode_only or workload.items.len != 1 or workload.items[0].len != 1 or workload.items[0][0].token != .string) continue;
         const octets = workload.items[0][0].octets;
-        if (json.is_utf8(octets) != baselines.simdutf_validate_utf8(octets)) return error.CandidatesDiffer;
+        if (json.is_utf8(octets, codec.Features.detect()) != baselines.simdutf_validate_utf8(octets)) return error.CandidatesDiffer;
         var operations = [candidate_count]timing.Operation{ try operation(arena, stdx_index, octets), try operation(arena, simdutf_index, octets) };
         var runs: [candidate_count][timing.run_count]f64 = undefined;
         timing.time_interleaved(io, &operations, &runs);

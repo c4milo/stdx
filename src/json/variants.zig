@@ -12,6 +12,7 @@ comptime {
         .x86_64_avx2 => {
             _ = @import("variants/scan_wide.zig");
             _ = @import("variants/loop_string.zig");
+            _ = @import("variants/scan_utf8.zig");
         },
         else => {},
     }

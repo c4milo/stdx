@@ -1,10 +1,12 @@
 //! The UTF-8 check of claim J5 a block at a time (RFC 3629 §4), split from scan.zig: the lanes of a
 //! block whose octet UTF-8 rules out there, given the block before it. Two forms give the same
 //! verdict on every block: `error_lanes_compares`, each rule as a compare against a splat, the
-//! reference; and `error_lanes_lookup`, three lookups of 16 entries by the nibbles of each octet and
-//! the one before it, in one instruction each where the target has one (decision 37). `error_lanes`
-//! takes the lookup where it can. The tables are built here from RFC 3629 §4's rules, and the tests
-//! require the lookup to judge every pair of octets as utf8.zig's machine does.
+//! reference; and `error_octets_lookup`, three lookups of 16 entries by the nibbles of each octet
+//! and the one before it, in one instruction each where the target has one (decision 37).
+//! `error_lanes` takes the lookup where it can, and `error_octets` gives the lookup's verdict as
+//! octets, before any compare to bools, for `valid`, the check over a whole buffer (decision 38).
+//! The tables are built here from RFC 3629 §4's rules, and the tests require the lookup to judge
+//! every pair of octets as utf8.zig's machine does.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -35,8 +37,17 @@ pub const has_lookup = builtin.cpu.arch == .aarch64 or (builtin.cpu.arch == .x86
 /// lane or on the next; every caller ends its run before the first lane flagged and steps back over
 /// a cut character (`cut_character_len`), so both give the same run.
 pub inline fn error_lanes(comptime width: usize, previous: Block(width), block: Block(width)) Lanes(width) {
-    if (comptime has_lookup and width == constants.vector_len) return error_lanes_lookup(previous, block);
+    if (comptime has_lookup and width == constants.vector_len) return error_octets_lookup(previous, block) != splat(width, 0);
     return error_lanes_compares(width, previous, block);
+}
+
+/// `error_lanes` as octets: nonzero on a lane the check flags, zero on the others. The lookup gives
+/// its verdict as octets before any compare to bools, so a caller that ORs many blocks' verdicts
+/// and tests them once saves a compare a block.
+pub inline fn error_octets(previous: Block(constants.vector_len), block: Block(constants.vector_len)) Block(constants.vector_len) {
+    const width = constants.vector_len;
+    if (comptime has_lookup) return error_octets_lookup(previous, block);
+    return @select(u8, error_lanes_compares(width, previous, block), splat(width, std.math.maxInt(u8)), splat(width, 0));
 }
 
 /// `error_lanes` as a compare against a splat for each rule. A lane holds when:
@@ -92,17 +103,27 @@ pub fn cut_character_len(octets: []const u8) usize {
 }
 
 /// Whether `octets` is UTF-8 whole (RFC 3629 §4): the check a string's octets go through in the
-/// walk, run alone over a buffer, a block of 16 at a time and the last octets through utf8.zig's
-/// machine. The json module's `is_utf8` for a caller, and bench-json's candidate beside simdutf's
-/// `validate_utf8`.
+/// walk, run alone over a buffer (decision 38). A group of `utf8_group_len` octets goes through
+/// `group_error_octets`, then the blocks after the last group one at a time, and the last octets
+/// through utf8.zig's machine. The json module's `is_utf8` for a caller, and bench-json's candidate
+/// beside simdutf's `validate_utf8`.
 pub fn valid(octets: []const u8) bool {
-    var previous: Block(constants.vector_len) = @splat(0);
+    const width = constants.vector_len;
+    var previous: Block(width) = @splat(0);
     var index: usize = 0;
-    for (0..octets.len / constants.vector_len) |_| {
-        const block: Block(constants.vector_len) = octets[index..][0..constants.vector_len].*;
-        if (@reduce(.Or, error_lanes(constants.vector_len, previous, block))) return false;
+    // The groups' verdicts are ORed and read once: a group's verdict read as a scalar would cost the
+    // ASCII path a second transfer out of the vector unit, and the verdict is the same at the end.
+    var errors: Block(width) = @splat(0);
+    for (0..octets.len / constants.utf8_group_len) |_| {
+        errors |= group_error_octets(&previous, octets[index..][0..constants.utf8_group_len]);
+        index += constants.utf8_group_len;
+    }
+    if (@reduce(.Max, errors) != 0) return false;
+    for (0..(octets.len - index) / width) |_| {
+        const block: Block(width) = octets[index..][0..width].*;
+        if (@reduce(.Or, error_lanes(width, previous, block))) return false;
         previous = block;
-        index += constants.vector_len;
+        index += width;
     }
     // The blocks judged every octet but a character the last one cuts; the machine takes that
     // character's first octets again with the tail, and must end between characters.
@@ -114,13 +135,84 @@ pub fn valid(octets: []const u8) bool {
     return machine.between_characters();
 }
 
+/// The verdict on a group of `utf8_group_blocks` blocks as octets, nonzero on a lane the check
+/// flags, with `previous` moved to the group's last block. A group of ASCII costs one test, and
+/// breaks nothing but a character the block before it cut, whose first octets `incomplete_octets`
+/// flags; any other group runs `error_octets` a block at a time and ORs the verdicts.
+fn group_error_octets(previous: *Block(constants.vector_len), group: *const [constants.utf8_group_len]u8) Block(constants.vector_len) {
+    const width = constants.vector_len;
+    var blocks: [constants.utf8_group_blocks]Block(width) = undefined;
+    var all: Block(width) = @splat(0);
+    inline for (&blocks, 0..) |*block, block_index| {
+        block.* = loaded(group[block_index * width ..][0..width].*);
+        all |= block.*;
+    }
+    if (!has_non_ascii(all)) {
+        const errors = incomplete_octets(previous.*);
+        previous.* = blocks[constants.utf8_group_blocks - 1];
+        return errors;
+    }
+    var errors: Block(width) = @splat(0);
+    inline for (blocks) |block| {
+        errors |= error_octets(previous.*, block);
+        previous.* = block;
+    }
+    return errors;
+}
+
+/// `block` as one register. `shifted_in` reads a block's low lanes alone, and for those reads LLVM
+/// split each block's load into a load of 13 lanes and three loads of one lane, with a copy of the
+/// register between them: 24 loads and 12 copies a group of four blocks in place of 4 loads. An
+/// empty assembly statement that takes the block in a vector register and gives it back makes the
+/// whole register the value the shuffles read.
+inline fn loaded(block: Block(constants.vector_len)) Block(constants.vector_len) {
+    return switch (builtin.cpu.arch) {
+        .aarch64 => asm (""
+            : [ret] "=w" (-> Block(constants.vector_len)),
+            : [block] "0" (block),
+        ),
+        .x86_64 => asm (""
+            : [ret] "=x" (-> Block(constants.vector_len)),
+            : [block] "0" (block),
+        ),
+        else => block,
+    };
+}
+
+/// Whether `block` holds an octet from 0x80 up: on x86-64 from the sign bits, which one instruction
+/// gathers into a mask; elsewhere from the largest octet, which one instruction gives, and which ran
+/// 4% faster than a compare on an M-series host.
+inline fn has_non_ascii(block: Block(constants.vector_len)) bool {
+    const width = constants.vector_len;
+    if (comptime builtin.cpu.arch == .x86_64) return @reduce(.Or, @as(@Vector(width, i8), @bitCast(block)) < @as(@Vector(width, i8), @splat(0)));
+    return @reduce(.Max, block) >= constants.non_ascii_min;
+}
+
+/// Nonzero on the lanes of `block` that start a character the block cuts: a first octet on the last
+/// lane, one that asks for two continuation octets on the lane before, and one that asks for three
+/// on the lane before that (RFC 3629 §3). `cut_character_len` as lanes, for a block whose every
+/// other octet is judged.
+fn incomplete_octets(block: Block(constants.vector_len)) Block(constants.vector_len) {
+    const width = constants.vector_len;
+    return @select(u8, block > incomplete_max, splat(width, std.math.maxInt(u8)), splat(width, 0));
+}
+
+/// The largest octet each lane of a block holds without starting a character the block cuts: on
+/// the last lane, one below the least first octet that reaches one octet past itself, and so on
+/// back; and every octet on the lanes before those.
+const incomplete_max: Block(constants.vector_len) = blk: {
+    var lanes: [constants.vector_len]u8 = @splat(std.math.maxInt(u8));
+    for (1..constants.utf8_len_max) |back| lanes[constants.vector_len - back] = constants.reaching_lead_min[back] - 1;
+    break :blk lanes;
+};
+
 // The lookup (decision 37).
 
 /// What a pair of octets, the one before and the one on a lane, can break of RFC 3629 §4, one bit
 /// each. The three tables below hold, for a nibble, the bits the pairs with that nibble can break;
 /// their AND for a pair leaves the bits it does break. `two_continuations_bit` breaks nothing by itself:
 /// it marks a continuation octet after a continuation octet, which is right where a first octet two
-/// or three lanes back asks for it and wrong elsewhere, judged apart in `error_lanes_lookup`.
+/// or three lanes back asks for it and wrong elsewhere, judged apart in `error_octets_lookup`.
 const Breaks = packed struct(u8) {
     too_short: bool = false,
     too_long: bool = false,
@@ -238,16 +330,19 @@ inline fn lookup(table: Block(constants.vector_len), indices: Block(constants.ve
     };
 }
 
-/// `error_lanes` from the three tables: `pair_bits` for each lane and the octet before it, three
+/// `error_octets` from the three tables: `pair_bits` for each lane and the octet before it, three
 /// lookups; then a continuation octet after a continuation octet is right only where the octet two
 /// or three lanes back asks for it (RFC 3629 §3), and an octet is wrong there when it is not one.
-inline fn error_lanes_lookup(previous: Block(constants.vector_len), block: Block(constants.vector_len)) Lanes(constants.vector_len) {
+/// The lookups leave `two_continuations_bit` set on a lane of a continuation octet after one, and
+/// the bit is XORed with the lanes asked, so it stays set where the two differ; the other bits stay
+/// as the lookups set them, one for each rule the pair breaks. A lane is left nonzero exactly when
+/// its octet breaks a rule.
+inline fn error_octets_lookup(previous: Block(constants.vector_len), block: Block(constants.vector_len)) Block(constants.vector_len) {
     const width = constants.vector_len;
     const before = shifted_in(width, 1, previous, block);
     const bits = lookup(before_high_table, before >> @splat(constants.nibble_bits)) & lookup(before_low_table, before & splat(width, constants.nibble_mask)) & lookup(octet_high_table, block >> @splat(constants.nibble_bits));
     const asked_two_or_three_back = (shifted_in(width, third_octet_distance, previous, block) >= splat(width, constants.lead_3_min)) | (shifted_in(width, fourth_octet_distance, previous, block) >= splat(width, constants.lead_4_min));
-    const two_after_one = (bits & splat(width, two_continuations_bit)) != splat(width, 0);
-    return ((bits & splat(width, breaks_a_rule)) != splat(width, 0)) | (two_after_one != asked_two_or_three_back);
+    return bits ^ @select(u8, asked_two_or_three_back, splat(width, two_continuations_bit), splat(width, 0));
 }
 
 // Tests.
@@ -329,7 +424,7 @@ fn expect_triple_judged(comptime start: usize, sequence: [sequence_len]u8) !void
     octets[start..][0..sequence_len].* = sequence;
     const block: Block(width) = octets;
     const sequence_valid = is_utf8(&octets);
-    if (comptime has_lookup) try testing.expectEqual(!sequence_valid, @reduce(.Or, error_lanes_lookup(previous, block)));
+    if (comptime has_lookup) try testing.expectEqual(!sequence_valid, @reduce(.Max, error_octets_lookup(previous, block)) != 0);
     try testing.expectEqual(!sequence_valid, @reduce(.Or, error_lanes_compares(width, previous, block)));
 }
 
@@ -347,8 +442,11 @@ fn valid_scalar(octets: []const u8) bool {
     return machine.between_characters();
 }
 
-/// Buffers of letters with an edge sequence at each offset across three blocks, and at the end.
-const valid_buffer_blocks = 3;
+/// Buffers of letters with an edge sequence at each offset across two groups and a block, and at
+/// the end: a sequence takes each group through the ASCII test or the lookups, and through the cut
+/// the block before an ASCII group leaves.
+const valid_buffer_groups = 2;
+const valid_buffer_blocks = valid_buffer_groups * constants.utf8_group_blocks + 1;
 const valid_buffer_len = valid_buffer_blocks * constants.vector_len + 1;
 
 test "valid judges a buffer as the machine does, with a sequence at every offset" {
@@ -368,6 +466,25 @@ test "valid takes whole characters that blocks cut, and refuses a cut one at the
     try testing.expect(!valid("a" ** 15 ++ "\xe2\x82"));
     try testing.expect(!valid("\x80"));
     try testing.expect(!valid("a" ** 17 ++ "\xc0\xaf"));
+}
+
+test "valid takes a group of ASCII in one test, and finds the character the block before it cut" {
+    const group = "a" ** constants.utf8_group_len;
+    try testing.expect(valid(group ** 3));
+    try testing.expect(valid(group ** 2 ++ "b"));
+    try testing.expect(valid("a" ** (constants.utf8_group_len - 3) ++ "\xe2\x82\xac" ++ group));
+    try testing.expect(valid("a" ** (constants.utf8_group_len - 1) ++ "\xc3\xa9" ++ group));
+    try testing.expect(!valid("a" ** (constants.utf8_group_len - 2) ++ "\xe2\x82" ++ group));
+    try testing.expect(!valid("a" ** (constants.utf8_group_len - 1) ++ "\xf0" ++ group));
+    try testing.expect(!valid("a" ** (constants.utf8_group_len - 1) ++ "\x80" ++ group));
+    try testing.expect(!valid(group ++ "\x80"));
+    try testing.expect(!valid(group ++ "a" ** (constants.vector_len - 1) ++ "\xc3"));
+    try testing.expect(!valid(group ** 2 ++ "\xed\xa0\x80" ++ group));
+    // The one octet from 0x80 up in a group of NUL octets: the ORed group is exactly 0x80.
+    try testing.expect(!valid("\x00" ** (constants.utf8_group_len - 1) ++ "\x80" ++ group));
+    // A continuation octet after an ASCII group, whose block before ended with a whole character:
+    // judged against the ASCII group's last block, not the character's.
+    try testing.expect(!valid("a" ** (constants.utf8_group_len - 3) ++ "\xe2\x82\xac" ++ group ++ "\x80" ++ "a" ** (constants.utf8_group_len - 1)));
 }
 
 test "cut_character_len takes a cut character's first octets and nothing of a whole one" {

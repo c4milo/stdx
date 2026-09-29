@@ -16,6 +16,13 @@ pub const depth_max: u16 = 1024;
 /// are claim J7's, which the caller's features pick at run time (decision 30).
 pub const vector_len: usize = 16;
 
+/// The blocks `scan_utf8.valid` judges as one group: four, 64 octets, so that a group of ASCII
+/// costs one test and a group of other text one transfer of its verdict to a scalar. `is_utf8`
+/// runs alone, outside the loops, so the group is its own limit and not the loops'.
+pub const utf8_group_blocks: usize = 4;
+/// The octets of one group of `scan_utf8.valid`: `utf8_group_blocks` blocks of `vector_len`.
+pub const utf8_group_len: usize = utf8_group_blocks * vector_len;
+
 /// The octets claim J7's paths take at once on x86-64: AVX2's 32, in a variant object compiled for
 /// that level (decision 21), which the module calls when the caller's features name it (decision
 /// 30).

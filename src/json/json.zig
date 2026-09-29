@@ -15,6 +15,9 @@ pub const Claims = claims.Claims;
 pub const Framing = @import("framing.zig").Framing;
 pub const Decimal = @import("format.zig").Decimal;
 
+const codec = @import("codec");
+const wide = @import("wide.zig");
+
 const encoder = @import("encoder/encoder.zig");
 pub const Encoder = encoder.Encoder;
 pub const Token = encoder.Token;
@@ -35,9 +38,12 @@ const text_reader = @import("decoder/text_reader.zig");
 pub const TextReader = text_reader.TextReader;
 
 /// Whether `octets` is UTF-8 whole (RFC 3629 §4, RFC 8259 §8.1): the check the encoder applies to
-/// a string's octets and the decoder to a text's, run alone. A caller that must know before it
-/// encodes, or that holds octets from elsewhere, asks here.
-pub const is_utf8 = @import("scan_utf8.zig").valid;
+/// a string's octets and the decoder to a text's, run alone over a buffer, at the widest path
+/// `features` allow (decision 38). A caller that must know before it encodes, or that holds octets
+/// from elsewhere, asks here.
+pub fn is_utf8(octets: []const u8, features: codec.Features) bool {
+    return wide.is_utf8(wide.Level.of(features), octets);
+}
 pub const Item = text_reader.Item;
 
 test {
@@ -45,7 +51,7 @@ test {
     _ = claims;
     _ = @import("utf8.zig");
     _ = @import("scan.zig");
-    _ = @import("wide.zig");
+    _ = wide;
     _ = @import("number.zig");
     _ = @import("containers.zig");
     _ = @import("format.zig");
