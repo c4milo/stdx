@@ -11,17 +11,19 @@
 //! blocks; x19 and x20 the ring of last distances, two 32-bit distances each, the last in the low
 //! half of x19; w21 p1 and w22 p2. x13, x14, x23 and x25 to x28 hold each command's values: x24 its
 //! packed code with bit 63 set when it reuses the last distance, x27 its copy length and x28 its
-//! literals left, both kept in the machine while its literals run.
+//! literals left, both kept in the machine while its literals run; in a run of the entries' mode,
+//! w23 holds p1's part of the next context ID and w25 p2's.
 //!
 //! Each of the buffer's 64 bits is the stream's: a refill ORs the next 8 octets in above the count
 //! and takes the whole octets that fit (S1), and a command uses at most 56 bits between refills.
 //!
 //! The numbered labels: 1 a command, 10 its symbol, 11 its extra bits, 20 its literals, 21 to 27
-//! their runs, 30 to 36 its distance, 40 the last distance reused, 41 the copy and 42 to 45 and 60
-//! to 63 the copy's kinds, 37 and 46 to 48 a dictionary word, 80 to 91 the exits, 99 the machine
-//! stored back. The common path falls through: the refills that need the slack checked (12, 28,
-//! 29 and 32) and the second level of each lookup (50 to 53, back at 54 to 57) stand after the
-//! word, in `cold`, each reached by a branch the common path leaves untaken and ending in one back.
+//! and 70 to 72 their runs, 30 to 36 its distance, 40 the last distance reused, 41 the copy and 42
+//! to 45 and 60 to 63 the copy's kinds, 37 and 46 to 48 a dictionary word, 80 to 91 the exits, 99
+//! the machine stored back. The common path falls through: the refills that need the slack checked
+//! (12, 28, 29, 32 and 73) and the second level of each lookup (50 to 53 and 58, back at 54 to 57
+//! and 59) stand after the word, in `cold`, each reached by a branch the common path leaves untaken
+//! and ending in one back.
 //!
 //! The accesses (decision 24), each with the check that bounds it:
 //! - The refill's 8-octet load at the input's next octet: the slack check before every refill,
@@ -183,9 +185,11 @@ pub const literals =
     \\    csel x13, x16, x13, lo
     \\    stp x27, x28, [x0, #{[copy_len]}]
     \\    str x13, [x0, #{[batch]}]
-    \\    ldr x23, [x0, #{[one_tree]}]
-    \\    cbnz x23, 25f
+    \\    ldr x23, [x0, #{[run_kind]}]
+    \\    cbz x23, 25f
     \\    ldp x25, x26, [x0, #{[lut_p1]}]
+    \\    cmp x23, #{[kind_entry_parts]}
+    \\    b.eq 70f
     \\21:
     \\    // A refill (28) when the buffer holds fewer than a code's bits.
     \\    cmp w7, #{[code_len_max]}
@@ -206,6 +210,32 @@ pub const literals =
     \\    {[count_literal]s}
     \\    subs w13, w13, #1
     \\    b.ne 21b
+    \\    b 23f
+    \\70:
+    \\    // The entries' mode: p1's part of the next context ID comes from the entry of the literal
+    \\    // before it (`context.literal_entry_value`), so no load stands between a literal and its
+    \\    // successor's table; p2's part from the lut, off that path. The first takes both from
+    \\    // the luts.
+    \\    ldrb w23, [x25, x21]
+    \\    ldrb w25, [x26, x22]
+    \\71:
+    \\    cmp w7, #{[code_len_max]}
+    \\    b.lo 73f
+    \\72:
+    \\    orr w23, w23, w25
+    \\    ldr x23, [x10, x23, lsl #3]
+++ "\n" ++ lookup("x23", "x27", "x14", "x28", "58", "59") ++
+    \\    ubfx w14, w27, #16, #8
+    \\    lsr x6, x6, x14
+    \\    sub w7, w7, w14
+    \\    ldrb w25, [x26, x21]
+    \\    ubfx w23, w27, #{[entry_p1_part_shift]}, #{[context_id_bits]}
+    \\    mov w22, w21
+    \\    and w21, w27, #0xff
+    \\    strb w21, [x3], #1
+    \\    {[count_literal]s}
+    \\    subs w13, w13, #1
+    \\    b.ne 71b
     \\    b 23f
     \\25:
     \\    // One tree for every context: the first table, and no context ID.

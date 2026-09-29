@@ -24,6 +24,7 @@ const prefix = @import("../../prefix.zig");
 const Claims = @import("../../claims.zig").Claims;
 const state_module = @import("../decoder_state.zig");
 const commands = @import("../decoder_commands.zig");
+const prefix_reader = @import("../decoder_prefix.zig");
 const literal_runs = @import("decoder_fast_literals.zig");
 const dictionary = @import("../../dictionary.zig");
 const transform = @import("../../transform.zig");
@@ -60,13 +61,12 @@ const Machine = extern struct {
     /// type's row of the distance context map.
     lit_tables: [*]const *const literal_runs.LiteralTable,
     dist_map_row: [*]const u8,
-    /// The parts of a context ID that p1 and p2 give in the literal block type's mode; both zero
-    /// where its contexts take one tree.
+    /// The parts of a context ID that p1 and p2 give in the literal block type's mode.
     lut_p1: [*]const u8,
     lut_p2: [*]const u8,
-    /// Whether every context of the literal block type takes one tree: its literals take the first
-    /// table with no context ID.
-    one_tree: u64,
+    /// How the literal block type's runs take their tables (`literal_runs.RunKind`): the first
+    /// table with no context ID, p1's part from the entries, or both parts from the luts.
+    run_kind: u64,
     meta_block_left: u64,
     /// The octets produced less the address of the output's next octet, so that the address added
     /// gives the octets produced; and the farthest a back-reference reaches.
@@ -117,7 +117,8 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
     const dist_blocks = commands.blocks_of(state, .distance);
     if (literal_tables.block_type != lit_blocks.type_current) literal_runs.look_up_literal_tables(literal_tables, state, lit_blocks.type_current);
     const ring = &state.last_distances;
-    const luts = if (literal_tables.one_tree) &one_tree_luts else &context_luts[@intFromEnum(state.context_modes[lit_blocks.type_current])];
+    const mode = state.context_modes[lit_blocks.type_current];
+    const luts = &context_luts[@intFromEnum(mode)];
     var machine: Machine = .{
         .input = loop.input.ptr + loop.position,
         .input_limit = loop.input.ptr + (loop.input.len - fast.input_slack),
@@ -132,7 +133,7 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .dist_map_row = state.distance_context_map[@as(usize, dist_blocks.type_current) * constants.distance_contexts_count ..].ptr,
         .lut_p1 = &luts[0],
         .lut_p2 = &luts[1],
-        .one_tree = @intFromBool(literal_tables.one_tree),
+        .run_kind = @intFromEnum(literal_runs.run_kind(literal_tables.one_tree, mode, prefix_reader.literal_entry_mode(state))),
         .meta_block_left = state.meta_block_left,
         .produced_offset = state_module.produced(state) -% @intFromPtr(loop.output.ptr + loop.written),
         .window_distance_max = state.window_distance_max,
@@ -315,10 +316,6 @@ const context_luts: [@typeInfo(context.Mode).@"enum".fields.len][context_parts][
     break :luts luts;
 };
 
-/// The parts where every context of a block type takes one tree: none, so every literal takes the
-/// first table.
-const one_tree_luts: [context_parts][constants.lut_len]u8 = @splat(@splat(0));
-
 /// The parts of a context ID: p1's and p2's (RFC 7932 §7.1).
 const context_parts = 2;
 
@@ -347,6 +344,8 @@ comptime {
     assert(@bitSizeOf(u64) == 64 and fast.refill_bits == 56 and constants.table_root_bits == 8);
     assert(constants.copy_chunk_len == @sizeOf(u128) and constants.copy_word_len == @sizeOf(u64));
     assert(constants.literal_contexts_count == 64 and constants.code_len_max == 15);
+    // The run of one tree is the kind the text tests for zero.
+    assert(@intFromEnum(literal_runs.RunKind.one_tree) == 0);
     assert(constants.distance_extra_bits_max + constants.code_len_max <= fast.refill_bits);
     assert(std.math.maxInt(u8) >= fast.refill_bits);
     // A command's extra bits fit the packed octet, as do the two codes.
@@ -387,7 +386,10 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .copy_len = @offsetOf(Machine, "copy_len"),
     .batch = @offsetOf(Machine, "batch"),
     .lut_p1 = @offsetOf(Machine, "lut_p1"),
-    .one_tree = @offsetOf(Machine, "one_tree"),
+    .run_kind = @offsetOf(Machine, "run_kind"),
+    .kind_entry_parts = @intFromEnum(literal_runs.RunKind.entry_parts),
+    .entry_p1_part_shift = context.entry_p1_part_shift,
+    .context_id_bits = std.math.log2_int(u64, constants.literal_contexts_count),
     .count_literal = counts.symbol,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.distance, .{
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,

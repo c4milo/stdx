@@ -79,10 +79,10 @@ fn names_one_tree(row: *const [constants.literal_contexts_count]u8) bool {
 
 /// How a block type's literals take their tables: of the one tree its contexts take, with the
 /// context parts the entries hold, or with the context IDs of the block type's own mode.
-const RunKind = enum { one_tree, entry_parts, own_mode };
+pub const RunKind = enum { one_tree, entry_parts, own_mode };
 
 /// The entries' parts serve a block type of the mode they were built for alone.
-fn run_kind(one_tree: bool, mode: context.Mode, entry_mode: context.Mode) RunKind {
+pub fn run_kind(one_tree: bool, mode: context.Mode, entry_mode: context.Mode) RunKind {
     if (one_tree) return .one_tree;
     if (mode == entry_mode) return .entry_parts;
     return .own_mode;

@@ -263,7 +263,8 @@ pub const word =
 
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
-/// a run's literal (28 and 29) and a distance (32), and the second level of each lookup (50 to 53).
+/// a run's literal (28, 29 and 73) and a distance (32), and the second level of each lookup (50 to
+/// 53 and 58).
 pub const cold =
     \\12:
     \\    cmp x1, x2
@@ -289,10 +290,17 @@ pub const cold =
 ++ "\n" ++ refill("x13") ++
     \\
     \\    b 31b
+    \\73:
+    \\    cmp x1, x2
+    \\    b.hi 86f
+++ "\n" ++ refill("x14") ++
+    \\
+    \\    b 72b
 ++ "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "51", "55") ++
     "\n" ++ second_level("x13", "x23", "x14", "x28", "52", "56") ++
-    "\n" ++ second_level("x23", "x27", "x14", "x28", "53", "57");
+    "\n" ++ second_level("x23", "x27", "x14", "x28", "53", "57") ++
+    "\n" ++ second_level("x23", "x27", "x14", "x28", "58", "59");
 
 /// The exits: the link in x13 and the phase in x14, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.
