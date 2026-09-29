@@ -1126,6 +1126,20 @@ to 12 are reordered and nothing else changes.
     a sparse alphabet have no code; and the root's doubling copies written inline in place of
     memcpy, +11%.
 
+  **The day's work paired with 7520761 in one job a runner, 2026-09-29**, runs
+  [36510738974](https://github.com/c4milo/stdx/actions/runs/36510738974) and
+  [36510743295](https://github.com/c4milo/stdx/actions/runs/36510743295): b89b153 against 7520761
+  through the workflow's `base` input, file by file under decision 20's amended rule (the change's
+  reports in `bench/results/`, dated 2026-09-29; the base's are the 2026-09-28 reports).
+  - On the N2, 29 of the 39 files gain past the larger of their spread and 1% in both jobs, and
+    none loses: the 1 KiB HTTP bodies +72 to +85%, the 16 KiB bodies +14 to +31%, the 1 MiB bodies
+    +5 to +14%, xargs.1 +46%, grammar.lsp +42%, fields.c +28%, sum +25%, kennedy.xls +10%; the
+    median +5.2%. stdx decodes the 1 KiB bodies at 0.46 to 0.55 of Google's speed, from 0.25 to
+    0.32.
+  - On x86-64, one job on a Xeon Platinum 8370C and one on an EPYC 7763: 23 files gain in both and
+    none loses; the 1 KiB bodies +40 to +49%, the median +5.4%. css-1m moves -6% on the Xeon and
+    +19% on the EPYC, as it did between CPUs before.
+
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
   8,000,000 octets at the HTTP levels (decision 12).
