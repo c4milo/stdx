@@ -1383,6 +1383,25 @@ to 12 are reordered and nothing else changes.
     decoder ran up to 7.5% faster in the first job's second phase on the small bodies and slower in
     the second job's, so ten files lost past the bar in one job and gained in the other, and none
     loses in both. Pushed to main the same day.
+  - p1's context part from the entry in the assembly loop, c37df64 on its branch and b97d8e8 on
+    main, against 874981b, the loop with its layout, paired (runs
+    [36612078133](https://github.com/c4milo/stdx/actions/runs/36612078133) and
+    [36623015849](https://github.com/c4milo/stdx/actions/runs/36623015849); reports in
+    `bench/results/`, dated 2026-09-29, "parts"): a literal of a block type in the entries' mode
+    took its successor's table through two lut loads on the loop's chain, the literal, its lut, the
+    OR, the table, the entry; the Zig loop's `entry_run` reads p1's part from the entry
+    (`context.literal_entry_value`), one extract in place of the load, and p2's part from the lut of
+    the literal before, off the chain. The assembly does the same in a third run (labels 70 to 73),
+    beside the one-tree run and the run of a block type's own mode, with `run_kind` in the machine.
+    Four mutations of the parts, all CAUGHT. The M1 measured it flat, instructions within 3% and
+    cycles within 1% either way: the N2's 4-cycle loads are where the chain binds, and the M1 judges
+    no N2 chain effect in either direction. On the N2, 20 files gain in both jobs and none loses in
+    both: the median +2.1%, sao +8.7% and +8.9%, ptt5 +6.6% and +5.4%, mozilla and cp.html +4.4%,
+    the 16 KiB css and json bodies +3 to +4%, E.coli +1.5% and +1.9%; kennedy.xls lost 1.2% in the
+    second job against a 1% bar and tied in the first. The six files still below Google's speed
+    there are the four 1 KiB bodies, grammar.lsp and xargs.1, each under 5 KB, where the header
+    takes most of the time. x86-64 keeps the Zig loop, and no file moved past the bar in both of its
+    jobs, on a Xeon 8370C and then a Xeon 6973P-C. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
