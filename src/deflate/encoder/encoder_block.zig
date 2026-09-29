@@ -210,11 +210,38 @@ pub fn prices(block: *const Block, dynamic: *const Plan, bit_position: u3) Price
     const block_header = constants.final_bits + constants.type_bits;
     const fixed_lengths = constants.fixed_literal_length_lengths[0..constants.literal_length_used];
     const fixed_distance_lengths = constants.fixed_distance_lengths[0..constants.distance_used];
+    const coded = coded_bits(block, fixed_lengths, fixed_distance_lengths, &dynamic.literal_length_lengths, &dynamic.distance_lengths);
     return .{
         .stored = stored_bits(block.input_len, bit_position),
-        .fixed = block_header + data_bits(block, fixed_lengths, fixed_distance_lengths),
-        .dynamic = block_header + header_bits(dynamic) + data_bits(block, &dynamic.literal_length_lengths, &dynamic.distance_lengths),
+        .fixed = block_header + coded.fixed,
+        .dynamic = block_header + header_bits(dynamic) + coded.dynamic,
     };
+}
+
+/// The bits of a block's symbols under the fixed code and under its own.
+const CodedBits = struct {
+    fixed: u64,
+    dynamic: u64,
+};
+
+/// The bits of a block's symbols and end-of-block under two codes at once, with their extra bits
+/// (RFC 1951 §3.2.5): one pass over the counts prices both the fixed and the dynamic code.
+fn coded_bits(block: *const Block, fixed_lengths: []const u8, fixed_distance_lengths: []const u8, lengths: []const u8, distance_lengths: []const u8) CodedBits {
+    var fixed: u64 = 0;
+    var dynamic: u64 = 0;
+    for (block.literal_length_counts, fixed_lengths, lengths) |count, fixed_len, len| {
+        fixed += @as(u64, count) * fixed_len;
+        dynamic += @as(u64, count) * len;
+    }
+    var extra: u64 = 0;
+    for (block.literal_length_counts[constants.first_length_symbol..], constants.length_extra_bits) |count, extra_bits| {
+        extra += @as(u64, count) * extra_bits;
+    }
+    for (block.distance_counts, fixed_distance_lengths, distance_lengths, constants.distance_extra_bits) |count, fixed_len, len, extra_bits| {
+        fixed += @as(u64, count) * (fixed_len + extra_bits);
+        dynamic += @as(u64, count) * (len + extra_bits);
+    }
+    return .{ .fixed = fixed + extra, .dynamic = dynamic + extra };
 }
 
 /// Plans `block`, final or not, to start `bit_position` bits into an octet: its dynamic code, then
@@ -257,20 +284,6 @@ pub fn stored_bits(len: usize, bit_position: u3) u64 {
     return block_header + pad + constants.stored_header_bits + @as(u64, len) * @bitSizeOf(u8);
 }
 
-/// The bits of a block's symbols and end-of-block under the given code lengths, with their extra
-/// bits (RFC 1951 §3.2.5).
-fn data_bits(block: *const Block, literal_length_lengths: []const u8, distance_lengths: []const u8) u64 {
-    var bits: u64 = 0;
-    for (block.literal_length_counts, literal_length_lengths, 0..) |count, len, symbol| {
-        bits += @as(u64, count) * len;
-        if (symbol >= constants.first_length_symbol) bits += @as(u64, count) * constants.length_extra_bits[symbol - constants.first_length_symbol];
-    }
-    for (block.distance_counts, distance_lengths, constants.distance_extra_bits) |count, len, extra| {
-        bits += @as(u64, count) * (len + extra);
-    }
-    return bits;
-}
-
 /// A dynamic block's header bits, BFINAL and BTYPE excluded: HLIT, HDIST and HCLEN, the code
 /// length code, and the code lengths as items (RFC 1951 §3.2.7).
 fn header_bits(dynamic: *const Plan) u64 {
@@ -308,11 +321,12 @@ fn plan_dynamic(block: *const Block, result: *Plan) void {
     result.code_length_count = count;
 }
 
-/// One more than the last symbol with a length.
+/// One more than the last symbol with a length, found from the end.
 fn last_used(lengths: []const u8) usize {
-    var last: usize = 0;
-    for (lengths, 1..) |len, index| {
-        if (len != 0) last = index;
+    var last = lengths.len;
+    for (0..lengths.len) |_| {
+        if (lengths[last - 1] != 0) break;
+        last -= 1;
     }
     return last;
 }

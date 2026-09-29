@@ -158,10 +158,11 @@ fn weight(count: u16) u32 {
 /// first that do not occur added until there are two. Returns how many.
 fn sorted_symbols(counts: []const u16, order: *[symbols_max]u16) usize {
     var used: usize = 0;
+    // Every symbol is written at the next slot, and only one that occurs keeps it: no branch on
+    // the counts.
     for (counts, 0..) |count, symbol| {
-        if (count == 0) continue;
         order[used] = @intCast(symbol);
-        used += 1;
+        used += @intFromBool(count != 0);
     }
     for (counts, 0..) |count, symbol| {
         if (used >= coded_symbols_min) break;
@@ -255,10 +256,24 @@ pub fn build_codes(lengths: []const u8, codes: []u16) void {
     for (lengths, codes) |len, *reversed| {
         if (len == 0) continue;
         // RFC 1951 §3.2.2, step 3: consecutive codes for the symbols of one length, in order.
-        reversed.* = @bitReverse(next[len]) >> @intCast(@bitSizeOf(u16) - @as(u5, @intCast(len)));
+        reversed.* = reverse_bits(next[len], len);
         next[len] += 1;
     }
 }
+
+/// The low `len` bits of `code`, reversed: an octet table, as most targets have no instruction
+/// that reverses bits.
+inline fn reverse_bits(code: u16, len: u8) u16 {
+    const reversed = (@as(u16, reversed_octets[@as(u8, @truncate(code))]) << @bitSizeOf(u8)) | reversed_octets[@as(u8, @truncate(code >> @bitSizeOf(u8)))];
+    return reversed >> @intCast(@bitSizeOf(u16) - @as(u5, @intCast(len)));
+}
+
+/// Each octet with its bits reversed.
+const reversed_octets: [1 << @bitSizeOf(u8)]u8 = table: {
+    var octets: [1 << @bitSizeOf(u8)]u8 = undefined;
+    for (&octets, 0..) |*reversed, octet| reversed.* = @bitReverse(@as(u8, @intCast(octet)));
+    break :table octets;
+};
 
 /// One symbol of the code length alphabet, and the value of its extra bits (RFC 1951 §3.2.7).
 pub const Item = struct {
