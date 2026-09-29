@@ -2117,8 +2117,8 @@ to 12 are reordered and nothing else changes.
   saw the vector path's work: `content_len_vector` hands what `utf8_run` leaves to the scalar
   path, which counts the same run, so a barrier that gave back zeros and a block of ASCII that did
   not hand back were NOT CAUGHT. A test in scan.zig now requires `utf8_run`'s own count, and both
-  are CAUGHT on aarch64 and on x86-64-v3 under Rosetta. `valid`'s tail loop, the blocks after its
-  last group, still splits its load on every target.
+  are CAUGHT on aarch64 and on x86-64-v3 under Rosetta. At 33b458d, `valid`'s tail loop, the blocks
+  after its last group, still split its load on every target.
 
   bench-json runs [36628968396](https://github.com/c4milo/stdx/actions/runs/36628968396) and
   [36628971616](https://github.com/c4milo/stdx/actions/runs/36628971616) paired 33b458d against
@@ -2145,6 +2145,23 @@ to 12 are reordered and nothing else changes.
   encoded json-1m at 1.095 and 1.098. By performance.md's rule, the non-ASCII text wins in every
   job and no file loses in every job, and the N2's moves are the placement of code the change
   does not touch; the change stays. Main took it at 33b458d.
+
+  **`valid`'s tail loads, 2026-09-29.** `valid`'s tail loop takes the whole blocks left after its
+  last group, at most three, which are every block of a buffer shorter than a group. It had the
+  same split, and its blocks now go through `scan_utf8.loaded` as the groups' blocks do. One block
+  of the loop, in the tests' ReleaseSafe build for each runner's target:
+
+  | Target | Before | After |
+  |---|---|---|
+  | aarch64, baseline CPU | 42 instructions; loads of 8 octets, 4, and four of one | 30; one load |
+  | x86-64, baseline CPU (SSE2) | 106 instructions; loads of 4 octets, 8, and four of one | 76; one load |
+  | x86-64, the AVX2 object | 40 instructions; loads of 4 octets, 8, and four of one | 31; one load |
+
+  Four mutations of the loop were CAUGHT by `valid`'s existing tests, on aarch64 and under Rosetta
+  on x86-64 and x86-64-v3: its block zeroed, its block swapped for the one before, its verdict
+  dropped, and `previous` left behind. bench-json's "UTF-8 validation against simdutf" times whole
+  files, each of which runs the loop once, so the owner ruled that the change lands without a
+  number. Main took it at 9ed8911.
 
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
