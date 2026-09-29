@@ -177,16 +177,20 @@ fn put_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWrite
     put(emit, writer, plan.literal_length_codes[symbol], @intCast(plan.literal_length_lengths[symbol]));
 }
 
-/// A length's code and extra bits, then its distance's (RFC 1951 §3.2.5).
+/// A length's code and extra bits, then its distance's (RFC 1951 §3.2.5), each in one put from its
+/// code's entry.
 fn put_pair(emit: *Emit, plan: *const Plan, symbol: block_module.Symbol, writer: *codec.BitWriter) void {
     const len = @as(usize, symbol.value) + constants.match_len_min;
-    const length_index = block_module.length_code(len);
-    put_code(emit, plan, constants.first_length_symbol + length_index, writer);
-    put(emit, writer, len - constants.length_base[length_index], constants.length_extra_bits[length_index]);
-    const distance_index = block_module.distance_code(symbol.distance);
-    assert(plan.distance_lengths[distance_index] != 0);
-    put(emit, writer, plan.distance_codes[distance_index], @intCast(plan.distance_lengths[distance_index]));
-    put(emit, writer, symbol.distance - constants.distance_base[distance_index], constants.distance_extra_bits[distance_index]);
+    put_entry(emit, writer, plan.length_entries[block_module.length_code(len)], len);
+    put_entry(emit, writer, plan.distance_entries[block_module.distance_code(symbol.distance)], symbol.distance);
+}
+
+/// The code of `entry` and, above it, `value` less the entry's base in its extra bits.
+fn put_entry(emit: *Emit, writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) void {
+    assert(entry.code_bits != 0 and value >= entry.base);
+    const extra = value - entry.base;
+    assert(extra >> @intCast(entry.extra_bits) == 0);
+    put(emit, writer, entry.code | @as(u64, extra) << @intCast(entry.code_bits), @intCast(entry.code_bits + entry.extra_bits));
 }
 
 fn write_stored_header(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {

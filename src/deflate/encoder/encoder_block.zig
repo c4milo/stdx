@@ -55,11 +55,24 @@ pub fn length_code(len: usize) u8 {
     return length_codes[len - constants.match_len_min];
 }
 
-/// The code of a distance.
+/// The code of a distance. Both tables are read, so the choice is a select and not a branch, which
+/// the distances of a block would mispredict.
 pub fn distance_code(distance: usize) u8 {
     assert(distance >= 1 and distance <= constants.window_len);
-    return if (distance <= near_distances) near_codes[distance - 1] else far_codes[(distance - 1) >> far_distance_shift];
+    const near = near_codes[@min(distance, near_distances) - 1];
+    const far = far_codes[(distance - 1) >> far_distance_shift];
+    return if (distance <= near_distances) near else far;
 }
+
+/// A length or distance code as the symbol writer puts it: its code, the code's bits, the base of
+/// the values it covers, and the extra bits after it that hold a value less the base (RFC 1951
+/// §3.2.5), so a pair's length or distance goes into the bit buffer with one put.
+pub const CodeEntry = struct {
+    code: u16,
+    base: u16,
+    code_bits: u8,
+    extra_bits: u8,
+};
 
 pub const Block = struct {
     symbols: [constants.block_symbols_max]Symbol,
@@ -123,6 +136,20 @@ pub const Plan = struct {
     code_length_codes: [constants.code_length_alphabet_len]u16,
     items: [code.items_max]code.Item,
     item_count: u16,
+    /// Each length code's and distance code's entry for the symbol writer, from the codes above.
+    length_entries: [constants.length_base.len]CodeEntry,
+    distance_entries: [constants.distance_used]CodeEntry,
+
+    /// Fills `length_entries` and `distance_entries` from the plan's codes.
+    pub fn fill_entries(self: *Plan) void {
+        for (&self.length_entries, constants.length_base, constants.length_extra_bits, 0..) |*entry, base, extra_bits, index| {
+            const symbol = constants.first_length_symbol + index;
+            entry.* = .{ .code = self.literal_length_codes[symbol], .base = base, .code_bits = self.literal_length_lengths[symbol], .extra_bits = extra_bits };
+        }
+        for (&self.distance_entries, constants.distance_base[0..constants.distance_used], constants.distance_extra_bits[0..constants.distance_used], 0..) |*entry, base, extra_bits, index| {
+            entry.* = .{ .code = self.distance_codes[index], .base = base, .code_bits = self.distance_lengths[index], .extra_bits = extra_bits };
+        }
+    }
 };
 
 /// The fixed codes (RFC 1951 §3.2.6), reversed for the stream, built once at comptime. Each is
@@ -184,6 +211,7 @@ pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) v
         @memcpy(&result.distance_lengths, constants.fixed_distance_lengths[0..constants.distance_used]);
         result.distance_codes = fixed_distance_codes;
     }
+    if (result.kind != .stored) result.fill_entries();
 }
 
 /// Plans the empty stored block that ends a flush on an octet boundary (RFC 1951 §3.2.4),
