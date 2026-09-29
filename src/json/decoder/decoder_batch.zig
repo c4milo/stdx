@@ -97,7 +97,7 @@ inline fn pass(
         if (filled.* == slots.len) return .needs_slots;
     }
     const start = writer.position;
-    const outcome = try decoder.run(claims, reader, writer, piece);
+    const outcome = try decoder.run(comptime after_loop(claims), reader, writer, piece);
     if (outcome.kind) |kind| {
         slots[filled.*] = .{ .kind = kind, .ended = outcome.status == .token, .start = start, .len = writer.position - start };
         filled.* += 1;
@@ -108,6 +108,15 @@ inline fn pass(
         .needs_room => .needs_room,
         .done => .done,
     };
+}
+
+/// The claims `Decoder.run` takes a token the loop left with. Claim J10's loop takes every token
+/// claim J8's fast path takes, so after it J8 would only try each token again and fail: with J8 on
+/// in batches, the decoder ran CLDR's texts 7% slower on an AMD EPYC 7763 (design §8 step 18).
+fn after_loop(claims: Claims) Claims {
+    var run_claims = claims;
+    if (claims.decoder_token_loop) run_claims.decoder_fast_path = false;
+    return run_claims;
 }
 
 /// The checks every batch makes at its exit: invariant 7 for the counts; a token that did not end

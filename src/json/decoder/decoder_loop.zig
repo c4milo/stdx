@@ -221,14 +221,16 @@ const Loop = struct {
 
     /// Copies a string's content up to its closing quotation mark, and returns its length, or null
     /// when an octet to escape, a control character, a non-ASCII octet or the end of a slice comes
-    /// first. Its first `constants.wide_run_len_min` octets go a block of 16 at a time, and a run
-    /// past them to `copy_long`.
+    /// first. Its first `constants.wide_run_len_min` octets go a block of 16 at a time, a run past
+    /// them to `copy_long`, and one that fewer than 16 octets of input or room leave to
+    /// `copy_short`.
     inline fn copy_blocks(self: *Loop, comptime claims: Claims) ?usize {
         const first = self.position + 1;
         var len: usize = 0;
         for (0..constants.wide_run_len_min / constants.vector_len) |_| {
-            if (self.input.len - first - len < constants.vector_len) return null;
-            if (self.output.len - self.written - len < constants.vector_len) return null;
+            if (self.input.len - first - len < constants.vector_len or self.output.len - self.written - len < constants.vector_len) {
+                return self.copy_short(first, len);
+            }
             const block: @Vector(constants.vector_len, u8) = self.input[first + len ..][0..constants.vector_len].*;
             self.output[self.written + len ..][0..constants.vector_len].* = block;
             if (scan.plain_stop(block)) |lane| {
@@ -238,6 +240,20 @@ const Loop = struct {
         }
         const rest_len = copy_long(self.decoder.level.with(claims), self.input[first + len ..], self.output[self.written + len ..]) orelse return null;
         return len + rest_len;
+    }
+
+    /// The rest of a run past its first `head_len` octets, when fewer than 16 of input or of room
+    /// are left: scanned up to the end of either as `scan.plain_len_vector` scans a short run, and
+    /// copied. Claim J8's fast path took such a string, near the end of the input or of the output,
+    /// where the loop left it.
+    inline fn copy_short(self: *Loop, first: usize, head_len: usize) ?usize {
+        const rest = self.input[first + head_len ..];
+        const room = self.output[self.written + head_len ..];
+        const window = rest[0..@min(rest.len, room.len)];
+        const run_len = scan.plain_len_vector(constants.vector_len, window);
+        if (run_len == rest.len or rest[run_len] != constants.quotation_mark) return null;
+        scan.copy(room[0..run_len], window[0..run_len]);
+        return head_len + run_len;
     }
 
     /// `copy_blocks` an octet at a time (claim J3 off).
