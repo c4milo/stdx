@@ -1534,7 +1534,8 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
       within one call does more vector work for a token than the 16-octet scan it replaces, and one
       kept across calls is refused above. It returns only if a call ever takes many tokens. Entry
       33's batches take many; the owner ruled on 2026-09-29 that J6 returns as an experiment over a
-      batch's input, design §8 step 19, landed on its A/B alone.
+      batch's input, design §8 step 19, landed on its A/B alone. Built that day, it decoded CLDR's
+      texts and qlog's records 36% to 41% slower on both runners, and left with its code.
     - J7 stays, for a name's or a string's run and a hex string's digits. On an AMD EPYC 9V74 it ran
       the runs of plain ASCII and the hex strings 1.3 to 1.45 times as fast.
     - J5's UTF-8 scan stays at 16 octets. At 64 it ran text of Cyrillic and CJK characters 37% slower,
@@ -1875,6 +1876,18 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
 
     What it costs: a second kernel per architecture for one function, assembly that no lint reads,
     and a build variant on x86-64 the lookup alone needs; the module's first inline assembly.
+
+    **The measurement, 2026-09-29.** The lookup against the compares alone, on the N2 (run
+    [36558384471](https://github.com/c4milo/stdx/actions/runs/36558384471), before the x86-64
+    kernel existed): the non-ASCII text decoded 1.333 times as fast and encoded 1.332, every other
+    row inside its spread, and the J5 loss on samba gone. The batch that carried it, against main
+    at 1247c3e (run [36568234592](https://github.com/c4milo/stdx/actions/runs/36568234592)): the
+    non-ASCII text decoded 1.668 times as fast on the N2 and 1.443 on an AMD EPYC 9V45, and
+    encoded 1.332 and 1.433; the text with its characters as `\u` escapes, which the module's own
+    UTF-8 writer in the same batch serves, decoded 1.228 and 1.218 times as fast; tokens, ASCII
+    text and hex strings stayed inside the noise on both. stdx decodes the non-ASCII text at 1.441
+    of simdjson's speed on the N2, from 0.864, and encodes it at 1.008, from 0.756; on the EPYC
+    9V45, at 0.744 from 0.516 and 0.929 from 0.648. Landed at c134f2c.
 
     **What was built, 2026-09-29.** `scan_utf8.zig` holds the check apart from `scan.zig`, in both
     forms, and takes the lookup where the target has one: every aarch64 target, and x86-64 with

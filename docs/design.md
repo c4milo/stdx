@@ -1816,6 +1816,21 @@ to 12 are reordered and nothing else changes.
   they replaced. A run of plain ASCII before the blocks is the candidate; it waits for a runner
   measurement of its own.
 
+  **The UTF-8 lookup's batch, 2026-09-29.** Main took it at c134f2c: the module's own UTF-8 writer
+  for `\u` escapes, and decision 37's table-lookup check on aarch64 and on x86-64 with AVX2, where
+  the loops' string functions compile into the AVX2 variant object whole and each loop calls its
+  kernel once a string, the choice made out of line. bench-json run
+  [36568234592](https://github.com/c4milo/stdx/actions/runs/36568234592) timed it against 1247c3e
+  on a Neoverse N2 and an AMD EPYC 9V45: the non-ASCII text decoded 1.668 and 1.443 times as fast
+  and encoded 1.332 and 1.433; its `\u`-escaped form decoded 1.228 and 1.218; the text files a
+  median of 1.058 and 1.005 decoding, 1.004 and 1.035 encoding; tokens and hex strings inside the
+  noise. The N2 listed no claim loss, from two, and 13 losses to the baselines, from 16; the EPYC
+  listed 13 claim losses of 5% to 15% from nine, each a claim off against on inside one job whose
+  spreads reached that size, and 11 losses to the baselines, from 13. Two x86-64 cuts came first
+  and taught the same lesson (decision 37): a kernel's call site inside the walk's block loop cost
+  ASCII text 25% to 45% on an EPYC 7763, and one inlined into the token loops cost hex strings
+  and tokens 5% to 10%, since x86-64 saves no vector register across a call.
+
   **Where token decoding stands, 2026-09-29.** bench-profile run
   [36522100520](https://github.com/c4milo/stdx/actions/runs/36522100520) at 1247c3e counted, per
   token on the N2: decoding CLDR's texts, stdx 33.5 cycles and 136.8 instructions against
@@ -1879,6 +1894,20 @@ to 12 are reordered and nothing else changes.
   index removes, the whitespace and the block scans of short strings, under 10% of a token. The
   x86-64 job did not build the prototype. The owner ruled the same day, with the floor in hand:
   build it anyway, and let the A/B decide.
+
+  **Built, measured and dropped, 2026-09-29.** `index.zig` classified a chunk of 64 octets into
+  masks of quotation marks, reverse solidi, whitespace, control characters and non-ASCII octets;
+  the loop skipped whitespace by a bit scan and copied whole a string whose closing quotation mark
+  the chunk held with none of the other three between. Every other token took its path. Its
+  lockstep tests passed with J6 on against off beside every other claim on and off, and five
+  mutations were CAUGHT. bench-json run
+  [36568641945](https://github.com/c4milo/stdx/actions/runs/36568641945), on the branch
+  `exp-json-index-j6` at 15e15d7: with J6 off, CLDR's texts decoded at 1.558 times the speed of
+  J6 on and qlog's records at 1.684 on the N2, and at 1.694 and 1.570 on an AMD EPYC 7763; the
+  strings and the hex strings stayed within the noise. J6 left with its code, as the check above
+  requires. The floor had said as much: the chunk's masks and scans cost more than the whitespace
+  and the short strings' block scans they replaced, and nothing else of a token's cost is theirs
+  to remove.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
