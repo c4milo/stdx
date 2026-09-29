@@ -2048,7 +2048,14 @@ to 12 are reordered and nothing else changes.
   files decode at 1.017 to 1.105, 15 of 17 past their spread in both runs, the non-ASCII text at
   1.050, bible.txt at 0.982 and the tokens within 3%; the encoder's rows and every N2 row are
   within noise, the hex strings' moves both ways among them. By decision 20's rule it stays. The
-  EPYC 9V74 and the Xeons were not drawn; their decoders lost with one loop too (above).
+  EPYC 9V74 and the Xeons were not drawn; their decoders lost with one loop too (above). The
+  landed commit, 342cb71, sits on f93c550, whose UTF-8 verdict the walk shares, so it ran paired
+  against f93c550 as well ([36621857814](https://github.com/c4milo/stdx/actions/runs/36621857814),
+  an EPYC 7763 and the N2): the text files decode at 0.992 to 1.178 on the EPYC, 13 of 17 past
+  their spread, qlog's records at 1.056 and CLDR's texts at 1.024; the `\u`-escaped non-ASCII text
+  decodes at 0.971, and read 0.985 and 0.980 in the runs above, so it drifts down without losing in
+  every job; the encoder's text rows run 0.990 to 1.140 with its code unchanged, and qlog's records
+  0.968; every N2 row is within 1%.
 
   **Where token decoding stands, 2026-09-29.** bench-profile run
   [36522100520](https://github.com/c4milo/stdx/actions/runs/36522100520) at 1247c3e counted, per
