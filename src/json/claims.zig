@@ -6,6 +6,8 @@
 //! (`constants.vectors`), and the other claims on every target; the tests, the fuzzer and the
 //! benchmark switch them.
 
+const std = @import("std");
+const builtin = @import("builtin");
 const constants = @import("constants.zig");
 
 pub const Claims = struct {
@@ -44,7 +46,33 @@ pub const Claims = struct {
     /// output slice (decision 33, encoder_loop.zig). Off, each takes the path one token a call
     /// takes.
     encoder_token_loop: bool = true,
+    /// Claim J11's loop keeps Zig's runtime safety checks, as the rest of a ReleaseSafe build does.
+    /// A caller may set it false in the claims it passes `Encoder.encode_batch_with`: that call
+    /// site then runs every function of encoder_loop.zig and encoder_loop_string.zig with the
+    /// checks off, which encoded CLDR's texts and qlog's records 5% to 9% faster on the N2 and the
+    /// EPYC 9V45 (decision 35). A test build and a Debug build keep the checks whatever it says.
+    /// The caller's choice, and not a claim: every A/B keeps it true.
+    encoder_token_loop_runtime_safety: bool = true,
 };
+
+/// Whether a build keeps runtime safety on whatever a caller chose: a test build, the fuzzer's
+/// included, and a Debug build do (decision 35). A function whose checks the caller may turn off
+/// starts with `@setRuntimeSafety(claims.encoder_token_loop_runtime_safety or
+/// runtime_safety_kept)`: a field and a constant, which cost the compiler no call at each of the
+/// loop's inlined functions.
+pub const runtime_safety_kept = runtime_safety_kept_in(builtin.is_test, builtin.mode);
+
+fn runtime_safety_kept_in(is_test: bool, mode: std.builtin.OptimizeMode) bool {
+    return is_test or mode == .Debug;
+}
+
+test "runtime safety stays on unless the caller turns it off, and in a test or a Debug build" {
+    try std.testing.expect((Claims{}).encoder_token_loop_runtime_safety);
+    try std.testing.expect(runtime_safety_kept);
+    try std.testing.expect(!runtime_safety_kept_in(false, .ReleaseSafe));
+    try std.testing.expect(runtime_safety_kept_in(true, .ReleaseSafe));
+    try std.testing.expect(runtime_safety_kept_in(false, .Debug));
+}
 
 /// Every claim off: the scalar and checked paths alone, the reference every vector path and each
 /// fast path must match.

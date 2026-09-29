@@ -37,6 +37,7 @@ pub const Item = text_reader.Item;
 
 test {
     _ = constants;
+    _ = claims;
     _ = @import("utf8.zig");
     _ = @import("scan.zig");
     _ = @import("wide.zig");

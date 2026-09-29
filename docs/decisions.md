@@ -784,6 +784,7 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
     | brotli code lengths, in the header | 12 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput against the loop off, two N2 jobs a side at 442ea0c against d478f94 (runs 36503381259 and 36503386029 against 36501231721 and 36501237307): the 1 KiB HTTP bodies +2.7 to +4.0%, json-16k +2%, xargs.1 +3 to +5%, no file behind by more than 1% in both; the x86-64 jobs drew different CPUs. The experiment the owner allowed on 2026-09-28; the owner approved the row on the N2 numbers the same day, and the x86-64 pair follows from the workflow's `base` input |
     | Every encoder's bit writer (E5) | 9, 13, 14 | none | 8 octets | Encode throughput against the checked writer |
     | JSON encoder token loop (J11) | 18 | none: an item's octets are its own slice, read inside it | none: it checks the room an item takes before it writes the item | Throughput of batches against every item through `Encoder.run`, over bench-json's workloads |
+    | JSON encoder token loop with runtime safety off, at the caller's choice (J11, decision 35) | 18 | as J11 | as J11 | Throughput with safety off over on in the loop's two files, run [36515654643](https://github.com/c4milo/stdx/actions/runs/36515654643): CLDR's texts 1.071 and qlog's records 1.053 on the N2, 1.057 and 1.089 on the EPYC 9V45 |
     | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time | 16 octets: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `Decoder.run`, over bench-json's workloads |
 
     The alternatives refused:
@@ -1688,9 +1689,11 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
     Kept as they were: assertions in production (decision 17), the RFCs as the only source
     (decision 9), and decision 16's margins.
 
-35. **Runtime safety off in the `json` encoder's token loop (claim J11).** **owner** Proposed on
-    2026-09-28, as decision 17's json measurement asks once construction has taken what it can
-    (design §8 step 18). It would be decision 16's first exception.
+35. **Runtime safety off in the `json` encoder's token loop (claim J11), at the caller's choice.**
+    Proposed on 2026-09-28, as decision 17's json measurement asks once construction has taken what
+    it can (design §8 step 18). Ruled by the owner the same day, who asked whether it could be the
+    caller's choice: a caller chooses it at compile time, and every check stays on unless it does.
+    It is decision 16's first exception.
 
     **The measurement.** One A/B of the four files of claims J10's and J11's token loops, with
     runtime safety on, at d2998c4, and off, at 43698a9, where every function of the four starts
@@ -1717,12 +1720,20 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
       floor. Its text files gain a median of 10% on the EPYC and nothing on the N2: escapes
       decoded on x86-64, which design §8 step 18 takes up by construction.
 
-    **The proposal.**
-    - Every function of `encoder_loop.zig` and `encoder_loop_string.zig` starts with
-      `@setRuntimeSafety(builtin.is_test or builtin.mode == .Debug)`. The checks are off in a
-      ReleaseSafe build and on in the tests, the fuzzer and a caller's Debug build.
+    **The ruling.**
+    - `Claims` gains `encoder_token_loop_runtime_safety`, true by default. A caller that sets it
+      false in the claims it passes `Encoder.encode_batch_with` runs the loop at that call site with
+      Zig's runtime safety checks off in every function of `encoder_loop.zig` and
+      `encoder_loop_string.zig`. `encode_batch` and every other call keep them.
+    - A test build, the fuzzer's included, and a Debug build keep the checks whatever the field
+      says. A test of `encoder_loop_test.zig` requires every `@setRuntimeSafety` of the two files to
+      take the field, and the decoder's loop and the string walk to hold none.
+    - bench-json times the encoder with the field false beside every claim on, and puts both beside
+      the baselines.
     - Decision 16 gains a row with these numbers.
     - The decoder's loop keeps every check.
+    - It amends decision 17's refusal of a switch that turns checks off for callers, for this loop
+      alone: the switch is a call site's, and stdx's assertions stay on.
 
     What stays checked in the encoder's loop: Zig turns safety off in the function that says so, and
     a function it calls, inline or not, keeps its own, so `scan.zig`, `wide.zig` and
@@ -1734,7 +1745,11 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
     reads the caller's items and not a peer's octets, and it checks the room an item takes before it
     writes the item (decision 16's J11 row).
 
-    The alternatives:
+    The alternatives refused:
+    - The checks off in every ReleaseSafe build, stdx's choice and not a caller's, as first
+      proposed.
+    - The caller's choice with the checks off by default.
+    - A switch at run time. It compiles the loop twice, and every binary carries both.
     - Both loops. The decoder's gain on the token workloads is under the floor, and the decoder
       reads a peer's octets, where a wrong margin reads or writes outside the buffers.
     - Neither. Every check stays, and the encoder gives up 5% to 9% on the token workloads.

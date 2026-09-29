@@ -28,11 +28,20 @@ const split_seeds = 3;
 /// Two claims that differ in J11 alone.
 const Pair = struct { looped: claims.Claims, checked: claims.Claims };
 
-/// The pairs compared: J11 on and off with every other claim on, then with every other claim off.
+/// The pairs compared: J11 on and off with every other claim on, then with every other claim off,
+/// and J11's loop as a caller that turns its runtime safety checks off compiles it, which a test
+/// build runs with the checks on (decision 35).
 const pairs = [_]Pair{
     .{ .looped = claims.vector, .checked = with_loop(claims.vector, false) },
     .{ .looped = with_loop(claims.scalar, true), .checked = claims.scalar },
+    .{ .looped = without_runtime_safety(claims.vector), .checked = with_loop(claims.vector, false) },
 };
+
+fn without_runtime_safety(base: claims.Claims) claims.Claims {
+    var changed = base;
+    changed.encoder_token_loop_runtime_safety = false;
+    return changed;
+}
 
 fn with_loop(base: claims.Claims, on: bool) claims.Claims {
     var changed = base;
@@ -183,6 +192,29 @@ test "the loop leaves to the checked path the characters that blocks of 16 cut a
         var written: usize = 0;
         try testing.expectEqual(0, token_loop.take(&encoder, claims.vector, &items, &output, &written));
         try testing.expectError(error.InvalidUtf8, encoder.encode_batch(&items, &output));
+    }
+}
+
+/// How a function starts where decision 35 lets a caller turn its runtime safety checks off: with
+/// the caller's field, which a test build and a Debug build override.
+const runtime_safety_call = "@setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);";
+const runtime_safety_start = "@setRuntimeSafety(";
+
+test "the loop turns its runtime safety checks off only where the caller chose it, and the decoder never" {
+    for ([_][]const u8{ @embedFile("encoder_loop.zig"), @embedFile("encoder_loop_string.zig") }) |source| {
+        var calls: usize = 0;
+        var rest = source;
+        for (0..source.len) |_| {
+            const at = std.mem.indexOf(u8, rest, runtime_safety_start) orelse break;
+            try testing.expect(std.mem.startsWith(u8, rest[at..], runtime_safety_call));
+            calls += 1;
+            rest = rest[at + runtime_safety_start.len ..];
+        }
+        try testing.expect(calls > 0);
+    }
+    // The decoder's loop keeps every check (decision 35).
+    for ([_][]const u8{ @embedFile("../decoder/decoder_loop.zig"), @embedFile("../decoder/decoder_loop_string.zig"), @embedFile("../string_walk.zig") }) |source| {
+        try testing.expect(std.mem.indexOf(u8, source, runtime_safety_start) == null);
     }
 }
 

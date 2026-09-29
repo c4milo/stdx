@@ -6,14 +6,17 @@
 //!
 //! Anything else leaves the string, whole, to the checked path, which names every refusal: a
 //! character UTF-8 rules out or that the string cuts, and a room too short for the string. It reads
-//! and writes the slices it is given, whose bounds Zig checks (ReleaseSafe).
+//! and writes the slices it is given, whose bounds Zig checks (ReleaseSafe) unless the caller turns
+//! the checks off at its call site (decision 35). The walk it takes keeps its checks.
 
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
 const wide = @import("../wide.zig");
-const Claims = @import("../claims.zig").Claims;
+const claims_file = @import("../claims.zig");
+const Claims = claims_file.Claims;
+const runtime_safety_kept = claims_file.runtime_safety_kept;
 const string_walk = @import("../string_walk.zig");
 const Walk = string_walk.Walk;
 const Stop = string_walk.Stop;
@@ -36,6 +39,7 @@ const escape_letters = table: {
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
 pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
     var walk: Walk = .{ .input = octets, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..octets.len + 1) |_| {
@@ -50,7 +54,7 @@ pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const 
         const octet = walk.input[0];
         // A character UTF-8 rules out or the string cuts, or an octet the room stopped.
         if (octet >= constants.non_ascii_min or scan.is_plain_ascii(octet)) return null;
-        walk.take(1, escape(octet, walk.output) orelse return null);
+        walk.take(1, escape(claims, octet, walk.output) orelse return null);
     }
     unreachable;
 }
@@ -58,7 +62,8 @@ pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const 
 /// Writes the escape of `octet`, a quotation mark, a reverse solidus or a control character (RFC
 /// 8259 §7), at the start of `room`: its two-character form where it has one, and else `\u00` and
 /// two lowercase digits. Returns its length, or null when `room` is too short for it.
-fn escape(octet: u8, room: []u8) ?usize {
+fn escape(comptime claims: Claims, octet: u8, room: []u8) ?usize {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
     assert(octet < constants.unescaped_min or octet == constants.quotation_mark or octet == constants.reverse_solidus);
     const letter = if (octet < constants.unescaped_min) escape_letters[octet] else octet;
     if (letter) |named| {
