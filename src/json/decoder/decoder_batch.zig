@@ -88,11 +88,12 @@ inline fn pass(
     reader: *codec.Reader,
     writer: *codec.Writer,
 ) Error!?Status {
-    if (claims.decoder_token_loop and decoder.stage == .tokens and decoder.open == .none) {
+    if (claims.decoder_token_loop and decoder.open == .none) {
         var cursor: token_loop.Cursor = .{ .consumed = reader.consumed(), .written = writer.position };
-        filled.* += token_loop.take(decoder, claims, input, output, &cursor, slots[filled.*..]);
+        filled.* += token_loop.take(decoder, claims, input, output, piece, &cursor, slots[filled.*..]);
         reader.position = cursor.consumed;
         writer.position = cursor.written;
+        if (decoder.stage == .done) return .done;
         if (filled.* == slots.len) return .needs_slots;
     }
     const start = writer.position;

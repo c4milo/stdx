@@ -50,6 +50,11 @@ const texts = [_][]const u8{
     "[\"caf\xc3\xa9\",\"tab\\t\",\"\\u00e9\\uD834\\uDD1E\",\"a long string that runs past two blocks of sixteen octets\",0,00,1.,-,tru,nul]",
     "[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]",
     " 42 ",
+    // A byte order mark, which the checked path refuses, as a text's start and after a record
+    // separator; two record separators; and whitespace before a sequence's next text.
+    "\xef\xbb\xbf[1]",
+    "\x1e\xef\xbb\xbf[1]\n",
+    "\x1e\x1e[true] \n\x1e",
     // Strings past the 64 octets a block at a time, one ending near the input's end.
     "[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]",
 };
@@ -119,18 +124,46 @@ test "the loop takes each token of the texts as the checked path does, whole and
     for (texts, 0..) |text, index| try check(text, index);
 }
 
-test "the loop takes every token after a text's first, with 16 octets after its last string" {
-    var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
-    var output: [output_len_max]u8 = undefined;
-    var slots: [slots_max]Slot = undefined;
-    // 21 tokens, the first `{`, which the text's start leaves to the checked path.
-    const text = texts[0];
-    const first = try decoder.decode(text, &output, .last);
-    var cursor: token_loop.Cursor = .{ .consumed = first.consumed, .written = 0 };
-    try testing.expectEqual(20, token_loop.take(&decoder, claims.vector, text, &output, &cursor, &slots));
-    try testing.expectEqualStrings("a", output[slots[0].start..][0..slots[0].len]);
-    try testing.expectEqual(decoder_file.Expect.end_of_text, decoder.expect);
+test "the loop takes a text whole, from its record separator to its end, with none of its tokens left" {
+    for ([_]Framing{ .text, .sequence }) |framing| {
+        var decoder: Decoder = undefined;
+        decoder.init(framing, codec.Features.detect());
+        var output: [output_len_max]u8 = undefined;
+        var slots: [slots_max]Slot = undefined;
+        // 21 tokens, with 16 octets after the last string, and whitespace after the text.
+        const text = if (framing == .text) texts[0] else "\x1e" ++ texts[0];
+        var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
+        try testing.expectEqual(21, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
+        try testing.expectEqualStrings("a", output[slots[1].start..][0..slots[1].len]);
+        try testing.expectEqual(text.len, cursor.consumed);
+        try testing.expect(decoder.is_done());
+    }
+}
+
+/// Short texts whose value whitespace follows, of every kind the text's end treats apart.
+const ended_texts = [_][]const u8{ "\x1e42 \n", "\x1etrue\t\n", " 42 ", "[1] \n", "\x1e\x1e{} \x1e", "\x1e\"a\"\r\n\x1e" };
+
+test "short texts cut in two at every octet decode alike with the loop on and off" {
+    for (ended_texts) |text| {
+        for (0..text.len + 1) |split| try check_split(text, split);
+    }
+}
+
+/// Requires the lockstep property of `input` in both framings, its first piece ending at `split`
+/// and the rest following in calls of all the input left.
+fn check_split(input: []const u8, split: usize) !void {
+    inline for (pairs) |pair| {
+        for ([_]Framing{ .text, .sequence }) |framing| {
+            var lockstep: Lockstep = .{ .looped = undefined, .checked = undefined };
+            lockstep.looped.init(framing, codec.Features.detect());
+            lockstep.checked.init(framing, codec.Features.detect());
+            var ended = try lockstep.call(pair, input, split, output_len_max, slots_max);
+            for (0..input.len + 1) |_| {
+                if (ended) break;
+                ended = try lockstep.call(pair, input, input.len - lockstep.consumed, output_len_max, slots_max);
+            } else return error.TestNoProgress;
+        }
+    }
 }
 
 test "a long string that fills the output exactly is taken, and one octet more is not" {
@@ -144,7 +177,7 @@ test "a long string that fills the output exactly is taken, and one octet more i
         var slots: [slots_max]Slot = undefined;
         const first = try decoder.decode(text, &output, .last);
         var cursor: token_loop.Cursor = .{ .consumed = first.consumed, .written = 0 };
-        try testing.expectEqual(case.taken, token_loop.take(&decoder, claims.vector, text, output[0..case.room], &cursor, &slots));
+        try testing.expectEqual(case.taken, token_loop.take(&decoder, claims.vector, text, output[0..case.room], .last, &cursor, &slots));
         if (case.taken == 1) try testing.expectEqualStrings(content, output[0..cursor.written]);
     }
 }
