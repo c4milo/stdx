@@ -853,8 +853,9 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
     [36511603467](https://github.com/c4milo/stdx/actions/runs/36511603467)). The json fast paths
     take the route the owner ruled for brotli's. Construction took the decoder loop's share first:
     it reads and writes slices whose lengths the compiler knows, where indices into the whole input
-    and output cost each access a check (design §8 step 18). An exception under decision 16 waits
-    on the owner (design §10).
+    and output cost each access a check (design §8 step 18). The owner ruled on 2026-09-28: once
+    construction has taken what it can, propose an exception under decision 16 for the token loops
+    of claims J10 and J11, with the A/B that entry asks for.
 
     The alternatives refused:
     - Safety off in the hot functions only, with `@setRuntimeSafety(false)`. It turns every

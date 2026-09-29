@@ -1659,8 +1659,7 @@ and one that does not beat the noise is removed.
 
 ## 10. Open questions for the owner
 
-Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the owner, and
-decision 17's measurement of the `json` fast paths a third:
+Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the owner:
 
 - A dependency for the `json` module's checks: a conformance corpus such as JSONTestSuite, or an
   oracle. Until one is ruled in, an independent parser in the tests is the decoder's judge. The
@@ -1668,10 +1667,6 @@ decision 17's measurement of the `json` fast paths a third:
 - A proof in Lean that the vector UTF-8 check of claim J5 agrees with the scalar one on every
   window of four octets. Decision 28 proves the scalar machines against their RFCs, and leaves
   this one.
-- Decision 17's measurement of the `json` fast paths: the compiler's checks cost the decoder's
-  token loop about 15% of its cycles on the N2, and the encoder's about 27%, past 5% (design §8
-  step 18). Whether to propose an exception under decision 16 for the loops of claims J10 and J11,
-  with the A/B that entry asks for, once construction has removed what it can.
 
 ## 11. Risks
 
