@@ -206,24 +206,8 @@ const Loop = struct {
         self.written += 1;
     }
 
-    /// Copies `octets` in moves of 8 or 4 that overlap, reading nothing past their end, or with
-    /// `@memcpy` past 16 of them.
     inline fn copy(self: *Loop, octets: []const u8) void {
-        const len = octets.len;
-        const destination = self.output[self.written..][0..len];
-        self.written += len;
-        if (len > constants.vector_len) return @memcpy(destination, octets);
-        inline for (.{ constants.word_len, @sizeOf(u32) }) |move_len| {
-            if (len >= move_len) {
-                destination[0..move_len].* = octets[0..move_len].*;
-                destination[len - move_len ..][0..move_len].* = octets[len - move_len ..][0..move_len].*;
-                return;
-            }
-        }
-        // One to three octets: the first, the last and the middle one cover them all.
-        if (len == 0) return;
-        destination[0] = octets[0];
-        destination[len - 1] = octets[len - 1];
-        destination[len >> 1] = octets[len >> 1];
+        scan.copy(self.output[self.written..][0..octets.len], octets);
+        self.written += octets.len;
     }
 };
