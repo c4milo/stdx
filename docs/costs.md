@@ -79,3 +79,39 @@ The library is never built this way (decision 17); this program is a measuring d
 - **A 32-octet vector compare.** Two `@Vector(32, u8)` loads from L1-resident buffers, a compare,
   and the count of trailing equal octets from the compare's bit mask: the inner step of claim E1.
   The time per compare.
+
+## The package cache
+
+The workflows keep `zig-pkg`, the directory where Zig 0.16 keeps this project's packages, as an
+entry in GitHub's cache, and each job restores the entry before it builds: three jobs a push to
+main, two a benchmark, and three a fuzzed module each night. A job pays for the entry's size in
+that restore, and in the save when it keeps a new entry. Each time below is one restore or one save
+in one job, from the runs named, so the times set orders of magnitude and are not medians.
+
+| Entry | Octets | Restore, a job | Save, a job that keeps one | Runs |
+|---|---|---|---|---|
+| The packages, an archive of each and Zig's compiled outputs, kept until 9534130 | 204,815,274 | 2.0 to 5.1 s on Linux, 5.0 to 8.0 s on macOS | 6.2 s | [36565276760](https://github.com/c4milo/stdx/actions/runs/36565276760), [36565282366](https://github.com/c4milo/stdx/actions/runs/36565282366), [36567702696](https://github.com/c4milo/stdx/actions/runs/36567702696), [36571176757](https://github.com/c4milo/stdx/actions/runs/36571176757), [36577140779](https://github.com/c4milo/stdx/actions/runs/36577140779), [36584556859](https://github.com/c4milo/stdx/actions/runs/36584556859) |
+| The packages alone, kept from 9534130 on | 88,753,417 | 1.1 to 3.1 s on Linux, 1.8 s on macOS | 2.9 s | [36584556859](https://github.com/c4milo/stdx/actions/runs/36584556859), [36584933603](https://github.com/c4milo/stdx/actions/runs/36584933603) |
+
+What the table says:
+
+- Run [36584556859](https://github.com/c4milo/stdx/actions/runs/36584556859) cut the old entry
+  down to the packages alone, so the other 116,061,857 octets were archives and compiled outputs.
+  Zig keeps a compressed archive of each package it downloads, which the entry's own compression
+  cannot shrink, so the archives took about as many octets as the packages: 94,227,690, in the
+  entry that run [36577144676](https://github.com/c4milo/stdx/actions/runs/36577144676) kept
+  without them. The compiled outputs took 21,017,868, in the entry that run
+  [36580899149](https://github.com/c4milo/stdx/actions/runs/36580899149) kept without either.
+- Zig's compiled outputs saved no time the runs show. The old entry held those of the macOS job of
+  run [36542471492](https://github.com/c4milo/stdx/actions/runs/36542471492), which no Linux job
+  can use. On macOS, `tools/ci.sh` took 882 to 1,351 s in the seven runs that restored them
+  (36548236900, 36555993436, 36561133973, 36565285273, 36567702696, 36571176757 and 36572588991),
+  and 900 to 1,234 s in the five that did not (36524746680, 36542471492, 36580895157, 36584556859
+  and 36584933603).
+- When the entry holds every package, the fetch step, `tools/ci.sh`'s fetch check and its package
+  prune check each take a second or less.
+
+The sizes are the cache service's, from the `Cache Size` line of a restore. A restore's time runs
+from the start of its step to the log line that reports the restore, and covers the download and
+the unpacking; a save's time covers the packing and the upload the same way. The times of
+`tools/ci.sh` are its step's start and end, from GitHub's jobs API.
