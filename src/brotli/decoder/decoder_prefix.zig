@@ -232,8 +232,9 @@ pub fn repeat_extra_bits(symbol: u8) u7 {
     };
 }
 
-/// A code length of 0 to 15 for the next symbol.
-pub fn set_length(state: *State, len: u8) void {
+/// A code length of 0 to 15 for the next symbol. Inline, with `apply_repeat`, so that the loop of
+/// decoder_fast_lengths.zig keeps the reading's fields in registers between symbols.
+pub inline fn set_length(state: *State, len: u8) void {
     const reading = &state.reading;
     assert(reading.index < reading.alphabet_len);
     const symbol = reading.index;
@@ -261,7 +262,7 @@ pub fn repeat_of(reading: *const state_module.Reading, symbol: u8, extra: u32) R
 }
 
 /// Writes a repeat's lengths, which the caller has checked fit the alphabet.
-pub fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
+pub inline fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
     const reading = &state.reading;
     assert(reading.index + repeat.added <= reading.alphabet_len);
     const first = reading.index;

@@ -67,7 +67,8 @@ pub const Ranges = struct {
     }
 
     /// Appends `count` symbols from `first`, each with a code of `len` bits, after the length's runs.
-    pub fn append(self: *Ranges, len: u8, first: u16, count: u16) void {
+    /// Inline, so that the reading loop keeps its own fields in registers across the append.
+    pub inline fn append(self: *Ranges, len: u8, first: u16, count: u16) void {
         assert(len >= 1 and len <= constants.code_len_max and count >= 1);
         if (self.heads[len] != constants.range_none) {
             const tail = &self.ranges[self.tails[len]];
@@ -341,7 +342,7 @@ fn fill_end(comptime root_bits: u5, entries: []Entry, fill: *const Fill) usize {
 /// as many as its longest code takes past the root. The codes still to come fill the root entry's
 /// values in order, each value at one length becoming two at the next, so its longest code is at
 /// the length where they run out.
-fn second_level_bits(comptime root_bits: u5, len: u8, len_max: u8, remaining: *const Counts) u8 {
+inline fn second_level_bits(comptime root_bits: u5, len: u8, len_max: u8, remaining: *const Counts) u8 {
     var bits = len - root_bits;
     var left: i32 = @as(i32, 1) << @intCast(bits);
     for (len..len_max) |longer| {
@@ -356,8 +357,9 @@ fn second_level_bits(comptime root_bits: u5, len: u8, len_max: u8, remaining: *c
 
 /// Copies the `filled` first entries of the root after themselves until they are 1 << `len`, and
 /// returns how many there are: the codes among them, each shorter than `len` bits, then name every
-/// entry their bits name.
-fn double_root(comptime root_bits: u5, entries: []Entry, filled: usize, len: u8) usize {
+/// entry their bits name. Inline, with `second_level_bits`, so that a fill's fields stay in
+/// registers: a call that takes the fill's address puts them on the stack for every symbol.
+inline fn double_root(comptime root_bits: u5, entries: []Entry, filled: usize, len: u8) usize {
     assert(len <= root_bits and std.math.isPowerOfTwo(filled));
     var width = filled;
     for (0..root_bits) |_| {
