@@ -1920,6 +1920,45 @@ to 12 are reordered and nothing else changes.
     M-series host, and the cut walk's block loop, two blocks a transfer, gained nothing there, so
     neither reached a runner.
 
+  Main took both at 501bab2. bench-json run
+  [36584685069](https://github.com/c4milo/stdx/actions/runs/36584685069) timed the batch against
+  main at 9534130 on the N2: the non-ASCII text decoded 1.149 times as fast and encoded 1.146; the
+  text files a median of 1.058 decoding and 1.085 encoding, alice29.txt 1.210 encoding; samba
+  1.085 and 1.100, css-1m 1.095 and 1.085, json-1m 1.022 and 1.010; tokens and hex strings inside
+  the noise; no claim loss, from one, and 10 losses to the baselines, from 13. stdx encodes the
+  non-ASCII text at 1.153 of simdjson's speed on the N2, from 1.009, and decodes it at 1.659, from
+  1.443; it encodes samba at 1.035 of yyjson's, from 0.937. The x86-64 job, an AMD EPYC 9V74,
+  had bible.txt encoding at 0.705 of main's speed and decoding at 0.916, and json-1m at 0.934 and
+  0.965, with spreads under 1%, while dickens gained 5%. A second paired run of the same commits
+  ([36589614464](https://github.com/c4milo/stdx/actions/runs/36589614464)) drew an EPYC 7763:
+  there bible.txt encoded at 1.078 and decoded at 1.221, the text files a median of 1.101
+  decoding, and json-1m encoded at 0.934 again. The kernels' disassembly named a cause:
+  with the ASCII loop, the UTF-8 loop and the run inlined into a string function, x86-64's 16
+  registers of each kind spilled the state to the stack, and the AVX2 object's `copy_escaped`
+  grew from 560 instructions with 40 stack references to 948 with 113, `copy_rest` from 853 with
+  53 to 1151 with 90. Calling the three out of line on x86-64, once a run, left the loops with no
+  stack reference and `copy_escaped` at 158 instructions, and lost: on the EPYC 9V74, run
+  [36590813959](https://github.com/c4milo/stdx/actions/runs/36590813959) against 501bab2 had the
+  text files at a median of 0.740 decoding and 0.752 encoding, dickens at 0.701 and 0.724 and the
+  non-ASCII text at 0.839 and 0.835, the N2 unchanged: a call a run, with the walk's state read and
+  written through memory around it, cost more than the spills. The shape that holds on x86-64 is
+  one inlined block loop, as before this batch, with the one-transfer word asked inside it; that
+  gives the kernel back its 560 instructions, 39 vector instructions and 31 stack references. On
+  aarch64 the one loop gave back most of the two loops' gain on the M-series host, so each
+  architecture keeps its shape at compile time. Main took it at aa0e066 on its CI. Its two paired
+  runs against 7081f08, read after: on the N2 every row is within 1.5% in both (runs
+  [36596885835](https://github.com/c4milo/stdx/actions/runs/36596885835) and
+  [36601684494](https://github.com/c4milo/stdx/actions/runs/36601684494)). On x86-64 the decoder
+  lost in both. On an AMD EPYC 7763, 14 of the 17 text files decoded at 0.89 to 0.95 of 7081f08's
+  speed, the tokens within 2%, and the encoder gained on nci (1.122), json-1m (1.115) and bible.txt
+  (1.085). On an AMD EPYC 9V74, the text files decoded at a median of 0.970 (0.879 to 1.030), 12 of
+  them past their spread and 1%, qlog's records at 0.954 and the non-ASCII text at 0.953; the
+  encoder ran bible.txt at 1.560 and json-1m at 1.053, and lost js-1m at 0.915 and the non-ASCII
+  text at 0.956. By decision 20's rule the x86-64 shape does not stay as it is: the decoder's block
+  loop wants the two loops it had at 7081f08, and the encoder the one it has now. Whether the two
+  loops take the shape apart, `two_loops` a parameter of the walk per caller, is open for the
+  owner; the change is measured, not built.
+
   **Where token decoding stands, 2026-09-29.** bench-profile run
   [36522100520](https://github.com/c4milo/stdx/actions/runs/36522100520) at 1247c3e counted, per
   token on the N2: decoding CLDR's texts, stdx 33.5 cycles and 136.8 instructions against
@@ -1945,6 +1984,27 @@ to 12 are reordered and nothing else changes.
   qlog's records at 0.831 and 0.771 of simdjson's speed, between the N2's 0.929 and 0.826 and the
   Xeon 8573C's 0.689 and 0.642: the gap is the CPU's as much as stdx's. The owner ruled the same
   day: build decision 30's structural index as an experiment, step 19.
+
+  **The check alone, against simdutf, 2026-09-29 (decision 38).** The owner asked how the UTF-8
+  check compares with simdutf, so the module exports it as `is_utf8(octets, features)` and
+  bench-json times it beside simdutf 9.2.1's `validate_utf8` over each string workload's octets. At
+  0551a38, the check as the walk ran it, a block of 16 and a transfer of its verdict at a time, ran
+  the ASCII text files at 0.075 to 0.099 of simdutf's speed on the N2 and the non-ASCII text at
+  0.543; on an AMD EPYC 9V74, where the module's own x86-64 target has no lookup, at 0.024 to
+  0.033 and 0.150 (run [36600737045](https://github.com/c4milo/stdx/actions/runs/36600737045)).
+  Decision 38 records what was built on that: groups of four blocks with one test for a group of
+  ASCII, verdicts ORed as octets and read once, a register barrier on each block's load, and the
+  AVX2 object's copy on x86-64. The paired run
+  [36603861241](https://github.com/c4milo/stdx/actions/runs/36603861241), 46403cf (5369a3c after
+  its rebase) against 0551a38: on the N2 the check runs the ASCII text files at 1.005 to 1.083 of
+  simdutf's speed and the non-ASCII text at 1.039, from 0.075 to 0.100 and 0.542; on an Intel Xeon
+  Platinum 8370C at 0.340 to 0.460 and 0.407, from 0.019 to 0.038 and 0.116, simdutf's AVX-512
+  kernel ahead of the AVX2 object's 16 lanes. The loops share the lookup's shorter verdict: the
+  non-ASCII text decodes at 1.098 and encodes at 1.101 on the N2, 1.056 and 1.045 on the Xeon.
+  The second paired run, [36605683401](https://github.com/c4milo/stdx/actions/runs/36605683401),
+  on the N2 and an AMD EPYC 7763: the N2 as before, the EPYC 7763 at 0.575 to 0.844 and 0.520,
+  simdutf's 32-lane AVX2 kernel ahead of the object's 16. Decision 38 holds the numbers per file
+  and the rule's verdict: the change stays.
 
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token

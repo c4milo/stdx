@@ -77,6 +77,8 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | a mutation not caught | its effect masked by the reference's tail or a later step | a test that observes the effect where it lives |
 | two x86-64 runs disagree | different CPUs | pair inside one job with `base` |
 | a dispatch ran on the old tip | a `;` or a heredoc broke the `&&` chain before the push | write the file first; join every step with `&&` |
+| a 16-octet block loop at 0.1 of a baseline with the same operation count | LLVM split each block's load into a load of 13 lanes and three of one lane, for the shuffles that read a block's low lanes | grep the loop's disassembly for lane loads; pass the loaded register through an empty `asm` before the shuffles (`scan_utf8.loaded`) |
+| two x86-64 draws agree against the M-series host on a loop's shape | the encoder's and the decoder's loops want different shapes, and one setting served both | measure each loop's shape apart; a shape is per caller, not per architecture (design §8 step 18) |
 | level 6 encoding 20% slower with the same state | the encoder's state at a comptime-known address, and a harness that lied until it allocated once and passed a pointer | hold a state behind a pointer, in the harness too |
 | a chain walk 1.4 to 1.6 times slower than its inline form | the walk kept in a struct whose step was a call | the step inline |
 

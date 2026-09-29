@@ -1953,6 +1953,57 @@ left, how fast the check runs alone.
     What it costs: a third C++ baseline in `bench/`, about 4 MB of source the first `-Doracles`
     build fetches, and one public function the module must keep.
 
+    **What was built, 2026-09-29.** `is_utf8(octets, features)` is `scan_utf8.valid` at the level
+    the caller's features pick. `valid` takes the buffer a group of `utf8_group_blocks` blocks at a
+    time, four blocks and 64 octets: a group with no octet from 0x80 up costs its four loads, three
+    ORs and one test, and its one possible fault, a character the block before it cut, is found on
+    that block's last three lanes (`incomplete_octets`, `cut_character_len` as lanes); any other
+    group runs the lookup a block at a time and ORs the verdicts as octets, which are read once,
+    after the last group. The blocks after the last group run one at a time, and the last octets
+    through utf8.zig's machine. Two costs were found on the way. LLVM split each block's load into
+    a load of 13 lanes and three loads of one lane, with a copy between them, for the shuffles that
+    read a block's low lanes: 24 loads and 12 copies a group in place of 4 loads. An empty assembly
+    statement that takes the block in a vector register and gives it back (`loaded`) stops it. And
+    the lookup's verdict took five vector instructions to become bools; XORing the lanes asked into
+    the bit that marks a continuation octet after one leaves a nonzero octet on exactly the lanes
+    that break a rule, in two (`error_octets_lookup`), and `error_lanes` now reads it with one
+    compare, so the loops' block walk shares the saving. On x86-64 the check runs in the AVX2
+    variant object when the caller's features name the level (`variants/scan_utf8.zig`,
+    `wide.is_utf8`), where it takes the lookup; the module's own x86-64 target keeps the compares.
+    Tests: `valid` against utf8.zig's machine with a sequence of edge octets at every offset of a
+    buffer of two groups and a block, the ASCII group's cases by hand, and one verdict at the
+    target's level and the features' (`wide.zig`), and the fuzzer draws buffers of up to four
+    groups against the machine. Six mutations of `valid`: the cut before an ASCII group ignored,
+    the asked lanes ORed, 0x80 let through, the last group's verdict alone kept and the thresholds
+    one too high were CAUGHT; `previous` left behind an ASCII group was NOT CAUGHT and is
+    equivalent, since a block that ends between characters asks nothing of the next, and a group
+    of ASCII after one that ends inside a character is refused for the cut (commit 5369a3c).
+
+    **Measured, 2026-09-29.** Paired against 0551a38, the check as the walk ran it, in run
+    [36603861241](https://github.com/c4milo/stdx/actions/runs/36603861241). On the N2, `is_utf8`
+    runs the ASCII text files at 1.005 to 1.083 of simdutf's speed (median 1.037; 30.0 to 43.6
+    GB/s against simdutf's 34.0) and the non-ASCII text at 1.039 (5.77 GB/s against 5.56), from
+    0.075 to 0.100 and 0.542 before: 10 to 14 times its old speed on ASCII and 1.9 on the
+    non-ASCII text. On an Intel Xeon Platinum 8370C, the AVX2 object's copy runs the ASCII files
+    at 0.340 to 0.460 of simdutf (36.2 to 47.4 GB/s against 106.2) and the non-ASCII text at 0.407
+    (7.24 GB/s against 17.8), from 0.019 to 0.038 and 0.116: 17 to 23 times its old speed, and
+    simdutf's AVX-512 kernel, 64 lanes to the object's 16, holds the rest. The loops share the
+    lookup's shorter verdict: the non-ASCII text decodes at 1.098 and encodes at 1.101 of 0551a38
+    on the N2, 1.056 and 1.045 on the Xeon; the ASCII files move within their noise, the hex
+    strings among them, whose path the change does not touch. The second paired run,
+    [36605683401](https://github.com/c4milo/stdx/actions/runs/36605683401), drew the N2 again and
+    an AMD EPYC 7763: on the N2 the ASCII files at 1.012 to 1.083 (median 1.047) and the non-ASCII
+    text at 1.039; on the EPYC 7763, where simdutf runs its AVX2 kernel of 32 lanes against the
+    object's 16, at 0.575 to 0.844 (median 0.824; 43.2 to 50.4 GB/s against 59.4) and 0.520 (7.99
+    GB/s against 15.4), from 0.027 to 0.034 and 0.151. In the loops there, the non-ASCII text
+    decoded at 1.026 and encoded at 0.988; on the N2 at 1.100 and 1.101. bible.txt and html-1m
+    decoded at 0.951 to 0.957 and 0.948 to 0.951 on the N2 in both runs, past their spread, and
+    within 1.5% on both x86-64 CPUs, while the hex strings, whose path the change does not touch,
+    moved 2 to 5% up on the N2 in both runs: the binary's layout moved with the change, not the
+    loops' work. By decision 20's rule no file loses in every job, and the change stays. What the
+    x86-64 gap wants, a copy of the check at 32 lanes for AVX2 and 64 for AVX-512, is a width the
+    json module's variant object does not build (wide.zig), and is left to the owner.
+
     The alternatives:
     - No measurement of the check alone: entry 37's rows against simdjson and yyjson stand for it.
       Refused because they mix the check with the rest of the loop, and a check slower than the
