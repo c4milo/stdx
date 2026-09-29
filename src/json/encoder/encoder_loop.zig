@@ -117,6 +117,17 @@ const Loop = struct {
         return true;
     }
 
+    /// `open`, and then the item's own `len` octets as one slice, which the loop moves past: taken
+    /// once, it is checked once, and the stores into it at fixed offsets need no check of their own.
+    /// Stored an octet at a time into the output, each reloaded the output's length, which the loop
+    /// keeps in memory, for a check of its own.
+    inline fn open_body(self: *Loop, frame: Frame, len: usize) ?[]u8 {
+        if (!self.open(frame, len)) return null;
+        const body = self.output[self.written..][0..len];
+        self.written += len;
+        return body;
+    }
+
     /// The octets around an item of `kind` at the loop's position. Only a value can start a text
     /// or end one at depth 0, and only at the text's start; a name follows a value separator after
     /// a member, and any other value after an element.
@@ -174,11 +185,11 @@ const Loop = struct {
         if (run_len != octets.len) return false;
         const closing_len = @as(usize, 1) + @intFromBool(kind == .name);
         const frame = self.frame_of(kind);
-        if (!self.open(frame, 1 + octets.len + closing_len)) return false;
-        self.put(constants.quotation_mark);
-        self.copy(octets);
-        self.put(constants.quotation_mark);
-        if (kind == .name) self.put(constants.name_separator);
+        const body = self.open_body(frame, 1 + octets.len + closing_len) orelse return false;
+        body[0] = constants.quotation_mark;
+        scan.copy(body[1..][0..octets.len], octets);
+        const closing = if (kind == .name) [_]u8{ constants.quotation_mark, constants.name_separator } else [_]u8{constants.quotation_mark};
+        body[body.len - closing.len ..][0..closing.len].* = closing;
         self.close(kind, frame.ends_text);
         return true;
     }
@@ -187,13 +198,12 @@ const Loop = struct {
         if (piece == .more) return false;
         const digits_len = constants.hex_digits_per_octet * octets.len;
         const frame = self.frame_of(.hex);
-        if (!self.open(frame, 1 + digits_len + 1)) return false;
-        self.put(constants.quotation_mark);
-        const room = self.output[self.written..][0..digits_len];
-        const taken = if (claims.hex_vectors) wide.hex_len(self.encoder.level.with(claims), octets, room) else scan.hex_len_scalar(octets, room);
+        const body = self.open_body(frame, 1 + digits_len + 1) orelse return false;
+        body[0] = constants.quotation_mark;
+        const digits = body[1..][0..digits_len];
+        const taken = if (claims.hex_vectors) wide.hex_len(self.encoder.level.with(claims), octets, digits) else scan.hex_len_scalar(octets, digits);
         assert(taken == octets.len);
-        self.written += digits_len;
-        self.put(constants.quotation_mark);
+        body[body.len - 1] = constants.quotation_mark;
         self.close(.hex, frame.ends_text);
         return true;
     }
