@@ -353,14 +353,16 @@ inline fn fill_symbol(comptime root_bits: u5, comptime value_of: fn (u16) u16, e
             fill.linked_root = root;
         }
         fill_second(root_bits, entries, value, fill.code, len);
+        // Only `second_level_bits` reads the codes still to come, and only past the root.
+        fill.remaining[len] -= 1;
     }
-    fill.remaining[len] -= 1;
     fill.code += 1;
 }
 
 /// Ends a fill: the root copied to its full width, and the code's completeness and the table's
 /// budget asserted. Returns the entries the table takes.
 fn fill_end(comptime root_bits: u5, entries: []Entry, fill: *const Fill) usize {
+    assert(std.math.isPowerOfTwo(fill.filled));
     _ = double_root(root_bits, entries, fill.filled, root_bits);
     // The reader checked the sums of RFC 7932 §3.5: the codes take every value.
     assert(fill.code == @as(u32, 1) << @intCast(fill.code_len));
@@ -391,14 +393,29 @@ inline fn second_level_bits(comptime root_bits: u5, len: u8, len_max: u8, remain
 /// entry their bits name. Inline, with `second_level_bits`, so that a fill's fields stay in
 /// registers: a call that takes the fill's address puts them on the stack for every symbol.
 inline fn double_root(comptime root_bits: u5, entries: []Entry, filled: usize, len: u8) usize {
-    assert(len <= root_bits and std.math.isPowerOfTwo(filled));
+    assert(len <= root_bits);
     var width = filled;
     for (0..root_bits) |_| {
         if (width >= @as(usize, 1) << @intCast(len)) break;
-        @memcpy(entries[width..][0..width], entries[0..width]);
+        copy_root(entries, width);
         width <<= 1;
     }
     return width;
+}
+
+/// The widths a doubling copies with fixed loads and stores: 1 to `root_copy_inline_max` entries.
+const root_copy_inline_shifts = std.math.log2_int(usize, constants.root_copy_inline_max) + 1;
+
+/// Copies the `width` first entries of the root after themselves: with loads and stores of a fixed
+/// width up to `root_copy_inline_max` entries, and through memcpy past it.
+inline fn copy_root(entries: []Entry, width: usize) void {
+    assert(std.math.isPowerOfTwo(width));
+    if (width > constants.root_copy_inline_max) return @memcpy(entries[width..][0..width], entries[0..width]);
+    inline for (0..root_copy_inline_shifts) |shift| {
+        const fixed = @as(usize, 1) << shift;
+        if (width == fixed) return @memcpy(entries[fixed..][0..fixed], entries[0..fixed]);
+    }
+    unreachable;
 }
 
 /// A longer code fills every entry of its root entry's second level whose low bits are the bits it
