@@ -145,45 +145,51 @@ pub inline fn plain_stop(block: Block(constants.vector_len)) ?usize {
     return if (any(constants.vector_len, stops)) first_lane(constants.vector_len, stops) else null;
 }
 
-/// `plain_len_scalar`, `width` octets at a time (claims J1 and J3).
+/// `plain_len_scalar`, `width` octets at a time (claims J1 and J3). A run the whole blocks do not
+/// end ends in the last `width` octets, a block that overlaps the one before it: that one holds no
+/// stop, so the block's first is the run's. A run shorter than a block takes `plain_len_short`.
 pub fn plain_len_vector(comptime width: usize, octets: []const u8) usize {
+    if (octets.len < width) return plain_len_short(width, octets);
     var index: usize = 0;
     for (0..octets.len / width) |_| {
         const stops = plain_stops(width, load(width, octets[index..]));
         if (any(width, stops)) return index + first_lane(width, stops);
         index += width;
     }
-    return index + plain_len_words(octets[index..]);
+    if (index == octets.len) return index;
+    const last = octets.len - width;
+    const stops = plain_stops(width, load(width, octets[last..]));
+    return if (any(width, stops)) last + first_lane(width, stops) else octets.len;
 }
 
-/// `plain_len_scalar` over the tail a vector does not fill: 8 octets at a time in a 64-bit word,
-/// then the last few one at a time.
-fn plain_len_words(octets: []const u8) usize {
-    var index: usize = 0;
-    for (0..octets.len / constants.word_len) |_| {
-        // Least significant octet first, so the first stop is the lowest bit that holds.
-        const word = std.mem.readInt(u64, octets[index..][0..constants.word_len], .little);
-        const stops = plain_stops_word(word);
-        if (stops != 0) return index + @ctz(stops) / @bitSizeOf(u8);
-        index += constants.word_len;
-    }
-    return index + plain_len_scalar(octets[index..]);
+/// `plain_len_vector` for a run shorter than a block. From 4 octets on, one 16-octet block holds
+/// its first and its last `half` octets, where `half` is 8 for 8 to 15 octets and else 4, and
+/// plain octets after them; the two halves overlap and cover the run, so the block's first stop
+/// is the run's. Below 4 octets, an octet at a time.
+inline fn plain_len_short(comptime width: usize, octets: []const u8) usize {
+    if (width > constants.vector_len and octets.len >= constants.vector_len) return plain_len_vector(constants.vector_len, octets);
+    if (octets.len >= constants.word_len) return halves_stop(constants.word_len, octets);
+    if (octets.len >= half_word_len) return halves_stop(half_word_len, octets);
+    return plain_len_scalar(octets);
 }
 
-/// The high bit of each octet of `word` a string must escape or that is not ASCII (RFC 8259 §7),
-/// exact up to the first, which is all the caller reads: a borrow from an octet below a bound can
-/// mark an octet after it.
-fn plain_stops_word(word: u64) u64 {
-    const control = (word -% constants.word_ones * constants.unescaped_min) & ~word & constants.word_highs;
-    const non_ascii = word & constants.word_highs;
-    const quotation_mark = zero_octets(word ^ constants.word_ones * constants.quotation_mark);
-    const reverse_solidus = zero_octets(word ^ constants.word_ones * constants.reverse_solidus);
-    return control | non_ascii | quotation_mark | reverse_solidus;
-}
+/// The octets of the halves `plain_len_short` joins below 8 octets, and how many halves it joins.
+const half_word_len = @sizeOf(u32);
+const halves_joined = 2;
 
-/// The high bit of each octet of `word` that is zero, exact up to the first.
-fn zero_octets(word: u64) u64 {
-    return (word -% constants.word_ones) & ~word & constants.word_highs;
+/// The first stop of `octets`, of `half` to `2 * half - 1` octets, from a block of its first and
+/// its last `half` octets: at a lane of the first half, the lane; at a lane of the second, the
+/// octet as far from the run's end as the lane is from the halves' end.
+inline fn halves_stop(comptime half: usize, octets: []const u8) usize {
+    const halves_len = halves_joined * half;
+    const len = octets.len;
+    assert(len >= half and len < halves_len);
+    const halves = octets[0..half].* ++ octets[len - half ..][0..half].*;
+    const plain: [constants.vector_len - halves_len]u8 = @splat(constants.space);
+    const stops = plain_stops(constants.vector_len, halves ++ plain);
+    if (!any(constants.vector_len, stops)) return len;
+    const lane = first_lane(constants.vector_len, stops);
+    return if (lane < half) lane else len + lane - halves_len;
 }
 
 /// The lanes of `block` whose octet UTF-8 rules out there, given the lanes before it and the last
