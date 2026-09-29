@@ -23,9 +23,10 @@ as decision 27 rules for three parts of the `json` module's.
   **owner** waits on a ruling and is not settled.
 - `docs/invariants.md`: numbered invariants, each with the check that proves it.
 - `docs/costs.md`: the measured costs every performance claim is priced against.
-- pepegrillo's `docs/performance.md`, at the commit `build.zig.zon` pins: the method every
-  performance change follows; then `docs/performance.md`, stdx's appendix to it: its instruments,
-  its admission rule, its baselines, its costs and the pitfalls it has paid for.
+- pepegrillo's `docs/performance.md`, the method every performance change follows: `zig build
+  guide` installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md`;
+  then `docs/performance.md`, stdx's appendix to it: its instruments, its admission rule, its
+  baselines, its costs and the pitfalls it has paid for.
 
 All four record decisions with the alternatives they beat. If you are about to do something a
 document rejected, say so and stop. Do not reverse it in code.
@@ -347,6 +348,8 @@ Change this section when a step adds or renames a command.
   on each push to main, on Linux on x86-64 and aarch64 and on macOS on arm64 (decisions 19 and
   26). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned SHA-256, and
   `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
+- Guide: `zig build guide` installs pepegrillo's `docs/performance.md`, the method every performance
+  change follows, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md`.
 - Format: `zig fmt --check build.zig bench build src tools`, or `zig build fmt`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the

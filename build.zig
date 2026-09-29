@@ -17,6 +17,7 @@
 //! never fetches it (decision 7). The module graph is build/modules.zig.
 const std = @import("std");
 const assert = std.debug.assert;
+const guide = @import("build/guide.zig");
 const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const oracle = @import("build/oracle.zig");
@@ -75,6 +76,7 @@ pub fn build(b: *std.Build) void {
     if (b.pkg_hash.len != 0) return;
     const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
     const pepegrillo = pepegrillo_dependency.module("pepegrillo");
+    guide.add_guide_step(b, pepegrillo_dependency);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");

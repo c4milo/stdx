@@ -1,8 +1,9 @@
 # Performance work in stdx
 
-The method every performance change follows is pepegrillo's
-[docs/performance.md](https://github.com/c4milo/pepegrillo/blob/main/docs/performance.md), at the
-commit `build.zig.zon` pins; read it first. This appendix is what that method leaves to the project:
+The method every performance change follows is pepegrillo's `docs/performance.md`: `zig build guide`
+installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md` (its
+[copy on GitHub](https://github.com/c4milo/pepegrillo/blob/main/docs/performance.md) is the current
+one); read it first. This appendix is what that method leaves to the project:
 stdx's instruments, its admission rule, its baselines, its costs, and the pitfalls it has paid for.
 CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 23, 24, 29 and 32
 hold the rulings, and [costs.md](costs.md) the prices.
@@ -76,6 +77,8 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | a mutation not caught | its effect masked by the reference's tail or a later step | a test that observes the effect where it lives |
 | two x86-64 runs disagree | different CPUs | pair inside one job with `base` |
 | a dispatch ran on the old tip | a `;` or a heredoc broke the `&&` chain before the push | write the file first; join every step with `&&` |
+| level 6 encoding 20% slower with the same state | the encoder's state at a comptime-known address, and a harness that lied until it allocated once and passed a pointer | hold a state behind a pointer, in the harness too |
+| a chain walk 1.4 to 1.6 times slower than its inline form | the walk kept in a struct whose step was a call | the step inline |
 
 ## Commands
 
