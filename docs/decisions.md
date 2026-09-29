@@ -14,7 +14,8 @@ out of the owner's request that its state machines be proved, entry 29 out of [i
 baselines' numbers, entry 31 out of design §8 step 17's profile, entry 32 out of step 12's brotli
 decoder, entry 33 out of the owner's ruling on what step 17's profile left, entry 34 out of the
 losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 out of decision
-17's json measurement, and entry 36 out of design §8 step 9's comparison with libdeflate's output.
+17's json measurement, entry 36 out of design §8 step 9's comparison with libdeflate's output,
+and entry 37 out of design §8 step 18's non-ASCII rows.
 
 ## Scope and shape
 
@@ -1828,3 +1829,56 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 o
       ran anyway for the table's insert.
     - A budget of 64 candidates at level 6 instead of 128: 0.3 to 0.6% larger for 12 to 27% of
       the time. Not ruled; the budget stays.
+
+37. **A table lookup in the `json` module's UTF-8 check (claim J5).** Proposed on 2026-09-29,
+    from design §8 step 18's non-ASCII rows, once construction in plain vectors had taken what it
+    could. Ruled by the owner the same day: as an experiment first, on an unmerged branch with the
+    A/B below, and landed only on its numbers. At 1247c3e stdx decodes the non-ASCII text at 0.866 of simdjson's speed on
+    the N2 and 0.643 on an Intel Xeon Platinum 8573C, and encodes it at 0.757 and 0.662 (run
+    [36522098273](https://github.com/c4milo/stdx/actions/runs/36522098273)). The encoder writes
+    its input's UTF-8 as it is and the decoder writes a string's as it is, so on that text the
+    check is the work.
+
+    **The check today.** `scan.utf8_error_lanes` judges a block of 16 octets with each rule of RFC
+    3629 §4 as a compare against a splat: about 14 compares, 3 shuffles that bring in the previous
+    block's last octets, and 10 ANDs and ORs, before the stop test every block pays. With the
+    check skipped, an experiment never merged (run
+    [36522631693](https://github.com/c4milo/stdx/actions/runs/36522631693), branch
+    `exp-json-utf8-ceiling` against 1247c3e), the non-ASCII text decoded 2.21 times as fast on
+    the N2 and 1.83 times on the Xeon, and encoded 1.94 and 1.87 times as fast, with every other
+    row inside its spread: the check is more than half of the time on that text, and that is the
+    most a faster check can give.
+
+    **The proposal.** Three lookups of 16 entries each, indexed by the high nibble of the octet
+    before, its low nibble, and the high nibble of the octet itself, ANDed together: a lane left
+    nonzero is an octet RFC 3629 §4 rules out within a window of two octets, which covers C0, C1
+    and F5 up, a continuation octet after an octet that asks for none, an octet that is no
+    continuation after one that asks for it, and the narrower second octet after E0, ED, F0 and F4.
+    A character's third and fourth octets are judged as today, from whether the octet two or three
+    back asks for them. About 9 vector operations a block against 27. The technique is Keiser and
+    Lemire's, from their paper "Validating UTF-8 In Less Than One Instruction Per Byte" (2021); no
+    implementation's source is read (entry 9).
+    - The lookup is `tbl` on aarch64, in NEON's baseline, and `pshufb` on x86-64, which needs
+      SSSE3, above the baseline: there it goes in the variant object claim J7's kernels already
+      build for AVX2 (`build/variants.zig`), at 16 octets, and the baseline keeps the compares.
+      Both are inline assembly with register operands only, as entry 16 admits.
+    - The three tables are comptime data built from RFC 3629 §4's rules in `constants.zig`, and a
+      test requires the lookup to judge every pair of octets, 65536 cases, as `utf8.zig`'s machine
+      does, entry 28's reference; the existing tests over every sequence of three octets and the
+      fuzzer cover the rest.
+    - It is measured as entry 16 asks: the A/B of the lookup against the compares on both runners,
+      five runs a side, and the gain must pass the noise on the non-ASCII text with no loss past
+      the noise elsewhere. Below that, it leaves with its code.
+    - The compares stay as the reference for every target without a kernel, and the tests run both.
+
+    What it costs: a second kernel per architecture for one function, assembly that no lint reads,
+    and a build variant on x86-64 the lookup alone needs; the module's first inline assembly.
+
+    The alternatives:
+    - The compares, as today. The reference, and the non-ASCII rows stay where the table above
+      puts them.
+    - The check at 32 or 64 octets a block. Refused by entry 30's measurement: at 64, each escape
+      that stopped a run sent the whole block to the scalar path, 37% slower.
+    - No check. RFC 8259 §8.1 requires UTF-8, and entry 27's decoder refuses a text that is not.
+    - A lookup written in plain Zig from selects. Sixteen selects a lookup, more than the compares
+      it replaces.

@@ -1820,7 +1820,9 @@ to 12 are reordered and nothing else changes.
   23% to 30% is inlined vector code with no line, and no line reaches 10%. The cycles left on a
   token are instructions, not stalls, and no change to the loop removes 5% of them. What removes
   instructions from a token is decision 30's structural index, which decision 33 left to the
-  owner.
+  owner. The owner ruled on 2026-09-29: before any index, measure bench-json with stdx built for
+  x86-64-v3 on the x86-64 runner, as decision 34 does for the DEFLATE decoder, since the Xeon's
+  gap to simdjson is far wider than the N2's and may be the baseline build's.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
