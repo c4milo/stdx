@@ -143,10 +143,10 @@ fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *c
     // follows: a pair's 48 bits at most on the 7 a store leaves (decision 14, E5). The first store
     // drops the whole octets a header left, so the first symbol has room.
     if (writer.has_store_room()) writer.store();
-    while (emit.index < block.symbol_count and writer.has_store_room()) {
-        const symbol = block.symbols[emit.index];
+    for (block.symbols[emit.index..block.symbol_count]) |symbol| {
+        if (!writer.has_store_room()) break;
         if (symbol.distance == 0) {
-            put_code(emit, plan, symbol.value, writer);
+            put_literal(emit, plan, symbol.value, writer);
         } else {
             put_pair(emit, plan, symbol, writer);
         }
@@ -177,11 +177,17 @@ fn put_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWrite
     put(emit, writer, plan.literal_length_codes[symbol], @intCast(plan.literal_length_lengths[symbol]));
 }
 
+/// `put_code` for a literal, whose octet indexes the codes without a bounds check.
+fn put_literal(emit: *Emit, plan: *const Plan, octet: u8, writer: *codec.BitWriter) void {
+    assert(plan.literal_length_lengths[octet] != 0);
+    put(emit, writer, plan.literal_length_codes[octet], @intCast(plan.literal_length_lengths[octet]));
+}
+
 /// A length's code and extra bits, then its distance's (RFC 1951 §3.2.5), each in one put from its
 /// code's entry.
 fn put_pair(emit: *Emit, plan: *const Plan, symbol: block_module.Symbol, writer: *codec.BitWriter) void {
     const len = @as(usize, symbol.value) + constants.match_len_min;
-    put_entry(emit, writer, plan.length_entries[block_module.length_code(len)], len);
+    put_entry(emit, writer, plan.length_entries[block_module.length_code_of(symbol.value)], len);
     put_entry(emit, writer, plan.distance_entries[block_module.distance_code(symbol.distance)], symbol.distance);
 }
 

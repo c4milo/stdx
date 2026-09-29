@@ -17,9 +17,19 @@ pub const Symbol = packed struct(u32) {
     reserved: u8 = 0,
 };
 
-/// Each length's code, 257 to 285 less 257, lengths 3 to 258 (RFC 1951 §3.2.5).
-const length_codes: [constants.match_len_max - constants.match_len_min + 1]u8 = codes: {
-    var codes_of: [constants.match_len_max - constants.match_len_min + 1]u8 = undefined;
+/// A length or distance code's index: every code of either alphabet fits, so a table of
+/// `codes_len` entries indexed by it needs no bounds check.
+pub const CodeIndex = u5;
+pub const codes_len = 1 << @bitSizeOf(CodeIndex);
+
+comptime {
+    assert(constants.length_base.len <= codes_len and constants.distance_used <= codes_len);
+}
+
+/// Each length's code, 257 to 285 less 257, lengths 3 to 258 (RFC 1951 §3.2.5), indexed by the
+/// length less `match_len_min`, a `Symbol`'s value.
+const length_codes: [constants.match_len_max - constants.match_len_min + 1]CodeIndex = codes: {
+    var codes_of: [constants.match_len_max - constants.match_len_min + 1]CodeIndex = undefined;
     for (constants.length_base, constants.length_extra_bits, 0..) |base, extra, index| {
         for (base..base + (1 << extra)) |len| {
             if (len <= constants.match_len_max) codes_of[len - constants.match_len_min] = index;
@@ -32,14 +42,19 @@ const length_codes: [constants.match_len_max - constants.match_len_min + 1]u8 = 
 /// from 16 on covers whole steps (RFC 1951 §3.2.5).
 const near_distances = 256;
 const far_distance_shift = 7;
-const near_codes: [near_distances]u8 = distance_codes(false);
+const near_codes: [near_distances]CodeIndex = distance_codes(false);
 /// The comptime branches building the far table takes: one per distance.
 const distance_codes_quota = 100_000;
-const far_codes: [constants.window_len >> far_distance_shift]u8 = distance_codes(true);
+const far_codes: [constants.window_len >> far_distance_shift]CodeIndex = distance_codes(true);
 
-fn distance_codes(comptime far: bool) [if (far) constants.window_len >> far_distance_shift else near_distances]u8 {
+comptime {
+    // Both tables are indexed by a u8 without a bounds check.
+    assert(near_distances == 1 << @bitSizeOf(u8) and constants.window_len >> far_distance_shift == 1 << @bitSizeOf(u8));
+}
+
+fn distance_codes(comptime far: bool) [if (far) constants.window_len >> far_distance_shift else near_distances]CodeIndex {
     @setEvalBranchQuota(distance_codes_quota);
-    var codes_of: [if (far) constants.window_len >> far_distance_shift else near_distances]u8 = @splat(0);
+    var codes_of: [if (far) constants.window_len >> far_distance_shift else near_distances]CodeIndex = @splat(0);
     for (constants.distance_base, constants.distance_extra_bits, 0..) |base, extra, index| {
         for (base..@as(usize, base) + (1 << extra)) |distance| {
             const slot = if (far) (distance - 1) >> far_distance_shift else distance - 1;
@@ -50,17 +65,22 @@ fn distance_codes(comptime far: bool) [if (far) constants.window_len >> far_dist
 }
 
 /// The code of a length, as its index from 257.
-pub fn length_code(len: usize) u8 {
+pub fn length_code(len: usize) CodeIndex {
     assert(len >= constants.match_len_min and len <= constants.match_len_max);
-    return length_codes[len - constants.match_len_min];
+    return length_code_of(@intCast(len - constants.match_len_min));
+}
+
+/// `length_code` for a `Symbol`'s value, the length less `match_len_min`.
+pub fn length_code_of(value: u8) CodeIndex {
+    return length_codes[value];
 }
 
 /// The code of a distance. Both tables are read, so the choice is a select and not a branch, which
-/// the distances of a block would mispredict.
-pub fn distance_code(distance: usize) u8 {
+/// the distances of a block would mispredict. Each index is a u8, so neither read is checked.
+pub fn distance_code(distance: usize) CodeIndex {
     assert(distance >= 1 and distance <= constants.window_len);
-    const near = near_codes[@min(distance, near_distances) - 1];
-    const far = far_codes[(distance - 1) >> far_distance_shift];
+    const near = near_codes[@as(u8, @truncate(@min(distance, near_distances) - 1))];
+    const far = far_codes[@as(u8, @truncate((distance - 1) >> far_distance_shift))];
     return if (distance <= near_distances) near else far;
 }
 
@@ -136,17 +156,20 @@ pub const Plan = struct {
     code_length_codes: [constants.code_length_alphabet_len]u16,
     items: [code.items_max]code.Item,
     item_count: u16,
-    /// Each length code's and distance code's entry for the symbol writer, from the codes above.
-    length_entries: [constants.length_base.len]CodeEntry,
-    distance_entries: [constants.distance_used]CodeEntry,
+    /// Each length code's and distance code's entry for the symbol writer, from the codes above,
+    /// indexed by `CodeIndex` without a bounds check; the entries past the alphabets stay zero.
+    length_entries: [codes_len]CodeEntry,
+    distance_entries: [codes_len]CodeEntry,
 
     /// Fills `length_entries` and `distance_entries` from the plan's codes.
     pub fn fill_entries(self: *Plan) void {
-        for (&self.length_entries, constants.length_base, constants.length_extra_bits, 0..) |*entry, base, extra_bits, index| {
+        self.length_entries = @splat(std.mem.zeroes(CodeEntry));
+        self.distance_entries = @splat(std.mem.zeroes(CodeEntry));
+        for (self.length_entries[0..constants.length_base.len], constants.length_base, constants.length_extra_bits, 0..) |*entry, base, extra_bits, index| {
             const symbol = constants.first_length_symbol + index;
             entry.* = .{ .code = self.literal_length_codes[symbol], .base = base, .code_bits = self.literal_length_lengths[symbol], .extra_bits = extra_bits };
         }
-        for (&self.distance_entries, constants.distance_base[0..constants.distance_used], constants.distance_extra_bits[0..constants.distance_used], 0..) |*entry, base, extra_bits, index| {
+        for (self.distance_entries[0..constants.distance_used], constants.distance_base[0..constants.distance_used], constants.distance_extra_bits[0..constants.distance_used], 0..) |*entry, base, extra_bits, index| {
             entry.* = .{ .code = self.distance_codes[index], .base = base, .code_bits = self.distance_lengths[index], .extra_bits = extra_bits };
         }
     }
