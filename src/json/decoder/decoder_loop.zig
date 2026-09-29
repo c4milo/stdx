@@ -3,8 +3,9 @@
 //! until a token it does not take whole, the end of the input, or the batch's last slot. It takes
 //! what claim J8's fast path takes: whitespace, at most one separator, and then a structural
 //! character, a name or a string of plain ASCII, a whole number with the octet that ends it, or a
-//! literal name. Every other token it leaves, from its first octet of whitespace, to `Decoder.run`,
-//! the path one token a call takes, which names every refusal.
+//! literal name. It also takes a sequence's record separator at a text's start, and a text's end.
+//! Every other token it leaves, from its first octet of whitespace, to `Decoder.run`, the path one
+//! token a call takes, which names every refusal.
 //!
 //! It reads and writes the slices directly, as decision 16's table lets it: a string's octets go
 //! out a block of 16 at a time, and the last store runs past the string's end into room the call
@@ -24,6 +25,7 @@ const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
+const Piece = @import("../framing.zig").Piece;
 const Slot = @import("decoder_batch.zig").Slot;
 
 /// Where a batch stands in its input and its output.
@@ -33,11 +35,15 @@ pub const Cursor = struct {
 };
 
 /// Takes tokens into `slots` from `cursor` on, moves `cursor` past them, and returns how many
-/// slots it filled.
-pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, output: []u8, cursor: *Cursor, slots: []Slot) usize {
-    assert(decoder.stage == .tokens and decoder.open == .none and decoder.pending_len == 0);
+/// slots it filled. At the text's end, in `piece`'s last octets or before the next text of a
+/// sequence, it leaves the decoder done. The text's start and end cost qlog's records, 36 tokens a
+/// text, about a sixth of their time through `Decoder.run` on the N2 (design §8 step 18).
+pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, output: []u8, piece: Piece, cursor: *Cursor, slots: []Slot) usize {
+    assert(decoder.stage != .done and decoder.stage != .refused);
+    assert(decoder.open == .none and decoder.pending_len == 0);
     assert(cursor.consumed <= input.len and cursor.written <= output.len);
     var loop: Loop = .{ .decoder = decoder, .input = input, .output = output, .position = cursor.consumed, .written = cursor.written, .expect = decoder.expect };
+    if (decoder.stage != .tokens and !loop.text_start()) return 0;
     var filled: usize = 0;
     // Each slot is written here, from values in registers: built on the stack by each kind's path
     // and loaded back whole, a slot stalled on its narrower stores (design §8 step 18).
@@ -47,6 +53,8 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
         slot.* = .{ .kind = kind, .ended = true, .start = start, .len = loop.written - start };
         filled += 1;
     }
+    // With every slot filled, the checked path asks for slots before it takes the text's end.
+    if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
     decoder.expect = loop.expect;
     if (loop.last) |last| {
         decoder.matched = last.matched;
@@ -69,6 +77,47 @@ const Loop = struct {
     written: usize,
     expect: Expect,
     last: ?Last = null,
+
+    /// Takes the record separator that starts a sequence's text (RFC 7464 §2.1) and passes the check
+    /// for a byte order mark (RFC 8259 §8.1), as `Decoder.step` does, when the separator is one and
+    /// the octet after it starts neither another nor a byte order mark; for a text, when its first
+    /// octet starts no byte order mark. Else it changes nothing, and returns false.
+    inline fn text_start(self: *Loop) bool {
+        if (self.decoder.matched != 0) return false;
+        var first = self.position;
+        if (self.decoder.stage == .record_separators) {
+            if (self.input.len - first <= 1 or self.input[first] != constants.record_separator) return false;
+            first += 1;
+            if (self.input[first] == constants.record_separator) return false;
+        } else {
+            assert(self.decoder.stage == .byte_order_mark);
+            if (first == self.input.len) return false;
+        }
+        // The checked path refuses a byte order mark, and names the refusal.
+        if (self.input[first] == constants.byte_order_mark[0]) return false;
+        self.position = first;
+        self.decoder.stage = .tokens;
+        return true;
+    }
+
+    /// Takes the text's end after its value (RFC 8259 §2): whitespace, then the end of `piece` when
+    /// it is the last, or a sequence's record separator, which starts the next text and which it
+    /// leaves (RFC 7464 §2.1). Where `Decoder.step` asks for input or refuses the text, as it does a
+    /// sequence's number or literal name that no whitespace follows (RFC 7464 §2.4), it changes
+    /// nothing.
+    inline fn text_end(self: *Loop, piece: Piece) void {
+        const start = self.position;
+        const octet = self.skip_whitespace();
+        const delimited = self.decoder.value_delimited or self.position > start;
+        const sequence = self.decoder.framing == .sequence;
+        const ended = if (octet) |after| sequence and after == constants.record_separator else piece == .last;
+        if (!ended or (sequence and !delimited)) {
+            self.position = start;
+            return;
+        }
+        self.decoder.value_delimited = delimited;
+        self.decoder.stage = .done;
+    }
 
     /// Takes the next token, whose octets it writes from the loop's `written` on, and returns its
     /// kind; or leaves the loop as it was and returns null.
