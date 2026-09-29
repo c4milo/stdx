@@ -49,19 +49,28 @@ pub fn valid_by(comptime width: usize, comptime form: Form, octets: []const u8) 
 /// 64-octet line cost the 64-lane copy two thirds of its speed on an Intel Xeon Platinum 8370C
 /// (decision 39). The verdict does not depend on where the loads start.
 fn aligned_start(comptime width: usize, octets: []const u8) usize {
-    const head_len = (width - @intFromPtr(octets.ptr) % width) % width;
-    return if (head_len > 0 and octets.len >= head_len + width) head_len else 0;
+    comptime std.debug.assert(constants.utf8_aligned_len_min >= 2 * width);
+    if (octets.len < constants.utf8_aligned_len_min) return 0;
+    return (width - @intFromPtr(octets.ptr) % width) % width;
 }
 
 /// The block before `start`, as far as the check reads it: the octets before `start` on its last
 /// lanes, and zeros for the octets before the buffer. The check reads its last three lanes alone
-/// (`shifted_in`, `incomplete_octets`).
+/// (`shifted_in`, `incomplete_octets`), so a start inside the first block places those three in
+/// one shuffle.
 fn block_before(comptime width: usize, octets: []const u8, start: usize) Block(width) {
     if (start >= width) return octets[start - width ..][0..width].*;
-    var lanes: [width]u8 = @splat(0);
-    const read_len: usize = @min(start, constants.utf8_len_max - 1);
-    for (0..read_len) |back| lanes[width - 1 - back] = octets[start - 1 - back];
-    return lanes;
+    var before: [constants.utf8_len_max]u8 = @splat(0);
+    inline for (1..constants.utf8_len_max) |back| before[constants.utf8_len_max - back] = if (start >= back) octets[start - back] else 0;
+    return @shuffle(u8, splat(width, 0), @as(@Vector(constants.utf8_len_max, u8), before), last_lanes(width));
+}
+
+/// The `@shuffle` mask that keeps a block of zeros and puts the last three lanes of a vector of
+/// `utf8_len_max` lanes on the block's last three.
+fn last_lanes(comptime width: usize) @Vector(width, i32) {
+    var mask: [width]i32 = @splat(0);
+    for (1..constants.utf8_len_max) |back| mask[width - back] = ~@as(i32, @intCast(constants.utf8_len_max - back));
+    return mask;
 }
 
 /// Judges `octets` from `start`, a group of blocks and then a block at a time, with the octets

@@ -34,6 +34,12 @@ pub const avx2_vector_len: usize = 32;
 /// loops keep AVX2's 32 on such a CPU (decision 30, wide.zig).
 pub const avx512_vector_len: usize = 64;
 
+/// The octets a wider copy of the UTF-8 check takes before it starts its loads on a line of its
+/// width (decision 39). Aligning costs one unaligned block and the three octets it places, about 30
+/// instructions; a 64-lane load that crosses a line cost about a nanosecond more than one that
+/// does not on an Intel Xeon Platinum 8370C, so a shorter buffer saves less than it costs.
+pub const utf8_aligned_len_min: usize = 1024;
+
 /// The octets of a name's or a string's run the 16-octet path takes before claim J7's kernels take
 /// the rest. Lines of English text are runs of 50 to 100 octets, which ended before a kernel's call
 /// paid for itself: 5% to 8% slower to encode on an AMD EPYC 9V74 with the kernels from the 17th

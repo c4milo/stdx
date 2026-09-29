@@ -162,9 +162,10 @@ test "valid_by's lookup at 32 and 64 lanes judges as the machine does, where LLV
 /// starts at every offset from a 64-octet line, the sequence around the first octet a wider copy's
 /// aligned loads start on and around the end of the unaligned block before it.
 fn expect_placed_at_offsets(comptime width: usize, judge: anytype) !void {
-    var storage: [constants.avx512_vector_len + placed_buffer_len(width)]u8 align(constants.avx512_vector_len) = undefined;
+    const buffer_len = comptime constants.utf8_aligned_len_min + placed_buffer_len(width);
+    var storage: [constants.avx512_vector_len + buffer_len]u8 align(constants.avx512_vector_len) = undefined;
     for (0..constants.avx512_vector_len) |line_offset| {
-        const buffer = storage[line_offset..][0..placed_buffer_len(width)];
+        const buffer = storage[line_offset..][0..buffer_len];
         const head_len = (width - line_offset % width) % width;
         for ([_]usize{ head_len, width }) |edge| try expect_around(judge, buffer, edge);
     }
