@@ -305,7 +305,11 @@ pub const WordReference = struct { len: u32, index: u32, transform_id: u32 };
 /// The word a reference past the window names, from the command's copy length and the distance
 /// past the window, less 1 (RFC 7932 §8).
 pub inline fn word_reference(state: *const State, word_id: u32) Error!WordReference {
-    const len = state.command.copy_len;
+    return word_reference_of(state.command.copy_len, word_id);
+}
+
+/// The word a copy length and a reference name (RFC 7932 §8).
+pub inline fn word_reference_of(len: u32, word_id: u32) Error!WordReference {
     // RFC 7932 §8: a copy length below 4 or above 24 should be rejected as invalid.
     if (len < constants.word_len_min or len > constants.word_len_max) return error.InvalidDictionaryReference;
     const index = word_id & (dictionary.word_count(len) - 1);

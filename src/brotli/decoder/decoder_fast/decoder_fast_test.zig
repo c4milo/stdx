@@ -11,6 +11,8 @@ const test_stream = @import("../test_stream.zig");
 const Stream = test_stream.Stream;
 
 const Decoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits });
+const CheckedDecoder = decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = .{ .fast_paths = false } });
+const commands = @import("../decoder_commands.zig");
 const test_window_bits = 16;
 
 /// The pattern the stream's literals write, and the copy that repeats it from 16 octets back, the
@@ -384,4 +386,100 @@ test "the first symbol of a distance code takes its code, and the one before it 
     const whole = try decoder.decode_all(stream.written(), &output);
     // The last distance, 4, copies "ab"; distance 1 copies "b" twice.
     try testing.expectEqualStrings("abcdabbb", output[0..whole.written]);
+}
+
+/// Symbol 194: insert length 0 and copy code 10, 14 and 2 extra bits, in the cell of insert codes 0
+/// to 7 and copy codes 8 to 15 (RFC 7932 §5); its distance code 0 is the last distance, 4 at a
+/// stream's start, which code 0 never pushes (RFC 7932 §4). Each command copies 16 octets of
+/// `pattern`, whose period is 4, from 4 back.
+const short_copy_symbol = 194;
+const short_copy_code = 10;
+const short_copy_len = 16;
+const short_copies = 40;
+const last_distance_code = 0;
+
+/// The stream: an uncompressed `pattern`, then `short_copies` commands of one copy each, 2 bits a
+/// command, so that one pass of the loop takes many commands and the room ends inside them; zeros
+/// after the trailer keep the input's margin to the last command.
+fn short_copies_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.uncompressed(pattern);
+    stream.meta_block(true, short_copies * short_copy_len);
+    stream.simple_header(0, 0, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{'q'}, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{short_copy_symbol}, false);
+    stream.simple_code(constants.distance_short_codes_count + constants.distance_code_groups, &.{last_distance_code}, false);
+    const copy = constants.copy_length_codes[short_copy_code];
+    for (0..short_copies) |_| stream.put(short_copy_len - copy.base, copy.extra_bits);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+    for (0..fast.input_slack) |_| stream.put(0, @bitSizeOf(u8));
+}
+
+test "many short copies write nothing past any room, the margin checked before each command" {
+    var stream: Stream = .{};
+    short_copies_stream(&stream);
+    const input = stream.written();
+    var expected: [pattern.len + short_copies * short_copy_len]u8 = undefined;
+    for (&expected, 0..) |*octet, index| octet.* = pattern[index % pattern.len];
+    var output: [expected.len]u8 = undefined;
+    for (0..expected.len + 1) |room| {
+        var decoder: Decoder = undefined;
+        decoder.init(.{});
+        const progress = try decoder.decode(input, output[0..room]);
+        try testing.expectEqual(room, progress.written);
+        try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
+        if (room == expected.len) try testing.expectEqual(.done, progress.status);
+    }
+}
+
+/// Symbol 472: insert code 19, 578 and 9 extra bits, and copy code 0, in the cell of insert codes 16
+/// to 23 and copy codes 0 to 7 (RFC 7932 §5): an insert of `long_insert_len` literals that ends the
+/// meta-block, so no copy follows (RFC 7932 §9.3).
+const long_insert_symbol = 472;
+const long_insert_code = 19;
+const long_insert_len = 600;
+
+/// The stream: one command of `long_insert_len` literals of `pattern`'s four symbols, 2 bits each,
+/// under one tree, so that the loop takes several runs of a chunk and p1 and p2 come from its
+/// one-table run.
+fn long_insert_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.meta_block(true, long_insert_len);
+    stream.simple_header(0, 0, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{ 'a', 'b', 'c', 'd' }, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{long_insert_symbol}, false);
+    stream.simple_code(constants.distance_short_codes_count + constants.distance_code_groups, &.{last_distance_code}, false);
+    const insert = constants.insert_length_codes[long_insert_code];
+    stream.put(long_insert_len - insert.base, insert.extra_bits);
+    for (0..long_insert_len) |index| stream.put_code(pattern[index % pattern.len] - pattern[0], literal_code_bits);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+    for (0..fast.input_slack) |_| stream.put(0, @bitSizeOf(u8));
+}
+
+test "a long insert takes several runs, each within the room, and leaves p1 and p2 as the checked path does" {
+    try testing.expectEqual(long_insert_code, commands.command_codes[long_insert_symbol].insert_code);
+    try testing.expectEqual(0, commands.command_codes[long_insert_symbol].copy_code);
+    var stream: Stream = .{};
+    long_insert_stream(&stream);
+    const input = stream.written();
+    var expected: [long_insert_len]u8 = undefined;
+    for (&expected, 0..) |*octet, index| octet.* = pattern[index % pattern.len];
+    var output: [expected.len]u8 = undefined;
+    for (0..expected.len + 1) |room| {
+        var decoder: Decoder = undefined;
+        decoder.init(.{});
+        const progress = try decoder.decode(input, output[0..room]);
+        try testing.expectEqual(room, progress.written);
+        try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
+        if (room < expected.len) continue;
+        try testing.expectEqual(.done, progress.status);
+        var checked: CheckedDecoder = undefined;
+        checked.init(.{});
+        var checked_output: [expected.len]u8 = undefined;
+        _ = try checked.decode(input, &checked_output);
+        try testing.expectEqual(checked.state.p1, decoder.state.p1);
+        try testing.expectEqual(checked.state.p2, decoder.state.p2);
+    }
 }

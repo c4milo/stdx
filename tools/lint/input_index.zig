@@ -68,6 +68,9 @@ pub const scope: Scope = .{
         "src/brotli/decoder/decoder_fast/decoder_fast_copy.zig",
         "src/brotli/decoder/decoder_fast/decoder_fast_lengths.zig",
         "src/brotli/decoder/decoder_fast/decoder_fast_chain.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast_aarch64.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast_aarch64_template.zig",
+        "src/brotli/decoder/decoder_fast/decoder_fast_aarch64_template_distance.zig",
     },
 };
 

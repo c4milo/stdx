@@ -36,6 +36,7 @@ const words = @import("decoder_fast_word.zig");
 const literal_runs = @import("decoder_fast_literals.zig");
 const straight = @import("decoder_fast_command.zig");
 const chain = @import("decoder_fast_chain.zig");
+const aarch64 = @import("decoder_fast_aarch64.zig");
 const dictionary = @import("../../dictionary.zig");
 const transform = @import("../../transform.zig");
 const State = state_module.State;
@@ -48,7 +49,7 @@ pub const input_slack = @sizeOf(u64);
 /// Decision 16's output margin, which decision 32 keeps for a chain's common case: the most a
 /// chain writes between two checks, `chunk_len_max` and a chunk past it, since a copy's last chunk
 /// may run past the copy.
-const output_margin = constants.chunk_len_max + constants.copy_chunk_len;
+pub const output_margin = constants.chunk_len_max + constants.copy_chunk_len;
 
 /// How the loop checks the output's room (decision 32): against the margin, at the top of each chain
 /// and after its literals, or at each write, once less than the margin remains. Each mode is its
@@ -62,7 +63,7 @@ pub fn room_of(writer: *const codec.Writer) Room {
 
 /// The bits a refill leaves at least, and the most one phase takes: a block switch's type and
 /// count codes and the count's extra bits.
-const refill_bits = @bitSizeOf(u64) - @bitSizeOf(u8);
+pub const refill_bits = @bitSizeOf(u64) - @bitSizeOf(u8);
 const count_extra_bits_max: u32 = constants.block_count_codes[constants.block_count_alphabet_len - 1].extra_bits;
 pub const phase_bits_max = constants.code_len_max + constants.code_len_max + count_extra_bits_max;
 
@@ -279,10 +280,20 @@ noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: 
             continue;
         }
         if (!ready(claims, &loop)) return .stop;
-        const link = straight.straight_from(claims, room, &loop, literal_tables, state, &phase);
+        const link = straight_step(claims, room, &loop, literal_tables, state, &phase);
         if (link != .go_on) return link;
     }
     unreachable;
+}
+
+/// One step of the straight loop: the assembly's commands where it takes them and a command starts
+/// (decision 23), or the straight path from the phase the loop stands at.
+inline fn straight_step(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, phase: *Phase) Link {
+    @setRuntimeSafety(!claims.unchecked_loop);
+    if (comptime aarch64.takes(claims, room)) {
+        if (phase.* == .command) return aarch64.straight_commands(loop, literal_tables, state, phase);
+    }
+    return straight.straight_from(claims, room, loop, literal_tables, state, phase);
 }
 
 /// Where a chain goes after one of its phases: on to another phase of the same command, to the

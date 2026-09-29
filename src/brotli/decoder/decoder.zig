@@ -202,3 +202,7 @@ test {
 test {
     _ = @import("decoder_fast/decoder_fast_copy.zig");
 }
+
+test {
+    _ = @import("decoder_fast/decoder_fast_aarch64.zig");
+}
