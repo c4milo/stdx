@@ -226,14 +226,14 @@ def family_litnear(out, D, target):
 
 def family_lenmix(out, p, target):
     rng = random.Random(7000 + p)
-    # Pairs at distance 4000 of length 8, or 40 with probability p percent: the len family's codes
-    # for both lengths (symbols 262 and 273 of 2 bits, the block's end of 2 bits, 64 literals).
-    ll = [8] * 64 + [0] * 192 + [2] + [0] * 5 + [2] + [0] * 10 + [2]
+    # Pairs at distance 4000 of length 8, or 64 with probability p percent: the len family's codes
+    # for both lengths (symbols 262 and 276 of 2 bits, the block's end of 2 bits, 64 literals).
+    ll = [8] * 64 + [0] * 192 + [2] + [0] * 5 + [2] + [0] * 13 + [2]
     d = [0] * 23 + [1]
     block = Block(ll, d)
     for _ in range(4096): block.literal(rng.randrange(64))
     while block.octets < target:
-        block.pair(40 if rng.random() * 100 < p else 8, 4000)
+        block.pair(64 if rng.random() * 100 < p else 8, 4000)
     write(out, f'lenmix{p}', block)
 
 
