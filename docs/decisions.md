@@ -1124,6 +1124,13 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
       do better." Asked when, the owner ruled the same day to record it now and keep to Zig first:
       the brotli command loop moves to aarch64 assembly only once changes in Zig stop gaining on the
       runners. The Zig fast path stays the reference, as it does for Zstandard.
+    - The condition met for brotli on 2026-09-29, and the loop begun on the owner's ruling that day:
+      the header's cuts left the HTTP bodies at 0.77 to 0.90 of Google's speed on the N2 for 1 KiB,
+      0.83 to 0.88 for 16 KiB and 0.91 to 0.97 for 1 MiB, with the straight command loop at about
+      255 instructions per command against Google's about 175 on html-16k (M1 Pro, literals and
+      words excluded), and every Zig cut left in it worth 1 to 3%. The loop follows decision 29's
+      shape: the Zig loop stays the reference and runs on x86-64 and under every other claim
+      setting; words and block switches leave the assembly for Zig at first.
 
 24. **How the assembly loops are shown safe.** **owner** Proposed on 2026-09-27, as decision 23
     asks once its loops match or beat libzstd on the runners: at 3a45936 the decoder runs at a

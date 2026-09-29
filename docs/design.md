@@ -1268,6 +1268,20 @@ to 12 are reordered and nothing else changes.
     whose spreads reached 52%, the median +0.9% and no loss. Pushed to main the same day. Holding the
     reading's fields in locals gave 0.1% on the M1 and was dropped: the code-lengths loop waits on
     each symbol's lookup, not on its stores.
+  - The straight command loop in aarch64 assembly, begun 2026-09-29 on the owner's ruling (decision
+    23's brotli extension, its condition met: every Zig cut left in the loop is 1 to 3%, and the
+    loop takes about 255 instructions per command against Google's about 175 on html-16k). After
+    decision 29's DEFLATE loop: `decoder_fast_aarch64.zig` holds a `State` of 8-octet fields, a
+    `noinline` body of `asm volatile` joined from `decoder_fast_aarch64_template.zig`, and `takes`,
+    which admits the `.margin` room mode with `unchecked_loop` and the copy claims on, on aarch64.
+    It takes a command whose block is not spent, its extra bits, its literals with their context
+    (p1, p2, the map, the tree), and a distance within the call's output with its copy, chunk by
+    chunk within the margin; it leaves to the Zig loop, with the state as the phases would have it,
+    a block switch, a dictionary word, a copy reaching the window, a refusal, and the margins. The
+    Zig `straight_loop` stays the reference on every target and every other claim setting; every
+    brotli test, the fuzzer and `differential-brotli` run the assembly on aarch64. Decision 24's
+    access table comes with the loop. Measured as the header was: M1 instructions per whole decode
+    (pcprof), then paired N2 runs; x86-64 keeps the Zig loop until its port.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
