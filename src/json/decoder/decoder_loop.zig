@@ -204,7 +204,7 @@ const Loop = struct {
     inline fn number(self: *Loop) ?Kind {
         const ended_number = @call(.always_inline, number_grammar.ended_in, .{self.input[self.position..]}) orelse return null;
         if (self.output.len - self.written < ended_number.len) return null;
-        @memcpy(self.output[self.written..][0..ended_number.len], self.input[self.position..][0..ended_number.len]);
+        scan.copy(self.output[self.written..][0..ended_number.len], self.input[self.position..][0..ended_number.len]);
         self.position += ended_number.len;
         self.written += ended_number.len;
         self.last = .{ .matched = 1, .number = ended_number.number };

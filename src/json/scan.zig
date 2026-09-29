@@ -61,6 +61,27 @@ pub fn whitespace_len_scalar(octets: []const u8) usize {
     return octets.len;
 }
 
+/// Copies `source` into `destination`, of the same length: up to 16 octets in two moves of 8 or 4
+/// that overlap and stay inside both, and past that with `@memcpy`, which for a length known only
+/// at run time is a call. The token loops copy a name, a string or a number with it.
+pub inline fn copy(destination: []u8, source: []const u8) void {
+    const len = source.len;
+    assert(destination.len == len);
+    if (len > constants.vector_len) return @memcpy(destination, source);
+    inline for (.{ constants.word_len, @sizeOf(u32) }) |move_len| {
+        if (len >= move_len) {
+            destination[0..move_len].* = source[0..move_len].*;
+            destination[len - move_len ..][0..move_len].* = source[len - move_len ..][0..move_len].*;
+            return;
+        }
+    }
+    // One to three octets: the first, the last and the middle one cover them all.
+    if (len == 0) return;
+    destination[0] = source[0];
+    destination[len - 1] = source[len - 1];
+    destination[len >> 1] = source[len >> 1];
+}
+
 /// Writes two lowercase hexadecimal digits for each octet of `input` that `output` has room for,
 /// the more significant first, and returns how many octets of `input` it took (claim J2 off).
 pub fn hex_len_scalar(input: []const u8, output: []u8) usize {
