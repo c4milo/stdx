@@ -104,33 +104,60 @@ pub fn read_code_length_code(state: *State, bits: *codec.BitReader) void {
     local.hand_back(bits);
 }
 
+/// The reading's fields a code length symbol changes, which `read` holds in registers and writes
+/// back once, as `prefix_reader.set_length_of` takes them.
+const Tally = struct {
+    index: u16,
+    alphabet_len: u16,
+    space: i32,
+    previous_len: u8,
+    repeat_symbol: u8,
+    repeat_count: u32,
+};
+
 /// Reads code length symbols while the input's margin holds and the code goes on, applying each as
 /// the checked path does, and hands the reader back. A repeat that would pass the alphabet's end
 /// stays unread, for the checked path to refuse.
 pub fn read(state: *State, bits: *codec.BitReader) void {
     const reading = &state.reading;
+    var tally: Tally = .{
+        .index = reading.index,
+        .alphabet_len = reading.alphabet_len,
+        .space = reading.space,
+        .previous_len = reading.previous_len,
+        .repeat_symbol = reading.repeat_symbol,
+        .repeat_count = reading.repeat_count,
+    };
     var local = Bits.of(bits);
     // Each symbol gives at least one length, so the alphabet ends the loop.
-    for (0..reading.alphabet_len) |_| {
-        if (reading.space <= 0 or reading.index >= reading.alphabet_len) break;
+    for (0..tally.alphabet_len) |_| {
+        if (tally.space <= 0 or tally.index >= tally.alphabet_len) break;
         if (!local.has_symbol_bits()) break;
-        const decoded = state.code_length_code.decode_whole(true, local.buffer);
-        const symbol: u8 = @intCast(decoded.value);
-        const extra_bits = prefix_reader.repeat_extra_bits(symbol);
-        const extra: u32 = @intCast((local.buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
+        // The code length code's codes take 5 bits at most, its root's width, and its symbols are
+        // below 18.
+        const decoded = state.code_length_code.decode_root(local.buffer);
+        const symbol: u8 = @truncate(decoded.value);
         if (symbol < constants.repeat_previous_symbol) {
             local.take(decoded.len);
-            prefix_reader.set_length(state, symbol);
+            prefix_reader.set_length_of(&tally, &reading.ranges, &reading.counts, symbol);
         } else {
-            const repeat = prefix_reader.repeat_of(reading, symbol, extra);
+            const extra_bits = prefix_reader.repeat_extra_bits(symbol);
+            const extra: u32 = @intCast((local.buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
+            const repeat = prefix_reader.repeat_of(&tally, symbol, extra);
             // RFC 7932 §3.5: a repeat that would give more lengths than the alphabet has symbols
             // should be rejected as invalid; the checked path refuses it.
-            if (reading.index + repeat.added > reading.alphabet_len) break;
+            if (tally.index + repeat.added > tally.alphabet_len) break;
             local.take(decoded.len + extra_bits);
-            prefix_reader.apply_repeat(state, symbol, repeat);
+            count_work(state, repeat.added);
+            prefix_reader.apply_repeat_of(&tally, &reading.ranges, &reading.counts, symbol, repeat);
         }
         count_work(state, 1);
     }
+    reading.index = tally.index;
+    reading.space = tally.space;
+    reading.previous_len = tally.previous_len;
+    reading.repeat_symbol = tally.repeat_symbol;
+    reading.repeat_count = tally.repeat_count;
     local.hand_back(bits);
 }
 

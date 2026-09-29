@@ -192,6 +192,13 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         pub inline fn decode_whole(self: *const Self, comptime checks: bool, bits: u64) WholeSymbol {
             return look_up(root_bits, checks, &self.entries, bits);
         }
+
+        /// As `decode_whole`, from the root alone: for a table that `build_within_root` or
+        /// `build_single` wrote, whose codes all fit the root, so no entry links a second level.
+        pub inline fn decode_root(self: *const Self, bits: u64) WholeSymbol {
+            const entry = self.entries[@as(std.meta.Int(.unsigned, root_bits), @truncate(bits))];
+            return .{ .value = entry.value, .len = entry.len };
+        }
     };
 }
 

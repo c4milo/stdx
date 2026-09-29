@@ -253,19 +253,25 @@ pub fn repeat_extra_bits(symbol: u8) u7 {
     };
 }
 
-/// A code length of 0 to 15 for the next symbol. Inline, with `apply_repeat`, so that the loop of
-/// decoder_fast_lengths.zig keeps the reading's fields in registers between symbols.
+/// A code length of 0 to 15 for the next symbol.
 pub inline fn set_length(state: *State, len: u8) void {
-    const reading = &state.reading;
-    assert(reading.index < reading.alphabet_len);
-    const symbol = reading.index;
-    reading.index += 1;
-    reading.repeat_symbol = 0;
+    set_length_of(&state.reading, &state.reading.ranges, &state.reading.counts, len);
+}
+
+/// As `set_length`, on `tally`: the reading, or the copy of its `index`, `alphabet_len`, `space`,
+/// `previous_len`, `repeat_symbol` and `repeat_count` that the loop of decoder_fast_lengths.zig
+/// holds in registers and writes back once. The runs and the counts stay the reading's. Inline,
+/// with `apply_repeat_of`, so that a copy's fields stay in registers across the call.
+pub inline fn set_length_of(tally: anytype, ranges: *prefix.Ranges, counts: *prefix.Counts, len: u8) void {
+    assert(tally.index < tally.alphabet_len);
+    const symbol = tally.index;
+    tally.index += 1;
+    tally.repeat_symbol = 0;
     if (len == 0) return;
-    reading.ranges.append(len, symbol, 1);
-    reading.counts[len] += 1;
-    reading.previous_len = len;
-    reading.space -= @as(i32, constants.code_lengths_space) >> @intCast(len);
+    ranges.append(len, symbol, 1);
+    counts[len] += 1;
+    tally.previous_len = len;
+    tally.space -= @as(i32, constants.code_lengths_space) >> @intCast(len);
 }
 
 /// What code 16 or 17 gives (RFC 7932 §3.5): 3 or more copies of the previous non-zero length, or
@@ -273,28 +279,33 @@ pub inline fn set_length(state: *State, len: u8) void {
 /// factor 4 or 8; `added` is what the count adds to the lengths the earlier code gave.
 pub const Repeat = struct { count: u32, added: u32, len: u8 };
 
-pub fn repeat_of(reading: *const state_module.Reading, symbol: u8, extra: u32) Repeat {
+/// The repeat a code 16 or 17 gives after the lengths `tally` has read, as `set_length_of` takes it.
+pub inline fn repeat_of(tally: anytype, symbol: u8, extra: u32) Repeat {
     const zeros = symbol == constants.repeat_zero_symbol;
     const extra_bits: u5 = if (zeros) constants.repeat_zero_extra_bits else constants.repeat_previous_extra_bits;
     const factor: u32 = @as(u32, 1) << extra_bits;
-    const earlier: u32 = if (reading.repeat_symbol == symbol) reading.repeat_count else 0;
+    const earlier: u32 = if (tally.repeat_symbol == symbol) tally.repeat_count else 0;
     const count: u32 = if (earlier == 0) constants.repeat_len_min + extra else factor * (earlier - constants.repeat_count_offset) + constants.repeat_len_min + extra;
-    return .{ .count = count, .added = count - earlier, .len = if (zeros) 0 else reading.previous_len };
+    return .{ .count = count, .added = count - earlier, .len = if (zeros) 0 else tally.previous_len };
 }
 
 /// Writes a repeat's lengths, which the caller has checked fit the alphabet.
 pub inline fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
-    const reading = &state.reading;
-    assert(reading.index + repeat.added <= reading.alphabet_len);
-    const first = reading.index;
     count_work(state, repeat.added);
-    reading.index += @intCast(repeat.added);
-    reading.repeat_symbol = symbol;
-    reading.repeat_count = repeat.count;
+    apply_repeat_of(&state.reading, &state.reading.ranges, &state.reading.counts, symbol, repeat);
+}
+
+/// As `apply_repeat`, on `tally`, as `set_length_of` takes it.
+pub inline fn apply_repeat_of(tally: anytype, ranges: *prefix.Ranges, counts: *prefix.Counts, symbol: u8, repeat: Repeat) void {
+    assert(tally.index + repeat.added <= tally.alphabet_len);
+    const first = tally.index;
+    tally.index += @intCast(repeat.added);
+    tally.repeat_symbol = symbol;
+    tally.repeat_count = repeat.count;
     if (repeat.len == 0) return;
-    reading.ranges.append(repeat.len, first, @intCast(repeat.added));
-    reading.counts[repeat.len] += @intCast(repeat.added);
-    reading.space -= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
+    ranges.append(repeat.len, first, @intCast(repeat.added));
+    counts[repeat.len] += @intCast(repeat.added);
+    tally.space -= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
 }
 
 /// A code read, as its table takes it: one symbol, whose code takes no bits, or the symbols with a
