@@ -1239,6 +1239,15 @@ to 12 are reordered and nothing else changes.
     above Google's speed on the N2 for css-1m (2.14), ptt5 (1.23), sao (1.08), dickens-1m (1.04),
     osdb and E.coli (1.03) and lcet10 (1.01), within 5% of it on ten more files, and at 0.72 to
     0.77 on the 16 KiB bodies and 0.49 to 0.61 on the 1 KiB bodies, whose time is the header's.
+  - The runs' build, 1a70294 on its branch and 5e5172c on main, against 5e36c10, paired (runs
+    [36566944125](https://github.com/c4milo/stdx/actions/runs/36566944125) and
+    [36566948045](https://github.com/c4milo/stdx/actions/runs/36566948045); reports in
+    `bench/results/`, dated 2026-09-29, "ranges"): on the N2, 19 files gain in both jobs and none
+    loses, the 1 KiB bodies +31 to +44% (json-1k from 0.48 to 0.70 of Google's speed, html-1k 0.58
+    to 0.81, js-1k 0.50 to 0.70, css-1k 0.61 to 0.80), the 16 KiB bodies +7 to +16%, css-1m +6%,
+    the median +1.8%; on an EPYC 7763 twice, 11 gain and none loses, the 1 KiB bodies +12 to +22%,
+    the median +3.2%. The M1 Pro had shown 15 to 19% fewer header cycles only: the sort's branch
+    misses cost the N2 far more. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
