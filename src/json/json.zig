@@ -41,6 +41,7 @@ test {
     _ = @import("scan.zig");
     _ = @import("wide.zig");
     _ = @import("number.zig");
+    _ = @import("containers.zig");
     _ = @import("format.zig");
     _ = encoder;
     _ = @import("encoder/text_writer.zig");

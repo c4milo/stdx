@@ -16,6 +16,7 @@ const Claims = @import("../claims.zig").Claims;
 const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
 const Utf8 = @import("../utf8.zig").Utf8;
+const Containers = @import("../containers.zig").Containers;
 const Number = @import("../number.zig").Number;
 const wide = @import("../wide.zig");
 const content = @import("encoder_content.zig");
@@ -85,8 +86,8 @@ pub const Position = enum(u8) {
 const Part = enum(u8) { between_tokens, opening, content, closing, done, refused };
 
 pub const Encoder = struct {
-    /// Bit `d` holds when the container at depth `d + 1` is an object, and is clear for an array.
-    containers: std.StaticBitSet(constants.depth_max),
+    /// The kind of each open container.
+    containers: Containers,
     depth: u16,
     position: Position,
     framing: Framing,
@@ -110,7 +111,7 @@ pub const Encoder = struct {
     /// target (`codec.Features`). `init` again after `done` or after an error.
     pub fn init(self: *Encoder, framing: Framing, features: codec.Features) void {
         self.* = .{
-            .containers = .initEmpty(),
+            .containers = .empty,
             .depth = 0,
             .position = .text_start,
             .framing = framing,
@@ -257,12 +258,12 @@ pub const Encoder = struct {
     pub fn advance(self: *Encoder, kind: Kind) void {
         switch (kind) {
             .begin_object, .begin_array => {
-                self.containers.setValue(self.depth, kind == .begin_object);
+                self.containers.set(self.depth, kind == .begin_object);
                 self.depth += 1;
                 self.position = if (kind == .begin_object) .object_first else .array_first;
             },
             .end_object, .end_array => {
-                assert(self.depth > 0 and self.containers.isSet(self.depth - 1) == (kind == .end_object));
+                assert(self.depth > 0 and self.containers.is_object(self.depth - 1) == (kind == .end_object));
                 self.depth -= 1;
                 self.after_value();
             },
@@ -276,7 +277,7 @@ pub const Encoder = struct {
         if (self.depth == 0) {
             self.position = .text_end;
         } else {
-            self.position = if (self.containers.isSet(self.depth - 1)) .object_next else .array_next;
+            self.position = if (self.containers.is_object(self.depth - 1)) .object_next else .array_next;
         }
     }
 

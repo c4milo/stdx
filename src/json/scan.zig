@@ -93,23 +93,32 @@ fn load(comptime width: usize, octets: []const u8) Block(width) {
 // one across a call on AVX-512, whose mask registers hold it ("Cannot emit physreg copy
 // instruction", CI run 36377079320 on x86-64).
 
+/// Whether NEON's word of 4 bits a lane stands in for a bit a lane: on aarch64, at 16 octets.
+fn has_nibbles(comptime width: usize) bool {
+    return builtin.cpu.arch == .aarch64 and width == constants.vector_len;
+}
+
+/// NEON gathers no bit per lane into a register. Shifted right by 4 and narrowed as 16-bit lanes,
+/// octets of all ones or all zeros leave 4 bits each in one word, the lowest lane lowest: a SHRN,
+/// where x86-64 takes PMOVMSKB (docs/costs.md, the 32-octet vector compare).
+inline fn nibbles_of(comptime width: usize, lanes: Lanes(width)) std.meta.Int(.unsigned, width * constants.nibble_bits) {
+    const octets = @select(u8, lanes, splat(width, std.math.maxInt(u8)), splat(width, 0));
+    const halves: @Vector(width / @sizeOf(u16), u16) = @bitCast(octets);
+    const narrowed: @Vector(width / @sizeOf(u16), u8) = @truncate(halves >> @splat(constants.nibble_bits));
+    return @bitCast(narrowed);
+}
+
+/// Whether any lane holds. At 16 octets on aarch64, the word `first_lane` counts in: a UMAXV
+/// across the lanes waited longer, and each block of a string's stop paid it (design §8 step 18).
 inline fn any(comptime width: usize, lanes: Lanes(width)) bool {
+    if (comptime has_nibbles(width)) return nibbles_of(width, lanes) != 0;
     return @reduce(.Or, lanes);
 }
 
 /// The first lane that holds, of lanes of which at least one does.
 inline fn first_lane(comptime width: usize, lanes: Lanes(width)) usize {
     assert(any(width, lanes));
-    if (builtin.cpu.arch == .aarch64) {
-        // NEON gathers no bit per lane into a register. Shifted right by 4 and narrowed as 16-bit
-        // lanes, octets of all ones or all zeros leave 4 bits each in one word, the lowest lane
-        // lowest: a SHRN, where x86-64 takes PMOVMSKB (docs/costs.md, the 32-octet vector compare).
-        const octets = @select(u8, lanes, splat(width, std.math.maxInt(u8)), splat(width, 0));
-        const halves: @Vector(width / @sizeOf(u16), u16) = @bitCast(octets);
-        const narrowed: @Vector(width / @sizeOf(u16), u8) = @truncate(halves >> @splat(constants.nibble_bits));
-        const nibbles: std.meta.Int(.unsigned, width * constants.nibble_bits) = @bitCast(narrowed);
-        return @ctz(nibbles) / constants.nibble_bits;
-    }
+    if (builtin.cpu.arch == .aarch64) return @ctz(nibbles_of(width, lanes)) / constants.nibble_bits;
     if (builtin.cpu.arch.endian() == .little) {
         const bits: std.meta.Int(.unsigned, width) = @bitCast(lanes);
         return @ctz(bits);

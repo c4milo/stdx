@@ -20,6 +20,7 @@ const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
 const Piece = framing_file.Piece;
 const Utf8 = @import("../utf8.zig").Utf8;
+const Containers = @import("../containers.zig").Containers;
 const wide = @import("../wide.zig");
 const strings = @import("decoder_string.zig");
 const values = @import("decoder_value.zig");
@@ -133,8 +134,8 @@ pub const Escape = enum(u8) {
 };
 
 pub const Decoder = struct {
-    /// Bit `d` holds when the container at depth `d + 1` is an object, and is clear for an array.
-    containers: std.StaticBitSet(constants.depth_max),
+    /// The kind of each open container.
+    containers: Containers,
     depth: u16,
     expect: Expect,
     framing: Framing,
@@ -166,7 +167,7 @@ pub const Decoder = struct {
     /// target (`codec.Features`). `init` again after `done` or after an error.
     pub fn init(self: *Decoder, framing: Framing, features: codec.Features) void {
         self.* = .{
-            .containers = .initEmpty(),
+            .containers = .empty,
             .depth = 0,
             .expect = .value,
             .framing = framing,
@@ -361,7 +362,7 @@ pub const Decoder = struct {
     }
 
     fn separator_or_end(self: *Decoder, octet: u8) Error!?Outcome {
-        const in_object = self.containers.isSet(self.depth - 1);
+        const in_object = self.containers.is_object(self.depth - 1);
         if (octet == constants.value_separator) {
             self.expect = if (in_object) .name else .value;
             return null;
@@ -376,14 +377,14 @@ pub const Decoder = struct {
         // RFC 8259 §9: an implementation may limit the depth of nesting.
         if (self.depth == constants.depth_max) return error.DepthTooLarge;
         const object = octet == constants.begin_object;
-        self.containers.setValue(self.depth, object);
+        self.containers.set(self.depth, object);
         self.depth += 1;
         self.expect = if (object) .name_or_end_object else .value_or_end_array;
         return .{ .status = .token, .kind = if (object) .begin_object else .begin_array };
     }
 
     pub fn end_container(self: *Decoder, kind: Kind) Outcome {
-        assert(self.depth > 0 and self.containers.isSet(self.depth - 1) == (kind == .end_object));
+        assert(self.depth > 0 and self.containers.is_object(self.depth - 1) == (kind == .end_object));
         self.depth -= 1;
         self.value_ended(kind);
         return .{ .status = .token, .kind = kind };
