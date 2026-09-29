@@ -1865,6 +1865,25 @@ to 12 are reordered and nothing else changes.
   ASCII text 25% to 45% on an EPYC 7763, and one inlined into the token loops cost hex strings
   and tokens 5% to 10%, since x86-64 saves no vector register across a call.
 
+  **The transfers, 2026-09-29.** With the lookup in, perf run
+  [36580319580](https://github.com/c4milo/stdx/actions/runs/36580319580) on the N2 put 31% of
+  encoding the non-ASCII text on one line, the transfer from a vector to a word that `nibbles_of`
+  ends in, and 5% more on the first lane's; the lookup itself took 4%. Each block of the walk paid
+  two transfers, one to ask whether it was ASCII and one for the stop test, and a stop a third for
+  its lane. Run [36581592492](https://github.com/c4milo/stdx/actions/runs/36581592492) over the
+  escape-dense strings put a quarter of json-1m's time on the same transfers, and 35% to 40% on
+  the scalar handling of each escape: the dependent load of the stop's octet, the escape's table
+  and the test of the octet after the walk. Two constructions, both in the walk:
+  - Once a block of a run is not ASCII, the walk stops asking whether the next is; each block after
+    it pays the stop test alone, since the lookup's check costs less than the question. A run that
+    starts with a non-ASCII octet skips the question from its first block.
+  - An ASCII block is classified once, into a word of the lanes an escape or a non-ASCII octet ends
+    the run at, one transfer for both questions, and a block with none is taken by a constant
+    stride, so no block's address waits on a transfer. A first cut kept the word across an escape
+    to consume the block's later stops; its bookkeeping cost ASCII text with escapes 15% on the
+    M-series host, and the cut walk's block loop, two blocks a transfer, gained nothing there, so
+    neither reached a runner.
+
   **Where token decoding stands, 2026-09-29.** bench-profile run
   [36522100520](https://github.com/c4milo/stdx/actions/runs/36522100520) at 1247c3e counted, per
   token on the N2: decoding CLDR's texts, stdx 33.5 cycles and 136.8 instructions against
