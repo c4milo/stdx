@@ -38,12 +38,12 @@
         // by a build given -Doracles, like the oracles. The WHATWG page is not here: Zig fetches
         // archives only, so tools/corpus/fetch.sh fetches it and checks its pinned SHA-256.
         .canterbury = .{
-            .url = "https://corpus.canterbury.ac.nz/resources/cantrbry.tar.gz",
+            .url = "https://github.com/c4milo/stdx/releases/download/corpora/cantrbry.tar.gz",
             .hash = "N-V-__8AAKDjKgCAFNUqJzXJu93EJ6LO0coCiS1wieFvCNLW",
             .lazy = true,
         },
         .canterbury_large = .{
-            .url = "https://corpus.canterbury.ac.nz/resources/large.tar.gz",
+            .url = "https://github.com/c4milo/stdx/releases/download/corpora/large.tar.gz",
             .hash = "N-V-__8AALpHqgAub1rhde0Dod78bzmNWo40DW0SLlzHPpvE",
             .lazy = true,
         },

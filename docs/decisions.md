@@ -614,7 +614,11 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
     **The corpora.** Each is a lazy package pinned by hash, fetched by `tools/` and `bench/` and
     never by the library:
     - Silesia, the 12-file corpus at `https://sun.aei.polsl.pl/~sdeor/corpus/silesia.zip`.
-    - Canterbury: `cantrbry.tar.gz` and `large.tar.gz` from `https://corpus.canterbury.ac.nz`.
+    - Canterbury: `cantrbry.tar.gz` and `large.tar.gz` from `https://corpus.canterbury.ac.nz`;
+      since 2026-09-29 from the `corpora` release of this repository, a copy of the two tarballs
+      that the pinned hashes verify, after canterbury.ac.nz put its site behind a bot-management
+      rule that turns Zig's fetch away (every run failed at the fetch from 03:18 UTC that day; the
+      copies came through the Internet Archive). The owner ruled the mirror the same day.
     - HTTP-shaped payloads: HTML, JSON, JavaScript and CSS, each cut to 1 KiB, 16 KiB and 1 MiB by
       a tool, from files whose licences let stdx fetch and run them. The owner chose the sources
       on 2026-09-25: the WHATWG HTML Standard's single page (CC-BY 4.0, about 13 MB); the Unicode
