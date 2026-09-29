@@ -338,19 +338,62 @@ fn utf8_run(comptime width: usize, octets: []const u8) Run {
 
 /// `hex_len_scalar`, `width` octets at a time (claim J2): each nibble plus `'0'`, and plus the
 /// distance from `'9' + 1` to `'a'` when it is 10 or more, the two digits of each octet interleaved.
+/// Octets the whole blocks leave take one more block, which overlaps the last and writes the same
+/// digits where it does; fewer than a block take `hex_len_short`.
 pub fn hex_len_vector(comptime width: usize, input: []const u8, output: []u8) usize {
     const len = @min(input.len, output.len / constants.hex_digits_per_octet);
-    const digits_len = constants.hex_digits_per_octet * width;
+    if (len < width) {
+        if (width > constants.vector_len and len >= constants.vector_len) return hex_len_vector(constants.vector_len, input[0..len], output);
+        return hex_len_short(input[0..len], output);
+    }
     var index: usize = 0;
     for (0..len / width) |_| {
-        const block = load(width, input[index..]);
-        const high = hex_digits(width, block >> @splat(constants.nibble_bits));
-        const low = hex_digits(width, block & splat(width, constants.nibble_mask));
-        const digits: @Vector(digits_len, u8) = @shuffle(u8, high, low, interleave_mask(width));
-        output[constants.hex_digits_per_octet * index ..][0..digits_len].* = digits;
+        hex_block(width, input[index..][0..width], output[constants.hex_digits_per_octet * index ..]);
         index += width;
     }
-    return index + hex_len_scalar(input[index..len], output[constants.hex_digits_per_octet * index ..]);
+    if (index < len) hex_block(width, input[len - width ..][0..width], output[constants.hex_digits_per_octet * (len - width) ..]);
+    return len;
+}
+
+/// Writes the two digits of each octet of `input`, one block of them, at the start of `output`.
+inline fn hex_block(comptime width: usize, input: *const [width]u8, output: []u8) void {
+    const digits_len = constants.hex_digits_per_octet * width;
+    const block: Block(width) = input.*;
+    const high = hex_digits(width, block >> @splat(constants.nibble_bits));
+    const low = hex_digits(width, block & splat(width, constants.nibble_mask));
+    const digits: @Vector(digits_len, u8) = @shuffle(u8, high, low, interleave_mask(width));
+    output[0..digits_len].* = digits;
+}
+
+/// `hex_len_vector` for fewer than 16 octets. From 4 on, one block holds the first and the last
+/// `half` octets, 8 for 8 to 15 and else 4, and each half's digits go to the output's start and
+/// end, where they overlap and write the same digits. Below 4 octets, an octet at a time. Inline,
+/// so a short hex string pays no call: out of line, qlog's 8-octet strings encoded 6% faster with
+/// claim J2 off on the N2 (design §8 step 18).
+pub inline fn hex_len_short(input: []const u8, output: []u8) usize {
+    const len = @min(input.len, output.len / constants.hex_digits_per_octet);
+    assert(len < constants.vector_len);
+    if (len >= constants.word_len) {
+        hex_halves(constants.word_len, input[0..len], output);
+    } else if (len >= half_word_len) {
+        hex_halves(half_word_len, input[0..len], output);
+    } else return hex_len_scalar(input[0..len], output);
+    return len;
+}
+
+/// Writes the digits of `input`, of `half` to `2 * half - 1` octets, from one block of its first and
+/// its last `half` octets.
+inline fn hex_halves(comptime half: usize, input: []const u8, output: []u8) void {
+    const halves_len = halves_joined * half;
+    const half_digits_len = constants.hex_digits_per_octet * half;
+    const len = input.len;
+    assert(len >= half and len < halves_len and output.len >= constants.hex_digits_per_octet * len);
+    const unused: [constants.vector_len - halves_len]u8 = @splat(0);
+    const block: [constants.vector_len]u8 = input[0..half].* ++ input[len - half ..][0..half].* ++ unused;
+    var digits: [constants.hex_digits_per_octet * constants.vector_len]u8 = undefined;
+    hex_block(constants.vector_len, &block, &digits);
+    output[0..half_digits_len].* = digits[0..half_digits_len].*;
+    output[constants.hex_digits_per_octet * len - half_digits_len ..][0..half_digits_len].* = digits[half_digits_len..][0..half_digits_len].*;
 }
 
 /// The lowercase hexadecimal digit of each lane, whose value is below 16.

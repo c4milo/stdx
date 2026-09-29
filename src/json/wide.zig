@@ -75,8 +75,9 @@ noinline fn plain_len_past_first(level: Level, octets: []const u8) usize {
     };
 }
 
-/// `scan.hex_len_vector` at `level`'s width.
+/// `scan.hex_len_vector` at `level`'s width, and a string shorter than a block inline.
 pub inline fn hex_len(level: Level, input: []const u8, output: []u8) usize {
+    if (input.len < constants.vector_len) return scan.hex_len_short(input, output);
     if (comptime !has_kernels) return scan.hex_len_vector(constants.vector_len, input, output);
     if (level == .target or input.len <= level.width()) return scan.hex_len_vector(constants.vector_len, input, output);
     return switch (level) {
