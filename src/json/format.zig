@@ -35,18 +35,45 @@ const powers_of_ten = powers: {
 /// The room one number's text takes at most.
 pub const Buffer = [constants.number_text_len_max]u8;
 
+/// The digits a table entry holds, and the values one entry covers: 100, "00" to "99".
+const pair_len = 2;
+const pair_base = constants.decimal_base * constants.decimal_base;
+
+/// The two digits of each value below 100, the tens digit first.
+const digit_pairs = pairs: {
+    var table: [pair_base][pair_len]u8 = undefined;
+    for (&table, 0..) |*pair, value| {
+        pair.* = .{ constants.zero + value / constants.decimal_base, constants.zero + value % constants.decimal_base };
+    }
+    break :pairs table;
+};
+
 /// Writes the decimal digits of `value` so that they end at `end`, with zeros before them up to
-/// `digits_min` digits, and returns where they start.
+/// `digits_min` digits, and returns where they start. It takes two digits a step from
+/// `digit_pairs`: a digit a step, the digits took about 6% of encoding qlog's records on the N2
+/// (design §8 step 18).
 fn digits_ending_at(buffer: *Buffer, end: usize, value: u64, digits_min: usize) usize {
     var start = end;
     var rest = value;
-    for (0..constants.unsigned_digits_max) |written| {
-        if (rest == 0 and written >= digits_min and written > 0) break;
-        start -= 1;
-        buffer[start] = constants.zero + @as(u8, @intCast(rest % constants.decimal_base));
-        rest /= constants.decimal_base;
+    for (0..constants.unsigned_digits_max / pair_len) |_| {
+        if (rest < pair_base) break;
+        start -= pair_len;
+        buffer[start..][0..pair_len].* = digit_pairs[rest % pair_base];
+        rest /= pair_base;
     }
-    assert(rest == 0 and end - start >= @max(digits_min, 1));
+    if (rest >= constants.decimal_base) {
+        start -= pair_len;
+        buffer[start..][0..pair_len].* = digit_pairs[rest];
+    } else {
+        start -= 1;
+        buffer[start] = constants.zero + @as(u8, @intCast(rest));
+    }
+    for (0..constants.unsigned_digits_max) |_| {
+        if (end - start >= digits_min) break;
+        start -= 1;
+        buffer[start] = constants.zero;
+    }
+    assert(end - start >= @max(digits_min, 1));
     return start;
 }
 
@@ -109,6 +136,22 @@ test "a decimal is written with exactly its fraction's digits" {
         decimal(&buffer, .{ .negative = true, .integer = std.math.maxInt(u64), .fraction = 9999999999999999999, .fraction_digits = 19 }),
     );
     try testing.expectEqual(constants.number_text_len_max, decimal(&buffer, .{ .negative = true, .integer = std.math.maxInt(u64), .fraction = 0, .fraction_digits = 19 }).len);
+}
+
+test "every text written holds the digits std.fmt writes for its value" {
+    var buffer: Buffer = undefined;
+    var expected: [constants.number_text_len_max]u8 = undefined;
+    var generator = codec.split.Generator.init(2);
+    for (0..10_000) |_| {
+        const value = generator.next() >> @intCast(generator.below(64));
+        try testing.expectEqualStrings(try std.fmt.bufPrint(&expected, "{d}", .{value}), unsigned(&buffer, value));
+        const negative: i64 = @bitCast(generator.next());
+        try testing.expectEqualStrings(try std.fmt.bufPrint(&expected, "{d}", .{negative}), signed(&buffer, negative));
+        const digits: u5 = @intCast(1 + generator.below(constants.fraction_digits_max));
+        const fraction = generator.next() % powers_of_ten[digits];
+        const text = try std.fmt.bufPrint(&expected, "{d}.{d:0>[2]}", .{ value, fraction, digits });
+        try testing.expectEqualStrings(text, decimal(&buffer, .{ .integer = value, .fraction = fraction, .fraction_digits = digits }));
+    }
 }
 
 test "every text written is a number of RFC 8259 §6" {
