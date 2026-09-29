@@ -9,6 +9,7 @@
 //! the compiler knows their lengths: indices into them cost each access a check (decision 17).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
 const wide = @import("wide.zig");
@@ -17,6 +18,14 @@ const Claims = @import("claims.zig").Claims;
 /// How `Walk.take_blocks` stopped: at an octet that stops the run, which starts the input; short of
 /// a block, where `Walk.take_run` goes on; or at an octet UTF-8 rules out.
 pub const Stop = enum { octet, short, ruled_out };
+
+/// Whether the walk takes a run's ASCII blocks in a loop of their own, `take_ascii`, before the
+/// blocks the UTF-8 check judges. aarch64's registers hold both loops' state, and the second loop
+/// gained 5% to 7% on non-ASCII text and on ASCII text with escapes there; x86-64's 16 registers
+/// of each kind spilled it to the stack, and calling either loop out of line cost a run more than
+/// the spills cost a block, so there `scan.string_stop` asks the ASCII question inside the one
+/// loop (design §8 step 18).
+const two_loops = builtin.cpu.arch != .x86_64;
 
 pub const Walk = struct {
     input: []const u8,
@@ -70,7 +79,7 @@ pub const Walk = struct {
             if (self.input.len < constants.vector_len or self.output.len < constants.vector_len) break;
             const block: @Vector(constants.vector_len, u8) = self.input[0..constants.vector_len].*;
             self.output[0..constants.vector_len].* = block;
-            if (scan.string_stop(self.previous, block, &self.ascii_so_far)) |stop| {
+            if (scan.string_stop(self.previous, block, self.input[0..constants.vector_len], &self.ascii_so_far)) |stop| {
                 if (stop >= scan.ruled_out) return .ruled_out;
                 self.input = self.input[stop..];
                 self.output = self.output[stop..];
@@ -97,7 +106,7 @@ pub const Walk = struct {
     pub inline fn take_to_stop(self: *Walk, comptime claims: Claims, level: wide.Level, input: []const u8, output: []u8) bool {
         // A run that starts with a non-ASCII octet goes straight to the UTF-8 walk.
         if (claims.utf8_vectors and self.ascii_so_far and self.input.len > 0 and self.input[0] >= constants.non_ascii_min) self.ascii_so_far = false;
-        if (claims.utf8_vectors and self.ascii_so_far) {
+        if (claims.utf8_vectors and self.ascii_so_far and comptime two_loops) {
             switch (self.take_ascii(input.len)) {
                 .octet => return true,
                 .short => {

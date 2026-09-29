@@ -203,18 +203,24 @@ pub inline fn is_quotation_mark(block: Block(constants.vector_len), lane: usize)
 /// of ASCII after one skips the UTF-8 check, which it cannot fail. For the loops that copy a block
 /// as they check it: checked a run at a time, a text whose lines end in escapes restarted its run
 /// at each, and the check took under half of its time (design §8 step 18).
-pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(constants.vector_len), ascii_so_far: *bool) ?usize {
+pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(constants.vector_len), octets: *const [constants.vector_len]u8, ascii_so_far: *bool) ?usize {
     const width = constants.vector_len;
-    const escapes = escape_lanes(width, block);
-    // While the run has been ASCII, a test for ASCII first and a return of its own, so the UTF-8
-    // check does not run for a block of ASCII: computed beside it and selected, it ran for every
-    // block of a text of escapes. Once a block is not ASCII, the test stops: each is a transfer
-    // from a vector to a word, and the check with the lookup costs less than the test, so a run of
-    // non-ASCII text pays one transfer a block, the stop test's, and not two (design §8 step 18).
+    // While the run has been ASCII, one word answers both questions, whether the block is ASCII
+    // and where it stops, in one transfer from a vector to a word; a block of ASCII with no stop
+    // returns here, so the UTF-8 check does not run for it. Once a block is not ASCII, the question
+    // stops, and each block after it pays the stop test alone: the check with the lookup costs
+    // less than the question, a transfer of its own (design §8 step 18). On aarch64 the walk takes
+    // its ASCII blocks in a loop of their own (string_walk.zig), and reaches this test with the
+    // question answered; on x86-64 that second loop spilled the state of both to the stack, so
+    // there this one loop holds them, and the question is asked here.
     if (ascii_so_far.*) {
-        if (is_ascii(block)) return if (any(width, escapes)) first_lane(width, escapes) else null;
+        const stops = ascii_stops(block);
+        if (stops == 0) return null;
+        const lane = word_first(stops);
+        if (octets[lane] < constants.non_ascii_min) return lane;
         ascii_so_far.* = false;
     }
+    const escapes = escape_lanes(width, block);
     const errors = scan_utf8.error_lanes(width, previous, block);
     const stops = escapes | errors;
     if (!any(width, stops)) return null;
