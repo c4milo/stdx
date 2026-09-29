@@ -236,8 +236,8 @@ inline fn iterations_max(loop: *const Loop) usize {
 }
 
 /// Straight-line commands one after another, while each goes on along the straight path of
-/// decoder_fast_command.zig: a function of its own, with the loop's state in locals, so that the
-/// compiler keeps them in registers, and hands them back through `shared` when it returns. Returns
+/// decoder_fast_command.zig: a function of its own, with the loop's state and the phase in locals,
+/// so that the compiler keeps them in registers, and hands them back when it returns. Returns
 /// the link the chain goes on from, the phase the last command stopped at, or `stop` for the
 /// checked path. A chain starts once the input's margin holds and the buffer is refilled, and, in
 /// the margin's mode, only while the margin holds; the checked path then starts the mode that checks
@@ -245,14 +245,17 @@ inline fn iterations_max(loop: *const Loop) usize {
 noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: *Loop, literal_tables: *LiteralTables, state: *State) Link {
     var loop = shared.*;
     defer shared.* = loop;
+    // The straight path moves the phase several times a command; the state needs it where this
+    // function returns.
+    var phase = state.phase;
+    defer state.phase = phase;
     // Each iteration that goes on writes a copy, a word or a run of literals, or takes a symbol's
     // bits, so the room and the input end the loop; one that does neither returns.
     for (0..iterations_max(&loop)) |_| {
         if (room == .margin and loop.room() < output_margin) return .stop;
-        const phase = state.phase;
         if (reads_no_input(phase)) return link_of(phase);
         if (!ready(claims, &loop)) return .stop;
-        const link = straight.straight_from(claims, room, &loop, literal_tables, state);
+        const link = straight.straight_from(claims, room, &loop, literal_tables, state, &phase);
         if (link != .go_on) return link;
     }
     unreachable;
@@ -336,7 +339,7 @@ inline fn on_literal(comptime claims: Claims, comptime room: Room, loop: *Loop, 
         return .go_on;
     }
     if (room == .each_write and loop.room() == 0) return .stop;
-    literal_runs.literals(claims, room, loop, literal_tables, state);
+    literal_runs.literals(claims, room, loop, literal_tables, state, &state.phase);
     if (state.phase != .distance) return .go_on;
     return to_distance(claims, room, loop);
 }

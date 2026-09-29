@@ -15,6 +15,7 @@ const commands = @import("../decoder_commands.zig");
 const prefix_reader = @import("../decoder_prefix.zig");
 const fast = @import("decoder_fast.zig");
 const State = state_module.State;
+const Phase = state_module.Phase;
 const Loop = fast.Loop;
 const refill = fast.refill;
 const produce = fast.produce;
@@ -35,9 +36,9 @@ const Tables = [constants.literal_contexts_count]*const LiteralTable;
 
 /// Up to `chunk_len_max` literals of the current block, each with the tree its context picks (RFC
 /// 7932 §7.1, §7.3), refilling while the input's margin holds; and the phase after the command's
-/// last literal. The caller has checked that the buffer holds a code's bits or that the margin
-/// holds, so the run writes at least one literal.
-pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *LiteralTables, state: *State) void {
+/// last literal, into `phase`. The caller has checked that the buffer holds a code's bits or that
+/// the margin holds, so the run writes at least one literal.
+pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, phase: *Phase) void {
     assert(state.command.insert_left > 0);
     assert(loop.count >= constants.code_len_max or loop.has_input_margin());
     const blocks = commands.blocks_of(state, .literal);
@@ -55,7 +56,7 @@ pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: 
     if (blocks.types_count >= constants.block_switch_types_min) blocks.count_left -= written;
     state.command.insert_left -= written;
     produce(state, written);
-    if (state.command.insert_left == 0) state.phase = commands.after_literals(state);
+    if (state.command.insert_left == 0) phase.* = commands.after_literals(state);
 }
 
 /// The literal table of each context of `block_type`, from its row of the literal context map (RFC
