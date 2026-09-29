@@ -231,9 +231,10 @@ pub fn main(init: std.process.Init) !void {
         return out.flush();
     }
     var losses: std.ArrayList(Loss) = .empty;
+    const encoded = try encoded_of(arena, all);
     const decoding_rows = try arena.alloc(baselines.Row, all.len);
-    const encoding_rows = try arena.alloc(baselines.Row, all.len);
-    const unchecked_rows = try arena.alloc(baselines.Row, all.len);
+    const encoding_rows = try arena.alloc(baselines.Row, encoded.len);
+    const unchecked_rows = try arena.alloc(baselines.Row, encoded.len);
 
     try header(out, "Decoding", &decoder_claims, "Octets are the text's.", false);
     for (all, decoding_rows) |*workload, *row| {
@@ -244,7 +245,7 @@ pub fn main(init: std.process.Init) !void {
         try out.flush();
     }
     try header(out, "Encoding", &encoder_claims, "Octets are the ones written.", true);
-    for (all, encoding_rows, unchecked_rows) |*workload, *row, *unchecked_row| {
+    for (encoded, encoding_rows, unchecked_rows) |*workload, *row, *unchecked_row| {
         const rates = try time(arena, io, workload, encoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
         unchecked_row.* = baseline_row(workload, rates, workload.octets, unchecked_index);
@@ -271,7 +272,7 @@ fn profile(arena: std.mem.Allocator, out: *std.Io.Writer, all: []const Workload)
     if (comptime !timing.counters.available) return json_profile.unavailable(out, "they are read through Linux's perf_event_open, and this host is not Linux");
     const open = timing.counters.Counters.open() catch return json_profile.unavailable(out, "perf_event_open refused them");
     try profile_side(arena, out, &open, all, "decoding", decoding, null);
-    try profile_side(arena, out, &open, all, "encoding", encoding, unchecked_index);
+    try profile_side(arena, out, &open, try encoded_of(arena, all), "encoding", encoding, unchecked_index);
 }
 
 fn profile_side(arena: std.mem.Allocator, out: *std.Io.Writer, open: *const timing.counters.Counters, all: []const Workload, side_name: []const u8, comptime build: Build, unchecked_place: ?usize) !void {
@@ -287,6 +288,15 @@ fn profile_side(arena: std.mem.Allocator, out: *std.Io.Writer, open: *const timi
         try json_profile.rows(out, open, workload, &side.operations, side.octets, places);
         try out.flush();
     }
+}
+
+/// The workloads of `all` that are encoded as well as decoded.
+fn encoded_of(arena: std.mem.Allocator, all: []const Workload) ![]const Workload {
+    var encoded: std.ArrayList(Workload) = .empty;
+    for (all) |workload| {
+        if (!workload.decode_only) try encoded.append(arena, workload);
+    }
+    return encoded.toOwnedSlice(arena);
 }
 
 /// The workloads, from the corpus files and the CLDR directory `args` name.
@@ -309,7 +319,10 @@ fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) ![]con
     try all.append(arena, try workloads.qlog(arena));
     try all.appendSlice(arena, try workloads.strings(arena, files.items));
     for (files.items) |file| {
-        if (std.mem.eql(u8, file.name, "silesia/dickens")) try all.append(arena, try workloads.non_ascii(arena, file.octets));
+        if (!std.mem.eql(u8, file.name, "silesia/dickens")) continue;
+        const raw = try workloads.non_ascii(arena, file.octets);
+        try all.append(arena, raw);
+        try all.append(arena, try workloads.non_ascii_escaped(arena, &raw));
     }
     try all.appendSlice(arena, try workloads.hex(arena, files.items));
     return all.toOwnedSlice(arena);

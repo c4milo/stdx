@@ -7,7 +7,9 @@
 //! - Each text file of the corpus, up to 1 MiB and as far as it is UTF-8, as one string: a long
 //!   run the string scans of claims J1, J3 and J5 take.
 //! - dickens's first MiB with its letters written as Cyrillic and CJK characters: UTF-8 of two
-//!   and three octets, claim J5's input.
+//!   and three octets, claim J5's input. Decoded a second time with each of those characters
+//!   written as a `\u` escape, as Python's json.dumps writes them by default: the UTF-8 the
+//!   decoder writes for an escape.
 //! - Each corpus file's first 256 KiB as a hex string: claim J2's input.
 //!
 //! Every text is written, and every CLDR text read, by stdx with every path scalar, the reference,
@@ -31,6 +33,9 @@ pub const Workload = struct {
     items: []const []const Item,
     /// The longest name, string or number a text holds, which the decoder's output must fit.
     content_len_max: usize,
+    /// Whether the texts are not the tokens' encoding, and the workload is decoded only: stdx's
+    /// encoder writes no `\u` escape for a character it can write as it is (RFC 8259 §7).
+    decode_only: bool = false,
 };
 
 /// A corpus file: its name and octets.
@@ -215,6 +220,30 @@ pub fn non_ascii(arena: std.mem.Allocator, dickens: []const u8) !Workload {
         try octets.appendSlice(arena, buffer[0..len]);
     }
     return one_token(arena, "string: dickens as Cyrillic and CJK", .{ .token = .{ .string = .last }, .octets = octets.items });
+}
+
+/// `raw`, the non-ASCII text, with each character of two octets or more written as a `\u` escape of
+/// four lowercase digits, or two for a character past U+FFFF (RFC 8259 §7), decoded only.
+pub fn non_ascii_escaped(arena: std.mem.Allocator, raw: *const Workload) !Workload {
+    var escaped: std.ArrayList(u8) = .empty;
+    const text = raw.texts[0];
+    var index: usize = 0;
+    while (index < text.len) {
+        const len = std.unicode.utf8ByteSequenceLength(text[index]) catch unreachable;
+        const code_point = std.unicode.utf8Decode(text[index..][0..len]) catch unreachable;
+        index += len;
+        if (len == 1) {
+            try escaped.append(arena, text[index - 1]);
+            continue;
+        }
+        var units: [2]u16 = undefined;
+        const units_len: usize = if (code_point < 0x10000) 1 else 2;
+        if (units_len == 1) units[0] = @intCast(code_point) else units = .{ @intCast(0xd800 + ((code_point - 0x10000) >> 10)), @intCast(0xdc00 + ((code_point - 0x10000) & 0x3ff)) };
+        for (units[0..units_len]) |unit| try escaped.print(arena, "\\u{x:0>4}", .{unit});
+    }
+    const texts = try arena.alloc([]const u8, 1);
+    texts[0] = escaped.items;
+    return .{ .name = "string: dickens as Cyrillic and CJK, as \\u escapes", .framing = raw.framing, .texts = texts, .octets = escaped.items.len, .items = raw.items, .content_len_max = raw.content_len_max, .decode_only = true };
 }
 
 /// Each corpus file's first 256 KiB as a hex string.

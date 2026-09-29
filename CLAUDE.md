@@ -327,8 +327,9 @@ Change this section when a step adds or renames a command.
   many tokens a call (decision 33), with every claim on, each of claims J1, J2, J3, J5, J7, J8, J9,
   J10 and J11 off in turn, and every one off, one token a call with every claim on, and the encoder
   with J11's loop's runtime safety checks off as a caller may choose (decision 35), over CLDR's
-  JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text
-  and hex strings, beside simdjson, yyjson and Zig's std.json: every candidate interleaved in one
+  JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text,
+  decoded also with its characters as `\u` escapes, and hex strings, beside simdjson, yyjson and
+  Zig's std.json: every candidate interleaved in one
   run, the median of five runs with the spread, and the losses listed (decision 27). A macOS host
   builds it without simdjson, as Zig 0.16.0 builds no libc++ there. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.
