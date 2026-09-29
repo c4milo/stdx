@@ -16,9 +16,10 @@ pub const depth_max: u16 = 1024;
 /// are claim J7's, which the caller's features pick at run time (decision 30).
 pub const vector_len: usize = 16;
 
-/// The blocks `scan_utf8.valid` judges as one group: four, 64 octets, so that a group of ASCII
-/// costs one test and a group of other text one transfer of its verdict to a scalar. `is_utf8`
-/// runs alone, outside the loops, so the group is its own limit and not the loops'.
+/// The blocks `scan_utf8.valid_by` judges as one group: four, 64 octets at 16 lanes, 128 at AVX2's
+/// 32 and 256 at AVX-512's 64, so that a group of ASCII costs one test and a group of other text one
+/// transfer of its verdict to a scalar. `is_utf8` runs alone, outside the loops, so the group is its
+/// own limit and not the loops'.
 pub const utf8_group_blocks: usize = 4;
 /// The octets of one group of `scan_utf8.valid`: `utf8_group_blocks` blocks of `vector_len`.
 pub const utf8_group_len: usize = utf8_group_blocks * vector_len;
@@ -27,6 +28,11 @@ pub const utf8_group_len: usize = utf8_group_blocks * vector_len;
 /// that level (decision 21), which the module calls when the caller's features name it (decision
 /// 30).
 pub const avx2_vector_len: usize = 32;
+
+/// The octets `is_utf8`'s check takes at once on x86-64 with AVX-512: 64, in the variant object's
+/// AVX-512 level, which the module calls when the caller's features name AVX-512 (decision 39). The
+/// loops keep AVX2's 32 on such a CPU (decision 30, wide.zig).
+pub const avx512_vector_len: usize = 64;
 
 /// The octets of a name's or a string's run the 16-octet path takes before claim J7's kernels take
 /// the rest. Lines of English text are runs of 50 to 100 octets, which ended before a kernel's call

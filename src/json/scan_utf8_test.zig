@@ -3,10 +3,13 @@
 //! and would pass 500 lines with these.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
+const codec = @import("codec");
 const constants = @import("constants.zig");
 const utf8 = @import("utf8.zig");
 const scan_utf8 = @import("scan_utf8.zig");
+const wide = @import("wide.zig");
 const valid = scan_utf8.valid;
 const cut_character_len = scan_utf8.cut_character_len;
 
@@ -68,9 +71,8 @@ test "valid takes a group of ASCII in one test, and finds the character the bloc
     try testing.expect(!valid("a" ** (constants.utf8_group_len - 3) ++ "\xe2\x82\xac" ++ group ++ "\x80" ++ "a" ** (constants.utf8_group_len - 1)));
 }
 
-/// The longest input the fuzzer gives `valid`: four groups, and a tail of a cut character.
-const fuzz_input_groups = 4;
-const fuzz_input_len_max = fuzz_input_groups * constants.utf8_group_len + constants.utf8_len_max;
+/// The longest input the fuzzer gives the check: every boundary the widest copy crosses.
+const fuzz_input_len_max = placed_buffer_len(constants.avx512_vector_len);
 
 test "fuzz valid against the machine" {
     try testing.fuzz({}, fuzz_valid, .{ .corpus = &.{ "", "a" ** constants.utf8_group_len, "\xe2\x82\xac", "a" ** (constants.utf8_group_len - 2) ++ "\xe2\x82" ++ "b" ** constants.utf8_group_len, "\x00" ** (constants.utf8_group_len - 1) ++ "\x80" } });
@@ -78,8 +80,86 @@ test "fuzz valid against the machine" {
 
 fn fuzz_valid(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = undefined;
-    const len = smith.slice(&input);
-    try testing.expectEqual(valid_scalar(input[0..len]), valid(input[0..len]));
+    const octets = input[0..smith.slice(&input)];
+    const expected = valid_scalar(octets);
+    try testing.expectEqual(expected, valid(octets));
+    try testing.expectEqual(expected, scan_utf8.valid_by(constants.avx2_vector_len, .compares, octets));
+    try testing.expectEqual(expected, scan_utf8.valid_by(constants.avx512_vector_len, .compares, octets));
+    for (levels_run()) |level| try testing.expectEqual(expected, wide.is_utf8(level, octets));
+}
+
+// The wider copies (decision 39): a sequence on every lane of a buffer that crosses every boundary a
+// width has, by the compares on every target, by the lookup where LLVM builds it for this CPU, and
+// through the variant object's copies at every level this CPU runs.
+
+/// Characters and faults a wider check must meet on every lane: whole characters of each length at
+/// the edges of their ranges, and each fault RFC 3629 §4 names, cut ones included.
+const placed_sequences = [_][]const u8{
+    "\xc2\x80",         "\xdf\xbf",         "\xe0\xa0\x80",     "\xed\x9f\xbf",         "\xee\x80\x80",
+    "\xef\xbf\xbf",     "\xf0\x90\x80\x80", "\xf4\x8f\xbf\xbf", "\xc3\xa9\xe2\x82\xac", "\x80",
+    "\xbf",             "\xc0\xaf",         "\xc1\xbf",         "\xe0\x9f\xbf",         "\xed\xa0\x80",
+    "\xf0\x8f\xbf\xbf", "\xf4\x90\x80\x80", "\xf5\x80\x80\x80", "\xff",                 "\xc3",
+    "\xe2\x82",         "\xf0\x9f\x98",     "\xc3\xa9\xa9",     "\xe2\x82\xac\x80",     "\xc3\xc3",
+};
+
+/// The groups a placed buffer holds at its width.
+const placed_groups = 2;
+
+/// Groups at `width`, a block of it, a block of 16 and a character's octets: every boundary the
+/// check crosses at that width, from a group to a group, to a block, to 16 lanes and to the machine.
+fn placed_buffer_len(comptime width: usize) usize {
+    return placed_groups * constants.utf8_group_blocks * width + width + constants.vector_len + constants.utf8_len_max;
+}
+
+/// Requires `judge.valid` to judge each of `placed_sequences` at every offset of a buffer of
+/// letters as the machine does, the buffer whole and cut after the sequence.
+fn expect_placed(comptime width: usize, judge: anytype) !void {
+    var buffer: [placed_buffer_len(width)]u8 = undefined;
+    for (placed_sequences) |sequence| for (0..buffer.len - sequence.len + 1) |offset| {
+        buffer = @splat('a');
+        @memcpy(buffer[offset..][0..sequence.len], sequence);
+        for ([_]usize{ offset + sequence.len, buffer.len }) |len| try testing.expectEqual(valid_scalar(buffer[0..len]), judge.valid(buffer[0..len]));
+    };
+}
+
+fn By(comptime width: usize, comptime form: scan_utf8.Form) type {
+    return struct {
+        fn valid(_: @This(), octets: []const u8) bool {
+            return scan_utf8.valid_by(width, form, octets);
+        }
+    };
+}
+
+const AtLevel = struct {
+    level: wide.CheckLevel,
+
+    fn valid(self: AtLevel, octets: []const u8) bool {
+        return wide.is_utf8(self.level, octets);
+    }
+};
+
+/// Every level of the check this CPU runs, the widest its features name and those below it.
+fn levels_run() []const wide.CheckLevel {
+    const levels = comptime std.enums.values(wide.CheckLevel);
+    return levels[0 .. @intFromEnum(wide.CheckLevel.of(codec.Features.detect())) + 1];
+}
+
+test "valid_by judges a sequence on every lane at 32 and 64 lanes as the machine does, by the compares" {
+    try expect_placed(constants.avx2_vector_len, By(constants.avx2_vector_len, .compares){});
+    try expect_placed(constants.avx512_vector_len, By(constants.avx512_vector_len, .compares){});
+}
+
+test "valid_by's lookup at 32 and 64 lanes judges as the machine does, where LLVM builds it for this CPU" {
+    // Zig's own x86-64 backend cannot place the wider lookup's operands (`scan_utf8.Form`).
+    if (comptime builtin.cpu.arch == .x86_64 and builtin.zig_backend == .stage2_llvm) {
+        const features = builtin.cpu.features;
+        if (comptime std.Target.x86.featureSetHas(features, .avx2)) try expect_placed(constants.avx2_vector_len, By(constants.avx2_vector_len, .lookup){});
+        if (comptime std.Target.x86.featureSetHas(features, .avx512bw)) try expect_placed(constants.avx512_vector_len, By(constants.avx512_vector_len, .lookup){});
+    } else return error.SkipZigTest;
+}
+
+test "is_utf8 judges a sequence on every lane as the machine does at every level this CPU runs" {
+    for (levels_run()) |level| try expect_placed(constants.avx512_vector_len, AtLevel{ .level = level });
 }
 
 test "cut_character_len takes a cut character's first octets and nothing of a whole one" {

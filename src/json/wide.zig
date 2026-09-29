@@ -52,6 +52,7 @@ pub const Level = enum(u8) {
 extern fn stdx_json_plain_len_x86_64_avx2(octets: [*]const u8, len: usize) callconv(.c) usize;
 extern fn stdx_json_hex_len_x86_64_avx2(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize;
 extern fn stdx_json_is_utf8_x86_64_avx2(octets: [*]const u8, len: usize) callconv(.c) bool;
+extern fn stdx_json_is_utf8_x86_64_avx512(octets: [*]const u8, len: usize) callconv(.c) bool;
 
 /// `scan.plain_len_vector` at `level`'s width: the first 16 octets inline, and a run past them out
 /// of line.
@@ -89,13 +90,32 @@ pub inline fn hex_len(level: Level, input: []const u8, output: []u8) usize {
     };
 }
 
-/// `scan_utf8.valid` at `level` (decision 38): the AVX2 object's copy takes decision 37's lookup,
-/// VPSHUFB, which the module's own x86-64 target lacks; everywhere else the module's own copy runs.
-pub fn is_utf8(level: Level, octets: []const u8) bool {
+/// The widest copy of the UTF-8 check a caller's features allow (decision 39): AVX-512's 64 lanes,
+/// AVX2's 32, or the module's own 16. `Level` gives the loops no AVX-512 width, since its 64-octet
+/// kernels ran hex strings slower (above); the check is one pass over a buffer with no octet to
+/// stop at, and takes the widest.
+pub const CheckLevel = enum(u8) {
+    target,
+    avx2,
+    avx512,
+
+    pub fn of(features: codec.Features) CheckLevel {
+        if (!has_kernels) return .target;
+        if (features.avx512) return .avx512;
+        if (features.avx2) return .avx2;
+        return .target;
+    }
+};
+
+/// `scan_utf8.valid` at `level` (decisions 38 and 39): the variant object's copies take decision
+/// 37's lookup, VPSHUFB, at 32 lanes and at 64, which the module's own x86-64 target lacks;
+/// everywhere else the module's own copy runs at 16.
+pub fn is_utf8(level: CheckLevel, octets: []const u8) bool {
     if (comptime !has_kernels) return scan_utf8.valid(octets);
     return switch (level) {
         .target => scan_utf8.valid(octets),
         .avx2 => stdx_json_is_utf8_x86_64_avx2(octets.ptr, octets.len),
+        .avx512 => stdx_json_is_utf8_x86_64_avx512(octets.ptr, octets.len),
     };
 }
 
@@ -117,12 +137,8 @@ test "Level.with keeps the level with claim J7 on, and takes the target's with i
     }
 }
 
-test "is_utf8 gives the target's verdict at the level this CPU's features pick" {
-    const level = Level.of(codec.Features.detect());
-    const group = "a" ** constants.utf8_group_len;
-    for ([_][]const u8{ "", group ** 3, "a" ** 61 ++ "\xe2\x82\xac" ++ group, "\xd0\xb0" ** 100, "\xd0\xb0" ** 100 ++ "\x80", "a" ** 62 ++ "\xe2\x82" ++ group, group ++ "\xc3" }) |octets| {
-        try testing.expectEqual(is_utf8(.target, octets), is_utf8(level, octets));
-    }
-    try testing.expect(is_utf8(level, "a" ** 61 ++ "\xe2\x82\xac" ++ group));
-    try testing.expect(!is_utf8(level, "a" ** 62 ++ "\xe2\x82" ++ group));
+test "CheckLevel.of picks AVX-512 for the check, where Level.of picks AVX2" {
+    try testing.expectEqual(CheckLevel.target, CheckLevel.of(.none()));
+    try testing.expectEqual(if (has_kernels) CheckLevel.avx2 else .target, CheckLevel.of(.{ .avx2 = true }));
+    try testing.expectEqual(if (has_kernels) CheckLevel.avx512 else .target, CheckLevel.of(.{ .avx2 = true, .avx512 = true }));
 }

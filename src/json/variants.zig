@@ -14,6 +14,8 @@ comptime {
             _ = @import("variants/loop_string.zig");
             _ = @import("variants/scan_utf8.zig");
         },
+        // Decision 39's check alone takes AVX-512's width; the loops keep AVX2's (wide.zig).
+        .x86_64_avx512 => _ = @import("variants/scan_utf8.zig"),
         else => {},
     }
 }

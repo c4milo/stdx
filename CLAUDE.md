@@ -337,8 +337,9 @@ Change this section when a step adds or renames a command.
   decoded also with its characters as `\u` escapes, and hex strings, beside simdjson, yyjson and
   Zig's std.json: every candidate interleaved in one
   run, the median of five runs with the spread, and the losses listed (decision 27). It then times
-  the module's `is_utf8` alone over each string workload's octets beside simdutf's `validate_utf8`
-  (decision 38). A macOS host builds it without simdjson and simdutf, as Zig 0.16.0 builds no
+  the module's `is_utf8` alone over each string workload's octets at the width the host's features
+  pick, and on a host with AVX-512 with AVX2 alone, beside simdutf's `validate_utf8`, once every copy
+  of the check and simdutf have judged seeded buffers alike (decisions 38 and 39). A macOS host builds it without simdjson and simdutf, as Zig 0.16.0 builds no
   libc++ there. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path

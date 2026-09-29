@@ -42,7 +42,7 @@ pub const TextReader = text_reader.TextReader;
 /// `features` allow (decision 38). A caller that must know before it encodes, or that holds octets
 /// from elsewhere, asks here.
 pub fn is_utf8(octets: []const u8, features: codec.Features) bool {
-    return wide.is_utf8(wide.Level.of(features), octets);
+    return wide.is_utf8(wide.CheckLevel.of(features), octets);
 }
 pub const Item = text_reader.Item;
 

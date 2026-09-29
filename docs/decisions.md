@@ -15,8 +15,9 @@ baselines' numbers, entry 31 out of design §8 step 17's profile, entry 32 out o
 decoder, entry 33 out of the owner's ruling on what step 17's profile left, entry 34 out of the
 losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 out of decision
 17's json measurement, entry 36 out of design §8 step 9's comparison with libdeflate's output,
-entry 37 out of design §8 step 18's non-ASCII rows, and entry 38 out of the question entry 37
-left, how fast the check runs alone.
+entry 37 out of design §8 step 18's non-ASCII rows, entry 38 out of the question entry 37 left,
+how fast the check runs alone, and entry 39 out of the owner's ruling on the gap entry 38 measured
+on x86-64.
 
 ## Scope and shape
 
@@ -2027,3 +2028,46 @@ left, how fast the check runs alone.
       simdjson keeps, not the library that leads on UTF-8, and the owner named simdutf.
     - Timing the check through the walk with the copies and stops taken out. The walk's shape is
       the walk's; a validator that a caller may run over a buffer is what a caller compares.
+
+39. **A wider copy of the `json` module's UTF-8 check on x86-64.** Ruled by the owner on
+    2026-09-29, from the gap entry 38 measured. There `is_utf8` ran 16 lanes a block in the AVX2
+    object, while simdutf ran 32 on an AMD EPYC 7763 and 64 on an Intel Xeon Platinum 8370C: stdx
+    ran the ASCII text files at 0.575 to 0.844 and 0.340 to 0.460 of simdutf's speed, and the
+    non-ASCII text at 0.520 and 0.407 (runs
+    [36603861241](https://github.com/c4milo/stdx/actions/runs/36603861241) and
+    [36605683401](https://github.com/c4milo/stdx/actions/runs/36605683401)). The owner ruled to
+    build the wider copies.
+    - `scan_utf8.valid_by(width, form, octets)` holds the check at any width: groups of
+      `utf8_group_blocks` blocks, then blocks of the width, then blocks of 16, and the last octets
+      through utf8.zig's machine. The variant object runs it by the lookup at AVX2's 32 lanes and at
+      AVX-512's 64, a level it now builds for the check alone (`variants/scan_utf8.zig`,
+      `build/modules.zig`). VPSHUFB looks each 16 lanes up in their own 16 entries, so each table
+      repeats once for each 16 lanes.
+    - `wide.CheckLevel` picks the width from the caller's features: AVX-512's, then AVX2's, then
+      the module's own 16. The loops keep `Level`, whose AVX-512 kernels ran hex strings slower
+      (entry 30), and the walk keeps 16 lanes, which step 17 measured against 64 (37% slower on
+      non-ASCII text, a rescan for each escape); the check has no octet to stop at, and takes the
+      widest.
+    - Zig's own x86-64 backend cannot place a 512-bit operand of inline assembly, so the lookup at
+      32 and 64 lanes compiles in the variant object alone, which LLVM builds. The module's own
+      code runs those widths by the compares, the reference, and its tests hold them to utf8.zig's
+      machine on every target (`scan_utf8.Form`).
+    - Tests: each of 25 characters and faults on every lane of a buffer that crosses every
+      boundary a width has, at 32 and 64 lanes by the compares on every target, by the lookup where
+      LLVM builds it for the CPU, and through each kernel at every level the CPU runs; the fuzzer
+      does the same with its own buffers. The AVX-512 kernel runs only on a CPU with AVX-512, which
+      the M-series host and Rosetta lack. So bench-json requires every copy of the check to judge
+      20000 seeded buffers and each workload, whole and with an octet changed, as the module's own
+      16 lanes and simdutf do before it times anything, and every run on such a runner checks it.
+    - Measured as entry 16 asks: paired runs against main on both runners, and, on an x86-64 CPU
+      with AVX-512, the 64-lane copy against the 32-lane one in the same job.
+
+    What it costs: two kernels more in the variant object, the AVX-512 level built for the json
+    module, and a width through the check.
+
+    The alternatives:
+    - The check at 16 lanes on x86-64, as entry 38 built it. simdutf stays 1.2 to 2.9 times as fast
+      there.
+    - A 32-lane copy alone, for every x86-64 CPU with AVX2. Measured against the 64-lane copy in the
+      same job on a CPU with AVX-512; the numbers decide.
+    - The walk at the wider widths too. Refused by step 17's measurement above.

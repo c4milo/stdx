@@ -3,10 +3,11 @@
 //! verdict on every block: `error_lanes_compares`, each rule as a compare against a splat, the
 //! reference; and `error_octets_lookup`, three lookups of 16 entries by the nibbles of each octet
 //! and the one before it, in one instruction each where the target has one (decision 37).
-//! `error_lanes` takes the lookup where it can, and `error_octets` gives the lookup's verdict as
-//! octets, before any compare to bools, for `valid`, the check over a whole buffer (decision 38).
-//! The tables are built here from RFC 3629 §4's rules, and the tests require the lookup to judge
-//! every pair of octets as utf8.zig's machine does.
+//! `error_lanes` takes the lookup where it can, and `error_octets` gives a form's verdict as
+//! octets, before any compare to bools, for `valid_by`, the check over a whole buffer (decision
+//! 38), which the x86-64 variant object runs at 32 and 64 lanes as well (decision 39). The tables
+//! are built here from RFC 3629 §4's rules, and the tests require the lookup to judge every pair of
+//! octets as utf8.zig's machine does.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -31,22 +32,30 @@ fn splat(comptime width: usize, octet: u8) Block(width) {
 /// variant object has (decision 37, string_walk.zig).
 pub const has_lookup = builtin.cpu.arch == .aarch64 or (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2));
 
+/// How a block is judged: by `error_lanes_compares`, the reference every target runs; or by
+/// `error_octets_lookup`, at 16 lanes where `has_lookup` holds, and at 32 and 64 lanes in the x86-64
+/// variant object alone, which LLVM builds (decision 39): Zig's own x86-64 backend cannot place a
+/// 512-bit operand of inline assembly (build/variants.zig).
+pub const Form = enum { compares, lookup };
+
+/// The form `valid` takes at 16 lanes on this target.
+const form_16: Form = if (has_lookup) .lookup else .compares;
+
 /// The lanes of `block` whose octet UTF-8 rules out there, given the lanes before it and the last
 /// three of `previous` (RFC 3629 §4). `previous` ends between characters, or inside a character
 /// whose octets `block` goes on with. The two forms may flag an octet UTF-8 never holds on its own
 /// lane or on the next; every caller ends its run before the first lane flagged and steps back over
 /// a cut character (`cut_character_len`), so both give the same run.
 pub inline fn error_lanes(comptime width: usize, previous: Block(width), block: Block(width)) Lanes(width) {
-    if (comptime has_lookup and width == constants.vector_len) return error_octets_lookup(previous, block) != splat(width, 0);
+    if (comptime has_lookup and width == constants.vector_len) return error_octets_lookup(width, previous, block) != splat(width, 0);
     return error_lanes_compares(width, previous, block);
 }
 
-/// `error_lanes` as octets: nonzero on a lane the check flags, zero on the others. The lookup gives
-/// its verdict as octets before any compare to bools, so a caller that ORs many blocks' verdicts
-/// and tests them once saves a compare a block.
-pub inline fn error_octets(previous: Block(constants.vector_len), block: Block(constants.vector_len)) Block(constants.vector_len) {
-    const width = constants.vector_len;
-    if (comptime has_lookup) return error_octets_lookup(previous, block);
+/// `error_lanes` as octets, by `form`: nonzero on a lane the check flags, zero on the others. The
+/// lookup gives its verdict as octets before any compare to bools, so a caller that ORs many blocks'
+/// verdicts and tests them once saves a compare a block.
+pub inline fn error_octets(comptime width: usize, comptime form: Form, previous: Block(width), block: Block(width)) Block(width) {
+    if (form == .lookup) return error_octets_lookup(width, previous, block);
     return @select(u8, error_lanes_compares(width, previous, block), splat(width, std.math.maxInt(u8)), splat(width, 0));
 }
 
@@ -103,31 +112,52 @@ pub fn cut_character_len(octets: []const u8) usize {
 }
 
 /// Whether `octets` is UTF-8 whole (RFC 3629 §4): the check a string's octets go through in the
-/// walk, run alone over a buffer (decision 38). A group of `utf8_group_len` octets goes through
-/// `group_error_octets`, then the blocks after the last group one at a time, and the last octets
-/// through utf8.zig's machine. The json module's `is_utf8` for a caller, and bench-json's candidate
-/// beside simdutf's `validate_utf8`.
+/// walk, run alone over a buffer (decision 38), at 16 lanes. The json module's `is_utf8` where the
+/// caller's features name no wider level, and bench-json's candidate beside simdutf's
+/// `validate_utf8`.
 pub fn valid(octets: []const u8) bool {
-    const width = constants.vector_len;
-    var previous: Block(width) = @splat(0);
-    var index: usize = 0;
-    // The groups' verdicts are ORed and read once: a group's verdict read as a scalar would cost the
-    // ASCII path a second transfer out of the vector unit, and the verdict is the same at the end.
+    return valid_by(constants.vector_len, form_16, octets);
+}
+
+/// `valid` at `width` lanes a block, by `form`: groups of `utf8_group_blocks` blocks, then blocks of
+/// `width`, then, past a wider width, blocks of 16, and the last octets through utf8.zig's machine.
+/// The x86-64 variant object runs it at 32 and 64 lanes by the lookup (decision 39).
+pub fn valid_by(comptime width: usize, comptime form: Form, octets: []const u8) bool {
+    const index = blocks_valid(width, form, octets, 0) orelse return false;
+    if (width == constants.vector_len) return tail_valid(octets, index);
+    return tail_valid(octets, blocks_valid(constants.vector_len, form_16, octets, index) orelse return false);
+}
+
+/// Judges `octets` from `start`, a group of blocks and then a block at a time, with the `width`
+/// octets before `start` as the block before the first. Returns where the blocks end, or null where
+/// one breaks RFC 3629 §4.
+fn blocks_valid(comptime width: usize, comptime form: Form, octets: []const u8, start: usize) ?usize {
+    const group_len = constants.utf8_group_blocks * width;
+    assert(start == 0 or start >= width);
+    var previous: Block(width) = if (start == 0) @splat(0) else octets[start - width ..][0..width].*;
+    var index = start;
+    // The verdicts are ORed and read once: a group's verdict read as a scalar would cost the ASCII
+    // path a second transfer out of the vector unit, and the verdict is the same at the end.
     var errors: Block(width) = @splat(0);
-    for (0..octets.len / constants.utf8_group_len) |_| {
-        errors |= group_error_octets(&previous, octets[index..][0..constants.utf8_group_len]);
-        index += constants.utf8_group_len;
+    for (0..(octets.len - start) / group_len) |_| {
+        errors |= group_error_octets(width, form, &previous, octets[index..][0..group_len]);
+        index += group_len;
     }
-    if (@reduce(.Max, errors) != 0) return false;
     for (0..(octets.len - index) / width) |_| {
-        // As in a group, through `loaded`: without it LLVM split this block's load into six.
-        const block = loaded(width, octets[index..][0..width].*);
-        if (@reduce(.Or, error_lanes(width, previous, block))) return false;
+        // As in a group, through `loaded_by`: without it LLVM split this block's load into six.
+        const block = loaded_by(width, form, octets[index..][0..width].*);
+        errors |= error_octets(width, form, previous, block);
         previous = block;
         index += width;
     }
-    // The blocks judged every octet but a character the last one cuts; the machine takes that
-    // character's first octets again with the tail, and must end between characters.
+    if (@reduce(.Max, errors) != 0) return null;
+    return index;
+}
+
+/// The octets after the last block: the blocks judged every octet but a character the last one
+/// cuts, so the machine takes that character's first octets again with the rest, and must end
+/// between characters.
+fn tail_valid(octets: []const u8, index: usize) bool {
     const cut_len = cut_character_len(octets[0..index]);
     var machine: utf8.Utf8 = .{};
     for (octets[index - cut_len ..]) |octet| {
@@ -140,22 +170,21 @@ pub fn valid(octets: []const u8) bool {
 /// flags, with `previous` moved to the group's last block. A group of ASCII costs one test, and
 /// breaks nothing but a character the block before it cut, whose first octets `incomplete_octets`
 /// flags; any other group runs `error_octets` a block at a time and ORs the verdicts.
-fn group_error_octets(previous: *Block(constants.vector_len), group: *const [constants.utf8_group_len]u8) Block(constants.vector_len) {
-    const width = constants.vector_len;
+fn group_error_octets(comptime width: usize, comptime form: Form, previous: *Block(width), group: *const [constants.utf8_group_blocks * width]u8) Block(width) {
     var blocks: [constants.utf8_group_blocks]Block(width) = undefined;
     var all: Block(width) = @splat(0);
     inline for (&blocks, 0..) |*block, block_index| {
-        block.* = loaded(width, group[block_index * width ..][0..width].*);
+        block.* = loaded_by(width, form, group[block_index * width ..][0..width].*);
         all |= block.*;
     }
-    if (!has_non_ascii(all)) {
-        const errors = incomplete_octets(previous.*);
+    if (!has_non_ascii(width, all)) {
+        const errors = incomplete_octets(width, previous.*);
         previous.* = blocks[constants.utf8_group_blocks - 1];
         return errors;
     }
     var errors: Block(width) = @splat(0);
     inline for (blocks) |block| {
-        errors |= error_octets(previous.*, block);
+        errors |= error_octets(width, form, previous.*, block);
         previous.* = block;
     }
     return errors;
@@ -165,8 +194,8 @@ fn group_error_octets(previous: *Block(constants.vector_len), group: *const [con
 /// split each block's load into a load of 13 lanes and three loads of one lane, with a copy of the
 /// register between them: 24 loads and 12 copies a group of four blocks in place of 4 loads. An
 /// empty assembly statement that takes the block in a vector register and gives it back makes the
-/// whole register the value the shuffles read. `valid` and scan.zig's `utf8_run` take each block
-/// through it; a block wider than 16 octets, which only the tests scan, passes as it is.
+/// whole register the value the shuffles read. scan.zig's `utf8_run` and `valid_by` at 16 lanes
+/// take each block through it; a wider block passes as it is.
 pub inline fn loaded(comptime width: usize, block: Block(width)) Block(width) {
     if (comptime width != constants.vector_len) return block;
     return switch (builtin.cpu.arch) {
@@ -182,11 +211,27 @@ pub inline fn loaded(comptime width: usize, block: Block(width)) Block(width) {
     };
 }
 
+/// `loaded` for `valid_by`, at a wider width too where it judges by the lookup, which the variant
+/// object alone runs there (`Form`): a wider block the module's own code judges by the compares
+/// passes as it is.
+inline fn loaded_by(comptime width: usize, comptime form: Form, block: Block(width)) Block(width) {
+    if (width == constants.vector_len or form != .lookup) return loaded(width, block);
+    return switch (builtin.cpu.arch) {
+        .x86_64 => if (width == constants.avx512_vector_len) asm (""
+            : [ret] "=v" (-> Block(width)),
+            : [block] "0" (block),
+        ) else asm (""
+            : [ret] "=x" (-> Block(width)),
+            : [block] "0" (block),
+        ),
+        else => block,
+    };
+}
+
 /// Whether `block` holds an octet from 0x80 up: on x86-64 from the sign bits, which one instruction
 /// gathers into a mask; elsewhere from the largest octet, which one instruction gives, and which ran
 /// 4% faster than a compare on an M-series host.
-inline fn has_non_ascii(block: Block(constants.vector_len)) bool {
-    const width = constants.vector_len;
+inline fn has_non_ascii(comptime width: usize, block: Block(width)) bool {
     if (comptime builtin.cpu.arch == .x86_64) return @reduce(.Or, @as(@Vector(width, i8), @bitCast(block)) < @as(@Vector(width, i8), @splat(0)));
     return @reduce(.Max, block) >= constants.non_ascii_min;
 }
@@ -195,19 +240,18 @@ inline fn has_non_ascii(block: Block(constants.vector_len)) bool {
 /// lane, one that asks for two continuation octets on the lane before, and one that asks for three
 /// on the lane before that (RFC 3629 §3). `cut_character_len` as lanes, for a block whose every
 /// other octet is judged.
-fn incomplete_octets(block: Block(constants.vector_len)) Block(constants.vector_len) {
-    const width = constants.vector_len;
-    return @select(u8, block > incomplete_max, splat(width, std.math.maxInt(u8)), splat(width, 0));
+fn incomplete_octets(comptime width: usize, block: Block(width)) Block(width) {
+    return @select(u8, block > comptime incomplete_max(width), splat(width, std.math.maxInt(u8)), splat(width, 0));
 }
 
 /// The largest octet each lane of a block holds without starting a character the block cuts: on
 /// the last lane, one below the least first octet that reaches one octet past itself, and so on
 /// back; and every octet on the lanes before those.
-const incomplete_max: Block(constants.vector_len) = blk: {
-    var lanes: [constants.vector_len]u8 = @splat(std.math.maxInt(u8));
-    for (1..constants.utf8_len_max) |back| lanes[constants.vector_len - back] = constants.reaching_lead_min[back] - 1;
-    break :blk lanes;
-};
+fn incomplete_max(comptime width: usize) Block(width) {
+    var lanes: [width]u8 = @splat(std.math.maxInt(u8));
+    for (1..constants.utf8_len_max) |back| lanes[width - back] = constants.reaching_lead_min[back] - 1;
+    return lanes;
+}
 
 // The lookup (decision 37).
 
@@ -314,23 +358,36 @@ fn pair_bits(before: u8, octet: u8) u8 {
     return before_high_table[high_nibble(before)] & before_low_table[low_nibble(before)] & octet_high_table[high_nibble(octet)];
 }
 
-/// Each lane of `indices`, a nibble, looked up in `table`: NEON's TBL, or x86-64's VPSHUFB. Register
-/// operands only, as decision 16 admits.
-inline fn lookup(table: Block(constants.vector_len), indices: Block(constants.vector_len)) Block(constants.vector_len) {
-    comptime assert(has_lookup and constants.vector_len == nibbles);
+/// Each lane of `indices`, a nibble, looked up in `table`, whose 16 entries repeat for each 16
+/// lanes: NEON's TBL at 16 lanes, or x86-64's VPSHUFB, which looks each 16 lanes up in their own 16
+/// entries, at 16 and 32 lanes with AVX2 and at 64 with AVX-512 (decision 39). Register operands
+/// only, as decision 16 admits.
+inline fn lookup(comptime width: usize, table: Block(width), indices: Block(width)) Block(width) {
+    comptime assert(width % nibbles == 0);
     return switch (builtin.cpu.arch) {
         .aarch64 => asm ("tbl %[result].16b, {%[table].16b}, %[indices].16b"
-            : [result] "=w" (-> Block(constants.vector_len)),
+            : [result] "=w" (-> Block(width)),
             : [table] "w" (table),
               [indices] "w" (indices),
         ),
-        .x86_64 => asm ("vpshufb %[indices], %[table], %[result]"
-            : [result] "=x" (-> Block(constants.vector_len)),
+        .x86_64 => if (width == constants.avx512_vector_len) asm ("vpshufb %[indices], %[table], %[result]"
+            : [result] "=v" (-> Block(width)),
+            : [table] "v" (table),
+              [indices] "v" (indices),
+        ) else asm ("vpshufb %[indices], %[table], %[result]"
+            : [result] "=x" (-> Block(width)),
             : [table] "x" (table),
               [indices] "x" (indices),
         ),
         else => unreachable,
     };
+}
+
+/// `table`'s 16 entries once for each 16 lanes of a block of `width`.
+fn repeated(comptime width: usize, table: [nibbles]u8) Block(width) {
+    var lanes: [width]u8 = undefined;
+    for (&lanes, 0..) |*lane, index| lane.* = table[index % nibbles];
+    return lanes;
 }
 
 /// `error_octets` from the three tables: `pair_bits` for each lane and the octet before it, three
@@ -340,10 +397,12 @@ inline fn lookup(table: Block(constants.vector_len), indices: Block(constants.ve
 /// the bit is XORed with the lanes asked, so it stays set where the two differ; the other bits stay
 /// as the lookups set them, one for each rule the pair breaks. A lane is left nonzero exactly when
 /// its octet breaks a rule.
-inline fn error_octets_lookup(previous: Block(constants.vector_len), block: Block(constants.vector_len)) Block(constants.vector_len) {
-    const width = constants.vector_len;
+inline fn error_octets_lookup(comptime width: usize, previous: Block(width), block: Block(width)) Block(width) {
+    comptime assert(width == constants.vector_len or builtin.cpu.arch == .x86_64);
     const before = shifted_in(width, 1, previous, block);
-    const bits = lookup(before_high_table, before >> @splat(constants.nibble_bits)) & lookup(before_low_table, before & splat(width, constants.nibble_mask)) & lookup(octet_high_table, block >> @splat(constants.nibble_bits));
+    const before_high = lookup(width, comptime repeated(width, before_high_table), before >> @splat(constants.nibble_bits));
+    const before_low = lookup(width, comptime repeated(width, before_low_table), before & splat(width, constants.nibble_mask));
+    const bits = before_high & before_low & lookup(width, comptime repeated(width, octet_high_table), block >> @splat(constants.nibble_bits));
     const asked_two_or_three_back = (shifted_in(width, third_octet_distance, previous, block) >= splat(width, constants.lead_3_min)) | (shifted_in(width, fourth_octet_distance, previous, block) >= splat(width, constants.lead_4_min));
     return bits ^ @select(u8, asked_two_or_three_back, splat(width, two_continuations_bit), splat(width, 0));
 }
@@ -427,7 +486,7 @@ fn expect_triple_judged(comptime start: usize, sequence: [sequence_len]u8) !void
     octets[start..][0..sequence_len].* = sequence;
     const block: Block(width) = octets;
     const sequence_valid = is_utf8(&octets);
-    if (comptime has_lookup) try testing.expectEqual(!sequence_valid, @reduce(.Max, error_octets_lookup(previous, block)) != 0);
+    if (comptime has_lookup) try testing.expectEqual(!sequence_valid, @reduce(.Max, error_octets_lookup(width, previous, block)) != 0);
     try testing.expectEqual(!sequence_valid, @reduce(.Or, error_lanes_compares(width, previous, block)));
 }
 
