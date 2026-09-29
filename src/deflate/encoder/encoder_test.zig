@@ -209,9 +209,9 @@ test "encode_all names an output too small" {
 test "each level's output for a seeded input is the one recorded here" {
     // Any change to what the encoder decides changes these; a change meant to must record new ones.
     const recorded = [_]struct { usize, u64 }{
-        .{ 49533, 0x0e2a4aaf8b9007a9 },
-        .{ 45857, 0x48a59473a824db0a },
-        .{ 45748, 0x390bb9aacdb8e0ab },
+        .{ 49100, 0x36c0bead5df53163 },
+        .{ 45866, 0x20f0fed0be6fa2e2 },
+        .{ 45749, 0x284a7722def6a3be },
     };
     var input: [120 * 1024]u8 = undefined;
     fill(&input, .mixed, 11);
@@ -227,9 +227,9 @@ test "each level's output for two seeded letters, whose chains run long, is the 
     // Two letters make 16 strings of 4 octets, so the chains run long: level 9's cut searches here
     // try all `cut_candidates_max` candidates hundreds of times.
     const recorded = [_]struct { usize, u64 }{
-        .{ 6026, 0xed9e40967cddbb1d },
-        .{ 3974, 0x0cc72cd22fbd5b30 },
-        .{ 4040, 0x751006431eb75e28 },
+        .{ 4690, 0x94914bcc05d2d58f },
+        .{ 3991, 0xd9f49e74ca8399a5 },
+        .{ 4026, 0xf9a5378ae2891970 },
     };
     var input: [letters_len]u8 = undefined;
     var generator = codec.split.Generator.init(17);

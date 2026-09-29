@@ -254,9 +254,26 @@ pub const Level = struct {
     /// what it costs.
     cut_len: u16,
     cut_candidates_max: u16,
+    /// The greedy level makes the positions a match covers, after its first, heads too, for a match
+    /// at most this long: a later match may start there, and the head then names the nearest
+    /// position. A level with chains inserts every covered position and ignores this.
+    covered_insert_len_max: u16,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
 };
+
+/// What a match's distance costs the lazy step, in octets of literals, when it compares the match
+/// waiting from the position before with the next position's: a farther match must be longer by
+/// this much to win. A distance code's extra bits grow with the distance (RFC 1951 §3.2.5), about
+/// one literal's code per 6: none under the first bound, one under the second, and so on. Each
+/// bound is a power of two, so a distance's bit length names its penalty.
+pub const lazy_distance_penalty_bounds = [_]u16{ 32, 512, 4096 };
+pub const lazy_distance_penalty_octets = [_]u8{ 0, 1, 2, 3 };
+
+comptime {
+    assert(lazy_distance_penalty_octets.len == lazy_distance_penalty_bounds.len + 1);
+    for (lazy_distance_penalty_bounds) |bound| assert(std.math.isPowerOfTwo(bound));
+}
 
 /// The levels of decision 13.
 pub const encoder_levels = [_]u4{ 1, 6, 9 };
@@ -264,9 +281,9 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 128, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 32, .state_budget_len = 259 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .state_budget_len = 259 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 128, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 32, .covered_insert_len_max = 0, .state_budget_len = 259 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .state_budget_len = 259 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }

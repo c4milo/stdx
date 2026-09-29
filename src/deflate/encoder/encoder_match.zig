@@ -20,6 +20,27 @@ const Block = @import("encoder_block.zig").Block;
 const Match = struct {
     len: u16 = 0,
     distance: u16 = 0,
+
+    /// The match's worth in the lazy step's comparison: its length less what its distance costs in
+    /// octets of literals, `lazy_distance_penalty_octets`, so a farther match must be longer to win.
+    fn score(self: Match) i32 {
+        return @as(i32, self.len) - penalty_by_bits[@bitSizeOf(u16) - @clz(self.distance)];
+    }
+};
+
+/// `lazy_distance_penalty_octets` by a distance's bit length: every distance of one bit length lies
+/// between the same bounds, as each bound is a power of two. Bit length 0 is no distance.
+const penalty_by_bits: [@bitSizeOf(u16) + 1]u8 = table: {
+    var by_bits: [@bitSizeOf(u16) + 1]u8 = undefined;
+    for (&by_bits, 0..) |*penalty, bits| {
+        const distance_min: u32 = if (bits == 0) 0 else @as(u32, 1) << @intCast(bits - 1);
+        var index: usize = 0;
+        for (constants.lazy_distance_penalty_bounds) |bound| {
+            if (distance_min >= bound) index += 1;
+        }
+        penalty.* = constants.lazy_distance_penalty_octets[index];
+    }
+    break :table by_bits;
 };
 
 /// A hash of `hash_bits` bits: every index of the heads and no other, so a head read by it needs no
@@ -169,7 +190,7 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
         const skip = waiting and previous.len >= level.lazy_len;
         assert(waiting or previous.len == 0);
         const current = if (skip) Match{} else best(level, self, constants.match_len_max, previous.len);
-        if (waiting and previous.len >= constants.match_len_taken_min and previous.len >= current.len) {
+        if (waiting and previous.len >= constants.match_len_taken_min and previous.score() >= current.score()) {
             position = take_waiting(level, self, block, position, previous);
             waiting = false;
             previous = .{};
@@ -210,7 +231,9 @@ fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), block:
         const found = greedy_match_word(level, self, candidate, word);
         if (found.len >= constants.match_len_taken_min) {
             block.add_pair(found.len, found.distance);
-            self.position = position + found.len;
+            const match_end = position + found.len;
+            if (found.len <= level.covered_insert_len_max) insert_covered(level, self, match_end);
+            self.position = match_end;
         } else {
             // The word's first octet is the position's.
             block.add_literal(@truncate(word));
@@ -240,10 +263,27 @@ fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block: *B
     }
     if (found.len >= constants.match_len_taken_min) {
         block.add_pair(found.len, found.distance);
-        self.position += found.len;
+        const match_end = self.position + found.len;
+        if (found.len <= level.covered_insert_len_max) insert_covered(level, self, match_end);
+        self.position = match_end;
     } else {
         block.add_literal(self.window[self.position]);
         self.position += 1;
+    }
+}
+
+/// Makes every position a match covers, after its first, its hash's head, so a later match may
+/// start there and the head names the nearest position. Only positions with `hash_len` octets in
+/// the window count. The 4 octets slide through a word: one octet loaded per position.
+fn insert_covered(comptime level: constants.Level, self: *Matcher(level), end: usize) void {
+    assert(self.position < end and end <= self.filled);
+    const first = self.position + 1;
+    const last = @min(end, self.filled - (constants.hash_len - 1));
+    if (last <= first) return;
+    var word = std.mem.readInt(u32, self.window[self.position..][0..constants.hash_len], .little);
+    for (self.window[first + constants.hash_len - 1 .. last + constants.hash_len - 1], first..) |octet, covered| {
+        word = (word >> @bitSizeOf(u8)) | (@as(u32, octet) << (@bitSizeOf(u32) - @bitSizeOf(u8)));
+        self.heads[hash_of_word(level, word)] = @truncate(covered);
     }
 }
 
@@ -255,7 +295,7 @@ fn step_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Blo
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
     const current = if (skip) Match{} else best(level, self, @min(ahead, constants.match_len_max), self.previous.len);
-    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.len >= current.len) {
+    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score() >= current.score()) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.
         for (self.position + 1..end) |covered| {
