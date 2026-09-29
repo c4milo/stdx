@@ -123,10 +123,18 @@ fn check_batch(input_len: usize, output_len: usize, slots: []const Slot, batch: 
     assert(batch.filled <= slots.len and (batch.status != .needs_slots or batch.filled == slots.len));
     const ran_out = batch.status == .needs_input or batch.status == .needs_room;
     assert(batch.status != .needs_room or (batch.filled > 0 and !slots[batch.filled - 1].ended));
+    // The last slot's case is checked apart, so each slot before it costs two compares: in the
+    // loop, it took about 6% of decoding qlog's records on the N2 (design §8 step 18).
+    const before_last = batch.filled -| 1;
     var end: usize = 0;
-    for (slots[0..batch.filled], 1..) |slot, filled| {
-        assert(slot.start == end and (slot.ended or (ran_out and filled == batch.filled)));
+    for (slots[0..before_last]) |slot| {
+        assert(slot.start == end and slot.ended);
         end += slot.len;
+    }
+    if (batch.filled > 0) {
+        const last = slots[before_last];
+        assert(last.start == end and (last.ended or ran_out));
+        end += last.len;
     }
     assert(end == batch.written);
 }
