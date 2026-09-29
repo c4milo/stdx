@@ -271,7 +271,7 @@ pub inline fn distance_of(state: *const State, code: u32, extra: u32) Error!u32 
 /// A distance within the window and the octets produced is a back-reference; one past them names a
 /// static dictionary word (RFC 7932 §8).
 pub inline fn resolve_distance(state: *State, distance: u32, push: bool) Error!?codec.Status {
-    const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
+    const reach: u32 = @intCast(@min(state.window_distance_max, state_module.produced(state)));
     if (distance > reach) {
         try start_word(state, distance - reach - 1);
         state.phase = .dictionary_copy;

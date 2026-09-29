@@ -177,13 +177,20 @@ pub fn count_work(state: *State, work: usize) void {
     if (builtin.is_test) state.work += work;
 }
 
+/// The octets the stream has produced since `init` (RFC 7932 §4's reach with the window): the
+/// meta-block's end less what it has left.
+pub inline fn produced(state: *const State) u64 {
+    return state.produced_end - state.meta_block_left;
+}
+
 pub const State = struct {
     bits: codec.Bits,
     phase: Phase,
     /// The farthest a back-reference reaches: (1 << WBITS) - 16 (RFC 7932 §9.1).
     window_distance_max: u32,
-    /// The octets the stream has produced since `init`.
-    produced: u64,
+    /// The octets the stream will have produced when the meta-block ends: the octets before it and
+    /// its MLEN. `produced` is what it has produced, so that a write moves one count, not two.
+    produced_end: u64,
     /// ISLAST of the meta-block being read, the octets of its MLEN not yet produced, its MNIBBLES,
     /// and the metadata or uncompressed octets left to skip or copy.
     last_meta_block: bool,

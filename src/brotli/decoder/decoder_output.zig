@@ -37,7 +37,6 @@ pub fn Output(comptime Window: type, comptime claims: Claims) type {
             if (!claims.window_once) self.window.push(octet);
             state.p2 = state.p1;
             state.p1 = octet;
-            state.produced += 1;
             state.meta_block_left -= 1;
         }
 

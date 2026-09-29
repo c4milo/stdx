@@ -66,7 +66,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
             const state = &self.state;
             state.bits = .{};
             state.phase = .stream_header;
-            state.produced = 0;
+            state.produced_end = 0;
             state.last_meta_block = false;
             state.meta_block_left = 0;
             // RFC 7932 §7.1: p1 and p2 start as zero; §4: the last distances start as 4, 11, 15, 16.

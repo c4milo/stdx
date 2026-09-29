@@ -425,7 +425,6 @@ inline fn command_extra(loop: *Loop, state: *State, code: commands.CommandCode) 
 pub inline fn produce(state: *State, len: usize) void {
     assert(len <= state.meta_block_left);
     state.meta_block_left -= @intCast(len);
-    state.produced += len;
 }
 
 /// The command's distance (RFC 7932 §4), resolved to a back-reference or a dictionary word before
@@ -444,7 +443,7 @@ inline fn distance(comptime room: Room, loop: *Loop, state: *State) Next {
     const extra_bits = commands.distance_extra_bits(state, code);
     const extra: u32 = @intCast(low_bits(loop.buffer >> @intCast(symbol.len), extra_bits));
     const value = commands.distance_of(state, code, extra) catch return .stop;
-    const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
+    const reach: u32 = @intCast(@min(state.window_distance_max, state_module.produced(state)));
     if (value > reach) {
         const len = words.word_straight(room, loop, state, value - reach - 1) orelse return .stop;
         take_distance(loop, blocks, symbol.len + extra_bits);

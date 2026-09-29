@@ -108,7 +108,7 @@ inline fn straight_distance(comptime claims: Claims, comptime room: fast.Room, l
         fast.refill(claims, loop);
     }
     const found = distance_of(loop, state) orelse return .distance;
-    const reach: u32 = @intCast(@min(state.window_distance_max, state.produced));
+    const reach: u32 = @intCast(@min(state.window_distance_max, state_module.produced(state)));
     // RFC 7932 §4: a distance past the octets the reference can reach names a dictionary word.
     if (found.value > reach) return straight_word(room, loop, state, found, found.value - reach - 1);
     // A copy from the window or of more than a chunk, which the copy phase takes.

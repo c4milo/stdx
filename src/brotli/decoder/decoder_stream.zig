@@ -125,6 +125,7 @@ pub fn read_meta_block_len(state: *State, bits: *codec.BitReader) Error!?codec.S
     bits.consume(len_bits);
     state.meta_block_left = @intCast(len_less_one + 1);
     assert(state.meta_block_left <= constants.meta_block_len_max);
+    state.produced_end += state.meta_block_left;
     // ISUNCOMPRESSED is present only when ISLAST is not set.
     state.phase = if (state.last_meta_block) .block_types_count else .uncompressed_flag;
     state.category = .literal;
