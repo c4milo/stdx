@@ -199,18 +199,24 @@ fn report_offsets(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all
 /// One workload's medians and spreads, by `Candidate`; a candidate this host does not run is 0.
 const Row = struct { median: [candidate_count]f64 = @splat(0), spread: [candidate_count]f64 = @splat(0) };
 
+/// Times every candidate on every host, so that each call of the shared timing loop takes a
+/// slice of fixed length, as the other sections' calls do: a call with a length known only at run
+/// time left a check in `timing.time_interleaved` that every row then ran. On a host without
+/// AVX-512 the third candidate runs what the first runs, and its column shows none.
 fn time_row(arena: std.mem.Allocator, io: std.Io, octets: []const u8) !Row {
-    const run = candidates_run();
+    const all = comptime std.enums.values(Candidate);
     var operations: [candidate_count]timing.Operation = undefined;
-    for (run, 0..) |candidate, index| {
+    for (all, &operations) |candidate, *operation| {
         const state = try arena.create(Validate);
         state.* = .{ .octets = octets, .candidate = candidate, .features = features_of(candidate) };
-        operations[index] = .{ .context = state, .run_once = Validate.run_once };
+        operation.* = .{ .context = state, .run_once = Validate.run_once };
     }
     var runs: [candidate_count][timing.run_count]f64 = undefined;
-    timing.time_interleaved(io, operations[0..run.len], runs[0..run.len]);
+    timing.time_interleaved(io, &operations, &runs);
     var row: Row = .{};
-    for (run, runs[0..run.len]) |candidate, candidate_runs| {
+    const with_avx512 = codec.Features.detect().avx512;
+    for (all, runs) |candidate, candidate_runs| {
+        if (candidate == .stdx_avx2 and !with_avx512) continue;
         const summary = timing.summarize(candidate_runs);
         row.median[@intFromEnum(candidate)] = timing.megabytes_per_second(octets.len, summary.median);
         row.spread[@intFromEnum(candidate)] = summary.spread;
