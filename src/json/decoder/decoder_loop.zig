@@ -27,6 +27,8 @@ const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
 const Piece = @import("../framing.zig").Piece;
 const Slot = @import("decoder_batch.zig").Slot;
+const loop_string = @import("decoder_loop_string.zig");
+const Copied = loop_string.Copied;
 
 /// Where a batch stands in its input and its output.
 pub const Cursor = struct {
@@ -228,58 +230,73 @@ const Loop = struct {
     /// Takes a name or a string whose octets are a run of plain ASCII and its closing quotation
     /// mark, a block of 16 at a time.
     inline fn string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
-        const content_len = (if (claims.decoder_string_vectors) self.copy_blocks(claims) else self.copy_scalar()) orelse return null;
-        self.position += 1 + content_len + 1;
-        self.written += content_len;
+        const copied = (if (claims.decoder_string_vectors) self.copy_blocks(claims) else self.copy_scalar()) orelse return null;
+        self.position += 1 + copied.input_len + 1;
+        self.written += copied.output_len;
         self.last = .{ .matched = 1, .number = .{} };
         if (kind == .name) self.expect = .name_separator else self.value_ended(kind);
         return kind;
     }
 
-    /// Copies a string's content up to its closing quotation mark, and returns its length, or null
-    /// when an octet to escape, a control character, a non-ASCII octet or the end of a slice comes
-    /// first. Its first `constants.wide_run_len_min` octets go a block of 16 at a time, a run past
-    /// them to `copy_long`, and one that fewer than 16 octets of input or room leave to
-    /// `copy_short`.
-    inline fn copy_blocks(self: *Loop, comptime claims: Claims) ?usize {
+    /// Copies a string's content up to its closing quotation mark, and returns what it took and
+    /// wrote, or null where the checked path must take it. Its first `constants.wide_run_len_min`
+    /// octets of plain ASCII go a block of 16 at a time, a run past them to `copy_long`, and one
+    /// that fewer than 16 octets of input or room leave to `copy_short`. Past its plain ASCII, its
+    /// escapes and UTF-8 go to decoder_loop_string.zig.
+    inline fn copy_blocks(self: *Loop, comptime claims: Claims) ?Copied {
         const first = self.position + 1;
         var len: usize = 0;
         for (0..constants.wide_run_len_min / constants.vector_len) |_| {
             if (self.input.len - first - len < constants.vector_len or self.output.len - self.written - len < constants.vector_len) {
-                return self.copy_short(first, len);
+                return self.copy_short(claims, first, len);
             }
             const block: @Vector(constants.vector_len, u8) = self.input[first + len ..][0..constants.vector_len].*;
             self.output[self.written + len ..][0..constants.vector_len].* = block;
             if (scan.plain_stop(block)) |lane| {
-                return if (scan.is_quotation_mark(block, lane)) len + lane else null;
+                if (scan.is_quotation_mark(block, lane)) return .{ .input_len = len + lane, .output_len = len + lane };
+                return self.copy_rest(claims, first, len + lane);
             }
             len += constants.vector_len;
         }
-        const rest_len = copy_long(self.decoder.level.with(claims), self.input[first + len ..], self.output[self.written + len ..]) orelse return null;
-        return len + rest_len;
+        const run_len = copy_long(self.decoder.level.with(claims), self.input[first + len ..], self.output[self.written + len ..]);
+        return self.after_run(claims, first, len + run_len);
     }
 
     /// The rest of a run past its first `head_len` octets, when fewer than 16 of input or of room
     /// are left: scanned up to the end of either as `scan.plain_len_vector` scans a short run, and
     /// copied. Claim J8's fast path took such a string, near the end of the input or of the output,
     /// where the loop left it.
-    inline fn copy_short(self: *Loop, first: usize, head_len: usize) ?usize {
+    inline fn copy_short(self: *Loop, comptime claims: Claims, first: usize, head_len: usize) ?Copied {
         const rest = self.input[first + head_len ..];
         const room = self.output[self.written + head_len ..];
         const window = rest[0..@min(rest.len, room.len)];
         const run_len = scan.plain_len_vector(constants.vector_len, window);
-        if (run_len == rest.len or rest[run_len] != constants.quotation_mark) return null;
         scan.copy(room[0..run_len], window[0..run_len]);
-        return head_len + run_len;
+        return self.after_run(claims, first, head_len + run_len);
     }
 
-    /// `copy_blocks` an octet at a time (claim J3 off).
-    inline fn copy_scalar(self: *Loop) ?usize {
+    /// The string whose first `len` octets of content are copied and plain ASCII: whole at its
+    /// closing quotation mark, and else taken on past them by `copy_rest`.
+    inline fn after_run(self: *Loop, comptime claims: Claims, first: usize, len: usize) ?Copied {
+        if (first + len == self.input.len) return null;
+        if (self.input[first + len] == constants.quotation_mark) return .{ .input_len = len, .output_len = len };
+        return self.copy_rest(claims, first, len);
+    }
+
+    /// The string past its first `head_len` octets of content, copied and plain ASCII: its escapes,
+    /// its UTF-8 and the runs between them (decoder_loop_string.zig).
+    inline fn copy_rest(self: *Loop, comptime claims: Claims, first: usize, head_len: usize) ?Copied {
+        const rest = loop_string.copy_rest(claims, self.decoder.level, self.input[first + head_len ..], self.output[self.written + head_len ..]) orelse return null;
+        return .{ .input_len = head_len + rest.input_len, .output_len = head_len + rest.output_len };
+    }
+
+    /// `copy_blocks` an octet at a time, for plain ASCII alone (claim J3 off).
+    inline fn copy_scalar(self: *Loop) ?Copied {
         const content = self.input[self.position + 1 ..];
         const len = scan.plain_len_scalar(content[0..@min(content.len, self.output.len - self.written)]);
         if (len == content.len or content[len] != constants.quotation_mark) return null;
         @memcpy(self.output[self.written..][0..len], content[0..len]);
-        return len;
+        return .{ .input_len = len, .output_len = len };
     }
 
     /// Takes a whole number and leaves the octet that ends it.
@@ -320,16 +337,15 @@ const Loop = struct {
     }
 };
 
-/// The rest of a string's run past the blocks `copy_blocks` took, from `rest`, its octets after
-/// them, into `room`, the output after them: its length when its closing quotation mark follows it
-/// in `rest`, or null. It is scanned at the widest vector the caller's features allow (claim J7), in
-/// a function of its own as `wide.plain_len` scans it, and copied whole: 16 at a time, the loop ran
-/// long hex strings up to 10% slower than the checked path on an AMD EPYC 7763 (design §8 step
-/// 18). It takes no `*Loop`, which would keep the loop's fields in memory.
-fn copy_long(level: wide.Level, rest: []const u8, room: []u8) ?usize {
+/// The run of plain ASCII past the blocks `copy_blocks` took, from `rest`, its octets after them,
+/// into `room`, the output after them, as far as `room` holds: copied, and its length returned. It
+/// is scanned at the widest vector the caller's features allow (claim J7), in a function of its own
+/// as `wide.plain_len` scans it, and copied whole: 16 at a time, the loop ran long hex strings up to
+/// 10% slower than the checked path on an AMD EPYC 7763 (design §8 step 18). It takes no `*Loop`,
+/// which would keep the loop's fields in memory.
+fn copy_long(level: wide.Level, rest: []const u8, room: []u8) usize {
     const window = rest[0..@min(rest.len, room.len)];
     const run_len = wide.plain_len(level, window);
-    if (run_len == rest.len or rest[run_len] != constants.quotation_mark) return null;
     @memcpy(room[0..run_len], window[0..run_len]);
     return run_len;
 }

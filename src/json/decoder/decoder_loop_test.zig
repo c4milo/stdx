@@ -55,9 +55,21 @@ const texts = [_][]const u8{
     "\xef\xbb\xbf[1]",
     "\x1e\xef\xbb\xbf[1]\n",
     "\x1e\x1e[true] \n\x1e",
+    // Escapes and UTF-8 the loop takes past a string's plain run, and escapes it leaves to the
+    // checked path to refuse: a lone low surrogate, a high one no low one follows, a letter that
+    // starts no escape, a digit that is none, and an escape the input cuts.
+    "[\"a\\\"b\\\\c\\/d\\b\\f\\n\\r\\t\",\"\\u0041\\u00e9\\u20ac\\uD83D\\uDE00\",\"caf\xc3\xa9 \xe2\x82\xac\\n\"]",
+    "[\"a\\uDC00\"]",
+    "[\"a\\uD834\\u0041\"]",
+    "[\"a\\q\"]",
+    "[\"a\\u12G4\"]",
+    "[\"a\\u00",
     // Strings past the 64 octets a block at a time, one ending near the input's end.
     "[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]",
 };
+
+/// The text of `texts` whose strings hold every escape the loop takes, and UTF-8.
+const escaped_text = 9;
 
 /// The octets a flip writes, weighted toward the ones the grammar turns on.
 const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xff";
@@ -164,6 +176,20 @@ fn check_split(input: []const u8, split: usize) !void {
             } else return error.TestNoProgress;
         }
     }
+}
+
+test "the loop takes strings with every escape it names and with UTF-8, none left to the checked path" {
+    var decoder: Decoder = undefined;
+    decoder.init(.text, codec.Features.detect());
+    var output: [output_len_max]u8 = undefined;
+    var slots: [slots_max]Slot = undefined;
+    // Four tokens and the text's end: `[`, the two strings, `]`.
+    const text = texts[escaped_text];
+    var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
+    try testing.expectEqual(5, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
+    try testing.expectEqualStrings("a\"b\\c/d\x08\x0c\n\r\t", output[slots[1].start..][0..slots[1].len]);
+    try testing.expectEqualStrings("A\xc3\xa9\xe2\x82\xac\xf0\x9f\x98\x80", output[slots[2].start..][0..slots[2].len]);
+    try testing.expect(decoder.is_done());
 }
 
 test "a long string that fills the output exactly is taken, and one octet more is not" {

@@ -155,7 +155,7 @@ fn escape_digit(decoder: *Decoder, octet: u8) Error!void {
     if (decoder.escape_digits == constants.escape_hex_digits) try end_unicode(decoder);
 }
 
-fn hex_value(octet: u8) ?u8 {
+pub fn hex_value(octet: u8) ?u8 {
     return switch (octet) {
         '0'...'9' => octet - '0',
         'a'...'f' => octet - 'a' + constants.hex_letter_value_min,
@@ -190,11 +190,14 @@ fn end_unicode(decoder: *Decoder) Error!void {
 }
 
 /// Holds the UTF-8 of `code_point`, which is no surrogate and at most U+10FFFF: the callers check
-/// both, so `utf8Encode` cannot refuse it (RFC 3629 §3).
+/// both, so `utf8Encode` cannot refuse it (RFC 3629 §3). The escape's digits are then cleared, so
+/// between tokens they are always zero, whichever path took the string.
 fn hold_code_point(decoder: *Decoder, code_point: u21) void {
     var octets: [constants.utf8_len_max]u8 = undefined;
     const len = std.unicode.utf8Encode(code_point, &octets) catch unreachable;
     hold(decoder, octets[0..len]);
+    decoder.escape_digits = 0;
+    decoder.code_unit = 0;
 }
 
 /// Adds `octets` to what the call writes before anything else.
