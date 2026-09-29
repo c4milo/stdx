@@ -82,7 +82,7 @@ const two_loops = true;
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.
-pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
+pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) ?Copied {
     var walk: Walk = .{ .input = rest, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..rest.len + 1) |_| {

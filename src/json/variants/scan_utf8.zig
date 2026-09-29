@@ -14,8 +14,8 @@ const width = switch (level) {
     else => @compileError("decision 39's check has no kernel at this level"),
 };
 
-fn is_utf8(octets: [*]const u8, len: usize) callconv(.c) bool {
-    return scan_utf8.valid_by(width, .lookup, octets[0..len]);
+fn is_utf8(octets: [*]const u8, len: usize) align(constants.kernel_alignment) callconv(.c) bool {
+    return @call(.always_inline, scan_utf8.valid_by, .{ width, .lookup, octets[0..len] });
 }
 
 comptime {

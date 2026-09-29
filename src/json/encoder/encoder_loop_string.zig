@@ -69,7 +69,7 @@ const two_loops = builtin.cpu.arch != .x86_64;
 
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
-pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
+pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) align(constants.kernel_alignment) ?usize {
     @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
     var walk: Walk = .{ .input = octets, .output = room };
     // Each pass takes at least one octet, or returns.

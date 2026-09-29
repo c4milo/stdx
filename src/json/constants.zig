@@ -40,6 +40,13 @@ pub const avx512_vector_len: usize = 64;
 /// does not on an Intel Xeon Platinum 8370C, so a shorter buffer saves less than it costs.
 pub const utf8_aligned_len_min: usize = 1024;
 
+/// The alignment of each of the string loops and of each variant kernel: a 64-octet line, so that a
+/// kernel's loops sit where its own code puts them, and not where the linker puts the variant
+/// object, which every change to the module's own code moves. With their code unchanged, the hex
+/// strings decoded at 0.66 of their speed on an AMD EPYC 9V45 when the object moved (run
+/// 36634334010), and the N2 encoded text 2% slower when the encoder's loop moved 20 octets.
+pub const kernel_alignment: usize = 64;
+
 /// The octets of a name's or a string's run the 16-octet path takes before claim J7's kernels take
 /// the rest. Lines of English text are runs of 50 to 100 octets, which ended before a kernel's call
 /// paid for itself: 5% to 8% slower to encode on an AMD EPYC 9V74 with the kernels from the 17th

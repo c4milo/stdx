@@ -12,11 +12,11 @@ const width: usize = switch (level) {
     else => @compileError("claim J7 has no kernels at this level"),
 };
 
-fn plain_len(octets: [*]const u8, len: usize) callconv(.c) usize {
+fn plain_len(octets: [*]const u8, len: usize) align(constants.kernel_alignment) callconv(.c) usize {
     return scan.plain_len_vector(width, octets[0..len]);
 }
 
-fn hex_len(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) usize {
+fn hex_len(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) align(constants.kernel_alignment) callconv(.c) usize {
     return scan.hex_len_vector(width, input[0..input_len], output[0..output_len]);
 }
 
