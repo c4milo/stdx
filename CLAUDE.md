@@ -354,7 +354,10 @@ Change this section when a step adds or renames a command.
   `mkdir -p ~/.cache/zig/tmp` before the first `-Doracles` build.
 - Packages: `tools/fetch_packages.sh` fetches every package, lazy ones included, retrying with
   growing pauses; `tools/ci.sh` and `bench/run.sh` run it first, because the corpus hosts drop
-  connections and answer 500 now and then.
+  connections and answer 500 now and then. `tools/prune_packages.sh <build.zig.zon>...` deletes
+  from `zig-pkg` every package those files no longer name, directly or through a named package;
+  the workflows run it before they keep a new cache entry, and `tools/ci.sh` runs
+  `tools/prune_packages_check.sh`, its check.
 - Tooling: the first build on a machine fetches pepegrillo. A bump is `zig fetch
   --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`; confirm `.lazy = true`
   survives it and copy the new hook. `zig build --fork=<pepegrillo checkout>` builds against a

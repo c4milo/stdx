@@ -53,6 +53,7 @@ run_check "fetch" tools/fetch_packages.sh
 run_check "format" zig fmt --check build.zig bench build src tools
 run_check "rfcs and specs" check_copies
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
+run_check "package prune" bash tools/prune_packages_check.sh
 run_check "test" zig build test
 # The unit tests built by Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux: run
 # there, and only compiled on every other runner. The summary shows which, module by module.

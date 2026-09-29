@@ -68,11 +68,18 @@ jobs:
           # Zig keeps an archive of each package it downloads in its global cache's p directory.
           archives="$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)"
           tools/fetch_packages.sh
-          # The base's packages too, so that the entry the next step keeps holds them.
+          # The base's packages too, so that the entry kept below holds them.
           if [ -d base ]; then (cd base && "$GITHUB_WORKSPACE/tools/fetch_packages.sh"); fi
           if [ "$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)" != "$archives" ]; then
             echo "downloaded=true" >> "$GITHUB_OUTPUT"
           fi
+      # The entry kept next holds only the packages the change's and the base's build.zig.zon name.
+      - name: Prune the packages
+        if: steps.fetch.outputs.downloaded == 'true'
+        run: |
+          zons=(build.zig.zon)
+          if [ -d base ]; then zons+=(base/build.zig.zon); fi
+          tools/prune_packages.sh "${zons[@]}"
       # A new entry only when the restored one lacked a package.
       - name: Keep the packages
         if: steps.fetch.outputs.downloaded == 'true'

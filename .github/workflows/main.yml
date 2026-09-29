@@ -53,6 +53,10 @@ jobs:
           if [ "$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)" != "$archives" ]; then
             echo "downloaded=true" >> "$GITHUB_OUTPUT"
           fi
+      # The entry kept next holds only the packages build.zig.zon names.
+      - name: Prune the packages
+        if: steps.fetch.outputs.downloaded == 'true'
+        run: tools/prune_packages.sh build.zig.zon
       # A new entry only when the restored one lacked a package.
       - name: Keep the packages
         if: steps.fetch.outputs.downloaded == 'true'
