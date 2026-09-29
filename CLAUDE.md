@@ -319,13 +319,14 @@ Change this section when a step adds or renames a command.
   branch misses per decoded octet for each gzip decoder, for libzstd's and stdx's Zstandard
   decoders, and for Google's and stdx's brotli decoders over each file's first MiB, over every
   corpus file, through Linux's perf_event_open, and says so where the host exposes no counters. Last, `bench_json --profile` counts them per token and per octet for the
-  `json` module's decoder and encoder, with every claim on and every claim off, and for simdjson,
-  yyjson and Zig's std.json, over one workload of each shape (`bench/json/json_profile.zig`). The
-  `bench` workflow's `profile` option runs it on both hosted runners, after allowing a process to
-  count its own events.
+  `json` module's decoder and encoder, with every claim on and every claim off, for the encoder
+  with J11's loop unchecked, and for simdjson, yyjson and Zig's std.json, over one workload of each
+  shape (`bench/json/json_profile.zig`). The `bench` workflow's `profile` option runs it on both
+  hosted runners, after allowing a process to count its own events.
 - JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder,
   many tokens a call (decision 33), with every claim on, each of claims J1, J2, J3, J5, J7, J8, J9,
-  J10 and J11 off in turn, and every one off, and one token a call with every claim on, over CLDR's
+  J10 and J11 off in turn, and every one off, one token a call with every claim on, and the encoder
+  with J11's loop's runtime safety checks off as a caller may choose (decision 35), over CLDR's
   JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII text
   and hex strings, beside simdjson, yyjson and Zig's std.json: every candidate interleaved in one
   run, the median of five runs with the spread, and the losses listed (decision 27). A macOS host

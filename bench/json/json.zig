@@ -10,6 +10,8 @@
 //!   candidate but the next calls its codec;
 //! - every claim on, one token a call, which the batches are priced against;
 //! - each claim off in turn;
+//! - every claim on, with claim J11's loop's runtime safety checks off, as a caller may choose
+//!   (decision 35); the decoder does not read the field, and its table leaves the candidate out;
 //! - every claim off: the scalar and checked paths alone, the reference (decision 16) and the
 //!   baseline each vector path and the fast path are priced against.
 //!
@@ -39,9 +41,14 @@ const calls = @import("json_calls.zig");
 const Item = workloads.Item;
 const Workload = workloads.Workload;
 
-/// The candidates: every claim on, each off in turn, and every claim off.
-const candidates = [_]json.Claims{.{}} ++ json.claims.each_off ++ [_]json.Claims{json.claims.scalar};
+/// Every claim on, with claim J11's loop's runtime safety checks off (decision 35).
+const unchecked: json.Claims = .{ .encoder_token_loop_runtime_safety = false };
+/// The candidates: every claim on, each off in turn, every claim on with J11's loop unchecked, and
+/// every claim off.
+const candidates = [_]json.Claims{.{}} ++ json.claims.each_off ++ [_]json.Claims{ unchecked, json.claims.scalar };
 const candidate_count = candidates.len;
+/// Where the candidate with J11's loop unchecked stands in `candidates`.
+const unchecked_index = candidate_count - 2;
 /// Where the candidate with every claim off stands in `candidates`.
 const scalar_index = candidate_count - 1;
 /// Every operation a workload's run times: the candidates, many tokens a call; every claim on, one
@@ -152,11 +159,11 @@ fn time(arena: std.mem.Allocator, io: std.Io, workload: *const Workload, comptim
     return rates_of(&runs, side.octets);
 }
 
-/// stdx's throughput with every claim on, beside the baselines'.
-fn baseline_row(workload: *const Workload, rates: Rates, octets: usize) baselines.Row {
+/// stdx's throughput with the claims of `candidates[candidate]`, beside the baselines'.
+fn baseline_row(workload: *const Workload, rates: Rates, octets: usize, candidate: usize) baselines.Row {
     var row: baselines.Row = .{ .name = workload.name, .octets = octets, .median = undefined, .spread = undefined };
-    row.median[0] = rates.median[0];
-    row.spread[0] = rates.spread[0];
+    row.median[0] = rates.median[candidate];
+    row.spread[0] = rates.spread[candidate];
     for (0..baselines.count) |index| {
         row.median[1 + index] = rates.median[first_baseline + index];
         row.spread[1 + index] = rates.spread[first_baseline + index];
@@ -175,10 +182,14 @@ fn noise(rates: Rates, index: usize) f64 {
     return @max(0.05, @max(rates.spread[0], rates.spread[index]));
 }
 
-fn report_row(out: *std.Io.Writer, workload: *const Workload, rates: Rates, claims: []const usize, octets: usize) !void {
+/// One workload's row: each claim off, one token a call and every claim off, over every claim on;
+/// with `unchecked_column`, J11's loop unchecked over every claim on too.
+fn report_row(out: *std.Io.Writer, workload: *const Workload, rates: Rates, claims: []const usize, octets: usize, unchecked_column: bool) !void {
     try out.print("| {s} | {d} | {d:.1} ± {d:.1}% |", .{ workload.name, octets, rates.median[0], rates.spread[0] * 100 });
     for (claims) |claim| try out.print(" {d:.3} |", .{rates.median[claim + 1] / rates.median[0]});
-    try out.print(" {d:.3} | {d:.3} |\n", .{ rates.median[one_token_index] / rates.median[0], rates.median[scalar_index] / rates.median[0] });
+    try out.print(" {d:.3} | {d:.3} |", .{ rates.median[one_token_index] / rates.median[0], rates.median[scalar_index] / rates.median[0] });
+    if (unchecked_column) try out.print(" {d:.3} |", .{rates.median[unchecked_index] / rates.median[0]});
+    try out.print("\n", .{});
 }
 
 fn record_losses(arena: std.mem.Allocator, losses: *std.ArrayList(Loss), workload: *const Workload, side: []const u8, rates: Rates, claims: []const usize) !void {
@@ -192,13 +203,18 @@ fn record_losses(arena: std.mem.Allocator, losses: *std.ArrayList(Loss), workloa
     if (one_token > 1 + noise(rates, one_token_index)) try losses.append(arena, .{ .workload = workload.name, .side = side, .claim = batches_loss, .ratio = one_token });
 }
 
-fn header(out: *std.Io.Writer, title: []const u8, claims: []const usize, octets_are: []const u8) !void {
-    try out.print("\n## {s}\n\nEach claim's column is the throughput with the claim off over the throughput with every claim on; above 1, the claim's path lost. {s}\n\n", .{ title, octets_are });
-    try out.print("| Workload | Octets | All on, MB/s |", .{});
+fn header(out: *std.Io.Writer, title: []const u8, claims: []const usize, octets_are: []const u8, unchecked_column: bool) !void {
+    try out.print("\n## {s}\n\nEach claim's column is the throughput with the claim off over the throughput with every claim on; above 1, the claim's path lost. {s}", .{ title, octets_are });
+    if (unchecked_column) try out.print(" The last column is the throughput with claim J11's loop's runtime safety checks off, as a caller may choose (decision 35), over every claim on; above 1, the checks cost that much.", .{});
+    try out.print("\n\n| Workload | Octets | All on, MB/s |", .{});
     for (claims) |claim| try out.print(" {s} off |", .{json.claims.each_off_names[claim]});
-    try out.print(" One token a call | All off |\n|---|---|---|", .{});
+    try out.print(" One token a call | All off |", .{});
+    if (unchecked_column) try out.print(" J11 loop unchecked |", .{});
+    try out.print("\n|---|---|---|", .{});
     for (claims) |_| try out.print("---|", .{});
-    try out.print("---|---|\n", .{});
+    try out.print("---|---|", .{});
+    if (unchecked_column) try out.print("---|", .{});
+    try out.print("\n", .{});
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -217,20 +233,22 @@ pub fn main(init: std.process.Init) !void {
     var losses: std.ArrayList(Loss) = .empty;
     const decoding_rows = try arena.alloc(baselines.Row, all.len);
     const encoding_rows = try arena.alloc(baselines.Row, all.len);
+    const unchecked_rows = try arena.alloc(baselines.Row, all.len);
 
-    try header(out, "Decoding", &decoder_claims, "Octets are the text's.");
+    try header(out, "Decoding", &decoder_claims, "Octets are the text's.", false);
     for (all, decoding_rows) |*workload, *row| {
         const rates = try time(arena, io, workload, decoding);
-        row.* = baseline_row(workload, rates, workload.octets);
-        try report_row(out, workload, rates, &decoder_claims, workload.octets);
+        row.* = baseline_row(workload, rates, workload.octets, 0);
+        try report_row(out, workload, rates, &decoder_claims, workload.octets, false);
         try record_losses(arena, &losses, workload, "decoding", rates, &decoder_claims);
         try out.flush();
     }
-    try header(out, "Encoding", &encoder_claims, "Octets are the ones written.");
-    for (all, encoding_rows) |*workload, *row| {
+    try header(out, "Encoding", &encoder_claims, "Octets are the ones written.", true);
+    for (all, encoding_rows, unchecked_rows) |*workload, *row, *unchecked_row| {
         const rates = try time(arena, io, workload, encoding);
-        row.* = baseline_row(workload, rates, workload.octets);
-        try report_row(out, workload, rates, &encoder_claims, workload.octets);
+        row.* = baseline_row(workload, rates, workload.octets, 0);
+        unchecked_row.* = baseline_row(workload, rates, workload.octets, unchecked_index);
+        try report_row(out, workload, rates, &encoder_claims, workload.octets, true);
         try record_losses(arena, &losses, workload, "encoding", rates, &encoder_claims);
         try out.flush();
     }
@@ -240,7 +258,11 @@ pub fn main(init: std.process.Init) !void {
         const name = if (loss.claim < json.claims.each_off.len) json.claims.each_off_names[loss.claim] else if (loss.claim == batches_loss) "many tokens a call (decision 33)" else "every claim";
         try out.print("- {s}, {s}: {s} off runs at {d:.3} of all on.\n", .{ loss.workload, loss.side, name, loss.ratio });
     }
-    try baselines.report(out, decoding_rows, encoding_rows);
+    try baselines.report(out, &.{
+        .{ .title = "Decoding against the baselines", .octets_are = "Octets are the text's.", .side = "decoding", .rows = decoding_rows },
+        .{ .title = "Encoding against the baselines", .octets_are = "Octets are the ones stdx writes.", .side = "encoding", .rows = encoding_rows },
+        .{ .title = "Encoding against the baselines, J11's loop unchecked", .octets_are = "stdx's encoder with claim J11's loop's runtime safety checks off, as a caller may choose (decision 35). Octets are the ones stdx writes.", .side = "encoding with J11's loop unchecked", .rows = unchecked_rows },
+    });
     try out.flush();
 }
 
@@ -248,12 +270,12 @@ pub fn main(init: std.process.Init) !void {
 fn profile(arena: std.mem.Allocator, out: *std.Io.Writer, all: []const Workload) !void {
     if (comptime !timing.counters.available) return json_profile.unavailable(out, "they are read through Linux's perf_event_open, and this host is not Linux");
     const open = timing.counters.Counters.open() catch return json_profile.unavailable(out, "perf_event_open refused them");
-    try profile_side(arena, out, &open, all, "decoding", decoding);
-    try profile_side(arena, out, &open, all, "encoding", encoding);
+    try profile_side(arena, out, &open, all, "decoding", decoding, null);
+    try profile_side(arena, out, &open, all, "encoding", encoding, unchecked_index);
 }
 
-fn profile_side(arena: std.mem.Allocator, out: *std.Io.Writer, open: *const timing.counters.Counters, all: []const Workload, side_name: []const u8, comptime build: Build) !void {
-    const places: json_profile.Places = .{ .all_on = 0, .one_token = one_token_index, .all_off = scalar_index, .first_baseline = first_baseline };
+fn profile_side(arena: std.mem.Allocator, out: *std.Io.Writer, open: *const timing.counters.Counters, all: []const Workload, side_name: []const u8, comptime build: Build, unchecked_place: ?usize) !void {
+    const places: json_profile.Places = .{ .all_on = 0, .one_token = one_token_index, .all_off = scalar_index, .unchecked = unchecked_place, .first_baseline = first_baseline };
     try json_profile.header(out, side_name);
     for (all) |*workload| {
         if (!json_profile.is_profiled(workload)) continue;

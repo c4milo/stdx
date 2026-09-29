@@ -317,8 +317,8 @@ pub fn count_token(tally: *abi.Tally, kind: json.Kind, written: usize) void {
     }
 }
 
-/// One workload's throughput: stdx's with every claim on, and each baseline's, in MB/s with their
-/// spreads.
+/// One workload's throughput: stdx's with one candidate's claims, and each baseline's, in MB/s with
+/// their spreads.
 pub const Row = struct {
     name: []const u8,
     octets: usize,
@@ -326,26 +326,36 @@ pub const Row = struct {
     spread: [1 + count]f64,
 };
 
-/// Prints both sides' tables and the workloads where a baseline ran faster than stdx.
-pub fn report(out: *std.Io.Writer, decoding: []const Row, encoding: []const Row) !void {
+/// One table of rows beside the baselines: its title, what its octets are, and the side its losses
+/// name.
+pub const Side = struct { title: []const u8, octets_are: []const u8, side: []const u8, rows: []const Row };
+
+/// Prints each side's table and the workloads where a baseline ran faster than stdx.
+pub fn report(out: *std.Io.Writer, sides: []const Side) !void {
     try out.print("\n## Against the baselines\n\n", .{});
     try out.print("stdx with every claim on, timed beside simdjson 4.6.11, yyjson 0.13.0 and Zig 0.16.0's std.json in the same run. Each ratio is stdx's throughput over the baseline's; below 1, the baseline is faster. stdx is built for the architecture's baseline CPU in ReleaseSafe; the baselines for this host in ReleaseFast, and simdjson picks its kernel at run time. Decoding visits every value; encoding writes each text from its tokens.\n", .{});
-    try table(out, "Decoding against the baselines", "Octets are the text's.", decoding);
-    try table(out, "Encoding against the baselines", "Octets are the ones stdx writes.", encoding);
+    for (sides) |side| try table(out, side.title, side.octets_are, side.rows);
     try out.print("\n## Losses to the baselines\n\nEach workload where a baseline ran faster than stdx by more than the noise floor of decision 20.\n\n", .{});
     var none = true;
-    for ([_][]const u8{ "decoding", "encoding" }, [_][]const Row{ decoding, encoding }) |side, rows| {
-        for (rows) |row| {
-            for (names, built(), 1..) |baseline, is_built, index| {
-                if (!is_built) continue;
-                const ratio = row.median[0] / row.median[index];
-                if (ratio >= 1 - @max(0.05, @max(row.spread[0], row.spread[index]))) continue;
-                none = false;
-                try out.print("- {s}, {s}: stdx runs at {d:.3} of {s}.\n", .{ row.name, side, ratio, baseline });
-            }
+    for (sides) |side| {
+        for (side.rows) |row| {
+            if (try report_losses(out, side.side, row)) none = false;
         }
     }
     if (none) try out.print("None.\n", .{});
+}
+
+/// Prints each baseline that ran faster than stdx over `row`, and returns whether one did.
+fn report_losses(out: *std.Io.Writer, side: []const u8, row: Row) !bool {
+    var any = false;
+    for (names, built(), 1..) |baseline, is_built, index| {
+        if (!is_built) continue;
+        const ratio = row.median[0] / row.median[index];
+        if (ratio >= 1 - @max(0.05, @max(row.spread[0], row.spread[index]))) continue;
+        any = true;
+        try out.print("- {s}, {s}: stdx runs at {d:.3} of {s}.\n", .{ row.name, side, ratio, baseline });
+    }
+    return any;
 }
 
 fn table(out: *std.Io.Writer, title: []const u8, octets_are: []const u8, rows: []const Row) !void {
