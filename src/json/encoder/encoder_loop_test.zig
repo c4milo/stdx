@@ -132,6 +132,23 @@ test "the loop writes every item of a record in one call, into an output of just
     }
 }
 
+test "the loop writes strings with every escape and with UTF-8 itself, none left to the checked path" {
+    const items = [_]Encoder.Item{
+        .{ .token = .begin_array },
+        .{ .token = .{ .string = .last }, .octets = "a\"b\\c/d\x08\x0c\n\r\t\x00\x1f\x7f" },
+        .{ .token = .{ .string = .last }, .octets = "caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80" },
+        .{ .token = .end_array },
+    };
+    var encoder: Encoder = undefined;
+    encoder.init(.text, codec.Features.detect());
+    const expected = "[\"a\\\"b\\\\c/d\\b\\f\\n\\r\\t\\u0000\\u001f\x7f\",\"caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80\"]";
+    var output: [text_len_max]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(items.len, token_loop.take(&encoder, claims.vector, &items, output[0..expected.len], &written));
+    try testing.expectEqualStrings(expected, output[0..written]);
+    try testing.expect(encoder.is_done());
+}
+
 test "the loop steps aside at the depth limit, where the checked path refuses" {
     const items: [constants.depth_max + 1]encoder_test.Item = @splat(.{ .token = .begin_array });
     try check(&items, 0);
