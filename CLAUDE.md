@@ -310,7 +310,7 @@ Change this section when a step adds or renames a command.
   17's measure of what the safety checks cost.
 - brotli benchmark: `zig build bench-brotli -Doracles` times Google's brotli decoder and stdx's
   HTTP decoder over every corpus file, encoded once by Google's brotli at its default quality 11
-  and window 22; then stdx's fast path against its checked path, and each claim off against all
+  and window 22, each row stating the stream's size as a percentage of the file's; then stdx's fast path against its checked path, and each claim off against all
   on: every candidate interleaved in one run, the median of five runs with the spread. A second
   program then repeats the comparison with Google's brotli with stdx built ReleaseFast, decision
   17's measure of what the safety checks cost. The `bench` workflow offers it.

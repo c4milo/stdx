@@ -7,7 +7,8 @@
 //!   one-shot decode does, since its public API resets none, and stdx's HTTP decoder, a window of
 //!   2^24 (decision 12), over each corpus file encoded once by Google's brotli at its default
 //!   quality and window. Throughput counts decoded octets. Each decoder's output is compared with
-//!   the input before any is timed.
+//!   the input before any is timed. Each row states the stream's size as a percentage of the
+//!   file's, the ratio the decoders' speed is measured at.
 //! - stdx's paths: its HTTP decoder with the fast path of decision 16 and on its checked path
 //!   alone, the A/B that admits the fast path. The checked path's decoder takes claims no other
 //!   candidate takes (`checked_claims`).
@@ -91,6 +92,11 @@ const File = struct {
     name: []const u8,
     input: []const u8,
     stream: []const u8,
+
+    /// The stream's size as a percentage of the file's: the compression the decoders decode at.
+    fn compressed_percent(self: File) f64 {
+        return 100 * @as(f64, @floatFromInt(self.stream.len)) / @as(f64, @floatFromInt(self.input.len));
+    }
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -107,7 +113,7 @@ pub fn main(init: std.process.Init) !void {
         const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
         try files.append(arena, .{ .name = argument[0..split], .input = input, .stream = try stream_of(arena, input) });
     }
-    const header = "| File | Octets | Google, MB/s | stdx, MB/s | stdx / Google |\n|---|---|---|---|---|\n";
+    const header = "| File | Octets | Compressed, % | Google, MB/s | stdx, MB/s | stdx / Google |\n|---|---|---|---|---|---|\n";
     if (bench_options.release_fast) {
         try out.print("\n## stdx built ReleaseFast against Google's brotli, quality {d}, window {d} (decision 17)\n\n", .{ decode_quality, decode_window_bits });
         try out.print(header, .{});
@@ -119,13 +125,13 @@ pub fn main(init: std.process.Init) !void {
     try out.print(header, .{});
     for (files.items) |file| try report_decode(arena, io, out, file);
     try out.print("\n## stdx's fast path against its checked path\n\n", .{});
-    try out.print("| File | Octets | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_paths(arena, io, out, file);
     try out.print("\n## The claims, each off against the fast path with all on\n\n", .{});
     try out.print("Each claim's column is its throughput with the claim off over the throughput with all on.\n\n", .{});
-    try out.print("| File | Octets | All on, MB/s |", .{});
+    try out.print("| File | Octets | Compressed, % | All on, MB/s |", .{});
     for (brotli.claims.each_off_names) |name| try out.print(" {s} off |", .{name});
-    try out.print("\n|---|---|---|", .{});
+    try out.print("\n|---|---|---|---|", .{});
     for (brotli.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (files.items) |file| try report_claims(arena, io, out, file);
@@ -162,11 +168,12 @@ fn time_candidates(comptime count: usize, io: std.Io, file: File, candidates: *c
     return rates_of(count, &runs, file.input.len);
 }
 
-/// Prints one row of two candidates: their rates, spreads, and the second's over the first's.
+/// Prints one row of two candidates: the file's compression, their rates and spreads, and the
+/// second's rate over the first's.
 fn print_pair(out: *std.Io.Writer, file: File, rates: [2][2]f64) !void {
-    try out.print("| {s} | {d} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
-        rates[0][1] / rates[0][0],
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
+        file.name,   file.input.len,            file.compressed_percent(), rates[0][0], rates[1][0], rates[0][1],
+        rates[1][1], rates[0][1] / rates[0][0],
     });
 }
 
@@ -211,7 +218,7 @@ fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
         outputs[1 + index] = offs[index].output;
     }
     const rates = try time_candidates(candidates.len, io, file, &candidates, &outputs);
-    try out.print("| {s} | {d} | {d:.1} ±{d:.1}% |", .{ file.name, file.input.len, rates[0][0], rates[1][0] });
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% |", .{ file.name, file.input.len, file.compressed_percent(), rates[0][0], rates[1][0] });
     for (1..candidates.len) |index| try out.print(" {d:.2} ±{d:.1}% |", .{ rates[0][index] / rates[0][0], rates[1][index] });
     try out.print("\n", .{});
 }
