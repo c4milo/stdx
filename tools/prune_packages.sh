@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# prune_packages.sh: delete from zig-pkg every package that no build.zig.zon given names, so that
-# the entry the workflows keep in GitHub's cache holds no package a build no longer uses. A package
-# is named when a build.zig.zon given, or the build.zig.zon of a named package, names its hash.
+# prune_packages.sh: delete from zig-pkg every entry that is not a package a build.zig.zon given
+# names, so that the entry the workflows keep in GitHub's cache holds the packages a build uses and
+# nothing else. A package is named when a build.zig.zon given, or the build.zig.zon of a named
+# package, names its hash.
 #
 # Usage: tools/prune_packages.sh <build.zig.zon>...
 #   tools/prune_packages.sh build.zig.zon
@@ -63,14 +64,14 @@ if [[ "$settled" != true ]]; then
   exit 1
 fi
 
-# Zig names a package's directory by the package's hash, which holds a dash; the directories of its
-# global cache (b, h, o, p, tmp, z), which the workflows keep in zig-pkg, hold none, and stay.
-for entry in "$packages"/*-*; do
+# Zig names a package's directory by the package's hash. Every other entry goes too, such as the
+# directories of Zig's global cache, which entries kept while it lived in zig-pkg hold.
+for entry in "$packages"/*; do
   if [[ ! -e "$entry" ]]; then
     continue
   fi
-  hash="$(basename "$entry")"
-  if ! grep -qxF -- "$hash" <<< "$named"; then
+  name="$(basename "$entry")"
+  if ! grep -qxF -- "$name" <<< "$named"; then
     echo "prune_packages.sh: deleting ${entry}, which no build.zig.zon given names"
     rm -rf -- "$entry"
   fi

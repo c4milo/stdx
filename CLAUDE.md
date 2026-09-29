@@ -355,8 +355,9 @@ Change this section when a step adds or renames a command.
 - Packages: `tools/fetch_packages.sh` fetches every package, lazy ones included, retrying with
   growing pauses; `tools/ci.sh` and `bench/run.sh` run it first, because the corpus hosts drop
   connections and answer 500 now and then. `tools/prune_packages.sh <build.zig.zon>...` deletes
-  from `zig-pkg` every package those files no longer name, directly or through a named package;
-  the workflows run it before they keep a new cache entry, and `tools/ci.sh` runs
+  from `zig-pkg` every entry that is not a package those files name, directly or through a named
+  package. The workflows run it before they keep a new cache entry, which holds packages alone,
+  since Zig's global cache stays outside `zig-pkg`; `tools/ci.sh` runs
   `tools/prune_packages_check.sh`, its check.
 - Tooling: the first build on a machine fetches pepegrillo. A bump is `zig fetch
   --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`; confirm `.lazy = true`

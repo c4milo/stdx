@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # prune_packages_check.sh: the check behind tools/prune_packages.sh. It builds a zig-pkg of named,
-# stale and transitively named packages, with the directories of Zig's global cache beside them,
-# and requires the script to delete exactly the packages no build.zig.zon given names, and to
-# delete nothing when a build.zig.zon names no package. tools/ci.sh runs it.
+# stale and transitively named packages, with directories of Zig's global cache beside them, and
+# requires the script to delete exactly the entries that are not packages a build.zig.zon given
+# names, and to delete nothing when a build.zig.zon names no package. tools/ci.sh runs it.
 
 set -euo pipefail
 
@@ -76,8 +76,8 @@ expect() {
 
 build_tree
 (cd "${work}/tree" && bash "$script" build.zig.zon > /dev/null)
-expect kept "$one" "$two" "$three" o/output tmp "p/${stale}.tar.gz"
-expect deleted "$two_prefix" "$four" "$five" "$stale"
+expect kept "$one" "$two" "$three"
+expect deleted "$two_prefix" "$four" "$five" "$stale" o p tmp
 
 build_tree
 (cd "${work}/tree" && bash "$script" build.zig.zon base/build.zig.zon > /dev/null)
@@ -90,7 +90,7 @@ if (cd "${work}/tree" && bash "$script" build.zig.zon base/build.zig.zon > /dev/
   echo "prune_packages_check.sh: a build.zig.zon that names no package was accepted" >&2
   failures=$((failures + 1))
 fi
-expect kept "$stale"
+expect kept "$stale" o
 
 build_tree
 rm -rf "${work}/tree/zig-pkg"
@@ -99,4 +99,4 @@ rm -rf "${work}/tree/zig-pkg"
 if [[ "$failures" -ne 0 ]]; then
   exit 1
 fi
-echo "prune_packages_check.sh: prune_packages.sh deletes just the packages no build.zig.zon names"
+echo "prune_packages_check.sh: prune_packages.sh keeps just the packages the build.zig.zon name"

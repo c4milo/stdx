@@ -19,17 +19,15 @@ jobs:
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
-    env:
-      # Zig's global cache in the directory the cache keeps, so that a run fetches only what no
-      # earlier run fetched.
-      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/zig-pkg
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # GitHub's cache never replaces an entry, so each run's key holds the run's ID. The step
-      # restores the newest entry a run kept for this build.zig.zon, or else the newest of any, so
-      # that a changed build.zig.zon downloads only the packages it adds. The dash keeps the first
-      # restore key from matching an entry's whole key, which the cache would prefer.
+      # zig-pkg holds this project's packages and nothing else: Zig's global cache stays in its
+      # default place, so no entry holds an archive or a compiled output. GitHub's cache never
+      # replaces an entry, so each run's key holds the run's ID. The step restores the newest entry
+      # a run kept for this build.zig.zon, or else the newest of any, so that a changed
+      # build.zig.zon downloads only the packages it adds. The dash keeps the first restore key
+      # from matching an entry's whole key, which the cache would prefer.
       - name: Restore the packages
         id: packages
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -41,25 +39,26 @@ jobs:
             zig-pkg-
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
-      # tools/ci.sh fetches the packages again as its first check. Fetching them here lets the next
-      # step keep them whatever the checks do, and a failure here leaves the report to tools/ci.sh.
+      # tools/ci.sh fetches the packages again as its first check. Fetching them here lets the steps
+      # below keep them whatever the checks do, and a failure here leaves the report to tools/ci.sh.
       - name: Fetch the packages
         id: fetch
         continue-on-error: true
         run: |
-          # Zig keeps an archive of each package it downloads in its global cache's p directory.
-          archives="$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)"
+          listed="$(ls zig-pkg 2>/dev/null || true)"
           tools/fetch_packages.sh
-          if [ "$(ls "$ZIG_GLOBAL_CACHE_DIR/p" 2>/dev/null || true)" != "$archives" ]; then
-            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+          # A new entry when the fetch added a package, or when the entry restored holds a directory
+          # of Zig's global cache, as entries kept while that cache lived in zig-pkg do.
+          if [ "$(ls zig-pkg 2>/dev/null || true)" != "$listed" ] ||
+            [ -n "$(ls -d zig-pkg/{b,h,o,p,tmp,z} 2>/dev/null)" ]; then
+            echo "keep=true" >> "$GITHUB_OUTPUT"
           fi
       # The entry kept next holds only the packages build.zig.zon names.
       - name: Prune the packages
-        if: steps.fetch.outputs.downloaded == 'true'
+        if: steps.fetch.outputs.keep == 'true'
         run: tools/prune_packages.sh build.zig.zon
-      # A new entry only when the restored one lacked a package.
       - name: Keep the packages
-        if: steps.fetch.outputs.downloaded == 'true'
+        if: steps.fetch.outputs.keep == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
