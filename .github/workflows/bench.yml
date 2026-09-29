@@ -41,7 +41,12 @@ jobs:
           fetch-depth: 0
       - name: Check the base out
         if: inputs.base != ''
-        run: git worktree add base "${{ inputs.base }}"
+        run: |
+          git worktree add base "${{ inputs.base }}"
+          # Zig 0.16 keeps a project's packages in zig-pkg beside its build.zig.zon and fetches any
+          # that are missing there. The base uses the checkout's zig-pkg, which the cache restores,
+          # in place of an empty one of its own.
+          ln -s "$GITHUB_WORKSPACE/zig-pkg" base/zig-pkg
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
