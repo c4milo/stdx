@@ -83,6 +83,7 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | a chain walk 1.4 to 1.6 times slower than its inline form | the walk kept in a struct whose step was a call | the step inline |
 | −2.4% on a one-tree literal file on the N2 beside +6% on the M1 | three taken branches per literal in the hand-written loop, where LLVM's layout takes two | the common path falls through; refills and second levels out of line |
 | ten x86-64 files lose 4 to 7% with x86-64's code byte-identical | the baseline's own speed drifted between the job's two phases | diff the target's disassembly; judge a change on the target it touches |
+| text files 4% slower and 15% faster in both N2 jobs, with every claim on, their walk's instructions unchanged | a function placed before the walk shrank by 52 octets, and every function after it moved | cross-build the bench at both commits and diff its functions; judge a change on the target it touches (design §8 step 18) |
 
 ## Commands
 

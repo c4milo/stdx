@@ -2097,6 +2097,55 @@ to 12 are reordered and nothing else changes.
   simdutf's 32-lane AVX2 kernel ahead of the object's 16. Decision 38 holds the numbers per file
   and the rule's verdict: the change stays.
 
+  **The UTF-8 run's loads, 2026-09-29.** `utf8_run`, claim J5's vector path past a non-ASCII
+  octet, had the split `valid` had: the check's shuffles read a block's low lanes alone, so LLVM
+  loaded each block in six pieces. The one-token-a-call path and the paths with J10 or J11 off
+  reach it through `copy_characters`; the loops' walk reaches it through `take_run`, only where
+  fewer than 16 octets of input or room are left. One block of its loop, in the tests' ReleaseSafe
+  build for each runner's target:
+
+  | Target | Before | After |
+  |---|---|---|
+  | aarch64, baseline CPU | 50 instructions; loads of 8 octets, 4, and four of one | 37; one load |
+  | x86-64, baseline CPU (SSE2) | 121 instructions; loads of 4 octets, 8, and four of one | 89; one load |
+  | x86-64, the AVX2 object | 53 instructions; loads of 4 octets, 8, and four of one | 44; one load |
+
+  Each block now goes through `scan_utf8.loaded`, generic over the width, which passes a block
+  wider than 16 octets as it is. Placed in `scan.load`, the barrier removed no load from
+  `plain_len_vector`, which has no shuffle, and on x86-64 moved that function out of line in
+  `wide.plain_len_past_first`, a call on each long run; it stays where the shuffles are. No test
+  saw the vector path's work: `content_len_vector` hands what `utf8_run` leaves to the scalar
+  path, which counts the same run, so a barrier that gave back zeros and a block of ASCII that did
+  not hand back were NOT CAUGHT. A test in scan.zig now requires `utf8_run`'s own count, and both
+  are CAUGHT on aarch64 and on x86-64-v3 under Rosetta. `valid`'s tail loop, the blocks after its
+  last group, still splits its load on every target.
+
+  bench-json runs [36628968396](https://github.com/c4milo/stdx/actions/runs/36628968396) and
+  [36628971616](https://github.com/c4milo/stdx/actions/runs/36628971616) paired 33b458d against
+  38cf9fd in each job, on a Neoverse N2 in both, an AMD EPYC 9V74 in the first and an AMD EPYC 7763
+  in the second. The non-ASCII text one token a call, in MB/s, and the change's speed over main's;
+  with J10 or J11 off, the ratios are the same within 0.5%:
+
+  | Side | N2, first run | N2, second run | EPYC 9V74 | EPYC 7763 |
+  |---|---|---|---|---|
+  | Decoding | 869 to 983, 1.132 | 871 to 985, 1.130 | 725 to 884, 1.220 | 774 to 928, 1.198 |
+  | Encoding | 840 to 944, 1.123 | 837 to 942, 1.125 | 727 to 892, 1.227 | 790 to 947, 1.200 |
+
+  With every claim on, the text moved within 0.5% in every job; stdx decodes it at 1.817 of
+  simdjson's speed on the N2, 1.027 on the EPYC 9V74 and 1.191 on the EPYC 7763, and encodes it at
+  1.268, 1.018 and 1.081. On x86-64 no file lost past its floor in both jobs. On the N2, every
+  claim on moved some text files the same way in both runs: bible.txt encoded at 1.149 and 1.123
+  and html-1m at 1.046 and 1.047; plrabn12.txt encoded at 0.957 and 0.960, and nci, webster and
+  css-1m lost 1.2% to 1.6%. plrabn12.txt, nci, webster and bible.txt hold no octet from 0x80 up,
+  and css-1m holds 15 in its MiB. The walk reaches `content_len_vector` only at a non-ASCII octet
+  with fewer than 16 octets left, so it ran the changed function at most once a text. bench_json,
+  cross-built for the N2 at both commits, differs in `content_len_vector` alone, 52 octets
+  shorter; the 167 functions after it, the walks among them, moved by 48 or 52 octets with the
+  same instructions. The baselines, linked into the same program, moved the same way: yyjson
+  encoded json-1m at 1.095 and 1.098. By performance.md's rule, the non-ASCII text wins in every
+  job and no file loses in every job, and the N2's moves are the placement of code the change
+  does not touch; the change stays. Main took it at 33b458d.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
