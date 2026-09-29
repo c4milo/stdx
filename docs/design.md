@@ -959,6 +959,34 @@ to 12 are reordered and nothing else changes.
         x-ray 0.97. At a budget of 64 the insert's larger footprint misses more than the hops it
         saves, and the runners' caches are smaller than the M1's. Level 6's walk stays as it is:
         two dependent loads a candidate, at 0.67 to 0.69 of libdeflate's speed and its size.
+  - After the check, the small files, 2026-09-29, at the owner's request: the 1 KiB files ran at
+    0.34 to 0.45 of libdeflate's speed at every level on the runners, and 0.8 on the M1. A profile
+    of js-1k on the M1 put more than half of level 1's time in the block plan: the symbol sort 21%,
+    the plan's pricing and header 14%, the canonical codes 10%, Huffman's lengths 9%; the header
+    and symbol writer 19%, the finder 16%, the heads' clear 5%. Two commits change no output:
+    - b19c14b sorts a block's symbols by weight with two stable counting passes on the weight's
+      octets, the second only when a weight has a high octet, in place of a comparison sort whose
+      compares on the counts mispredict. Bench run
+      [36607514498](https://github.com/c4milo/stdx/actions/runs/36607514498), main (29d7e28) and
+      b19c14b in one job: stdx at 1.06 times its speed at level 1 on the N2 and 1.08 on an EPYC
+      9V74, the 1 KiB files 1.10 to 1.17 and 1.17 to 1.31, x-ray and sao 1.10 to 1.20; level 6 at
+      1.02 on both, the 1 KiB files 1.06 to 1.14; level 9 at 1.01, the 1 KiB files 1.06 to 1.14.
+      No file slower on the N2; E.coli at 0.98 at level 1 on the EPYC alone. stdx over libdeflate
+      at level 1 from 0.72 to 0.75 on the N2 and from 0.79 to 0.83 on the EPYC.
+    - 95bbd2f prices the fixed and the dynamic code in one pass over the counts, finds the last
+      used symbol from the end, collects the symbols that occur without a branch on the counts, and
+      reverses a canonical code through an octet table, as x86-64 has no instruction for it. A
+      branch-free take of Huffman's two queues, a select in place of the compare, cost the M1 6% on
+      the 1 KiB files and was not kept. Bench run
+      [36613829685](https://github.com/c4milo/stdx/actions/runs/36613829685), b19c14b and 95bbd2f
+      in one job: the 1 KiB files at 1.013 to 1.015 of their speed at level 1 on the N2 and 1.08
+      on an EPYC 9V45, the medians 1.003 and 1.036; level 6 1.005 and 1.040; level 9 1.000 and
+      1.045. json-16k and xargs.1 at 0.98 on the N2 alone, dickens at 0.95 on the EPYC alone. On
+      the EPYC job libdeflate itself ran 1.06 times its base speed in the change's measurement, so
+      that job's gains carry drift; the N2's do not.
+    - Writing the header's items and code length lengths through the bit writer's store, as the
+      symbols are, cost the M1 3% on the 1 KiB files and 23% on html-16k: a store per item of 3 to
+      14 bits costs more than the octet drains it replaces. Not kept.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
