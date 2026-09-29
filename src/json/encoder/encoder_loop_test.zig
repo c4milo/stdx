@@ -179,8 +179,10 @@ const cut_characters_ruled_out = [_][]const u8{
     // quotation mark the loop escapes, then a continuation octet no character's first octet
     // precedes.
     "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "ab\xe2\x82\xaccdef\"\x80" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac",
-    // The first block ends with a character's first octet, and the second is all ASCII.
+    // The first block ends with a character's first octet, and the second is all ASCII, or starts
+    // with a quotation mark the loop escapes.
     "\xc3\xa90123456789abc\xe2" ++ "0123456789abcdef",
+    "\xc3\xa90123456789abc\xe2" ++ "\"0123456789abcde",
 };
 
 test "the loop leaves to the checked path the characters that blocks of 16 cut and UTF-8 rules out" {

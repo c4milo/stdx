@@ -68,8 +68,10 @@ const texts = [_][]const u8{
     // escape and then a continuation octet that no character's first octet precedes, which UTF-8
     // rules out (RFC 3629 §4).
     "[\"" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "ab\xe2\x82\xaccdef\\n\x80" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "\"]",
-    // A block that ends with a character's first octet, and a next block all ASCII.
+    // A block that ends with a character's first octet, and a next block all ASCII, or one that
+    // starts with an escape.
     "[\"\xc3\xa90123456789abc\xe2" ++ "0123456789abcdef" ++ "\"]",
+    "[\"\xc3\xa90123456789abc\xe2" ++ "\\n0123456789abcd" ++ "\"]",
     // Strings past the 64 octets a block at a time, one ending near the input's end.
     "[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]",
 };

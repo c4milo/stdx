@@ -57,6 +57,20 @@ pub const Walk = struct {
         return .short;
     }
 
+    /// Takes the octets a string carries as they are, up to the octet that stops them: in blocks of
+    /// 16 while the input and the output hold one (claim J5), and past them, or with J5 off, by the
+    /// run's scans. Returns false at an octet UTF-8 rules out. `input` and `output` are the slices
+    /// the walk started with.
+    pub inline fn take_to_stop(self: *Walk, comptime claims: Claims, level: wide.Level, input: []const u8, output: []u8) bool {
+        const stop: Stop = if (claims.utf8_vectors) self.take_blocks(input, output) else .short;
+        switch (stop) {
+            .ruled_out => return false,
+            .short => self.take_run(claims, level),
+            .octet => {},
+        }
+        return true;
+    }
+
     /// Takes the run of octets a string carries as they are, where fewer than 16 octets of input
     /// or of room are left: plain ASCII at `level`'s width (claim J7), and past a non-ASCII octet,
     /// whole UTF-8 characters too (claim J5).

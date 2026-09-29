@@ -18,7 +18,6 @@ const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
 const string_walk = @import("../string_walk.zig");
 const Walk = string_walk.Walk;
-const Stop = string_walk.Stop;
 const hex_value = @import("decoder_string.zig").hex_value;
 
 /// What a string's content took: its octets in the input, up to its closing quotation mark, and
@@ -45,14 +44,12 @@ pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, r
     var walk: Walk = .{ .input = rest, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..rest.len + 1) |_| {
-        // Short of a block, or with claim J5 off, the run's scans take the octets.
-        const stop: Stop = if (claims.utf8_vectors) walk.take_blocks(rest, room) else .short;
-        switch (stop) {
-            .ruled_out => return null,
-            .short => walk.take_run(claims, level),
-            .octet => {},
+        // An escape that follows an escape is taken at once, with no block walked to find it: a text
+        // of lines that end in a carriage return and a line feed has two at each line's end.
+        if (walk.input.len == 0 or walk.input[0] != constants.reverse_solidus) {
+            if (!walk.take_to_stop(claims, level, rest, room)) return null;
+            if (walk.input.len == 0) return null;
         }
-        if (walk.input.len == 0) return null;
         const escape = switch (walk.input[0]) {
             constants.quotation_mark => return .{ .input_len = rest.len - walk.input.len, .output_len = room.len - walk.output.len },
             constants.reverse_solidus => unescape(walk.input, walk.output) orelse return null,

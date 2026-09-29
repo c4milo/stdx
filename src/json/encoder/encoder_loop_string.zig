@@ -19,7 +19,6 @@ const Claims = claims_file.Claims;
 const runtime_safety_kept = claims_file.runtime_safety_kept;
 const string_walk = @import("../string_walk.zig");
 const Walk = string_walk.Walk;
-const Stop = string_walk.Stop;
 
 /// The octets of the two-character escape of a quotation mark, a reverse solidus or a control
 /// character that has one, and of `\u00` and two digits for a control character that has none.
@@ -43,20 +42,25 @@ pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const 
     var walk: Walk = .{ .input = octets, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..octets.len + 1) |_| {
-        // Short of a block, or with claim J5 off, the run's scans take the octets.
-        const stop: Stop = if (claims.utf8_vectors) walk.take_blocks(octets, room) else .short;
-        switch (stop) {
-            .ruled_out => return null,
-            .short => walk.take_run(claims, level),
-            .octet => {},
+        // An octet to escape that follows an escaped one is taken at once, with no block walked to
+        // find it: a text of lines that end in a carriage return and a line feed has two at each
+        // line's end.
+        if (walk.input.len == 0 or !escapes(walk.input[0])) {
+            if (!walk.take_to_stop(claims, level, octets, room)) return null;
+            if (walk.input.len == 0) return room.len - walk.output.len;
         }
-        if (walk.input.len == 0) return room.len - walk.output.len;
         const octet = walk.input[0];
         // A character UTF-8 rules out or the string cuts, or an octet the room stopped.
-        if (octet >= constants.non_ascii_min or scan.is_plain_ascii(octet)) return null;
+        if (!escapes(octet)) return null;
         walk.take(1, escape(claims, octet, walk.output) orelse return null);
     }
     unreachable;
+}
+
+/// Whether a string must escape `octet`: a quotation mark, a reverse solidus or a control character
+/// (RFC 8259 §7).
+inline fn escapes(octet: u8) bool {
+    return octet < constants.non_ascii_min and !scan.is_plain_ascii(octet);
 }
 
 /// Writes the escape of `octet`, a quotation mark, a reverse solidus or a control character (RFC
