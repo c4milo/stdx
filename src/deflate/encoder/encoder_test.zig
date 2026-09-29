@@ -242,6 +242,32 @@ test "each level's output for two seeded letters, whose chains run long, is the 
     }
 }
 
+test "a candidate at encoder_distance_max is found, and one octet farther is out of reach" {
+    // A pattern at position 1 (position 0 names no candidate), words, and the pattern again at
+    // distance `encoder_distance_max`: the chain walk must reach it, and the match saves the
+    // pattern's literals, which the words never hold. One more octet of words puts the copy one
+    // octet too far.
+    const pattern = "FARTHEST CANDIDATE 0123456789 QXZJ";
+    const first = 1;
+    const copy = first + constants.encoder_distance_max;
+    var input: [copy + 1 + pattern.len]u8 = undefined;
+    fill(&input, .words, 23);
+    @memcpy(input[first..][0..pattern.len], pattern);
+    var output: [input.len + 1024]u8 = undefined;
+    inline for (levels) |level| {
+        // The greedy level's one head may hold a colliding position instead.
+        if (comptime constants.level(level).chains) {
+            var reachable = input;
+            @memcpy(reachable[copy..][0..pattern.len], pattern);
+            const at_max = try encode_whole(level, reachable[0 .. copy + pattern.len], &output);
+            var farther = input;
+            @memcpy(farther[copy + 1 ..][0..pattern.len], pattern);
+            const beyond = try encode_whole(level, farther[0 .. copy + 1 + pattern.len], &output);
+            try testing.expect(at_max + pattern.len / 2 < beyond);
+        }
+    }
+}
+
 /// The octets of the seeded letters the second recorded output encodes, and how many letters.
 const letters_len = 24_576;
 const letters = 2;
