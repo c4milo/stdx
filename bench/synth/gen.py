@@ -181,6 +181,21 @@ def family_plain(out, p, target):
     write(out, f'plain{p}', block)
 
 
+def family_near(out, D, target):
+    rng = random.Random(4000 + D)
+    # One literal, then a pair of length 4 at distance D whose source lies just before the output
+    # the pair before it wrote: the run family's literal/length code, and a distance code of 16
+    # symbols, 4 to 19, of 4 bits each, so every pair takes 7 + 4 + 1 bits at least, a plain entry.
+    ll = [8] * 253 + [9, 0, 0] + [9] + [0] + [7]
+    d = [0] * 4 + [4] * 16
+    block = Block(ll, d)
+    for _ in range(1024): block.literal(rng.randrange(253))
+    while block.octets < target:
+        block.literal(rng.randrange(253))
+        block.pair(4, D)
+    write(out, f'near{D}', block)
+
+
 if __name__ == '__main__':
     out = sys.argv[1]; os.makedirs(out, exist_ok=True)
     which = sys.argv[2] if len(sys.argv) > 2 else 'all'
@@ -193,5 +208,7 @@ if __name__ == '__main__':
         for D in (1, 2, 3, 4, 8, 12, 15, 16, 17, 20, 24, 31, 32, 33, 40, 48, 63, 64, 65, 96, 128, 192, 256, 384, 512, 768, 1024): family_dist(out, D, target)
     if which in ('all', 'len'):
         for L in (3, 4, 8, 12, 16, 17, 24, 32, 33, 40, 48, 49, 64, 96, 128, 200, 258): family_len(out, L, target)
+    if which in ('all', 'near'):
+        for D in (5, 6, 8, 12, 20, 36, 52, 68, 100, 132, 200, 264, 400, 600, 1000): family_near(out, D, target)
     if which in ('all', 'plain'):
         for p in (0, 2, 5, 10, 20, 30, 50, 70, 100): family_plain(out, p, target)
