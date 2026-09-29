@@ -50,6 +50,8 @@ const texts = [_][]const u8{
     "[\"caf\xc3\xa9\",\"tab\\t\",\"\\u00e9\\uD834\\uDD1E\",\"a long string that runs past two blocks of sixteen octets\",0,00,1.,-,tru,nul]",
     "[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]",
     " 42 ",
+    // Strings past the 64 octets a block at a time, one ending near the input's end.
+    "[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]",
 };
 
 /// The octets a flip writes, weighted toward the ones the grammar turns on.
@@ -129,6 +131,22 @@ test "the loop takes every token after a text's first, with 16 octets after its 
     try testing.expectEqual(20, token_loop.take(&decoder, claims.vector, text, &output, &cursor, &slots));
     try testing.expectEqualStrings("a", output[slots[0].start..][0..slots[0].len]);
     try testing.expectEqual(decoder_file.Expect.end_of_text, decoder.expect);
+}
+
+test "a long string that fills the output exactly is taken, and one octet more is not" {
+    const content = "0123456789abcdef" ** 6 ++ "0123";
+    const text = "[\"" ++ content ++ "\"," ++ " " ** 16 ++ "0]";
+    const cases = [_]struct { room: usize, taken: usize }{ .{ .room = content.len, .taken = 1 }, .{ .room = content.len - 1, .taken = 0 } };
+    for (cases) |case| {
+        var decoder: Decoder = undefined;
+        decoder.init(.text, codec.Features.detect());
+        var output: [output_len_max]u8 = undefined;
+        var slots: [slots_max]Slot = undefined;
+        const first = try decoder.decode(text, &output, .last);
+        var cursor: token_loop.Cursor = .{ .consumed = first.consumed, .written = 0 };
+        try testing.expectEqual(case.taken, token_loop.take(&decoder, claims.vector, text, output[0..case.room], &cursor, &slots));
+        if (case.taken == 1) try testing.expectEqualStrings(content, output[0..cursor.written]);
+    }
 }
 
 test "the loop steps aside at the depth limit, where the checked path refuses" {
