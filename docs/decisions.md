@@ -1142,6 +1142,8 @@ left, how fast the check runs alone.
     - The Zstandard sequence loop, in aarch64 and in x86-64 assembly.
     - The four-stream literal loops, in aarch64 and in x86-64 assembly.
     - XXH64's stripe loop, on Apple's cores.
+    - The brotli straight command loop, in aarch64 assembly (decision 23's brotli extension, landed
+      2026-09-29), whose access table its first template file carries.
 
     Each loop checks, once a sequence or a pass, the conditions that keep its accesses inside the
     stream, the tables, the literals and the output: the checked path's checks, and the margins

@@ -1318,6 +1318,43 @@ to 12 are reordered and nothing else changes.
     brotli test, the fuzzer and `differential-brotli` run the assembly on aarch64. Decision 24's
     access table comes with the loop. Measured as the header was: M1 instructions per whole decode
     (pcprof), then paired N2 runs; x86-64 keeps the Zig loop until its port.
+  - The loop landed, 874981b on its branch and ab23274 on main, against b5adf05, paired (runs
+    [36610104923](https://github.com/c4milo/stdx/actions/runs/36610104923) and
+    [36610117177](https://github.com/c4milo/stdx/actions/runs/36610117177); reports in
+    `bench/results/`, dated 2026-09-29, "asm"): `decoder_fast_aarch64.zig`, its text in two template
+    files with the access table of decision 24 in the first, and a dictionary word through a C-ABI
+    call into Zig, `write_word`, since an exit per word had cost about 200 instructions (html-16k 9%
+    slower before it, 25% faster after). Two pairs of runs before it lost on E.coli, 4.5M literals
+    of one tree with 2-bit codes, and the shuffled dickens-1m, the other all-literal stream, and
+    each loss named a rule. The first pair lost 40%: the wrapper was a call that took the Zig loop's
+    address, which kept the Zig loop's fields in memory, and each run of 256 literals left the
+    assembly; the wrapper is inline and a run's successor starts inside the loop, with a one-table
+    run for a block type of one tree. The second pair (runs
+    [36601979218](https://github.com/c4milo/stdx/actions/runs/36601979218) and
+    [36601976202](https://github.com/c4milo/stdx/actions/runs/36601976202)) won 36 files at a median
+    of +18.5% and lost E.coli by 2.4% in both jobs, with the M1 showing the assembly 6% faster
+    there: the literal loop took three taken branches per literal, over the refill, over the
+    lookup's second level and back to the top, where LLVM's placement of the Zig loop takes two.
+    Every refill that needs the slack checked and every lookup's second level now stands after the
+    word, in `cold`, each reached by a branch the common path leaves untaken. Eight mutations of the
+    loop, all CAUGHT, three after new tests: a second command's room inside one pass, a second run's
+    room, and p2 after a one-table run, seen by the next block type's context. M1 Pro, instructions
+    per whole decode, Google's in brackets: json-16k 174.2k to 128.1k (132.7k), html-16k 425.2k to
+    320.2k (306k), css-16k 415.7k to 309.1k (302k), json-1m 12.37M to 7.56M (9.19M), html-1m 12.99M
+    to 8.80M (9.63M), kennedy.xls 25.0M to 14.7M, alice29 4.38M to 2.96M, json-1k 51.5k to 47.4k
+    (36.1k), html-1k 67.0k to 62.3k (51.2k), E.coli 65.5M to 68.3M and the shuffled dickens-1m 15.5M
+    to 16.5M, with fewer cycles on both. On the N2, 38 files gain in both jobs and none loses: the
+    median +18.4%, kennedy.xls +39%, json-1m +28%, the 16 KiB bodies +18 to +27% (html-16k from 0.84
+    to 1.05 of Google's speed, json-16k 0.89 to 1.05, js-16k 0.85 to 1.06, css-16k 0.85 to 1.06),
+    the 1 KiB bodies +2 to +4%, E.coli +3.3% and +3.7% (1.03 to 1.06), the shuffled dickens-1m a
+    tie; stdx runs at or above Google's speed on 33 of the 39 files there. The layout alone, against
+    the loop as it was (run [36610128401](https://github.com/c4milo/stdx/actions/runs/36610128401)):
+    E.coli +5.9%, the 16 KiB bodies +2 to +4%, twelve files past the bar and ptt5 1.8% behind at
+    1.48 of Google's speed. x86-64's code is byte-identical between the two commits (its disassembly
+    differs in symbol numbers alone), so its jobs, both on an EPYC 9V74, measure drift: Google's own
+    decoder ran up to 7.5% faster in the first job's second phase on the small bodies and slower in
+    the second job's, so ten files lost past the bar in one job and gained in the other, and none
+    loses in both. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over

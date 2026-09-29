@@ -81,6 +81,8 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | two x86-64 draws agree against the M-series host on a loop's shape | the encoder's and the decoder's loops want different shapes, and one setting served both | measure each loop's shape apart; a shape is per caller, not per architecture (design §8 step 18) |
 | level 6 encoding 20% slower with the same state | the encoder's state at a comptime-known address, and a harness that lied until it allocated once and passed a pointer | hold a state behind a pointer, in the harness too |
 | a chain walk 1.4 to 1.6 times slower than its inline form | the walk kept in a struct whose step was a call | the step inline |
+| −2.4% on a one-tree literal file on the N2 beside +6% on the M1 | three taken branches per literal in the hand-written loop, where LLVM's layout takes two | the common path falls through; refills and second levels out of line |
+| ten x86-64 files lose 4 to 7% with x86-64's code byte-identical | the baseline's own speed drifted between the job's two phases | diff the target's disassembly; judge a change on the target it touches |
 
 ## Commands
 
