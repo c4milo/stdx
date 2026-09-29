@@ -37,6 +37,11 @@ pub const flush_hold_period: u64 = 2;
 /// The octet the split driver writes over a state's old slot after moving it.
 pub const moved_state_fill: u8 = 0xaa;
 
+/// The octets one vector store of `fill` writes, and the vectors one pass stores before its
+/// barrier: two 16-octet stores apiece on aarch64 and on x86-64 before AVX2.
+pub const fill_vector_len = 32;
+pub const fill_pass_vectors = 2;
+
 /// The most calls the split driver makes per octet of input and room, beyond
 /// `driver_calls_floor`. A codec that needs more is not making progress (invariant 8).
 pub const driver_calls_per_octet_max: usize = 4;

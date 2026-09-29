@@ -13,6 +13,8 @@
 //! - `split`: the seeded split driver every codec's tests run their streams under (decision 15).
 //! - `Features`: the CPU features a codec's SIMD paths may use, which the caller detects once and
 //!   passes to each codec's `init` (decision 21).
+//! - `fill`: sets octets to one value without a call to `memset`, which Zig 0.16 defines an octet
+//!   at a time.
 //!
 //! The module imports nothing.
 
@@ -42,6 +44,7 @@ pub const Window = @import("window.zig").Window;
 pub const Field = @import("field.zig").Field;
 pub const split = @import("split.zig");
 pub const Features = @import("features.zig").Features;
+pub const fill = @import("fill.zig").fill;
 
 test {
     _ = status;
@@ -55,4 +58,5 @@ test {
     _ = @import("window.zig");
     _ = @import("field.zig");
     _ = @import("features.zig");
+    _ = @import("fill.zig");
 }
