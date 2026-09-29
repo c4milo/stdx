@@ -224,6 +224,32 @@ def family_litnear(out, D, target):
     write(out, f'litnear{D}', block)
 
 
+def family_lenmix(out, p, target):
+    rng = random.Random(7000 + p)
+    # Pairs at distance 4000 of length 8, or 40 with probability p percent: the len family's codes
+    # for both lengths (symbols 262 and 273 of 2 bits, the block's end of 2 bits, 64 literals).
+    ll = [8] * 64 + [0] * 192 + [2] + [0] * 5 + [2] + [0] * 10 + [2]
+    d = [0] * 23 + [1]
+    block = Block(ll, d)
+    for _ in range(4096): block.literal(rng.randrange(64))
+    while block.octets < target:
+        block.pair(40 if rng.random() * 100 < p else 8, 4000)
+    write(out, f'lenmix{p}', block)
+
+
+def family_litmix(out, p, target):
+    rng = random.Random(8000 + p)
+    # Pairs of length 8 at distance 4000, each followed by one literal with probability p percent.
+    ll = [8] * 64 + [0] * 192 + [2] + [0] * 5 + [1]
+    d = [0] * 23 + [1]
+    block = Block(ll, d)
+    for _ in range(4096): block.literal(rng.randrange(64))
+    while block.octets < target:
+        block.pair(8, 4000)
+        if rng.random() * 100 < p: block.literal(rng.randrange(64))
+    write(out, f'litmix{p}', block)
+
+
 if __name__ == '__main__':
     out = sys.argv[1]; os.makedirs(out, exist_ok=True)
     which = sys.argv[2] if len(sys.argv) > 2 else 'all'
@@ -240,6 +266,10 @@ if __name__ == '__main__':
         for D in (5, 6, 8, 12, 20, 36, 52, 68, 100, 132, 200, 264, 400, 600, 1000): family_near(out, D, target)
     if which in ('all', 'litnear'):
         for D in (17, 18, 20, 24, 31, 33, 40, 64): family_litnear(out, D, target)
+    if which in ('all', 'lenmix'):
+        for p in (0, 10, 30, 50, 100): family_lenmix(out, p, target)
+    if which in ('all', 'litmix'):
+        for p in (0, 10, 30, 50, 100): family_litmix(out, p, target)
     if which in ('all', 'rand'):
         for W in (256, 1024, 2048, 4096, 8192): family_rand(out, W, target)
     if which in ('all', 'plain'):
