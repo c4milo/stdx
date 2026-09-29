@@ -142,7 +142,7 @@ fn expand(items: []const code.Item, lengths: []u8) usize {
 test "code lengths as runs: zeros as 17 and 18, a repeated length as 16, and back" {
     const lengths = [_]u8{0} ** 20 ++ [_]u8{5} ** 8 ++ [_]u8{3} ++ [_]u8{0} ** 7 ++ [_]u8{4} ++ [_]u8{0} ** 11 ++ [_]u8{2};
     var items: [code.items_max]code.Item = undefined;
-    const count = code.run_lengths(&lengths, &items);
+    const count = code.run_lengths(&lengths, &.{}, &items);
     // 20 zeros are 18 with 9; the first 5 is itself and 6 more are 16 with 3, the last 5 itself;
     // 7 zeros are 17 with 4; 11 zeros, the fewest 18 takes, are 18 with 0.
     const expected = [_]code.Item{
@@ -156,9 +156,32 @@ test "code lengths as runs: zeros as 17 and 18, a repeated length as 16, and bac
         var random: [code.items_max]u8 = undefined;
         const len = generator.between(1, random.len);
         for (random[0..len]) |*value| value.* = if (generator.below(3) == 0) @intCast(generator.below(16)) else 0;
-        const random_count = code.run_lengths(random[0..len], &items);
+        const random_count = code.run_lengths(random[0..len], &.{}, &items);
         var expanded: [code.items_max]u8 = undefined;
         try testing.expectEqual(len, expand(items[0..random_count], &expanded));
         try testing.expectEqualSlices(u8, random[0..len], expanded[0..len]);
+    }
+}
+
+test "code lengths split across the two tables give the items of one sequence" {
+    // RFC 1951 §3.2.7: a run may cross from the literal and length lengths into the distance
+    // lengths, so the items cannot depend on where the first table ends.
+    var whole_items: [code.items_max]code.Item = undefined;
+    var split_items: [code.items_max]code.Item = undefined;
+    for (0..100) |seed| {
+        var generator = codec.split.Generator.init(seed);
+        var lengths: [code.items_max]u8 = undefined;
+        const len = generator.between(2, lengths.len);
+        // Long runs of few values, so runs often cross a split.
+        var value: u8 = 0;
+        for (lengths[0..len]) |*length| {
+            if (generator.below(8) == 0) value = @intCast(generator.below(4));
+            length.* = value;
+        }
+        const whole_count = code.run_lengths(lengths[0..len], &.{}, &whole_items);
+        for (1..len) |at| {
+            const split_count = code.run_lengths(lengths[0..at], lengths[at..len], &split_items);
+            try testing.expectEqualSlices(code.Item, whole_items[0..whole_count], split_items[0..split_count]);
+        }
     }
 }

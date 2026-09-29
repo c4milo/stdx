@@ -314,18 +314,16 @@ fn header_bits(dynamic: *const Plan) u64 {
 
 /// Builds the block's own codes and the header that carries them (RFC 1951 §3.2.7).
 fn plan_dynamic(block: *const Block, result: *Plan) void {
-    var listed: [code.symbols_max]u16 = undefined;
-    const literal_lengths_listed = code.build_lengths_listed(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths, &listed);
-    code.build_codes_listed(&result.literal_length_lengths, listed[0..literal_lengths_listed], &result.literal_length_codes);
-    const distances_listed = code.build_lengths_listed(&block.distance_counts, constants.code_len_max, &result.distance_lengths, &listed);
-    code.build_codes_listed(&result.distance_lengths, listed[0..distances_listed], &result.distance_codes);
+    var literal_listed: [constants.literal_length_used]u16 = undefined;
+    const literals_listed = code.build_lengths_listed(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths, &literal_listed);
+    code.build_codes_listed(&result.literal_length_lengths, literal_listed[0..literals_listed], &result.literal_length_codes);
+    var distance_listed: [constants.distance_used]u16 = undefined;
+    const distances_listed = code.build_lengths_listed(&block.distance_counts, constants.code_len_max, &result.distance_lengths, &distance_listed);
+    code.build_codes_listed(&result.distance_lengths, distance_listed[0..distances_listed], &result.distance_codes);
     // RFC 1951 §3.2.7: HLIT + 257 literal/length lengths, HDIST + 1 distance lengths.
     result.literal_length_count = @intCast(@max(constants.hlit_base, last_used(&result.literal_length_lengths)));
     result.distance_count = @intCast(@max(constants.hdist_base, last_used(&result.distance_lengths)));
-    var lengths: [code.items_max]u8 = undefined;
-    @memcpy(lengths[0..result.literal_length_count], result.literal_length_lengths[0..result.literal_length_count]);
-    @memcpy(lengths[result.literal_length_count..][0..result.distance_count], result.distance_lengths[0..result.distance_count]);
-    result.item_count = @intCast(code.run_lengths(lengths[0 .. result.literal_length_count + result.distance_count], &result.items));
+    result.item_count = @intCast(code.run_lengths(result.literal_length_lengths[0..result.literal_length_count], result.distance_lengths[0..result.distance_count], &result.items));
     var item_counts: [constants.code_length_alphabet_len]u16 = @splat(0);
     for (result.items[0..result.item_count]) |item| item_counts[item.symbol] += 1;
     code.build_lengths(&item_counts, constants.code_length_code_len_max, &result.code_length_lengths);

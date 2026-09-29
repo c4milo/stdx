@@ -22,61 +22,64 @@ pub const symbols_max = constants.literal_length_used;
 /// The items one package of package-merge joins.
 const package_arity = 2;
 
-/// The most items one level of package-merge holds: every symbol, and one package for every two
-/// items of the level below.
-const level_len_max = package_arity * symbols_max;
-
 /// The fewest symbols a code gives a length, so that the code is complete (RFC 1951 §3.2.2).
 const coded_symbols_min = 2;
 
 /// The nodes Huffman's tree joins into one: two, as a code of bits is binary.
 const tree_arity = 2;
 
+/// The symbols of the alphabet whose counts or lengths `Pointer`, a pointer to an array, points
+/// at. Every scratch array of a build is sized by it, so a small alphabet's build fills only small
+/// arrays: a safe build fills an `undefined` local, and a large one through `memset`.
+fn alphabet_len(comptime Pointer: type) usize {
+    return @typeInfo(@typeInfo(Pointer).pointer.child).array.len;
+}
+
 /// Sets `lengths` for `counts`: 0 for a symbol that does not occur, and otherwise the length of
 /// its code in the code of least coded size whose lengths stay at or under `len_max`. When fewer
 /// than two symbols occur, the first that do not stand in for the missing ones, so the code is
 /// complete, which every decoder accepts.
-pub fn build_lengths(counts: []const u16, comptime len_max: u4, lengths: []u8) void {
-    var listed: [symbols_max]u16 = undefined;
+pub fn build_lengths(counts: anytype, comptime len_max: u4, lengths: *[alphabet_len(@TypeOf(counts))]u8) void {
+    var listed: [alphabet_len(@TypeOf(counts))]u16 = undefined;
     _ = build_lengths_listed(counts, len_max, lengths, &listed);
 }
 
 /// `build_lengths`, which also lists in `listed` every symbol it gives a length, in increasing
 /// order, for `build_codes_listed`. Returns how many.
-pub fn build_lengths_listed(counts: []const u16, comptime len_max: u4, lengths: []u8, listed: *[symbols_max]u16) usize {
-    assert(counts.len == lengths.len and counts.len <= symbols_max);
-    assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
+pub fn build_lengths_listed(counts: anytype, comptime len_max: u4, lengths: *[alphabet_len(@TypeOf(counts))]u8, listed: *[alphabet_len(@TypeOf(counts))]u16) usize {
+    const n = comptime alphabet_len(@TypeOf(counts));
+    comptime assert(n >= coded_symbols_min and n <= symbols_max and n <= @as(usize, 1) << len_max);
     codec.fill(lengths, 0);
-    const used = listed_symbols(counts, listed);
-    var order: [symbols_max]u16 = undefined;
-    sort_by_weight(counts, listed[0..used], order[0..used]);
-    if (!huffman_lengths(counts, order[0..used], len_max, lengths)) package_merge(counts, order[0..used], len_max, lengths);
+    const used = listed_symbols(n, counts, listed);
+    var order: [n]u16 = undefined;
+    sort_by_weight(n, counts, listed[0..used], order[0..used]);
+    if (!huffman_lengths(n, counts, order[0..used], len_max, lengths)) package_merge(n, counts, order[0..used], len_max, lengths);
     return used;
 }
 
 /// `build_lengths` by package-merge alone, for the tests that check it where the limit does not
 /// bind.
-pub fn build_lengths_package_merge(counts: []const u16, comptime len_max: u4, lengths: []u8) void {
-    assert(counts.len == lengths.len and counts.len <= symbols_max);
-    assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
+pub fn build_lengths_package_merge(counts: anytype, comptime len_max: u4, lengths: *[alphabet_len(@TypeOf(counts))]u8) void {
+    const n = comptime alphabet_len(@TypeOf(counts));
+    comptime assert(n >= coded_symbols_min and n <= symbols_max and n <= @as(usize, 1) << len_max);
     codec.fill(lengths, 0);
-    var listed: [symbols_max]u16 = undefined;
-    const used = listed_symbols(counts, &listed);
-    var order: [symbols_max]u16 = undefined;
-    sort_by_weight(counts, listed[0..used], order[0..used]);
-    package_merge(counts, order[0..used], len_max, lengths);
+    var listed: [n]u16 = undefined;
+    const used = listed_symbols(n, counts, &listed);
+    var order: [n]u16 = undefined;
+    sort_by_weight(n, counts, listed[0..used], order[0..used]);
+    package_merge(n, counts, order[0..used], len_max, lengths);
 }
 
 /// Sets the lengths of the symbols of `order`, lightest first, to the depths of their leaves in
 /// Huffman's tree: the two lightest nodes join, a leaf before a joined node of the same weight,
 /// until one node remains. Returns false when a depth passes `len_max`, leaving `lengths` as they
 /// were.
-fn huffman_lengths(counts: []const u16, order: []const u16, len_max: u4, lengths: []u8) bool {
-    assert(order.len >= coded_symbols_min and order.len <= symbols_max);
+fn huffman_lengths(comptime n: usize, counts: *const [n]u16, order: []const u16, len_max: u4, lengths: *[n]u8) bool {
+    assert(order.len >= coded_symbols_min and order.len <= n);
     // Leaf i is node i; joined node j is node `order.len + j`. Each node records its parent's
     // joined index, and each joined node its weight.
-    var parent: [tree_arity * symbols_max]u16 = undefined;
-    var joined_weights: [symbols_max]u32 = undefined;
+    var parent: [tree_arity * n]u16 = undefined;
+    var joined_weights: [n]u32 = undefined;
     var queues: Queues = .{};
     const joined_count = order.len - 1;
     for (0..joined_count) |joined| {
@@ -88,7 +91,7 @@ fn huffman_lengths(counts: []const u16, order: []const u16, len_max: u4, lengths
         }
     }
     // Each joined node's parent comes after it, and the last is the root, at depth 0.
-    var depths: [symbols_max]u16 = undefined;
+    var depths: [n]u16 = undefined;
     var joined = joined_count - 1;
     depths[joined] = 0;
     for (0..joined_count - 1) |_| {
@@ -129,19 +132,19 @@ fn node_weight(counts: []const u16, order: []const u16, joined_weights: []const 
 }
 
 /// Sets the lengths of the symbols of `order`, lightest first, by package-merge.
-fn package_merge(counts: []const u16, order: []const u16, comptime len_max: u4, lengths: []u8) void {
+fn package_merge(comptime n: usize, counts: *const [n]u16, order: []const u16, comptime len_max: u4, lengths: *[n]u8) void {
     const used = order.len;
     // Level 0 holds the leaves alone; each level above merges them with the packages of the level
     // below, and remembers which of its items are packages.
-    var packages: [len_max]std.StaticBitSet(level_len_max) = undefined;
+    var packages: [len_max]std.StaticBitSet(package_arity * n) = undefined;
     var level_len: [len_max]usize = undefined;
-    var below: [level_len_max]u32 = undefined;
-    var above: [level_len_max]u32 = undefined;
+    var below: [package_arity * n]u32 = undefined;
+    var above: [package_arity * n]u32 = undefined;
     for (order, 0..) |symbol, index| below[index] = weight(counts[symbol]);
     packages[0] = .initEmpty();
     level_len[0] = used;
     for (1..len_max) |level| {
-        level_len[level] = merge(counts, order, below[0..level_len[level - 1]], &above, &packages[level]);
+        level_len[level] = merge(n, counts, order, below[0..level_len[level - 1]], &above, &packages[level]);
         below = above;
     }
     // The 2n - 2 lightest items of the top level choose the lengths: each leaf among them, at any
@@ -167,7 +170,7 @@ fn weight(count: u16) u32 {
 
 /// Writes into `listed` the symbols that occur, in increasing order, with the first that do not
 /// occur added until there are two, still in increasing order. Returns how many.
-fn listed_symbols(counts: []const u16, listed: *[symbols_max]u16) usize {
+fn listed_symbols(comptime n: usize, counts: *const [n]u16, listed: *[n]u16) usize {
     var used: usize = 0;
     // Every symbol is written at the next slot, and only one that occurs keeps it: no branch on
     // the counts.
@@ -193,17 +196,44 @@ const pass_buckets = 1 << @bitSizeOf(u8);
 /// among equals: a counting sort on the weight's low octet, then one on its high octet when any
 /// weight has one, each stable, so no compare depends on the data. Each pass counts only up to the
 /// heaviest octet it sorts by, so a small block's sort costs what its weights reach.
-fn sort_by_weight(counts: []const u16, from: []const u16, to: []u16) void {
-    assert(from.len == to.len and from.len <= symbols_max);
+fn sort_by_weight(comptime n: usize, counts: *const [n]u16, from: []const u16, to: []u16) void {
+    assert(from.len == to.len and from.len <= n);
+    if (comptime n <= insertion_sort_alphabet_len_max) return insertion_sort_by_weight(counts, from, to);
     var weight_max: u32 = 0;
     for (from) |symbol| weight_max = @max(weight_max, weight(counts[symbol]));
     if (weight_max < pass_buckets) {
         counting_pass(counts, from, to, 0, weight_max + 1);
         return;
     }
-    var scratch: [symbols_max]u16 = undefined;
+    var scratch: [n]u16 = undefined;
     counting_pass(counts, from, scratch[0..from.len], 0, pass_buckets);
     counting_pass(counts, scratch[0..from.len], to, @bitSizeOf(u8), (weight_max >> @bitSizeOf(u8)) + 1);
+}
+
+/// The largest alphabet sorted by insertion rather than by counting passes: the distance code's and
+/// the code length code's. Their few symbols cost fewer compares than a counting pass's buckets
+/// cost to clear.
+const insertion_sort_alphabet_len_max = constants.distance_used;
+
+/// `sort_by_weight` by insertion, on a key of each symbol's weight above its number: the same
+/// order, lightest first and by symbol among equals.
+fn insertion_sort_by_weight(counts: []const u16, from: []const u16, to: []u16) void {
+    assert(from.len == to.len);
+    for (from, 0..) |symbol, index| {
+        const key = sort_key(counts, symbol);
+        var at = index;
+        for (0..index) |_| {
+            if (sort_key(counts, to[at - 1]) < key) break;
+            to[at] = to[at - 1];
+            at -= 1;
+        }
+        to[at] = symbol;
+    }
+}
+
+/// A symbol's weight above its number, so keys order by weight and then by symbol.
+inline fn sort_key(counts: []const u16, symbol: u16) u32 {
+    return (weight(counts[symbol]) << @bitSizeOf(u16)) | symbol;
 }
 
 /// One stable counting pass over `bucket_count` buckets: writes `from` into `to` ordered by the
@@ -234,7 +264,7 @@ inline fn bucket_of(counts: []const u16, symbol: u16, shift: u4) u8 {
 /// One level of package-merge: the leaves and the packages of pairs of `below`, merged lightest
 /// first, a leaf before a package of the same weight. Writes the weights into `above` and marks
 /// the packages. Returns the level's length.
-fn merge(counts: []const u16, order: []const u16, below: []const u32, above: *[level_len_max]u32, packages: *std.StaticBitSet(level_len_max)) usize {
+fn merge(comptime n: usize, counts: *const [n]u16, order: []const u16, below: []const u32, above: *[package_arity * n]u32, packages: *std.StaticBitSet(package_arity * n)) usize {
     packages.* = .initEmpty();
     const package_count = below.len / package_arity;
     var leaf: usize = 0;
@@ -322,25 +352,34 @@ pub const Item = struct {
 /// The most items a dynamic header's code lengths take: one for each length.
 pub const items_max = constants.literal_length_used + constants.distance_used;
 
-/// Writes `lengths` as code length symbols (RFC 1951 §3.2.7): a run of zeros as 17 or 18, a
-/// run of one length as the length and 16, and the rest one symbol each. Returns how many.
-pub fn run_lengths(lengths: []const u8, items: *[items_max]Item) usize {
-    assert(lengths.len <= items_max);
+/// Writes `first` and then `second` as one sequence of code length symbols (RFC 1951 §3.2.7): a
+/// run of zeros as 17 or 18, a run of one length as the length and 16, and the rest one symbol
+/// each. A run may cross from `first` into `second`, as §3.2.7 lets it cross from the literal and
+/// length lengths into the distance lengths. Returns how many.
+pub fn run_lengths(first: []const u8, second: []const u8, items: *[items_max]Item) usize {
+    const total = first.len + second.len;
+    assert(total <= items_max);
     var count: usize = 0;
     var index: usize = 0;
     // Each pass writes at least one item and takes at least one length.
-    for (0..lengths.len) |_| {
-        if (index == lengths.len) break;
+    for (0..total) |_| {
+        if (index == total) break;
+        const len = length_at(first, second, index);
         var run: usize = 1;
-        for (lengths[index + 1 ..]) |len| {
-            if (len != lengths[index]) break;
+        for (index + 1..total) |next| {
+            if (length_at(first, second, next) != len) break;
             run += 1;
         }
-        count += run_items(lengths[index], run, items[count..]);
+        count += run_items(len, run, items[count..]);
         index += run;
     }
-    assert(index == lengths.len);
+    assert(index == total);
     return count;
+}
+
+/// The length at `index` of `first` and then `second`.
+inline fn length_at(first: []const u8, second: []const u8, index: usize) u8 {
+    return if (index < first.len) first[index] else second[index - first.len];
 }
 
 /// Writes a run of `run` lengths `len` as items, and returns how many.
