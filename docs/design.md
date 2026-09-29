@@ -1169,6 +1169,19 @@ to 12 are reordered and nothing else changes.
     their size, the 16 KiB bodies at 7 to 22%, the 1 MiB bodies at 2.4 to 14%, Silesia at 4.8 to
     63% and Canterbury at 6 to 35%; `bench-brotli` states each stream's percentage beside its speed
     since 38fbf7e.
+  - The whole stack paired with main, 0957f69 against 4d5edef (runs
+    [36542507833](https://github.com/c4milo/stdx/actions/runs/36542507833) and
+    [36542514694](https://github.com/c4milo/stdx/actions/runs/36542514694); reports in
+    `bench/results/`, dated 2026-09-29, "loop"): on the N2, 35 of the 39 files gain past the bar in
+    both jobs and none loses, the 16 KiB bodies +12 to +14%, the 1 MiB bodies +7 to +9%, Canterbury
+    +6 to +13%, css-1m +7%, the median +7.4%; on an EPYC 9V74 twice, 10 gain and none loses, the
+    median +2.2%. Pushed to main the same day.
+  - Decision 16's A/B of the command loop's checks, in those runs, `loop checks off` over all on:
+    the N2 median 1.11 and 1.12 (dickens 1.19 and 1.22, css-1m 1.20, js-1m 1.15, html-1m 1.15,
+    xml 1.15, alice29 1.14, json-1m 1.14, kennedy.xls 1.11, the 16 KiB bodies 1.10 to 1.13, the 1
+    KiB bodies 1.03 to 1.06, whose time is the header's, the all-literal dickens-1m 1.04); the
+    EPYC 9V74 median 1.10 (css-1m 1.31, dickens 1.17, js-1m 1.14, css-16k 1.14, json-1m 1.10, and
+    E.coli 0.90). Above decision 16's 5% floor on both; the exception is proposed there.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over

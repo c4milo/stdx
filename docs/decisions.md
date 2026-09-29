@@ -778,6 +778,19 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 
       reader, the writer and the functions below, it refuses an index or a slice bound derived
       from a value the reader produced, as colibri's `peer-index` rule does for peer input.
 
+    **Proposed on 2026-09-29: the brotli command loop without Zig's checks.** **owner** The A/B
+    the rule above asks for, the claim `loop_checks` off against on in one job on both runners
+    (runs [36542507833](https://github.com/c4milo/stdx/actions/runs/36542507833) and
+    [36542514694](https://github.com/c4milo/stdx/actions/runs/36542514694), at 0957f69): the N2
+    decodes the command-heavy files 1.10 to 1.22 times as fast without the checks, 1.11 and 1.12 at
+    the corpus's median, the 1 KiB bodies 1.03 to 1.06, whose time is the header's, and the
+    all-literal text 1.04; an EPYC 9V74 1.10 at the median, css-1m 1.31 and E.coli 0.90. The
+    exception would make `loop_checks` false by default: every function under `decoder_fast.run`,
+    the straight loop, the chain and what they inline, with `@setRuntimeSafety(false)`; the margins
+    and the per-write checks of this entry and decision 32 stay, as does the checked path. The
+    tests and the fuzzer compare the setting with the checked path, and decision 24's measures,
+    once ruled, would cover this loop as they cover the assembly loops. The owner rules.
+
     **The fast paths, with the measurement each must show.** The DEFLATE rows exist since design
     §8 step 7, which records their A/Bs. Each row's numbers are filled in by the step that writes
     it, and a row whose A/B does not beat the checked path by more than the noise is deleted with
