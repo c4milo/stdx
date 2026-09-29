@@ -151,6 +151,49 @@ pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []
     try out.print("\n## Losses to simdutf\n\n", .{});
     if (losses.items.len == 0) try out.print("None.\n", .{});
     for (losses.items) |loss| try out.print("{s}", .{loss});
+    try report_offsets(arena, io, out, all, strings);
+}
+
+/// The offsets from a 64-octet line at which the sweep places a buffer, and the octets it takes.
+const sweep_offsets = [_]usize{ 0, 1, 8, 16, 32, 48 };
+const line_len = 64;
+const sweep_len_max = 1 << 20;
+/// The longest label of a sweep's row: the workload's name, its octets and the offset.
+const label_len_max = 128;
+
+/// The longest prefix of `octets`, at most `sweep_len_max`, that ends between characters, so that
+/// no candidate stops early at a cut character.
+fn whole_prefix(octets: []const u8) []const u8 {
+    var len = @min(octets.len, sweep_len_max);
+    while (len > 0 and len < octets.len and octets[len] & 0xc0 == 0x80) len -= 1;
+    return octets[0..len];
+}
+
+/// Prints the sweep: an ASCII text and the non-ASCII text, each copied to every offset of
+/// `sweep_offsets` from a 64-octet line, so a row shows what a block that crosses a line costs
+/// each candidate. The workloads' own buffers sit wherever the arena put each file.
+fn report_offsets(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []const Workload, strings: []const []const u8) !void {
+    try out.print("\n## UTF-8 validation by the buffer's offset from a 64-octet line\n\n", .{});
+    try out.print("| Buffer | Octets | Offset | stdx, MB/s | simdutf, MB/s | stdx / simdutf | stdx with AVX2 alone, MB/s | stdx / stdx with AVX2 alone |\n|---|---|---|---|---|---|---|---|\n", .{});
+    var string_index: usize = 0;
+    for (all) |*workload| {
+        if (workload.decode_only or workload.items.len != 1 or workload.items[0].len != 1 or workload.items[0][0].token != .string) continue;
+        const octets = strings[string_index];
+        string_index += 1;
+        const swept = std.mem.endsWith(u8, workload.name, "bible.txt") or std.mem.endsWith(u8, workload.name, "Cyrillic and CJK");
+        if (!swept) continue;
+        const prefix = whole_prefix(octets);
+        const storage = try arena.alignedAlloc(u8, .fromByteUnits(line_len), prefix.len + line_len);
+        for (sweep_offsets) |offset| {
+            const placed = storage[offset..][0..prefix.len];
+            @memcpy(placed, prefix);
+            const row = try time_row(arena, io, placed);
+            var label_buffer: [label_len_max]u8 = undefined;
+            const label = try std.fmt.bufPrint(&label_buffer, "{s} | {d} | {d}", .{ workload.name, prefix.len, offset });
+            try print_row(out, label, 0, row);
+            try out.flush();
+        }
+    }
 }
 
 /// One workload's medians and spreads, by `Candidate`; a candidate this host does not run is 0.
@@ -179,7 +222,8 @@ fn print_row(out: *std.Io.Writer, name: []const u8, len: usize, row: Row) !void 
     const stdx = @intFromEnum(Candidate.stdx);
     const simdutf = @intFromEnum(Candidate.simdutf);
     const avx2 = @intFromEnum(Candidate.stdx_avx2);
-    try out.print("| {s} | {d} | {d:.1} ± {d:.1}% | {d:.1} ± {d:.1}% | {d:.3} |", .{ name, len, row.median[stdx], row.spread[stdx] * 100, row.median[simdutf], row.spread[simdutf] * 100, row.median[stdx] / row.median[simdutf] });
+    if (len == 0) try out.print("| {s} |", .{name}) else try out.print("| {s} | {d} |", .{ name, len });
+    try out.print(" {d:.1} ± {d:.1}% | {d:.1} ± {d:.1}% | {d:.3} |", .{ row.median[stdx], row.spread[stdx] * 100, row.median[simdutf], row.spread[simdutf] * 100, row.median[stdx] / row.median[simdutf] });
     if (row.median[avx2] == 0) return out.print(" — | — |\n", .{});
     try out.print(" {d:.1} ± {d:.1}% | {d:.3} |\n", .{ row.median[avx2], row.spread[avx2] * 100, row.median[stdx] / row.median[avx2] });
 }
