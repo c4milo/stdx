@@ -25,6 +25,7 @@ const Claims = @import("../claims.zig").Claims;
 const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
 const Kind = encoder_file.Kind;
+const Position = encoder_file.Position;
 const Piece = encoder_file.Piece;
 const Item = @import("encoder_batch.zig").Item;
 
@@ -33,7 +34,7 @@ const Item = @import("encoder_batch.zig").Item;
 pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, output: []u8, written: *usize) usize {
     assert(encoder.part == .between_tokens and encoder.pending_len == 0);
     assert(written.* <= output.len);
-    var loop: Loop = .{ .encoder = encoder, .output = output, .written = written.* };
+    var loop: Loop = .{ .encoder = encoder, .output = output, .written = written.*, .position = encoder.position, .depth = encoder.depth };
     // The digits of a number the loop formats. Declared in `item`, its fill of undefined octets in
     // a safe build ran at every item.
     var buffer: format.Buffer = undefined;
@@ -43,8 +44,9 @@ pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, out
         assert(entry.octets.len == 0 or encoder_file.takes_input(entry.token));
         if (!loop.item(claims, entry, &buffer)) break;
         taken += 1;
-        if (encoder.part == .done) break;
+        if (loop.position == .text_end) break;
     }
+    loop.write_back();
     written.* = loop.written;
     return taken;
 }
@@ -62,45 +64,56 @@ const Frame = struct {
     }
 };
 
+/// What `Encoder.run` leaves in the state after the last item the loop wrote: its kind, and the
+/// last state of a number's text.
+const Last = struct { kind: Kind, number: number_grammar.Number };
+
+/// The loop keeps the grammar's position and depth in locals, and the last item's kind and number,
+/// and writes them into the encoder once, at the batch's end: stored at every item, they took
+/// loads and stores the checked path reads only once the batch is over.
 const Loop = struct {
     encoder: *Encoder,
     output: []u8,
     written: usize,
+    position: Position,
+    depth: u16,
+    last: ?Last = null,
 
     /// Writes `entry` whole and returns true, or writes nothing, changes nothing and returns false.
+    /// Each kind's path takes its kind at compile time.
     inline fn item(self: *Loop, comptime claims: Claims, entry: Item, buffer: *format.Buffer) bool {
-        const kind = std.meta.activeTag(entry.token);
-        assert(encoder_file.allowed(self.encoder.position, kind));
+        assert(encoder_file.allowed(self.position, std.meta.activeTag(entry.token)));
         return switch (entry.token) {
-            .begin_object => self.structural(kind, constants.begin_object),
-            .begin_array => self.structural(kind, constants.begin_array),
-            .end_object => self.structural(kind, constants.end_object),
-            .end_array => self.structural(kind, constants.end_array),
-            .name, .string => |piece| self.string(claims, kind, entry.octets, piece),
+            .begin_object => self.structural(.begin_object, constants.begin_object),
+            .begin_array => self.structural(.begin_array, constants.begin_array),
+            .end_object => self.structural(.end_object, constants.end_object),
+            .end_array => self.structural(.end_array, constants.end_array),
+            .name => |piece| self.string(claims, .name, entry.octets, piece),
+            .string => |piece| self.string(claims, .string, entry.octets, piece),
             .hex => |piece| self.hex(claims, entry.octets, piece),
             .number => |piece| self.number_text(entry.octets, piece),
-            .unsigned => |value| self.text(kind, format.unsigned(buffer, value)),
-            .signed => |value| self.text(kind, format.signed(buffer, value)),
-            .decimal => |value| self.text(kind, format.decimal(buffer, value)),
-            .boolean => |truth| self.text(kind, if (truth) constants.literal_true else constants.literal_false),
-            .null => self.text(kind, constants.literal_null),
+            .unsigned => |value| self.text(.unsigned, format.unsigned(buffer, value)),
+            .signed => |value| self.text(.signed, format.signed(buffer, value)),
+            .decimal => |value| self.text(.decimal, format.decimal(buffer, value)),
+            .boolean => |truth| self.text(.boolean, if (truth) constants.literal_true else constants.literal_false),
+            .null => self.text(.null, constants.literal_null),
         };
     }
 
     /// Writes an item's separators before it when the output holds them and the item's own
-    /// `len` octets, and returns its frame, or null.
-    inline fn open(self: *Loop, kind: Kind, len: usize) ?Frame {
-        const position = self.encoder.position;
-        const next = position == .object_next or position == .array_next;
-        const ends_text = switch (kind) {
-            .begin_object, .begin_array, .name => false,
-            .end_object, .end_array => self.encoder.depth == 1,
-            else => self.encoder.depth == 0,
-        };
+    /// `len` octets, and returns its frame, or null. Only a value can start a text or end one at
+    /// depth 0, and only at the text's start; a name follows a value separator after a member, and
+    /// any other value after an element.
+    inline fn open(self: *Loop, comptime kind: Kind, len: usize) ?Frame {
+        const position = self.position;
+        const ends = kind == .end_object or kind == .end_array;
+        const value = !ends and kind != .name;
+        const ends_text = if (ends) self.depth == 1 else value and kind != .begin_object and kind != .begin_array and position == .text_start;
+        const sequence = self.encoder.framing == .sequence;
         const frame: Frame = .{
-            .record_separator = self.encoder.framing == .sequence and position == .text_start,
-            .value_separator = next and kind != .end_object and kind != .end_array,
-            .line_feed = ends_text and self.encoder.framing == .sequence,
+            .record_separator = value and sequence and position == .text_start,
+            .value_separator = !ends and position == (if (kind == .name) Position.object_next else .array_next),
+            .line_feed = ends_text and sequence,
             .ends_text = ends_text,
         };
         if (frame.len() + len > self.output.len - self.written) return null;
@@ -109,22 +122,31 @@ const Loop = struct {
         return frame;
     }
 
-    /// Writes the line feed after an item that ends a sequence's text, and leaves the state as
-    /// `Encoder.run` leaves it after the item's closing.
-    inline fn close(self: *Loop, kind: Kind, frame: Frame, number: number_grammar.Number) void {
+    /// Writes the line feed after an item that ends a sequence's text, and moves the grammar past
+    /// the item as `Encoder.run` does.
+    inline fn close(self: *Loop, comptime kind: Kind, frame: Frame, number: number_grammar.Number) void {
         if (frame.line_feed) self.put(constants.line_feed);
-        @call(.always_inline, Encoder.advance, .{ self.encoder, kind });
-        assert(self.encoder.position == .text_end or !frame.ends_text);
-        self.encoder.kind = kind;
-        self.encoder.ends_text = frame.ends_text;
-        self.encoder.number = number;
-        self.encoder.part = if (frame.ends_text) .done else .between_tokens;
+        encoder_file.advance_with(&self.position, &self.depth, &self.encoder.containers, kind);
+        assert((self.position == .text_end) == frame.ends_text);
+        self.last = .{ .kind = kind, .number = number };
     }
 
-    inline fn structural(self: *Loop, kind: Kind, octet: u8) bool {
+    /// Writes the grammar's position and depth into the encoder, and what `Encoder.run` leaves
+    /// after the last item the loop wrote.
+    fn write_back(self: *const Loop) void {
+        self.encoder.position = self.position;
+        self.encoder.depth = self.depth;
+        const last = self.last orelse return;
+        self.encoder.kind = last.kind;
+        self.encoder.ends_text = self.position == .text_end;
+        self.encoder.number = last.number;
+        self.encoder.part = if (self.position == .text_end) .done else .between_tokens;
+    }
+
+    inline fn structural(self: *Loop, comptime kind: Kind, octet: u8) bool {
         // The checked path refuses a container past the depth limit.
         const opens = kind == .begin_object or kind == .begin_array;
-        if (opens and self.encoder.depth == constants.depth_max) return false;
+        if (opens and self.depth == constants.depth_max) return false;
         const frame = self.open(kind, 1) orelse return false;
         self.put(octet);
         self.close(kind, frame, .{});
@@ -133,7 +155,7 @@ const Loop = struct {
 
     /// Writes a name or a string whose octets are plain ASCII, which a string carries as they are
     /// (RFC 8259 §7).
-    inline fn string(self: *Loop, comptime claims: Claims, kind: Kind, octets: []const u8, piece: Piece) bool {
+    inline fn string(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, piece: Piece) bool {
         if (piece == .more) return false;
         const run_len = if (claims.encoder_string_vectors) wide.plain_len(self.encoder.level.with(claims), octets) else scan.plain_len_scalar(octets);
         if (run_len != octets.len) return false;
@@ -172,7 +194,7 @@ const Loop = struct {
     }
 
     /// Writes a number the encoder formatted, or a literal name.
-    inline fn text(self: *Loop, kind: Kind, octets: []const u8) bool {
+    inline fn text(self: *Loop, comptime kind: Kind, octets: []const u8) bool {
         const frame = self.open(kind, octets.len) orelse return false;
         self.copy(octets);
         self.close(kind, frame, .{});
