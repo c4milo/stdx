@@ -1955,9 +1955,16 @@ to 12 are reordered and nothing else changes.
   them past their spread and 1%, qlog's records at 0.954 and the non-ASCII text at 0.953; the
   encoder ran bible.txt at 1.560 and json-1m at 1.053, and lost js-1m at 0.915 and the non-ASCII
   text at 0.956. By decision 20's rule the x86-64 shape does not stay as it is: the decoder's block
-  loop wants the two loops it had at 7081f08, and the encoder the one it has now. Whether the two
-  loops take the shape apart, `two_loops` a parameter of the walk per caller, is open for the
-  owner; the change is measured, not built.
+  loop wants the two loops it had at 7081f08, and the encoder the one it has now. So the shape is
+  each caller's, `two_loops` of `Walk.take_to_stop`: the decoder's walk takes two loops on every
+  architecture, the encoder's one on x86-64 (`decoder_loop_string.zig`, `encoder_loop_string.zig`).
+  Its two paired runs against 29d7e28, both on an AMD EPYC 7763 and the N2 (runs
+  [36607090038](https://github.com/c4milo/stdx/actions/runs/36607090038) and
+  [36607093158](https://github.com/c4milo/stdx/actions/runs/36607093158)): on the EPYC the text
+  files decode at 1.017 to 1.105, 15 of 17 past their spread in both runs, the non-ASCII text at
+  1.050, bible.txt at 0.982 and the tokens within 3%; the encoder's rows and every N2 row are
+  within noise, the hex strings' moves both ways among them. By decision 20's rule it stays. The
+  EPYC 9V74 and the Xeons were not drawn; their decoders lost with one loop too (above).
 
   **Where token decoding stands, 2026-09-29.** bench-profile run
   [36522100520](https://github.com/c4milo/stdx/actions/runs/36522100520) at 1247c3e counted, per

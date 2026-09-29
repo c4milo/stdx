@@ -10,6 +10,7 @@
 //! the checks off at its call site (decision 35). The walk it takes keeps its checks.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
@@ -61,6 +62,11 @@ noinline fn copy_escaped_kernel_or_here(comptime checked: bool, level: wide.Leve
     return if (written == left) null else written;
 }
 
+/// The encoder's walk takes a run's ASCII blocks in a loop of their own everywhere but on x86-64,
+/// where the two loops spilled the walk's state and one loop encoded bible.txt at 1.56 times the
+/// speed (string_walk.zig, design §8 step 18).
+const two_loops = builtin.cpu.arch != .x86_64;
+
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
 pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
@@ -72,7 +78,7 @@ pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const 
         // find it: a text of lines that end in a carriage return and a line feed has two at each
         // line's end.
         if (walk.input.len == 0 or !escapes(walk.input[0])) {
-            if (!walk.take_to_stop(claims, level, octets, room)) return null;
+            if (!walk.take_to_stop(claims, two_loops, level, octets, room)) return null;
             if (walk.input.len == 0) return room.len - walk.output.len;
         }
         const octet = walk.input[0];

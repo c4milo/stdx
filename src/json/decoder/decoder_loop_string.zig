@@ -74,6 +74,11 @@ noinline fn copy_rest_kernel_or_here(level: wide.Level, rest: []const u8, room: 
     return copy_rest(.{}, level, rest, room);
 }
 
+/// The decoder's walk takes a run's ASCII blocks in a loop of their own on every architecture: on
+/// x86-64 the one loop decoded the text files at 0.88 to 0.97 of the two loops' speed on an AMD
+/// EPYC 7763 and an EPYC 9V74 (string_walk.zig, design §8 step 18).
+const two_loops = true;
+
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.
@@ -84,7 +89,7 @@ pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, r
         // An escape that follows an escape is taken at once, with no block walked to find it: a text
         // of lines that end in a carriage return and a line feed has two at each line's end.
         if (walk.input.len == 0 or walk.input[0] != constants.reverse_solidus) {
-            if (!walk.take_to_stop(claims, level, rest, room)) return null;
+            if (!walk.take_to_stop(claims, two_loops, level, rest, room)) return null;
             if (walk.input.len == 0) return null;
         }
         const escape = switch (walk.input[0]) {
