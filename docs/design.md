@@ -1254,6 +1254,20 @@ to 12 are reordered and nothing else changes.
     the median +1.8%; on an EPYC 7763 twice, 11 gain and none loses, the 1 KiB bodies +12 to +22%,
     the median +3.2%. The M1 Pro had shown 15 to 19% fewer header cycles only: the sort's branch
     misses cost the N2 far more. Pushed to main the same day.
+  - The header's cuts, cffe5e8 on its branch and d914fea on main, against 8847786, paired (runs
+    [36578388148](https://github.com/c4milo/stdx/actions/runs/36578388148) and
+    [36578391339](https://github.com/c4milo/stdx/actions/runs/36578391339); reports in
+    `bench/results/`, dated 2026-09-29, "header"): the fill's fields and the reading's kept in
+    registers, the code length code's 18 lengths read from a local buffer and its table built within
+    the root, the root copied in place with only the codes past it counted, and the context map's
+    move-to-front in one vector shift. On the M1 Pro they take 16.6% of the header's instructions
+    off the 1 KiB bodies (json-1k 37.1k to 31.0k; Google's header is about 13k). On the N2, 18 files
+    gain in both jobs and none loses: the 1 KiB bodies +9 to +11% (json-1k from 0.70 to 0.77 of
+    Google's speed, html-1k 0.81 to 0.88, js-1k 0.71 to 0.78, css-1k 0.81 to 0.90), the 16 KiB
+    bodies +3 to +6%, dickens +4%, xargs.1 +5%, the median +2.2%; on an EPYC 9V74 and then a 9V45
+    whose spreads reached 52%, the median +0.9% and no loss. Pushed to main the same day. Holding the
+    reading's fields in locals gave 0.1% on the M1 and was dropped: the code-lengths loop waits on
+    each symbol's lookup, not on its stores.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
