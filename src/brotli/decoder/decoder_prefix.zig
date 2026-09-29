@@ -157,8 +157,6 @@ fn build_code_length_code(state: *State) Error!void {
         // RFC 7932 §3.5: the sum of 32 >> code length must equal 32.
         return error.IncompleteCodeLengthCode;
     }
-    @memset(state.lengths[0..reading.alphabet_len], 0);
-    count_work(state, reading.alphabet_len);
     reading.index = 0;
     reading.space = constants.code_lengths_space;
     reading.previous_len = constants.previous_len_initial;
@@ -280,7 +278,9 @@ fn sort_len_max(comptime target: std.meta.Tag(state_module.Target)) usize {
 /// The complex code of an alphabet of at most `len_max` symbols, sorted into canonical order and
 /// built.
 fn finish_sorted(comptime len_max: usize, state: *State) void {
-    const lengths = state.lengths[0..state.reading.alphabet_len];
+    // RFC 7932 §3.5: trailing zero lengths are omitted, so the symbols after the last length read
+    // have none, and the lengths the reading left there belong to an earlier code.
+    const lengths = state.lengths[0..state.reading.index];
     assert(lengths.len <= len_max);
     const counts = prefix.counts_of(lengths);
     var buffer: [len_max]prefix.Coded = undefined;

@@ -241,10 +241,10 @@ const copied_len = 2;
 const code_length_lengths = [_]u8{ 1, 1 };
 const code_lengths = [_]test_stream.LengthSymbol{ .{ .symbol = 1 }, .{ .symbol = 1 } };
 
-/// Its count: the code length code's lengths cleared and its two read, its table, the alphabet's
-/// lengths cleared, its two code lengths read, and the root.
+/// Its count: the code length code's lengths cleared and its two read, its table, its two code
+/// lengths read, and the root.
 const complex_code_work = constants.code_length_alphabet_len + code_length_lengths.len + constants.code_length_table_len +
-    constants.insert_copy_alphabet_len + code_lengths.len + root_len;
+    code_lengths.len + root_len;
 
 /// A literal code whose code lengths skip 97 symbols in three repeats of zeros, then give 'a' and
 /// 'b' 1 bit each: HSKIP 0, and the code length code's lengths 1 for the code lengths 1 and 17, the
@@ -262,10 +262,10 @@ const repeated_code_lengths = [_]test_stream.LengthSymbol{
     .{ .symbol = 1 },
 };
 
-/// Its count: the code length code's lengths cleared and its seven read, its table, the alphabet's
-/// lengths cleared, its five symbols, the zeros its repeats write, and the root.
+/// Its count: the code length code's lengths cleared and its seven read, its table, its five
+/// symbols, the zeros its repeats write, and the root.
 const repeated_code_work = constants.code_length_alphabet_len + repeated_code_length_lengths.len + constants.code_length_table_len +
-    constants.literal_alphabet_len + repeated_code_lengths.len + repeated_zeros + root_len;
+    repeated_code_lengths.len + repeated_zeros + root_len;
 
 /// The third worst case: after `history`, a meta-block of 256 insert-and-copy block types, each
 /// type's code a complex code of 12 bits, and a literal code of repeats. Symbol 0, insert length 0
