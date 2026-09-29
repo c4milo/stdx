@@ -923,6 +923,34 @@ to 12 are reordered and nothing else changes.
       N2 and from 0.57 to 0.64 on the EPYC 7763, output over libdeflate's at the median from 0.999
       to 1.000. Levels 1 and 9 unchanged. The reports are
       `bench/results/2026-09-29-deflate-encoder-budget-*.md`.
+    - The walk's latency, 2026-09-29, at the owner's request. After a taken match the lazy step
+      searches the next position, whose match waits, and the one after it, whose match is compared
+      with it; each walk ran alone, bound by its own dependent loads. a5ffbd7 walks both chains in
+      one loop at level 6 (`best_pair`, `encoder_match_walk.zig`), so their loads overlap, with the
+      same output: the second walk keeps its result at `cut_candidates_max` candidates, its result
+      once the first turns out `cut_len` long, and ends once the first is `lazy_len` long, when the
+      step would skip it; the first walk takes one step before the second starts, as its nearest
+      candidate usually settles the second's budget.
+      - A first cut kept each walk's state in a struct whose step was a call, and level 6 ran at
+        1.4 to 1.6 times its time on the M1; inline, the loop runs from registers.
+      - With the pair at level 9 too, run
+        [36586101645](https://github.com/c4milo/stdx/actions/runs/36586101645): level 9's median
+        rose 6.5% on the N2 and 3.6% on an EPYC 7763, but kennedy.xls fell to 0.87 and 0.88, sum,
+        ptt5 and fields.c to 0.93 to 0.96: at 4,096 candidates the second walk's budget follows
+        the first's too late, and the two walks crowd the cache. Holding the second walk at
+        `cut_candidates_max` until the first is done cost the M1 3 to 7% instead. Level 9 keeps
+        one walk (`pair_walks`).
+      - A prefetch of the head the step inserts two positions on, and of the head at a taken
+        match's end, run [36586241515](https://github.com/c4milo/stdx/actions/runs/36586241515)
+        against the pair: level 6 medians 1.000 on the N2 and 0.998 on an EPYC 9V74, x-ray up 2%
+        and E.coli and the 1 KiB files down 1 to 2%. Not kept.
+      - Bench run [36594809955](https://github.com/c4milo/stdx/actions/runs/36594809955), main
+        (7081f08) and a5ffbd7 in one job: stdx over libdeflate at level 6 from 0.66 to 0.69 on the
+        N2 and from 0.62 to 0.67 on an EPYC 9V74, stdx at 1.07 and 1.06 times its speed at the
+        median, the text files 1.12 to 1.16, E.coli 1.12 and 1.35, and the four 1 KiB files 0.98
+        to 0.99. Level 9's median is unchanged, and the files under 16 KiB move 3 to 6% either
+        way at levels 1 and 9, whose code the change does not touch: layout. Output identical at
+        every level. The reports are `bench/results/2026-09-29-deflate-encoder-pair-*.md`.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
