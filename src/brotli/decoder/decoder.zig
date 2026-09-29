@@ -18,6 +18,7 @@ const header = @import("decoder_header.zig");
 const prefix_reader = @import("decoder_prefix.zig");
 const commands = @import("decoder_commands.zig");
 const fast = @import("decoder_fast/decoder_fast.zig");
+const fast_header = @import("decoder_fast/decoder_fast_header.zig");
 const Output = @import("decoder_output.zig").Output;
 const Paths = @import("../claims.zig").Paths;
 const State = state_module.State;
@@ -124,9 +125,13 @@ fn run(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, 
     unreachable;
 }
 
-/// One step, and the status that ends the call, or null to go on. A step of a command first lets
-/// the fast path decode what its margins allow.
+/// One step, and the status that ends the call, or null to go on. A step of the header first lets
+/// the fast path read the header's phases in one loop, and a step of a command lets it decode what
+/// its margins allow.
 fn step(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, out: anytype) Error!?codec.Status {
+    if (options.paths.fast_paths and header.is_header_phase(state.phase)) {
+        if (try fast_header.read_header(state, bits)) |status| return status;
+    }
     if (options.paths.fast_paths and fast.takes(state.phase) and fast.has_margin(state.phase, bits, out.writer)) {
         switch (fast.room_of(out.writer)) {
             inline else => |room| fast.run(options.paths.claims, room, state, out.window, bits, out.writer),
@@ -134,25 +139,10 @@ fn step(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader,
     }
     return switch (state.phase) {
         .stream_header => try stream.read_stream_header(state, bits, options.window_bits_max),
-        .meta_block_header => stream.read_meta_block_header(state, bits),
         .metadata_header => try stream.read_metadata_header(state, bits),
         .metadata_skip => try stream.skip_metadata(state, bits),
-        .meta_block_len => try stream.read_meta_block_len(state, bits),
-        .uncompressed_flag => stream.read_uncompressed_flag(state, bits),
         .uncompressed_copy => try stream.copy_uncompressed(state, bits, out),
-        .block_types_count => header.read_block_types_count(state, bits),
-        .first_block_count => header.read_first_block_count(state, bits),
-        .distance_parameters => header.read_distance_parameters(state, bits),
-        .context_modes => header.read_context_modes(state, bits),
-        .trees_count => header.read_trees_count(state, bits),
-        .map_run_length => header.read_map_run_length(state, bits),
-        .map_values => try header.read_map_values(state, bits),
-        .map_inverse_transform => try header.read_map_inverse_transform(state, bits),
-        .prefix_kind => prefix_reader.read_kind(state, bits),
-        .simple_count => prefix_reader.read_simple_count(state, bits),
-        .simple_symbols => try prefix_reader.read_simple_symbols(state, bits),
-        .code_length_code => try prefix_reader.read_code_length_code(options.paths.fast_paths, state, bits),
-        .code_lengths => try prefix_reader.read_code_lengths(options.paths.fast_paths, state, bits),
+        .meta_block_header, .meta_block_len, .uncompressed_flag, .block_types_count, .first_block_count, .distance_parameters, .context_modes, .trees_count, .map_run_length, .map_values, .map_inverse_transform, .prefix_kind, .simple_count, .simple_symbols, .code_length_code, .code_lengths => try header.read_phase(options.paths.fast_paths, state, bits),
         .command => commands.read_command(state, bits),
         .command_extra => try commands.read_command_extra(state, bits),
         .block_type => commands.read_block_type(state, bits),

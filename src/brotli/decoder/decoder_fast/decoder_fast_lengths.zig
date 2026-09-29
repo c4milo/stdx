@@ -30,16 +30,31 @@ comptime {
 
 /// The reader's state in locals: the input, the position of the next octet, and the bits taken from
 /// the octets before it, least significant bit first (RFC 7932 §1.5.1).
-const Bits = struct {
+pub const Bits = struct {
     input: []const u8,
     position: usize,
     buffer: u64,
     count: u32,
 
     /// The reader's state, as a loop takes it.
-    inline fn of(bits: *const codec.BitReader) Bits {
+    pub inline fn of(bits: *const codec.BitReader) Bits {
         assert(bits.bits.count <= @bitSizeOf(u64));
         return .{ .input = bits.reader.octets, .position = bits.reader.position, .buffer = bits.bits.buffer, .count = bits.bits.count };
+    }
+
+    /// Takes, while the input's margin holds, the whole octets that fit above `count` from one
+    /// 8-octet load, which leaves 56 bits at least. The bits above `count` repeat the input's next
+    /// octet, which the next load writes again unchanged.
+    pub inline fn refill_whole(self: *Bits) bool {
+        assert(self.count < @bitSizeOf(u64));
+        if (self.input.len - self.position < fast.input_slack) return false;
+        const loaded = std.mem.readInt(u64, self.input[self.position..][0..@sizeOf(u64)], .little);
+        self.buffer |= loaded << @intCast(self.count);
+        const octets = (@bitSizeOf(u64) - 1 - self.count) / @bitSizeOf(u8);
+        self.position += octets;
+        self.count += octets * @bitSizeOf(u8);
+        assert(self.count >= refill_bits);
+        return true;
     }
 
     /// Whether the buffer holds a symbol's bits, after a refill when it holds fewer than eight and
@@ -63,7 +78,7 @@ const Bits = struct {
     }
 
     /// Hands the reader back as the checked reader keeps it: no bit above `count` set.
-    inline fn hand_back(self: *const Bits, bits: *codec.BitReader) void {
+    pub inline fn hand_back(self: *const Bits, bits: *codec.BitReader) void {
         assert(self.position <= self.input.len);
         bits.bits = .{
             .buffer = if (self.count >= @bitSizeOf(u64)) self.buffer else fast.low_bits(self.buffer, self.count),

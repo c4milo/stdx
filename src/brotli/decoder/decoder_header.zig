@@ -9,11 +9,47 @@ const constants = @import("../constants.zig");
 const context = @import("../context.zig");
 const state_module = @import("decoder_state.zig");
 const prefix_reader = @import("decoder_prefix.zig");
+const stream = @import("decoder_stream.zig");
 const State = state_module.State;
+const Phase = state_module.Phase;
 const Category = state_module.Category;
 const Map = state_module.Map;
 const Error = state_module.Error;
 const count_work = state_module.count_work;
+
+/// Whether `read_phase` takes a phase: each phase of a compressed meta-block's header (RFC 7932
+/// §9.2) from ISLAST to its last prefix code, all of which read input and write no output.
+pub fn is_header_phase(phase: Phase) bool {
+    return switch (phase) {
+        .meta_block_header, .meta_block_len, .uncompressed_flag, .block_types_count, .first_block_count, .distance_parameters, .context_modes, .trees_count, .map_run_length, .map_values, .map_inverse_transform, .prefix_kind, .simple_count, .simple_symbols, .code_length_code, .code_lengths => true,
+        else => false,
+    };
+}
+
+/// One phase of a meta-block's header, by the function that reads it, and the status that ends
+/// the call, or null to go on.
+pub fn read_phase(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+    assert(is_header_phase(state.phase));
+    return switch (state.phase) {
+        .meta_block_header => stream.read_meta_block_header(state, bits),
+        .meta_block_len => try stream.read_meta_block_len(state, bits),
+        .uncompressed_flag => stream.read_uncompressed_flag(state, bits),
+        .block_types_count => read_block_types_count(state, bits),
+        .first_block_count => read_first_block_count(state, bits),
+        .distance_parameters => read_distance_parameters(state, bits),
+        .context_modes => read_context_modes(state, bits),
+        .trees_count => read_trees_count(state, bits),
+        .map_run_length => read_map_run_length(state, bits),
+        .map_values => try read_map_values(state, bits),
+        .map_inverse_transform => try read_map_inverse_transform(state, bits),
+        .prefix_kind => prefix_reader.read_kind(state, bits),
+        .simple_count => prefix_reader.read_simple_count(state, bits),
+        .simple_symbols => try prefix_reader.read_simple_symbols(state, bits),
+        .code_length_code => try prefix_reader.read_code_length_code(fast_paths, state, bits),
+        .code_lengths => try prefix_reader.read_code_lengths(fast_paths, state, bits),
+        else => unreachable,
+    };
+}
 
 /// NBLTYPESx or NTREESx, 1 to 256, from its code (RFC 7932 §9.2): a 0 bit is 1; otherwise three bits
 /// n and n more bits x give (1 << n) + 1 + x. Null while its bits are not all present.
