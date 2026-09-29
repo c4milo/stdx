@@ -12,7 +12,9 @@ entry 26 out of the owner's review of CI, entry 27 out of the owner's request fo
 out of the owner's request that its state machines be proved, entry 29 out of [issue
 13](https://github.com/c4milo/stdx/issues/13)'s DEFLATE decoder, entry 30 out of the JSON
 baselines' numbers, entry 31 out of design §8 step 17's profile, entry 32 out of step 12's brotli
-decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
+decoder, entry 33 out of the owner's ruling on what step 17's profile left, entry 34 out of the
+losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), and entry 35 out of decision
+17's json measurement.
 
 ## Scope and shape
 
@@ -1685,3 +1687,54 @@ decoder, and entry 33 out of the owner's ruling on what step 17's profile left.
 
     Kept as they were: assertions in production (decision 17), the RFCs as the only source
     (decision 9), and decision 16's margins.
+
+35. **Runtime safety off in the `json` encoder's token loop (claim J11).** **owner** Proposed on
+    2026-09-28, as decision 17's json measurement asks once construction has taken what it can
+    (design §8 step 18). It would be decision 16's first exception.
+
+    **The measurement.** One A/B of the four files of claims J10's and J11's token loops, with
+    runtime safety on, at d2998c4, and off, at 43698a9, where every function of the four starts
+    with `@setRuntimeSafety(false)`: bench-json's workloads, five runs a side, both builds in one
+    job on each runner (run [36515654643](https://github.com/c4milo/stdx/actions/runs/36515654643)).
+    Throughput with safety off over throughput with it on:
+
+    | Workload | N2, decoding | N2, encoding | EPYC 9V45, decoding | EPYC 9V45, encoding |
+    |---|---|---|---|---|
+    | CLDR's texts | 1.025 | 1.071 | 1.044 | 1.057 |
+    | qlog's records | 1.024 | 1.053 | 0.987 | 1.089 |
+    | The 17 text files as strings, median | 0.995 | 1.025 | 1.100 | 1.030 |
+    | The same, lowest to highest | 0.931 to 1.022 | 1.000 to 1.054 | 0.981 to 1.184 | 0.985 to 1.209 |
+    | The non-ASCII text | 0.982 | 0.998 | 1.020 | 1.082 |
+
+    The larger spread of each token row was under 1% on the N2, but for qlog's decoding at 10.7%,
+    and 2.8% to 8.3% on the EPYC.
+
+    **What it shows.**
+    - The encoder's loop gains 5.3% to 8.9% on the token workloads on both runners, past decision
+      16's 5% floor. On the EPYC, CLDR's 5.7% is inside that row's 6.0% spread, decision 20's
+      floor for the job.
+    - The decoder's loop gains 2.4% and 2.5% on the N2, and −1.3% to +4.4% on the EPYC, under the
+      floor. Its text files gain a median of 10% on the EPYC and nothing on the N2: escapes
+      decoded on x86-64, which design §8 step 18 takes up by construction.
+
+    **The proposal.**
+    - Every function of `encoder_loop.zig` and `encoder_loop_string.zig` starts with
+      `@setRuntimeSafety(builtin.is_test or builtin.mode == .Debug)`. The checks are off in a
+      ReleaseSafe build and on in the tests, the fuzzer and a caller's Debug build.
+    - Decision 16 gains a row with these numbers.
+    - The decoder's loop keeps every check.
+
+    What stays checked in the encoder's loop: Zig turns safety off in the function that says so, and
+    a function it calls, inline or not, keeps its own, so `scan.zig`, `wide.zig` and
+    `string_walk.zig` keep their checks. `std.debug.assert` keeps its check too, as its `unreachable`
+    lies in its own function. An `unreachable` written in the loop's own functions becomes an
+    assumption, as decision 17 warns.
+
+    What it risks: a wrong room check in the loop writes past `output` instead of panicking. The loop
+    reads the caller's items and not a peer's octets, and it checks the room an item takes before it
+    writes the item (decision 16's J11 row).
+
+    The alternatives:
+    - Both loops. The decoder's gain on the token workloads is under the floor, and the decoder
+      reads a peer's octets, where a wrong margin reads or writes outside the buffers.
+    - Neither. Every check stays, and the encoder gives up 5% to 9% on the token workloads.
