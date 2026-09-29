@@ -299,7 +299,9 @@ Change this section when a step adds or renames a command.
   with x86-64-v3's instructions, a third program then times the gzip decoders again with stdx built
   for x86-64-v3 (decision 34). `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
-  person asks (decision 20). Each published report is committed under `bench/results/`, as the workflow wrote it.
+  person asks (decision 20); its `base` input names a commit or branch it benchmarks first in the
+  same job, so that an A/B pairs one CPU. Each published report is committed under
+  `bench/results/`, as the workflow wrote it.
 - Zstandard benchmark: `zig build bench-zstd -Doracles` times libzstd's decoder, with a context
   kept across decodes, and stdx's HTTP decoder over every corpus file encoded by libzstd at level
   3; then stdx's fast paths against its checked path, and each claim of decision 14 off against

@@ -1,6 +1,8 @@
 # Decisions 10 and 20: benchmarks run on the hosted runners when a person asks, pinned to one core,
 # with each run recorded beside its numbers. docs/costs.md and the published results are filled
-# from named runs of this workflow.
+# from named runs of this workflow. The `base` input names a commit or branch to benchmark first in
+# the same job, so that an A/B pairs one CPU: the x86-64 runner draws a different CPU from run to
+# run (decision 20).
 name: bench
 
 on:
@@ -11,6 +13,10 @@ on:
         type: choice
         options: [costs, deflate, checksum, profile, zstd, brotli, json]
         default: deflate
+      base:
+        description: "A commit or branch to benchmark first, in the same job; empty for none"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -22,45 +28,53 @@ jobs:
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       RUNNER_LABEL: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.base != ''
+        with:
+          ref: ${{ inputs.base }}
+          path: base
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: zig-pkg
           key: zig-pkg-${{ hashFiles('build.zig.zon') }}
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
-      - name: Measure costs
-        if: inputs.benchmark == 'costs'
-        run: bench/run.sh bench-report.md costs
-      - name: Measure DEFLATE
-        if: inputs.benchmark == 'deflate'
-        run: bench/run.sh bench-report.md bench-deflate -Doracles
-      - name: Measure checksums
-        if: inputs.benchmark == 'checksum'
-        run: bench/run.sh bench-report.md bench-checksum -Doracles
-      - name: Measure Zstandard
-        if: inputs.benchmark == 'zstd'
-        run: bench/run.sh bench-report.md bench-zstd -Doracles
-      - name: Measure brotli
-        if: inputs.benchmark == 'brotli'
-        run: bench/run.sh bench-report.md bench-brotli -Doracles
-      - name: Measure JSON
-        if: inputs.benchmark == 'json'
-        run: bench/run.sh bench-report.md bench-json -Doracles
-      - name: Count cycles and branch misses
-        if: inputs.benchmark == 'profile'
+      - name: Name the step
         run: |
-          # perf_event_open lets a process count its own events only where the kernel allows it.
-          sudo sysctl -w kernel.perf_event_paranoid=1
-          bench/run.sh bench-report.md bench-profile -Doracles
+          case "${{ inputs.benchmark }}" in
+            costs) step=costs; options="" ;;
+            deflate) step=bench-deflate; options=-Doracles ;;
+            checksum) step=bench-checksum; options=-Doracles ;;
+            zstd) step=bench-zstd; options=-Doracles ;;
+            brotli) step=bench-brotli; options=-Doracles ;;
+            json) step=bench-json; options=-Doracles ;;
+            profile)
+              # perf_event_open lets a process count its own events only where the kernel allows it.
+              sudo sysctl -w kernel.perf_event_paranoid=1
+              step=bench-profile; options=-Doracles ;;
+          esac
+          echo "step=$step" >> "$GITHUB_ENV"
+          echo "options=$options" >> "$GITHUB_ENV"
+      - name: Measure the base
+        if: inputs.base != ''
+        run: cd base && bench/run.sh "$GITHUB_WORKSPACE/base-report.md" "$step" $options
+      - name: Measure
+        run: bench/run.sh bench-report.md "$step" $options
       - name: Summarize
-        run: cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Keep the report
+        run: |
+          if [ -f base-report.md ]; then
+            { echo "## The base, ${{ inputs.base }}"; echo; cat base-report.md; echo; echo "## The change"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bench-${{ inputs.benchmark }}-${{ matrix.runner }}
-          path: bench-report.md
+          path: |
+            bench-report.md
+            base-report.md
