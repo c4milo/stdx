@@ -14,6 +14,9 @@ const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
 const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
+const string_walk = @import("../string_walk.zig");
+const Walk = string_walk.Walk;
+const Stop = string_walk.Stop;
 
 /// The octets of the two-character escape of a quotation mark, a reverse solidus or a control
 /// character that has one, and of `\u00` and two digits for a control character that has none.
@@ -33,34 +36,23 @@ const escape_letters = table: {
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
 pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
-    // What is left of the string and the room, as slices the loop moves past what it takes, so the
-    // compiler knows their lengths: indices into `octets` and `room` cost each access a check.
-    var input = octets;
-    var output = room;
+    var walk: Walk = .{ .input = octets, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..octets.len + 1) |_| {
-        const window = input[0..@min(input.len, output.len)];
-        const run_len = run_of(claims, level, window);
-        scan.copy(output[0..run_len], window[0..run_len]);
-        input = input[run_len..];
-        output = output[run_len..];
-        if (input.len == 0) return room.len - output.len;
-        const octet = input[0];
+        // Short of a block, or with claim J5 off, the run's scans take the octets.
+        const stop: Stop = if (claims.utf8_vectors) walk.take_blocks(octets, room) else .short;
+        switch (stop) {
+            .ruled_out => return null,
+            .short => walk.take_run(claims, level),
+            .octet => {},
+        }
+        if (walk.input.len == 0) return room.len - walk.output.len;
+        const octet = walk.input[0];
         // A character UTF-8 rules out or the string cuts, or an octet the room stopped.
         if (octet >= constants.non_ascii_min or scan.is_plain_ascii(octet)) return null;
-        output = output[escape(octet, output) orelse return null ..];
-        input = input[1..];
+        walk.take(1, escape(octet, walk.output) orelse return null);
     }
     unreachable;
-}
-
-/// The run of octets a string carries as they are that starts `window`: plain ASCII at `level`'s
-/// width (claim J7), and past a non-ASCII octet, whole UTF-8 characters too (claim J5).
-inline fn run_of(comptime claims: Claims, level: wide.Level, window: []const u8) usize {
-    const plain_len = wide.plain_len(level.with(claims), window);
-    if (plain_len == window.len or window[plain_len] < constants.non_ascii_min) return plain_len;
-    const rest = window[plain_len..];
-    return plain_len + if (claims.utf8_vectors) scan.content_len_vector(constants.vector_len, rest) else scan.content_len_scalar(rest);
 }
 
 /// Writes the escape of `octet`, a quotation mark, a reverse solidus or a control character (RFC

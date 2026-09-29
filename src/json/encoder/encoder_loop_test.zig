@@ -149,6 +149,43 @@ test "the loop writes strings with every escape and with UTF-8 itself, none left
     try testing.expect(encoder.is_done());
 }
 
+test "the loop writes a string whose blocks of 16 cut characters, none left to the checked path" {
+    // Ten characters of three octets and a quotation mark: the first block of 16 ends inside the
+    // sixth, and the octets left are fewer than a block, which the walk then takes from that
+    // character's start.
+    const content = "\xe2\x82\xac" ** 10 ++ "\"";
+    const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = content }};
+    var encoder: Encoder = undefined;
+    encoder.init(.text, codec.Features.detect());
+    const expected = "\"" ++ "\xe2\x82\xac" ** 10 ++ "\\\"\"";
+    var output: [text_len_max]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(items.len, token_loop.take(&encoder, claims.vector, &items, output[0..expected.len], &written));
+    try testing.expectEqualStrings(expected, output[0..written]);
+}
+
+/// Strings whose octets UTF-8 rules out where a block of 16 ends or starts (RFC 3629 §4).
+const cut_characters_ruled_out = [_][]const u8{
+    // The first block ends inside the fifth character. The second holds its last octet, then a
+    // quotation mark the loop escapes, then a continuation octet no character's first octet
+    // precedes.
+    "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "ab\xe2\x82\xaccdef\"\x80" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac",
+    // The first block ends with a character's first octet, and the second is all ASCII.
+    "\xc3\xa90123456789abc\xe2" ++ "0123456789abcdef",
+};
+
+test "the loop leaves to the checked path the characters that blocks of 16 cut and UTF-8 rules out" {
+    for (cut_characters_ruled_out) |content| {
+        const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = content }};
+        var encoder: Encoder = undefined;
+        encoder.init(.text, codec.Features.detect());
+        var output: [text_len_max]u8 = undefined;
+        var written: usize = 0;
+        try testing.expectEqual(0, token_loop.take(&encoder, claims.vector, &items, &output, &written));
+        try testing.expectError(error.InvalidUtf8, encoder.encode_batch(&items, &output));
+    }
+}
+
 test "the loop steps aside at the depth limit, where the checked path refuses" {
     const items: [constants.depth_max + 1]encoder_test.Item = @splat(.{ .token = .begin_array });
     try check(&items, 0);

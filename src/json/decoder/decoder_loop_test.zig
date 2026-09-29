@@ -64,6 +64,12 @@ const texts = [_][]const u8{
     "[\"a\\q\"]",
     "[\"a\\u12G4\"]",
     "[\"a\\u00",
+    // A block that cuts a character, and in the next block, past the character's last octet, an
+    // escape and then a continuation octet that no character's first octet precedes, which UTF-8
+    // rules out (RFC 3629 §4).
+    "[\"" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "ab\xe2\x82\xaccdef\\n\x80" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "\"]",
+    // A block that ends with a character's first octet, and a next block all ASCII.
+    "[\"\xc3\xa90123456789abc\xe2" ++ "0123456789abcdef" ++ "\"]",
     // Strings past the 64 octets a block at a time, one ending near the input's end.
     "[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]",
 };
@@ -189,6 +195,21 @@ test "the loop takes strings with every escape it names and with UTF-8, none lef
     try testing.expectEqual(5, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
     try testing.expectEqualStrings("a\"b\\c/d\x08\x0c\n\r\t", output[slots[1].start..][0..slots[1].len]);
     try testing.expectEqualStrings("A\xc3\xa9\xe2\x82\xac\xf0\x9f\x98\x80", output[slots[2].start..][0..slots[2].len]);
+    try testing.expect(decoder.is_done());
+}
+
+test "the loop takes a string whose blocks of 16 cut characters, none left to the checked path" {
+    // Ten characters of three octets: the first block of 16 ends inside the sixth, and the octets
+    // left are fewer than a block, which the walk then takes from that character's start.
+    const content = "\xe2\x82\xac" ** 10;
+    const text = "[\"" ++ content ++ "\"]";
+    var decoder: Decoder = undefined;
+    decoder.init(.text, codec.Features.detect());
+    var output: [output_len_max]u8 = undefined;
+    var slots: [slots_max]Slot = undefined;
+    var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
+    try testing.expectEqual(3, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
+    try testing.expectEqualStrings(content, output[slots[1].start..][0..slots[1].len]);
     try testing.expect(decoder.is_done());
 }
 

@@ -196,6 +196,48 @@ pub inline fn is_quotation_mark(block: Block(constants.vector_len), lane: usize)
     unreachable;
 }
 
+/// Where a string's run stops in `block`, the block after `previous` (claims J3 and J5): the first
+/// lane that holds an octet a string must escape or one UTF-8 rules out there (RFC 8259 §7, RFC 3629
+/// §4), plus `ruled_out` when UTF-8 rules it out; null when every lane is a string's octet. A block
+/// of ASCII after one skips the UTF-8 check, which it cannot fail. For the loops that copy a block
+/// as they check it: checked a run at a time, a text whose lines end in escapes restarted its run
+/// at each, and the check took under half of its time (design §8 step 18).
+pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(constants.vector_len), previous_ascii: bool) ?usize {
+    const width = constants.vector_len;
+    const escapes = escape_lanes(width, block);
+    // A return of its own, so the UTF-8 check does not run for a block of ASCII: computed
+    // beside it and selected, it ran for every block of a text of escapes.
+    if (previous_ascii and is_ascii(block)) return if (any(width, escapes)) first_lane(width, escapes) else null;
+    const errors = utf8_error_lanes(width, previous, block);
+    const stops = escapes | errors;
+    if (!any(width, stops)) return null;
+    const lane = first_lane(width, stops);
+    return lane + if (lane_holds(width, errors, lane)) ruled_out else 0;
+}
+
+/// Added to the lane `string_stop` returns when UTF-8 rules its octet out.
+pub const ruled_out = constants.vector_len;
+
+/// True when the block `string_stop` checked holds no octet from 0x80 up.
+pub inline fn is_ascii(block: Block(constants.vector_len)) bool {
+    return !any(constants.vector_len, block >= splat(constants.vector_len, constants.non_ascii_min));
+}
+
+/// True when `lane` of `lanes` holds.
+inline fn lane_holds(comptime width: usize, lanes: Lanes(width), lane: usize) bool {
+    assert(lane < width);
+    if (comptime has_nibbles(width)) return nibbles_of(width, lanes) >> @intCast(lane * constants.nibble_bits) & 1 != 0;
+    if (builtin.cpu.arch.endian() == .little) {
+        const bits: std.meta.Int(.unsigned, width) = @bitCast(lanes);
+        return bits >> @intCast(lane) & 1 != 0;
+    }
+    // As in `first_lane`: Zig's own x86-64 backend indexes a vector at comptime-known lanes alone.
+    inline for (0..width) |index| {
+        if (index == lane) return lanes[index];
+    }
+    unreachable;
+}
+
 /// `plain_len_scalar`, `width` octets at a time (claims J1 and J3). A run the whole blocks do not
 /// end ends in the last `width` octets, a block that overlaps the one before it: that one holds no
 /// stop, so the block's first is the run's. A run shorter than a block takes `plain_len_short`.
@@ -283,7 +325,7 @@ fn shift_mask(comptime width: usize, comptime count: usize) @Vector(width, i32) 
 
 /// The octets at the end of `octets` that start a character it cuts, when all before them is whole
 /// UTF-8 and the last character's continuation octets are right for their first octet.
-fn cut_character_len(octets: []const u8) usize {
+pub fn cut_character_len(octets: []const u8) usize {
     // `@min` with a comptime operand narrows its type, so the bound is widened before the `+ 1`.
     const from_end_max: usize = @min(octets.len, constants.utf8_len_max - 1);
     for (1..from_end_max + 1) |from_end| {

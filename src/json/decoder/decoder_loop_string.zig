@@ -16,6 +16,9 @@ const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
 const wide = @import("../wide.zig");
 const Claims = @import("../claims.zig").Claims;
+const string_walk = @import("../string_walk.zig");
+const Walk = string_walk.Walk;
+const Stop = string_walk.Stop;
 const hex_value = @import("decoder_string.zig").hex_value;
 
 /// What a string's content took: its octets in the input, up to its closing quotation mark, and
@@ -39,36 +42,25 @@ const escaped_characters = table: {
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.
 pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
-    // What is left of the input and the room, as slices the loop moves past what it takes, so the
-    // compiler knows their lengths: indices into `rest` and `room` cost each access a check.
-    var input = rest;
-    var output = room;
+    var walk: Walk = .{ .input = rest, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..rest.len + 1) |_| {
-        const window = input[0..@min(input.len, output.len)];
-        const run_len = run_of(claims, level, window);
-        scan.copy(output[0..run_len], window[0..run_len]);
-        input = input[run_len..];
-        output = output[run_len..];
-        if (input.len == 0) return null;
-        const escape = switch (input[0]) {
-            constants.quotation_mark => return .{ .input_len = rest.len - input.len, .output_len = room.len - output.len },
-            constants.reverse_solidus => unescape(input, output) orelse return null,
+        // Short of a block, or with claim J5 off, the run's scans take the octets.
+        const stop: Stop = if (claims.utf8_vectors) walk.take_blocks(rest, room) else .short;
+        switch (stop) {
+            .ruled_out => return null,
+            .short => walk.take_run(claims, level),
+            .octet => {},
+        }
+        if (walk.input.len == 0) return null;
+        const escape = switch (walk.input[0]) {
+            constants.quotation_mark => return .{ .input_len = rest.len - walk.input.len, .output_len = room.len - walk.output.len },
+            constants.reverse_solidus => unescape(walk.input, walk.output) orelse return null,
             else => return null,
         };
-        input = input[escape.input_len..];
-        output = output[escape.output_len..];
+        walk.take(escape.input_len, escape.output_len);
     }
     unreachable;
-}
-
-/// The run of octets a string carries as they are that starts `window`: plain ASCII at `level`'s
-/// width (claim J7), and past a non-ASCII octet, whole UTF-8 characters too (claim J5).
-inline fn run_of(comptime claims: Claims, level: wide.Level, window: []const u8) usize {
-    const plain_len = wide.plain_len(level.with(claims), window);
-    if (plain_len == window.len or window[plain_len] < constants.non_ascii_min) return plain_len;
-    const rest = window[plain_len..];
-    return plain_len + if (claims.utf8_vectors) scan.content_len_vector(constants.vector_len, rest) else scan.content_len_scalar(rest);
 }
 
 /// Writes the character the escape that starts `escape` names (RFC 8259 §7) at the start of
