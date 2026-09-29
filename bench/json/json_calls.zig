@@ -52,8 +52,10 @@ pub fn Decode(comptime claims: json.Claims, comptime calls: Calls) type {
 /// Decodes every text of `workload` and returns the tally of its tokens.
 pub fn decode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, room: DecodeRoom) abi.Tally {
     var tally: abi.Tally = .{};
+    // One decoder for every text, as a caller keeps one: declared for each, a safe build filled
+    // all of its octets for each text before `init` wrote them.
+    var decoder: json.Decoder = undefined;
     for (workload.texts) |text| {
-        var decoder: json.Decoder = undefined;
         decoder.init(workload.framing, room.features);
         switch (calls) {
             .batch => decode_batches(claims, &decoder, text, room, &tally),
@@ -133,8 +135,9 @@ pub fn Encode(comptime claims: json.Claims, comptime calls: Calls) type {
 /// how many octets it wrote.
 pub fn encode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, output: []u8, features: codec.Features) usize {
     var written: usize = 0;
+    // One encoder for every text, as `decode` keeps one decoder.
+    var encoder: json.Encoder = undefined;
     for (workload.items) |items| {
-        var encoder: json.Encoder = undefined;
         encoder.init(workload.framing, features);
         switch (calls) {
             .batch => {
