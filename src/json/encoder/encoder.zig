@@ -182,7 +182,11 @@ pub const Encoder = struct {
                     self.part = .content;
                 } else self.close(),
                 .content => {
-                    if (try content.write(claims, self, piece_of(token), reader, writer)) |status| return status;
+                    // Out of line, so a name's or a string's octets that need the checked path
+                    // compile alike whatever else the build inlines: bench-json at 1dde0ba ran long
+                    // strings 4% to 8% faster on the N2 with any one claim off, J7's included,
+                    // which the N2 never takes (design §8 step 18).
+                    if (try @call(.never_inline, content.write, .{ claims, self, piece_of(token), reader, writer })) |status| return status;
                     self.close();
                 },
                 .closing => return self.finish(),

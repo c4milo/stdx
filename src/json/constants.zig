@@ -16,11 +16,10 @@ pub const depth_max: u16 = 1024;
 /// are claim J7's, which the caller's features pick at run time (decision 30).
 pub const vector_len: usize = 16;
 
-/// The octets claim J7's paths take at once on x86-64: AVX2's 32 and AVX-512's 64, in variant
-/// objects compiled for those levels (decision 21), which the module calls when the caller's
-/// features name the level (decision 30).
+/// The octets claim J7's paths take at once on x86-64: AVX2's 32, in a variant object compiled for
+/// that level (decision 21), which the module calls when the caller's features name it (decision
+/// 30).
 pub const avx2_vector_len: usize = 32;
-pub const avx512_vector_len: usize = 64;
 
 /// The octets of a name's or a string's run the 16-octet path takes before claim J7's kernels take
 /// the rest. Lines of English text are runs of 50 to 100 octets, which ended before a kernel's call
