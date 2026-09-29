@@ -64,7 +64,7 @@ pub const Error = error{
 };
 
 /// Where the next token goes in RFC 8259's grammar.
-const Position = enum(u8) {
+pub const Position = enum(u8) {
     /// Before the text's value.
     text_start,
     /// After `{`: a name, or `}`.
@@ -356,5 +356,7 @@ test {
     _ = batch;
     _ = @import("encoder_test.zig");
     _ = @import("encoder_batch_test.zig");
+    _ = @import("encoder_loop.zig");
+    _ = @import("encoder_loop_test.zig");
     _ = @import("encoder_fast_test.zig");
 }

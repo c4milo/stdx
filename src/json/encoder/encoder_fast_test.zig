@@ -49,7 +49,7 @@ const lone_number = [_]Item{with(.number, "-0.5")};
 
 /// Requires two encoders to agree in every field a later call reads. The octets of `pending`
 /// past `pending_len` are never read.
-fn expect_same_state(fast: *const Encoder, checked: *const Encoder) !void {
+pub fn expect_same_state(fast: *const Encoder, checked: *const Encoder) !void {
     try testing.expect(fast.containers.eql(checked.containers));
     inline for (@typeInfo(Encoder).@"struct".fields) |field| {
         const skipped = comptime std.mem.eql(u8, field.name, "containers") or std.mem.eql(u8, field.name, "pending");

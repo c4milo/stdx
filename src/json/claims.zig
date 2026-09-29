@@ -40,6 +40,10 @@ pub const Claims = struct {
     /// and the output has room for every octet it writes (decision 31). Off, every token takes the
     /// checked path.
     encoder_fast_path: bool = true,
+    /// J11: a batch writes its items in decision 16's JSON encoder token loop, straight into the
+    /// output slice (decision 33, encoder_loop.zig). Off, each takes the path one token a call
+    /// takes.
+    encoder_token_loop: bool = true,
 };
 
 /// Every claim off: the scalar and checked paths alone, the reference every vector path and each
@@ -53,6 +57,7 @@ pub const scalar: Claims = .{
     .decoder_fast_path = false,
     .decoder_token_loop = false,
     .encoder_fast_path = false,
+    .encoder_token_loop = false,
 };
 
 /// Every claim on, whatever the target: what the tests run beside `scalar`.
@@ -65,6 +70,7 @@ pub const vector: Claims = .{
     .decoder_fast_path = true,
     .decoder_token_loop = true,
     .encoder_fast_path = true,
+    .encoder_token_loop = true,
 };
 
 /// Each claim off in turn, the A/Bs the benchmark runs.
@@ -77,6 +83,7 @@ pub const each_off = [_]Claims{
     .{ .decoder_fast_path = false },
     .{ .encoder_fast_path = false },
     .{ .decoder_token_loop = false },
+    .{ .encoder_token_loop = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decisions 27, 30 and 31 number them.
@@ -89,4 +96,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "J8 decoder fast path",
     "J9 encoder fast path",
     "J10 decoder token loop",
+    "J11 encoder token loop",
 };

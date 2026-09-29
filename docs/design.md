@@ -1469,6 +1469,25 @@ to 12 are reordered and nothing else changes.
   - `matched` and the expectation not written back, and a failed token's position kept;
   - the batch's reader not moved past the loop's tokens.
 
+  **J11, 2026-09-28.** `encoder_loop.zig`, decision 16's row for the JSON encoder token loop.
+  `encoder_loop_test.zig` requires every batch to give the same counts, octets, error and state
+  with J11 on and off, beside every other claim on and every other off, over a record, lists with
+  escapes, refusals and tokens whose octets come in two items, a list past the depth limit, 300 of
+  the round trip's seeded lists and the fuzzer's, whole and under 3 seeded splits of the items and
+  the room. It also requires the loop to write a record whole into an output of just its octets.
+  Mutations, each CAUGHT:
+  - a string that needs escapes written as it is;
+  - a string, a hex string or a number's text whose octets go on written whole, which the list of
+    split tokens catches;
+  - a hex string's digits counted once an octet, and a number's text unchecked;
+  - no depth limit, a value separator before a container's end, a record separator before every
+    name, and a line feed after every name;
+  - the outermost container's end not ending the text, and the text never done;
+  - an item that fills the output left to the checked path, which the exact output catches, and one
+    an octet longer than the room written;
+  - a name closed without its separator, and a copy's last move or middle octet left out;
+  - `number` not set, and the batch's writer not moved past the loop's items.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
