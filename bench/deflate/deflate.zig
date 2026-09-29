@@ -146,7 +146,7 @@ pub fn main(init: std.process.Init) !void {
 
     if (bench_options.release_fast) {
         try out.print("\n## stdx built ReleaseFast: its fast path against its checked path (decision 17)\n\n", .{});
-        try out.print("| File | Octets | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|\n", .{});
+        try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
         for (files.items) |file| try report_paths(arena, io, out, file);
         try out.flush();
         return;
@@ -160,21 +160,21 @@ pub fn main(init: std.process.Init) !void {
     try out.print("## Decoding, gzip at zlib level {d}\n\n", .{decode_level});
     try report_decodes(arena, io, out, files.items);
     try out.print("\n## stdx's fast path against its checked path, raw DEFLATE at zlib level {d}\n\n", .{decode_level});
-    try out.print("| File | Octets | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_paths(arena, io, out, file);
     try out.print("\n## Decision 14's claims, each off against the fast path with all on, raw DEFLATE at zlib level {d}\n\n", .{decode_level});
     try out.print("Each claim's column is its throughput with the claim off over the throughput with all on.\n\n", .{});
-    try out.print("| File | Octets | All on, MB/s |", .{});
+    try out.print("| File | Octets | Compressed, % | All on, MB/s |", .{});
     for (deflate.claims.each_off_names) |name| try out.print(" {s} off |", .{name});
-    try out.print("\n|---|---|---|", .{});
+    try out.print("\n|---|---|---|---|", .{});
     for (deflate.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (files.items) |file| try report_claims(arena, io, out, file);
     try out.print("\n## S7 on fixed-code streams: zlib's fixed strategy at level {d}, raw DEFLATE\n\n", .{decode_level});
-    try out.print("| File | Octets | All on, MB/s | S7 comptime fixed tables off, MB/s | Off / on |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | All on, MB/s | S7 comptime fixed tables off, MB/s | Off / on |\n|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_fixed_tables(arena, io, out, file);
     try out.print("\n## S10: the checksum over each call's output against one pass after the stream, calls of {d} octets\n\n", .{split_output_len});
-    try out.print("| File | Octets | Per call, MB/s | After the stream, MB/s | After / per call |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | Per call, MB/s | After the stream, MB/s | After / per call |\n|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_checksum_order(arena, io, out, file);
     try deflate_encode.report(arena, io, out, files.items);
     try out.flush();
@@ -198,8 +198,8 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
 
 /// The decoding table: every gzip decoder over each file.
 fn report_decodes(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, files: []const File) !void {
-    try out.print("| File | Octets | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
-    try out.print("|---|---|---|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|---|---|\n", .{});
     for (files) |file| try report_decode(arena, io, out, file);
 }
 
@@ -233,7 +233,7 @@ fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
     const fastest_other = @max(@max(rates[0][0], rates[0][1]), @max(rates[0][2], rates[0][3]));
-    try out.print("| {s} | {d} |", .{ file.name, file.input.len });
+    try out.print("| {s} | {d} | {d:.1} |", .{ file.name, file.input.len, compressed_percent(stream, file.input) });
     for (rates[0], rates[1]) |rate, spread| try out.print(" {d:.0} ± {d:.1}% |", .{ rate, spread });
     try out.print(" {d:.2} |\n", .{rates[0][4] / fastest_other});
 }
@@ -263,10 +263,15 @@ fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file:
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+    try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
+        file.name,                 file.input.len, compressed_percent(stream, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
+}
+
+/// The stream's size as a percentage of the file's: the compression the decoders decode at.
+fn compressed_percent(stream: []const u8, input: []const u8) f64 {
+    return 100 * @as(f64, @floatFromInt(stream.len)) / @as(f64, @floatFromInt(input.len));
 }
 
 /// The raw DEFLATE stream zlib encodes from `input` at `decode_level`.
@@ -305,7 +310,7 @@ fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% |", .{ file.name, file.input.len, rates[0][0], rates[1][0] });
+    try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% |", .{ file.name, file.input.len, compressed_percent(stream, file.input), rates[0][0], rates[1][0] });
     for (rates[0][1..], rates[1][1..]) |rate, spread| try out.print(" {d:.2} ± {d:.1}% |", .{ rate / rates[0][0], spread });
     try out.print("\n", .{});
 }
@@ -378,8 +383,8 @@ fn report_checksum_order(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writ
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+    try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
+        file.name,                 file.input.len, compressed_percent(gzip_stream, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }
@@ -397,8 +402,8 @@ fn report_fixed_tables(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+    try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
+        file.name,                 file.input.len, compressed_percent(stream, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }

@@ -99,22 +99,22 @@ pub fn main(init: std.process.Init) !void {
 
     if (bench_options.release_fast) {
         try out.print("\n## stdx built ReleaseFast against libzstd, libzstd level {d} (decision 17)\n\n", .{decode_level});
-        try out.print("| File | Octets | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|\n", .{});
+        try out.print("| File | Octets | Compressed, % | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|---|\n", .{});
         for (files.items) |file| try report_decode(arena, io, out, file, context);
         try out.flush();
         return;
     }
     try out.print("## Decoding, libzstd level {d}\n\n", .{decode_level});
-    try out.print("| File | Octets | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_decode(arena, io, out, file, context);
     try out.print("\n## stdx's fast paths against its checked path, libzstd level {d}\n\n", .{decode_level});
-    try out.print("| File | Octets | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
     for (files.items) |file| try report_paths(arena, io, out, file);
     try out.print("\n## Decision 14's claims, each off against the fast paths with all on, libzstd level {d}\n\n", .{decode_level});
     try out.print("Each claim's column is its throughput with the claim off over the throughput with all on.\n\n", .{});
-    try out.print("| File | Octets | All on, MB/s |", .{});
+    try out.print("| File | Octets | Compressed, % | All on, MB/s |", .{});
     for (zstd.claims.each_off_names) |name| try out.print(" {s} off |", .{name});
-    try out.print("\n|---|---|---|", .{});
+    try out.print("\n|---|---|---|---|", .{});
     for (zstd.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (files.items) |file| try report_claims(arena, io, out, file);
@@ -130,6 +130,11 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
         result[1][index] = summary.spread * 100;
     }
     return result;
+}
+
+/// The frame's size as a percentage of the file's: the compression the decoders decode at.
+fn compressed_percent(frame: []const u8, input: []const u8) f64 {
+    return 100 * @as(f64, @floatFromInt(frame.len)) / @as(f64, @floatFromInt(input.len));
 }
 
 /// libzstd's frame of `file` at `decode_level`.
@@ -155,8 +160,8 @@ fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
+        file.name,                 file.input.len, compressed_percent(frame, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }
@@ -182,8 +187,8 @@ fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file:
         .{ .context = &fast, .run_once = Fast.run_once },
     };
     const rates = try time_candidates(candidates.len, io, file, &candidates, &.{ checked.output, fast.output });
-    try out.print("| {s} | {d} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
+        file.name,                 file.input.len, compressed_percent(frame, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }
@@ -210,7 +215,7 @@ fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
         outputs[1 + index] = offs[index].output;
     }
     const rates = try time_candidates(candidates.len, io, file, &candidates, &outputs);
-    try out.print("| {s} | {d} | {d:.1} ±{d:.1}% |", .{ file.name, file.input.len, rates[0][0], rates[1][0] });
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% |", .{ file.name, file.input.len, compressed_percent(frame, file.input), rates[0][0], rates[1][0] });
     for (1..candidates.len) |index| try out.print(" {d:.2} ±{d:.1}% |", .{ rates[0][index] / rates[0][0], rates[1][index] });
     try out.print("\n", .{});
 }
