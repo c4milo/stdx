@@ -37,6 +37,19 @@ const escaped_characters = table: {
     break :table characters;
 };
 
+/// Each octet's value as a hexadecimal digit of either case, or `not_hex_digit` for an octet that
+/// is none: a load a digit, and one test for a `\u` escape's four, where `hex_value`'s ranges took
+/// tests at each digit.
+const hex_digit_values = table: {
+    var values: [std.math.maxInt(u8) + 1]u8 = @splat(not_hex_digit);
+    for (&values, 0..) |*value, octet| value.* = hex_value(octet) orelse not_hex_digit;
+    break :table values;
+};
+/// Past `hex_digit_max`, the largest digit's value, so four values OR'd together pass it when one
+/// of them is no digit's.
+const not_hex_digit = std.math.maxInt(u8);
+const hex_digit_max = constants.nibble_mask;
+
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.
@@ -62,8 +75,10 @@ pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, r
 
 /// Writes the character the escape that starts `escape` names (RFC 8259 §7) at the start of
 /// `room`, and returns the octets it took and wrote; or null for an escape the checked path
-/// refuses, one the input cuts, and a room too short for its character.
-fn unescape(escape: []const u8, room: []u8) ?Copied {
+/// refuses, one the input cuts, and a room too short for its character. Inline, as are the
+/// functions it calls: out of line, each escape paid a call and returned what it took through
+/// memory, about a third of decoding a text of `\u` escapes.
+inline fn unescape(escape: []const u8, room: []u8) ?Copied {
     assert(escape[0] == constants.reverse_solidus);
     if (escape.len < letter_escape_len or room.len == 0) return null;
     if (escape[1] == constants.escape_unicode) return unescape_unicode(escape, room);
@@ -73,7 +88,7 @@ fn unescape(escape: []const u8, room: []u8) ?Copied {
 
 /// A `\u` escape, or a high surrogate's and the low one's after it (RFC 8259 §7), written as the
 /// UTF-8 of the character it names. A surrogate alone names none (RFC 8259 §8.2).
-fn unescape_unicode(escape: []const u8, room: []u8) ?Copied {
+inline fn unescape_unicode(escape: []const u8, room: []u8) ?Copied {
     const unit = code_unit(escape, 0) orelse return null;
     const high = unit >= constants.high_surrogate_min and unit < constants.low_surrogate_min;
     if (!high and unit >= constants.low_surrogate_min and unit <= constants.surrogate_max) return null;
@@ -94,12 +109,15 @@ fn unescape_unicode(escape: []const u8, room: []u8) ?Copied {
 
 /// The code unit of the `\u` escape at `offset` in `escape`, from its four hexadecimal digits of
 /// either case; or null when the escape is not there, or cut, or a digit is not one.
-fn code_unit(escape: []const u8, offset: usize) ?u16 {
+inline fn code_unit(escape: []const u8, offset: usize) ?u16 {
     if (escape.len - offset < unicode_escape_len) return null;
     if (escape[offset] != constants.reverse_solidus or escape[offset + 1] != constants.escape_unicode) return null;
     var unit: u16 = 0;
+    var any: u8 = 0;
     for (escape[offset + letter_escape_len ..][0..constants.escape_hex_digits]) |digit| {
-        unit = unit << constants.nibble_bits | (hex_value(digit) orelse return null);
+        const value = hex_digit_values[digit];
+        any |= value;
+        unit = unit << constants.nibble_bits | (value & hex_digit_max);
     }
-    return unit;
+    return if (any > hex_digit_max) null else unit;
 }
