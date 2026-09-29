@@ -104,7 +104,25 @@ inline fn unescape_unicode(escape: []const u8, room: []u8) ?Copied {
     const len = std.unicode.utf8CodepointSequenceLength(code_point) catch unreachable;
     if (room.len < len) return null;
     _ = std.unicode.utf8Encode(code_point, room[0..len]) catch unreachable;
-    return .{ .input_len = if (high) pair_escape_len else unicode_escape_len, .output_len = len };
+    const first: Copied = .{ .input_len = if (high) pair_escape_len else unicode_escape_len, .output_len = len };
+    return unicode_run(escape, room, first);
+}
+
+/// `taken`, and the `\u` escapes that follow it at once while each names a character that is no
+/// surrogate and the room holds its UTF-8 (RFC 8259 §7): a text whose non-ASCII characters are all
+/// escaped, as Python's json.dumps writes by default, takes a word's with no walk between them.
+inline fn unicode_run(escape: []const u8, room: []u8, taken: Copied) Copied {
+    var run = taken;
+    for (0..escape.len / unicode_escape_len) |_| {
+        const unit = code_unit(escape[run.input_len..], 0) orelse break;
+        if (unit >= constants.high_surrogate_min and unit <= constants.surrogate_max) break;
+        const len = std.unicode.utf8CodepointSequenceLength(unit) catch unreachable;
+        if (room.len - run.output_len < len) break;
+        _ = std.unicode.utf8Encode(unit, room[run.output_len..][0..len]) catch unreachable;
+        run.input_len += unicode_escape_len;
+        run.output_len += len;
+    }
+    return run;
 }
 
 /// The code unit of the `\u` escape at `offset` in `escape`, from its four hexadecimal digits of
