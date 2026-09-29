@@ -158,6 +158,18 @@ test "the loop writes strings with every escape and with UTF-8 itself, none left
     try testing.expect(encoder.is_done());
 }
 
+test "the loop writes a string whose ASCII past an escape fills a block before UTF-8 inside the next, none left" {
+    const content = "\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef";
+    const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = content }};
+    var encoder: Encoder = undefined;
+    encoder.init(.text, codec.Features.detect());
+    const expected = "\"\\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef\"";
+    var output: [text_len_max]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(items.len, token_loop.take(&encoder, claims.vector, &items, output[0..expected.len], &written));
+    try testing.expectEqualStrings(expected, output[0..written]);
+}
+
 test "the loop writes a string whose blocks of 16 cut characters, none left to the checked path" {
     // Ten characters of three octets and a quotation mark: the first block of 16 ends inside the
     // sixth, and the octets left are fewer than a block, which the walk then takes from that
@@ -183,6 +195,8 @@ const cut_characters_ruled_out = [_][]const u8{
     // with a quotation mark the loop escapes.
     "\xc3\xa90123456789abc\xe2" ++ "0123456789abcdef",
     "\xc3\xa90123456789abc\xe2" ++ "\"0123456789abcde",
+    // Past an escape, a block of ASCII and then a continuation octet with no first octet.
+    "\n0123456789abcdefghij\x80",
 };
 
 test "the loop leaves to the checked path the characters that blocks of 16 cut and UTF-8 rules out" {

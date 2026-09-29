@@ -27,6 +27,39 @@ pub const Walk = struct {
     previous: @Vector(constants.vector_len, u8) = @splat(0),
     ascii_so_far: bool = true,
 
+    /// Where `take_ascii` stopped: at an octet to escape, which starts the input; at an octet from
+    /// 0x80 up, which starts the input, with the ASCII test off for the UTF-8 walk to go on from
+    /// it; or short of a block on either side.
+    const AsciiStop = enum { octet, non_ascii, short };
+
+    /// Takes plain ASCII a block at a time while the input and the output hold one: each block
+    /// stored as it is, then classified once into a word of the lanes that end the run, one
+    /// transfer from a vector to a word where a test for ASCII and a test for a stop paid two. A
+    /// block with no stop is taken by a stride the word does not decide, so the next block's
+    /// address waits on no transfer and the loop runs at the vectors' pace (design §8 step 18).
+    inline fn take_ascii(self: *Walk, input_len: usize) AsciiStop {
+        for (0..input_len / constants.vector_len + 1) |_| {
+            if (self.input.len < constants.vector_len or self.output.len < constants.vector_len) return .short;
+            const block: @Vector(constants.vector_len, u8) = self.input[0..constants.vector_len].*;
+            self.output[0..constants.vector_len].* = block;
+            const stops = scan.ascii_stops(block);
+            if (stops == 0) {
+                self.advance(constants.vector_len);
+                continue;
+            }
+            self.advance(scan.word_first(stops));
+            if (self.input[0] < constants.non_ascii_min) return .octet;
+            self.ascii_so_far = false;
+            return .non_ascii;
+        }
+        unreachable;
+    }
+
+    inline fn advance(self: *Walk, len: usize) void {
+        self.input = self.input[len..];
+        self.output = self.output[len..];
+    }
+
     /// Copies blocks of 16 while the input and the output hold one, each as it is checked, up to
     /// the first octet that stops the run: an octet a string must escape, or one UTF-8 rules out
     /// there (RFC 8259 §7, RFC 3629 §4). Short of a block, it steps back to the start of a
@@ -62,6 +95,18 @@ pub const Walk = struct {
     /// run's scans. Returns false at an octet UTF-8 rules out. `input` and `output` are the slices
     /// the walk started with.
     pub inline fn take_to_stop(self: *Walk, comptime claims: Claims, level: wide.Level, input: []const u8, output: []u8) bool {
+        // A run that starts with a non-ASCII octet goes straight to the UTF-8 walk.
+        if (claims.utf8_vectors and self.ascii_so_far and self.input.len > 0 and self.input[0] >= constants.non_ascii_min) self.ascii_so_far = false;
+        if (claims.utf8_vectors and self.ascii_so_far) {
+            switch (self.take_ascii(input.len)) {
+                .octet => return true,
+                .short => {
+                    self.take_run(claims, level);
+                    return true;
+                },
+                .non_ascii => {},
+            }
+        }
         const stop: Stop = if (claims.utf8_vectors) self.take_blocks(input, output) else .short;
         switch (stop) {
             .ruled_out => return false,

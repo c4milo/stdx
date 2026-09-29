@@ -225,6 +225,32 @@ pub inline fn string_stop(previous: Block(constants.vector_len), block: Block(co
 /// Added to the lane `string_stop` returns when UTF-8 rules its octet out.
 pub const ruled_out = constants.vector_len;
 
+/// The lanes of a block as a word a scalar scan consumes: on aarch64 the word `nibbles_of` gives,
+/// four bits a lane, and elsewhere one bit a lane. `word_first` reads it either way.
+pub const LaneWord = if (has_nibbles(constants.vector_len)) std.meta.Int(.unsigned, constants.vector_len * constants.nibble_bits) else std.meta.Int(.unsigned, constants.vector_len);
+const word_bits_per_lane = if (has_nibbles(constants.vector_len)) constants.nibble_bits else 1;
+
+inline fn lane_word(lanes: Lanes(constants.vector_len)) LaneWord {
+    if (comptime has_nibbles(constants.vector_len)) return nibbles_of(constants.vector_len, lanes);
+    if (comptime builtin.cpu.arch.endian() == .little) return @bitCast(lanes);
+    var word: LaneWord = 0;
+    inline for (0..constants.vector_len) |lane| word |= @as(LaneWord, @intFromBool(lanes[lane])) << lane;
+    return word;
+}
+
+/// The first lane a word holds, of a word that holds one.
+pub inline fn word_first(word: LaneWord) usize {
+    assert(word != 0);
+    return @ctz(word) / word_bits_per_lane;
+}
+
+/// The lanes of `block` that end a run of plain ASCII: an octet a string must escape (RFC 8259
+/// §7) or one from 0x80 up, which UTF-8 judges (RFC 3629 §4). One transfer from a vector to a
+/// word for both questions (string_walk.zig).
+pub inline fn ascii_stops(block: Block(constants.vector_len)) LaneWord {
+    return lane_word(escape_lanes(constants.vector_len, block) | (block >= splat(constants.vector_len, constants.non_ascii_min)));
+}
+
 /// True when the block `string_stop` checked holds no octet from 0x80 up.
 pub inline fn is_ascii(block: Block(constants.vector_len)) bool {
     return !any(constants.vector_len, block >= splat(constants.vector_len, constants.non_ascii_min));

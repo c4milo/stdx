@@ -68,6 +68,10 @@ const texts = [_][]const u8{
     // escape and then a continuation octet that no character's first octet precedes, which UTF-8
     // rules out (RFC 3629 §4).
     "[\"" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "ab\xe2\x82\xaccdef\\n\x80" ++ "\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac" ++ "\"]",
+    // Past an escape, a block of ASCII and then UTF-8 inside the next block, whole in the first
+    // text and cut in the second: the walk's ASCII blocks end at a non-ASCII octet (RFC 3629 §4).
+    "[\"\\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef\"]",
+    "[\"\\n0123456789abcdefghij\x80\"]",
     // A block that ends with a character's first octet, and a next block all ASCII, or one that
     // starts with an escape.
     "[\"\xc3\xa90123456789abc\xe2" ++ "0123456789abcdef" ++ "\"]",
@@ -197,6 +201,18 @@ test "the loop takes strings with every escape it names and with UTF-8, none lef
     try testing.expectEqual(5, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
     try testing.expectEqualStrings("a\"b\\c/d\x08\x0c\n\r\t", output[slots[1].start..][0..slots[1].len]);
     try testing.expectEqualStrings("A\xc3\xa9\xe2\x82\xac\xf0\x9f\x98\x80", output[slots[2].start..][0..slots[2].len]);
+    try testing.expect(decoder.is_done());
+}
+
+test "the loop takes a string whose ASCII past an escape fills a block before UTF-8 inside the next, none left" {
+    const text = "[\"\\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef\"]";
+    var decoder: Decoder = undefined;
+    decoder.init(.text, codec.Features.detect());
+    var output: [output_len_max]u8 = undefined;
+    var slots: [slots_max]Slot = undefined;
+    var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
+    try testing.expectEqual(3, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
+    try testing.expectEqualStrings("\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef", output[slots[1].start..][0..slots[1].len]);
     try testing.expect(decoder.is_done());
 }
 
