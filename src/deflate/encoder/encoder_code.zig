@@ -36,13 +36,21 @@ const tree_arity = 2;
 /// than two symbols occur, the first that do not stand in for the missing ones, so the code is
 /// complete, which every decoder accepts.
 pub fn build_lengths(counts: []const u16, comptime len_max: u4, lengths: []u8) void {
+    var listed: [symbols_max]u16 = undefined;
+    _ = build_lengths_listed(counts, len_max, lengths, &listed);
+}
+
+/// `build_lengths`, which also lists in `listed` every symbol it gives a length, in increasing
+/// order, for `build_codes_listed`. Returns how many.
+pub fn build_lengths_listed(counts: []const u16, comptime len_max: u4, lengths: []u8, listed: *[symbols_max]u16) usize {
     assert(counts.len == lengths.len and counts.len <= symbols_max);
     assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
     @memset(lengths, 0);
+    const used = listed_symbols(counts, listed);
     var order: [symbols_max]u16 = undefined;
-    const used = sorted_symbols(counts, &order);
-    if (huffman_lengths(counts, order[0..used], len_max, lengths)) return;
-    package_merge(counts, order[0..used], len_max, lengths);
+    sort_by_weight(counts, listed[0..used], order[0..used]);
+    if (!huffman_lengths(counts, order[0..used], len_max, lengths)) package_merge(counts, order[0..used], len_max, lengths);
+    return used;
 }
 
 /// `build_lengths` by package-merge alone, for the tests that check it where the limit does not
@@ -51,8 +59,10 @@ pub fn build_lengths_package_merge(counts: []const u16, comptime len_max: u4, le
     assert(counts.len == lengths.len and counts.len <= symbols_max);
     assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
     @memset(lengths, 0);
+    var listed: [symbols_max]u16 = undefined;
+    const used = listed_symbols(counts, &listed);
     var order: [symbols_max]u16 = undefined;
-    const used = sorted_symbols(counts, &order);
+    sort_by_weight(counts, listed[0..used], order[0..used]);
     package_merge(counts, order[0..used], len_max, lengths);
 }
 
@@ -154,53 +164,56 @@ fn weight(count: u16) u32 {
     return @max(count, 1);
 }
 
-/// Writes into `order` the symbols that occur, lightest first and by symbol among equals, with the
-/// first that do not occur added until there are two. Returns how many.
-fn sorted_symbols(counts: []const u16, order: *[symbols_max]u16) usize {
+/// Writes into `listed` the symbols that occur, in increasing order, with the first that do not
+/// occur added until there are two, still in increasing order. Returns how many.
+fn listed_symbols(counts: []const u16, listed: *[symbols_max]u16) usize {
     var used: usize = 0;
     // Every symbol is written at the next slot, and only one that occurs keeps it: no branch on
     // the counts.
     for (counts, 0..) |count, symbol| {
-        order[used] = @intCast(symbol);
+        listed[used] = @intCast(symbol);
         used += @intFromBool(count != 0);
     }
     for (counts, 0..) |count, symbol| {
         if (used >= coded_symbols_min) break;
         if (count != 0) continue;
-        order[used] = @intCast(symbol);
+        listed[used] = @intCast(symbol);
         used += 1;
     }
-    sort_by_weight(counts, order[0..used]);
+    // A filler added after the one symbol that occurs may come before it.
+    if (listed[0] > listed[1]) std.mem.swap(u16, &listed[0], &listed[1]);
     return used;
 }
 
 /// The values one counting pass sorts by: an octet of the weight.
 const pass_buckets = 1 << @bitSizeOf(u8);
 
-/// Sorts `order`, which lists symbols in increasing order, lightest first and by symbol among
-/// equals: a counting sort on the weight's low octet, then one on its high octet when any weight
-/// has one, each stable, so no compare depends on the data.
-fn sort_by_weight(counts: []const u16, order: []u16) void {
-    assert(order.len <= symbols_max);
+/// Writes `from`, which lists symbols in increasing order, into `to` lightest first and by symbol
+/// among equals: a counting sort on the weight's low octet, then one on its high octet when any
+/// weight has one, each stable, so no compare depends on the data. Each pass counts only up to the
+/// heaviest octet it sorts by, so a small block's sort costs what its weights reach.
+fn sort_by_weight(counts: []const u16, from: []const u16, to: []u16) void {
+    assert(from.len == to.len and from.len <= symbols_max);
     var weight_max: u32 = 0;
-    for (order) |symbol| weight_max = @max(weight_max, weight(counts[symbol]));
-    var scratch: [symbols_max]u16 = undefined;
-    counting_pass(counts, order, scratch[0..order.len], 0);
+    for (from) |symbol| weight_max = @max(weight_max, weight(counts[symbol]));
     if (weight_max < pass_buckets) {
-        @memcpy(order, scratch[0..order.len]);
+        counting_pass(counts, from, to, 0, weight_max + 1);
         return;
     }
-    counting_pass(counts, scratch[0..order.len], order, @bitSizeOf(u8));
+    var scratch: [symbols_max]u16 = undefined;
+    counting_pass(counts, from, scratch[0..from.len], 0, pass_buckets);
+    counting_pass(counts, scratch[0..from.len], to, @bitSizeOf(u8), (weight_max >> @bitSizeOf(u8)) + 1);
 }
 
-/// One stable counting pass: writes `from` into `to` ordered by the octet of each symbol's weight
-/// `shift` bits up, equals in their order.
-fn counting_pass(counts: []const u16, from: []const u16, to: []u16, shift: u4) void {
-    assert(from.len == to.len);
-    var starts: [pass_buckets]u16 = @splat(0);
+/// One stable counting pass over `bucket_count` buckets: writes `from` into `to` ordered by the
+/// octet of each symbol's weight `shift` bits up, equals in their order.
+fn counting_pass(counts: []const u16, from: []const u16, to: []u16, shift: u4, bucket_count: usize) void {
+    assert(from.len == to.len and bucket_count <= pass_buckets);
+    var starts: [pass_buckets]u16 = undefined;
+    @memset(starts[0..bucket_count], 0);
     for (from) |symbol| starts[bucket_of(counts, symbol, shift)] += 1;
     var start: u16 = 0;
-    for (&starts) |*bucket_start| {
+    for (starts[0..bucket_count]) |*bucket_start| {
         const bucket_len = bucket_start.*;
         bucket_start.* = start;
         start += bucket_len;
@@ -257,6 +270,30 @@ pub fn build_codes(lengths: []const u8, codes: []u16) void {
         if (len == 0) continue;
         // RFC 1951 §3.2.2, step 3: consecutive codes for the symbols of one length, in order.
         reversed.* = reverse_bits(next[len], len);
+        next[len] += 1;
+    }
+}
+
+/// `build_codes` for the symbols of `listed`, in increasing order, which are every symbol with a
+/// length; every other code is set to 0. A code is built only for a symbol the block uses, and no
+/// branch asks which those are.
+pub fn build_codes_listed(lengths: []const u8, listed: []const u16, codes: []u16) void {
+    assert(lengths.len == codes.len and listed.len <= lengths.len);
+    @memset(codes, 0);
+    var counts: [constants.code_len_max + 1]u16 = @splat(0);
+    for (listed) |symbol| counts[lengths[symbol]] += 1;
+    assert(counts[0] == 0);
+    var next: [constants.code_len_max + 1]u16 = @splat(0);
+    var code: u16 = 0;
+    for (1..constants.code_len_max + 1) |len| {
+        // RFC 1951 §3.2.2, step 2: the first code of each length.
+        code = (code + counts[len - 1]) << 1;
+        next[len] = code;
+    }
+    for (listed) |symbol| {
+        // RFC 1951 §3.2.2, step 3: consecutive codes for the symbols of one length, in order.
+        const len = lengths[symbol];
+        codes[symbol] = reverse_bits(next[len], len);
         next[len] += 1;
     }
 }

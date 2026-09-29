@@ -249,6 +249,7 @@ fn coded_bits(block: *const Block, fixed_lengths: []const u8, fixed_distance_len
 pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) void {
     assert(block.literal_length_counts[constants.end_of_block] == 1);
     result.final = final;
+    if (block.symbol_count == 0) return plan_empty(bit_position, result);
     plan_dynamic(block, result);
     const priced = prices(block, result, bit_position);
     result.kind = priced.cheapest();
@@ -258,13 +259,27 @@ pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) v
         .dynamic => priced.dynamic,
         .reserved => unreachable,
     };
-    if (result.kind == .fixed) {
-        @memcpy(&result.literal_length_lengths, constants.fixed_literal_length_lengths[0..constants.literal_length_used]);
-        result.literal_length_codes = fixed_literal_length_codes;
-        @memcpy(&result.distance_lengths, constants.fixed_distance_lengths[0..constants.distance_used]);
-        result.distance_codes = fixed_distance_codes;
-    }
+    if (result.kind == .fixed) set_fixed(result);
     if (result.kind != .stored) result.fill_entries();
+}
+
+/// Plans a block of end-of-block alone: fixed, whose 7 bits after the header cost less than a
+/// stored block's pad, LEN and NLEN or a dynamic block's header (RFC 1951 §3.2.4 to §3.2.7), so
+/// the prices need not be worked out.
+fn plan_empty(bit_position: u3, result: *Plan) void {
+    result.kind = .fixed;
+    result.bits = constants.final_bits + constants.type_bits + constants.fixed_literal_length_lengths[constants.end_of_block];
+    assert(result.bits < stored_bits(0, bit_position));
+    set_fixed(result);
+    result.fill_entries();
+}
+
+/// The fixed codes (RFC 1951 §3.2.6) into the plan.
+fn set_fixed(result: *Plan) void {
+    @memcpy(&result.literal_length_lengths, constants.fixed_literal_length_lengths[0..constants.literal_length_used]);
+    result.literal_length_codes = fixed_literal_length_codes;
+    @memcpy(&result.distance_lengths, constants.fixed_distance_lengths[0..constants.distance_used]);
+    result.distance_codes = fixed_distance_codes;
 }
 
 /// Plans the empty stored block that ends a flush on an octet boundary (RFC 1951 §3.2.4),
@@ -298,10 +313,11 @@ fn header_bits(dynamic: *const Plan) u64 {
 
 /// Builds the block's own codes and the header that carries them (RFC 1951 §3.2.7).
 fn plan_dynamic(block: *const Block, result: *Plan) void {
-    code.build_lengths(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths);
-    code.build_lengths(&block.distance_counts, constants.code_len_max, &result.distance_lengths);
-    code.build_codes(&result.literal_length_lengths, &result.literal_length_codes);
-    code.build_codes(&result.distance_lengths, &result.distance_codes);
+    var listed: [code.symbols_max]u16 = undefined;
+    const literal_lengths_listed = code.build_lengths_listed(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths, &listed);
+    code.build_codes_listed(&result.literal_length_lengths, listed[0..literal_lengths_listed], &result.literal_length_codes);
+    const distances_listed = code.build_lengths_listed(&block.distance_counts, constants.code_len_max, &result.distance_lengths, &listed);
+    code.build_codes_listed(&result.distance_lengths, listed[0..distances_listed], &result.distance_codes);
     // RFC 1951 §3.2.7: HLIT + 257 literal/length lengths, HDIST + 1 distance lengths.
     result.literal_length_count = @intCast(@max(constants.hlit_base, last_used(&result.literal_length_lengths)));
     result.distance_count = @intCast(@max(constants.hdist_base, last_used(&result.distance_lengths)));
