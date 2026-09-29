@@ -5,16 +5,17 @@
 //! iteration. While `output_margin` octets of output room remain, one check at the top of a chain,
 //! and one after its literals, cover every write it makes; below it, each write checks the room it
 //! stores into, and a write whose room is short returns to the checked path (decision 32). An
-//! iteration refills a 64-bit bit buffer with
-//! one 8-octet little-endian load (as S1 for DEFLATE) and takes a chain of the checked path's
-//! command phases, each an inline function, so that the loop's state stays in registers: a block
+//! iteration refills a 64-bit bit buffer with one 8-octet little-endian load (as S1 for DEFLATE)
+//! and takes a chain of the checked path's command phases, each an inline function: a block
 //! switch, an insert-and-copy symbol and its extra bits, up to `chunk_len_max` literals, a
-//! distance, and up to `chunk_len_max` octets of a copy or of a dictionary word. It decodes with
-//! the meta-block's lookup tables (claim B3), writes straight into the caller's output, copies in
-//! chunks that may run past a copy's end into the room it checked (S4), and reads history from the
-//! output and, before the
-//! octets the output holds, from the window, which takes the call's octets when the call ends (the
-//! window-once claim).
+//! distance, and up to `chunk_len_max` octets of a copy or of a dictionary word. The common chain,
+//! a whole command whose copy stays within the output, runs in `straight_loop`, a function of its
+//! own with the loop's state in locals, so that the compiler keeps them in registers where the
+//! rarer chains' code beside it made it spill them (`run`). It decodes with the meta-block's
+//! lookup tables (claim B3), writes straight into the caller's output, copies in chunks that may
+//! run past a copy's end into the room it checked (S4), and reads history from the output and,
+//! before the octets the output holds, from the window, which takes the call's octets when the
+//! call ends (the window-once claim).
 //!
 //! It decodes only what is valid: before a length past the meta-block, a distance RFC 7932 refuses
 //! or a dictionary reference that names no word, it stops with the phase's bits unused, and the
@@ -188,6 +189,11 @@ pub inline fn refill(comptime claims: Claims, loop: *Loop) void {
 /// checked path takes, and hands the bit buffer, the input position, the output position and the
 /// context's octets back. Without the window-once claim, the window takes the octets the loop
 /// wrote.
+///
+/// Two functions alternate: `straight_loop` takes command after command in its own frame while
+/// each completes on the straight-line path; `chain` takes one chain of phases for what the last
+/// command left, a block switch, extra bits after a refill, literals past their block, a copy from
+/// the window or of more than a chunk, or a dictionary word.
 pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State, window: anytype, bits: *codec.BitReader, writer: *codec.Writer) void {
     var loop: Loop = .{
         .input = bits.reader.octets,
@@ -202,7 +208,11 @@ pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State,
     };
     assert(loop.count <= @bitSizeOf(u64));
     var literal_tables: LiteralTables = .{};
-    decode_phases(claims, room, &loop, &literal_tables, state, window);
+    for (0..iterations_max(&loop)) |_| {
+        const link = straight_loop(claims, room, &loop, &literal_tables, state);
+        if (link == .stop) break;
+        if (chain(claims, room, link, &loop, &literal_tables, state, window) == .stop) break;
+    }
     assert(loop.written <= loop.output.len and loop.position <= loop.input.len);
     // Hand the state back as the checked reader keeps it: no bit above `count` set.
     bits.bits = .{
@@ -217,15 +227,33 @@ pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State,
     if (!claims.window_once) window.append(loop.output[loop.start..loop.written]);
 }
 
-/// The loop itself: iterations of chains of phases, each chain one iteration of this bounded
-/// loop.
-inline fn decode_phases(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) void {
-    // Each chain takes a bit or writes an octet, or is one of the few chains of a command that lead
-    // to one that does, as the checked path's steps are.
+/// The most chains a loop from the loop's point takes: each chain takes a bit or writes an octet,
+/// or is one of the few chains of a command that lead to one that does, as the checked path's steps
+/// are. Inline, so that taking the loop's address here leaves it in registers.
+inline fn iterations_max(loop: *const Loop) usize {
     const units = @bitSizeOf(u8) * (loop.input.len - loop.position) + @bitSizeOf(u64) + (loop.output.len - loop.written);
-    const iterations_max = constants.decoder_steps_per_unit * units + constants.decoder_steps_floor;
-    for (0..iterations_max) |_| {
-        if (decode_chain(claims, room, loop, literal_tables, state, window) == .stop) return;
+    return constants.decoder_steps_per_unit * units + constants.decoder_steps_floor;
+}
+
+/// Straight-line commands one after another, while each goes on along the straight path of
+/// decoder_fast_command.zig: a function of its own, with the loop's state in locals, so that the
+/// compiler keeps them in registers, and hands them back through `shared` when it returns. Returns
+/// the link the chain goes on from, the phase the last command stopped at, or `stop` for the
+/// checked path. A chain starts once the input's margin holds and the buffer is refilled, and, in
+/// the margin's mode, only while the margin holds; the checked path then starts the mode that checks
+/// each write (decision 32).
+noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: *Loop, literal_tables: *LiteralTables, state: *State) Link {
+    var loop = shared.*;
+    defer shared.* = loop;
+    // Each iteration that goes on writes a copy, a word or a run of literals, or takes a symbol's
+    // bits, so the room and the input end the loop; one that does neither returns.
+    for (0..iterations_max(&loop)) |_| {
+        if (room == .margin and loop.room() < output_margin) return .stop;
+        const phase = state.phase;
+        if (reads_no_input(phase)) return link_of(phase);
+        if (!ready(claims, &loop)) return .stop;
+        const link = straight.straight_from(claims, room, &loop, literal_tables, state);
+        if (link != .go_on) return link;
     }
     unreachable;
 }
@@ -239,7 +267,7 @@ pub const Link = enum { command, command_extra, literal, distance, copy, diction
 const links_per_chain_max = 8;
 
 /// The link a phase starts a chain with: its own, for the command phases the fast path takes.
-fn link_of(phase: Phase) Link {
+pub fn link_of(phase: Phase) Link {
     return switch (phase) {
         .command => .command,
         .command_extra => .command_extra,
@@ -251,24 +279,14 @@ fn link_of(phase: Phase) Link {
     };
 }
 
-/// One chain: the phases of a command in a row, each an inline function, so that the loop's state
-/// stays in registers. A chain at a command's symbol starts with the straight-line command of
-/// decoder_fast_command.zig, which takes a command of no literals in locals and hands the chain the
-/// phase it stops at. A chain starts once the input's margin holds and the buffer is refilled, and
-/// checks them again only where a phase may lack them: after a block switch, before a distance's
-/// block switch, and before a distance that literals or the command's extra bits preceded. A chain
-/// ends with a copy or a word, where its phase leaves the command for the next iteration, or at a
-/// phase the checked path takes. A chain at a copy or at the rest of a word reads no input. Each
-/// write checks its own room (decision 32).
-inline fn decode_chain(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
-    // In the margin's mode, a chain starts only while the margin holds; the checked path then
-    // starts the mode that checks each write.
-    if (room == .margin and loop.room() < output_margin) return .stop;
-    if (reads_no_input(state.phase)) {
-        return if (state.phase == .copy) copy(claims, room, loop, state, window) else words.word(room, loop, state);
-    }
-    if (!ready(claims, loop)) return .stop;
-    var link = if (state.phase == .command) straight.straight_command(claims, room, loop, literal_tables, state) else link_of(state.phase);
+/// One chain of the phases of a command in a row from `first`, the link the straight loop handed
+/// on, each an inline function. The chain checks the margins again only where a phase may lack
+/// them: after a block switch, before a distance's block switch, and before a distance that
+/// literals or the command's extra bits preceded. It ends with a copy or a word, where its phase
+/// leaves the command for the next iteration, or at a phase the checked path takes. A chain at a
+/// copy or at the rest of a word reads no input. Each write checks its own room (decision 32).
+inline fn chain(comptime claims: Claims, comptime room: Room, first: Link, loop: *Loop, literal_tables: *LiteralTables, state: *State, window: anytype) Next {
+    var link = first;
     for (0..links_per_chain_max) |_| {
         link = switch (link) {
             .command => on_command(claims, loop, state),
