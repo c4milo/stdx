@@ -139,6 +139,21 @@ fn write_items(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
 }
 
 fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {
+    // While the output has room for a store, each symbol's codes go into the buffer and one store
+    // follows: a pair's 48 bits at most on the 7 a store leaves (decision 14, E5). The first store
+    // drops the whole octets a header left, so the first symbol has room.
+    if (writer.has_store_room()) writer.store();
+    while (emit.index < block.symbol_count and writer.has_store_room()) {
+        const symbol = block.symbols[emit.index];
+        if (symbol.distance == 0) {
+            put_code(emit, plan, symbol.value, writer);
+        } else {
+            put_pair(emit, plan, symbol, writer);
+        }
+        writer.store();
+        emit.index += 1;
+    }
+    // The rest, an octet at a time, as the output fills.
     for (block.symbols[emit.index..block.symbol_count]) |symbol| {
         if (!writer.make_room(constants.pair_bits_max)) return false;
         if (symbol.distance == 0) {

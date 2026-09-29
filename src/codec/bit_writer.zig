@@ -61,6 +61,27 @@ pub const BitWriter = struct {
         return self.bits.count < @bitSizeOf(u8);
     }
 
+    /// The octets one `store` writes at once: the whole buffer.
+    pub const store_len = constants.bit_buffer_bits / @bitSizeOf(u8);
+
+    /// Whether the output has room for a `store`.
+    pub fn has_store_room(self: *const BitWriter) bool {
+        return self.writer.room_len() >= store_len;
+    }
+
+    /// Writes the whole buffer to the output at once, its whole octets counting as written and the
+    /// bits above them staying, so a caller that checked `has_store_room` may put up to 57 bits
+    /// between stores and never drains an octet at a time (decision 14, E5). The octets written
+    /// past the count lie in the output's room, which the next write fills.
+    pub fn store(self: *BitWriter) void {
+        assert(self.has_store_room());
+        const octets = self.bits.count / @bitSizeOf(u8);
+        std.mem.writeInt(u64, self.writer.octets[self.writer.position..][0..store_len], self.bits.buffer, .little);
+        self.writer.position += octets;
+        self.bits.buffer = if (octets == store_len) 0 else self.bits.buffer >> @intCast(octets * @bitSizeOf(u8));
+        self.bits.count -= @intCast(octets * @bitSizeOf(u8));
+    }
+
     /// The bits that bring the buffer to an octet boundary, which `put` fills with zeros.
     pub fn bits_to_octet(self: *const BitWriter) u7 {
         return (@bitSizeOf(u8) - self.bits.count % @bitSizeOf(u8)) % @bitSizeOf(u8);
@@ -96,6 +117,28 @@ test "a full output keeps the bits in the buffer for the next call" {
     writer = BitWriter.init(&next, writer.bits);
     try testing.expect(writer.drain());
     try testing.expectEqualSlices(u8, &.{0xab}, writer.writer.written());
+}
+
+test "a store writes the buffer's whole octets at once and keeps the bits above them" {
+    var output: [12]u8 = @splat(0xaa);
+    var writer = BitWriter.init(&output, .{});
+    writer.put(0x1_2345_6789, 33);
+    try testing.expect(writer.has_store_room());
+    writer.store();
+    // 33 bits: 4 octets written, one bit kept; the octets past the count are room.
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0x67, 0x45, 0x23 }, writer.writer.written());
+    try testing.expectEqual(1, writer.bits.count);
+    try testing.expectEqual(1, writer.bits.buffer);
+    writer.put(0x7f, 7);
+    writer.store();
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0x67, 0x45, 0x23, 0xff }, writer.writer.written());
+    try testing.expectEqual(0, writer.bits.count);
+    // With 7 octets of room a full buffer cannot store; the drain writes the 7 and keeps one.
+    writer.put(std.math.maxInt(u64), 64);
+    try testing.expect(!writer.has_store_room());
+    try testing.expect(!writer.drain());
+    try testing.expectEqual(12, writer.writer.position);
+    try testing.expectEqual(@bitSizeOf(u8), writer.bits.count);
 }
 
 test "make_room drains to fit a code, and says when the output is full" {
