@@ -1830,8 +1830,13 @@ and entry 37 out of design §8 step 18's non-ASCII rows.
     - A second table keyed by 8 octets, another 64 KiB, so one probe finds a long match: skipping
       the walk after a match of 16 octets or more cost json-1m 3.2%, and after 32 or more the walk
       ran anyway for the table's insert.
-    - A budget of 64 candidates at level 6 instead of 128: 0.3 to 0.6% larger for 12 to 27% of
-      the time. Not ruled; the budget stays.
+    - A budget of 64 candidates at level 6 instead of 128, its cut 16: the M1 put it at 0.3 to
+      0.6% larger for 12 to 27% of the time, and the owner asked for the runners' numbers. Run
+      [36568474837](https://github.com/c4milo/stdx/actions/runs/36568474837), main (bb0d5c8) and
+      the budget in one job: level 6 at 1.12 times its speed on the N2 and 1.15 on an EPYC 7763,
+      no file slower, E.coli 1.7, reymont and json-1m 1.3; output over libdeflate's at the median
+      from 0.999 to 1.000, a median 0.15% larger, 16 of 39 files by more than 0.2%, E.coli 1.6%,
+      reymont 1.2%, xml 1.1%. Ruled adopted on 2026-09-29.
 
 37. **A table lookup in the `json` module's UTF-8 check (claim J5).** Proposed on 2026-09-29,
     from design §8 step 18's non-ASCII rows, once construction in plain vectors had taken what it

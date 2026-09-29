@@ -210,7 +210,7 @@ test "each level's output for a seeded input is the one recorded here" {
     // Any change to what the encoder decides changes these; a change meant to must record new ones.
     const recorded = [_]struct { usize, u64 }{
         .{ 49100, 0x36c0bead5df53163 },
-        .{ 45866, 0x20f0fed0be6fa2e2 },
+        .{ 46142, 0xd9026d86cd56b3e5 },
         .{ 45749, 0x284a7722def6a3be },
     };
     var input: [120 * 1024]u8 = undefined;
@@ -228,7 +228,7 @@ test "each level's output for two seeded letters, whose chains run long, is the 
     // try all `cut_candidates_max` candidates hundreds of times.
     const recorded = [_]struct { usize, u64 }{
         .{ 4690, 0x94914bcc05d2d58f },
-        .{ 3991, 0xd9f49e74ca8399a5 },
+        .{ 4009, 0xdeecdba3c0e4de88 },
         .{ 4026, 0xf9a5378ae2891970 },
     };
     var input: [letters_len]u8 = undefined;

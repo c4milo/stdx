@@ -782,7 +782,7 @@ to 12 are reordered and nothing else changes.
       end. Its input is then still in the window, so each block takes the cheapest of stored,
       fixed and dynamic, priced to the bit (E3).
     - Level 1 takes the first candidate's match, and makes the positions a match of 8 octets or
-      fewer covers heads too (decision 36). Levels 6 and 9 try 128 and 4,096 candidates and defer
+      fewer covers heads too (decision 36). Levels 6 and 9 try 64 and 4,096 candidates and defer
       each match by one position when the next one finds a match worth more, its length less what
       its distance costs (decision 36). Candidates come from a hash of 4 octets, and match lengths
       from compares of 8 octets (E1).
@@ -917,6 +917,12 @@ to 12 are reordered and nothing else changes.
       JSON; a search at one candidate about 40 cycles on x-ray, where the head's load misses and
       then the window's. Decision 36 lists the structures tried against it and refused. Level 6's
       gap to libdeflate is that walk.
+    - Level 6's budget, halved to 64 candidates with a cut of 16 at the owner's ruling (decision
+      36), run [36568474837](https://github.com/c4milo/stdx/actions/runs/36568474837), main
+      (bb0d5c8) and the budget in one job: stdx over libdeflate at level 6 from 0.58 to 0.66 on the
+      N2 and from 0.57 to 0.64 on the EPYC 7763, output over libdeflate's at the median from 0.999
+      to 1.000. Levels 1 and 9 unchanged. The reports are
+      `bench/results/2026-09-29-deflate-encoder-budget-*.md`.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
