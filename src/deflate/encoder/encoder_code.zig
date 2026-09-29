@@ -169,14 +169,51 @@ fn sorted_symbols(counts: []const u16, order: *[symbols_max]u16) usize {
         order[used] = @intCast(symbol);
         used += 1;
     }
-    std.sort.pdq(u16, order[0..used], counts, lighter);
+    sort_by_weight(counts, order[0..used]);
     return used;
 }
 
-fn lighter(counts: []const u16, a: u16, b: u16) bool {
-    const weight_a = weight(counts[a]);
-    const weight_b = weight(counts[b]);
-    return weight_a < weight_b or (weight_a == weight_b and a < b);
+/// The values one counting pass sorts by: an octet of the weight.
+const pass_buckets = 1 << @bitSizeOf(u8);
+
+/// Sorts `order`, which lists symbols in increasing order, lightest first and by symbol among
+/// equals: a counting sort on the weight's low octet, then one on its high octet when any weight
+/// has one, each stable, so no compare depends on the data.
+fn sort_by_weight(counts: []const u16, order: []u16) void {
+    assert(order.len <= symbols_max);
+    var weight_max: u32 = 0;
+    for (order) |symbol| weight_max = @max(weight_max, weight(counts[symbol]));
+    var scratch: [symbols_max]u16 = undefined;
+    counting_pass(counts, order, scratch[0..order.len], 0);
+    if (weight_max < pass_buckets) {
+        @memcpy(order, scratch[0..order.len]);
+        return;
+    }
+    counting_pass(counts, scratch[0..order.len], order, @bitSizeOf(u8));
+}
+
+/// One stable counting pass: writes `from` into `to` ordered by the octet of each symbol's weight
+/// `shift` bits up, equals in their order.
+fn counting_pass(counts: []const u16, from: []const u16, to: []u16, shift: u4) void {
+    assert(from.len == to.len);
+    var starts: [pass_buckets]u16 = @splat(0);
+    for (from) |symbol| starts[bucket_of(counts, symbol, shift)] += 1;
+    var start: u16 = 0;
+    for (&starts) |*bucket_start| {
+        const bucket_len = bucket_start.*;
+        bucket_start.* = start;
+        start += bucket_len;
+    }
+    for (from) |symbol| {
+        const bucket = bucket_of(counts, symbol, shift);
+        to[starts[bucket]] = symbol;
+        starts[bucket] += 1;
+    }
+}
+
+/// The octet of a symbol's weight `shift` bits up.
+inline fn bucket_of(counts: []const u16, symbol: u16, shift: u4) u8 {
+    return @truncate(weight(counts[symbol]) >> shift);
 }
 
 /// One level of package-merge: the leaves and the packages of pairs of `below`, merged lightest
