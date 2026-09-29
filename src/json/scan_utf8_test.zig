@@ -158,6 +158,41 @@ test "valid_by's lookup at 32 and 64 lanes judges as the machine does, where LLV
     } else return error.SkipZigTest;
 }
 
+/// Requires `judge.valid` to judge each of `placed_sequences` as the machine does in a buffer that
+/// starts at every offset from a 64-octet line, the sequence around the first octet a wider copy's
+/// aligned loads start on and around the end of the unaligned block before it.
+fn expect_placed_at_offsets(comptime width: usize, judge: anytype) !void {
+    var storage: [constants.avx512_vector_len + placed_buffer_len(width)]u8 align(constants.avx512_vector_len) = undefined;
+    for (0..constants.avx512_vector_len) |line_offset| {
+        const buffer = storage[line_offset..][0..placed_buffer_len(width)];
+        const head_len = (width - line_offset % width) % width;
+        for ([_]usize{ head_len, width }) |edge| try expect_around(judge, buffer, edge);
+    }
+}
+
+/// Requires `judge.valid` to judge each of `placed_sequences` at every place around `edge` in
+/// `buffer`, a buffer of letters, as the machine does.
+fn expect_around(judge: anytype, buffer: []u8, edge: usize) !void {
+    for (placed_sequences) |sequence| for (0..aligned_edge_before + aligned_edge_after) |step| {
+        if (edge + step < aligned_edge_before) continue;
+        const offset = edge + step - aligned_edge_before;
+        if (offset + sequence.len > buffer.len) continue;
+        @memset(buffer, 'a');
+        @memcpy(buffer[offset..][0..sequence.len], sequence);
+        try testing.expectEqual(valid_scalar(buffer), judge.valid(buffer));
+    };
+}
+
+/// The places a sequence takes around an edge: from this many octets before it to as many after.
+const aligned_edge_before = 5;
+const aligned_edge_after = 5;
+
+test "valid_by at 32 and 64 lanes judges as the machine does wherever the buffer starts on a line" {
+    try expect_placed_at_offsets(constants.avx2_vector_len, By(constants.avx2_vector_len, .compares){});
+    try expect_placed_at_offsets(constants.avx512_vector_len, By(constants.avx512_vector_len, .compares){});
+    for (levels_run()) |level| try expect_placed_at_offsets(constants.avx512_vector_len, AtLevel{ .level = level });
+}
+
 test "is_utf8 judges a sequence on every lane as the machine does at every level this CPU runs" {
     for (levels_run()) |level| try expect_placed(constants.avx512_vector_len, AtLevel{ .level = level });
 }
