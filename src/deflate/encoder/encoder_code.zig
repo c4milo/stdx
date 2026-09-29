@@ -13,6 +13,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const codec = @import("codec");
 const constants = @import("../constants.zig");
 
 /// The most symbols a code has: the literal/length alphabet a stream may use.
@@ -45,7 +46,7 @@ pub fn build_lengths(counts: []const u16, comptime len_max: u4, lengths: []u8) v
 pub fn build_lengths_listed(counts: []const u16, comptime len_max: u4, lengths: []u8, listed: *[symbols_max]u16) usize {
     assert(counts.len == lengths.len and counts.len <= symbols_max);
     assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
-    @memset(lengths, 0);
+    codec.fill(lengths, 0);
     const used = listed_symbols(counts, listed);
     var order: [symbols_max]u16 = undefined;
     sort_by_weight(counts, listed[0..used], order[0..used]);
@@ -58,7 +59,7 @@ pub fn build_lengths_listed(counts: []const u16, comptime len_max: u4, lengths: 
 pub fn build_lengths_package_merge(counts: []const u16, comptime len_max: u4, lengths: []u8) void {
     assert(counts.len == lengths.len and counts.len <= symbols_max);
     assert(counts.len >= coded_symbols_min and counts.len <= @as(usize, 1) << len_max);
-    @memset(lengths, 0);
+    codec.fill(lengths, 0);
     var listed: [symbols_max]u16 = undefined;
     const used = listed_symbols(counts, &listed);
     var order: [symbols_max]u16 = undefined;
@@ -210,7 +211,7 @@ fn sort_by_weight(counts: []const u16, from: []const u16, to: []u16) void {
 fn counting_pass(counts: []const u16, from: []const u16, to: []u16, shift: u4, bucket_count: usize) void {
     assert(from.len == to.len and bucket_count <= pass_buckets);
     var starts: [pass_buckets]u16 = undefined;
-    @memset(starts[0..bucket_count], 0);
+    codec.fill(std.mem.sliceAsBytes(starts[0..bucket_count]), 0);
     for (from) |symbol| starts[bucket_of(counts, symbol, shift)] += 1;
     var start: u16 = 0;
     for (starts[0..bucket_count]) |*bucket_start| {
@@ -279,7 +280,7 @@ pub fn build_codes(lengths: []const u8, codes: []u16) void {
 /// branch asks which those are.
 pub fn build_codes_listed(lengths: []const u8, listed: []const u16, codes: []u16) void {
     assert(lengths.len == codes.len and listed.len <= lengths.len);
-    @memset(codes, 0);
+    codec.fill(std.mem.sliceAsBytes(codes), 0);
     var counts: [constants.code_len_max + 1]u16 = @splat(0);
     for (listed) |symbol| counts[lengths[symbol]] += 1;
     assert(counts[0] == 0);
