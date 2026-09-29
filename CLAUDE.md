@@ -23,8 +23,9 @@ as decision 27 rules for three parts of the `json` module's.
   **owner** waits on a ruling and is not settled.
 - `docs/invariants.md`: numbered invariants, each with the check that proves it.
 - `docs/costs.md`: the measured costs every performance claim is priced against.
-- `docs/performance.md`: how a performance change is measured, attributed, chosen, built for the
-  hardware, proved and landed, with the pitfalls already paid for.
+- pepegrillo's `docs/performance.md`, at the commit `build.zig.zon` pins: the method every
+  performance change follows; then `docs/performance.md`, stdx's appendix to it: its instruments,
+  its admission rule, its baselines, its costs and the pitfalls it has paid for.
 
 All four record decisions with the alternatives they beat. If you are about to do something a
 document rejected, say so and stop. Do not reverse it in code.
@@ -163,8 +164,9 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 
 stdx runs inside other people's hot paths, so cost is part of the design and not a later pass.
 The discipline is [Abseil's performance hints](https://abseil.io/fast/hints.html), applied to this
-tree. Decision 14 holds the claims and design §8 the steps that measure them; `docs/performance.md`
-holds the method every performance change follows.
+tree. Decision 14 holds the claims and design §8 the steps that measure them; pepegrillo's
+`docs/performance.md` holds the method every performance change follows, and `docs/performance.md`
+stdx's appendix to it.
 
 - **Measure; do not assume.** A performance claim carries a number, the command that produced it
   and the run it came from. Numbers come from GitHub's hosted Linux runners alone, x86-64 and
