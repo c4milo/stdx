@@ -175,6 +175,27 @@ pub inline fn plain_stop(block: Block(constants.vector_len)) ?usize {
     return if (any(constants.vector_len, stops)) first_lane(constants.vector_len, stops) else null;
 }
 
+/// True when `lane` of `block` holds the quotation mark, read from the block's own compare, which
+/// `plain_stop` makes too: loaded again from the input, the octet at a string's stop cost J10's
+/// loop a load and a bounds check that waited on the lane (design §8 step 18).
+pub inline fn is_quotation_mark(block: Block(constants.vector_len), lane: usize) bool {
+    assert(lane < constants.vector_len);
+    const quotation_marks = block == splat(constants.vector_len, constants.quotation_mark);
+    if (builtin.cpu.arch == .aarch64) {
+        const nibbles = nibbles_of(constants.vector_len, quotation_marks);
+        return nibbles >> @intCast(lane * constants.nibble_bits) & 1 != 0;
+    }
+    if (builtin.cpu.arch.endian() == .little) {
+        const bits: std.meta.Int(.unsigned, constants.vector_len) = @bitCast(quotation_marks);
+        return bits >> @intCast(lane) & 1 != 0;
+    }
+    // As in `first_lane`: Zig's own x86-64 backend indexes a vector at comptime-known lanes alone.
+    inline for (0..constants.vector_len) |index| {
+        if (index == lane) return quotation_marks[index];
+    }
+    unreachable;
+}
+
 /// `plain_len_scalar`, `width` octets at a time (claims J1 and J3). A run the whole blocks do not
 /// end ends in the last `width` octets, a block that overlaps the one before it: that one holds no
 /// stop, so the block's first is the run's. A run shorter than a block takes `plain_len_short`.

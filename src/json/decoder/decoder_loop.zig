@@ -234,7 +234,7 @@ const Loop = struct {
             const block: @Vector(constants.vector_len, u8) = self.input[first + len ..][0..constants.vector_len].*;
             self.output[self.written + len ..][0..constants.vector_len].* = block;
             if (scan.plain_stop(block)) |lane| {
-                return if (self.input[first + len + lane] == constants.quotation_mark) len + lane else null;
+                return if (scan.is_quotation_mark(block, lane)) len + lane else null;
             }
             len += constants.vector_len;
         }
