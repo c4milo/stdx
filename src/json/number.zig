@@ -99,9 +99,11 @@ const transitions = std.enums.EnumArray(State, [std.enums.values(Class).len]?Sta
     .exponent = .{ .exponent, .exponent, null, null, null, null, null },
 });
 
-/// The state after `octet`, or null when the number cannot take it there.
+/// The state after `octet`, or null when the number cannot take it there. The row is read through
+/// a pointer: `get` returns it by value, and the token loop copied its 14 octets to the stack at
+/// every step (design §8 step 18).
 inline fn next_state(state: State, octet: u8) ?State {
-    return transitions.get(state)[@intFromEnum(class_of(octet))];
+    return transitions.getPtrConst(state)[@intFromEnum(class_of(octet))];
 }
 
 /// A whole number that an octet after it ends: the octets it took, and the machine after them.

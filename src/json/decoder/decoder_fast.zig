@@ -72,13 +72,13 @@ inline fn token_at(decoder: *Decoder, comptime claims: Claims, expect: Expect, o
 inline fn after_separator(decoder: *const Decoder, expect: Expect, octet: u8) ?Expect {
     if (expect == .name_separator) return if (octet == constants.name_separator) .value else null;
     if (octet != constants.value_separator) return null;
-    return if (decoder.containers.isSet(decoder.depth - 1)) .name else .value;
+    return if (decoder.containers.is_object(decoder.depth - 1)) .name else .value;
 }
 
 /// The end of the container `octet` closes after one of its values, or null.
 inline fn container_end(decoder: *Decoder, expect: Expect, octet: u8) ?Outcome {
     if (expect != .separator_or_end) return null;
-    const in_object = decoder.containers.isSet(decoder.depth - 1);
+    const in_object = decoder.containers.is_object(decoder.depth - 1);
     if (octet == constants.end_object and in_object) return end_container(decoder, .end_object);
     if (octet == constants.end_array and !in_object) return end_container(decoder, .end_array);
     return null;
