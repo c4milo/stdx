@@ -39,22 +39,25 @@ const escaped_characters = table: {
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.
 pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
-    var copied: Copied = .{ .input_len = 0, .output_len = 0 };
+    // What is left of the input and the room, as slices the loop moves past what it takes, so the
+    // compiler knows their lengths: indices into `rest` and `room` cost each access a check.
+    var input = rest;
+    var output = room;
     // Each pass takes at least one octet, or returns.
     for (0..rest.len + 1) |_| {
-        const window = rest[copied.input_len..][0..@min(rest.len - copied.input_len, room.len - copied.output_len)];
+        const window = input[0..@min(input.len, output.len)];
         const run_len = run_of(claims, level, window);
-        scan.copy(room[copied.output_len..][0..run_len], window[0..run_len]);
-        copied.input_len += run_len;
-        copied.output_len += run_len;
-        if (copied.input_len == rest.len) return null;
-        const escape = switch (rest[copied.input_len]) {
-            constants.quotation_mark => return copied,
-            constants.reverse_solidus => unescape(rest[copied.input_len..], room[copied.output_len..]) orelse return null,
+        scan.copy(output[0..run_len], window[0..run_len]);
+        input = input[run_len..];
+        output = output[run_len..];
+        if (input.len == 0) return null;
+        const escape = switch (input[0]) {
+            constants.quotation_mark => return .{ .input_len = rest.len - input.len, .output_len = room.len - output.len },
+            constants.reverse_solidus => unescape(input, output) orelse return null,
             else => return null,
         };
-        copied.input_len += escape.input_len;
-        copied.output_len += escape.output_len;
+        input = input[escape.input_len..];
+        output = output[escape.output_len..];
     }
     unreachable;
 }

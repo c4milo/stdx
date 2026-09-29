@@ -33,21 +33,23 @@ const escape_letters = table: {
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
 pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
-    var taken: usize = 0;
-    var written: usize = 0;
+    // What is left of the string and the room, as slices the loop moves past what it takes, so the
+    // compiler knows their lengths: indices into `octets` and `room` cost each access a check.
+    var input = octets;
+    var output = room;
     // Each pass takes at least one octet, or returns.
     for (0..octets.len + 1) |_| {
-        const window = octets[taken..][0..@min(octets.len - taken, room.len - written)];
+        const window = input[0..@min(input.len, output.len)];
         const run_len = run_of(claims, level, window);
-        scan.copy(room[written..][0..run_len], window[0..run_len]);
-        taken += run_len;
-        written += run_len;
-        if (taken == octets.len) return written;
-        const octet = octets[taken];
+        scan.copy(output[0..run_len], window[0..run_len]);
+        input = input[run_len..];
+        output = output[run_len..];
+        if (input.len == 0) return room.len - output.len;
+        const octet = input[0];
         // A character UTF-8 rules out or the string cuts, or an octet the room stopped.
         if (octet >= constants.non_ascii_min or scan.is_plain_ascii(octet)) return null;
-        written += escape(octet, room[written..]) orelse return null;
-        taken += 1;
+        output = output[escape(octet, output) orelse return null ..];
+        input = input[1..];
     }
     unreachable;
 }
