@@ -217,7 +217,16 @@ pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State,
         .p2 = state.p2,
     };
     assert(loop.count <= @bitSizeOf(u64));
-    var literal_tables: LiteralTables = .{};
+    // The literal tables are looked up before they are read, which their null block type forces. A
+    // safe build would fill their 520 octets for every call, which a Linux build does through
+    // compiler_rt's memset, an octet at a time, so decision 16's exception covers their
+    // declaration alone; the loop below keeps the safety its functions set.
+    var literal_tables: LiteralTables = tables: {
+        @setRuntimeSafety(!claims.unchecked_loop);
+        var fresh: LiteralTables = undefined;
+        fresh.block_type = null;
+        break :tables fresh;
+    };
     for (0..iterations_max(true, &loop)) |_| {
         const link = straight_loop(claims, room, &loop, &literal_tables, state);
         if (link == .stop) break;
