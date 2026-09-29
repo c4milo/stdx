@@ -1761,6 +1761,67 @@ to 12 are reordered and nothing else changes.
   encoding them at 0.773 and 0.681, from 0.630, 0.498, 0.517 and 0.491 at 1dde0ba, with no loss
   listed on the N2 or on an AMD EPYC 7763.
 
+  **The work above on main, 2026-09-29.** Main took it at 770bc99. bench-json run
+  [36512874022](https://github.com/c4milo/stdx/actions/runs/36512874022) timed it against f49d7c2,
+  both in each job, on a Neoverse N2 and an AMD EPYC 7763. stdx's throughput over simdjson's, from
+  f49d7c2's:
+
+  | Workload | N2, decoding | N2, encoding | EPYC 7763, decoding | EPYC 7763, encoding |
+  |---|---|---|---|---|
+  | CLDR's texts | 0.626 to 0.915 | 0.530 to 0.891 | 0.472 to 0.831 | 0.483 to 1.127 |
+  | qlog's records | 0.485 to 0.806 | 0.502 to 0.860 | 0.438 to 0.776 | 0.486 to 1.092 |
+  | dickens as a string | 0.525 to 1.281 | 0.383 to 0.939 | 0.296 to 0.717 | 0.344 to 1.020 |
+  | json-1m as a string | 0.301 to 1.082 | 0.335 to 0.897 | 0.223 to 0.758 | 0.327 to 1.114 |
+  | The non-ASCII text | 0.377 to 0.493 | 0.254 to 0.359 | 0.202 to 0.271 | 0.192 to 0.276 |
+
+  It listed no claim's loss on either CPU, where f49d7c2 listed nine on the EPYC. bench-profile run
+  [36512876082](https://github.com/c4milo/stdx/actions/runs/36512876082) counted 33.9 and 35.3
+  cycles a token decoding CLDR's texts and qlog's records on the N2, and 28.0 and 25.6 encoding
+  them.
+
+  **UTF-8 and escapes in the loops, 2026-09-29.** Main took it at 1247c3e. Both loops now walk a
+  string in blocks of 16, copied as they are checked, past its plain ASCII (`string_walk.zig`);
+  an escape that follows an escape is taken with no block walked; a `\u` escape's digits go
+  through a table, inline, and a run of them is taken in one function; and bench-json decodes the
+  non-ASCII text a second time with its characters as `\u` escapes, as Python's json.dumps writes
+  them. The owner ruled decision 35 the same day, and bench-json times the encoder with claim
+  J11's loop unchecked beside every claim on. bench-json run
+  [36522098273](https://github.com/c4milo/stdx/actions/runs/36522098273) timed 1247c3e against
+  70dfba8, both in each job, on a Neoverse N2 and an Intel Xeon Platinum 8573C. Throughput with
+  every claim on, 1247c3e over 70dfba8, and stdx over simdjson at 1247c3e:
+
+  | Workload | N2, decoding | N2, encoding | Xeon, decoding | Xeon, encoding |
+  |---|---|---|---|---|
+  | The non-ASCII text | 1.748; 0.866 of simdjson | 2.096; 0.757 | 2.471; 0.643 | 2.398; 0.662 |
+  | The same as `\u` escapes | 1.088 of simdjson, 0.554 of yyjson | not encoded | 0.855, 0.686 | not encoded |
+  | The 17 text files, median | 1.607 | 1.479 | 1.687 | 1.315 |
+  | dickens as a string | 2.064 of simdjson | 1.407 | 1.477 | 1.797 |
+  | CLDR's texts | 1.014; 0.929 | 0.998; 0.918 | 1.000; 0.689 | 0.982; 1.121 |
+  | qlog's records | 0.988; 0.826 | 0.993; 0.911 | 1.068; 0.642 | 1.025; 1.079 |
+  | CLDR and qlog, J11's loop unchecked over all on | | 1.140, 1.115 | | 1.075, 1.118 |
+
+  The losses to the baselines fell from 44 to 16 on the N2 and from 31 to 14 on the Xeon.
+  Three claim losses, all J5 off faster than on: bible.txt decoding at 1.052 and samba encoding at
+  1.098 on the N2, and qlog's records encoding at 1.061 on the Xeon, inside that job's spread. On
+  a text of escapes and no non-ASCII octet, the blocks of 16 cost the N2 more than the run's scans
+  they replaced. A run of plain ASCII before the blocks is the candidate; it waits for a runner
+  measurement of its own.
+
+  **Where token decoding stands, 2026-09-29.** bench-profile run
+  [36522100520](https://github.com/c4milo/stdx/actions/runs/36522100520) at 1247c3e counted, per
+  token on the N2: decoding CLDR's texts, stdx 33.5 cycles and 136.8 instructions against
+  simdjson's 31.0 and 109.0; decoding qlog's records, 35.8 and 161.2 against 29.7 and 108.7; stdx
+  at 4.1 and 4.5 instructions a cycle against simdjson's 3.5 and 3.7. Encoding, stdx is within 8%
+  of simdjson's cycles with every check on, and ahead with claim J11's loop unchecked. perf run
+  [36522232371](https://github.com/c4milo/stdx/actions/runs/36522232371), on the unmerged branch
+  `exp-json-perf-12`, sampled the decoder by source line: the grammar's dispatch on the expectation
+  takes 8%, whitespace 4%, a string's blocks 4% to 5%, the number machine 6% of qlog's records,
+  the slot's store 2.5%, the batch's exit checks 3% to 4% and the benchmark's own loop 7% to 10%;
+  23% to 30% is inlined vector code with no line, and no line reaches 10%. The cycles left on a
+  token are instructions, not stalls, and no change to the loop removes 5% of them. What removes
+  instructions from a token is decision 30's structural index, which decision 33 left to the
+  owner.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
