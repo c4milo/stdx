@@ -63,11 +63,9 @@ pub const nine: u8 = '9';
 pub const exponent_lower: u8 = 'e';
 pub const exponent_upper: u8 = 'E';
 
-/// The octets of one 64-bit word, and the word with each octet 1 and with each octet's high bit set:
-/// the tail of a string's scan tests 8 octets at a time.
+/// The octets of one 64-bit word: a run shorter than a vector is scanned in halves of up to 8
+/// octets, and the encoder's token loop copies a short one in moves of 8.
 pub const word_len = @sizeOf(u64);
-pub const word_ones: u64 = 0x0101_0101_0101_0101;
-pub const word_highs: u64 = 0x8080_8080_8080_8080;
 
 /// The octets of a string (RFC 8259 §7).
 pub const quotation_mark: u8 = '"';

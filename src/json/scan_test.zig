@@ -182,6 +182,28 @@ test "a run that stops at every octet of a long input scans alike at every level
     }
 }
 
+test "a run shorter than two blocks stops at each of its octets, and at the first of two stops" {
+    // Runs of 4 to 15 octets scan as two halves in one block, and runs past a block end in one that
+    // overlaps the block before it: a stop at each octet falls in each half and in each overlap.
+    var buffer: [2 * width_512_bits]u8 = undefined;
+    for (0..buffer.len + 1) |len| {
+        for (0..len) |stop| {
+            @memset(buffer[0..len], 'a');
+            buffer[stop] = constants.quotation_mark;
+            try expect_stop(buffer[0..len], stop);
+            buffer[len - 1] = constants.reverse_solidus;
+            try expect_stop(buffer[0..len], stop);
+        }
+    }
+}
+
+/// Requires every path of the plain run to stop at `stop` in `input`.
+fn expect_stop(input: []const u8, stop: usize) !void {
+    try testing.expectEqual(stop, scan.plain_len_scalar(input));
+    inline for (widths) |width| try testing.expectEqual(stop, scan.plain_len_vector(width, input));
+    for (levels_run()) |level| try testing.expectEqual(stop, wide.plain_len(level, input));
+}
+
 test "fuzz the vector paths against the scalar paths" {
     try testing.fuzz({}, fuzz_one, .{ .corpus = &.{ "", "\"", "\xe2\x82\xac\"", "  \n\t{" } });
 }
