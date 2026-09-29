@@ -16,7 +16,11 @@ const Claims = @import("claims.zig").Claims;
 
 /// How `Walk.take_blocks` stopped: at an octet that stops the run, which starts the input; short of
 /// a block, where `Walk.take_run` goes on; or at an octet UTF-8 rules out.
-pub const Stop = enum { octet, short, ruled_out };
+pub const Stop = enum(u8) { octet, short, ruled_out };
+
+/// `Walk.take_blocks` compiled into the AVX2 variant object (variants/string_walk_blocks.zig),
+/// where the UTF-8 check takes decision 37's lookup, VPSHUFB, which the baseline target lacks.
+extern fn stdx_json_take_blocks_x86_64_avx2(walk: *Walk, input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) callconv(.c) u8;
 
 pub const Walk = struct {
     input: []const u8,
@@ -62,13 +66,26 @@ pub const Walk = struct {
     /// run's scans. Returns false at an octet UTF-8 rules out. `input` and `output` are the slices
     /// the walk started with.
     pub inline fn take_to_stop(self: *Walk, comptime claims: Claims, level: wide.Level, input: []const u8, output: []u8) bool {
-        const stop: Stop = if (claims.utf8_vectors) self.take_blocks(input, output) else .short;
+        const stop: Stop = if (claims.utf8_vectors) self.take_blocks_at(level, input, output) else .short;
         switch (stop) {
             .ruled_out => return false,
             .short => self.take_run(claims, level),
             .octet => {},
         }
         return true;
+    }
+
+    /// `take_blocks`, in the variant object of `level` on x86-64 when the first block holds a
+    /// non-ASCII octet: there the UTF-8 check is decision 37's lookup. A first block of ASCII, and
+    /// every target without the object, take the blocks here: a call at each escape of a text of
+    /// escapes and ASCII would cost what the lookup saves.
+    inline fn take_blocks_at(self: *Walk, level: wide.Level, input: []const u8, output: []u8) Stop {
+        if (comptime !wide.has_kernels) return self.take_blocks(input, output);
+        if (level == .target or self.input.len < constants.vector_len or scan.is_ascii(self.input[0..constants.vector_len].*)) return self.take_blocks(input, output);
+        return switch (level) {
+            .avx2 => @enumFromInt(stdx_json_take_blocks_x86_64_avx2(self, input.ptr, input.len, output.ptr, output.len)),
+            .target => unreachable,
+        };
     }
 
     /// Takes the run of octets a string carries as they are, where fewer than 16 octets of input

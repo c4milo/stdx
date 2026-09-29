@@ -24,9 +24,10 @@ fn splat(comptime width: usize, octet: u8) Block(width) {
     return @splat(octet);
 }
 
-/// Whether this target looks 16 lanes up in a table of 16 in one instruction: NEON's TBL. x86-64's
-/// PSHUFB needs SSSE3, above the baseline, and waits for the AVX2 variant object (decision 37).
-pub const has_lookup = builtin.cpu.arch == .aarch64;
+/// Whether this target looks 16 lanes up in a table of 16 in one instruction: NEON's TBL on
+/// aarch64, and VPSHUFB on x86-64 with AVX2, which the module's baseline target lacks and its AVX2
+/// variant object has (decision 37, string_walk.zig).
+pub const has_lookup = builtin.cpu.arch == .aarch64 or (builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2));
 
 /// The lanes of `block` whose octet UTF-8 rules out there, given the lanes before it and the last
 /// three of `previous` (RFC 3629 §4). `previous` ends between characters, or inside a character
@@ -195,14 +196,23 @@ fn pair_bits(before: u8, octet: u8) u8 {
     return before_high_table[high_nibble(before)] & before_low_table[low_nibble(before)] & octet_high_table[high_nibble(octet)];
 }
 
-/// Each lane of `indices`, a nibble, looked up in `table`: NEON's TBL.
+/// Each lane of `indices`, a nibble, looked up in `table`: NEON's TBL, or x86-64's VPSHUFB. Register
+/// operands only, as decision 16 admits.
 inline fn lookup(table: Block(constants.vector_len), indices: Block(constants.vector_len)) Block(constants.vector_len) {
     comptime assert(has_lookup and constants.vector_len == nibbles);
-    return asm ("tbl %[result].16b, {%[table].16b}, %[indices].16b"
-        : [result] "=w" (-> Block(constants.vector_len)),
-        : [table] "w" (table),
-          [indices] "w" (indices),
-    );
+    return switch (builtin.cpu.arch) {
+        .aarch64 => asm ("tbl %[result].16b, {%[table].16b}, %[indices].16b"
+            : [result] "=w" (-> Block(constants.vector_len)),
+            : [table] "w" (table),
+              [indices] "w" (indices),
+        ),
+        .x86_64 => asm ("vpshufb %[indices], %[table], %[result]"
+            : [result] "=x" (-> Block(constants.vector_len)),
+            : [table] "x" (table),
+              [indices] "x" (indices),
+        ),
+        else => unreachable,
+    };
 }
 
 /// `error_lanes` from the three tables: `pair_bits` for each lane and the octet before it, three

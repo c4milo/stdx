@@ -18,8 +18,9 @@ const constants = @import("constants.zig");
 const scan = @import("scan.zig");
 const Claims = @import("claims.zig").Claims;
 
-/// Whether this target has J7's kernels: x86-64 alone builds the objects of its wider levels.
-const has_kernels = builtin.cpu.arch == .x86_64;
+/// Whether this target has J7's kernels, and decision 37's block walk: x86-64 alone builds the
+/// objects of its wider levels.
+pub const has_kernels = builtin.cpu.arch == .x86_64;
 
 /// The widest vector a caller's features allow, which each codec's state keeps from `init`.
 pub const Level = enum(u8) {
