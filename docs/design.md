@@ -1859,6 +1859,18 @@ to 12 are reordered and nothing else changes.
     loss past the noise elsewhere.
   - Mutations.
 
+  **The index's floor, 2026-09-29.** Before the loop changed, a prototype priced the index on the
+  runners, on the unmerged branch `exp-json-index` (run
+  [36564651162](https://github.com/c4milo/stdx/actions/runs/36564651162)): the masks of each chunk
+  of 64 octets, the quotation marks that no odd run of reverse solidi escapes, the octets inside
+  strings by a prefix XOR, and then a walk that finds each token's start and end by bit scans and
+  does nothing else: no copy, no check, no grammar. Over CLDR's 34 texts on the N2, the masks took
+  0.40 ns an octet and the walk 0.49, 0.89 together, against 0.94 for the whole decoder with every
+  claim on: the index's floor is 95% of the decoder it would speed up, whose profile puts what an
+  index removes, the whitespace and the block scans of short strings, under 10% of a token. The
+  x86-64 job did not build the prototype. The owner ruled the same day, with the floor in hand:
+  build it anyway, and let the A/B decide.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
