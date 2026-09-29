@@ -28,6 +28,7 @@ const Kind = encoder_file.Kind;
 const Position = encoder_file.Position;
 const Piece = encoder_file.Piece;
 const Item = @import("encoder_batch.zig").Item;
+const loop_string = @import("encoder_loop_string.zig");
 
 /// Writes items from the first on into `output` from `written` on, moves `written` past them, and
 /// returns how many it wrote.
@@ -182,16 +183,28 @@ const Loop = struct {
     inline fn string(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, piece: Piece) bool {
         if (piece == .more) return false;
         const run_len = if (claims.encoder_string_vectors) wide.plain_len(self.encoder.level.with(claims), octets) else scan.plain_len_scalar(octets);
-        if (run_len != octets.len) return false;
-        const closing_len = @as(usize, 1) + @intFromBool(kind == .name);
-        const frame = self.frame_of(kind);
-        const body = self.open_body(frame, 1 + octets.len + closing_len) orelse return false;
-        body[0] = constants.quotation_mark;
-        scan.copy(body[1..][0..octets.len], octets);
         const closing = if (kind == .name) [_]u8{ constants.quotation_mark, constants.name_separator } else [_]u8{constants.quotation_mark};
+        const frame = self.frame_of(kind);
+        const content_len = if (run_len == octets.len) octets.len else self.escaped(claims, frame, closing.len, octets) orelse return false;
+        const body = self.open_body(frame, 1 + content_len + closing.len) orelse return false;
+        body[0] = constants.quotation_mark;
+        if (run_len == octets.len) scan.copy(body[1..][0..octets.len], octets);
         body[body.len - closing.len ..][0..closing.len].* = closing;
         self.close(kind, frame.ends_text);
         return true;
+    }
+
+    /// Writes the escaped content of a string that is not all plain ASCII where its body's content
+    /// goes, past its frame's separators and its opening quotation mark, with room left for its
+    /// `closing_len` octets and a line feed (encoder_loop_string.zig). Returns its length, or null
+    /// where the checked path must take the string.
+    inline fn escaped(self: *const Loop, comptime claims: Claims, frame: Frame, closing_len: usize, octets: []const u8) ?usize {
+        if (!claims.encoder_string_vectors) return null;
+        const around_len = frame.len() + 1 + closing_len;
+        if (self.output.len - self.written < around_len) return null;
+        const start = self.written + @intFromBool(frame.record_separator) + @intFromBool(frame.value_separator) + 1;
+        const room = self.output[start..][0 .. self.output.len - self.written - around_len];
+        return loop_string.copy_escaped(claims, self.encoder.level, octets, room);
     }
 
     inline fn hex(self: *Loop, comptime claims: Claims, octets: []const u8, piece: Piece) bool {
