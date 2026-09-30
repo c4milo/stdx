@@ -17,8 +17,9 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 o
 17's json measurement, entry 36 out of design §8 step 9's comparison with libdeflate's output,
 entry 37 out of design §8 step 18's non-ASCII rows, entry 38 out of the question entry 37 left,
 how fast the check runs alone, entry 39 out of the owner's ruling on the gap entry 38 measured on
-x86-64, and entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s request for a
-probe of the CPU.
+x86-64, entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s request for a
+probe of the CPU, and entry 41 out of the owner's ruling once the benchmarks carried a `memset`
+of their own.
 
 ## Scope and shape
 
@@ -2254,3 +2255,29 @@ probe of the CPU.
       print, and it needs none of them.
     - `sysctlbyname` added to the io rule's shared exceptions. Every module could then call it.
     - The comparison as a unit test of the module, above.
+
+41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
+    owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
+    Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
+    every `memset` call in a program, glibc linked or not (design §8 step 9); Zig's next release
+    stores vectors. `codec.fill` (b47400b) kept stdx's clears and fills out of that loop: the
+    DEFLATE encoder's clear of its heads at each stream's start, which took 33,500 cycles on a
+    Neoverse N2 at level 1 and 66,000 at level 6 through it, the encoder's counts at each block,
+    the Zstandard decoder's repeated blocks, which decoded 3.40 times as fast through
+    `codec.fill` on the N2 (design §8 step 11), and brotli's runs of zeros in a context map. With their own `memset`, the benchmarks no longer
+    show those costs. So stdx calls `@memset`, and a program on Linux under Zig 0.16 that wants
+    these fills fast exports a `memset` of its own, as `bench/timing/memset.zig` does for the
+    benchmarks (pepegrillo's `performance_zig.md`, "Copies and fills"). A library exports none,
+    since its caller's program owns the symbol.
+
+    Measured with the benchmarks' own `memset` (design §8 step 11), the removal encoded the 1 KiB
+    bodies 2% to 15% faster on both architectures, and fields.c and js-16k at level 9 4% to 6%
+    slower on x86-64 in both jobs; the owner ruled it in with those losses.
+
+    Cost: a program on Linux under Zig 0.16 without a `memset` of its own pays the octet loop in
+    these fills, and no benchmark shows it. Gain: the library fills one way, and no code in it
+    answers one Zig release's runtime.
+
+    The alternatives refused: keeping `codec.fill` until stdx moves to a Zig release whose `memset`
+    stores vectors; and keeping it with its vector path limited to Zig 0.16, so that the upgrade
+    turns it into `@memset`.

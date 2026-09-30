@@ -1010,6 +1010,9 @@ to 12 are reordered and nothing else changes.
     - 2febc30 builds Huffman's lengths in one array of the weights, by Moffat and Katajainen's
       in-place method, and the header's runs in one pass.
 
+    `codec.fill` left the library on 2026-09-30 (decision 41): once the benchmarks carried a
+    `memset` of their own, 80f065a's clears went back to `@memset` (step 11 has the pair).
+
     After 80f065a, probe run [36636569066](https://github.com/c4milo/stdx/actions/runs/36636569066)
     put js-1k's whole encode at level 1 at 38,600 cycles where it took 71,900 (libdeflate
     allocating, encoding and freeing its compressor: 34,300), init at 3,800 and an empty stream at
@@ -1382,6 +1385,31 @@ to 12 are reordered and nothing else changes.
       padding before a loop: placement. The block test now runs its copies with Z4 off and on the
       checked path too, which caught the two mutations of the repeated literals' fill that no test
       had.
+    - fcf25d4 removes `codec.fill` from the library, as decision 41 rules: these fills, the
+      DEFLATE encoder's clears and brotli's runs of zeros in a context map call `@memset` again,
+      which the benchmarks serve with a vector `memset` of their own since 97e42ca. Bench runs
+      [36734714596](https://github.com/c4milo/stdx/actions/runs/36734714596) and
+      [36734725181](https://github.com/c4milo/stdx/actions/runs/36734725181) timed ba11417 and the
+      change with `bench-deflate` in each job, on a Neoverse N2 in both and on an Intel Xeon
+      Platinum 8370C and then an 8573C, the output unchanged. The 1 KiB bodies encoded faster in
+      both jobs on both architectures: html-1k at level 1 at 1.04 and 1.06 of its speed on the N2
+      and 1.04 and 1.15 on the Xeons, json-1k at level 6 at 1.07 and 1.10 on the N2. A block's
+      fills under 64 octets, which `codec.fill` took an octet at a time, are now stores LLVM writes
+      in place or calls to the benchmarks' `memset`. At level 9 on x86-64, fields.c encoded at 0.95
+      of its speed in both jobs, js-16k at 0.96 and 0.95 and css-16k at 0.98 and 0.97, where the
+      block plan's code changed with its fills and the chain walk's did not; x-ray at level 1 on
+      the N2 fell about 1% by its ratio to libdeflate. The owner ruled the change in with those
+      losses. With `bench-zstd`, runs
+      [36734692750](https://github.com/c4milo/stdx/actions/runs/36734692750) and
+      [36734703364](https://github.com/c4milo/stdx/actions/runs/36734703364) moved no file but by
+      placement: the all-on decoder changed only in calls no corpus file makes and in the padding
+      before loops. With `bench-brotli`, runs
+      [36746658483](https://github.com/c4milo/stdx/actions/runs/36746658483) and
+      [36746667712](https://github.com/c4milo/stdx/actions/runs/36746667712) timed main (186718f)
+      and the change: no file lost by its ratio to Google in both jobs of either architecture.
+      html-16k fell 3% and 4% by stdx's own speed on x86-64, the first time with Google, the second
+      only in the decoding table, where the same decoder on the same file ran 1.009 of its speed
+      in the fast path's table.
   - Mutations are listed in each commit's body.
 
 - **Step 12: the brotli decoder.** The static dictionary generated from RFC 7932 Appendix A and the
