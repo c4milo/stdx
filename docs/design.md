@@ -2547,6 +2547,20 @@ to 12 are reordered and nothing else changes.
   change. On the N2, 37 and 33 hex rows decoded 2% to 7% slower and no row won; qlog's records
   decoded 4% slower on an Intel Xeon 6973P-C. It left.
 
+  **The plain run's functions on a line, with the number steps again, 2026-09-30, rejected.**
+  `copy_long`, `wide.plain_len_past_first` and `scan.plain_len_vector` started on a 64-octet line,
+  as the string loops and kernels do (6f7d89c), and the skipped number steps above followed them
+  (6c055bf). bench_json built for aarch64 ran every function of the first commit identical apart
+  from its addresses. bench-json runs
+  [36715856275](https://github.com/c4milo/stdx/actions/runs/36715856275) and
+  [36715863956](https://github.com/c4milo/stdx/actions/runs/36715863956) paired the two with
+  1c0c57c. qlog's records decoded 1.5% and 1.3% faster on the N2 and 2.8% on an AMD EPYC 7763 in
+  the second run. On the N2 the hex rows still moved: osdb, lcet10.txt, ptt5 and dickens-1m decoded
+  1.3% to 4.1% slower in both runs, and asyoulik.txt encoded 4.1% and 4.3% slower; the EPYC 7763
+  decoded 23 hex rows 10% to 13% slower in its first run and none in its second. With the plain
+  run's functions on a line of their own the rows moved as before, so what moves them is outside
+  those three functions, memcpy among the candidates. The losses keep both commits out.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
