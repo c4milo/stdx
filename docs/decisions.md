@@ -1387,9 +1387,11 @@ of their own.
     | J3. The decoder finds the run of a string's octets up to the next quotation mark, reverse solidus, control character or non-ASCII octet a vector at a time | As J1, in the decoder | A/B |
     | J4. The decoder skips whitespace a vector at a time | A compare and a branch per octet of whitespace | A/B on pretty-printed texts |
     | J5. Inside J1's and J3's runs, UTF-8 is validated a vector at a time, so a run goes on past non-ASCII characters | A state machine step per non-ASCII octet | A/B on text of two- and three-octet characters |
+    | J12. Inside claim J10's loop, two `\u` escapes that follow each other are read at once, their reverse solidi and `u`s checked in one word and their eight digits turned into two code units in another, and the plain ASCII between escaped words stays in the loop | Four table loads and a store by length an escape, and a return to the walk at each word's end | A/B on text of `\u` escapes |
 
     A claim stays only where `bench-json` shows its vector path faster than the scalar path by more
-    than the noise, on each runner of entry 20; design §8 step 16 records the runs. Wider vectors
+    than the noise, on each runner of entry 20; design §8 step 16 records the runs. J12 joined on
+    2026-09-30, when the owner chose the `\u` escapes, and design §8 step 18 records its runs. Wider vectors
     behind entry 21's per-level objects wait until a measurement asks for them.
 
     **The checks, with no oracle.** A conformance corpus such as JSONTestSuite and an oracle are

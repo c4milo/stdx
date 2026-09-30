@@ -2818,6 +2818,51 @@ to 12 are reordered and nothing else changes.
   5f1af8f and eb92b90 differs only in the token loop, `decoder_loop.take`, and in the harness's
   `json_calls.decode` and `json_calls.tokens_hash`, and encoding runs none of them.
 
+  **`\u` escapes two at a time, claim J12, 2026-09-30.** The owner chose the escapes after the
+  token profile. stdx decoded dickens as Cyrillic and CJK, written as `\u` escapes, at 0.67 of
+  yyjson's speed on the N2 and 0.77 on an AMD EPYC 9V74, and bench-profile run
+  [36764357681](https://github.com/c4milo/stdx/actions/runs/36764357681) counted 87.4 instructions
+  and 25.8 cycles an escape on the N2 against yyjson's 56.9 and 17.1. callgrind put 28 of the 87 in
+  reading the four digits a table load at a time, 20 in writing the UTF-8 by its length, 18 in the
+  run's loop, and about 10 in going back to the walk at each word's end. Claim J12 takes the
+  escapes in J10's loop, in `unicode_text` of decoder_loop_string.zig:
+
+  - Two escapes that follow each other have their reverse solidi and `u`s checked against one
+    word, and their eight digits checked and turned into two code units in another: each test adds
+    a constant that carries an octet into its high bit from a threshold on. Both characters' UTF-8
+    goes out in one store.
+  - One escape alone goes the same way, with four zeros as a second escape's digits.
+  - Up to `constants.escape_gap_len_max` octets of plain ASCII between two escapes stay in the loop.
+  - A surrogate, a digit that is none, an escape the input cuts and room short of a word leave to
+    the one-escape path, which stays the reference.
+
+  callgrind counted 52.1 instructions an escape on aarch64 and 70.7 on x86-64, from 87.4 and 101.2.
+  Inlined into `copy_rest` on x86-64, the loop took the letter escapes' registers: bench-json runs
+  [36770787424](https://github.com/c4milo/stdx/actions/runs/36770787424) and
+  [36770796764](https://github.com/c4milo/stdx/actions/runs/36770796764) paired it with 9edd5a3, and
+  json-1m as a string, all escapes of a letter, decoded at 0.909 of main's speed on an EPYC 7763 and
+  0.953 on a 9V74, while `copy_rest`'s AVX2 copy grew from 42 stack loads to 74. On x86-64 a `\u`
+  escape now runs out of line, in `unescape_unicode`. callgrind then counted 34% fewer stack loads
+  than main on json-1m, and aarch64's build stayed as it was. bench-json runs
+  [36778296053](https://github.com/c4milo/stdx/actions/runs/36778296053) and
+  [36778305800](https://github.com/c4milo/stdx/actions/runs/36778305800) paired that with c9b7042,
+  each string decoded at this speed over main's:
+
+  | Decoding | N2, first run | N2, second run | Intel Xeon 8573C | AMD EPYC 7763 |
+  |---|---|---|---|---|
+  | dickens as `\u` escapes | 1.612 | 1.612 | 1.385 | 1.406 |
+  | samba | 1.317 | 1.316 | 1.246 | 1.268 |
+  | json-1m | 0.999 | 1.000 | 0.986 | 1.099 |
+
+  stdx then decoded the escaped text at 1.09 and 1.10 of yyjson's speed on the N2, 1.07 on the
+  Xeon and 1.19 on the EPYC 7763. The text files as strings, whose letter escapes run `copy_rest`,
+  decoded 1.3% to 7.8% faster on the N2 in both runs and up to 18% faster on the EPYC 7763. The
+  files that lost in both jobs of an architecture ran library code identical apart from its
+  addresses in the bench program built at both commits, the harness's timed functions among it:
+  on the N2, six hex rows decoded 1.2% to 3.8% slower, and qlog's records, dickens and lcet10.txt
+  encoded 1% to 1.8% slower; on x86-64, hex json-1k decoded slower and four hex rows encoded
+  slower. They count as placement (decision 20), and main took the change at 5048c54.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
