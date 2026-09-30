@@ -1282,6 +1282,23 @@ to 12 are reordered and nothing else changes.
       x86-64, a Xeon 8573C and then an EPYC 7763, no file gained in both jobs. It was not kept.
       In both N2 jobs libzstd itself ran 2% to 6% slower on the 16 KiB bodies in the change's
       phase, its code unchanged, so their ratios to it rose by as much.
+    - 9754165 fills Z4 off's two as well, a match at offset 1 and repeated literals, through
+      `codec.fill`, out of line as `memset` was, at the owner's request: Z4's A/B had charged its
+      off side Zig's octet-at-a-time loop, 38 KiB of ptt5's matches the most. With every claim on,
+      both targets' objects are unchanged but for the padding before loops, and the M1's are
+      unchanged. Bench runs
+      [36674260065](https://github.com/c4milo/stdx/actions/runs/36674260065) and
+      [36674265609](https://github.com/c4milo/stdx/actions/runs/36674265609) timed main (6ddc35a)
+      and the change in each job, on a Neoverse N2 and an AMD EPYC 7763 in both. Z4's ratio on
+      ptt5 rose from 0.54 to 0.56 and 0.55 on the N2 and from 0.49 to 0.50 on the EPYC, its all-on
+      speed within 0.7%, and Z4's median held at 0.62 to 0.63 on the N2 and 0.56 to 0.57 on the
+      EPYC. On the EPYC, Z4's ratio on json-16k, html-16k and E.coli, which hold almost no such
+      fills, also rose by 0.02 in both jobs, from the registers Z4 off's step code gives the new
+      call's arguments. With every claim on, json-16k ran 0.6% to 1.9% slower on the EPYC in every
+      table of both jobs but ReleaseFast's, on instructions that differ from main's only in the
+      padding before a loop: placement. The block test now runs its copies with Z4 off and on the
+      checked path too, which caught the two mutations of the repeated literals' fill that no test
+      had.
   - Mutations are listed in each commit's body.
 
 - **Step 12: the brotli decoder.** The static dictionary generated from RFC 7932 Appendix A and the
