@@ -99,6 +99,7 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | a flag added to the decoder's state moved two lookup tables from 16-aligned offsets to 2 mod 16 | Zig reorders a plain struct's fields when one is added | declare a new field last, void where no code reads it, and diff every field's offset against main |
 | a fill whose A/B could show nothing on any corpus file | libzstd writes no repeated block for any corpus file at level 3 | count how often the corpus runs the changed code before measuring; a probe of inputs that run it (design §8 step 11) |
 | two mutation runs over different mutations failed the same tests in step | copies of the tree compiled by `zig test` with the same flags shared a cache and took each other's binaries | give every tree its own `--cache-dir` |
+| the x86-64 small bodies 2.0 to 2.9 µs a decode behind Google's decoder, whatever their size | the benchmark ran `codec.Features.detect()` for each decode: three CPUIDs, each a virtual machine's exit to its hypervisor | detect once, as a caller does; read a gap that stays the same in µs a decode as a cost of each call |
 
 ## Commands
 

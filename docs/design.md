@@ -1590,6 +1590,27 @@ to 12 are reordered and nothing else changes.
     built at 7eaaf1f matches main's on aarch64 function by function with addresses masked (566
     functions ReleaseSafe, 337 ReleaseFast), so the N2 runs main's code (decision 20's placement
     amendment), and matches 5ac721b's on x86-64 (567 and 336). Pushed to main the same day.
+  - The brotli benchmark's detection, 13dc23a on its branch and 537c05d on main, against 25e9774,
+    paired (runs [36676450570](https://github.com/c4milo/stdx/actions/runs/36676450570) and
+    [36676457924](https://github.com/c4milo/stdx/actions/runs/36676457924); reports in
+    `bench/results/`, dated 2026-09-30, "detect-once"). The benchmark ran `codec.Features.detect()`
+    for each decode, and on x86-64 a detection runs three CPUIDs, each of which leaves a virtual
+    machine for its hypervisor: in the x86-64 loop's runs the 1 KiB bodies, grammar.lsp and xargs.1
+    trailed Google's decoder by 2.0 to 2.9 µs a decode on an EPYC 7763, whatever their size. A
+    sampling run on both runners
+    ([36680132790](https://github.com/c4milo/stdx/actions/runs/36680132790)), its program detecting
+    once, had stdx decode json-1k 1.04 times as often as Google's decoder there and js-1k 0.95
+    times. The benchmark now detects when a candidate is set up, as the zstd benchmark and
+    `codec.Features`'s documentation do. On x86-64, an EPYC 9V74 and then a 7763, 12 files gain in
+    both jobs and none lose: json-1k +62% and +60% (0.61 to 0.99 of Google's speed), html-1k +41%
+    and +39% (0.69 to 0.98), js-1k +34% and +40% (0.64 to 0.85), grammar.lsp +21% in both (0.83 to
+    1.00), json-16k +19% and +20% (0.85 to 1.02), xargs.1 +14% and +11% (0.83 to 0.94), fields.c
+    +10% and +11% (0.88 to 0.97). On the N2, where detection reads the kernel's word in memory,
+    xargs.1 fell 1.5% and 1.6%: every function of the benchmark but the harness's own matches main's
+    there with addresses masked, `run_once` two instructions shorter, stdx's unchanged checked path
+    moved the same 1.1% to 1.3%, and stdx in the ReleaseFast table 0.4% at most, which decision 20's
+    amendment of 2026-09-30 for a change to a harness alone, ruled on these runs, counts as
+    placement. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over

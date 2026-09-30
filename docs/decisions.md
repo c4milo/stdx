@@ -991,6 +991,16 @@ probe of the CPU.
       own speed held within 0.3%. The alternatives refused: a one-time exception, which leaves the
       next change to argue the same case; and holding the change for a third pair, which would
       time Google's second phase again.
+    - Amended by the owner on 2026-09-30, after the brotli benchmark's detection fix: a change to a
+      benchmark's harness alone, with the library's functions identical apart from their addresses
+      on a runner, is judged there on the library, so the harness's own functions are not the
+      function that differs of the placement amendment above. There, the harness stopped running
+      `codec.Features.detect()` for each decode (13dc23a): x86-64's small bodies gained 7% to 62% in
+      both jobs of runs 36676450570 and 36676457924, while on the N2 xargs.1 fell 1.5% and 1.6%, its
+      library functions identical, stdx's unchanged checked path moving the same 1.1% to 1.3%, and
+      only `run_once`, two instructions shorter, differing. The alternatives refused: landing it as
+      a one-off, which leaves the next harness change to argue the same case; and holding it, which
+      keeps charging stdx a cost a caller pays once.
     - Amended by the owner on 2026-09-30, after design §8 step 11's fill of repeated blocks: a
       change whose code no corpus file runs is judged on a probe, inputs that run that code, which
       a branch that never lands adds to the benchmark beside the corpus, in the base and the
