@@ -186,7 +186,10 @@ fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level)) ?
 /// and the waiting match, lives in locals through the loop.
 fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block) void {
     comptime assert(level.chains);
-    const end = lookahead_end(level, self) orelse return;
+    const lookahead = lookahead_end(level, self) orelse return;
+    // The end is bounded by the window too, so every position the loop inserts, a match's
+    // included, fits the heads' 16 bits and its hash's octets need no bounds check.
+    const end = @min(lookahead, constants.encoder_window_len - constants.lookahead_min + 1);
     var state: LazyState = .{ .position = self.position, .previous = self.previous, .waiting = self.waiting };
     // The symbols cover the octets from the first position no symbol covers yet, as they stand at
     // the loop's start and end, so the loop adds their count once.
@@ -253,7 +256,11 @@ fn take_waiting(comptime level: constants.Level, self: *Matcher(level), symbols:
     assert(previous.len >= constants.match_len_taken_min);
     const match_end = position - 1 + previous.len;
     assert(match_end + constants.hash_len <= self.filled);
-    for (position + 1..match_end) |covered| insert(level, self, covered);
+    // A window position fits 16 bits. Counted in 16 bits, the covered positions need no check of
+    // their own against the heads' 16 bits or the window's end.
+    const covered_end: u16 = @intCast(match_end);
+    var covered: u16 = @intCast(position + 1);
+    while (covered < covered_end) : (covered += 1) insert(level, self, covered);
     symbols.pair(previous.len, previous.distance);
     return match_end;
 }
