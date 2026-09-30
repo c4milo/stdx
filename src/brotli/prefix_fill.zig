@@ -1,6 +1,6 @@
 //! The fills of prefix.zig's tables: a canonical code (RFC 7932 §3.2) written into a table's root
-//! and second levels, from its symbols in canonical order or from the runs of equal lengths the
-//! reading appended.
+//! and second levels, from its symbols in canonical order, from the runs of equal lengths the
+//! reading appended, or from a simple code's symbols (§3.4).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -28,6 +28,86 @@ pub fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, e
     var fill = Fill.start(root_bits, sorted[0].len, sorted[sorted.len - 1].len, counts);
     for (sorted) |coded| fill_symbol(root_bits, value_of, entries, &fill, coded.symbol, coded.len);
     return fill_end(root_bits, entries, &fill);
+}
+
+/// Writes the table of a simple code of two to four symbols (RFC 7932 §3.4), `symbols` in the order
+/// the stream gave them, and returns the entries it takes: the root. The code's shape names the
+/// symbol of each of the root's first entries, which it writes once each, and the rest of the root
+/// repeats them (`replicate_root`).
+pub fn fill_simple(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, symbols: []const u16, tree_select: bool) usize {
+    assert(symbols.len >= constants.code_symbols_min and symbols.len <= constants.simple_symbols_max);
+    assert(!tree_select or symbols.len == constants.simple_symbols_max);
+    const shape_index = symbols.len - constants.code_symbols_min + @intFromBool(tree_select);
+    const period = switch (shape_index) {
+        inline 0...simple_shapes.len - 1 => |index| fill_shape(root_bits, value_of, entries, symbols, simple_shapes[index]),
+        else => unreachable,
+    };
+    replicate_root(root_bits, entries, period);
+    return 1 << root_bits;
+}
+
+/// The table of a simple code (RFC 7932 §3.2, §3.4): the lengths of its symbols in the order the
+/// stream gives them, and for each of the root's first entries the rank, in canonical order, of the
+/// symbol whose code its bits start with. Each shape's lengths never fall, so a symbol's rank is its
+/// place in the stream's order once the symbols of each length are sorted.
+const SimpleShape = struct {
+    lengths: []const u8,
+    ranks: []const u8,
+};
+
+/// The shapes of simple codes of 2, 3 and 4 symbols, and of 4 with the tree-select bit set.
+const simple_shapes = shapes: {
+    var shapes: [constants.simple_code_lengths.len + 1]SimpleShape = undefined;
+    for (constants.simple_code_lengths, 0..) |lengths, index| shapes[index] = simple_shape(lengths);
+    shapes[constants.simple_code_lengths.len] = simple_shape(&constants.simple_code_lengths_tree_select);
+    break :shapes shapes;
+};
+
+/// The shape of a simple code whose symbols take `lengths` in the stream's order: each code, in
+/// canonical order, names every entry of the period whose low bits are its bits as the stream holds
+/// them.
+fn simple_shape(comptime lengths: []const u8) SimpleShape {
+    comptime {
+        for (lengths[1..], lengths[0 .. lengths.len - 1]) |len, before| assert(len >= before);
+        const len_max = lengths[lengths.len - 1];
+        var ranks: [1 << len_max]u8 = undefined;
+        var code: u32 = 0;
+        var code_len = lengths[0];
+        for (lengths, 0..) |len, rank| {
+            code <<= len - code_len;
+            code_len = len;
+            for (0..ranks.len >> len) |step| ranks[reversed(code, len) + (step << len)] = rank;
+            code += 1;
+        }
+        const shape_ranks = ranks;
+        return .{ .lengths = lengths, .ranks = &shape_ranks };
+    }
+}
+
+/// Writes the root's first entries for a simple code of `shape`, each once, and returns how many.
+inline fn fill_shape(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, symbols: []const u16, comptime shape: SimpleShape) usize {
+    comptime assert(shape.ranks.len <= 1 << root_bits);
+    assert(symbols.len == shape.lengths.len);
+    var canonical: [shape.lengths.len]u16 = symbols[0..shape.lengths.len].*;
+    sort_equal_lengths(&canonical, shape.lengths);
+    inline for (shape.ranks, 0..) |rank, index| entries[index] = symbol_entry(value_of(canonical[rank]), shape.lengths[rank]);
+    return shape.ranks.len;
+}
+
+/// Sorts the symbols of each length, in canonical order (RFC 7932 §3.2): an insertion of each
+/// symbol by compare-exchanges with the one before it, unrolled, and only between symbols of one
+/// length, which the shape keeps together.
+inline fn sort_equal_lengths(symbols: []u16, comptime lengths: []const u8) void {
+    inline for (1..lengths.len) |end| {
+        inline for (0..end) |step| {
+            const high = end - step;
+            if (comptime lengths[high - 1] == lengths[high]) {
+                const low_symbol = @min(symbols[high - 1], symbols[high]);
+                symbols[high] = @max(symbols[high - 1], symbols[high]);
+                symbols[high - 1] = low_symbol;
+            }
+        }
+    }
 }
 
 /// Writes the table of the canonical code whose symbols `ranges` holds as runs per length, as
@@ -177,8 +257,7 @@ inline fn fill_symbol(comptime root_bits: u5, comptime value_of: fn (u16) u16, e
 /// Ends a fill: the root copied to its full width, and the code's completeness and the table's
 /// budget asserted. Returns the entries the table takes.
 fn fill_end(comptime root_bits: u5, entries: []Entry, fill: *const Fill) align(constants.hot_function_alignment) usize {
-    assert(std.math.isPowerOfTwo(fill.filled));
-    _ = double_root(root_bits, entries, fill.filled, root_bits);
+    replicate_root(root_bits, entries, fill.filled);
     // The reader checked the sums of RFC 7932 §3.5: the codes take every value.
     assert(fill.code == @as(u32, 1) << @intCast(fill.code_len));
     // tools/brotli_table_budget.zig: no code of the alphabet takes more.
@@ -237,6 +316,27 @@ inline fn copy_root(entries: []Entry, width: usize) void {
         if (width == fixed) return @memcpy(entries[fixed..][0..fixed], entries[0..fixed]);
     }
     unreachable;
+}
+
+/// Copies the root's first `width` entries after themselves until the root is whole: doubled to a
+/// block of `root_copy_inline_max` entries, and then each block of the root past the period copied
+/// from the period, which no store of the copy writes, with one load and one store unrolled for
+/// each width.
+fn replicate_root(comptime root_bits: u5, entries: []Entry, width: usize) void {
+    assert(std.math.isPowerOfTwo(width) and width <= 1 << root_bits);
+    const root_len = 1 << root_bits;
+    const block_len = @min(constants.root_copy_inline_max, root_len);
+    const block_shift = comptime std.math.log2_int(usize, block_len);
+    const root: *[root_len]Entry = entries[0..root_len];
+    const period = double_root(root_bits, entries, width, block_shift);
+    switch (std.math.log2_int(usize, period)) {
+        inline block_shift...root_bits => |shift| {
+            inline for ((1 << shift) / block_len..root_len / block_len) |block| {
+                root[block * block_len ..][0..block_len].* = root[(block * block_len) % (1 << shift) ..][0..block_len].*;
+            }
+        },
+        else => unreachable,
+    }
 }
 
 /// A longer code fills every entry of its root entry's second level whose low bits are the bits it

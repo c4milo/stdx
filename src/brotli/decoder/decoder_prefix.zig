@@ -91,27 +91,13 @@ fn read_simple_symbol(state: *State, bits: *codec.BitReader) Error!?codec.Status
     return null;
 }
 
-/// A simple code's lengths, in the order its symbols came (RFC 7932 §3.4): one symbol takes no
-/// bits; two take 1 each; three take 1, 2 and 2; four take 2 each, or 1, 2, 3 and 3 when the
-/// tree-select bit is set. The canonical build gives codes of one length in symbol order.
+/// A simple code's table (RFC 7932 §3.4): one symbol takes no bits; two to four take the lengths
+/// `prefix_fill.fill_simple` gives them in the order they came.
 fn build_simple(state: *State, tree_select: bool) align(constants.hot_function_alignment) void {
     const reading = &state.reading;
     const symbols = reading.simple_symbols[0..reading.simple_count];
     if (symbols.len == 1) return finish_code(state, .{ .single = symbols[0] });
-    const lengths = if (tree_select) &constants.simple_code_lengths_tree_select else constants.simple_code_lengths[symbols.len - constants.code_symbols_min];
-    var sorted: [constants.simple_symbols_max]prefix.Coded = undefined;
-    var counts: prefix.Counts = @splat(0);
-    for (sorted[0..symbols.len], symbols, lengths) |*coded, symbol, len| {
-        coded.* = .{ .symbol = symbol, .len = len };
-        counts[len] += 1;
-    }
-    std.mem.sort(prefix.Coded, sorted[0..symbols.len], {}, canonical_before);
-    finish_code(state, .{ .sorted = .{ .symbols = sorted[0..symbols.len], .counts = &counts } });
-}
-
-/// Whether `a` comes before `b` in canonical order: by length, then by symbol (RFC 7932 §3.2).
-fn canonical_before(_: void, a: prefix.Coded, b: prefix.Coded) bool {
-    return a.len < b.len or (a.len == b.len and a.symbol < b.symbol);
+    finish_code(state, .{ .simple = .{ .symbols = symbols, .tree_select = tree_select } });
 }
 
 /// The code lengths of the code length code, in the order of RFC 7932 §3.5, until their sum of
@@ -308,11 +294,12 @@ pub inline fn apply_repeat_of(tally: anytype, ranges: *prefix.Ranges, counts: *p
     tally.space -= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
 }
 
-/// A code read, as its table takes it: one symbol, whose code takes no bits, or the symbols with a
-/// code in canonical order and the count of each length.
+/// A code read, as its table takes it: one symbol, whose code takes no bits; a simple code's two to
+/// four symbols in the order they came; or a complex code's runs of lengths and the count of each
+/// length.
 const Code = union(enum) {
     single: u16,
-    sorted: struct { symbols: []const prefix.Coded, counts: *const prefix.Counts },
+    simple: struct { symbols: []const u16, tree_select: bool },
     ranged: struct { ranges: *const prefix.Ranges, counts: *const prefix.Counts },
 };
 
@@ -341,7 +328,7 @@ fn finish_code(state: *State, code: Code) align(constants.hot_function_alignment
 fn build(table: anytype, code: Code) usize {
     return switch (code) {
         .single => |symbol| table.build_single(symbol),
-        .sorted => |sorted| table.build_sorted(sorted.symbols, sorted.counts),
+        .simple => |simple| table.build_simple(simple.symbols, simple.tree_select),
         .ranged => |ranged| table.build_ranged(ranged.ranges, ranged.counts),
     };
 }
@@ -358,7 +345,7 @@ fn build_literal(table: anytype, code: Code, mode: context.Mode) usize {
     return switch (mode) {
         inline else => |entry_mode| switch (code) {
             .single => |symbol| table.build_single_valued(symbol, context.literal_entry_value(entry_mode)),
-            .sorted => |sorted| table.build_sorted_valued(sorted.symbols, sorted.counts, context.literal_entry_value(entry_mode)),
+            .simple => |simple| table.build_simple_valued(simple.symbols, simple.tree_select, context.literal_entry_value(entry_mode)),
             .ranged => |ranged| table.build_ranged_valued(ranged.ranges, ranged.counts, context.literal_entry_value(entry_mode)),
         },
     };

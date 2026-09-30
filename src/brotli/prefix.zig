@@ -139,6 +139,17 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
             return fill.fill_canonical(root_bits, value_of, &self.entries, sorted, counts);
         }
 
+        /// The code of a simple code of two to four symbols (RFC 7932 §3.4), `symbols` in the order
+        /// the stream gave them. Returns the entries written: the root.
+        pub fn build_simple(self: *Self, symbols: []const u16, tree_select: bool) usize {
+            return self.build_simple_valued(symbols, tree_select, symbol_itself);
+        }
+
+        /// As `build_simple`, each symbol entry holding `value_of(symbol)`.
+        pub fn build_simple_valued(self: *Self, symbols: []const u16, tree_select: bool, comptime value_of: fn (u16) u16) usize {
+            return fill.fill_simple(root_bits, value_of, &self.entries, symbols, tree_select);
+        }
+
         /// As `build_sorted`, from the runs of equal lengths the reading appended (`Ranges`).
         pub fn build_ranged(self: *Self, ranges: *const Ranges, counts: *const Counts) usize {
             return self.build_ranged_valued(ranges, counts, symbol_itself);

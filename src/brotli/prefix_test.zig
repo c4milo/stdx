@@ -244,3 +244,56 @@ test "the build within the root writes the table the sorted build writes" {
         try testing.expectEqualSlices(prefix.Entry, by_sort.entries[0..sorted_len], within.entries[0..within_len]);
     }
 }
+
+test "a code whose longest code takes each length up to the root's repeats the root's first entries across it" {
+    for (1..constants.table_root_bits + 1) |longest| {
+        // Lengths 1 to `longest` - 1 once each and `longest` twice: a complete code (RFC 7932 §3.2)
+        // whose fill doubles the root to 1 << `longest` entries, and then repeats them.
+        var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
+        for (0..longest) |symbol| lengths[symbol * spread_stride + spread_offset] = @intCast(symbol + 1);
+        lengths[longest * spread_stride + spread_offset] = @intCast(longest);
+        var table: LiteralTable = undefined;
+        try testing.expectEqual(reference_table_len(&lengths), table.build(&lengths));
+        try expect_table_matches(&table, &lengths);
+        try expect_builds_alike(&lengths);
+    }
+}
+
+/// The orders of a simple code's four symbols.
+const simple_orders = 24;
+
+/// The `index`th of the orders of `symbols`: each place takes one of the symbols left, in the mixed
+/// radix of how many are left.
+fn nth_order(symbols: [constants.simple_symbols_max]u16, index: usize) [constants.simple_symbols_max]u16 {
+    var left = symbols;
+    var left_count: usize = left.len;
+    var rest = index;
+    var order: [constants.simple_symbols_max]u16 = undefined;
+    for (&order) |*symbol| {
+        const pick = rest % left_count;
+        rest /= left_count;
+        symbol.* = left[pick];
+        left[pick] = left[left_count - 1];
+        left_count -= 1;
+    }
+    return order;
+}
+
+test "a simple code's table is the canonical code of its lengths, in every order of its symbols" {
+    const symbols = [constants.simple_symbols_max]u16{ 200, 7, 64, 255 };
+    const shapes = constants.simple_code_lengths ++ [_][]const u8{&constants.simple_code_lengths_tree_select};
+    for (shapes, 0..) |shape, shape_index| {
+        const tree_select = shape_index == constants.simple_code_lengths.len;
+        for (0..simple_orders) |order_index| {
+            const order = nth_order(symbols, order_index);
+            const coded = order[0..shape.len];
+            var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
+            for (coded, shape) |symbol, len| lengths[symbol] = len;
+            var canonical: LiteralTable = undefined;
+            var simple: LiteralTable = undefined;
+            const canonical_len = canonical.build(&lengths);
+            try testing.expectEqual(canonical_len, simple.build_simple(coded, tree_select));
+            try testing.expectEqualSlices(prefix.Entry, canonical.entries[0..canonical_len], simple.entries[0..canonical_len]);
+        }
+    }
+}
