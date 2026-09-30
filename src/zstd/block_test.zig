@@ -104,6 +104,24 @@ test "a block's sequences copy literals and matches, whole and in pieces of any 
     }
 }
 
+test "a block's repeated literals fill its literal runs, whole and in pieces of any size" {
+    // Repeated literals in the two-octet form: Literals_Block_Type 1, Size_Format 1, and a
+    // Regenerated_Size of 100 from bit 4, then the octet 'z'. The first test's two sequences take
+    // 6 literals and copy two matches of 4; the checked path copies the other 94 literals after
+    // them, in one fill when the output holds them.
+    const literals_len = 100;
+    const head = [_]u8{ (literals_len << 4 | 1 << 2 | 1) & 0xff, literals_len >> 4, 'z', 2, 1 << 6 | 1 << 4 | 1 << 2, 3, 2, 1 };
+    var octets: [64]u8 = undefined;
+    const written = written_block(&head, &.{ 2, 0 }, &octets);
+    const decoded: [literals_len + 4 + 4]u8 = @splat('z');
+    for ([_]usize{ 1, 2, 3, 5, 7, 16, decoded.len }) |piece_len| {
+        var fixture: Fixture = .{};
+        fixture.start();
+        var output: [2 * decoded.len]u8 = @splat(0);
+        try testing.expectEqualSlices(u8, &decoded, try decode(&fixture, written, &output, piece_len));
+    }
+}
+
 test "an offset past the frame's first octet and literals past the section are refused" {
     var octets: [64]u8 = undefined;
     var fixture: Fixture = .{};
