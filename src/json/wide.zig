@@ -66,7 +66,7 @@ pub inline fn plain_len(level: Level, octets: []const u8) usize {
 /// The rest of a run past its first 16 octets, in a function of its own: a long run's loop compiled
 /// inside its caller's ran 13% slower on the N2 (design §8 step 17). The level's kernel takes what
 /// the run holds past `wide_run_len_min` octets.
-noinline fn plain_len_past_first(level: Level, octets: []const u8) usize {
+noinline fn plain_len_past_first(level: Level, octets: []const u8) align(constants.kernel_alignment) usize {
     const head_len_max = constants.wide_run_len_min - constants.vector_len;
     if (comptime !has_kernels) return scan.plain_len_vector(constants.vector_len, octets);
     if (level == .target or octets.len <= head_len_max + level.width()) return scan.plain_len_vector(constants.vector_len, octets);

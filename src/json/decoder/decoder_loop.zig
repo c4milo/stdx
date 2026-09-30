@@ -344,7 +344,7 @@ const Loop = struct {
 /// as `wide.plain_len` scans it, and copied whole: 16 at a time, the loop ran long hex strings up to
 /// 10% slower than the checked path on an AMD EPYC 7763 (design §8 step 18). It takes no `*Loop`,
 /// which would keep the loop's fields in memory.
-fn copy_long(level: wide.Level, rest: []const u8, room: []u8) usize {
+fn copy_long(level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) usize {
     const window = rest[0..@min(rest.len, room.len)];
     const run_len = wide.plain_len(level, window);
     @memcpy(room[0..run_len], window[0..run_len]);

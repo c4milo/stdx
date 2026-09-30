@@ -282,7 +282,7 @@ inline fn lane_holds(comptime width: usize, lanes: Lanes(width), lane: usize) bo
 /// `plain_len_scalar`, `width` octets at a time (claims J1 and J3). A run the whole blocks do not
 /// end ends in the last `width` octets, a block that overlaps the one before it: that one holds no
 /// stop, so the block's first is the run's. A run shorter than a block takes `plain_len_short`.
-pub fn plain_len_vector(comptime width: usize, octets: []const u8) usize {
+pub fn plain_len_vector(comptime width: usize, octets: []const u8) align(constants.kernel_alignment) usize {
     if (octets.len < width) return plain_len_short(width, octets);
     var index: usize = 0;
     for (0..octets.len / width) |_| {
