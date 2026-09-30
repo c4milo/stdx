@@ -24,6 +24,8 @@ pub fn is_plain_ascii(octet: u8) bool {
 
 /// True for insignificant whitespace (RFC 8259 §2).
 pub fn is_whitespace(octet: u8) bool {
+    // No whitespace octet is above a space, so one compare answers the octets that start tokens.
+    if (octet > constants.space) return false;
     return octet == constants.space or octet == constants.horizontal_tab or
         octet == constants.line_feed or octet == constants.carriage_return;
 }

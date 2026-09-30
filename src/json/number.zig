@@ -87,7 +87,7 @@ fn class_of(octet: u8) Class {
 
 /// Each state's next state for each class of octet, or null where RFC 8259 §6 allows none, in
 /// the order of `Class`: zero, digit, minus, plus, point, exponent, other.
-const transitions = std.enums.EnumArray(State, [std.enums.values(Class).len]?State).init(.{
+const transition_rows = std.enums.EnumArray(State, [class_count]?State).init(.{
     .start = .{ .zero, .integer, .minus, null, null, null, null },
     .minus = .{ .zero, .integer, null, null, null, null, null },
     .zero = .{ null, null, null, null, .point, .exponent_mark, null },
@@ -98,13 +98,35 @@ const transitions = std.enums.EnumArray(State, [std.enums.values(Class).len]?Sta
     .exponent_sign = .{ .exponent, .exponent, null, null, null, null, null },
     .exponent = .{ .exponent, .exponent, null, null, null, null, null },
 });
+const class_count = std.enums.values(Class).len;
+const state_count = std.enums.values(State).len;
 
-/// The state after `octet`, or null when the number cannot take it there. The row is read through
-/// a pointer: `get` returns it by value, and the token loop copied its 14 octets to the stack at
-/// every step (design §8 step 18).
+/// `transition_rows` as a plain array of each state's number, indexed by the state's own and the
+/// class's, with `no_state` where there is none: `EnumArray`'s index and each optional's flag took
+/// 16 instructions a number on aarch64 (design §8 step 18).
+const transitions: [state_count][class_count]u8 = table: {
+    var table: [state_count][class_count]u8 = undefined;
+    for (std.enums.values(State)) |state| {
+        for (transition_rows.get(state), 0..) |next, class| {
+            table[@intFromEnum(state)][class] = if (next) |known| @intFromEnum(known) else no_state;
+        }
+    }
+    break :table table;
+};
+const no_state = std.math.maxInt(u8);
+
+/// The state after `octet`, or null when the number cannot take it there.
 inline fn next_state(state: State, octet: u8) ?State {
-    return transitions.getPtrConst(state)[@intFromEnum(class_of(octet))];
+    const next = transitions[@intFromEnum(state)][@intFromEnum(classes[octet])];
+    return if (next == no_state) null else @enumFromInt(next);
 }
+
+/// Each octet's class, one load where `class_of`'s compares took up to eight.
+const classes: [std.math.maxInt(u8) + 1]Class = table: {
+    var table: [std.math.maxInt(u8) + 1]Class = undefined;
+    for (&table, 0..) |*class, octet| class.* = class_of(@intCast(octet));
+    break :table table;
+};
 
 /// A whole number that an octet after it ends: the octets it took, and the machine after them.
 pub const Ended = struct { len: usize, number: Number };
