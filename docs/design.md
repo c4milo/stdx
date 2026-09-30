@@ -1143,6 +1143,49 @@ to 12 are reordered and nothing else changes.
     CPU's needs a later run that draws one. Level 1 runs no function the three change: the bench,
     cross-built for the N2 at both commits, differs in the lazy loops and the walk alone, so its
     moves of 1 to 5% are placement.
+  - Level 6's loop, second round, 2026-09-30. After the first round level 6 ran at 0.86 of
+    libdeflate's speed on the N2 and at 0.79 on x86-64. Its walk still checked each candidate's
+    load against the window's end, its inserts checked each position against 16 bits, and a
+    pair's loop spent more on each candidate than a single walk. Four commits, with the same
+    output:
+    - c071fa4 pads level 6's window by 258 octets. A walk's load of 4 octets at a candidate, a
+      16-bit position, plus an offset into the match, an 8-bit value, then lies inside the array
+      for any values of the two, so the compiler drops its bounds check: 5 of the 19 instructions
+      a candidate cost at level 6 in the M1's code. The first form padded level 9 too. Its walk
+      is a call, which calls `match_len` on a match, and without the check x86-64 stored the
+      walk's next candidate to the stack and loaded it back on every candidate: level 9 ran at
+      0.767 and 0.773 of its speed on an EPYC 7763, every file slower (runs
+      [36738634377](https://github.com/c4milo/stdx/actions/runs/36738634377) and
+      [36738643602](https://github.com/c4milo/stdx/actions/runs/36738643602)). Level 9 keeps
+      its window; level 1 walks no chain.
+    - 6f2303b bounds the lazy loop's end by the window, as level 1's is, and counts the positions
+      a taken match covers in 16 bits, so an insert carries no check of its own.
+    - 923d189 applies the first walk's match to a pair's second walk only when that match grows,
+      and 0f352a9 records the second walk's match at the cut where the match changes, where the
+      compiler had made the copy three selects on every candidate.
+
+    Bench runs [36752910037](https://github.com/c4milo/stdx/actions/runs/36752910037) and
+    [36759933742](https://github.com/c4milo/stdx/actions/runs/36759933742) paired main (8480a3a)
+    and the four commits (7bf98c3 on their branch) in each job. On the N2, level 6 ran at 1.064
+    and 1.062 of its speed at the median, 35 files faster in both jobs and none slower (E.coli
+    1.24, fields.c 1.12, kennedy.xls 1.11); stdx over libdeflate went from 0.860 to 0.912 at level
+    6, the output unchanged. On x86-64, level 6 ran at 1.057 on an EPYC 9V74 and 1.042 on an EPYC
+    7763, 33 files faster and none slower, from 0.786 to 0.821 and 0.817 of libdeflate's speed.
+    Level 9 ran at 1.003 on both x86-64 CPUs, no file slower, and at 1.000 and 0.998 on the N2,
+    where grammar.lsp ran at 0.977 and 0.974 and xargs.1 at 0.969 and 0.965. Level 9's walk is
+    main's, and its lazy loop differs by 6f2303b's inserts. Level 1 runs no function the four
+    change: the bench, cross-built at both commits, differs in the lazy loops alone, so its moves
+    are placement, and on the N2 they reached 0.958 on grammar.lsp and 0.941 on xargs.1, the two
+    files that moved at level 9. The owner ruled level 9's two moves placement as well, and the
+    four landed.
+
+    A fifth commit finished a pair's longer walk in a loop of its own, once the other walk was
+    done. It took level 6 on the N2 to 1.071 and 1.074 of main's speed, but on x86-64 English
+    text ran 2 to 5% slower in both jobs (alice29.txt 0.960 and 0.969, bible.txt 0.950 and 0.958,
+    dickens 0.965 and 0.973; runs
+    [36749286009](https://github.com/c4milo/stdx/actions/runs/36749286009) and
+    [36749295243](https://github.com/c4milo/stdx/actions/runs/36749295243)), where its loops kept
+    more of the two walks' values on the stack. It did not land.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
