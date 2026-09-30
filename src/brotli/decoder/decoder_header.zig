@@ -10,6 +10,7 @@ const context = @import("../context.zig");
 const state_module = @import("decoder_state.zig");
 const prefix_reader = @import("decoder_prefix.zig");
 const stream = @import("decoder_stream.zig");
+const map_fast = @import("decoder_fast/decoder_fast_map.zig");
 const State = state_module.State;
 const Phase = state_module.Phase;
 const Category = state_module.Category;
@@ -40,7 +41,7 @@ pub fn read_phase(comptime fast_paths: bool, state: *State, bits: *codec.BitRead
         .context_modes => read_context_modes(state, bits),
         .trees_count => read_trees_count(state, bits),
         .map_run_length => read_map_run_length(state, bits),
-        .map_values => try read_map_values(state, bits),
+        .map_values => try read_map_values(fast_paths, state, bits),
         .map_inverse_transform => try read_map_inverse_transform(state, bits),
         .prefix_kind => prefix_reader.read_kind(state, bits),
         .simple_count => prefix_reader.read_simple_count(state, bits),
@@ -211,10 +212,11 @@ pub fn read_map_run_length(state: *State, bits: *codec.BitReader) ?codec.Status 
 }
 
 /// Context map values (RFC 7932 §7.3), until the map is whole or the input runs out.
-pub fn read_map_values(state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
+pub fn read_map_values(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     const len = map_len(state, state.map_reading.map);
     // Each symbol gives at least one entry, so the map's length ends the loop.
     for (0..len + 1) |_| {
+        if (fast_paths) map_fast.read(state, bits, map_entries(state, state.map_reading.map));
         if (state.map_reading.index == len) {
             state.phase = .map_inverse_transform;
             return null;
@@ -256,10 +258,11 @@ fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?void {
     reading.index += run;
 }
 
-/// Writes `count` zeros from `start`, which the caller has checked against the map's length.
-fn fill_zeros(entries: []u8, start: u32, count: u32) void {
+/// Writes `count` zeros from `start`, which the caller has checked against the map's length, through
+/// `codec.fill`: outside Darwin, `@memset` takes an octet at a time.
+pub fn fill_zeros(entries: []u8, start: u32, count: u32) void {
     assert(start + count <= entries.len);
-    @memset(entries[start..][0..count], 0);
+    codec.fill(entries[start..][0..count], 0);
 }
 
 /// The IMTF bit, and the inverse move-to-front transform it asks for (RFC 7932 §7.3); then the map
