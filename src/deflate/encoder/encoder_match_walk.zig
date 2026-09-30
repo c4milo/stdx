@@ -67,6 +67,9 @@ const Walk = struct {
         walk.tried +%= 1;
         if (tail_octets(self.window[candidate..], walk.tail) == walk.later_tail) {
             walk.found = longer_match(level, self, walk.position, candidate, walk.later, walk.found);
+            // `found` changes only here, so the last value set within the first
+            // `cut_candidates_max` candidates is `found` after them.
+            if (keeps_cut and walk.tried <= level.cut_candidates_max) walk.found_at_cut = walk.found;
             if (walk.found.len >= level.nice_len or walk.found.len >= walk.later.len) {
                 walk.done = true;
             } else {
@@ -74,7 +77,6 @@ const Walk = struct {
                 walk.later_tail = tail_octets(walk.later, walk.tail);
             }
         }
-        if (keeps_cut and walk.tried == level.cut_candidates_max) walk.found_at_cut = walk.found;
     }
 
     /// The walk's result: under a budget of `cut_candidates_max` when `cut`, else its own.
