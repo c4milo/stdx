@@ -72,10 +72,12 @@ pub const Ranges = struct {
     /// Inline, so that the reading loop keeps its own fields in registers across the append.
     pub inline fn append(self: *Ranges, len: u8, first: u16, count: u16) void {
         assert(len >= 1 and len <= constants.code_len_max and count >= 1);
+        // A run and the runs' count stay within the alphabet, which the reading bounds, so the sums
+        // below wrap never and take no check.
         if (self.heads[len] != constants.range_none) {
             const tail = &self.ranges[self.tails[len]];
-            if (tail.first + tail.count == first) {
-                tail.count += count;
+            if (tail.first +% tail.count == first) {
+                tail.count +%= count;
                 return;
             }
         }
@@ -84,7 +86,7 @@ pub const Ranges = struct {
         self.ranges[self.count] = .{ .first = first, .count = count, .next = constants.range_none };
         if (self.heads[len] == constants.range_none) self.heads[len] = self.count else self.ranges[self.tails[len]].next = self.count;
         self.tails[len] = self.count;
-        self.count += 1;
+        self.count +%= 1;
     }
 };
 

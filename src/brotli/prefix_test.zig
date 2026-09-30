@@ -297,3 +297,20 @@ test "a simple code's table is the canonical code of its lengths, in every order
         }
     }
 }
+
+test "each run takes one slot, and the largest alphabet holds a run for each symbol" {
+    var ranges: prefix.Ranges = undefined;
+    ranges.reset();
+    // Lengths 1 and 2 in turn: no symbol's run continues its length's run before it.
+    for (0..constants.insert_copy_alphabet_len) |symbol| {
+        ranges.append(@intCast(1 + symbol % 2), @intCast(symbol), 1);
+        try testing.expectEqual(symbol + 1, ranges.count);
+    }
+    // A symbol after its length's last run joins it and takes no slot.
+    var joined: prefix.Ranges = undefined;
+    joined.reset();
+    joined.append(1, 0, 1);
+    joined.append(1, 1, 2);
+    try testing.expectEqual(1, joined.count);
+    try testing.expectEqual(3, joined.ranges[0].count);
+}

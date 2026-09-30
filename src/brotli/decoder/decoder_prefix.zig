@@ -239,6 +239,13 @@ pub fn repeat_extra_bits(symbol: u8) u7 {
     };
 }
 
+/// As `repeat_extra_bits`, for a symbol the caller knows is a repeat code, 16 or 17: one compare.
+pub inline fn repeat_code_extra_bits(symbol: u8) u5 {
+    // 16 or 17, as one unsigned compare.
+    assert(symbol -% constants.repeat_previous_symbol <= constants.repeat_zero_symbol - constants.repeat_previous_symbol);
+    return if (symbol == constants.repeat_zero_symbol) constants.repeat_zero_extra_bits else constants.repeat_previous_extra_bits;
+}
+
 /// A code length of 0 to 15 for the next symbol.
 pub inline fn set_length(state: *State, len: u8) void {
     set_length_of(&state.reading, &state.reading.ranges, &state.reading.counts, len);
@@ -251,13 +258,15 @@ pub inline fn set_length(state: *State, len: u8) void {
 pub inline fn set_length_of(tally: anytype, ranges: *prefix.Ranges, counts: *prefix.Counts, len: u8) void {
     assert(tally.index < tally.alphabet_len);
     const symbol = tally.index;
-    tally.index += 1;
+    // The index stays at most the alphabet's length, and a length's count and the space's fall
+    // within it, so neither sum wraps and none takes a check.
+    tally.index +%= 1;
     tally.repeat_symbol = 0;
     if (len == 0) return;
     ranges.append(len, symbol, 1);
-    counts[len] += 1;
+    counts[len] +%= 1;
     tally.previous_len = len;
-    tally.space -= @as(i32, constants.code_lengths_space) >> @intCast(len);
+    tally.space -%= @as(i32, constants.code_lengths_space) >> @intCast(len);
 }
 
 /// What code 16 or 17 gives (RFC 7932 §3.5): 3 or more copies of the previous non-zero length, or
@@ -268,10 +277,10 @@ pub const Repeat = struct { count: u32, added: u32, len: u8 };
 /// The repeat a code 16 or 17 gives after the lengths `tally` has read, as `set_length_of` takes it.
 pub inline fn repeat_of(tally: anytype, symbol: u8, extra: u32) Repeat {
     const zeros = symbol == constants.repeat_zero_symbol;
+    // The factor is 1 << the extra bits: a shift by them multiplies by it.
     const extra_bits: u5 = if (zeros) constants.repeat_zero_extra_bits else constants.repeat_previous_extra_bits;
-    const factor: u32 = @as(u32, 1) << extra_bits;
     const earlier: u32 = if (tally.repeat_symbol == symbol) tally.repeat_count else 0;
-    const count: u32 = if (earlier == 0) constants.repeat_len_min + extra else factor * (earlier - constants.repeat_count_offset) + constants.repeat_len_min + extra;
+    const count: u32 = if (earlier == 0) constants.repeat_len_min + extra else ((earlier - constants.repeat_count_offset) << extra_bits) + constants.repeat_len_min + extra;
     return .{ .count = count, .added = count - earlier, .len = if (zeros) 0 else tally.previous_len };
 }
 
@@ -285,13 +294,16 @@ pub inline fn apply_repeat(state: *State, symbol: u8, repeat: Repeat) void {
 pub inline fn apply_repeat_of(tally: anytype, ranges: *prefix.Ranges, counts: *prefix.Counts, symbol: u8, repeat: Repeat) void {
     assert(tally.index + repeat.added <= tally.alphabet_len);
     const first = tally.index;
-    tally.index += @intCast(repeat.added);
+    // As in `set_length_of`: what the repeat adds keeps the index within the alphabet's length, so
+    // it and the sums below take no check.
+    const added: u16 = @truncate(repeat.added);
+    tally.index +%= added;
     tally.repeat_symbol = symbol;
     tally.repeat_count = repeat.count;
     if (repeat.len == 0) return;
-    ranges.append(repeat.len, first, @intCast(repeat.added));
-    counts[repeat.len] += @intCast(repeat.added);
-    tally.space -= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
+    ranges.append(repeat.len, first, added);
+    counts[repeat.len] +%= added;
+    tally.space -%= @intCast(repeat.added * (@as(u32, constants.code_lengths_space) >> @intCast(repeat.len)));
 }
 
 /// A code read, as its table takes it: one symbol, whose code takes no bits; a simple code's two to
