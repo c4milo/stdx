@@ -11,6 +11,12 @@ const std = @import("std");
 /// Hardware counters, for bench-profile.
 pub const counters = @import("counters.zig");
 
+comptime {
+    // Every benchmark program imports this module, so each exports the vector `memset` of
+    // memset.zig on Linux, for stdx and for the baselines' C code alike.
+    _ = @import("memset.zig");
+}
+
 /// Runs per measurement; decision 10 reports the median of five.
 pub const run_count = 5;
 
