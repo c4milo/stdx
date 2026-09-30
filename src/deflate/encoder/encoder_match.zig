@@ -16,6 +16,7 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
 const Block = @import("encoder_block.zig").Block;
+const Appender = @import("encoder_block.zig").Appender;
 const walk = @import("encoder_match_walk.zig");
 const best = walk.best;
 const best_pair = walk.best_pair;
@@ -186,7 +187,11 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
     comptime assert(level.chains);
     const end = lookahead_end(level, self) orelse return;
     var state: LazyState = .{ .position = self.position, .previous = self.previous, .waiting = self.waiting };
-    while (state.position < end and !block.full()) {
+    // The symbols cover the octets from the first position no symbol covers yet, as they stand at
+    // the loop's start and end, so the loop adds their count once.
+    const covered_from = state.position - @intFromBool(state.waiting);
+    var symbols = block.appender();
+    while (state.position < end and !symbols.full()) {
         insert(level, self, state.position);
         var current: Match = .{};
         if (level.pair_walks and !state.waiting and state.position + 1 < end) {
@@ -204,8 +209,9 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
             self.position = state.position;
             if (!(state.waiting and state.previous.len >= level.lazy_len)) current = best(level, self, constants.match_len_max, state.previous.len);
         }
-        decide_lazy(level, self, block, &state, current);
+        decide_lazy(level, self, &symbols, &state, current);
     }
+    symbols.finish(state.position - @intFromBool(state.waiting) - covered_from);
     self.position = state.position;
     self.previous = state.previous;
     self.waiting = state.waiting;
@@ -221,14 +227,14 @@ const LazyState = struct {
 
 /// Takes the waiting match when it is worth at least the `current` one, else adds the position
 /// before as a literal and lets `current` wait.
-fn decide_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block, state: *LazyState, current: Match) void {
+fn decide_lazy(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender, state: *LazyState, current: Match) void {
     if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score() >= current.score()) {
-        state.position = take_waiting(level, self, block, state.position, state.previous);
+        state.position = take_waiting(level, self, symbols, state.position, state.previous);
         state.waiting = false;
         state.previous = .{};
         return;
     }
-    if (state.waiting) block.add_literal(self.window[state.position - 1]);
+    if (state.waiting) symbols.literal(self.window[state.position - 1]);
     state.previous = current;
     state.waiting = true;
     state.position += 1;
@@ -236,12 +242,12 @@ fn decide_lazy(comptime level: constants.Level, self: *Matcher(level), block: *B
 
 /// Adds the match waiting from the position before `position`, every position it covers joining
 /// the chains, as a later match may start there. Returns the first position after it.
-fn take_waiting(comptime level: constants.Level, self: *Matcher(level), block: *Block, position: usize, previous: Match) usize {
+fn take_waiting(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender, position: usize, previous: Match) usize {
     assert(previous.len >= constants.match_len_taken_min);
     const match_end = position - 1 + previous.len;
     assert(match_end + constants.hash_len <= self.filled);
     for (position + 1..match_end) |covered| insert(level, self, covered);
-    block.add_pair(previous.len, previous.distance);
+    symbols.pair(previous.len, previous.distance);
     return match_end;
 }
 
