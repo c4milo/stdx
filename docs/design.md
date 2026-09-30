@@ -1507,6 +1507,32 @@ to 12 are reordered and nothing else changes.
     the job's tables, which decision 20's amendment of 2026-09-30, ruled on these runs, counts as no
     loss. On x86-64, both jobs on an EPYC 9V45, json-1k and css-1k gain and no file loses. Pushed to
     main the same day.
+  - The straight command loop in x86-64 assembly (owner's ruling of 2026-09-30, decision 23's brotli
+    extension), 5ac721b on its branch against 5e8eb8b, paired (runs
+    [36664617795](https://github.com/c4milo/stdx/actions/runs/36664617795) and
+    [36664623391](https://github.com/c4milo/stdx/actions/runs/36664623391); reports in
+    `bench/results/`, dated 2026-09-30, "x86-asm"), and 7eaaf1f on main. The aarch64 loop's port, in
+    three files of its own, runs where LLVM assembles it and on a CPU whose `codec.Features` name
+    BMI2 at `init`; x86-64's 14 registers keep more of the loop's state in the machine, which the
+    loop reads in place, and a dictionary word calls into Zig by System V's convention on every
+    x86-64 OS. The Rosetta tests found a literal run that overwrote the command's packed code, and a
+    meta-block's end that left the saved stack pointer in `insert_left`. The CPU's flag, added to
+    `State`, moved `insert_copy_codes` and `literal_codes` from 16-aligned offsets to 2 mod 16,
+    since Zig reorders a plain struct's fields when one is added; declared last, and void on other
+    targets, it leaves every field and the aarch64 code as main has them. The loop agrees with the
+    Zig loop on the 39 corpus streams, and differential-brotli (726 streams, 170,865 corruptions)
+    and 100,000 seeded corruptions pass for x86-64-v3 under Rosetta. Mutations: 43 of 44 CAUGHT,
+    nine through nine new tests, which also catch eight mutations of the aarch64 loop that main's
+    tests missed; the other is equivalent, since each refill of a literal run checks the input's
+    slack again. On the EPYC 7763 of both x86-64 jobs, 37 files gain and none lose, the median
+    +25.9%; in the first job dickens went from 0.90 to 1.19 of Google's speed, kennedy.xls 0.72 to
+    1.08, json-1m 0.84 to 1.18, json-1k 0.60 to 0.64. Still below Google's speed there: the four 1
+    KiB bodies (0.64 to 0.73), grammar.lsp (0.86), xargs.1 (0.87), the four 16 KiB bodies (0.93 to
+    0.95) and fields.c (0.95). On the N2, fields.c's ratio fell 1.4% and 2.9% while Google's decoder
+    ran 1.3% and 2.9% faster in the jobs' second phase and stdx's own speed moved 0.1%; the bench
+    built at 7eaaf1f matches main's on aarch64 function by function with addresses masked (566
+    functions ReleaseSafe, 337 ReleaseFast), so the N2 runs main's code (decision 20's placement
+    amendment), and matches 5ac721b's on x86-64 (567 and 336). Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
