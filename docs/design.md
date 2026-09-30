@@ -2721,6 +2721,26 @@ to 12 are reordered and nothing else changes.
   apart from its addresses. The scan now starts at octet 24, where the fourth pair's rows decoded at
   0.997 and 0.989 of their speed at octet 12.
 
+  **A number's first and last steps skipped, on the aligned functions, 2026-09-30, rejected.** The
+  pair that found what moves the hex rows measured e3a78a4's skipped steps a third time, eb92b90
+  over 5f1af8f. The owner then asked for two more runs over main with the alignment, 54c56b5 over
+  d618663: bench-json runs [36758704527](https://github.com/c4milo/stdx/actions/runs/36758704527)
+  and [36758713325](https://github.com/c4milo/stdx/actions/runs/36758713325). The owner ruled that
+  the change lands only if qlog's records or CLDR's texts win in both runs by more than their floor,
+  the larger of 1% and their spread. qlog's records decoded at these speeds over the base's:
+
+  | Pair | Neoverse N2 | x86-64 |
+  |---|---|---|
+  | 5f1af8f and eb92b90 | 1.010 and 1.003 | 1.054 and 1.045, on an AMD EPYC 7763 |
+  | d618663 and 54c56b5 | 1.009 and 1.019 | 1.024 and 1.014, on an AMD EPYC 9V74 |
+
+  Only the last run's moves passed their floors. On the EPYC 7763, one commit's five runs spread
+  21.5% in the first run and 15.6% in the second, and on the EPYC 9V74 24.5% in the first. CLDR's
+  texts moved 1.5% or less on every CPU, inside their floors. The change left. On the N2, dickens
+  as a string encoded 1% to 1.1% slower and plrabn12.txt 4.5% faster in all four runs. bench_json at
+  5f1af8f and eb92b90 differs only in the token loop, `decoder_loop.take`, and in the harness's
+  `json_calls.decode` and `json_calls.tokens_hash`, and encoding runs none of them.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
