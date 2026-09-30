@@ -154,3 +154,89 @@ test "a block type of one tree leaves p1 and p2 for the context of the next bloc
     try testing.expectEqual(checked_progress.written, progress.written);
     try testing.expectEqualSlices(u8, checked_output[0..checked_progress.written], output[0..progress.written]);
 }
+
+/// Two literal block types: the first in LSB6 mode, of one tree, 'y', for one literal; the second
+/// in UTF8 mode for five (RFC 7932 §6, §7.1), whose context map names tree 1, '.', at the ID p1 'y'
+/// and p2 ' ' or 0 give, tree 2, ' ', at the ID of p1 and p2 'y', and tree 0 elsewhere (§7.3). Two
+/// commands of symbol 152, insert length 3 and a copy of 2 at distance 1, NDIRECT 1's code 16 (§4,
+/// §5): the first gives "y.y", its last two literals after the block switch, then "yy"; the second
+/// starts in the straight loop, whose run of the block type's own mode gives " y.", the last
+/// literal's p2 the run's first, ' ', where the p2 the run started with, 'y', gives ' '. The
+/// meta-block's end cuts the second copy off.
+const own_mode_literals = "y.yyy y.";
+const own_mode_symbol = 152;
+const own_mode_tree_literals = [_]u16{ 'y', '.', ' ' };
+const dot_tree = 1;
+const space_tree = 2;
+const dot_context = context.literal_id(.utf8, 'y', ' ');
+const space_context = context.literal_id(.utf8, 'y', 'y');
+/// The second block's count, 5: count code 1 and 2 extra bits of 0 (RFC 7932 §6).
+const own_mode_count_code = 1;
+/// NDIRECT 1, whose code 16 is the distance 1, and the distance alphabet it gives (RFC 7932 §4).
+const one_direct = 1;
+const one_direct_alphabet_len = constants.distance_short_codes_count + one_direct + constants.distance_code_groups;
+/// A code of 2 bits in the map's prefix code.
+const two_bit_code_len = 2;
+
+/// A tree's code in the map's prefix code of three symbols, whose first takes 1 bit and the others
+/// 2 (RFC 7932 §3.4): tree 0 is 0, tree 1 10 and tree 2 11.
+fn put_tree(stream: *Stream, tree: u32) void {
+    if (tree == 0) return stream.put_code(0, 1);
+    stream.put_code(tree + 1, two_bit_code_len);
+}
+
+fn own_mode_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.meta_block(true, own_mode_literals.len);
+    // NBLTYPESL 2: the block type code of symbol 1, the next type; the count code of 0 and 1, 1 bit
+    // each; the first block's count, 1.
+    stream.count(constants.block_switch_types_min);
+    stream.simple_code(constants.block_switch_types_min + constants.block_type_symbol_offset, &.{1}, false);
+    stream.simple_code(constants.block_count_alphabet_len, &.{ 0, own_mode_count_code }, false);
+    stream.put_code(0, 1);
+    stream.put(0, constants.block_count_codes[0].extra_bits);
+    stream.count(1);
+    stream.count(1);
+    stream.put(0, constants.postfix_field_bits);
+    stream.put(one_direct, constants.direct_field_bits);
+    stream.put(@intFromEnum(context.Mode.lsb6), constants.context_mode_bits);
+    stream.put(@intFromEnum(context.Mode.utf8), constants.context_mode_bits);
+    stream.count(own_mode_tree_literals.len);
+    stream.put(0, 1);
+    stream.simple_code(own_mode_tree_literals.len, &.{ 0, dot_tree, space_tree }, false);
+    for (0..constants.literal_contexts_count) |_| put_tree(stream, 0);
+    for (0..constants.literal_contexts_count) |id| put_tree(stream, if (id == dot_context) dot_tree else if (id == space_context) space_tree else 0);
+    stream.put(0, 1);
+    stream.count(1);
+    for (own_mode_tree_literals) |literal| stream.simple_code(constants.literal_alphabet_len, &.{literal}, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{own_mode_symbol}, false);
+    stream.simple_code(one_direct_alphabet_len, &.{constants.distance_short_codes_count}, false);
+    // Every code has one symbol and takes no bits, but the switch's count code, 1, and its extra
+    // bits.
+    stream.put_code(own_mode_count_code, 1);
+    stream.put(0, constants.block_count_codes[own_mode_count_code].extra_bits);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+    for (0..fast.input_slack) |_| stream.put(0, @bitSizeOf(u8));
+}
+
+test "a run of a block type of another mode than the entries' moves p2 at each literal" {
+    // The ID of p1 'y' and p2 ' ' is the one of p2 0, and differs from p2 'y''s, so a p2 the run
+    // left where it started picks another tree for the last literal.
+    try testing.expectEqual(dot_context, context.literal_id(.utf8, 'y', 0));
+    try testing.expect(dot_context != space_context);
+    var stream: Stream = .{};
+    own_mode_stream(&stream);
+    const input = stream.written();
+    // A room past the margin, so that the straight loop takes the second command.
+    var output: [fast.output_margin + own_mode_literals.len]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(.{});
+    const progress = try decoder.decode(input, &output);
+    try testing.expectEqualStrings(own_mode_literals, output[0..progress.written]);
+    var checked: CheckedDecoder = undefined;
+    checked.init(.{});
+    var checked_output: [output.len]u8 = undefined;
+    const checked_progress = try checked.decode(input, &checked_output);
+    try testing.expectEqualStrings(own_mode_literals, checked_output[0..checked_progress.written]);
+}

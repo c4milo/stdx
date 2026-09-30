@@ -190,6 +190,10 @@ test {
 }
 
 test {
+    _ = @import("decoder_fast/decoder_fast_word_test.zig");
+}
+
+test {
     _ = @import("decoder_fast/decoder_fast_copy.zig");
 }
 
