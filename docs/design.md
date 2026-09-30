@@ -2693,6 +2693,34 @@ to 12 are reordered and nothing else changes.
   30 and 31 hex rows decoded 1% to 7% slower, and dickens and E.coli encoded 2% to 3.7% slower,
   in both runs. It left.
 
+  **What moves the hex rows, 2026-09-30.** A hex row's string runs through two loops:
+  `scan.plain_len_vector`'s scan, 16 octets at a time, and `memcpy`'s copy of the run the scan
+  measures. The scan is 17 instructions in 68 octets, the same in every build. bench_json, built for
+  aarch64 at the two commits of each pair, starts it at these octets of its 64-octet line:
+
+  | Pair | The scan's octet in its line | N2 hex rows over the base, geometric mean |
+  |---|---|---|
+  | 25e9774 and 54fc1aa | 56, then 12 | 1.004 and 1.002 |
+  | 54fc1aa and e3a78a4 | 12, then 20 | 0.968 and 0.972 |
+  | ba11417 and 594d659 | 12, then 52 | 0.975 and 0.976 |
+  | 1c0c57c and 6c055bf | 12, then 24 | 0.997 and 0.989 |
+  | 5f1af8f and eb92b90 | 24, then 24 | 0.999 and 0.993 |
+
+  `memcpy`'s loop starts at the same octet in both commits of every pair, so the rows moved with the
+  scan's place. The entry on the plain run's functions put the cause outside them, since the rows
+  moved with the functions on a line. That pair's base had them unaligned, though, so the scan still
+  moved, from octet 12 to 24. The last pair, bench-json runs
+  [36739057258](https://github.com/c4milo/stdx/actions/runs/36739057258) and
+  [36739068253](https://github.com/c4milo/stdx/actions/runs/36739068253), aligned the functions in
+  both commits, and the rows' geometric mean held. Single rows still moved 1% to 4% either way, and
+  six decoded slower in both runs.
+
+  **The plain run's functions on a line, landed.** Decision 20's amendment lets a change that only
+  moves code land without a win, and the owner ruled the alignment in; main took it at d618663.
+  bench_json, built for aarch64 and for x86-64 at e27ee05 and d618663, runs every function identical
+  apart from its addresses. The scan now starts at octet 24, where the fourth pair's rows decoded at
+  0.997 and 0.989 of their speed at octet 12.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
