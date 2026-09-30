@@ -2171,6 +2171,15 @@ to 12 are reordered and nothing else changes.
   files, each of which runs the loop once, so the owner ruled that the change lands without a
   number. Main took it at 9ed8911.
 
+  **The check at 32 and 64 lanes, 2026-09-29 (decision 39).** The owner ruled the wider copies
+  after the paired runs above put stdx's 16 lanes at 0.34 to 0.84 of simdutf's speed on x86-64.
+  The variant object now runs the check at AVX2's 32 lanes and AVX-512's 64, each copy starting its
+  loads on a line of its width. Each kernel and each string loop now starts on a 64-octet line, so
+  the object's placement no longer moves its loops. At ee0f015 the check ran the ASCII text files
+  at a median of 1.422 of simdutf's speed on an AMD EPYC 9V45 and 1.008 on an AMD EPYC 7763, and
+  the non-ASCII text at 1.087 and 0.952. Decision 39 holds the runs, the widths against each other
+  and the placement proof.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped

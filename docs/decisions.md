@@ -2059,11 +2059,47 @@ on x86-64.
       the M-series host and Rosetta lack. So bench-json requires every copy of the check to judge
       20000 seeded buffers and each workload, whole and with an octet changed, as the module's own
       16 lanes and simdutf do before it times anything, and every run on such a runner checks it.
-    - Measured as entry 16 asks: paired runs against main on both runners, and, on an x86-64 CPU
-      with AVX-512, the 64-lane copy against the 32-lane one in the same job.
+    - The wider copies start their loads on a line of their width (`aligned_start`): they judge
+      one block from the buffer's first octet, unaligned, then load every block from the next line
+      on, the three octets before it placed in one shuffle. A first cut loaded from the buffer's
+      first octet, and on an Intel Xeon Platinum 8370C the 64-lane copy ran 16 files at 55 GB/s and
+      the one whose buffer sat on a line at 163, while simdutf ran the same files at 107 and 55 (run
+      [36628661670](https://github.com/c4milo/stdx/actions/runs/36628661670)). bench-json now times
+      the check at six offsets from a line. On an AMD EPYC 9V45 the aligned start took an ASCII
+      text at those offsets from 142 to 147 GB/s up to 199 to 207, with simdutf at 132 to 140 (run
+      [36634334010](https://github.com/c4milo/stdx/actions/runs/36634334010)). A buffer under
+      `utf8_aligned_len_min`, 1 KiB, keeps its unaligned loads, where the setup costs more than the
+      loads it saves.
+    - The same run decoded the hex strings at 0.62 to 0.79 of their speed on the EPYC 9V45 with
+      the decoder's code unchanged: the variant object's text was aligned to 16 octets, so every
+      change to the module's own code moved the object and its kernels within their lines. Each
+      kernel and each of the loops' string functions now starts on a 64-octet line
+      (`kernel_alignment`), and its loops sit where its own code puts them.
+
+    **Measured, 2026-09-29.** Two paired runs of ee0f015 against main at 6fa420f,
+    [36643926336](https://github.com/c4milo/stdx/actions/runs/36643926336) and
+    [36643928058](https://github.com/c4milo/stdx/actions/runs/36643928058), drew the N2 twice, an AMD
+    EPYC 9V45 and an AMD EPYC 7763.
+    - On the EPYC 9V45, with AVX-512, `is_utf8` ran the ASCII text files at 1.206 to 1.603 of
+      simdutf's speed (median 1.422) and the non-ASCII text at 1.087: 1.86 to 2.46 times main's
+      speed on the ASCII files and 3.84 on the non-ASCII text. Its 64 lanes ran the ASCII files at
+      1.08 to 1.57 of its own 32 in the same job (median 1.42) and the non-ASCII text at 2.12, so a
+      CPU with AVX-512 keeps the 64-lane copy.
+    - On the EPYC 7763, with AVX2, the 32-lane copy ran the ASCII files at 0.950 to 1.190 of
+      simdutf's speed (median 1.008) and the non-ASCII text at 0.952, from 0.596 to 0.979 and
+      0.521 at main.
+    - The N2's copy, which the batch leaves as it was, stayed at 1.01 to 1.08 and 1.04.
+    - No Intel Xeon was drawn after the aligned start. Before it, the Xeon 8370C ran the 64-lane
+      copy at 0.511 to 0.551 of simdutf's speed on the 16 files off a line (run 36628661670).
+    - The placement proof (entry 20) built bench-json for both runners' targets at both commits.
+      Outside the check and bench-json's own UTF-8 section, every function of stdx and of the
+      benchmark's timing loop is identical apart from its address. So the decoder's and encoder's
+      rows moved by placement alone, the kernels now each on a line: on the EPYC 9V45 the hex
+      strings decoded 1.27 to 1.65 times as fast and E.coli 1.45, and on the N2 bible.txt and
+      html-1m decoded at 0.95 in both runs.
 
     What it costs: two kernels more in the variant object, the AVX-512 level built for the json
-    module, and a width through the check.
+    module, a width through the check, and up to 63 octets of padding before each aligned kernel.
 
     The alternatives:
     - The check at 16 lanes on x86-64, as entry 38 built it. simdutf stays 1.2 to 2.9 times as fast
