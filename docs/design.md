@@ -1060,6 +1060,42 @@ to 12 are reordered and nothing else changes.
     level 1 time on the M1 at both commits. Decision 20 still counts a file whose path runs a
     changed function, and every commit's plan runs on osdb's path; osdb's loss moved with the
     plan's later commits and is gone at 7088922, where no file loses.
+  - Level 1's loop, 2026-09-30. The owner chose level 1's output next: 5.5% larger than
+    libdeflate's at the median. A black-box reading of both encoders' streams (`l1probe.py` in the
+    session's scratchpad) found libdeflate's source for each match among the two latest earlier
+    positions with the same first four octets, the longer of the two, while stdx keeps one position
+    per hash and inserts only the positions a match of up to 8 octets covers. Two positions per
+    13-bit hash, at the same 32 KiB, with every covered position inserted, took level 1's output to
+    1.004 of libdeflate's, but cost 19% of its speed on the runners (bench runs
+    [36657204126](https://github.com/c4milo/stdx/actions/runs/36657204126) and
+    [36657211355](https://github.com/c4milo/stdx/actions/runs/36657211355)); the owner ruled to
+    make it cheaper first. The N2's counters (bench-profile runs
+    [36669878514](https://github.com/c4milo/stdx/actions/runs/36669878514) and
+    [36669886634](https://github.com/c4milo/stdx/actions/runs/36669886634), on a branch that never
+    lands) put the cost in instructions at steady IPC: with the pair, level 1 spent 50 to 99
+    instructions an octet on Silesia's files where libdeflate spends 30 to 48. Three commits cut
+    level 1's own loop, with the same output:
+    - cc0ea1c keeps the loop's position and the block's symbol count in locals, through the
+      block's `Appender`, and adds the octets the symbols cover once, at the loop's end; levels 6
+      and 9 keep the block's add functions.
+    - 6a3047b inlines the insert of the positions a match covers, whose call cost more than the few
+      inserts of a short match.
+    - 0dbb008 tests a full block with `>=`, so each append's bound is proved, and adds the counts
+      without an overflow check: a block holds at most 16,384 symbols, which a comptime assert
+      pins below 2^16.
+
+    On the M1, level 1 took 15 to 27% fewer instructions. Bench runs
+    [36672962347](https://github.com/c4milo/stdx/actions/runs/36672962347) and
+    [36672969631](https://github.com/c4milo/stdx/actions/runs/36672969631) paired main (9758928)
+    and the three commits (86eb7c5 on their branch) in each job, on a Neoverse N2 and an AMD EPYC
+    7763 in both. Level 1 ran at 1.146 of its speed at the median on the N2, every file faster in
+    both jobs (E.coli 1.21 and 1.22, x-ray and dickens-1m 1.20), and at 1.052 and 1.053 on the
+    EPYC, 35 files faster; stdx over libdeflate went from 0.847 to 0.979 on the N2 and from 0.913
+    to 0.990 on the EPYC, the output unchanged. sum ran at 0.990 and 0.988 of its speed on the EPYC
+    in both jobs, past its floor, while the N2 ran it 16% faster and the M1 10%, with a quarter
+    fewer instructions; the owner ruled to land the loop with that loss. Levels 6 and 9 lost no
+    file in both jobs, and the bench, cross-built for the N2 at both commits, differs in level 1's
+    loop and the insert it inlines alone.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
