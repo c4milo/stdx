@@ -312,8 +312,8 @@ fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block: *B
 /// Makes every position the match at `position` covers, after its first, its hash's head, so a
 /// later match may start there and the head names the nearest position. Only positions with
 /// `hash_len` octets in the window count. The 4 octets slide through a word: one octet loaded per
-/// position.
-fn insert_covered(comptime level: constants.Level, self: *Matcher(level), position: usize, end: usize) void {
+/// position. Inline, as a call's setup cost level 1 more than the few inserts of a short match.
+inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level), position: usize, end: usize) void {
     assert(position < end and end <= self.filled);
     const first = position + 1;
     const last = @min(end, self.filled - (constants.hash_len - 1));
