@@ -83,6 +83,13 @@ const Walk = struct {
 /// search ends early at `nice_len`. When the match waiting from the position before is
 /// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`.
 pub fn best(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+    return best_inline(level, self, len_max, previous_len);
+}
+
+/// `best`, inline in its caller: level 6's positions mostly start a walk that meets a candidate or
+/// two, so a call's own cost is a large share of the walk there; level 9's walks run long, and it
+/// calls `best`.
+pub inline fn best_inline(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
     if (self.position + constants.hash_len > self.filled) return .{};
     const cut = previous_len >= level.cut_len;
     var walk = Walk.init(level, self, self.position, len_max, if (cut) level.cut_candidates_max else level.candidates_max);

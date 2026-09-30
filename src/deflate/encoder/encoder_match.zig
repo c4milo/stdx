@@ -19,6 +19,7 @@ const Block = @import("encoder_block.zig").Block;
 const Appender = @import("encoder_block.zig").Appender;
 const walk = @import("encoder_match_walk.zig");
 const best = walk.best;
+const best_inline = walk.best_inline;
 const best_pair = walk.best_pair;
 
 /// A match: its length, 0 for none, and its distance.
@@ -207,7 +208,7 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
             // A waiting match at least `lazy_len` long is taken without a search here.
             assert(state.waiting or state.previous.len == 0);
             self.position = state.position;
-            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = best(level, self, constants.match_len_max, state.previous.len);
+            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = search(level, self, constants.match_len_max, state.previous.len);
         }
         decide_lazy(level, self, &symbols, &state, current);
     }
@@ -215,6 +216,12 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
     self.position = state.position;
     self.previous = state.previous;
     self.waiting = state.waiting;
+}
+
+/// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
+/// and a call to `best` at level 9, whose walks run long.
+inline fn search(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+    return if (level.pair_walks) best_inline(level, self, len_max, previous_len) else best(level, self, len_max, previous_len);
 }
 
 /// The lazy step's state through `advance_lazy`: the next position, and the match waiting from the
@@ -338,7 +345,7 @@ fn step_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Blo
     const skip = self.waiting and self.previous.len >= level.lazy_len;
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
-    const current = if (skip) Match{} else best(level, self, @min(ahead, constants.match_len_max), self.previous.len);
+    const current = if (skip) Match{} else search(level, self, @min(ahead, constants.match_len_max), self.previous.len);
     if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score() >= current.score()) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.
