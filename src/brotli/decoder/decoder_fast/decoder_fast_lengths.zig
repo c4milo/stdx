@@ -92,17 +92,31 @@ pub const Bits = struct {
 /// applying each as the checked path does, and hands the reader back.
 pub fn read_code_length_code(state: *State, bits: *codec.BitReader) void {
     const reading = &state.reading;
+    var tally: CodeLengthTally = .{ .index = reading.index, .space = reading.space, .nonzero_count = reading.nonzero_count };
     var local = Bits.of(bits);
     for (0..constants.code_length_alphabet_len) |_| {
         // A sum that reaches 32 or passes it ends the lengths, as does the alphabet's end.
-        if (reading.space <= 0 or reading.index >= constants.code_length_alphabet_len) break;
+        if (tally.space <= 0 or tally.index >= constants.code_length_alphabet_len) break;
         if (!local.has_symbol_bits()) break;
         const decoded = prefix.decode_code_length_code_length_whole(local.buffer);
         local.take(decoded.len);
-        prefix_reader.set_code_length_code_length(state, decoded.value);
+        count_work(state, 1);
+        prefix_reader.set_code_length_code_length_of(&tally, &state.lengths, &reading.counts, decoded.value);
     }
+    reading.index = tally.index;
+    reading.space = tally.space;
+    reading.nonzero_count = tally.nonzero_count;
     local.hand_back(bits);
 }
+
+/// The reading's fields a length of the code length code changes, which `read_code_length_code`
+/// holds in registers and writes back once, as `prefix_reader.set_code_length_code_length_of`
+/// takes them.
+const CodeLengthTally = struct {
+    index: u16,
+    space: i32,
+    nonzero_count: u16,
+};
 
 /// The reading's fields a code length symbol changes, which `read` holds in registers and writes
 /// back once, as `prefix_reader.set_length_of` takes them.

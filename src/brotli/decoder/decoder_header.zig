@@ -3,6 +3,7 @@
 //! maps (§7.3), and the order its prefix codes come in.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
@@ -301,7 +302,8 @@ fn inverse_move_to_front(entries: []u8) usize {
         const index = entry.*;
         const value = order[index];
         entry.* = value;
-        written += @as(usize, index) + 1;
+        // Invariant 17's count alone reads it.
+        if (builtin.is_test) written += @as(usize, index) + 1;
         // The value at the front moves nothing; one below `move_to_front_vector_len` moves the
         // values before it up by one in a single vector shift, the rest of the vector kept.
         if (index == 0) continue;

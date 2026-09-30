@@ -135,19 +135,26 @@ pub fn read_code_length_code_length(state: *State, bits: *codec.BitReader) Error
     set_code_length_code_length(state, decoded.value);
 }
 
-/// A code length of the code length code for the next symbol of the order of RFC 7932 §3.5. Inline,
-/// so that the loop of decoder_fast_lengths.zig keeps the reading's fields in registers.
-pub inline fn set_code_length_code_length(state: *State, len: u8) void {
-    const reading = &state.reading;
-    assert(reading.index < constants.code_length_alphabet_len);
-    const symbol = constants.code_length_code_order[reading.index];
-    state.lengths[symbol] = len;
-    reading.index += 1;
+/// A code length of the code length code for the next symbol of the order of RFC 7932 §3.5.
+pub fn set_code_length_code_length(state: *State, len: u8) void {
     count_work(state, 1);
+    set_code_length_code_length_of(&state.reading, &state.lengths, &state.reading.counts, len);
+}
+
+/// As `set_code_length_code_length`, on `tally`: the reading, or the copy of its `index`, `space` and
+/// `nonzero_count` that the loop of decoder_fast_lengths.zig holds in registers and writes back
+/// once. Inline, so that a copy's fields stay in registers across the call.
+pub inline fn set_code_length_code_length_of(tally: anytype, lengths: *[constants.code_length_alphabet_len]u8, counts: *prefix.Counts, len: u8) void {
+    assert(tally.index < constants.code_length_alphabet_len);
+    const symbol = constants.code_length_code_order[tally.index];
+    lengths[symbol] = len;
+    // The index stays within the 18 lengths, and a count within them, so neither sum wraps and
+    // none takes a check.
+    tally.index +%= 1;
     if (len == 0) return;
-    reading.counts[len] += 1;
-    reading.space -= @as(i32, constants.code_length_code_space) >> @intCast(len);
-    reading.nonzero_count += 1;
+    counts[len] +%= 1;
+    tally.space -%= @as(i32, constants.code_length_code_space) >> @intCast(len);
+    tally.nonzero_count +%= 1;
 }
 
 /// The code length code, once its lengths are read, and the start of the code lengths.
