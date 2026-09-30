@@ -147,13 +147,16 @@ pub const Block = struct {
     }
 };
 
-/// `Block.appender`'s state.
+/// `Block.appender`'s state. A block holds at most `block_symbols_max` symbols, fewer than 2^16,
+/// so none of its counts wraps and they add without an overflow check.
 pub const Appender = struct {
     block: *Block,
     count: u16,
 
+    /// `>=` rather than `==`: a loop that stops here leaves the count provably below the limit, so
+    /// the appends' bound costs nothing.
     pub inline fn full(self: *const Appender) bool {
-        return self.count == constants.block_symbols_max;
+        return self.count >= constants.block_symbols_max;
     }
 
     pub inline fn literal(self: *Appender, octet: u8) void {
@@ -161,7 +164,7 @@ pub const Appender = struct {
         assert(count < constants.block_symbols_max);
         self.block.symbols[count] = .{ .value = octet, .distance = 0 };
         self.count = count + 1;
-        self.block.literal_length_counts[octet] += 1;
+        self.block.literal_length_counts[octet] +%= 1;
     }
 
     pub inline fn pair(self: *Appender, len: usize, distance: usize) void {
@@ -171,8 +174,8 @@ pub const Appender = struct {
         const distance_index = distance_code(distance);
         self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
         self.count = count + 1;
-        self.block.literal_length_counts[constants.first_length_symbol + length_code(len)] += 1;
-        self.block.distance_counts[distance_index] += 1;
+        self.block.literal_length_counts[constants.first_length_symbol + length_code(len)] +%= 1;
+        self.block.distance_counts[distance_index] +%= 1;
     }
 
     /// Writes the count back, and adds `input_len`, the octets the symbols cover.
@@ -181,6 +184,11 @@ pub const Appender = struct {
         self.block.input_len += input_len;
     }
 };
+
+comptime {
+    // A count reaches at most `block_symbols_max`, end-of-block's one more: no count wraps.
+    assert(constants.block_symbols_max + 1 <= std.math.maxInt(u16));
+}
 
 /// How a block is written: its type, and for a coded block its codes, and for a dynamic block its
 /// header's counts, code length code and run-length items (RFC 1951 §3.2.7).
