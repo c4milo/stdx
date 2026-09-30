@@ -2351,6 +2351,77 @@ to 12 are reordered and nothing else changes.
   the non-ASCII text at 1.087 and 0.952. Decision 39 holds the runs, the widths against each other
   and the placement proof.
 
+  **One index for the walk's block loops, 2026-09-30, rejected.** `Walk.take_ascii` and
+  `take_blocks` counted their blocks once and stepped one index over the input and the output
+  (90681f3). The ASCII loop's block took 16 instructions on aarch64 where main's took 24, and
+  llvm-mca put it at 4.6 cycles on a Neoverse N2 where it put main's at 5.4. bench-json runs
+  [36660541264](https://github.com/c4milo/stdx/actions/runs/36660541264) and
+  [36660543291](https://github.com/c4milo/stdx/actions/runs/36660543291) paired it with 5e8eb8b.
+  On the N2, in both runs, most text files as strings decoded up to 6.5% slower and encoded up to
+  9.6% slower, while bible.txt and html-1m decoded 5% faster. On x86-64, 23 rows decoded slower on
+  an AMD EPYC 9V45 and 20 faster on an AMD EPYC 9V74. The losses keep it out, and pepegrillo's
+  method now says a shorter loop is a guess until a paired run shows the gain.
+
+  **A plain number's end found inline, 2026-09-30, parked.** number.zig's `ended_in` took a number
+  of a minus, digits and a fraction in one inline pass, `ended_plainly`, before the Lean-proved
+  machine, which stayed the reference (95a77cb): a test required the machine's verdict, length and
+  state for every text of up to six octets of `019-+.eE,x`. bench-json runs
+  [36662184778](https://github.com/c4milo/stdx/actions/runs/36662184778) and
+  [36662186606](https://github.com/c4milo/stdx/actions/runs/36662186606) paired it with 5e8eb8b.
+  qlog's records decoded 4.3% to 6.3% faster in all four jobs: past the spread on both N2 jobs and
+  on an AMD EPYC 7763, and inside the 7.2% spread of an AMD EPYC 9V74. CLDR's texts, whose numbers
+  run the change, decoded 2.9% slower on the EPYC 9V74, past spreads of 1.2% and 0.6%. qlog's
+  records encoded 1.9% slower on the EPYC 7763 through `whole_number`, which the change left as it
+  was. The CLDR loss keeps it out; the branch `exp-json-number-plain` holds it.
+
+  **A block's escapes taken one at a time, 2026-09-30, rejected.** A string with an escape every
+  few octets decoded at 0.51 of yyjson's speed on the N2: json-1m, taken as one string. Each escape
+  ended the walk's block loop, and the next block started past the escape, so its address waited
+  on the escape's lane, a transfer from a vector to a word. A loop took a block's escapes of a
+  letter inside the block, one at a time, and went on at the block's end (cb502a2). bench-json
+  runs [36666391050](https://github.com/c4milo/stdx/actions/runs/36666391050) and
+  [36666397172](https://github.com/c4milo/stdx/actions/runs/36666397172) paired it with 5e8eb8b,
+  each string decoded at this speed over main's:
+
+  | String | N2, first run | N2, second run | EPYC 7763 | EPYC 9V74 |
+  |---|---|---|---|---|
+  | json-1m | 1.917 | 1.916 | 1.871 | 1.970 |
+  | css-1m | 1.272 | 1.273 | 1.336 | 1.588 |
+  | js-1m | 0.855 | 0.854 | 0.838 | 0.754 |
+  | The non-ASCII text | 0.840 | 0.841 | 0.838 | 0.848 |
+  | webster | 0.915 | 0.914 | 0.914 | 0.951 |
+
+  The M1 Pro's instruction counts showed three costs:
+
+  - Inlined into `copy_rest`, the loop moved that function's state to the stack, and the non-ASCII
+    text, which never reaches the loop, took 12% more instructions an octet.
+  - Split to meet the complexity limit, the loop's path for a block with no stop shared its tail
+    with the escapes' path: 33 instructions a block, where `Walk.take_ascii` takes 24. bible.txt
+    took 25% more instructions an octet.
+  - Each escape took a pass of its own, with a load and a store of 16 octets. js-1m, three.js's
+    source indented with tabs, holds two thirds of its escapes right after another, as `\n\t\t`.
+
+  **A block's escapes by lookups and a shuffle, 2026-09-30, rejected.** A second loop wrote a
+  block's escapes of a letter in one step (ac39178). A lookup named each lowercase letter's
+  character, a table of the kept lanes dropped each escape's reverse solidus, and one shuffle and
+  two stores of 8 octets wrote the block. An escape the block cut carried into the next block. A
+  block with no stop took a loop of its own, and the loop ran out of line, called only past an
+  escape of a letter in ASCII text. bench-json runs
+  [36671868609](https://github.com/c4milo/stdx/actions/runs/36671868609) and
+  [36671874051](https://github.com/c4milo/stdx/actions/runs/36671874051) paired it with c9b1d08.
+  json-1m as a string decoded 1.16 to 1.30 times as fast, below the first loop's gain, and the
+  prose lost on every CPU: reymont decoded at 0.60 to 0.63 of main's speed, and plrabn12.txt at
+  0.67 to 0.76. On x86-64, the text files decoded 1.1 to 1.6 times as fast with claim J7 off, which
+  leaves out the AVX2 object and the loop, as with every claim on. dickens, webster and lcet10.txt,
+  whose instruction counts on the M1 Pro moved under 1%, decoded 20% to 30% slower on the N2, so
+  the loss is in cycles. Each block with an escape made the output's next address wait on a
+  transfer from a vector and two table loads, a chain the first loop did not have; no counter on
+  the runners measured it.
+
+  None of the four landed. The owner ruled the same day that the work turns to the tokens of CLDR's
+  texts and qlog's records, which stdx decodes at 0.66 to 0.94 of simdjson's and yyjson's speed on
+  every CPU.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
