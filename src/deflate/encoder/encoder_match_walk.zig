@@ -112,13 +112,22 @@ pub fn best_pair(comptime level: constants.Level, self: *const Matcher(level), p
     var second = Walk.init(level, self, position + 1, constants.match_len_max, level.candidates_max);
     // The first walk's nearest candidate often settles the second's budget, so it goes first.
     first.step(level, self, false);
+    follow(level, first.found, &second);
     while (!first.done or !second.done) {
-        if (first.found.len >= level.lazy_len) second.done = true;
-        if (first.found.len >= level.cut_len) second.budget = level.cut_candidates_max;
         second.step(level, self, true);
+        const found_len = first.found.len;
         first.step(level, self, false);
+        // Only a longer match changes what the second walk does.
+        if (first.found.len != found_len) follow(level, first.found, &second);
     }
     return .{ .first = first.found, .second = second.result(level, first.found.len >= level.cut_len) };
+}
+
+/// Makes a pair's second walk follow the first's match `found`: ended once it is `lazy_len` long,
+/// and cut to `cut_candidates_max` once it is `cut_len` long.
+inline fn follow(comptime level: constants.Level, found: Match, second: *Walk) void {
+    if (found.len >= level.lazy_len) second.done = true;
+    if (found.len >= level.cut_len) second.budget = level.cut_candidates_max;
 }
 
 /// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,
