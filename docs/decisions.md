@@ -991,6 +991,18 @@ probe of the CPU.
       own speed held within 0.3%. The alternatives refused: a one-time exception, which leaves the
       next change to argue the same case; and holding the change for a third pair, which would
       time Google's second phase again.
+    - Amended by the owner on 2026-09-30, after design §8 step 11's fill of repeated blocks: a
+      change whose code no corpus file runs is judged on a probe, inputs that run that code, which
+      a branch that never lands adds to the benchmark beside the corpus, in the base and the
+      change alike. The change stays when the probe's inputs win past the larger of their spread
+      and 1% in two paired jobs on each architecture, and no corpus file loses by its ratio to the
+      baseline in both. There, libzstd writes no repeated block (RFC 8878 §3.1.1.2.2) for any
+      corpus file at level 3, so no file ran the fill that `codec.fill` took over; the probe's
+      1 MiB of zeros decoded at 3.40 and 3.04 times its speed on the N2 and at 1.79 and 1.78 on an
+      EPYC 7763, in runs 36669197603 and 36669203656. The alternatives refused: keeping the
+      probe's inputs in the benchmark for good, which times inputs outside decision 15's corpora in
+      every run; and leaving the fill as it was, an octet at a time on Linux for every repeated
+      block.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,

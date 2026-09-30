@@ -1242,6 +1242,46 @@ to 12 are reordered and nothing else changes.
     - Zig 0.16 builds Debug on x86-64 Linux with its own backend, whose inline assembler refuses
       the x86-64 loops' text. The loops run only where LLVM compiles them, and the unit tests
       compile with LLVM (9e52f53).
+  - The fixed costs on Linux, 2026-09-30. Step 9 found that Zig 0.16's compiler runtime serves
+    `memset` an octet at a time on Linux, where the M1 calls libSystem's. The HTTP decoder, built
+    ReleaseSafe for aarch64-linux and x86-64-linux at the baseline CPU, calls it from three places:
+    a repeated block's octet (`write_repeated`), the checked path's repeated literals
+    (`copy_literals`), and the zero probabilities of an FSE description's repeat flags
+    (`set_zeros`, at most 6 octets a call). The fast path's fills of repeated literals and of a
+    distance of 1 compile to stores; its two `@memset` calls build only with Z4 off. With libzstd
+    1.5.7 at level 3, no corpus file holds a repeated block or repeated literals, and `set_zeros`
+    runs 1 to 4,636 times a file.
+    - 3f4c3e0 fills repeated blocks and repeated literals through `codec.fill`, called out of line
+      as `memset` was, so both targets' objects change only in those two calls and in addresses.
+      A probe on a branch that never landed added two inputs to `bench-zstd`: 1 MiB of zeros, and
+      dickens's first four 128 KiB pieces each followed by 256 KiB of zeros, which libzstd writes
+      with 7 and 8 repeated blocks. Bench runs
+      [36669197603](https://github.com/c4milo/stdx/actions/runs/36669197603) and
+      [36669203656](https://github.com/c4milo/stdx/actions/runs/36669203656) timed the probe
+      (5aae569) and the change in each job, on a Neoverse N2 and an AMD EPYC 7763 in both. stdx's
+      speed on the probe's inputs, the change's over the base's:
+
+      | Input | N2, first run | N2, second run | EPYC 7763, first run | EPYC 7763, second run |
+      |---|---|---|---|---|
+      | 1 MiB of zeros | 3.40 | 3.04 | 1.79 | 1.78 |
+      | dickens with runs of zeros | 1.52 | 1.51 | 1.20 | 1.22 |
+
+      On the zeros, stdx's speed over libzstd's went from 0.99 to 3.36 and 3.02 on the N2, and
+      from 0.99 and 0.98 to 1.77 and 1.75 on the EPYC. No corpus file lost by its ratio to
+      libzstd in both jobs of either architecture. By stdx's own speed, world192.txt and bible.txt
+      fell 1% to 3% in both N2 jobs, where the same decoder on the same files held within 0.6% in
+      the fast path's table, and the instructions they run changed only in their addresses and one
+      alignment `nop`. The M1's instruction counts stayed within their run-to-run spread. The
+      owner ruled the change in on the probe, and amended decision 20.
+    - The zeros of an FSE description through `codec.fill`, which LLVM unrolls into at most six
+      stores, gained the 1 KiB and 16 KiB bodies, grammar.lsp and xargs.1 0.0% to 1.0% of stdx's
+      speed on the N2 in both runs of its pair,
+      [36669553118](https://github.com/c4milo/stdx/actions/runs/36669553118) and
+      [36669559895](https://github.com/c4milo/stdx/actions/runs/36669559895), with css-1k's 11
+      calls the most: under decision 20's 1% floor, as the count of calls said it would be. On
+      x86-64, a Xeon 8573C and then an EPYC 7763, no file gained in both jobs. It was not kept.
+      In both N2 jobs libzstd itself ran 2% to 6% slower on the 16 KiB bodies in the change's
+      phase, its code unchanged, so their ratios to it rose by as much.
   - Mutations are listed in each commit's body.
 
 - **Step 12: the brotli decoder.** The static dictionary generated from RFC 7932 Appendix A and the

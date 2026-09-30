@@ -24,7 +24,8 @@ hold the rulings, and [costs.md](costs.md) the prices.
   A move is placement, neither a win nor a loss, when the bench program built at both commits runs
   that file on code identical apart from its addresses; and a ratio's fall is the baseline's, not
   the change's, when stdx's own speed on that file stays within its spread in every job while the
-  baseline's moved. Decision 20 says how to prove each.
+  baseline's moved. A change whose code no corpus file runs wins on a probe's inputs, which a
+  branch that never lands adds beside the corpus. Decision 20 says how to prove each.
 - Every speed states the stream's compression beside it, as `bench-brotli`, `bench-deflate` and
   `bench-zstd` print it.
 - `bench-profile` gives cycles, instructions and branch misses per octet on the runners, beside
@@ -96,6 +97,7 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | the placement proof finds the shared timing loop changed | one caller passed it a slice whose length was known only at run time, and LLVM kept a check it had proved away | give every call of a shared harness a fixed length |
 | a 32 KiB clear at 33,500 cycles on the N2 and 1,200 on the M1 | Zig 0.16's compiler runtime defines `memset` an octet at a time; on Linux it serves every `@memset` LLVM leaves as a call and every large `undefined` local of a safe build, while macOS links libSystem's | `codec.fill`; no large `undefined` scratch in a per-call path; look for `memset` relocations in a Linux build's `objdump -dr` (design §8 step 9) |
 | a flag added to the decoder's state moved two lookup tables from 16-aligned offsets to 2 mod 16 | Zig reorders a plain struct's fields when one is added | declare a new field last, void where no code reads it, and diff every field's offset against main |
+| a fill whose A/B could show nothing on any corpus file | libzstd writes no repeated block for any corpus file at level 3 | count how often the corpus runs the changed code before measuring; a probe of inputs that run it (design §8 step 11) |
 | two mutation runs over different mutations failed the same tests in step | copies of the tree compiled by `zig test` with the same flags shared a cache and took each other's binaries | give every tree its own `--cache-dir` |
 
 ## Commands
