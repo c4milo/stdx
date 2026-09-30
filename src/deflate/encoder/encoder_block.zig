@@ -121,6 +121,12 @@ pub const Block = struct {
         return self.symbol_count == constants.block_symbols_max;
     }
 
+    /// Symbols added by one loop with the count in a local, which the loop's stores elsewhere do not
+    /// make the compiler reload; `finish` writes it back with the octets the symbols cover.
+    pub fn appender(self: *Block) Appender {
+        return .{ .block = self, .count = self.symbol_count };
+    }
+
     pub inline fn add_literal(self: *Block, octet: u8) void {
         assert(!self.full());
         self.symbols[self.symbol_count] = .{ .value = octet, .distance = 0 };
@@ -138,6 +144,41 @@ pub const Block = struct {
         self.literal_length_counts[constants.first_length_symbol + length_code(len)] += 1;
         self.distance_counts[distance_index] += 1;
         self.input_len += len;
+    }
+};
+
+/// `Block.appender`'s state.
+pub const Appender = struct {
+    block: *Block,
+    count: u16,
+
+    pub inline fn full(self: *const Appender) bool {
+        return self.count == constants.block_symbols_max;
+    }
+
+    pub inline fn literal(self: *Appender, octet: u8) void {
+        const count = self.count;
+        assert(count < constants.block_symbols_max);
+        self.block.symbols[count] = .{ .value = octet, .distance = 0 };
+        self.count = count + 1;
+        self.block.literal_length_counts[octet] += 1;
+    }
+
+    pub inline fn pair(self: *Appender, len: usize, distance: usize) void {
+        const count = self.count;
+        assert(count < constants.block_symbols_max);
+        assert(distance >= 1 and distance <= constants.encoder_distance_max);
+        const distance_index = distance_code(distance);
+        self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
+        self.count = count + 1;
+        self.block.literal_length_counts[constants.first_length_symbol + length_code(len)] += 1;
+        self.block.distance_counts[distance_index] += 1;
+    }
+
+    /// Writes the count back, and adds `input_len`, the octets the symbols cover.
+    pub fn finish(self: *const Appender, input_len: usize) void {
+        self.block.symbol_count = self.count;
+        self.block.input_len += input_len;
     }
 };
 
