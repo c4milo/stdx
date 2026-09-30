@@ -297,6 +297,17 @@ pub fn add(b: *std.Build, options: Options) void {
     profile_module.addImport("timing", timing);
     const profile = b.addExecutable(.{ .name = "bench_profile", .root_module = profile_module });
     b.installArtifact(profile);
+    // An experiment's program (perf-brotli-x86-profile): one stream decoded for a given time.
+    const small_module = b.createModule(.{
+        .root_source_file = b.path("bench/brotli/small_profile.zig"),
+        .target = baseline,
+        .optimize = .ReleaseSafe,
+    });
+    small_module.addImport("oracle", oracle);
+    small_module.addImport("codec", graph.codec);
+    small_module.addImport("brotli", graph.brotli);
+    small_module.addImport("timing", timing);
+    b.installArtifact(b.addExecutable(.{ .name = "small_profile", .root_module = small_module }));
     const profile_run = b.addRunArtifact(profile);
     profile_run.has_side_effects = true;
     oracle_corpus.add_args(b, profile_run, corpus);
