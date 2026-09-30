@@ -1112,6 +1112,34 @@ to 12 are reordered and nothing else changes.
     checks off. On text both candidates share their first four octets at most steps, so the second
     costs a compare and a pick each time; on the repetitive files the inserts cost most. The owner
     ruled to leave level 1's output at 1.055 of libdeflate's and move to level 6.
+  - Level 6's loop, 2026-09-30. The owner chose level 6 next: 0.78 of libdeflate's speed on the N2
+    at the same output. Its counters there (bench-profile run
+    [36716636265](https://github.com/c4milo/stdx/actions/runs/36716636265), on a branch that never
+    lands) put stdx at 2.8 to 4.5 instructions a cycle on twice libdeflate's instructions: dickens
+    213 an octet against 87, mozilla 144 against 72. So level 6 ran short of instructions, not
+    waiting on the walk's loads. On x-ray and mozilla three positions in four start a walk that
+    meets one or two candidates, so each position's own work weighed as much as the walk. Three
+    commits, with the same output:
+    - c07c557 keeps the lazy levels' symbol count in a local, through the block's `Appender`, and
+      adds the octets its symbols cover once, from the first position no symbol covers.
+    - 6f81d03 runs level 6's walk inline in its lazy loop; level 9's long walks keep the call, as on
+      the M1 they ran slower inline.
+    - 9a35976 ends a walk on one compare: each walk finds the lowest position it may reach once, a
+      head or link of 0 below it, and only a pair's second walk records its match at the cut.
+
+    Bench runs [36722177601](https://github.com/c4milo/stdx/actions/runs/36722177601) and
+    [36722190533](https://github.com/c4milo/stdx/actions/runs/36722190533) paired main (2512eb5) and
+    the three commits (0d1bd5b on their branch) in each job. On the N2, level 6 ran at 1.125 and
+    1.121 of its speed at the median, every file faster in both jobs (x-ray 1.36, dickens-1m 1.25),
+    and level 9 at 1.082 and 1.083, every file faster; stdx over libdeflate went from 0.767 to 0.859
+    at level 6 and from 1.013 to 1.094 at level 9, the output unchanged. On x86-64, level 6 ran at
+    1.060 and 1.081 on an EPYC 9V74 and an EPYC 7763, 33 files faster in both jobs, from 0.742 to
+    0.785 and from 0.754 to 0.782 of libdeflate's speed. Level 9 ran at 0.982 on the EPYC 9V74, 17
+    files slower by 2 to 7% (kennedy.xls 0.934, sum 0.942, ptt5 0.949), and at 1.029 on the EPYC
+    7763, where none was slower, so no file lost in both jobs; whether the EPYC 9V74's loss is its
+    CPU's needs a later run that draws one. Level 1 runs no function the three change: the bench,
+    cross-built for the N2 at both commits, differs in the lazy loops and the walk alone, so its
+    moves of 1 to 5% are placement.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
