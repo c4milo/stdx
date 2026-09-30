@@ -36,6 +36,64 @@ if [[ -z "$cpu_model" ]]; then
 fi
 run_url="${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}"
 
+# Experiment (perf-brotli-x86-profile): CPU-clock samples of each brotli decoder over the small
+# bodies, by function, and stdx's hottest functions on js-1k by instruction.
+if [[ "$step" == "bench-profile" ]]; then
+  # A `head` that closes a pipe early fails the pipeline under pipefail; the samples are kept anyway.
+  set +e +o pipefail
+  sudo apt-get update -qq > /dev/null 2>&1 || true
+  sudo apt-get install -y -qq linux-tools-common "linux-tools-$(uname -r)" > /dev/null 2>&1 || true
+  zig build corpus "$@"
+  samples=/tmp/small-profile.data
+  {
+    echo "# small bodies, sampled"
+    echo
+    echo "| Field | Value |"
+    echo "|---|---|"
+    echo "| Commit | $(git rev-parse --short HEAD) |"
+    echo "| Runner label | ${RUNNER_LABEL:-by hand} |"
+    echo "| CPU model | ${cpu_model:-unknown} |"
+    echo "| Kernel | $(uname -r) |"
+    echo "| perf | $(perf --version 2>&1 | head -1) |"
+    echo "| Run URL | ${GITHUB_RUN_ID:+${run_url}} |"
+    echo
+    echo "## js-1k, counted"
+    echo
+    echo '```text'
+    for octets in 369 104; do
+      for who in stdx google; do
+        echo "### ${who}, first ${octets} octets"
+        sudo perf stat -e cycles,instructions,branches,branch-misses -- taskset -c "$core" zig-out/bin/small_profile "$who" 3000 zig-out/corpus/http/js-1k "$octets" 2>&1 | grep -E 'decodes|cycles|instructions|branch'
+      done
+    done
+    echo '```'
+    echo
+    for file in http/js-1k http/json-1k; do
+      for who in stdx google; do
+        echo "## ${file}, ${who}"
+        echo
+        echo '```text'
+        sudo perf record -q -e cpu-clock -F 20000 -o "$samples" -- taskset -c "$core" zig-out/bin/small_profile "$who" 3000 "zig-out/corpus/$file" 2>&1
+        sudo perf report -q -i "$samples" --stdio --no-children --sort sym --percent-limit 0.5 2>/dev/null | head -45
+        echo '```'
+        echo
+      done
+    done
+    sudo perf record -q -e cpu-clock -F 20000 -o "$samples" -- taskset -c "$core" zig-out/bin/small_profile stdx 6000 zig-out/corpus/http/js-1k 2>&1
+    sudo perf report -q -i "$samples" --stdio --no-children --sort sym 2>/dev/null | sed -E 's/^.*\[\.\] //' | head -10 |
+      while IFS= read -r symbol; do
+        echo "## js-1k, stdx: ${symbol}"
+        echo
+        echo '```text'
+        sudo perf annotate -q -i "$samples" --stdio -s "$symbol" 2>/dev/null | grep -v '^\s*0.00 :' | head -260
+        echo '```'
+        echo
+      done
+  } > "$report"
+  cat "$report"
+  exit 0
+fi
+
 {
   echo "# ${step}"
   echo
