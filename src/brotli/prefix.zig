@@ -13,6 +13,7 @@
 //! so a build only asserts, and a lookup always finds a symbol once it has the bits.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const fill = @import("prefix_fill.zig");
@@ -277,10 +278,27 @@ inline fn look_up(comptime root_bits: u5, comptime checks: bool, entries: anytyp
     return .{ .value = entry.value, .len = root_bits + entry.len };
 }
 
-/// The low `len` bits of `code` in reverse order: a code as the stream holds it.
+/// The low `len` bits of `code` in reverse order: a code as the stream holds it. Every caller's code
+/// is a root's, or a second level's past the root, 8 bits at most. aarch64 reverses bits with one
+/// instruction, RBIT; x86-64 has none, and takes 15, so there the code takes its octet's entry in
+/// `reversed_octets`.
 pub fn reversed(code: u32, len: u8) u32 {
     if (len == 0) return 0;
-    return @bitReverse(code) >> @intCast(@bitSizeOf(u32) - @as(u32, len));
+    if (comptime builtin.cpu.arch.isAARCH64()) return @bitReverse(code) >> @intCast(@bitSizeOf(u32) - @as(u32, len));
+    assert(len <= @bitSizeOf(u8));
+    return reversed_octets[@as(u8, @truncate(code))] >> @intCast(@bitSizeOf(u8) - len);
+}
+
+/// Each octet with its bits in reverse order, for a CPU without RBIT.
+pub const reversed_octets: [1 << @bitSizeOf(u8)]u8 = table: {
+    var table: [1 << @bitSizeOf(u8)]u8 = undefined;
+    for (&table, 0..) |*out, octet| out.* = @bitReverse(@as(u8, octet));
+    break :table table;
+};
+
+comptime {
+    // A root and the part of a code past it each fit an octet, which `reversed_octets` reverses.
+    assert(constants.table_root_bits <= @bitSizeOf(u8) and constants.code_len_max - constants.table_root_bits <= @bitSizeOf(u8));
 }
 
 /// A code length of the code length code, and the bits its fixed code takes (RFC 7932 §3.5).

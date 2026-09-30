@@ -12,6 +12,7 @@ const Coded = prefix.Coded;
 const Counts = prefix.Counts;
 const Ranges = prefix.Ranges;
 const reversed = prefix.reversed;
+const reversed_octets = prefix.reversed_octets;
 
 /// Writes the table of the canonical code whose symbols `sorted` holds in canonical order, and
 /// returns the entries it takes: the root, and behind it a second level for each root entry whose
@@ -96,13 +97,6 @@ inline fn fill_root_runs(comptime root_bits: u5, comptime value_of: fn (u16) u16
 inline fn reversed_root(code: u32, len: u8) u8 {
     return reversed_octets[@as(u8, @truncate(code))] >> @intCast(@bitSizeOf(u8) - len);
 }
-
-/// Each octet with its bits in reverse order, for `reversed_root`.
-const reversed_octets: [1 << @bitSizeOf(u8)]u8 = table: {
-    var table: [1 << @bitSizeOf(u8)]u8 = undefined;
-    for (&table, 0..) |*out, octet| out.* = @bitReverse(@as(u8, octet));
-    break :table table;
-};
 
 /// The entry of a symbol's code of `len` bits, which links no second level, as one value, so that
 /// it takes one store.
