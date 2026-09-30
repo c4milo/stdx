@@ -47,6 +47,12 @@ const penalty_by_bits: [@bitSizeOf(u16) + 1]u8 = table: {
     break :table by_bits;
 };
 
+/// A hash's entry: the last position with the hash at a level with chains; at the greedy level the
+/// last two, the later in the low half, so one load reads both and one store shifts a new one in.
+fn Head(comptime level: constants.Level) type {
+    return if (level.chains) u16 else u32;
+}
+
 /// A hash of `hash_bits` bits: every index of the heads and no other, so a head read by it needs no
 /// bounds check.
 fn Hash(comptime level: constants.Level) type {
@@ -67,7 +73,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         window: [constants.encoder_window_len]u8,
         /// The last position with each hash, and for each position the one before it with the same
         /// hash. A position of 0 names none, so the window's first octet is never a candidate.
-        heads: [1 << level.hash_bits]u16,
+        heads: [1 << level.hash_bits]Head(level),
         chain: if (level.chains) [constants.window_len]u16 else void,
         /// The window's octets that hold input, and the next position to decide.
         filled: usize,
@@ -136,7 +142,7 @@ fn slide_window(comptime level: constants.Level, self: *Matcher(level)) void {
     @memcpy(self.window[0..half], self.window[half..]);
     self.filled -= constants.window_len;
     self.position -= constants.window_len;
-    slide_positions(&self.heads, half);
+    slide_positions(std.mem.bytesAsSlice(u16, std.mem.sliceAsBytes(&self.heads)), half);
     if (level.chains) slide_positions(&self.chain, half);
 }
 
@@ -260,9 +266,9 @@ fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), block:
     while (position < end and !symbols.full()) {
         const word = std.mem.readInt(u32, self.window[position..][0..constants.hash_len], .little);
         const head = &self.heads[hash_of_word(level, word)];
-        const candidate = head.*;
-        head.* = @intCast(position);
-        const found = greedy_match_word(level, self, position, candidate, word);
+        const pair = head.*;
+        head.* = (pair << @bitSizeOf(u16)) | @as(u16, @truncate(position));
+        const found = pair_match(level, self, position, pair, word);
         if (found.len >= constants.match_len_taken_min) {
             symbols.pair(found.len, found.distance);
             const match_end = position + found.len;
@@ -294,9 +300,12 @@ fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block: *B
     var found: Match = .{};
     if (ahead >= constants.hash_len) {
         const head = &self.heads[hash(level, self, self.position)];
-        const candidate = head.*;
-        head.* = @intCast(self.position);
-        found = greedy_match(level, self, candidate, @min(ahead, constants.match_len_max));
+        const pair = head.*;
+        head.* = (pair << @bitSizeOf(u16)) | @as(u16, @intCast(self.position));
+        const len_max = @min(ahead, constants.match_len_max);
+        found = greedy_match(level, self, @truncate(pair), len_max);
+        const other = greedy_match(level, self, @truncate(pair >> @bitSizeOf(u16)), len_max);
+        if (other.len > found.len) found = other;
     }
     if (found.len >= constants.match_len_taken_min) {
         block.add_pair(found.len, found.distance);
@@ -309,20 +318,74 @@ fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block: *B
     }
 }
 
-/// Makes every position the match at `position` covers, after its first, its hash's head, so a
-/// later match may start there and the head names the nearest position. Only positions with
-/// `hash_len` octets in the window count. The 4 octets slide through a word: one octet loaded per
-/// position. Inline, as a call's setup cost level 1 more than the few inserts of a short match.
+/// Makes every position the match at `position` covers, after its first, the latest of its hash's
+/// entry: four positions from each 8-octet load, each position's 4 octets a shift of it, and the
+/// positions left one at a time.
 inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level), position: usize, end: usize) void {
     assert(position < end and end <= self.filled);
     const first = position + 1;
     const last = @min(end, self.filled - (constants.hash_len - 1));
     if (last <= first) return;
-    var word = std.mem.readInt(u32, self.window[position..][0..constants.hash_len], .little);
-    for (self.window[first + constants.hash_len - 1 .. last + constants.hash_len - 1], first..) |octet, covered| {
-        word = (word >> @bitSizeOf(u8)) | (@as(u32, octet) << (@bitSizeOf(u32) - @bitSizeOf(u8)));
-        self.heads[hash_of_word(level, word)] = @truncate(covered);
+    if (end - position > 32) {
+        // A long match: every 4th position it covers.
+        var covered = first;
+        for (0..(last - first + 3) / 4) |_| {
+            const word = std.mem.readInt(u32, self.window[covered..][0..constants.hash_len], .little);
+            const head = &self.heads[hash_of_word(level, word)];
+            head.* = (head.* << @bitSizeOf(u16)) | @as(u16, @truncate(covered));
+            covered += 4;
+        }
+        return;
     }
+    const load_end = @min(last, constants.encoder_window_len - @sizeOf(u64) + 1);
+    const quads = if (load_end > first) (load_end - first) / quad_len else 0;
+    for (0..quads) |quad| {
+        const at = first + quad * quad_len;
+        const octets = std.mem.readInt(u64, self.window[at..][0..@sizeOf(u64)], .little);
+        inline for (0..quad_len) |k| {
+            const word: u32 = @truncate(octets >> (k * @bitSizeOf(u8)));
+            const head = &self.heads[hash_of_word(level, word)];
+            head.* = (head.* << @bitSizeOf(u16)) | @as(u16, @truncate(at + k));
+        }
+    }
+    for (first + quads * quad_len..last) |covered| {
+        const word = std.mem.readInt(u32, self.window[covered..][0..constants.hash_len], .little);
+        const head = &self.heads[hash_of_word(level, word)];
+        head.* = (head.* << @bitSizeOf(u16)) | @as(u16, @truncate(covered));
+    }
+}
+
+/// The positions `insert_covered` takes from one 8-octet load.
+const quad_len = 4;
+
+/// The octets a candidate's first compare covers.
+const first_len = @sizeOf(u64);
+
+/// The longer of the matches at the two positions `pair` holds, the later on a tie, at `position`,
+/// whose 4 octets `word` holds, with `match_len_max` octets ahead. A candidate goes on to
+/// `match_len` only when its first 4 octets equal `word`, and a position where neither does leaves
+/// after two loads and compares.
+inline fn pair_match(comptime level: constants.Level, self: *const Matcher(level), position: usize, pair: u32, word: u32) Match {
+    assert(position + constants.match_len_max <= constants.encoder_window_len);
+    const near: u16 = @truncate(pair);
+    const far: u16 = @truncate(pair >> @bitSizeOf(u16));
+    const near_ok = starts_alike(level, self, position, near, word);
+    const far_ok = starts_alike(level, self, position, far, word);
+    if (!near_ok and !far_ok) return .{};
+    const later = self.window[position..][0..constants.match_len_max];
+    const near_len = if (near_ok) match_len(self.window[near..][0..constants.match_len_max], later) else 0;
+    const far_len = if (far_ok) match_len(self.window[far..][0..constants.match_len_max], later) else 0;
+    const take_far = far_len > near_len;
+    const len = if (take_far) far_len else near_len;
+    const source = if (take_far) far else near;
+    return .{ .len = @intCast(len), .distance = @intCast(position - source) };
+}
+
+/// Whether `candidate` is a position within reach of `position` whose first 4 octets equal `word`.
+inline fn starts_alike(comptime level: constants.Level, self: *const Matcher(level), position: usize, candidate: u16, word: u32) bool {
+    if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < position) return false;
+    assert(candidate < position);
+    return tail_octets(self.window[candidate..], 0) == word;
 }
 
 /// One lazy step at a position with `ahead` octets ahead, fewer than the lookahead.
