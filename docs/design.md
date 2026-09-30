@@ -1303,12 +1303,15 @@ to 12 are reordered and nothing else changes.
       | dickens with runs of zeros | 1.52 | 1.51 | 1.20 | 1.22 |
 
       On the zeros, stdx's speed over libzstd's went from 0.99 to 3.36 and 3.02 on the N2, and
-      from 0.99 and 0.98 to 1.77 and 1.75 on the EPYC. No corpus file lost by its ratio to
-      libzstd in both jobs of either architecture. By stdx's own speed, world192.txt and bible.txt
-      fell 1% to 3% in both N2 jobs, where the same decoder on the same files held within 0.6% in
-      the fast path's table, and the instructions they run changed only in their addresses and one
-      alignment `nop`. The M1's instruction counts stayed within their run-to-run spread. The
-      owner ruled the change in on the probe, and amended decision 20.
+      from 0.99 and 0.98 to 1.77 and 1.75 on the EPYC. That ratio does not measure libzstd as its
+      own builds run: compiled into the benchmark, libzstd fills through the same `memset`
+      (pepegrillo's `performance_zig.md`, "Copies and fills"). The table's speeds, stdx's against
+      its own, do not depend on it. No corpus file lost by its ratio to libzstd in both jobs of
+      either architecture. By stdx's own speed, world192.txt and bible.txt fell 1% to 3% in both
+      N2 jobs, where the same decoder on the same files held within 0.6% in the fast path's table,
+      and the instructions they run changed only in their addresses and one alignment `nop`. The
+      M1's instruction counts stayed within their run-to-run spread. The owner ruled the change in
+      on the probe, and amended decision 20.
     - The zeros of an FSE description through `codec.fill`, which LLVM unrolls into at most six
       stores, gained the 1 KiB and 16 KiB bodies, grammar.lsp and xargs.1 0.0% to 1.0% of stdx's
       speed on the N2 in both runs of its pair,
