@@ -37,6 +37,7 @@ const literal_runs = @import("decoder_fast_literals.zig");
 const straight = @import("decoder_fast_command.zig");
 const chain = @import("decoder_fast_chain.zig");
 const aarch64 = @import("decoder_fast_aarch64.zig");
+const x86_64 = @import("decoder_fast_x86_64.zig");
 const dictionary = @import("../../dictionary.zig");
 const transform = @import("../../transform.zig");
 const State = state_module.State;
@@ -295,12 +296,15 @@ noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: 
     unreachable;
 }
 
-/// One step of the straight loop: the assembly's commands where it takes them and a command starts
-/// (decision 23), or the straight path from the phase the loop stands at.
+/// One step of the straight loop: the assembly's commands where it takes them, the CPU runs them
+/// and a command starts (decision 23), or the straight path from the phase the loop stands at.
 inline fn straight_step(comptime claims: Claims, comptime room: Room, loop: *Loop, literal_tables: *LiteralTables, state: *State, phase: *Phase) Link {
     @setRuntimeSafety(!claims.unchecked_loop);
     if (comptime aarch64.takes(claims, room)) {
         if (phase.* == .command) return aarch64.straight_commands(loop, literal_tables, state, phase);
+    }
+    if (comptime x86_64.takes(claims, room)) {
+        if (phase.* == .command and state.assembly) return x86_64.straight_commands(loop, literal_tables, state, phase);
     }
     return straight.straight_from(claims, room, loop, literal_tables, state, phase);
 }

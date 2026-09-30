@@ -2,6 +2,7 @@
 //! commands after it, p1 and p2 and the bits, with the room and the trailer the loop needs.
 
 const std = @import("std");
+const codec = @import("codec");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -72,7 +73,7 @@ test "a word of one octet moves p2 as a literal does, for the next literal's con
     short_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &.{ 'a', word_octet, 'x' }, output[0..whole.written]);
 }
@@ -110,7 +111,7 @@ test "a word at the last distance takes no bits of its own" {
     last_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     const word = dictionary.word(last_word_len, last_word_index);
     try testing.expectEqualSlices(u8, word, output[0..last_word_len]);
@@ -168,7 +169,7 @@ test "a word's distance takes its block's element" {
     counted_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     const word = dictionary.word(short_word_len, 0);
     try testing.expectEqualSlices(u8, word, output[0..short_word_len]);

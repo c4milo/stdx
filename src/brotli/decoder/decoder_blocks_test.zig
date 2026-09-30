@@ -2,6 +2,7 @@
 //! block switches (RFC 7932 §6), the ring of last distances (§4), and distance contexts (§7.2).
 
 const std = @import("std");
+const codec = @import("codec");
 const testing = std.testing;
 const decoder_module = @import("decoder.zig");
 const constants = @import("../constants.zig");
@@ -13,7 +14,7 @@ const output_len_max = 64;
 
 fn expect_decoded(expected: []const u8, stream: []const u8) !void {
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [output_len_max]u8 = undefined;
     const whole = try decoder.decode_all(stream, &output);
     try testing.expectEqual(stream.len, whole.consumed);

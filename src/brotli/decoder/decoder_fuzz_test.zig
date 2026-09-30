@@ -53,7 +53,7 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) (decoder_module.Erro
 
 /// Decodes `input` in one call, and requires its count within invariant 17's bound.
 fn decode_whole(decoder: *Decoder, input: []const u8, output: []u8) !Verdict {
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const verdict = verdict_of(decoder.decode(input, output));
     switch (verdict) {
         .progress => |progress| try testing.expect(work_test.within_bound(decoder.state.work, progress.consumed, progress.written)),
@@ -83,7 +83,7 @@ noinline fn check_paths(unpadded: []const u8) !void {
 /// Decodes `input` in one call with `paths`, in a frame of its own.
 noinline fn decode_with(comptime paths: claims.Paths, input: []const u8, output: *[output_len_max]u8) Verdict {
     var decoder: decoder_module.Decoder(.{ .window_bits_max = test_window_bits, .paths = paths }) = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     return verdict_of(decoder.decode(input, output));
 }
 
@@ -103,7 +103,7 @@ noinline fn check_split(input: []const u8, seed: u64) !void {
     var states: [codec.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
     const whole = try decode_whole(&states[0], input, &whole_output);
-    states[0].init(.{});
+    states[0].init(codec.Features.detect());
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         if (err == error.TestWorkPastBound) return err;

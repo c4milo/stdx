@@ -240,4 +240,9 @@ pub const State = struct {
     word_len: u8,
     word_written: u8,
     work: Work,
+    /// Whether the fast path runs its x86-64 assembly: the CPU `init` was given runs it. Nothing on
+    /// another target, whose build keeps its state and `init` as they were. Declared last, where
+    /// Zig's layout leaves every field above at the offset it had without it, the tables
+    /// 16-aligned, and puts it in what was the padding at the end.
+    assembly: if (builtin.cpu.arch == .x86_64) bool else void,
 };

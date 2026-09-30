@@ -285,7 +285,7 @@ test "the loop leaves the state and the reader where the checked steps leave the
     const input = stream_with(&code_length_lengths, &padded);
     // An octet at a time, until the code length code is built and the code lengths begin.
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const rest = input[try feed_until(&decoder, input, .code_lengths)..];
     var refilled = false;
     for (0..rest.len + 1) |available| {
@@ -306,7 +306,7 @@ test "the code length code's loop leaves the state and the reader where the chec
     const input = stream_with(&long_code_length_lengths, &padded);
     // An octet at a time, until the code's kind is read and its code length code begins.
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const rest = input[try feed_until(&decoder, input, .code_length_code)..];
     var refilled = false;
     for (0..rest.len + 1) |available| {

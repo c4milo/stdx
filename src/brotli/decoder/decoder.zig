@@ -19,6 +19,7 @@ const prefix_reader = @import("decoder_prefix.zig");
 const commands = @import("decoder_commands.zig");
 const fast = @import("decoder_fast/decoder_fast.zig");
 const fast_header = @import("decoder_fast/decoder_fast_header.zig");
+const fast_x86_64 = @import("decoder_fast/decoder_fast_x86_64.zig");
 const Output = @import("decoder_output.zig").Output;
 const Paths = @import("../claims.zig").Paths;
 const State = state_module.State;
@@ -62,9 +63,9 @@ pub fn Decoder(comptime options: DecoderOptions) type {
 
         /// Starts a stream. Writes no octet of the window and no table (decision 11).
         pub fn init(self: *Self, features: codec.Features) void {
-            _ = features;
             self.window.init();
             const state = &self.state;
+            state.assembly = fast_x86_64.flag(features);
             state.bits = .{};
             state.phase = .stream_header;
             state.produced_end = 0;

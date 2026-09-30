@@ -75,7 +75,7 @@ noinline fn expect_fixture(comptime Tested: type, fixture: Fixture) !void {
     @memset(padded[fixture.stream.len..][0..padding_len], 0);
     for ([_][]const u8{ fixture.stream, padded[0 .. fixture.stream.len + padding_len] }) |input| {
         var decoder: Tested = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         var output: [output_len_max]u8 = undefined;
         const whole = try decoder.decode_all(input, &output);
         try testing.expectEqual(fixture.stream.len, whole.consumed);
@@ -111,7 +111,7 @@ noinline fn expect_splits(comptime Tested: type, fixture: Fixture) !void {
     const expected = plain_of(fixture.plain, &expected_buffer);
     for (0..split_seeds) |seed| {
         var states: [codec.split.state_slots]Tested = undefined;
-        states[0].init(.{});
+        states[0].init(codec.Features.detect());
         var output: [output_len_max]u8 = undefined;
         const outcome = try codec.split.drive(Tested, &states, step, fixture.stream, output[0..expected.len], seed);
         try testing.expectEqual(.done, outcome.status);
@@ -132,7 +132,7 @@ test "a stream cut short asks for more input, at every length" {
     var output: [output_len_max]u8 = undefined;
     for (0..fixture.stream.len) |len| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         try testing.expectError(error.Truncated, decoder.decode_all(fixture.stream[0..len], &output));
     }
 }
@@ -145,7 +145,7 @@ test "octets after the stream stay in the input" {
         @memcpy(input[0..fixture.stream.len], fixture.stream);
         @memcpy(input[fixture.stream.len..][0..3], "xyz");
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         var output: [output_len_max]u8 = undefined;
         const progress = try decoder.decode(input[0 .. fixture.stream.len + 3], &output);
         try testing.expectEqual(.done, progress.status);
@@ -155,7 +155,7 @@ test "octets after the stream stay in the input" {
 
 fn expect_refused(expected: decoder_module.Error, stream: []const u8) !void {
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [output_len_max]u8 = undefined;
     try testing.expectError(expected, decoder.decode_all(stream, &output));
 }
@@ -183,7 +183,7 @@ test "the refusals of the stream and meta-block headers" {
 
 test "metadata decodes to nothing" {
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [4]u8 = undefined;
     const whole = try decoder.decode_all(&.{ 0x2c, 0x00, 'm', 0x03 }, &output);
     try testing.expectEqual(4, whole.consumed);
@@ -192,11 +192,11 @@ test "metadata decodes to nothing" {
 
 test "an uncompressed meta-block of one octet, and the smallest stream" {
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [4]u8 = undefined;
     const whole = try decoder.decode_all(&.{ 0x00, 0x00, 0x10, 'x', 0x03 }, &output);
     try testing.expectEqualStrings("x", output[0..whole.written]);
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     try testing.expectEqual(0, (try decoder.decode_all(&.{0x06}, &output)).written);
 }
 

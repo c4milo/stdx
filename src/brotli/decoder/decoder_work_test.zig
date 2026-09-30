@@ -13,6 +13,7 @@
 //! per octet written and `constants.work_per_call_max` per call.
 
 const std = @import("std");
+const codec = @import("codec");
 const testing = std.testing;
 const decoder_module = @import("decoder.zig");
 const constants = @import("../constants.zig");
@@ -35,7 +36,7 @@ pub fn within_bound(work: u64, consumed: usize, written: usize) bool {
 /// Decodes `input` in one call, and requires `expected`, the count `work`, and the bound.
 fn expect_whole(input: []const u8, expected: []const u8, work: u64) !void {
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [output_len_max]u8 = undefined;
     const whole = try decoder.decode_all(input, &output);
     try testing.expectEqual(input.len, whole.consumed);
@@ -136,7 +137,7 @@ const Calls = struct { work: u64, call_work_max: u64, written: usize };
 /// within the bound.
 fn decode_by_octets(input: []const u8, output_len: usize) !Calls {
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [output_len_max]u8 = undefined;
     var calls: Calls = .{ .work = 0, .call_work_max = 0, .written = 0 };
     var consumed: usize = 0;
@@ -317,7 +318,7 @@ test "literals of no bits cost one each, the bound per octet written" {
     var stream: Stream = .{};
     const header_work = free_literals_stream(&stream);
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [free_literals]u8 = undefined;
     // With no room, the call takes the whole stream and stops at the first literal.
     const first = try decoder.decode(stream.written(), output[0..0]);
@@ -398,7 +399,7 @@ test "a category of one block type never switches, however many commands write n
     _ = empty_words_stream(&stream);
     const header_len = header.bit_len / @bitSizeOf(u8);
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     var output: [1]u8 = undefined;
     const first = try decoder.decode(stream.written()[0..header_len], &output);
     try testing.expectEqual(.needs_input, first.status);

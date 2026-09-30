@@ -3,6 +3,7 @@
 //! 7932 §7.1).
 
 const std = @import("std");
+const codec = @import("codec");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -78,7 +79,7 @@ test "a block type of another mode than the entries' takes its own context IDs" 
     // Room past the stream's octets, so that the fast path's margin holds.
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualStrings(mixed_literals, output[0..whole.written]);
 }
@@ -143,12 +144,12 @@ test "a block type of one tree leaves p1 and p2 for the context of the next bloc
     // A room past the margin, so that the fast path takes the first block's run.
     var output: [fast.output_margin + expected.len]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const progress = try decoder.decode(input, &output);
     try testing.expectEqual(expected.len, progress.written);
     try testing.expectEqualSlices(u8, expected, output[0..expected.len]);
     var checked: CheckedDecoder = undefined;
-    checked.init(.{});
+    checked.init(codec.Features.detect());
     var checked_output: [output.len]u8 = undefined;
     const checked_progress = try checked.decode(input, &checked_output);
     try testing.expectEqual(checked_progress.written, progress.written);
@@ -231,11 +232,11 @@ test "a run of a block type of another mode than the entries' moves p2 at each l
     // A room past the margin, so that the straight loop takes the second command.
     var output: [fast.output_margin + own_mode_literals.len]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const progress = try decoder.decode(input, &output);
     try testing.expectEqualStrings(own_mode_literals, output[0..progress.written]);
     var checked: CheckedDecoder = undefined;
-    checked.init(.{});
+    checked.init(codec.Features.detect());
     var checked_output: [output.len]u8 = undefined;
     const checked_progress = try checked.decode(input, &checked_output);
     try testing.expectEqualStrings(own_mode_literals, checked_output[0..checked_progress.written]);

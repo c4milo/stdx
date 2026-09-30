@@ -22,7 +22,7 @@ const padding_len = 16;
 /// Decodes `input` whole with a `Tested` decoder, in a frame of its own.
 noinline fn decode_with(comptime Tested: type, input: []const u8, output: *[output_len_max]u8) (decoder_module.Error || codec.Incomplete)!codec.Whole {
     var decoder: Tested = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     return decoder.decode_all(input, output);
 }
 
@@ -116,7 +116,7 @@ test "a distance one past the window names a dictionary word, whatever the octet
     stream.put(244, 8);
     var output: [1024 + 16]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &produced, output[0..produced.len]);
     try testing.expectEqualStrings("time", output[produced.len..whole.written]);

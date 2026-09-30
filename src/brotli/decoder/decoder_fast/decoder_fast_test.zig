@@ -60,7 +60,7 @@ test "a long copy writes nothing past any room it is decoded into" {
     var output: [expected.len]u8 = undefined;
     for (0..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         const progress = try decoder.decode(input, output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
@@ -82,7 +82,7 @@ test "a long copy that ends the stream, past the input's margin, writes nothing 
     var output: [expected.len]u8 = undefined;
     for (0..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         const progress = try decoder.decode(input, output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
@@ -144,7 +144,7 @@ test "a long copy of no literals writes nothing past any room it is decoded into
     var output: [expected.len]u8 = undefined;
     for (pattern.len..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         const progress = try decoder.decode(input, output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
@@ -201,7 +201,7 @@ test "a copy the fast path takes after checked octets reads what came before the
     // Room past the stream's octets, so that the fast path's margin holds for the copy.
     var output: [1024]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const first = try decoder.decode(input, output[0..pattern.len]);
     try testing.expectEqual(.needs_room, first.status);
     try testing.expectEqual(pattern.len, first.written);
@@ -264,7 +264,7 @@ test "a command whose symbols and extra bits pass one refill decodes on the fast
     // Room past the stream's octets, so that the fast path's margin holds for the command.
     var output: [expected.len + 512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &expected, output[0..whole.written]);
 }
@@ -313,7 +313,7 @@ test "the dictionary's last words decode on the fast path, the last from its exa
     last_words_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     const dictionary = @import("../../dictionary.zig");
     try testing.expectEqualSlices(u8, dictionary.data[dictionary.data.len - last_words * last_word_len ..], output[0..whole.written]);
@@ -327,7 +327,7 @@ test "the dictionary's last words write nothing past any room, the wide word nor
     var output: [last_words * last_word_len]u8 = undefined;
     for (0..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         const progress = try decoder.decode(stream.written(), output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
@@ -344,7 +344,7 @@ test "the rest of a word the checked path started writes nothing past the next c
     for (1..last_word_len) |first| {
         for (0..expected.len - first + 1) |second| {
             var decoder: Decoder = undefined;
-            decoder.init(.{});
+            decoder.init(codec.Features.detect());
             const one = try decoder.decode(stream.written(), output[0..first]);
             const two = try decoder.decode(stream.written()[one.consumed..], output[first..][0..second]);
             try testing.expectEqual(second, two.written);
@@ -382,7 +382,7 @@ test "the first symbol of a distance code takes its code, and the one before it 
     // Room past the stream's octets, so that the fast path's margin holds.
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(.{});
+    decoder.init(codec.Features.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     // The last distance, 4, copies "ab"; distance 1 copies "b" twice.
     try testing.expectEqualStrings("abcdabbb", output[0..whole.written]);
@@ -425,7 +425,7 @@ test "many short copies write nothing past any room, the margin checked before e
     var output: [expected.len]u8 = undefined;
     for (0..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         const progress = try decoder.decode(input, output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
@@ -469,14 +469,14 @@ test "a long insert takes several runs, each within the room, and leaves p1 and 
     var output: [expected.len]u8 = undefined;
     for (0..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(.{});
+        decoder.init(codec.Features.detect());
         const progress = try decoder.decode(input, output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
         if (room < expected.len) continue;
         try testing.expectEqual(.done, progress.status);
         var checked: CheckedDecoder = undefined;
-        checked.init(.{});
+        checked.init(codec.Features.detect());
         var checked_output: [expected.len]u8 = undefined;
         _ = try checked.decode(input, &checked_output);
         try testing.expectEqual(checked.state.p1, decoder.state.p1);

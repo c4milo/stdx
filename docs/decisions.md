@@ -1162,6 +1162,15 @@ probe of the CPU.
       words excluded), and every Zig cut left in it worth 1 to 3%. The loop follows decision 29's
       shape: the Zig loop stays the reference and runs on x86-64 and under every other claim
       setting; words and block switches leave the assembly for Zig at first.
+    - The x86-64 port ruled by the owner on 2026-09-30, once the header's cuts left every corpus
+      file at or above Google's speed on the N2 and 16 of 39 below it on an EPYC 9V45 (json-1k
+      0.57, js-1k 0.61, html-1k 0.65, css-1k 0.69, kennedy.xls 0.72): the straight command loop in
+      x86-64 assembly, in files of its own beside the aarch64 loop's, which stay as they are. As
+      decision 29's x86-64 DEFLATE loop does, it runs where LLVM assembles it and on a CPU with
+      BMI2, which the caller's `codec.Features` names at `init`; the Zig loop stays the reference
+      and runs everywhere else. The x86-64 runner exposes no hardware counters, so paired runs alone
+      judge it. The alternatives refused: chasing the small bodies on x86-64 in Zig first, and
+      leaving x86-64 as it stands.
 
 24. **How the assembly loops are shown safe.** **owner** Proposed on 2026-09-27, as decision 23
     asks once its loops match or beat libzstd on the runners: at 3a45936 the decoder runs at a
@@ -1173,7 +1182,8 @@ probe of the CPU.
     - The four-stream literal loops, in aarch64 and in x86-64 assembly.
     - XXH64's stripe loop, on Apple's cores.
     - The brotli straight command loop, in aarch64 assembly (decision 23's brotli extension, landed
-      2026-09-29), whose access table its first template file carries.
+      2026-09-29) and in x86-64 assembly (its port, landed 2026-09-30), whose access tables their
+      first template files carry.
 
     Each loop checks, once a sequence or a pass, the conditions that keep its accesses inside the
     stream, the tables, the literals and the output: the checked path's checks, and the margins
