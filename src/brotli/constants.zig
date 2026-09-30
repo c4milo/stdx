@@ -335,6 +335,14 @@ pub const table_root_bits = 8;
 /// The widest root a build doubles with loads and stores of a fixed width, in entries; a wider
 /// doubling copies blocks of this many entries, 64 octets, with no call to memcpy.
 pub const root_copy_inline_max = 16;
+/// The widest period of a root's entries its fill holds in vector registers, loaded once and stored
+/// after itself with no load between: 32 entries, eight of x86-64's sixteen vector registers. A
+/// load of entries just stored one at a time waits for those stores, and LLVM loads a copy's source
+/// again before each store unless the registers hold it.
+pub const root_register_period_max = 32;
+/// The octets of the vector registers the fills store with: x86-64's SSE2 and aarch64's NEON both
+/// hold 16.
+pub const table_vector_len = 16;
 
 /// The most entries a lookup table of each alphabet takes over every code RFC 7932 allows it, as
 /// tools/brotli_table_budget.zig computes them for `table_root_bits` (decision 12): the root and the

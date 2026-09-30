@@ -38,11 +38,10 @@ pub fn fill_simple(comptime root_bits: u5, comptime value_of: fn (u16) u16, entr
     assert(symbols.len >= constants.code_symbols_min and symbols.len <= constants.simple_symbols_max);
     assert(!tree_select or symbols.len == constants.simple_symbols_max);
     const shape_index = symbols.len - constants.code_symbols_min + @intFromBool(tree_select);
-    const period = switch (shape_index) {
+    switch (shape_index) {
         inline 0...simple_shapes.len - 1 => |index| fill_shape(root_bits, value_of, entries, symbols, simple_shapes[index]),
         else => unreachable,
-    };
-    replicate_root(root_bits, entries, period);
+    }
     return 1 << root_bits;
 }
 
@@ -84,14 +83,27 @@ fn simple_shape(comptime lengths: []const u8) SimpleShape {
     }
 }
 
-/// Writes the root's first entries for a simple code of `shape`, each once, and returns how many.
-inline fn fill_shape(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, symbols: []const u16, comptime shape: SimpleShape) usize {
-    comptime assert(shape.ranks.len <= 1 << root_bits);
+/// Writes the root of a simple code of `shape`: its first block built in vector registers from the
+/// entries of its ranks, and stored across the root with no load.
+inline fn fill_shape(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, symbols: []const u16, comptime shape: SimpleShape) void {
+    const root_len = 1 << root_bits;
+    const block_len = @min(constants.root_copy_inline_max, root_len);
+    comptime assert(shape.ranks.len <= block_len and block_len % lanes_len == 0);
     assert(symbols.len == shape.lengths.len);
     var canonical: [shape.lengths.len]u16 = symbols[0..shape.lengths.len].*;
     sort_equal_lengths(&canonical, shape.lengths);
-    inline for (shape.ranks, 0..) |rank, index| entries[index] = symbol_entry(value_of(canonical[rank]), shape.lengths[rank]);
-    return shape.ranks.len;
+    var words: [shape.ranks.len]u32 = undefined;
+    inline for (shape.ranks, 0..) |rank, index| words[index] = @bitCast(symbol_entry(value_of(canonical[rank]), shape.lengths[rank]));
+    var block: [block_len / lanes_len]Lanes = undefined;
+    inline for (&block, 0..) |*vector, vector_index| {
+        var lanes: [lanes_len]u32 = undefined;
+        inline for (&lanes, 0..) |*lane, lane_index| lane.* = words[(vector_index * lanes_len + lane_index) % shape.ranks.len];
+        vector.* = lanes;
+    }
+    const root: *[root_len]Entry = entries[0..root_len];
+    for (0..root_len / block_len) |copy| {
+        inline for (block, 0..) |vector, vector_index| root[copy * block_len + vector_index * lanes_len ..][0..lanes_len].* = @bitCast(vector);
+    }
 }
 
 /// Sorts the symbols of each length, in canonical order (RFC 7932 §3.2): an insertion of each
@@ -332,9 +344,8 @@ inline fn copy_root(entries: []Entry, width: usize) void {
 }
 
 /// Copies the root's first `width` entries after themselves until the root is whole: doubled to a
-/// block of `root_copy_inline_max` entries, and then each block of the root past the period copied
-/// from the period, which no store of the copy writes, with one load and one store unrolled for
-/// each width.
+/// block of `root_copy_inline_max` entries, and then the period repeated across the rest of the
+/// root, from vector registers up to `root_register_period_max` entries and by copies past it.
 fn replicate_root(comptime root_bits: u5, entries: []Entry, width: usize) void {
     assert(std.math.isPowerOfTwo(width) and width <= 1 << root_bits);
     const root_len = 1 << root_bits;
@@ -344,12 +355,53 @@ fn replicate_root(comptime root_bits: u5, entries: []Entry, width: usize) void {
     const period = double_root(root_bits, entries, width, block_shift);
     switch (std.math.log2_int(usize, period)) {
         inline block_shift...root_bits => |shift| {
-            inline for ((1 << shift) / block_len..root_len / block_len) |block| {
-                root[block * block_len ..][0..block_len].* = root[(block * block_len) % (1 << shift) ..][0..block_len].*;
-            }
+            const period_len = 1 << shift;
+            if (comptime period_len == root_len) return;
+            if (comptime period_len <= constants.root_register_period_max) return repeat_in_registers(root_len, root, period_len);
+            repeat_by_copies(root_len, root, period_len, block_len);
         },
         else => unreachable,
     }
+}
+
+/// Repeats the root's first `period_len` entries across it from vector registers: loaded once, each
+/// register held by `in_register`, and stored after itself with no load between.
+inline fn repeat_in_registers(comptime root_len: usize, root: *[root_len]Entry, comptime period_len: usize) void {
+    const lanes_count = period_len / lanes_len;
+    var pattern: [lanes_count]Lanes = undefined;
+    inline for (&pattern, 0..) |*lanes, index| lanes.* = in_register(@bitCast(root[index * lanes_len ..][0..lanes_len].*));
+    inline for (1..root_len / period_len) |copy| {
+        inline for (pattern, 0..) |lanes, index| root[copy * period_len + index * lanes_len ..][0..lanes_len].* = @bitCast(lanes);
+    }
+}
+
+/// Repeats the root's first `period_len` entries across it: each block of `block_len` entries past
+/// the period copied from the period, which no store of the copy writes, one load and one store
+/// unrolled for each.
+inline fn repeat_by_copies(comptime root_len: usize, root: *[root_len]Entry, comptime period_len: usize, comptime block_len: usize) void {
+    inline for (period_len / block_len..root_len / block_len) |block| {
+        root[block * block_len ..][0..block_len].* = root[(block * block_len) % period_len ..][0..block_len].*;
+    }
+}
+
+/// The entries one vector register of `constants.table_vector_len` octets holds.
+const lanes_len = constants.table_vector_len / @sizeOf(Entry);
+const Lanes = @Vector(lanes_len, u32);
+
+/// Four entries as one vector register: an empty assembly statement that takes them in a register
+/// and gives them back, so that LLVM stores the register and never loads them again from the root.
+inline fn in_register(lanes: Lanes) Lanes {
+    return switch (builtin.cpu.arch) {
+        .aarch64 => asm (""
+            : [ret] "=w" (-> Lanes),
+            : [lanes] "0" (lanes),
+        ),
+        .x86_64 => asm (""
+            : [ret] "=x" (-> Lanes),
+            : [lanes] "0" (lanes),
+        ),
+        else => lanes,
+    };
 }
 
 /// A longer code fills every entry of its root entry's second level whose low bits are the bits it
