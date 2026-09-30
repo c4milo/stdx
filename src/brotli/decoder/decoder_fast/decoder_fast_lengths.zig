@@ -141,8 +141,8 @@ pub fn read(state: *State, bits: *codec.BitReader) void {
             local.take(decoded.len);
             prefix_reader.set_length_of(&tally, &reading.ranges, &reading.counts, symbol);
         } else {
-            const extra_bits = prefix_reader.repeat_extra_bits(symbol);
-            const extra: u32 = @intCast((local.buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
+            const extra_bits = prefix_reader.repeat_code_extra_bits(symbol);
+            const extra: u32 = @truncate((local.buffer >> @intCast(decoded.len)) & ((@as(u64, 1) << extra_bits) - 1));
             const repeat = prefix_reader.repeat_of(&tally, symbol, extra);
             // RFC 7932 §3.5: a repeat that would give more lengths than the alphabet has symbols
             // should be rejected as invalid; the checked path refuses it.
