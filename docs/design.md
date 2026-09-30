@@ -1096,6 +1096,22 @@ to 12 are reordered and nothing else changes.
     fewer instructions; the owner ruled to land the loop with that loss. Levels 6 and 9 lost no
     file in both jobs, and the bench, cross-built for the N2 at both commits, differs in level 1's
     loop and the insert it inlines alone.
+  - The pair heads, measured and not landed, 2026-09-30. On the lean loop, two positions per
+    13-bit hash with every covered position inserted still cost level 1 about a fifth of its
+    speed: bench runs [36672976740](https://github.com/c4milo/stdx/actions/runs/36672976740) and
+    [36672983624](https://github.com/c4milo/stdx/actions/runs/36672983624) paired 86eb7c5 with it
+    (8b8bb05 on its branch), at 0.794 and 0.788 of its speed at the median on the N2 and 0.857 and
+    0.822 on an EPYC 7763, for output from 1.055 to 1.004 of libdeflate's; json-16k ran at 0.42 to
+    0.50 and ptt5 at 0.45 to 0.51. Inserting every fourth position of a match past 32 octets
+    (26718a6, runs [36672990410](https://github.com/c4milo/stdx/actions/runs/36672990410) and
+    [36672997860](https://github.com/c4milo/stdx/actions/runs/36672997860)) cost the same at the
+    median for output of 1.007. The M1 measured each form that might have made it cheaper, and none
+    brought the cost under 17% on text: both candidates' lengths computed without a branch, a
+    four-octet test of both before any full compare, a reach test in place of the zero check,
+    each candidate's first 8 octets by one XOR before `match_len`, and the loop's own runtime
+    checks off. On text both candidates share their first four octets at most steps, so the second
+    costs a compare and a pick each time; on the repetitive files the inserts cost most. The owner
+    ruled to leave level 1's output at 1.055 of libdeflate's and move to level 6.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
