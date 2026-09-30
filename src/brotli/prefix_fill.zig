@@ -3,6 +3,7 @@
 //! reading appended.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const prefix = @import("prefix.zig");
@@ -64,6 +65,8 @@ inline fn fill_root_runs(comptime root_bits: u5, comptime value_of: fn (u16) u16
     const Index = std.meta.Int(.unsigned, root_bits);
     const root: *[1 << root_bits]Entry = entries[0 .. 1 << root_bits];
     const shift: u5 = @intCast(@bitSizeOf(u32) - @as(u32, len));
+    // aarch64 reverses a code's bits with one instruction, RBIT; x86-64 has none, and takes 15.
+    const by_table = comptime !builtin.cpu.arch.isAARCH64() and root_bits <= @bitSizeOf(u8);
     var code = first_code;
     var next = ranges.heads[len];
     // Each run holds a symbol at least, so a length's runs end within the alphabet.
@@ -77,7 +80,8 @@ inline fn fill_root_runs(comptime root_bits: u5, comptime value_of: fn (u16) u16
         assert(@as(u32, range.first) + range.count <= constants.insert_copy_alphabet_len);
         var symbol = range.first;
         for (0..range.count) |_| {
-            root[@as(Index, @truncate(@bitReverse(code) >> shift))] = symbol_entry(value_of(symbol), len);
+            const index: Index = if (by_table) @intCast(reversed_root(code, len)) else @truncate(@bitReverse(code) >> shift);
+            root[index] = symbol_entry(value_of(symbol), len);
             code +%= 1;
             symbol +%= 1;
         }
@@ -85,6 +89,20 @@ inline fn fill_root_runs(comptime root_bits: u5, comptime value_of: fn (u16) u16
     }
     return code;
 }
+
+/// The root entry a code of `len` bits, at most 8, names first: its bits reversed, as the stream
+/// holds them, from its octet's entry in `reversed_octets`, which the octet indexes unchecked. The
+/// caller holds `code` below 1 << `len`, once for each run.
+inline fn reversed_root(code: u32, len: u8) u8 {
+    return reversed_octets[@as(u8, @truncate(code))] >> @intCast(@bitSizeOf(u8) - len);
+}
+
+/// Each octet with its bits in reverse order, for `reversed_root`.
+const reversed_octets: [1 << @bitSizeOf(u8)]u8 = table: {
+    var table: [1 << @bitSizeOf(u8)]u8 = undefined;
+    for (&table, 0..) |*out, octet| out.* = @bitReverse(@as(u8, octet));
+    break :table table;
+};
 
 /// The entry of a symbol's code of `len` bits, which links no second level, as one value, so that
 /// it takes one store.
