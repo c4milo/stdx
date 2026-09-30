@@ -2388,6 +2388,17 @@ to 12 are reordered and nothing else changes.
       matched by its end, so `vmx flags` reads as `flags`; the target guard forgetting DIT. And
       the check built for the host's CPU, which the check refuses to run.
 
+  **Check passed on the runners, 2026-09-30.** CI run
+  [36666651783](https://github.com/c4milo/stdx/actions/runs/36666651783), at 8fdced0 on the branch
+  `platform`, passed on the three runners of decision 26. `platform-check` printed, from the probe
+  and from the host's own report alike:
+  - macOS on arm64, Darwin 25.6.0: `aes_clmul yes, dit yes`, as `sysctl hw.optional.arm` gives.
+  - Linux on aarch64, kernel 6.17.0-1022-azure, without libc and with it: `aes_clmul yes, dit
+    no`, as /proc/cpuinfo gives. The hosted aarch64 runner's kernel reports no `dit`, so a program
+    there reads `no`.
+  - Linux on x86-64, the same kernel, without libc and with it: `aes_clmul yes, dit not_known`, as
+    /proc/cpuinfo gives.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
