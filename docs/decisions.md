@@ -1001,6 +1001,15 @@ probe of the CPU.
       only `run_once`, two instructions shorter, differing. The alternatives refused: landing it as
       a one-off, which leaves the next harness change to argue the same case; and holding it, which
       keeps charging stdx a cost a caller pays once.
+    - Amended by the owner on 2026-09-30, after the brotli decoder's context map loop: a change that
+      only moves code, every function's body the same apart from its addresses, need not win; it
+      lands when its pair shows no loss past placement, and a change measured on top of it is judged
+      on its own code. There, the context map loop won on both runners and lost world192.txt on the
+      N2 on hot code it had only moved; 3abeeda started the decoder's hot functions on 64-octet
+      lines, as the json module's kernels are, and its pair (runs 36733153860 and 36733165581) moved
+      no file in both jobs. The alternatives refused: amending the placement rule for files whose
+      changed function runs only in the header, which leaves every later change moving the hot
+      loops; and holding the map loop.
     - Amended by the owner on 2026-09-30, after design §8 step 11's fill of repeated blocks: a
       change whose code no corpus file runs is judged on a probe, inputs that run that code, which
       a branch that never lands adds to the benchmark beside the corpus, in the base and the

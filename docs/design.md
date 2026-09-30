@@ -1725,6 +1725,21 @@ to 12 are reordered and nothing else changes.
     neighbouring entry and an identity table, all CAUGHT for baseline x86-64 under Rosetta; a
     version that also reversed a code's second octet left that octet's mutation NOT CAUGHT, since no
     code passes 8 bits, and was dropped. Pushed to main the same day.
+  - The hot functions on 64-octet lines (owner's ruling of 2026-09-30), 3abeeda on its branch and
+    90f1f07 on main, against ba11417, paired (runs
+    [36733153860](https://github.com/c4milo/stdx/actions/runs/36733153860) and
+    [36733165581](https://github.com/c4milo/stdx/actions/runs/36733165581); reports in
+    `bench/results/`, dated 2026-09-30, "align"), both phases with the benchmark's vector `memset`.
+    A fast loop for the context map's values changed only the map's functions, yet it moved the Zig
+    straight loop, the fast path's `run` and `transform.apply_wide` within their 64-octet lines, and
+    the N2 decoded world192.txt 1.7% and 1.3% slower on their unchanged code (runs 36717723633 and
+    36717734822). The 19 functions that carry a decode, the drivers, the header's readers and fills
+    and the word transforms, now start on a line (`constants.hot_function_alignment`), as the json
+    module's kernels do, 44 instances on each target where 3 did on aarch64 and 10 on x86-64; every
+    function's body matches main's with addresses masked. No file wins or loses in both jobs on
+    either runner: the N2 twice, then an Intel Xeon 8573C and an EPYC 9V45, the medians +0.2%.
+    Decision 20's amendment of 2026-09-30 for such a change, ruled on it, lands it. Pushed to main
+    the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
