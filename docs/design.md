@@ -2621,6 +2621,17 @@ to 12 are reordered and nothing else changes.
   run's functions on a line of their own the rows moved as before, so what moves them is outside
   those three functions, memcpy among the candidates. The losses keep both commits out.
 
+  **Plain numbers on aarch64 alone, 2026-09-30, rejected.** The owner chose to try the plain
+  number's end of 95a77cb on aarch64 alone, behind a comptime switch that left the x86-64 build
+  identical to main's, every function in its place (594d659). On the M1 Pro it took 16% fewer
+  instructions an octet on numbers and 4.8% on qlog's records. bench-json runs
+  [36733532187](https://github.com/c4milo/stdx/actions/runs/36733532187) and
+  [36733542609](https://github.com/c4milo/stdx/actions/runs/36733542609) paired it with ba11417:
+  on the N2, qlog's records decoded 1.5% faster in the second run and inside the noise in the
+  first, below the 4.3% and 5.1% the same path gained before the token's instructions were cut;
+  30 and 31 hex rows decoded 1% to 7% slower, and dickens and E.coli encoded 2% to 3.7% slower,
+  in both runs. It left.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
