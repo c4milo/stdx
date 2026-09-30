@@ -180,9 +180,22 @@ inline fn reversed_root(code: u32, len: u8) u8 {
 
 /// The entry of a symbol's code of `len` bits, which links no second level, as one value, so that
 /// it takes one store.
-inline fn symbol_entry(value: u16, len: u8) Entry {
+pub inline fn symbol_entry(value: u16, len: u8) Entry {
     const word: u32 = @bitCast(Entry{ .value = value, .len = len, .second_bits = 0 });
     return @bitCast(word);
+}
+
+/// Writes `entry`, a code of `len` bits at most the root's, whose bits as the stream holds them are
+/// `index`, at every root entry whose low `len` bits they are: one in each 1 << `len`, a store
+/// each, unrolled for the length.
+pub inline fn write_within_root(comptime root_bits: u5, root: *[1 << root_bits]Entry, index: u32, len: u8, entry: Entry) void {
+    switch (len) {
+        inline 1...root_bits => |code_len| {
+            const low: std.meta.Int(.unsigned, code_len) = @intCast(index);
+            inline for (0..1 << (root_bits - code_len)) |copy| root[@as(usize, low) + (copy << code_len)] = entry;
+        },
+        else => unreachable,
+    }
 }
 
 /// The shortest length with a code among `counts`: the reader gives a complete code of two symbols

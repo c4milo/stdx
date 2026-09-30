@@ -176,17 +176,11 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
             }
             // A complete code takes every value of its longest length, so the doubling ends here.
             assert(code == @as(u32, 1) << (root_bits + 1));
+            const root: *[1 << root_bits]Entry = self.entries[0 .. 1 << root_bits];
             for (lengths, 0..) |len, symbol| {
                 if (len == 0) continue;
-                assert(len <= root_bits);
-                const entry: Entry = .{ .value = @intCast(symbol), .len = len, .second_bits = 0 };
-                var index = reversed(next_code[len], len);
+                fill.write_within_root(root_bits, root, reversed(next_code[len], len), len, fill.symbol_entry(@intCast(symbol), len));
                 next_code[len] += 1;
-                // The code names every root entry whose low `len` bits are its bits: one per 1 << len.
-                for (0..@as(usize, 1) << @intCast(root_bits - len)) |_| {
-                    self.entries[index] = entry;
-                    index += @as(u32, 1) << @intCast(len);
-                }
             }
             return 1 << root_bits;
         }
