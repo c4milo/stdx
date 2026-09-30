@@ -12,6 +12,7 @@ const sequences = @import("sequences.zig");
 const work_module = @import("work.zig");
 const BitWriter = @import("test_writer.zig").BitWriter;
 const sequences_x86_64 = @import("fast_sequences/fast_sequences_x86_64.zig");
+const Paths = @import("claims.zig").Paths;
 
 /// A window of one Block_Maximum_Size, enough for these blocks.
 const window_len = constants.block_len_max;
@@ -74,13 +75,21 @@ fn written_block(head: []const u8, extras: []const u8, octets: []u8) []const u8 
 }
 
 fn decode(fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize) ![]const u8 {
+    return decode_on(.{}, fixture, octets, output, piece_len);
+}
+
+/// The paths the tests of a block's copies take: every claim on; Z4's chunk copies off, whose exact
+/// copies fill a run of one octet through `codec.fill`; and the checked path alone.
+const copy_paths = [_]Paths{ .{}, .{ .claims = .{ .chunk_copies = false } }, .{ .fast_paths = false } };
+
+fn decode_on(comptime paths: Paths, fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize) ![]const u8 {
     var run: block.Run = undefined;
-    try block.prepare(.{}, &run, fixture.context(octets));
+    try block.prepare(paths, &run, fixture.context(octets));
     var written: usize = 0;
     for (0..output.len + 1) |_| {
         const room = @min(piece_len, output.len - written);
         var sink: block.Sink(Window) = .{ .output = output[0 .. written + room], .written = written, .window = &fixture.window, .synced = &fixture.synced, .frame_len = &fixture.frame_len, .window_each = false };
-        const ended = try block.execute(.{}, Window, &run, fixture.context(octets), &sink);
+        const ended = try block.execute(paths, Window, &run, fixture.context(octets), &sink);
         written = sink.written;
         if (ended) return output[0..written];
     }
@@ -94,13 +103,15 @@ test "a block's sequences copy literals and matches, whole and in pieces of any 
     const head = [_]u8{ 8 << 3, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 2, 1 << 6 | 1 << 4 | 1 << 2, 3, 2, 1 };
     var octets: [64]u8 = undefined;
     const written = written_block(&head, &.{ 2, 0 }, &octets);
-    for (1..8) |piece_len| {
-        var fixture: Fixture = .{};
-        fixture.start();
-        var output: [32]u8 = undefined;
-        try testing.expectEqualStrings("abcabcadefffffgh", try decode(&fixture, written, &output, piece_len));
-        try testing.expectEqual(16, fixture.frame_len);
-        try testing.expectEqualSlices(u32, &.{ 1, 3, 1 }, &fixture.repeats);
+    inline for (copy_paths) |paths| {
+        for (1..8) |piece_len| {
+            var fixture: Fixture = .{};
+            fixture.start();
+            var output: [32]u8 = undefined;
+            try testing.expectEqualStrings("abcabcadefffffgh", try decode_on(paths, &fixture, written, &output, piece_len));
+            try testing.expectEqual(16, fixture.frame_len);
+            try testing.expectEqualSlices(u32, &.{ 1, 3, 1 }, &fixture.repeats);
+        }
     }
 }
 
@@ -114,11 +125,13 @@ test "a block's repeated literals fill its literal runs, whole and in pieces of 
     var octets: [64]u8 = undefined;
     const written = written_block(&head, &.{ 2, 0 }, &octets);
     const decoded: [literals_len + 4 + 4]u8 = @splat('z');
-    for ([_]usize{ 1, 2, 3, 5, 7, 16, decoded.len }) |piece_len| {
-        var fixture: Fixture = .{};
-        fixture.start();
-        var output: [2 * decoded.len]u8 = @splat(0);
-        try testing.expectEqualSlices(u8, &decoded, try decode(&fixture, written, &output, piece_len));
+    inline for (copy_paths) |paths| {
+        for ([_]usize{ 1, 2, 3, 5, 7, 16, decoded.len }) |piece_len| {
+            var fixture: Fixture = .{};
+            fixture.start();
+            var output: [2 * decoded.len]u8 = @splat(0);
+            try testing.expectEqualSlices(u8, &decoded, try decode_on(paths, &fixture, written, &output, piece_len));
+        }
     }
 }
 

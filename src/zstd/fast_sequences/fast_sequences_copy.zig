@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const codec = @import("codec");
 const constants = @import("../constants.zig");
 const Claims = @import("../claims.zig").Claims;
 
@@ -63,7 +64,8 @@ pub inline fn copy_run_chunks(output: []u8, target: usize, source: []const u8, s
 pub inline fn fill_run(comptime claims: Claims, output: []u8, target: usize, octet: u8, len: usize) void {
     const chunk_len = constants.copy_chunk_len;
     if (!claims.chunk_copies) {
-        @memset(output[target..][0..len], octet);
+        // `codec.fill`, not `@memset`, and out of line as `memset` was (see `write_repeated`).
+        @call(.never_inline, codec.fill, .{ output[target..][0..len], octet });
         return;
     }
     const chunks = chunks_of(chunk_len, len);
@@ -90,7 +92,7 @@ pub inline fn copy_within(comptime claims: Claims, output: []u8, target: usize, 
     } else if (distance >= len) {
         @memcpy(output[target..][0..len], output[source..][0..len]);
     } else if (distance == 1) {
-        @memset(output[target..][0..len], output[source]);
+        @call(.never_inline, codec.fill, .{ output[target..][0..len], output[source] });
     } else {
         for (0..len) |index| output[target + index] = output[source + index];
     }
@@ -165,7 +167,6 @@ test "the literals a source's chunked copies may take leave a chunk of the sourc
 }
 
 test "a window part copies in chunks only where the ring holds a chunk past it, as the ring's copy does" {
-    const codec = @import("codec");
     const Window = codec.Window(64);
     var window: Window = undefined;
     window.init();

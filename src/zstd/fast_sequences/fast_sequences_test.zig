@@ -205,6 +205,8 @@ pub fn seeded_frame(frame: *FrameWriter, seed: u64, shape: Shape) !usize {
 
 const Decoder = decoder_test.Decoder;
 const CheckedDecoder = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max, .paths = .{ .fast_paths = false } });
+/// The fast path with Z4's chunk copies off, which copies exactly.
+const ExactDecoder = decoder_module.Decoder(.{ .window_len_max = constants.block_len_max, .paths = .{ .claims = .{ .chunk_copies = false } } });
 
 /// The octets the largest seeded frame decodes to at most.
 const output_capacity = 65536;
@@ -237,6 +239,22 @@ fn expect_alike(shape: Shape, seed: u64) !void {
     const outcome = try codec.split.drive(Decoder, &states, step, frame.written(), &split_output, seed);
     try testing.expectEqual(.done, outcome.status);
     try testing.expectEqualSlices(u8, output[0..decoded_len], split_output[0..outcome.written]);
+}
+
+/// Decodes a valid seeded frame with Z4's chunk copies off and on the checked path, and requires the
+/// octets it decodes to on both.
+fn expect_exact_alike(shape: Shape, seed: u64) !void {
+    var frame: FrameWriter = .{};
+    const decoded_len = try seeded_frame(&frame, seed, shape);
+    var output: [output_capacity]u8 = undefined;
+    var exact: ExactDecoder = undefined;
+    exact.init(.{});
+    try testing.expectEqual(codec.Progress{ .consumed = frame.len, .written = decoded_len, .status = .done }, try exact.decode(frame.written(), &output));
+    var checked_output: [output_capacity]u8 = undefined;
+    var checked: CheckedDecoder = undefined;
+    checked.init(.{});
+    _ = try checked.decode(frame.written(), &checked_output);
+    try testing.expectEqualSlices(u8, checked_output[0..decoded_len], output[0..decoded_len]);
 }
 
 /// Decodes a seeded frame built to break a rule on both paths, and requires `refusal` of each after
@@ -291,6 +309,10 @@ const long_runs: Shape = .{ .sequences = long_run_sequences, .literals_length_sy
 /// Matches of 131 to 514 at offsets 5 to 28, so a chunk copies what an earlier chunk just wrote.
 const long_short_matches: Shape = .{ .offset_symbols = "\x03\x04", .match_length_symbols = "\x2b\x2c", .window_exponent = window_exponent_64k };
 
+/// Matches of 131 to 514 at offsets 1 to 4 (Offset_Value 4 plus 2 bits) and 5 to 12: a quarter of
+/// the first code's matches repeat the octet before them, which Z4's exact copies fill.
+const offset_one_matches: Shape = .{ .offset_symbols = "\x02\x03", .match_length_symbols = "\x2b\x2c", .window_exponent = window_exponent_64k };
+
 /// Offset code 1, Offset_Value 2 or 3, a Repeated_Offset, beside new offsets of code 5; with
 /// literals lengths 0 and 1, so the shift a literals length of 0 gives (RFC 8878 §3.1.1.5) comes
 /// too, and Repeated_Offset1 - 1 may be 0. Half the offset cells name a repeat, so the assembly
@@ -320,6 +342,13 @@ test "seeded blocks decode alike on the fast and checked paths, whole and split"
         try expect_alike(first_repeats, seed);
         try expect_same(rare_repeated_offsets, seed);
         try expect_alike(rare_first_repeats, seed);
+    }
+}
+
+test "matches at offsets 1 to 12 decode alike with chunk copies on and off and on the checked path" {
+    for (0..32) |seed| {
+        try expect_alike(offset_one_matches, seed);
+        try expect_exact_alike(offset_one_matches, seed);
     }
 }
 
