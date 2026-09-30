@@ -1647,6 +1647,21 @@ to 12 are reordered and nothing else changes.
     moved the same 1.1% to 1.3%, and stdx in the ReleaseFast table 0.4% at most, which decision 20's
     amendment of 2026-09-30 for a change to a harness alone, ruled on these runs, counts as
     placement. Pushed to main the same day.
+  - The root fill's table of reversed octets on x86-64, cb5435e on its branch and a29746f on main,
+    against 0a4dbc8, paired (runs
+    [36712429523](https://github.com/c4milo/stdx/actions/runs/36712429523) and
+    [36712438033](https://github.com/c4milo/stdx/actions/runs/36712438033); reports in
+    `bench/results/`, dated 2026-09-30, "x86-fill"). CPU-clock samples of js-1k
+    ([36680132790](https://github.com/c4milo/stdx/actions/runs/36680132790)) put the two
+    `fill_ranged` instances at 0.74 µs a decode on an EPYC 7763 and 0.40 µs on the N2: x86-64 has no
+    instruction that reverses bits, and `@bitReverse` took 15 of the 27 instructions the fill spent
+    on each root code. A table of each octet reversed, one load and a shift, leaves 9, unrolled by
+    two; aarch64 keeps RBIT, and its benchmark build matches main's function by function. On x86-64,
+    an EPYC 7763 and then a Xeon 8370C, five files gain in both jobs and none lose: grammar.lsp
+    +4.0% and +4.8%, xargs.1 +2.4% and +3.0%, html-1k +2.5% and +6.4%, html-16k +4.1% and +1.9%,
+    css-1k +5.3% and +4.1%. The N2, on main's code, moves no file in both jobs. Mutations: an
+    identity table and the shift dropped, both CAUGHT for baseline x86-64 under Rosetta. Pushed to
+    main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
