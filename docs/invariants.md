@@ -37,11 +37,17 @@ check lands with its step.
 ### INV-2: stdx performs no I/O
 
 - **Claim.** No code under `src/` opens, reads, writes or polls anything, starts a thread, or
-  prints.
+  prints. The one exception is `src/platform/`, whose probe a program calls once when it starts:
+  it may make one syscall, macOS's `sysctlbyname`, and nothing else (decision 40).
 - **Mechanism.** No source names `std.posix`, `std.os`, `std.c`, `std.fs`, `std.net`,
-  `std.Thread`, `std.Io`, `std.process`, `std.log` or `std.debug.print` (decision 2).
-- **Check.** Lint rule `tools/lint/io.zig`, step 0.
-- **Violation.** A debug print left in a decoder, or a helper that decodes a file.
+  `std.Thread`, `std.Io`, `std.process`, `std.log` or `std.debug.print` (decision 2), but for
+  `getauxval`, which reads memory (decision 21), and `sysctlbyname` in `src/platform/`. No module
+  imports `platform` (INV-14), so no codec path reaches the syscall.
+- **Check.** Lint rule `tools/lint/io.zig`, step 0. It reads `src/platform/` under a configuration
+  of its own, and its tests require every other module's files to refuse `sysctlbyname` and
+  `platform`'s to refuse every other chain on the list (step 20).
+- **Violation.** A debug print left in a decoder, a helper that decodes a file, or a codec that
+  imports `platform` to read the CPU for each message.
 
 ### INV-3: no source reads a clock or randomness
 
@@ -206,13 +212,13 @@ check lands with its step.
 ### INV-14: each library module imports only what design §3 gives it, and no package
 
 - **Claim.** The wrappers build on `deflate` and never the reverse, the codecs do not reach one
-  another, no codec reaches `json`, and no library module receives pepegrillo, an oracle or a
-  corpus.
+  another, no codec reaches `json`, no module reaches `platform`, and no library module receives
+  pepegrillo, an oracle or a corpus.
 - **Mechanism.** A module can import only what `build/modules.zig` gives it.
 - **Check.** Lint rule `tools/lint/module_graph.zig` pins the graph; `zig build graph-check`
-  compiles fixtures that import a wrapper, another codec, a package and the oracle bindings from
-  inside `src/deflate/`, and requires each compile to fail, beside a control that must compile.
-  Steps 0 and 2.
+  compiles fixtures that import a wrapper, another codec, `json`, `platform`, a package and the
+  oracle bindings from inside `src/deflate/`, and requires each compile to fail, beside a control
+  that must compile. Steps 0, 2 and 20.
 - **Violation.** `deflate.addImport("checksum", checksum)` to share a helper.
 
 ### INV-15: no source names a consumer

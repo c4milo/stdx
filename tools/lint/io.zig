@@ -8,6 +8,13 @@
 //! process table, and the two ways to write to standard error, `std.log` and `std.debug.print`.
 //! `std.debug.assert` stays allowed: it is on the list of neither.
 //!
+//! `src/platform/` is the one exception (decision 40). A program calls its probe once, when it
+//! starts, and no codec path runs it, so it may make the one syscall it needs: macOS's
+//! `sysctlbyname`. The rule reads that directory under a configuration of its own, which allows
+//! that call beside `getauxval` and refuses every other chain the list names, so the probe still
+//! opens no file, starts no thread and prints nothing. No other module can reach the probe: the
+//! module graph gives none of them `platform` (invariant 14).
+//!
 //! The rule reads what a file names, not what it reaches. A module that received another module
 //! from build/modules.zig can call through it, and this rule cannot see where that call ends up.
 //! The module graph bounds that, and no library module receives a package (invariant 14).
@@ -38,40 +45,72 @@ const forbidden_prefixes = [_][]const u8{
 /// The one call under a forbidden prefix that reaches no host: `getauxval` reads the auxiliary
 /// vector the kernel wrote into the process's memory at start, with no syscall. Zig's reader,
 /// `std.os.linux.getauxval`, and libc's, `std.c.getauxval`, read the same memory; a program that
-/// links libc has only libc's filled. `codec.Features.detect` reads the CPU's features from it on
-/// aarch64 Linux (decision 21).
+/// links libc has only libc's filled. `codec.Features.detect` and `platform.probe` read the CPU's
+/// features from it on aarch64 Linux (decisions 21 and 40).
 const exceptions = [_]forbidden_references.Exception{
     .{ .prefix = "std.os.linux", .last_segment_prefixes = &.{"getauxval"} },
     .{ .prefix = "std.c", .last_segment_prefixes = &.{"getauxval"} },
 };
 
-/// The configuration. It reads every file under `src/`: stdx has no test-only endpoint, so no
-/// directory is exempt.
+/// The one directory under `src/` that may make a syscall: the `platform` module (decision 40).
+const platform_directory = "src/platform";
+
+/// The calls `platform` may make beside `getauxval`: `sysctlbyname`, libc's reader of a macOS
+/// sysctl value, which is a syscall.
+const platform_exceptions = exceptions ++ [_]forbidden_references.Exception{
+    .{ .prefix = "std.c", .last_segment_prefixes = &.{"sysctlbyname"} },
+};
+
+/// The configuration of every module but `platform`. It reads every other file under `src/`:
+/// stdx has no test-only endpoint, so no other directory is exempt.
 pub const config: forbidden_references.Config = .{
     .name = "io",
-    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .scope = .{
+        .extensions = &.{lint.paths.zig_extension},
+        .include_directories = &.{"src"},
+        .exclude_directories = &.{platform_directory},
+    },
     .prefixes = &forbidden_prefixes,
     .exceptions = &exceptions,
     .reason = "stdx owns no I/O (decision 2, invariant 2)",
 };
 
+/// The configuration of `platform`: the same list, with `sysctlbyname` allowed.
+pub const platform_config: forbidden_references.Config = .{
+    .name = config.name,
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{platform_directory} },
+    .prefixes = &forbidden_prefixes,
+    .exceptions = &platform_exceptions,
+    .reason = "platform reads the CPU and nothing else (decision 40, invariant 2)",
+};
+
 const Rule = forbidden_references.Rule(config);
+const PlatformRule = forbidden_references.Rule(platform_config);
 pub const name = Rule.name;
-pub const check = Rule.check;
+
+/// Both configurations, under the one name. Their scopes do not overlap, so each file is read
+/// under one of them.
+pub fn check(context: *lint.report.Context, file: lint.report.File) !void {
+    try Rule.check(context, file);
+    try PlatformRule.check(context, file);
+}
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
 const harness = lint.harness;
 
+const module_graph = @import("module_graph.zig");
+
 const reason = "stdx owns no I/O (decision 2, invariant 2)";
+const platform_reason = "platform reads the CPU and nothing else (decision 40, invariant 2)";
 
 fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
 ) ![]const lint.report.Finding {
-    return harness.run(arena, Rule, path, source);
+    return harness.run(arena, @This(), path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -178,4 +217,55 @@ test "io reads src/ and nothing outside it" {
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("build/modules.zig"));
     try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});
+}
+
+/// A syscall, then the reader of the auxiliary vector, then a file, a libc call, a print and a
+/// thread: what the probe of `platform` might be tempted to reach.
+const syscall_fixture: [:0]const u8 =
+    \\const found = std.c.sysctlbyname("hw.optional.arm.FEAT_AES", &value, &value_len, null, 0);
+    \\const word = std.os.linux.getauxval(std.elf.AT_HWCAP);
+    \\const info = try std.fs.cwd().openFile("/proc/cpuinfo", .{});
+    \\const descriptor = std.c.open("/proc/cpuinfo", 0);
+    \\const shown = std.debug.print("{}\n", .{value});
+    \\const worker = std.Thread.spawn;
+;
+
+test "io refuses sysctlbyname in every module but platform" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var modules_read: usize = 0;
+    for (module_graph.expected_graph) |module| {
+        if (std.mem.eql(u8, module.name, "platform")) continue;
+        const path = try std.fmt.allocPrint(arena, "src/{s}/{s}.zig", .{ module.name, module.name });
+        try harness.expect_messages(try findings_of(arena, path, syscall_fixture), &.{
+            "reference to std.c.sysctlbyname: " ++ reason,
+            "reference to std.fs.cwd: " ++ reason,
+            "reference to std.c.open: " ++ reason,
+            "reference to std.debug.print: " ++ reason,
+            "reference to std.Thread.spawn: " ++ reason,
+        });
+        modules_read += 1;
+    }
+    try testing.expectEqual(module_graph.expected_graph.len - 1, modules_read);
+    // A file named for the platform outside its directory is another module's.
+    const outside = try findings_of(arena, "src/json/platform.zig", syscall_fixture);
+    try testing.expectEqualStrings("reference to std.c.sysctlbyname: " ++ reason, outside[0].message);
+}
+
+test "io allows platform sysctlbyname and getauxval, and refuses everything else there" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    for ([_][]const u8{ "src/platform/platform.zig", "./src/platform/deep/cpu.zig" }) |path| {
+        try harness.expect_messages(try findings_of(arena, path, syscall_fixture), &.{
+            "reference to std.fs.cwd: " ++ platform_reason,
+            "reference to std.c.open: " ++ platform_reason,
+            "reference to std.debug.print: " ++ platform_reason,
+            "reference to std.Thread.spawn: " ++ platform_reason,
+        });
+    }
+    try testing.expect(!config.scope.applies("src/platform/platform.zig"));
+    try testing.expect(platform_config.scope.applies("src/platform/platform.zig"));
+    try testing.expect(!platform_config.scope.applies("src/codec/features.zig"));
 }

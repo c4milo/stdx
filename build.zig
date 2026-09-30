@@ -25,6 +25,7 @@ const self_hosted = @import("build/self_hosted.zig");
 const avx512 = @import("build/avx512.zig");
 const brotli_tables = @import("build/brotli_tables.zig");
 const lean = @import("build/lean.zig");
+const platform_check = @import("build/platform_check.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -103,6 +104,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "zstd", .module = graph.zstd },
         .{ .name = "brotli", .module = graph.brotli },
         .{ .name = "json", .module = graph.json },
+        .{ .name = "platform", .module = graph.platform },
     };
     for (unit_test_modules) |entry| {
         // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast
@@ -150,6 +152,10 @@ pub fn build(b: *std.Build) void {
     });
 
     test_step.dependOn(add_graph_check_step(b));
+    const platform_steps = platform_check.add(b);
+    test_step.dependOn(platform_steps.check);
+    test_step.dependOn(platform_steps.tests);
+    tool_test_step.dependOn(platform_steps.tests);
     test_step.dependOn(brotli_tables.add(b, host_module(b, "tools/brotli_tables.zig")));
     const host_graph = modules.add(b, .{ .target = b.graph.host, .optimize = .ReleaseFast, .visibility = .private });
     test_step.dependOn(brotli_tables.add_budget_check(b, host_graph.brotli));

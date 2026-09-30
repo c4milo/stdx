@@ -31,7 +31,7 @@ const pepegrillo = @import("pepegrillo");
 /// The scopes CLAUDE.md names: one per module of docs/design.md §3, then `bench` for the
 /// benchmarks and `oracle` for the differential checks of `tools/`.
 pub const module_scopes = [_][]const u8{
-    "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "bench", "oracle",
+    "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "platform", "bench", "oracle",
 };
 
 /// First words that describe the commit instead of commanding it.
@@ -67,7 +67,7 @@ const commit = pepegrillo.commit;
 
 /// The module scopes as the scope warning prints them, written out rather than built from
 /// `module_scopes`, so a scope added to or dropped from that list fails this file.
-const module_scope_list = "codec, checksum, deflate, zlib, gzip, zstd, brotli, json, bench, oracle";
+const module_scope_list = "codec, checksum, deflate, zlib, gzip, zstd, brotli, json, platform, bench, oracle";
 
 /// Lints `text` under stdx's configuration and checks each finding, in order, as
 /// `severity: rule: message`.
@@ -89,7 +89,7 @@ fn expect_findings(text: []const u8, expected: []const []const u8) !void {
 test "every scope CLAUDE.md names passes" {
     // Written out rather than read from `module_scopes`, so a scope dropped from that list fails.
     const scopes = [_][]const u8{
-        "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "bench", "oracle",
+        "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "platform", "bench", "oracle",
     };
     try testing.expectEqual(scopes.len, module_scopes.len);
     for (scopes) |scope| {

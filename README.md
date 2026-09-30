@@ -32,6 +32,7 @@ Each module is exported by name, so a project that depends on stdx imports it wi
 | `zstd` | RFC 8878 and RFC 9659, the HTTP `zstd` coding |
 | `brotli` | RFC 7932, the HTTP `br` coding |
 | `json` | RFC 8259 and RFC 7464: a JSON encoder, a pull decoder, and text sequences (decision 27) |
+| `platform` | What the CPU offers, probed once when a program starts: the one module that makes a syscall (decision 40) |
 
 ## Building
 

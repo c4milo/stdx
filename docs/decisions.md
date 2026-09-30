@@ -16,8 +16,9 @@ decoder, entry 33 out of the owner's ruling on what step 17's profile left, entr
 losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 out of decision
 17's json measurement, entry 36 out of design §8 step 9's comparison with libdeflate's output,
 entry 37 out of design §8 step 18's non-ASCII rows, entry 38 out of the question entry 37 left,
-how fast the check runs alone, and entry 39 out of the owner's ruling on the gap entry 38 measured
-on x86-64.
+how fast the check runs alone, entry 39 out of the owner's ruling on the gap entry 38 measured on
+x86-64, and entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s request for a
+probe of the CPU.
 
 ## Scope and shape
 
@@ -42,7 +43,8 @@ on x86-64.
    the codec runs under any I/O model the caller has (blocking, `io_uring`, an event loop, a
    kernel bypass), and a test drives it with nothing but slices. `tools/lint/io.zig` refuses the
    syscall, filesystem, network, thread, process and logging surfaces of `std` under `src/`
-   (invariant 2).
+   (invariant 2). Entry 40 names the one exception: `platform`, whose probe a program calls once
+   when it starts, may read macOS's `sysctlbyname`, and no other module may import it.
 
    The alternative refused: the `std.Io.Reader` and `std.Io.Writer` interfaces of Zig 0.16, which
    `std.compress.flate` takes. They put a vtable call on every refill and a blocking model in the
@@ -97,7 +99,8 @@ on x86-64.
    The alternative refused: a dependent that imports stdx's source files by path. It would bypass
    the module graph that keeps each codec from reaching another (invariant 14).
 
-   Entry 27 adds an eighth module, `json`, exported the same way.
+   Entry 27 adds an eighth module, `json`, exported the same way, and entry 40 a ninth,
+   `platform`, which no other module imports.
 
 ## Tooling and checks
 
@@ -1040,7 +1043,8 @@ on x86-64.
       start: Zig's `std.os.linux.getauxval`, or libc's `std.c.getauxval` in a program that links
       libc, where Zig's finds nothing. `tools/lint/io.zig` allows those two calls and nothing else
       under `std.os` or `std.c`, and `src/codec/features.zig` is their one caller. On macOS, every
-      aarch64 machine has CRC32 and PMULL.
+      aarch64 machine has CRC32 and PMULL. Entry 40 makes `src/platform/` a second caller, and
+      allows it `sysctlbyname` besides.
       Elsewhere, `detect()` gives the build target's features.
 
     The alternatives refused:
@@ -2119,3 +2123,93 @@ on x86-64.
     - A 32-lane copy alone, for every x86-64 CPU with AVX2. Measured against the 64-lane copy in the
       same job on a CPU with AVX-512; the numbers decide.
     - The walk at the wider widths too. Refused by step 17's measurement above.
+
+40. **`platform`: what the CPU offers, probed once when a program starts, and the one module that
+    may make a syscall.** Ruled by the owner on 2026-09-29, in colibri's session, as [issue
+    15](https://github.com/c4milo/stdx/issues/15) records. The owner confirmed each point below on
+    2026-09-30, through the question prompt.
+
+    **What it is.** A program calls `platform.probe()` once, at start, and passes the fields of the
+    `Cpu` it returns down its stack: to a TLS stack's configuration, for example, which hands them
+    to each session. It is the shape of `codec.Features.detect()` (entry 21). No library calls it,
+    and stdx keeps no copy of the answers (invariant 4).
+
+    ```zig
+    pub const Answer = enum { yes, no, not_known };
+    pub const Cpu = struct { aes_clmul: Answer, dit: Answer };
+    pub fn probe() Cpu;
+    ```
+
+    - `aes_clmul` says whether the CPU has the AES instructions and a carry-less multiply of two
+      64-bit values. It is `yes` only when the CPU has both.
+    - `dit` says whether the CPU has Arm's FEAT_DIT: the PSTATE.DIT bit, under which Arm's timing
+      statement for instructions such as MADD and UMULH holds.
+
+    **Where each answer comes from.**
+    - x86-64, on every system: CPUID leaf 1, ECX bit 25 (AES-NI) and bit 1 (PCLMULQDQ). `dit` is
+      `not_known`: x86-64's matching mode, DOITM, is one the operating system sets on Ice Lake and
+      later parts, and user code cannot read it.
+    - aarch64 Linux: the AT_HWCAP word through `getauxval`, bit 3 (HWCAP_AES), bit 4 (HWCAP_PMULL)
+      and bit 24 (HWCAP_DIT).
+    - aarch64 macOS: `sysctlbyname` of `hw.optional.arm.FEAT_AES`, `hw.optional.arm.FEAT_PMULL`
+      and `hw.optional.arm.FEAT_DIT`. All three read 1 on the owner's M1 Pro, under macOS 26.6.2.
+    - Any other aarch64 system: `yes` for a feature the build target guarantees, and `not_known`
+      otherwise.
+    - Any other architecture: `not_known`.
+
+    Where Linux's or macOS's source gives no answer, the target's guarantee stands in, as on any
+    other aarch64 system. `getauxval` returns 0 when it finds no AT_HWCAP entry, which Zig's reader
+    does in a program that starts in libc but whose Zig code was built without it. A macOS release
+    older than a sysctl name has no value for it.
+
+    **The one module that may make a syscall.** macOS's `sysctlbyname` is a syscall; Linux's
+    `getauxval` reads memory the kernel wrote at start, and CPUID is an instruction. `platform` may
+    make the syscall because a program makes the call once, and no codec path runs it.
+    - `tools/lint/io.zig` reads `src/platform/` under a configuration of its own. It allows
+      `std.c.sysctlbyname` beside `getauxval` and refuses every other chain the rule's list names,
+      so the probe opens no file, starts no thread and prints nothing. Every other directory under
+      `src/` refuses `sysctlbyname` as before (invariant 2).
+    - No module imports `platform`, and `platform` imports nothing (invariant 14). The module-graph
+      rule's table gives no module an edge to it, and `zig build graph-check` requires an import of
+      it from `src/deflate/` to fail.
+
+    **It only reads.** `platform` changes no CPU state. It offers no call that sets PSTATE.DIT for
+    the calling thread (`msr dit, #1`). The owner revisits this only if [chapulin issue
+    186](https://github.com/c4milo/chapulin/issues/186) rules that the caller sets PSTATE.DIT.
+
+    **Its own CPUID.** `platform` runs CPUID in a function of its own and does not import `codec`,
+    whose `Features` runs the same instruction. The copy is one function of a dozen lines, and the
+    module graph gains no edge from `platform`.
+
+    **The check.** `zig build platform-check`, which `zig build test` runs, so it runs on every
+    runner of entry 26. `tools/platform_check.zig` requires `probe()` to give the answers the host
+    reports through a source the probe does not read: on Linux, /proc/cpuinfo's `flags` line on
+    x86-64 and its `Features` line on aarch64; on macOS, `sysctl hw.optional.arm`.
+    - The build compiles `platform` for the generic CPU of the host's architecture, so no answer
+      comes from the target. The check refuses to run when built for a CPU that guarantees a feature
+      it reads.
+    - On Linux it runs twice, without libc and with it: the probe reads the auxiliary vector through
+      Zig's `getauxval` in one and libc's in the other.
+    - It is a tool and not a unit test because it reads a file and runs a process, which no source
+      under `src/` may do. The unit tests hold each bit, each sysctl value and each target's
+      guarantee to its answer.
+
+    What it costs: a syscall inside stdx, a second configuration of the io rule, and a ninth module.
+
+    The alternatives refused:
+    - Fields in `codec.Features`, the issue's first form. `Features` chooses the codecs' SIMD paths
+      and makes no syscall (entry 21). macOS's sysctl would put a syscall in the module every codec
+      imports, and neither answer chooses a codec path.
+    - A module of the caller's own. Each program that needs the answers would write the CPUID,
+      AT_HWCAP and sysctl reads again.
+    - One call per answer. A program passes one value down its stack, as it passes
+      `codec.Features`, and one call reads each source once.
+    - A call that sets PSTATE.DIT, above.
+    - A compile error on any other system. A program built for one would fail to build to learn what
+      it can do without, and `not_known` says what the program cannot read.
+    - Importing `codec`'s CPUID. It adds an edge to the module graph, which CLAUDE.md asks the owner
+      about first, to save a dozen lines.
+    - `src/platform/` left out of the io rule. The probe could then open a file, start a thread or
+      print, and it needs none of them.
+    - `sysctlbyname` added to the io rule's shared exceptions. Every module could then call it.
+    - The comparison as a unit test of the module, above.

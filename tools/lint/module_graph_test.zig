@@ -31,6 +31,7 @@ const passing_build: [:0]const u8 =
     \\    brotli.addImport("codec", codec);
     \\    const json = library(b, "json", target, optimize);
     \\    json.addImport("codec", codec);
+    \\    const platform = library(b, "platform", target, optimize);
     \\}
 ;
 
@@ -171,7 +172,7 @@ test "module-graph reads the created modules and the edges of every receiver" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
-    try testing.expectEqual(8, calls.modules.len);
+    try testing.expectEqual(9, calls.modules.len);
     try testing.expectEqual(11, calls.edges.len);
     try testing.expectEqualStrings("deflate", calls.edges[0].module);
     try testing.expectEqualStrings("codec", calls.edges[0].name);
@@ -217,8 +218,24 @@ test "the expected graph is design §3's table" {
     var edge_count: usize = 0;
     for (module_graph.expected_graph) |module| edge_count += module.imports.len;
     try testing.expectEqual(table.len, edge_count);
-    try testing.expectEqual(8, module_graph.expected_graph.len);
+    try testing.expectEqual(9, module_graph.expected_graph.len);
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
+}
+
+test "no module imports platform, and platform imports nothing" {
+    // Decision 40: the one module that may make a syscall stays out of every codec's reach.
+    for (module_graph.expected_graph) |module| {
+        if (std.mem.eql(u8, module.name, "platform")) try testing.expectEqual(0, module.imports.len);
+        try testing.expect(!expected_edge(module.name, "platform"));
+    }
+    try testing.expect(expected_module("platform"));
+}
+
+fn expected_module(module_name: []const u8) bool {
+    for (module_graph.expected_graph) |module| {
+        if (std.mem.eql(u8, module.name, module_name)) return true;
+    }
+    return false;
 }
 
 fn expected_edge(module_name: []const u8, import: []const u8) bool {

@@ -7,7 +7,7 @@ build plan. [decisions.md](decisions.md) holds why each choice beat its alternat
 
 The owner ruled on decisions 11 to 20 on 2026-09-25, so this document states the design as
 ruled. Where it depends on a decision, it names the decision. Decision 27, ruled on 2026-09-28,
-adds the `json` module.
+adds the `json` module, and decision 40, ruled on 2026-09-29, the `platform` module.
 
 ## 1. Thesis and scope
 
@@ -22,7 +22,8 @@ states where stdx expects to win, where to match, and where to lose, and every r
 three.
 
 Beside the codecs, stdx holds a JSON encoder and decoder, RFC 8259 and RFC 7464's text sequences,
-under the same rules (decision 27).
+under the same rules (decision 27). It also holds `platform`, which a program calls once when it
+starts to learn what its CPU offers, and which no other module imports (decision 40).
 
 Out of scope are the items decision 13 lists: RFC 9841's extensions, dictionaries of every kind,
 threads, and formats that are not the four HTTP codings, but for JSON (decision 27).
@@ -65,9 +66,10 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
 | `brotli` | brotli | `codec` | 7932 |
 | `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec` | 8259, 7464, 3629 |
+| `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40) | nothing | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
-and none reaches `json`.
+and none reaches `json`. No module reaches `platform`.
 No library module receives a package: pepegrillo, the oracles and the corpora are requested by
 `build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
 
@@ -2334,6 +2336,57 @@ to 12 are reordered and nothing else changes.
   requires. The floor had said as much: the chunk's masks and scans cost more than the whitespace
   and the short strings' block scans they replaced, and nothing else of a token's cost is theirs
   to remove.
+
+- **Step 20: `platform`, the CPU probed once when a program starts (decision 40).** [Issue
+  15](https://github.com/c4milo/stdx/issues/15). `src/platform/` answers whether the CPU has the
+  AES instructions with a carry-less multiply, and whether it has Arm's FEAT_DIT: from CPUID on
+  x86-64, from AT_HWCAP on aarch64 Linux, and from `sysctlbyname` on aarch64 macOS.
+  **Check:**
+  - The unit tests hold each CPUID and AT_HWCAP bit, each sysctl value and each target's guarantee
+    to its answer.
+  - `zig build platform-check` requires the probe's answers to equal /proc/cpuinfo's on Linux and
+    `sysctl`'s on macOS, on each runner of decision 26: built for the generic CPU, and on Linux
+    without libc and with it.
+  - The io rule's tests require every module but `platform` to refuse `sysctlbyname`, and
+    `platform` to refuse every other chain on the rule's list.
+  - `zig build graph-check` refuses `@import("platform")` from `src/deflate/`, and the module-graph
+    rule's tests require its table to give no module `platform`.
+  - Mutations.
+
+  **Check passed on the development Mac, 2026-09-29.** Zig 0.16.0, the owner's M1 Pro under macOS
+  26.6.2.
+  - `zig build test` exits 0.
+  - `zig build platform-check` prints `platform-check, aarch64-macos, libc true: the probe says
+    aes_clmul yes, dit yes; sysctl hw.optional.arm says yes, yes`.
+  - Built for x86-64 macOS and run under Rosetta, the check prints `aes_clmul yes, dit not_known`
+    from the probe and from `sysctl machdep.cpu.features`, and the unit tests pass.
+  - Built for aarch64 Linux and run in an `ubuntu:24.04` container on the same Mac, the check
+    prints `yes, yes` from the probe and from /proc/cpuinfo, without libc and with it.
+  - 45 mutations, each applied, run against the narrowest check that can catch it, and reverted.
+    All 45 CAUGHT, each by a test or a check that failed, none by a compile error:
+    - `constants.zig`: AES-NI read from ECX bit 24, PCLMULQDQ from bit 2, HWCAP_AES from bit 2,
+      HWCAP_PMULL from bit 5 and HWCAP_DIT from bit 23, by the unit tests; each of the three
+      sysctl names misspelled, and CPUID leaf 7 read for leaf 1, by `platform-check`, on macOS and
+      under Rosetta.
+    - `platform.zig`, by the unit tests: sysctl values 1 and 0 swapped; any other value read as
+      `no`; two features `no` only when both are absent; `yes` when either is present; a word of 0
+      read as a word; `dit` read from HWCAP_AES; x86-64 answering `dit` `no`; the target overriding
+      the system; the target never filling an answer; the target's `dit` read from its AES; a
+      reading that ignores the target; x86-64 answering nothing, under Rosetta.
+    - `platform.zig`, by `platform-check`: macOS reading no sysctl; Linux reading no AT_HWCAP, and
+      libc's `getauxval` never used, in the Linux container; a sysctl's success read as failure; a
+      full sysctl value refused.
+    - io, by its tests: `src/platform/` read under both configurations; `platform` without
+      `sysctlbyname`; `sysctlbyname` allowed in every module; `platform`'s configuration reading
+      all of `src/`; that configuration never run; its directory misnamed.
+    - The graph: `json` given `platform` in `build/modules.zig`, by the module-graph lint; the
+      table giving `json` `platform`, and the table dropping `platform`, by the lint's and io's
+      tests; graph-check's list without `platform`, by its own test; `deflate` given `platform` in
+      graph-check's import set, by `zig build graph-check`.
+    - The check, by its tests: `vpclmulqdq` read for `pclmulqdq`, `svepmull` for `pmull`, `asimd`
+      for `dit`, `VPCLMULQDQ` for `PCLMULQDQ`; a sysctl value of 1 read as `no`; a line's name
+      matched by its end, so `vmx flags` reads as `flags`; the target guard forgetting DIT. And
+      the check built for the host's CPU, which the check refuses to run.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

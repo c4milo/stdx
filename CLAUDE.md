@@ -2,7 +2,8 @@
 
 stdx is a library of compression codecs, written from the RFCs: DEFLATE with its zlib and gzip
 containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it holds a JSON
-encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27). Home:
+encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and `platform`, which
+a program calls once when it starts to learn what its CPU offers (decision 40). Home:
 github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's
 brotli and Wuffs on the workloads it measures, with no heap and no I/O.
 
@@ -37,7 +38,9 @@ The architecture depends on every rule in this section.
 
 1. **No I/O.** A codec reads octets the caller already has and writes into storage the caller
    owns. It opens no file or socket, starts no thread, and makes no syscall. `tools/lint/io.zig`
-   enforces it over `src/`.
+   enforces it over `src/`. The one exception is `platform` (decision 40): its probe, which a
+   program calls once when it starts, may make the one syscall it needs, macOS's `sysctlbyname`,
+   and no other module may import it.
 2. **No heap.** No `Allocator` anywhere in `src/`, tests included. The caller owns every state,
    window, table and hash chain, and places it where it chooses. Each size is a comptime constant
    the codec exports, per codec and per encoder level. `tools/lint/heap.zig` enforces it.
@@ -63,7 +66,7 @@ The architecture depends on every rule in this section.
    production, about two per function, covering positive and negative space, for programmer error
    only (decision 17); the one loop that runs without them is decision 16's ruled exception.
    Hostile input returns an error value and fails closed; no input reaches an assertion.
-8. **One module per codec, plus the checksums and JSON.** Each is exported by name with
+8. **One module per codec, plus the checksums, JSON and `platform`.** Each is exported by name with
    `b.addModule`, so a dependent reaches it with `dependency.module("gzip")` (decision 6). The
    library keeps no process-wide mutable state, so a dependent may run codecs on as many threads as
    it likes.
@@ -124,8 +127,9 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the
   `!` optional. The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
   `ci`, `chore`. A scope holds lowercase letters and hyphens. Scopes track the module graph:
-  `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, and `bench` and
-  `oracle` for the benchmarks and the differential checks. A scope outside that set is a warning.
+  `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, `platform`, and
+  `bench` and `oracle` for the benchmarks and the differential checks. A scope outside that set is
+  a warning.
 - The description is imperative, starts with a lowercase letter, and ends without a period. The
   subject line stays at or under 72 columns.
 - Exactly one blank line separates the body from the subject. A body line stays at or under 100
@@ -225,7 +229,8 @@ Change this section when a step adds or renames a command.
   the checked reader and writer, decision 16). Every rule `tools/lint/main.zig` registers runs, and a canary
   tree in `build/lint.zig` proves it.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
-  `graph-check`, `hook-check`, `brotli-tables-check` and `brotli-table-budget-check`.
+  `graph-check`, `platform-check`, `hook-check`, `brotli-tables-check` and
+  `brotli-table-budget-check`.
   `zig build test-<module>` runs one module's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build test-self-hosted` builds every module's tests with
   Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux, and runs them there; any
@@ -244,8 +249,12 @@ Change this section when a step adds or renames a command.
   machines, with no Lean needed. The step needs lake, from elan or a Lean release;
   `tools/install_lean.sh` installs the pinned release on x86-64 Linux, and `tools/ci.sh` runs the
   step where lake is on the path.
-- Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec, a
-  package or the oracle bindings from inside `src/deflate/`, and requires each compile to fail.
+- Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec,
+  `json`, `platform`, a package or the oracle bindings from inside `src/deflate/`, and requires
+  each compile to fail.
+- Platform: `zig build platform-check` requires `platform.probe()` to give the answers the host
+  reports: /proc/cpuinfo on Linux and `sysctl` on macOS. It builds `platform` for the generic CPU
+  of the host's architecture, and on Linux runs without libc and with it (decision 40).
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
   zlib encodes from the corpora, at every level and strategy in all three containers, to the same
   octets. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The

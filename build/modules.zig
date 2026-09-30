@@ -1,5 +1,6 @@
 //! The module graph of docs/design.md §3: one module per codec, one for the checksums, one for JSON
-//! (decision 27), and one for the streaming contract every codec shares. A module can `@import` only what this file gives it,
+//! (decision 27), one for the streaming contract every codec shares, and one that probes the CPU
+//! once when a program starts (decision 40). A module can `@import` only what this file gives it,
 //! so the dependency direction is enforced by the build and not by review (CLAUDE.md, Layout).
 //!
 //! Every module here is library code and is exported by name with `b.addModule`, so a dependent
@@ -35,6 +36,9 @@ pub const Modules = struct {
     brotli: *std.Build.Module,
     /// JSON, RFC 8259, and JSON text sequences, RFC 7464 (decision 27).
     json: *std.Build.Module,
+    /// What the CPU a program runs on offers, probed once when the program starts: the one module
+    /// that may make a syscall (decision 40). Imports nothing, and no module imports it.
+    platform: *std.Build.Module,
 };
 
 /// Whether a graph's modules are exported by name. build.zig exports the graph a dependent imports;
@@ -79,6 +83,8 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
     variants.add_levels(b, json, "json", settings.target, settings.optimize, &.{ .x86_64_avx2, .x86_64_avx512 });
 
+    const platform = library(b, "platform", settings);
+
     return .{
         .codec = codec,
         .checksum = checksum,
@@ -88,6 +94,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .zstd = zstd,
         .brotli = brotli,
         .json = json,
+        .platform = platform,
     };
 }
 
