@@ -25,6 +25,9 @@ const Walk = struct {
     /// The `len_max` octets at `position`.
     later: []const u8,
     candidate: u16,
+    /// The lowest position the walk may reach: `position` less `encoder_distance_max`, or 1, as a
+    /// head or link of 0 ends the chain. One compare against it ends the walk at either.
+    lowest: usize,
     /// The candidates examined so far, and the most the walk examines.
     tried: u16 = 0,
     budget: u16,
@@ -40,7 +43,8 @@ const Walk = struct {
     inline fn init(comptime level: constants.Level, self: *const Matcher(level), position: usize, len_max: usize, budget: u16) Walk {
         assert(len_max >= constants.match_len_taken_min and position + len_max <= self.filled);
         const later = self.window[position..][0..len_max];
-        return .{ .position = position, .later = later, .candidate = self.chain[slot(position)], .budget = budget, .later_tail = tail_octets(later, 0) };
+        const lowest = @max(1, position -| constants.encoder_distance_max);
+        return .{ .position = position, .later = later, .candidate = self.chain[slot(position)], .lowest = lowest, .budget = budget, .later_tail = tail_octets(later, 0) };
     }
 
     /// Examines the next candidate, or ends the walk: at its budget, at the chain's end, at a
@@ -49,17 +53,18 @@ const Walk = struct {
     /// `match_len_taken_min` is taken, so while `found` is shorter the first 4 decide. One compare
     /// of those 4 turns away most candidates before `match_len` compares from the start, and a
     /// candidate rarely passes it by chance, so its branch stays predictable.
-    inline fn step(walk: *Walk, comptime level: constants.Level, self: *const Matcher(level)) void {
+    inline fn step(walk: *Walk, comptime level: constants.Level, self: *const Matcher(level), comptime keeps_cut: bool) void {
         if (walk.done) return;
         const candidate = walk.candidate;
         // The chain names earlier positions, each farther than the one before it.
-        if (walk.tried >= walk.budget or candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < walk.position) {
+        if (walk.tried >= walk.budget or candidate < walk.lowest) {
             walk.done = true;
             return;
         }
         assert(candidate < walk.position);
         walk.candidate = self.chain[slot(candidate)];
-        walk.tried += 1;
+        // Below the budget, at most `candidates_max`, which fits 16 bits.
+        walk.tried +%= 1;
         if (tail_octets(self.window[candidate..], walk.tail) == walk.later_tail) {
             walk.found = longer_match(level, self, walk.position, candidate, walk.later, walk.found);
             if (walk.found.len >= level.nice_len or walk.found.len >= walk.later.len) {
@@ -69,7 +74,7 @@ const Walk = struct {
                 walk.later_tail = tail_octets(walk.later, walk.tail);
             }
         }
-        if (walk.tried == level.cut_candidates_max) walk.found_at_cut = walk.found;
+        if (keeps_cut and walk.tried == level.cut_candidates_max) walk.found_at_cut = walk.found;
     }
 
     /// The walk's result: under a budget of `cut_candidates_max` when `cut`, else its own.
@@ -93,7 +98,7 @@ pub inline fn best_inline(comptime level: constants.Level, self: *const Matcher(
     if (self.position + constants.hash_len > self.filled) return .{};
     const cut = previous_len >= level.cut_len;
     var walk = Walk.init(level, self, self.position, len_max, if (cut) level.cut_candidates_max else level.candidates_max);
-    while (!walk.done) walk.step(level, self);
+    while (!walk.done) walk.step(level, self, false);
     return walk.found;
 }
 
@@ -106,12 +111,12 @@ pub fn best_pair(comptime level: constants.Level, self: *const Matcher(level), p
     var first = Walk.init(level, self, position, constants.match_len_max, level.candidates_max);
     var second = Walk.init(level, self, position + 1, constants.match_len_max, level.candidates_max);
     // The first walk's nearest candidate often settles the second's budget, so it goes first.
-    first.step(level, self);
+    first.step(level, self, false);
     while (!first.done or !second.done) {
         if (first.found.len >= level.lazy_len) second.done = true;
         if (first.found.len >= level.cut_len) second.budget = level.cut_candidates_max;
-        second.step(level, self);
-        first.step(level, self);
+        second.step(level, self, true);
+        first.step(level, self, false);
     }
     return .{ .first = first.found, .second = second.result(level, first.found.len >= level.cut_len) };
 }
