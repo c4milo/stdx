@@ -987,6 +987,77 @@ to 12 are reordered and nothing else changes.
     - Writing the header's items and code length lengths through the bit writer's store, as the
       symbols are, cost the M1 3% on the 1 KiB files and 23% on html-16k: a store per item of 3 to
       14 bits costs more than the octet drains it replaces. Not kept.
+  - The fixed costs on Linux, 2026-09-29. After the counting sort, the 1 KiB files still ran at
+    0.48 of libdeflate's speed at level 1 on the N2 and 0.37 at levels 6 and 9, and at 0.8 on the
+    M1. A probe that counts each phase of one encode on the N2, on a branch that never lands
+    (bench-profile run [36634108595](https://github.com/c4milo/stdx/actions/runs/36634108595)),
+    put stdx's init alone at 33,500 cycles at level 1, where the M1 takes 1,200, and 66,000 at
+    level 6. Zig 0.16's compiler runtime defines `memset` an octet at a time and exports it weak, so
+    on Linux every `@memset` that LLVM does not expand inline runs that loop, glibc linked or not,
+    and a safe build fills each large `undefined` local through it. macOS links libSystem's
+    `memset`, so the M1 never shows the cost. Five commits change no output:
+    - b47400b adds `codec.fill`: `@memset` on Darwin, and elsewhere two 32-octet vector stores a
+      pass behind a barrier, since LLVM turned a plain loop of constant length back into `memset`.
+    - 893ef48 cuts the plan's fixed costs: counting passes run to the heaviest weight, canonical
+      codes cover only the symbols that occur, and a block of end-of-block alone is planned fixed
+      without pricing.
+    - 80f065a clears the heads and each block's counts through `codec.fill`.
+    - ccf87e0 sizes each code build's scratch by its alphabet, so the distance and code length
+      builds fill 30 and 19 entries where they filled 286; alphabets of 30 or fewer sort by
+      insertion, and the header's runs read the two tables in place.
+    - 2febc30 builds Huffman's lengths in one array of the weights, by Moffat and Katajainen's
+      in-place method, and the header's runs in one pass.
+
+    After 80f065a, probe run [36636569066](https://github.com/c4milo/stdx/actions/runs/36636569066)
+    put js-1k's whole encode at level 1 at 38,600 cycles where it took 71,900 (libdeflate
+    allocating, encoding and freeing its compressor: 34,300), init at 3,800 and an empty stream at
+    4,600 where it took 54,000. Bench runs
+    [36644384024](https://github.com/c4milo/stdx/actions/runs/36644384024) and
+    [36644393865](https://github.com/c4milo/stdx/actions/runs/36644393865) paired main (6fa420f)
+    and 7088922, the five commits on their branch, in each job: on a Neoverse N2 in both, an AMD
+    EPYC 7763 in the first and an Intel Xeon Platinum 8573C in the second. No file lost past its
+    floor in both jobs on either architecture. stdx's speed over libdeflate's, main to 7088922,
+    with the output unchanged:
+
+    | Level | N2, first run | N2, second run | EPYC 7763 | Xeon 8573C | stdx's output over libdeflate's |
+    |---|---|---|---|---|---|
+    | 1 | 0.744 to 0.845 | 0.746 to 0.847 | 0.823 to 0.927 | 0.814 to 0.891 | 1.055 |
+    | 6 | 0.704 to 0.777 | 0.706 to 0.783 | 0.708 to 0.745 | 0.659 to 0.696 | 1.000 |
+    | 9 | 0.882 to 1.028 | 0.886 to 1.037 | 0.895 to 1.028 | 0.777 to 0.918 | 1.010 |
+
+    On the N2 the 1 KiB files ran at 2.43 to 3.17 times their speed at level 1 and 2.37 to 3.19 at
+    levels 6 and 9, which puts them at 1.16 to 1.56 of libdeflate's speed at level 1 and 0.87 to
+    1.35 at levels 6 and 9. On the EPYC 7763 they ran at 1.38 to 1.78 of libdeflate's speed at
+    level 1 and 1.06 to 1.56 at levels 6 and 9. On the Xeon, libdeflate itself ran 1.05 to 1.06
+    times its base speed in the change's measurement, so that job's speed-ups carry drift and its
+    ratios over libdeflate do not. On the M1 against main, the 1 KiB files took 0.73 to 0.88 of
+    main's cycles at every level and every other file 0.96 to 1.004, json-1m at level 6 and
+    html-16k at level 1 on seven alternating runs each; every file retired fewer instructions but
+    E.coli at level 9, 0.06% more.
+
+    Each step on the way was paired too, and on the N2 osdb lost at the third. Runs
+    [36636504842](https://github.com/c4milo/stdx/actions/runs/36636504842) and
+    [36637325043](https://github.com/c4milo/stdx/actions/runs/36637325043) paired main with the
+    first three commits: osdb at 0.972 to 0.988 of its speed at every level in both jobs, and
+    dickens-1m at 0.983 and 0.985 at level 6. Runs
+    [36637471162](https://github.com/c4milo/stdx/actions/runs/36637471162) and
+    [36637479108](https://github.com/c4milo/stdx/actions/runs/36637479108) paired the fourth with
+    them: dickens-1m at 1.012 and 1.015 at level 6, and no loss. Runs
+    [36644402067](https://github.com/c4milo/stdx/actions/runs/36644402067) and
+    [36644410531](https://github.com/c4milo/stdx/actions/runs/36644410531) paired the fifth with
+    the fourth: the 1 KiB files at 1.11 to 1.16 times their speed at level 1 on the N2, osdb at
+    1.030 and 1.023 at level 6, and no loss. At 7088922 against main, osdb runs at 1.026 of its
+    speed at level 1 in both jobs and at 1.006 to 1.009 at levels 6 and 9.
+
+    The bench, cross-built for the N2 at main and at 7088922, runs every per-symbol function of the
+    encoder on code identical apart from its addresses: `advance_positions` at each level, the
+    walk's `best`, `take_previous`, `match_len`, `insert_covered`, the symbol writer and CRC-32.
+    They moved by 264 to 6,868 octets. What differs runs once a block or once a stream: a block's
+    reset, the plan and its code builds, and the heads' clear. A block ends at each slide of the
+    window as well as at 16,384 symbols, so osdb's 10 MB take more than 300 plans, 6% of its
+    level 1 time on the M1 at both commits. Decision 20 still counts a file whose path runs a
+    changed function, and every commit's plan runs on osdb's path; osdb's loss moved with the
+    plan's later commits and is gone at 7088922, where no file loses.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its

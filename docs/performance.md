@@ -89,6 +89,7 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | the 64-lane UTF-8 check at 55 GB/s on 16 files and 163 on one, simdutf the reverse | each buffer's offset from a 64-octet line: a 64-octet load that crosses one cost two thirds of the speed on a Xeon 8370C | start wide loads on a line of their width; time each offset (bench-json's sweep) |
 | a kernel's rows 21% to 38% slower on an EPYC 9V45 with its instructions unchanged | the variant object's text was 16-octet aligned, so every change to the module's own code moved its kernels within their lines | start each kernel and each loop's function on a 64-octet line (`kernel_alignment`) |
 | the placement proof finds the shared timing loop changed | one caller passed it a slice whose length was known only at run time, and LLVM kept a check it had proved away | give every call of a shared harness a fixed length |
+| a 32 KiB clear at 33,500 cycles on the N2 and 1,200 on the M1 | Zig 0.16's compiler runtime defines `memset` an octet at a time; on Linux it serves every `@memset` LLVM leaves as a call and every large `undefined` local of a safe build, while macOS links libSystem's | `codec.fill`; no large `undefined` scratch in a per-call path; look for `memset` relocations in a Linux build's `objdump -dr` (design §8 step 9) |
 
 ## Commands
 
