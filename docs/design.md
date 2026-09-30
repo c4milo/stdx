@@ -1665,6 +1665,22 @@ to 12 are reordered and nothing else changes.
     css-1k +5.3% and +4.1%. The N2, on main's code, moves no file in both jobs. Mutations: an
     identity table and the shift dropped, both CAUGHT for baseline x86-64 under Rosetta. Pushed to
     main the same day.
+  - Every code's reversal through the table on x86-64, 2330aa6 on its branch and 75d10ed on main,
+    against cb5435e, the root fill's table, paired (runs
+    [36715933098](https://github.com/c4milo/stdx/actions/runs/36715933098) and
+    [36715943117](https://github.com/c4milo/stdx/actions/runs/36715943117); reports in
+    `bench/results/`, dated 2026-09-30, "x86-reversed"), both phases before the benchmark's vector
+    `memset` (97e42ca). After the root fill, `reversed` still took 15 instructions a code on x86-64,
+    in the code length code's table, the second levels and `fill_canonical`. Each code it takes is a
+    root's or a second level's past the root, 8 bits at most, which a comptime assert now pins, so
+    one load and a shift serve it; `finish_code` fell from 1598 instructions to 1436 and
+    `fill_second` from 96 to 66. aarch64 keeps RBIT, and its benchmark build matches main's function
+    by function. On x86-64, an EPYC 7763 and then an EPYC 9V45 whose job spread up to 68%, js-1k
+    gains in both jobs, +2.0% and +5.0% (0.96 to 0.98 of Google's speed), and no file loses in both.
+    The N2, on main's code, moves no file in both jobs. Mutations: the shift dropped, the
+    neighbouring entry and an identity table, all CAUGHT for baseline x86-64 under Rosetta; a
+    version that also reversed a code's second octet left that octet's mutation NOT CAUGHT, since no
+    code passes 8 bits, and was dropped. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
