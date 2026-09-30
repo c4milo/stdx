@@ -1786,6 +1786,40 @@ to 12 are reordered and nothing else changes.
     Mutations: the run past the end, the value's offset, a run's extra bits dropped, a value
     uncounted, the refill too late and the reader not handed back, all CAUGHT. Pushed to main the
     same day.
+  - The header's second cuts, four commits on main as de63265, 04f4b1d, aa7f3fd and 061dc84, paired
+    as one stack, 2e89335 on its branch, against e27ee05 (runs
+    [36759714649](https://github.com/c4milo/stdx/actions/runs/36759714649) and
+    [36759724289](https://github.com/c4milo/stdx/actions/runs/36759724289); reports in
+    `bench/results/`, dated 2026-09-30, "header-stack"). The N2's counters (run
+    [36751919336](https://github.com/c4milo/stdx/actions/runs/36751919336)) put js-1k at 16,423
+    cycles a decode against Google's 16,185, with 60,680 instructions against 54,474 and about five
+    branch misses: bound by instructions, its header alone 35,057 against 30,840. On the M1 the
+    header took 34,368 instructions, 6,183 of them filling its eight literal and distance tables;
+    valgrind's callgrind, which counts every instruction by source line on a Linux build, found
+    2,070 more in its six code length codes' tables and about 9,000 reading its 131 code length
+    symbols. The commits: a simple code's table written from a shape `fill_simple` computes at
+    comptime from RFC 7932 §3.4's lengths, and the root's period copied unrolled past it; the code
+    length code's copies unrolled, one store each; the code lengths' sums unchecked where the
+    alphabet bounds them, a repeat's factor a shift; and the code length code's loop in registers.
+    Under callgrind they take js-1k's header from 33,111 to 27,580 instructions on aarch64 and from
+    37,630 to 32,024 on x86-64, the other 1 KiB bodies 13% to 16%. On the N2, nine files gain in
+    both jobs and none loses: js-1k +6.2% and +6.3% (0.99 to 1.06 of Google's speed), json-1k +4.8%
+    and +6.8%, css-1k +5.8% and +4.7%, html-1k +2.6% and +3.6%, and json-16k, grammar.lsp,
+    kennedy.xls, sum and xargs.1 +1.4% to +3.2%. On an EPYC 7763 twice, four gain in both and none
+    loses: json-1k +6.4% and +5.9%, html-1k +6.0% and +4.6%, json-16k and grammar.lsp; js-1k gains
+    4.1% and 8.0% (0.97 to 1.01 and 0.95 to 1.02), the first inside its spread, and every file there
+    runs above Google's speed. The fill alone, paired against 186718f (runs
+    [36751651039](https://github.com/c4milo/stdx/actions/runs/36751651039) and
+    [36751660185](https://github.com/c4milo/stdx/actions/runs/36751660185)), lost silesia/nci on the
+    N2 by 8.2% and 5.6% by ratio on hot functions identical to main's, its whole decode 25,375
+    instructions shorter of 110.9 million, while the same decoder in the job's fast-path table moved
+    +0.1%; this pair moves nci -1.2% and +5.3%. The stack's profile (run
+    [36762079848](https://github.com/c4milo/stdx/actions/runs/36762079848)) puts js-1k at 1.06 of
+    Google's speed on the N2, with 54,958 instructions and 15,297 cycles a decode, and at 0.99 on an
+    EPYC 9V74, where the fills take 19.4% of stdx's samples against 9.1% for Google's table build.
+    Mutations: nine of the fill, four of the table, eight of the sums and six of the loop, all
+    CAUGHT, the sums' skipped run slot once a new test pinned the runs' count. Pushed to main the
+    same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
