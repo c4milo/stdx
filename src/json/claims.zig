@@ -38,6 +38,10 @@ pub const Claims = struct {
     /// input slice into the output slice (decision 33, decoder_loop.zig). Off, each takes the path
     /// one token a call takes.
     decoder_token_loop: bool = true,
+    /// J12: J10's loop takes two `\u` escapes that follow each other at once, their reverse solidi
+    /// and `u`s checked in one word and their eight hexadecimal digits turned into two code units in
+    /// another. Off, it takes each escape alone, a digit at a time.
+    decoder_escape_words: bool = true,
     /// J9: the encoder writes a token in one straight line when the call's input holds all of it
     /// and the output has room for every octet it writes (decision 31). Off, every token takes the
     /// checked path.
@@ -86,6 +90,7 @@ pub const scalar: Claims = .{
     .decoder_token_loop = false,
     .encoder_fast_path = false,
     .encoder_token_loop = false,
+    .decoder_escape_words = false,
 };
 
 /// Every claim on, whatever the target: what the tests run beside `scalar`.
@@ -99,6 +104,7 @@ pub const vector: Claims = .{
     .decoder_token_loop = true,
     .encoder_fast_path = true,
     .encoder_token_loop = true,
+    .decoder_escape_words = true,
 };
 
 /// Each claim off in turn, the A/Bs the benchmark runs.
@@ -112,6 +118,7 @@ pub const each_off = [_]Claims{
     .{ .encoder_fast_path = false },
     .{ .decoder_token_loop = false },
     .{ .encoder_token_loop = false },
+    .{ .decoder_escape_words = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decisions 27, 30 and 31 number them.
@@ -125,4 +132,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "J9 encoder fast path",
     "J10 decoder token loop",
     "J11 encoder token loop",
+    "J12 decoder escape words",
 };

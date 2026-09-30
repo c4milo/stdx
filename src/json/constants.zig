@@ -115,6 +115,13 @@ pub const escape_hex_digits = 4;
 pub const hex_letter_value_min = 10;
 pub const hex_digits_lower = "0123456789abcdef";
 
+/// The bit an ASCII letter's lowercase sets and its uppercase clears: 'a' is 0x61, 'A' is 0x41.
+pub const ascii_case_bit: u8 = 0x20;
+
+/// The plain ASCII octets claim J12's loop takes one at a time between two `\u` escapes, the space
+/// and punctuation between two escaped words, before it leaves a longer run to the walk's blocks.
+pub const escape_gap_len_max = 8;
+
 /// The bits of one hexadecimal digit, and the digits of one octet.
 pub const nibble_bits = 4;
 pub const nibble_mask: u8 = 0x0f;

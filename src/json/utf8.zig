@@ -94,7 +94,7 @@ pub inline fn encode(code_point: u21, octets: []u8) void {
 
 /// `code_point`'s UTF-8 in `len` octets: the first holds `len`'s mark and the highest bits, and each
 /// after it the continuation octet's mark and the next `continuation_bits` (RFC 3629 §3).
-inline fn encoded(comptime len: usize, code_point: u21) [len]u8 {
+pub inline fn encoded(comptime len: usize, code_point: u21) [len]u8 {
     var octets: [len]u8 = undefined;
     octets[0] = constants.lead_marks[len] | @as(u8, @intCast(code_point >> (len - 1) * constants.continuation_bits));
     inline for (1..len) |index| {

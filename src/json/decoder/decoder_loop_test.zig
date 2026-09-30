@@ -78,6 +78,22 @@ const texts = [_][]const u8{
     "[\"\xc3\xa90123456789abc\xe2" ++ "\\n0123456789abcd" ++ "\"]",
     // Strings past the 64 octets a block at a time, one ending near the input's end.
     "[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]",
+    // Runs of `\u` escapes that claim J12 takes in pairs: words of odd and even lengths, characters
+    // of one, two and three octets, digits of both cases, a surrogate pair inside a run, and a run
+    // that ends near the input's end.
+    "[\"\\u0430\\u0431\\u0432 \\u0413\\u0414\\u0415\\u0416, \\u4e00\\u0041\\u007F\\u0080\\u07ff\\u0800\\uFFFF\\uD83D\\uDE00\\u0430\\u0431\\u0432\",\"\\u0430\\u0431\"]",
+    // A pair whose second escape holds a digit that is none, or a lone low surrogate, both of which
+    // the checked path refuses.
+    "[\"\\u0430\\u04G1\"]",
+    "[\"\\u0430\\u0431\\u0432\\uDC00\"]",
+    // Between escapes, a run of plain ASCII longer than claim J12's loop takes, a letter's escape,
+    // UTF-8, and a control character, which the checked path refuses.
+    "[\"\\u0430, a run of plain ASCII past eight octets \\u0431\\u0432\\n\\u0433\xc3\xa9\\u0434 \\u0435\"]",
+    "[\"\\u0430 \x01\\u0431\"]",
+    // Between escapes, a continuation octet alone and a character an escape cuts, which UTF-8 rules
+    // out (RFC 3629 §4) and the checked path refuses.
+    "[\"\\u0430\x80\\u0431\"]",
+    "[\"\\u0430 \xe2\x82\\u0431\"]",
 };
 
 /// The text of `texts` whose strings hold every escape the loop takes, and UTF-8.
@@ -201,6 +217,24 @@ test "the loop takes strings with every escape it names and with UTF-8, none lef
     try testing.expectEqual(5, token_loop.take(&decoder, claims.vector, text, &output, .last, &cursor, &slots));
     try testing.expectEqualStrings("a\"b\\c/d\x08\x0c\n\r\t", output[slots[1].start..][0..slots[1].len]);
     try testing.expectEqualStrings("A\xc3\xa9\xe2\x82\xac\xf0\x9f\x98\x80", output[slots[2].start..][0..slots[2].len]);
+    try testing.expect(decoder.is_done());
+}
+
+/// The text of `texts` whose strings hold runs of `\u` escapes that claim J12 takes in pairs, the
+/// seventh from the end.
+const unicode_runs_text = texts.len - unicode_runs_from_end;
+const unicode_runs_from_end = 7;
+
+test "the loop takes runs of \\u escapes a pair at a time where it can, none left to the checked path" {
+    var decoder: Decoder = undefined;
+    decoder.init(.text, codec.Features.detect());
+    var output: [output_len_max]u8 = undefined;
+    var slots: [slots_max]Slot = undefined;
+    var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
+    try testing.expectEqual(4, token_loop.take(&decoder, claims.vector, texts[unicode_runs_text], &output, .last, &cursor, &slots));
+    const first = "\u{430}\u{431}\u{432} \u{413}\u{414}\u{415}\u{416}, \u{4e00}A\u{7f}\u{80}\u{7ff}\u{800}\u{ffff}\u{1f600}\u{430}\u{431}\u{432}";
+    try testing.expectEqualStrings(first, output[slots[1].start..][0..slots[1].len]);
+    try testing.expectEqualStrings("\u{430}\u{431}", output[slots[2].start..][0..slots[2].len]);
     try testing.expect(decoder.is_done());
 }
 
