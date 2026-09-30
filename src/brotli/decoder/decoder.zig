@@ -116,7 +116,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
 /// up to 24 (decision 12).
 pub const HttpDecoder = Decoder(.{});
 
-fn run(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, out: anytype, input_len: usize, output_len: usize) Error!codec.Status {
+fn run(comptime options: DecoderOptions, state: *State, bits: *codec.BitReader, out: anytype, input_len: usize, output_len: usize) align(constants.hot_function_alignment) Error!codec.Status {
     const units = @bitSizeOf(u8) * input_len + codec.constants.bit_buffer_bits + output_len;
     const steps_max = constants.decoder_steps_per_unit * units + constants.decoder_steps_floor;
     for (0..steps_max) |_| {

@@ -423,3 +423,11 @@ comptime {
     std.debug.assert(code_work_max(context_map_alphabet_len_max, context_map_table_len_max) <= work_per_bit_max * code_bits_min);
     std.debug.assert(code_work_max(distance_alphabet_len_max, distance_table_len_max) <= work_per_bit_max * code_bits_min);
 }
+
+/// The alignment of the decoder's hot functions: a 64-octet line, so that a function's loops sit
+/// where its own code puts them, and not where the functions before it end, which every change to
+/// them moves. A fast loop for the context map's values moved the Zig straight loop and
+/// `transform.apply_wide` within their lines with their code unchanged, and the N2 decoded
+/// world192.txt 1.7% and 1.3% slower (runs 36717723633 and 36717734822). The assembly loops start
+/// their own lines (`.p2align 6`).
+pub const hot_function_alignment = 64;

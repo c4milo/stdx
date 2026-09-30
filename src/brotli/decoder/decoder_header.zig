@@ -28,7 +28,7 @@ pub fn is_header_phase(phase: Phase) bool {
 
 /// One phase of a meta-block's header, by the function that reads it, and the status that ends
 /// the call, or null to go on.
-pub fn read_phase(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_phase(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     assert(is_header_phase(state.phase));
     return switch (state.phase) {
         .meta_block_header => stream.read_meta_block_header(state, bits),
@@ -211,7 +211,7 @@ pub fn read_map_run_length(state: *State, bits: *codec.BitReader) ?codec.Status 
 }
 
 /// Context map values (RFC 7932 §7.3), until the map is whole or the input runs out.
-pub fn read_map_values(state: *State, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_map_values(state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     const len = map_len(state, state.map_reading.map);
     // Each symbol gives at least one entry, so the map's length ends the loop.
     for (0..len + 1) |_| {

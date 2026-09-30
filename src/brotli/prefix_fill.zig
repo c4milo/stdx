@@ -24,7 +24,7 @@ const reversed_octets = prefix.reversed_octets;
 /// copied the entries written before it to fill them (`double_root`), so each copy repeats every
 /// shorter code; the root is whole once it is copied to its full width. Before the first code no
 /// entry is written, so the first width needs no copy.
-pub fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, sorted: []const Coded, counts: *const Counts) usize {
+pub fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, sorted: []const Coded, counts: *const Counts) align(constants.hot_function_alignment) usize {
     var fill = Fill.start(root_bits, sorted[0].len, sorted[sorted.len - 1].len, counts);
     for (sorted) |coded| fill_symbol(root_bits, value_of, entries, &fill, coded.symbol, coded.len);
     return fill_end(root_bits, entries, &fill);
@@ -34,7 +34,7 @@ pub fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, e
 /// `fill_canonical` writes it from the sorted symbols: each length's runs in symbol order, the
 /// lengths in order. The codes up to the root's length take one loop per length, the root doubled
 /// once before it and each code one store (`fill_root_runs`); the longer ones take `fill_symbol`.
-pub fn fill_ranged(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, ranges: *const Ranges, counts: *const Counts) usize {
+pub fn fill_ranged(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, ranges: *const Ranges, counts: *const Counts) align(constants.hot_function_alignment) usize {
     const len_max = longest_len(counts);
     var fill = Fill.start(root_bits, shortest_len(counts), len_max, counts);
     for (1..@min(len_max, root_bits) + 1) |len| {
@@ -176,7 +176,7 @@ inline fn fill_symbol(comptime root_bits: u5, comptime value_of: fn (u16) u16, e
 
 /// Ends a fill: the root copied to its full width, and the code's completeness and the table's
 /// budget asserted. Returns the entries the table takes.
-fn fill_end(comptime root_bits: u5, entries: []Entry, fill: *const Fill) usize {
+fn fill_end(comptime root_bits: u5, entries: []Entry, fill: *const Fill) align(constants.hot_function_alignment) usize {
     assert(std.math.isPowerOfTwo(fill.filled));
     _ = double_root(root_bits, entries, fill.filled, root_bits);
     // The reader checked the sums of RFC 7932 §3.5: the codes take every value.
@@ -241,7 +241,7 @@ inline fn copy_root(entries: []Entry, width: usize) void {
 
 /// A longer code fills every entry of its root entry's second level whose low bits are the bits it
 /// takes past the root.
-fn fill_second(comptime root_bits: u5, entries: []Entry, value: u16, code: u32, len: u8) void {
+fn fill_second(comptime root_bits: u5, entries: []Entry, value: u16, code: u32, len: u8) align(constants.hot_function_alignment) void {
     const link = entries[reversed(code >> @intCast(len - root_bits), root_bits)];
     assert(link.second_bits > 0);
     const rest_len = len - root_bits;

@@ -19,7 +19,7 @@ const Error = state_module.Error;
 
 /// The header's phases from the one the state stands at, until one that is not the header's, or a
 /// status that ends the call, which it returns.
-pub fn read_header(state: *State, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_header(state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     assert(header.is_header_phase(state.phase));
     // As the decoder's steps: every phase takes a bit, or follows one that does.
     const units = @bitSizeOf(u8) * bits.reader.remaining_len() + bits.bits.count;

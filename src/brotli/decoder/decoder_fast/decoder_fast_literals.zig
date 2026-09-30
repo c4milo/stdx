@@ -62,7 +62,7 @@ pub inline fn literals(comptime claims: Claims, comptime room: fast.Room, loop: 
 
 /// The literal table of each context of `block_type`, from its row of the literal context map (RFC
 /// 7932 §7.3), and whether the row names one tree.
-pub fn look_up_literal_tables(literal_tables: *LiteralTables, state: *const State, block_type: u8) void {
+pub fn look_up_literal_tables(literal_tables: *LiteralTables, state: *const State, block_type: u8) align(constants.hot_function_alignment) void {
     const row = state.literal_context_map[@as(usize, block_type) * constants.literal_contexts_count ..][0..constants.literal_contexts_count];
     for (&literal_tables.tables, row) |*table, tree| table.* = &state.literal_codes[tree];
     literal_tables.block_type = block_type;

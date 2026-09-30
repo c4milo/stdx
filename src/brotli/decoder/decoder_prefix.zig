@@ -59,7 +59,7 @@ fn alphabet_bits(alphabet_len: u16) u7 {
 
 /// A simple code's symbols, and its tree-select bit after four (RFC 7932 §3.4), until the code is
 /// whole or the input runs out.
-pub fn read_simple_symbols(state: *State, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_simple_symbols(state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     for (0..constants.simple_symbols_max + 1) |_| {
         if (try read_simple_symbol(state, bits)) |status| return status;
         if (state.phase != .simple_symbols) return null;
@@ -94,7 +94,7 @@ fn read_simple_symbol(state: *State, bits: *codec.BitReader) Error!?codec.Status
 /// A simple code's lengths, in the order its symbols came (RFC 7932 §3.4): one symbol takes no
 /// bits; two take 1 each; three take 1, 2 and 2; four take 2 each, or 1, 2, 3 and 3 when the
 /// tree-select bit is set. The canonical build gives codes of one length in symbol order.
-fn build_simple(state: *State, tree_select: bool) void {
+fn build_simple(state: *State, tree_select: bool) align(constants.hot_function_alignment) void {
     const reading = &state.reading;
     const symbols = reading.simple_symbols[0..reading.simple_count];
     if (symbols.len == 1) return finish_code(state, .{ .single = symbols[0] });
@@ -118,7 +118,7 @@ fn canonical_before(_: void, a: prefix.Coded, b: prefix.Coded) bool {
 /// 32 >> length reaches 32 or all 18 are read, or the input runs out. Each is a code of the fixed
 /// code §3.5 gives; the loop of decoder_fast_lengths.zig reads them while the input's margin holds,
 /// and the checked step reads the rest.
-pub fn read_code_length_code(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_code_length_code(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     // Each step reads one length, so the alphabet ends the loop, with one iteration more for the
     // checks after its last length.
     for (0..constants.code_length_alphabet_len + 1) |_| {
@@ -191,7 +191,7 @@ fn build_code_length_code(state: *State) Error!void {
 
 /// Code lengths of the alphabet's symbols, until their sum of 32768 >> length reaches 32768 (RFC
 /// 7932 §3.5) or the input runs out.
-pub fn read_code_lengths(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_code_lengths(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     // Each code length symbol gives at least one length, so the alphabet ends the loop, with one
     // iteration more for the checks after its last symbol.
     for (0..state.reading.alphabet_len + 1) |_| {
@@ -324,7 +324,7 @@ fn finish(state: *State, single: ?u16) void {
 }
 
 /// Builds `code` into the place the reading's target names, and moves the header on.
-fn finish_code(state: *State, code: Code) void {
+fn finish_code(state: *State, code: Code) align(constants.hot_function_alignment) void {
     const entries = switch (state.reading.target) {
         .block_type => |category| build(&state.blocks[@intFromEnum(category)].type_code, code),
         .block_count => |category| build(&state.blocks[@intFromEnum(category)].count_code, code),

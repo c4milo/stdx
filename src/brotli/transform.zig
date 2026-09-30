@@ -83,7 +83,7 @@ fn serialize() [constants.transforms_serialized_len]u8 {
 /// Writes transformation `id` of `word` into `output` (RFC 7932 §8): its prefix, the word with its
 /// elementary transform applied, and its suffix. Returns the octets written. The caller has
 /// checked the ID and the word's length against the stream.
-pub fn apply(id: usize, word: []const u8, output: *[constants.transformed_word_len_max]u8) usize {
+pub fn apply(id: usize, word: []const u8, output: *[constants.transformed_word_len_max]u8) align(constants.hot_function_alignment) usize {
     assert(id < constants.transforms_count);
     assert(word.len >= constants.word_len_min and word.len <= constants.word_len_max);
     const transform = table[id];
@@ -163,7 +163,7 @@ comptime {
 /// As `apply`, with the prefix, the body and the suffix each moved in one copy of fixed length, for
 /// the fast path, whose margin holds the room past the word (decision 16). `head` is DICT from the
 /// word's first octet, and the word is `word_len` octets of it.
-pub fn apply_wide(id: usize, head: *const [wide_input_len]u8, word_len: usize, output: *[wide_output_len]u8) usize {
+pub fn apply_wide(id: usize, head: *const [wide_input_len]u8, word_len: usize, output: *[wide_output_len]u8) align(constants.hot_function_alignment) usize {
     assert(id < constants.transforms_count);
     assert(word_len >= constants.word_len_min and word_len <= constants.word_len_max);
     const wide = wide_table[id];
@@ -177,7 +177,7 @@ pub fn apply_wide(id: usize, head: *const [wide_input_len]u8, word_len: usize, o
 }
 
 /// FermentFirst and FermentAll of RFC 7932 §8, in place.
-fn ferment_body(kind: Kind, word: []u8) void {
+fn ferment_body(kind: Kind, word: []u8) align(constants.hot_function_alignment) void {
     switch (kind) {
         .ferment_first => if (word.len > 0) {
             _ = ferment(word, 0);

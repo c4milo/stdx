@@ -205,7 +205,7 @@ pub inline fn refill(comptime claims: Claims, loop: *Loop) void {
 /// each completes on the straight-line path; `chain` takes one chain of phases for what the last
 /// command left, a block switch, extra bits after a refill, literals past their block, a copy from
 /// the window or of more than a chunk, or a dictionary word.
-pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State, window: anytype, bits: *codec.BitReader, writer: *codec.Writer) void {
+pub noinline fn run(comptime claims: Claims, comptime room: Room, state: *State, window: anytype, bits: *codec.BitReader, writer: *codec.Writer) align(constants.hot_function_alignment) void {
     var loop: Loop = .{
         .input = bits.reader.octets,
         .position = bits.reader.position,
@@ -273,7 +273,7 @@ inline fn iterations_max(comptime checks: bool, loop: *const Loop) usize {
 /// checked path. A chain starts once the input's margin holds and the buffer is refilled, and, in
 /// the margin's mode, only while the margin holds; the checked path then starts the mode that checks
 /// each write (decision 32).
-noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: *Loop, literal_tables: *LiteralTables, state: *State) Link {
+noinline fn straight_loop(comptime claims: Claims, comptime room: Room, shared: *Loop, literal_tables: *LiteralTables, state: *State) align(constants.hot_function_alignment) Link {
     @setRuntimeSafety(!claims.unchecked_loop);
     var loop = shared.*;
     defer shared.* = loop;
