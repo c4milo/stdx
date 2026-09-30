@@ -2439,6 +2439,39 @@ to 12 are reordered and nothing else changes.
   texts and qlog's records, which stdx decodes at 0.66 to 0.94 of simdjson's and yyjson's speed on
   every CPU.
 
+  **A token's instructions, 2026-09-30.** callgrind, run on aarch64 Linux in a container on the
+  M1 Pro, counted where 280 instructions went on each number of the harness's numbers workload, six
+  digits on average: 16 in `EnumArray`'s index for the machine's two steps, about 15 classifying
+  their octets, and 12 testing each token's first octet for whitespace with four compares. The
+  change made the transitions a plain array, with an octet for no state, the classes a table, and
+  let an octet above a space leave the whitespace test after one compare. On the M1 Pro the
+  instructions an octet fell on every workload: CLDR's texts 8.1%, qlog's records 5.9%, numbers
+  8.4%, strings 11.7%. bench-json runs
+  [36677665067](https://github.com/c4milo/stdx/actions/runs/36677665067) and
+  [36677671106](https://github.com/c4milo/stdx/actions/runs/36677671106) paired it with 25e9774,
+  each text decoded at this speed over main's:
+
+  | Decoding | N2, first run | N2, second run | EPYC 9V45 | EPYC 7763 |
+  |---|---|---|---|---|
+  | CLDR's texts | 1.032 | 1.033 | 1.024 | 1.026 |
+  | qlog's records | 1.084 | 1.085 | 1.087 | 1.028 |
+
+  Both win on the N2 in both runs, and moved inside their spreads on x86-64, where no file lost in
+  both jobs. On the N2, two files lost in both runs: hex mr decoded at 0.959 and 0.985, and
+  plrabn12.txt encoded at 0.954 and 0.958. bench_json, built for aarch64 at both commits, runs both
+  on functions identical apart from their addresses: `copy_long` moved from octet 24 of its line to
+  8, and `scan.plain_len_vector` from 32 to 52. The token loop's changed code runs once a text for
+  hex mr, and plrabn12.txt's encoding runs none of it. The owner ruled that both count as
+  placement, and main took the change at 3e710c9.
+
+  **A number's first and last steps skipped, 2026-09-30, rejected.** On the change above, the
+  machine skipped its step for a first digit from 1 to 9, and ended a whole number at an octet of
+  no class with one table load (e3a78a4); the M1 Pro counted 12% fewer instructions an octet on
+  numbers. bench-json runs [36678294306](https://github.com/c4milo/stdx/actions/runs/36678294306)
+  and [36678300483](https://github.com/c4milo/stdx/actions/runs/36678300483) paired it with the
+  change. On the N2, 37 and 33 hex rows decoded 2% to 7% slower and no row won; qlog's records
+  decoded 4% slower on an Intel Xeon 6973P-C. It left.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
