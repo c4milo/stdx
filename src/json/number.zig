@@ -113,6 +113,45 @@ pub const Ended = struct { len: usize, number: Number };
 /// §6), for claim J8. Null when an octet cannot come next and the number is not whole before it,
 /// and when the number runs to the end of `octets`, where it may go on.
 pub fn ended_in(octets: []const u8) ?Ended {
+    if (ended_plainly(octets)) |ended| return ended;
+    return ended_by_machine(octets);
+}
+
+/// `ended_in` for the numbers texts hold most, with no step of the machine an octet: an optional
+/// minus sign, an integer part, and an optional fraction, ended by an octet no number goes on
+/// with. Null for every other text, which the machine then judges: an exponent, a number the
+/// octets cut, and every text the grammar refuses. A number of one digit took the machine 126
+/// instructions more than a literal name, where yyjson took 35 (design §8 step 18). Inline, so
+/// that the token loop takes a common number with no call; the machine stays out of line.
+inline fn ended_plainly(octets: []const u8) ?Ended {
+    var index: usize = @intFromBool(octets.len > 0 and octets[0] == constants.minus);
+    if (index == octets.len or !is_digit(octets[index])) return null;
+    var state: State = .integer;
+    if (octets[index] == constants.zero) {
+        state = .zero;
+        index += 1;
+    } else index += 1 + digits_len(octets[index + 1 ..]);
+    if (index < octets.len and octets[index] == constants.decimal_point) {
+        const fraction_len = digits_len(octets[index + 1 ..]);
+        if (fraction_len == 0) return null;
+        index += 1 + fraction_len;
+        state = .fraction;
+    }
+    if (index == octets.len or number_octets[octets[index]]) return null;
+    return .{ .len = index, .number = .{ .state = state } };
+}
+
+/// For each octet, whether a number may go on with it or the machine refuses it after one: a
+/// digit, a sign, a decimal point and an exponent's mark. `ended_plainly` leaves those to the
+/// machine.
+const number_octets: [std.math.maxInt(u8) + 1]bool = table: {
+    var table: [std.math.maxInt(u8) + 1]bool = undefined;
+    for (&table, 0..) |*entry, octet| entry.* = class_of(@intCast(octet)) != .other;
+    break :table table;
+};
+
+/// `ended_in` by the machine, an octet at a time: the reference `ended_plainly` must agree with.
+fn ended_by_machine(octets: []const u8) ?Ended {
     var number: Number = .{};
     var index: usize = 0;
     // Each pass takes at least one octet, or returns.
@@ -213,6 +252,43 @@ test "ended_in finds a whole number an octet ends, and nothing where it is cut o
     // Cut at the end, where it may go on, and invalid before its end.
     for ([_][]const u8{ "", "12", "-", "1.5e", "01,", "-,", "1.x", "1e+]" }) |octets| {
         try testing.expectEqual(null, ended_in(octets));
+    }
+}
+
+test "ended_in gives the machine's verdict, length and state for every text of up to six octets" {
+    var text: [6]u8 = undefined;
+    const letters = "019-+.eE,x";
+    for (0..text.len + 1) |len| {
+        var counter: [6]u8 = @splat(0);
+        for (0..std.math.pow(usize, letters.len, len)) |_| {
+            for (text[0..len], counter[0..len]) |*octet, index| octet.* = letters[index];
+            try expect_ended_as_machine(text[0..len]);
+            for (counter[0..len]) |*digit| {
+                digit.* += 1;
+                if (digit.* < letters.len) break;
+                digit.* = 0;
+            }
+        }
+    }
+}
+
+/// Requires `ended_in` to give `octets` the machine's verdict, and its length and state.
+fn expect_ended_as_machine(octets: []const u8) !void {
+    const expected = ended_by_machine(octets);
+    const found = ended_in(octets);
+    try testing.expectEqual(expected == null, found == null);
+    const ended = expected orelse return;
+    try testing.expectEqual(ended.len, found.?.len);
+    try testing.expectEqual(ended.number.state, found.?.number.state);
+}
+
+test "ended_plainly takes the common numbers itself and leaves the rest to the machine" {
+    for ([_][]const u8{ "5,", "-12]", "0}", "3.25 ", "-0.5,", "123456789012345678\x1e" }) |octets| {
+        const ended = ended_plainly(octets) orelse return error.TestExpectedPlain;
+        try testing.expectEqual(octets.len - 1, ended.len);
+    }
+    for ([_][]const u8{ "1e5,", "12", "01,", "1.,", "-,", "1.5.", "0.5e1]", "1+" }) |octets| {
+        try testing.expectEqual(null, ended_plainly(octets));
     }
 }
 
