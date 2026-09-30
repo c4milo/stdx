@@ -18,6 +18,10 @@
 //!   ReleaseFast, prints the comparison with Google's brotli after it. The difference bounds what
 //!   the safety checks cost; ReleaseFast is never offered to a caller.
 //!
+//! stdx's decoder picks its loop from the CPU's features, detected once when a candidate is set up,
+//! as a caller does (decision 21): each detection's CPUID instructions leave a virtual machine for
+//! its hypervisor.
+//!
 //! Google's C is built ReleaseFast. This program is built ReleaseSafe, stdx's production mode, so
 //! stdx is measured as callers run it (decision 17).
 //!
@@ -56,16 +60,17 @@ fn StdxDecode(comptime paths: brotli.claims.Paths) type {
         stream: []const u8,
         output: []u8,
         decoder: *Decoder,
+        features: codec.Features,
 
         fn run_once(context: *const anyopaque) void {
             const self: *const Self = @ptrCast(@alignCast(context));
-            self.decoder.init(codec.Features.detect());
+            self.decoder.init(self.features);
             const progress = self.decoder.decode(self.stream, self.output) catch unreachable;
             std.debug.assert(progress.status == .done and progress.written == self.output.len);
         }
 
         fn of(arena: std.mem.Allocator, stream: []const u8, len: usize) !Self {
-            return .{ .stream = stream, .output = try arena.alloc(u8, len), .decoder = try arena.create(Decoder) };
+            return .{ .stream = stream, .output = try arena.alloc(u8, len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
         }
     };
 }
