@@ -976,6 +976,18 @@ on x86-64.
       The alternatives refused: counting such a move as a loss on its architecture, which blocks a
       change for where the linker placed code the change did not touch; and reading "every job"
       across both architectures alone, which lets a real loss on one of them pass.
+    - Amended by the owner on 2026-09-30, after design §8 step 12's header cuts for the small
+      bodies: a file whose ratio to the baseline moves past the larger of its spread and 1% in
+      both jobs is not the change's loss when stdx's own speed on that file stays within its
+      spread in every job and the baseline's speed moved instead. The proof splits the move into
+      both decoders' speeds, the change phase's over the base phase's, in every table of the job
+      that times them. There, E.coli's ratio to Google's brotli fell 1.4% and 1.5% in both N2 runs
+      of the cuts (36648491985 and 36648500622), and 1.8% and 2.0% in the fill's own pair, because
+      Google's decoder ran 1.4% to 2.3% faster in the job's second phase; stdx's E.coli speed moved
+      under 0.4% in the decoding table, the fast path's and the ReleaseFast table, where Google's
+      own speed held within 0.3%. The alternatives refused: a one-time exception, which leaves the
+      next change to argue the same case; and holding the change for a third pair, which would
+      time Google's second phase again.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,

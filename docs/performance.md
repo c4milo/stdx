@@ -18,11 +18,13 @@ hold the rulings, and [costs.md](costs.md) the prices.
   measures the base and the change in one job on one VM and one CPU. The aarch64 runner is a
   Neoverse-N2 or a V3; the x86-64 runner draws an EPYC 7763, 9V45, 9V74 or a Xeon from run to run,
   so a comparison holds inside a job and never across two runs.
-- The admission rule (decision 20, amended 2026-09-28 and 2026-09-29): a file wins or loses when it
-  moves past the larger of its own spread and 1% in every job; a change stays when it wins somewhere
-  and no file loses. Two paired runs a change, compared with each job's base report. A move is
-  placement, neither a win nor a loss, when the bench program built at both commits runs that file
-  on code identical apart from its addresses; decision 20 says how to prove it.
+- The admission rule (decision 20, amended 2026-09-28, 2026-09-29 and 2026-09-30): a file wins or
+  loses when it moves past the larger of its own spread and 1% in every job; a change stays when it
+  wins somewhere and no file loses. Two paired runs a change, compared with each job's base report.
+  A move is placement, neither a win nor a loss, when the bench program built at both commits runs
+  that file on code identical apart from its addresses; and a ratio's fall is the baseline's, not
+  the change's, when stdx's own speed on that file stays within its spread in every job while the
+  baseline's moved. Decision 20 says how to prove each.
 - Every speed states the stream's compression beside it, as `bench-brotli`, `bench-deflate` and
   `bench-zstd` print it.
 - `bench-profile` gives cycles, instructions and branch misses per octet on the runners, beside
@@ -85,6 +87,9 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | a chain walk 1.4 to 1.6 times slower than its inline form | the walk kept in a struct whose step was a call | the step inline |
 | −2.4% on a one-tree literal file on the N2 beside +6% on the M1 | three taken branches per literal in the hand-written loop, where LLVM's layout takes two | the common path falls through; refills and second levels out of line |
 | ten x86-64 files lose 4 to 7% with x86-64's code byte-identical | the baseline's own speed drifted between the job's two phases | diff the target's disassembly; judge a change on the target it touches |
+| the N2 counts 57k instructions for a decode the M1 counts at 47.6k | outside Darwin, Zig 0.16's compiler_rt memset takes an octet at a time, and a safe build's clear of a 520-octet local went through it on every entry | list the `memset` relocations of a Linux object before trusting the M1's counts |
+| a third of the header's instructions looked like a fifth of its time | store loops run near 5 instructions a cycle on the M1 | count a part's instructions by leaving it out, or by repeating it when it is idempotent |
+| a distance-1 fill made of inline stores cost x86-64 3 to 8% on command-heavy files | it changed the register allocation of the whole straight loop | diff the whole function's disassembly for each target, not the lines changed |
 | text files 4% slower and 15% faster in both N2 jobs, with every claim on, their walk's instructions unchanged | a function placed before the walk shrank by 52 octets, and every function after it moved | cross-build the bench at both commits and diff its functions; judge a change on the target it touches (design §8 step 18) |
 | the 64-lane UTF-8 check at 55 GB/s on 16 files and 163 on one, simdutf the reverse | each buffer's offset from a 64-octet line: a 64-octet load that crosses one cost two thirds of the speed on a Xeon 8370C | start wide loads on a line of their width; time each offset (bench-json's sweep) |
 | a kernel's rows 21% to 38% slower on an EPYC 9V45 with its instructions unchanged | the variant object's text was 16-octet aligned, so every change to the module's own code moved its kernels within their lines | start each kernel and each loop's function on a 64-octet line (`kernel_alignment`) |

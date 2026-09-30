@@ -1473,6 +1473,38 @@ to 12 are reordered and nothing else changes.
     there are the four 1 KiB bodies, grammar.lsp and xargs.1, each under 5 KB, where the header
     takes most of the time. x86-64 keeps the Zig loop, and no file moved past the bar in both of its
     jobs, on a Xeon 8370C and then a Xeon 6973P-C. Pushed to main the same day.
+  - The header for the small bodies (owner's ruling of 2026-09-29, after the loop), 1548ab3 on its
+    branch and e35b108 on main, against 38cf9fd, paired (runs
+    [36648491985](https://github.com/c4milo/stdx/actions/runs/36648491985) and
+    [36648500622](https://github.com/c4milo/stdx/actions/runs/36648500622); reports in
+    `bench/results/`, dated 2026-09-30, "small"). The six files below Google's speed on the N2 were
+    the four 1 KiB bodies, grammar.lsp and xargs.1, each under 5 KB, and the N2's counters (run
+    [36630161732](https://github.com/c4milo/stdx/actions/runs/36630161732)) showed them bound by
+    instructions: json-1k took 1.45 times Google's, with IPC 3.6 and about 11 branch misses more a
+    decode. Measured by leaving a part out, or by building an idempotent table 20 more times, the
+    M1's instructions put the table fills at 9.2k of json-1k's 31.5k header instructions, a third,
+    which the sampler's time shares had hidden: a code checked for a doubling, kept the fill on the
+    stack and took three stores. The cuts: each length's codes after one doubling, one store each,
+    in `prefix_fill.zig` (2adc2a3); the header's phases run in one loop through `header.read_phase`,
+    the reader topped up a word at a time (7d1f08b); the code-lengths loop's fields held in
+    registers and written back once (484f366); and the fast path's 520-octet literal tables no
+    longer cleared on each entry (043239e). That last one the M1 cannot see: outside Darwin, Zig
+    0.16's compiler_rt serves memset an octet at a time, and the N2 counted about 57k instructions
+    for a json-1k decode the M1 counted at 47.6k. A barrier that kept the distance-1 fill out of
+    memset moved the x86-64 straight loop's registers and cost it 3 to 8% on command-heavy files in
+    both jobs (runs [36637951202](https://github.com/c4milo/stdx/actions/runs/36637951202) and
+    [36637963502](https://github.com/c4milo/stdx/actions/runs/36637963502)), and was dropped. A
+    counting-sort build of the code length code and a branch-free doubling measured flat on the M1
+    and were dropped. Mutations: seven of the fill, five of the loop, six of the registers and one
+    of the tables, all CAUGHT. On the N2, 16 files gain in both jobs: json-1k +45% and +43% (0.80 to
+    1.16 of Google's speed), js-1k +30% and +28% (0.81 to 1.05), html-1k +24% and +23% (0.92 to
+    1.14), css-1k +21% and +19% (0.95 to 1.15), grammar.lsp +18% and +20% (0.97 to 1.14), xargs.1
+    +14% (0.96 to 1.09), the 16 KiB bodies +6% to +12%; every file there now runs at or above
+    Google's speed, the lowest js-1k at 1.05. E.coli's ratio fell 1.4% and 1.5% because Google's
+    decoder ran faster in the job's second phase, stdx's own speed moving under 0.4% in all three of
+    the job's tables, which decision 20's amendment of 2026-09-30, ruled on these runs, counts as no
+    loss. On x86-64, both jobs on an EPYC 9V45, json-1k and css-1k gain and no file loses. Pushed to
+    main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
