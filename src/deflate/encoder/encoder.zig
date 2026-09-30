@@ -110,7 +110,7 @@ fn run(comptime options: EncoderOptions, self: *Encoder(options), input: []const
     const steps_max = constants.encoder_steps_per_octet * (input.len + writer.writer.octets.len) + constants.encoder_steps_floor;
     for (0..steps_max) |_| {
         if (self.emit.active()) {
-            if (!emit_module.write(&self.emit, &self.plan, &self.block, &self.matcher.window, writer)) return .needs_room;
+            if (!emit_module.write(&self.emit, &self.plan, &self.block, self.matcher.window[0..constants.encoder_window_len], writer)) return .needs_room;
             // The block is written: the next starts where its input ends, or the stream pads.
             self.block.reset(self.matcher.pending_start());
             if (self.emitting_final) self.stage = .final_padding;

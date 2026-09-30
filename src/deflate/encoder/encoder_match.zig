@@ -65,7 +65,9 @@ pub fn Matcher(comptime level: constants.Level) type {
     return struct {
         const Self = @This();
 
-        window: [constants.encoder_window_len]u8,
+        /// The input, in its first `encoder_window_len` octets, and at level 6, whose walks run
+        /// inline (`search`), `encoder_window_padding_len` octets that no read reaches.
+        window: [constants.encoder_window_len + (if (level.pair_walks) constants.encoder_window_padding_len else 0)]u8,
         /// The last position with each hash, and for each position the one before it with the same
         /// hash. A position of 0 names none, so the window's first octet is never a candidate.
         heads: [1 << level.hash_bits]u16,
@@ -91,7 +93,7 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         /// Copies what fits of `input` into the window. Returns how many octets.
         pub fn fill(self: *Self, input: []const u8) usize {
-            const len = @min(input.len, self.window.len - self.filled);
+            const len = @min(input.len, constants.encoder_window_len - self.filled);
             @memcpy(self.window[self.filled..][0..len], input[0..len]);
             self.filled += len;
             return len;
@@ -99,7 +101,7 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         /// Whether the window is full and too few octets lie ahead to go on, so it must slide.
         pub fn must_slide(self: *const Self) bool {
-            return self.filled == self.window.len and self.position + constants.lookahead_min > self.filled;
+            return self.filled == constants.encoder_window_len and self.position + constants.lookahead_min > self.filled;
         }
 
         pub fn slide(self: *Self) void {
@@ -133,7 +135,7 @@ pub fn Matcher(comptime level: constants.Level) type {
 fn slide_window(comptime level: constants.Level, self: *Matcher(level)) void {
     assert(self.must_slide());
     const half: u16 = constants.window_len;
-    @memcpy(self.window[0..half], self.window[half..]);
+    @memcpy(self.window[0..half], self.window[half..constants.encoder_window_len]);
     self.filled -= constants.window_len;
     self.position -= constants.window_len;
     slide_positions(&self.heads, half);
