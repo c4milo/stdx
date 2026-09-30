@@ -79,7 +79,7 @@ fn decode(fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize)
 }
 
 /// The paths the tests of a block's copies take: every claim on; Z4's chunk copies off, whose exact
-/// copies fill a run of one octet through `codec.fill`; and the checked path alone.
+/// copies fill a run of one octet with `@memset`; and the checked path alone.
 const copy_paths = [_]Paths{ .{}, .{ .claims = .{ .chunk_copies = false } }, .{ .fast_paths = false } };
 
 fn decode_on(comptime paths: Paths, fixture: *Fixture, octets: []const u8, output: []u8, piece_len: usize) ![]const u8 {

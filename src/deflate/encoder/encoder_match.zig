@@ -13,7 +13,6 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const codec = @import("codec");
 const constants = @import("../constants.zig");
 const Block = @import("encoder_block.zig").Block;
 const Appender = @import("encoder_block.zig").Appender;
@@ -83,8 +82,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// candidate, and the output is a function of this stream's input alone (invariant 5).
         /// Decision 11 allows an encoder's `init` this clear, and no other.
         pub fn init(self: *Self) void {
-            // Not `@memset`: on Linux that calls Zig's octet-at-a-time `memset` (`codec.fill`).
-            codec.fill(std.mem.sliceAsBytes(&self.heads), 0);
+            @memset(&self.heads, 0);
             self.filled = 0;
             self.position = 0;
             self.previous = .{};

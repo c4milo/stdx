@@ -11,8 +11,8 @@ pub const Claims = struct {
     /// fit the table's width take together. Off, one literal a lookup.
     pairs: bool = true,
     /// Z4: literals and matches copied 16 octets at a time, overrunning into the room the margin
-    /// leaves. Off, the fast path copies exactly: with `@memcpy`, with `codec.fill` for a run of
-    /// one octet, and octet by octet.
+    /// leaves. Off, the fast path copies exactly: with `@memcpy`, with `@memset` for a run of one
+    /// octet, and octet by octet.
     chunk_copies: bool = true,
     /// Z5: a compressed block the call's input holds whole decodes from the input, and moves into
     /// the state only when the output fills before the block ends. Off, every compressed block is

@@ -204,8 +204,7 @@ fn copy_literals(comptime Window: type, run: *Run, context: Context, sink: *Sink
     switch (run.section.source) {
         .block => @memcpy(into, literal_octets(context.block, run.section.offset + run.literals_used, len)),
         .buffer => @memcpy(into, literal_octets(context.literals_buffer, run.literals_used, len)),
-        // `codec.fill`, not `@memset`, and out of line as `memset` was (see `write_repeated`).
-        .repeated => @call(.never_inline, codec.fill, .{ into, run.section.octet }),
+        .repeated => @memset(into, run.section.octet),
     }
     sink.commit(len);
     run.literals_used += len;

@@ -5,7 +5,6 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const codec = @import("codec");
 const constants = @import("../constants.zig");
 const code = @import("encoder_code.zig");
 
@@ -110,8 +109,8 @@ pub const Block = struct {
     /// §3.2.3), which its counts hold from the start.
     pub fn reset(self: *Block, input_start: usize) void {
         self.symbol_count = 0;
-        codec.fill(std.mem.sliceAsBytes(&self.literal_length_counts), 0);
-        codec.fill(std.mem.sliceAsBytes(&self.distance_counts), 0);
+        @memset(&self.literal_length_counts, 0);
+        @memset(&self.distance_counts, 0);
         self.literal_length_counts[constants.end_of_block] = 1;
         self.input_start = input_start;
         self.input_len = 0;

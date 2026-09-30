@@ -258,11 +258,10 @@ fn read_map_value(state: *State, bits: *codec.BitReader, len: u32) Error!?void {
     reading.index += run;
 }
 
-/// Writes `count` zeros from `start`, which the caller has checked against the map's length, through
-/// `codec.fill`: outside Darwin, `@memset` takes an octet at a time.
+/// Writes `count` zeros from `start`, which the caller has checked against the map's length.
 pub fn fill_zeros(entries: []u8, start: u32, count: u32) void {
     assert(start + count <= entries.len);
-    codec.fill(entries[start..][0..count], 0);
+    @memset(entries[start..][0..count], 0);
 }
 
 /// The IMTF bit, and the inverse move-to-front transform it asks for (RFC 7932 §7.3); then the map

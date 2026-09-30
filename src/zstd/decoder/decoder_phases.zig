@@ -160,9 +160,7 @@ pub fn read_repeated_octet(comptime options: DecoderOptions, self: *Self(options
 pub fn write_repeated(comptime options: DecoderOptions, self: *Self(options), output: []u8, written: *usize) Error!?Status {
     var into = sink(options, self, output, written.*);
     const len = @min(self.block_left, into.room());
-    // Not `@memset`: on Linux that calls Zig's octet-at-a-time `memset` (`codec.fill`). A call,
-    // as `memset` was, so the phases around it compile as before.
-    @call(.never_inline, codec.fill, .{ into.output[into.written..][0..len], self.repeated });
+    @memset(into.output[into.written..][0..len], self.repeated);
     into.commit(len);
     written.* = into.written;
     self.block_left -= @intCast(len);
