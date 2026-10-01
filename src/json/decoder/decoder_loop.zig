@@ -15,6 +15,7 @@
 //! after every batch.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
@@ -66,6 +67,9 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
         if (!loop.take_long_string(claims, long)) break;
         slots[filled] = .{ .kind = long.kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
         filled += 1;
+        // A string that ends the text's value, as one long string does a text of its own, needs
+        // no second pass of the loop to find the text's end.
+        if (loop.expect == .end_of_text) break;
     }
     // With every slot filled, the checked path asks for slots before it takes the text's end.
     if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
@@ -88,33 +92,21 @@ const Last = struct { matched: u8, number: number_grammar.Number };
 /// where the loop leaves the rest to `Decoder.run`. One octet each path returns in a register: as
 /// `?Kind`, each path's result went through a constant in memory, loaded with its flag at every
 /// token (design §8 step 18).
-const Taken = enum(u8) {
-    begin_object,
-    end_object,
-    begin_array,
-    end_array,
-    name,
-    string,
-    number,
-    true,
-    false,
-    null,
-    stop,
+const Taken = enum(u8) { begin_object, end_object, begin_array, end_array, name, string, number, true, false, null, stop };
 
-    /// The step that took a token of `kind`.
-    inline fn of(comptime kind: Kind) Taken {
-        return comptime @enumFromInt(@intFromEnum(kind));
-    }
+/// The step that took a token of `kind`.
+inline fn taken_of(comptime kind: Kind) Taken {
+    return comptime @enumFromInt(@intFromEnum(kind));
+}
 
-    /// The kind of the token a step took.
-    inline fn as_kind(self: Taken) Kind {
-        assert(self != .stop);
-        return @enumFromInt(@intFromEnum(self));
-    }
-};
+/// The kind of the token a step took.
+inline fn kind_taken(taken: Taken) Kind {
+    assert(taken != .stop);
+    return @enumFromInt(@intFromEnum(taken));
+}
 
 comptime {
-    // Each token's step is numbered as its kind, so `Taken.as_kind` is one cast.
+    // Each token's step is numbered as its kind, so `kind_taken` is one cast.
     for (std.enums.values(Kind)) |kind| {
         assert(std.mem.eql(u8, @tagName(kind), @tagName(@as(Taken, @enumFromInt(@intFromEnum(kind))))));
     }
@@ -163,7 +155,7 @@ const Loop = struct {
             const room_len = self.out.len;
             const taken = self.step(claims);
             if (taken == .stop) break index;
-            slot.* = .{ .kind = taken.as_kind(), .ended = true, .start = output.len - room_len, .len = room_len - self.out.len };
+            slot.* = .{ .kind = kind_taken(taken), .ended = true, .start = output.len - room_len, .len = room_len - self.out.len };
         } else slots.len;
     }
 
@@ -329,7 +321,7 @@ const Loop = struct {
         self.in_object = self.depth > 0 and self.decoder.containers.is_object(self.depth - 1);
         self.in = self.in[1..];
         self.value_ended(kind);
-        return .of(kind);
+        return taken_of(kind);
     }
 
     /// Takes a name or a string whose content the loop copies, and its closing quotation mark.
@@ -337,7 +329,7 @@ const Loop = struct {
         const content = self.in[1..];
         if (!claims.decoder_string_vectors) {
             self.string_taken(kind, content, self.copy_scalar(content) orelse return .stop);
-            return .of(kind);
+            return taken_of(kind);
         }
         switch (first_block(content, self.out)) {
             .ended => |copied| self.string_taken(kind, content, copied),
@@ -346,14 +338,14 @@ const Loop = struct {
                 return .stop;
             },
         }
-        return .of(kind);
+        return taken_of(kind);
     }
 
     /// The name or string at the start of `in` that `fill` stopped at, copied by `copy_blocks`
     /// from where `first_block` stopped; or false where the checked path must take it.
     fn take_long_string(self: *Loop, comptime claims: Claims, long: LongString) bool {
         const content = self.in[1..];
-        const copied = copy_blocks(claims, self.decoder.level, content, self.out, long.head_len) orelse return false;
+        const copied = @call(copy_blocks_call, copy_blocks, .{ claims, self.decoder.level, content, self.out, long.head_len }) orelse return false;
         self.string_taken(long.kind, content, copied);
         return true;
     }
@@ -392,7 +384,7 @@ const Loop = struct {
         if (!std.mem.eql(u8, self.in[0..text.len], text)) return .stop;
         self.in = self.in[text.len..];
         self.value_ended(kind);
-        return .of(kind);
+        return taken_of(kind);
     }
 
     /// Moves the grammar past a value of `kind` that just ended, as `Decoder.value_ended` does.
@@ -432,13 +424,18 @@ const First = union(enum) { ended: Copied, head: usize };
 /// copied and found plain.
 const LongString = struct { kind: Kind, head_len: usize };
 
+/// How `Loop.take_long_string` calls `copy_blocks`, outside the loop of `fill`: inline on aarch64,
+/// where qlog's records took 107 instructions a token against 114 out of line; out of line on
+/// x86-64, where inline it held more of the loop's values (design §8 step 18).
+const copy_blocks_call: std.builtin.CallModifier = if (builtin.cpu.arch == .x86_64) .never_inline else .always_inline;
+
 /// Copies a string's `content`, the input after its opening quotation mark, up to its closing
 /// one, into `room`, and returns what it took and wrote, or null where the checked path must take
 /// it. Its first `constants.wide_run_len_min` octets of plain ASCII go a block of 16 at a time, a
 /// run past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
 /// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig. Out
 /// of line, and taking no `*Loop`, for the strings `first_block` leaves.
-noinline fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
+fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
     var len: usize = head_len;
     for (0..constants.wide_run_len_min / constants.vector_len) |_| {
         // Each block's slices first: their lengths' test then proves the load and the store in
