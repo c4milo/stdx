@@ -59,8 +59,8 @@ pub fn unavailable(out: *std.Io.Writer, reason: []const u8) !void {
 pub fn header(out: *std.Io.Writer, side: []const u8) !void {
     try out.print("\n## Hardware counters per JSON token, {s}\n\n", .{side});
     try out.print("A token is one of stdx's decoder's, and a baseline's counts are per stdx token of the same texts. Octets are those of stdx's texts. Each operation is bench-json's, counted over {d} MiB at least.\n\n", .{counted_len_min / mebibyte});
-    try out.print("| Workload | Tokens | Octets | Operation | Cycles per token | Instructions per token | Branch misses per token | Cycles per octet | Instructions per cycle |\n", .{});
-    try out.print("|---|---|---|---|---|---|---|---|---|\n", .{});
+    try out.print("| Workload | Tokens | Octets | Operation | Cycles per token | Instructions per token | Branch misses per token | Cycles per octet | Instructions per cycle | Front-end stalls per token | Back-end stalls per token |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|---|---|---|---|\n", .{});
 }
 
 /// Counts stdx with every claim on and off, its encoder with J11's loop unchecked, and each
@@ -87,9 +87,11 @@ fn row(out: *std.Io.Writer, open: *const counters.Counters, workload: *const Wor
     const cycles: f64 = @floatFromInt(counts[counters.cycles]);
     const instructions: f64 = @floatFromInt(counts[counters.instructions]);
     const misses: f64 = @floatFromInt(counts[counters.branch_misses]);
-    try out.print("| {s} | {d} | {d} | {s} | {d:.1} | {d:.1} | {d:.3} | {d:.2} | {d:.2} |\n", .{
-        workload.name,                  tokens_of(workload),   octets,          name,
-        cycles / tokens,                instructions / tokens, misses / tokens, cycles / counted,
-        instructions / @max(1, cycles),
+    const frontend: f64 = if (counters.raw_events.len > 0) @floatFromInt(counts[counters.stall_frontend]) else 0;
+    const backend: f64 = if (counters.raw_events.len > 0) @floatFromInt(counts[counters.stall_backend]) else 0;
+    try out.print("| {s} | {d} | {d} | {s} | {d:.1} | {d:.1} | {d:.3} | {d:.2} | {d:.2} | {d:.1} | {d:.1} |\n", .{
+        workload.name,                  tokens_of(workload),   octets,           name,
+        cycles / tokens,                instructions / tokens, misses / tokens,  cycles / counted,
+        instructions / @max(1, cycles), frontend / tokens,     backend / tokens,
     });
 }
