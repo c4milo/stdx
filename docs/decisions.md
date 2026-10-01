@@ -18,8 +18,8 @@ losing files of [issue 13](https://github.com/c4milo/stdx/issues/13), entry 35 o
 entry 37 out of design §8 step 18's non-ASCII rows, entry 38 out of the question entry 37 left,
 how fast the check runs alone, entry 39 out of the owner's ruling on the gap entry 38 measured on
 x86-64, entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s request for a
-probe of the CPU, and entry 41 out of the owner's ruling once the benchmarks carried a `memset`
-of their own.
+probe of the CPU, entry 41 out of the owner's ruling once the benchmarks carried a `memset` of
+their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside libdeflate's.
 
 ## Scope and shape
 
@@ -2283,3 +2283,57 @@ of their own.
     The alternatives refused: keeping `codec.fill` until stdx moves to a Zig release whose `memset`
     stores vectors; and keeping it with its vector path limited to Zig 0.16, so that the upgrade
     turns it into `@memset`.
+
+42. **A lazy level prices its matches after a block of cheap literals.** Ruled by the owner on
+    2026-10-01, from a comparison of libdeflate's output with stdx's that keeps decision 9: the
+    symbols of each stream, parsed and priced by a scratch tool, and never its source.
+
+    What the comparison found, on the corpus of decision 15:
+    - E.coli came out 7.4% larger than libdeflate's at level 6 and 5.9% at level 9. libdeflate's
+      parse was 71% literals at 2.24 bits each, with matches of 9 octets or more; stdx's was 4%
+      literals at 4.0 bits, with matches of 5 to 8 octets about 14 bits back.
+    - Both parses keep themselves. A literal's code carries the bits of the literals' share of the
+      block's literal/length symbols, log2 of the symbols over the literals: a parse of many short
+      matches makes literals rare, and so dear, and a parse priced by them takes as many.
+
+    The rule:
+    - At a block's end, a lazy level works out what the block's literals cost among themselves:
+      their average code length less the share. When that is at most `cheap_literal_cost_max`,
+      2.25 bits, the next block prices its matches by this block's codes, each literal's less the
+      share. Its lazy step takes a match only when the match costs fewer bits than the literals it
+      covers, the first `priced_len_max` octets priced one by one and the rest at the literals'
+      average, and its searches try `cheap_candidates_max` candidates, 16 at level 6 and 32 at
+      level 9: with the full budget, each literal walked 53 of E.coli's candidates.
+    - On the corpus, E.coli's blocks alone qualify, at 15 to 17 eighths of a bit; the next
+      cheapest block, one of xml's at level 9, costs 19, and css-1m's 22.
+    - Output over libdeflate's on E.coli: level 6 1.074 to 1.001, level 9 1.059 to 1.007. No other
+      file of the 39 changes.
+    - The priced steps are a copy of their own, which the encoder's step chooses, and the prices
+      live in the encoder, outside the match finder: every other block runs the instructions it ran
+      before. The prices take 548 octets at levels 6 and 9, whose budgets go from 259 to 260 KiB.
+    - What it costs, runs [36863971833](https://github.com/c4milo/stdx/actions/runs/36863971833)
+      and 36863984298, main and the change in each job, on a Neoverse N2 and an EPYC 7763: E.coli
+      at level 6 at 0.89 of its speed on the N2 and 0.96 on the EPYC, still 1.52 and 1.36 times
+      libdeflate's; at level 9 1.78 and 1.93 times its speed. No other file ran slower in both
+      jobs but js-1k at level 9 on the EPYC, 0.965 and 0.887, which runs the instructions it ran
+      before.
+
+    The alternatives refused, each measured on the M1, which publishes no number (decision 10):
+    - Every lazy decision priced in bits, octet by octet: the 39 files' geometric mean over
+      libdeflate 1.0059 to 1.0034, shuffled dickens 6.1% smaller, ptt5 1.1% and nci 0.9%, but level
+      6 2.5% to 17% slower and real text 0.1% to 0.2% larger.
+    - The same with the literals' average for every octet: 0.99 to 1.03 of the time, but css-1m
+      1.3% larger, its rare characters mispriced, and most of shuffled dickens' gain lost.
+    - 3-octet matches from a 32 KiB table of the latest position for each 3-octet hash, 8191
+      octets back at most: x-ray and sum 3.6% smaller, ooffice 2.6%, mozilla 2.0%, but text 0.3%
+      to 1.3% larger, and keeping the table current alone cost 4% to 9% of level 6's speed.
+    - Literal prices from the block's octets rather than its codes: E.coli right, mr 0.8% larger,
+      its zeros cheap as octets and mostly inside matches.
+    - The share taken off whenever it is large beside the literals' own cost: it fired on css-1m
+      and bible, whose literals are rare because they compress well, and css-1m grew 1.2%.
+    - The full walk budget in a block of cheap literals: E.coli's time at level 6 1.88 times
+      libdeflate's, and at level 9 1.22 times.
+    - Both copies of the lazy loop in one function, and the prices in the match finder: runs
+      36856227214 and 36856238411 put level 6 at 0.98 of its speed on x86-64 where the output was
+      the same, 16 files slower in both jobs, as the larger function's registers fell out
+      differently.
