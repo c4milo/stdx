@@ -435,7 +435,7 @@ const copy_blocks_call: std.builtin.CallModifier = if (builtin.cpu.arch == .x86_
 /// run past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
 /// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig. Out
 /// of line, and taking no `*Loop`, for the strings `first_block` leaves.
-fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
+fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) align(constants.kernel_alignment) ?Copied {
     var len: usize = head_len;
     for (0..constants.wide_run_len_min / constants.vector_len) |_| {
         // Each block's slices first: their lengths' test then proves the load and the store in
