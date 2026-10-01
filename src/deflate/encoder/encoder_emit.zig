@@ -171,13 +171,20 @@ fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, wri
     const start_position = position;
     const start_count = count;
     var index = emit.index;
-    // Each pass puts one symbol, at most 48 bits on at most 7, then stores the buffer whole, its
-    // whole octets counting as written (`BitWriter.store`).
-    for (block.symbols[index..block.symbol_count]) |symbol| {
+    const end = block.symbol_count;
+    // Each pass puts one symbol, at most 48 bits on at most 7, or two literals, at most 30, then
+    // stores the buffer whole, its whole octets counting as written (`BitWriter.store`). A second
+    // literal saves a store and the shifts after it.
+    while (index < end) {
         if (position + store_len > octets.len) break;
+        const symbol = block.symbols[index];
+        index += 1;
         if (symbol.distance == 0) {
-            buffer |= @as(u64, plan.literal_length_codes[symbol.value]) << @intCast(count);
-            count += plan.literal_length_lengths[symbol.value];
+            put_literal(plan, symbol.value, &buffer, &count);
+            if (index < end and block.symbols[index].distance == 0) {
+                put_literal(plan, block.symbols[index].value, &buffer, &count);
+                index += 1;
+            }
         } else {
             const length = plan.length_entries[block_module.length_code_of(symbol.value)];
             buffer |= entry_bits(length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
@@ -192,13 +199,24 @@ fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, wri
         position += whole;
         buffer >>= @intCast(whole * @bitSizeOf(u8));
         count %= @bitSizeOf(u8);
-        index += 1;
     }
     writer.writer.position = position;
     writer.bits.buffer = buffer;
     writer.bits.count = @intCast(count);
     emit.bits += (position - start_position) * @bitSizeOf(u8) + count - start_count;
     emit.index = index;
+}
+
+/// Puts the code of the literal `value` above the `count` bits of `buffer`.
+inline fn put_literal(plan: *const Plan, value: u8, buffer: *u64, count: *usize) void {
+    assert(count.* < @bitSizeOf(u64) - constants.code_len_max);
+    buffer.* |= @as(u64, plan.literal_length_codes[value]) << @intCast(count.*);
+    count.* += plan.literal_length_lengths[value];
+}
+
+comptime {
+    // Two literals' codes on the bits a store leaves fit the bits a pair's do.
+    assert(2 * constants.code_len_max <= constants.pair_bits_max);
 }
 
 /// The code of `entry` and, above it, `value` less the entry's base in its extra bits: the bits
