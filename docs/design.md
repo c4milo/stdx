@@ -1939,6 +1939,32 @@ to 12 are reordered and nothing else changes.
     copies, four failing a new test that copies each kind at every room past its end, one the
     comptime assert; six of the tables, the extra bits' width failing only a new test of a word
     whose distance takes 16 extra bits; four of the cuts; all CAUGHT. Pushed to main the same day.
+  - A table entry's length in its low octet, d5acf71, paired against 365675f (runs
+    [36859978325](https://github.com/c4milo/stdx/actions/runs/36859978325) and
+    [36859989684](https://github.com/c4milo/stdx/actions/runs/36859989684); reports in
+    `bench/results/`, dated 2026-10-01, "entry-layout"). `prefix.Entry` now holds its length, then
+    its second level's bits, then its value, so that both assembly loops shift the bit buffer by the
+    whole entry, a shift by a register taking its count's low six bits: the aarch64 loop drops a
+    `ubfx` and the x86-64 loop a `rorx` from each symbol, both on the chain from a literal's bits to
+    the next, where E.coli's literals ran at 7.4 cycles each on the N2. Under callgrind E.coli takes
+    6.1% fewer instructions. On the N2 two files gain in both jobs and none loses: E.coli +6.1% and
+    +5.2% (1.07 to 1.13 of Google's speed) and the shuffled dickens-1m +3.7% and +2.9% (1.07 to
+    1.11). On an EPYC 9V45, whose job's spreads reach 38%, and an EPYC 7763, E.coli gains +11.5% and
+    +19.2% (1.08 to 1.20) and none loses in both; the shuffled dickens-1m gains +17.5% on the 7763.
+    nci falls 2.5% on the 7763, as it fell 1.6% and 1.9% in both 7763 jobs of the same change paired
+    on an earlier x86-64 port (runs
+    [36854677866](https://github.com/c4milo/stdx/actions/runs/36854677866) and
+    [36854687866](https://github.com/c4milo/stdx/actions/runs/36854687866)), where xargs.1 also lost
+    5.7% and 2.1% and gains nothing here: nci stays at 1.17 to 1.19. The x86-64 loop now takes its
+    tables from `decoder_fast_packed.zig`, to fit its file. A first port of the aarch64 loop's
+    distance cuts to the x86-64 loop (runs
+    [36853929480](https://github.com/c4milo/stdx/actions/runs/36853929480) and
+    [36853939348](https://github.com/c4milo/stdx/actions/runs/36853939348)) gained kennedy.xls,
+    json-1m and four more on two EPYC 7763s but lost E.coli and bible.txt in both jobs, whose
+    literal runs it had moved and not changed, and was dropped. Mutations: the buffer shifted by the
+    index, a value an octet low and the second bits misread in each loop, a literal or p1's part
+    misplaced, all CAUGHT, one by a hang, the x86-64 ones under Rosetta. Pushed to main the same
+    day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
