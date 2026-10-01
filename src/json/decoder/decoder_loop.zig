@@ -402,11 +402,27 @@ const Loop = struct {
         if (content.len < constants.vector_len or self.out.len < constants.vector_len) return self.leave_long(kind, 0);
         const block: @Vector(constants.vector_len, u8) = content[0..constants.vector_len].*;
         self.out[0..constants.vector_len].* = block;
-        const lane = scan.plain_stop(block) orelse return self.leave_long(kind, constants.vector_len);
+        const lane = scan.plain_stop(block) orelse return self.second_block(kind, content);
         if (!scan.is_quotation_mark(block, lane)) return self.leave_long(kind, lane);
         self.in = content[lane + 1 ..];
         self.out = self.out[lane..];
         return lane;
+    }
+
+    /// `string` on past its first block of plain ASCII, for the second block: qlog's records hold
+    /// two strings of 16 to 31 octets each, which took the out-of-line path at 30 instructions
+    /// more each (design §8 step 18).
+    inline fn second_block(self: *Loop, comptime kind: Kind, content: []const u8) ?usize {
+        const blocks_len = 2 * constants.vector_len;
+        if (content.len < blocks_len or self.out.len < blocks_len) return self.leave_long(kind, constants.vector_len);
+        const block: @Vector(constants.vector_len, u8) = content[constants.vector_len..blocks_len].*;
+        self.out[constants.vector_len..blocks_len].* = block;
+        const lane = scan.plain_stop(block) orelse return self.leave_long(kind, blocks_len);
+        const len = constants.vector_len + lane;
+        if (!scan.is_quotation_mark(block, lane)) return self.leave_long(kind, len);
+        self.in = content[len + 1 ..];
+        self.out = self.out[len..];
+        return len;
     }
 
     /// Leaves the name or string of `kind` at the start of `in` to `copy_blocks`, from the
