@@ -173,6 +173,12 @@ const Loop = struct {
             .separator_or_end => {
                 if (index >= slots.len) break :state .separator_or_end;
                 slot = &slots[index];
+                if (self.separator_pair(constants.value_separator)) |after| {
+                    octet = after;
+                    at = if (self.in_object) .name else .value;
+                    if (self.in_object) continue :state .name_at;
+                    continue :state .value_at;
+                }
                 octet = self.next_octet() orelse break :state .separator_or_end;
                 if (octet == constants.value_separator) {
                     self.in = self.in[1..];
@@ -187,6 +193,11 @@ const Loop = struct {
             .name_separator => {
                 if (index >= slots.len) break :state .name_separator;
                 slot = &slots[index];
+                if (self.separator_pair(constants.name_separator)) |after| {
+                    octet = after;
+                    at = .value;
+                    continue :state .value_at;
+                }
                 octet = self.next_octet() orelse break :state .name_separator;
                 if (octet != constants.name_separator) break :state .name_separator;
                 self.in = self.in[1..];
@@ -340,6 +351,17 @@ const Loop = struct {
         }
         self.decoder.value_delimited = delimited;
         self.decoder.stage = .done;
+    }
+
+    /// The first octet of the token after the separator `separator` that starts the loop's input,
+    /// read with it as a pair where no whitespace comes between them (RFC 8259 §2), and the loop
+    /// moved past the separator; or null, and nothing moved. Read apart, each paid a test of the
+    /// input's length and of whitespace: about 10 instructions a member on x86-64 (design §8 step
+    /// 18).
+    inline fn separator_pair(self: *Loop, comptime separator: u8) ?u8 {
+        if (self.in.len < 2 or self.in[0] != separator or self.in[1] <= constants.space) return null;
+        self.in = self.in[1..];
+        return self.in[0];
     }
 
     /// The octet past the whitespace at the start of the loop's input (RFC 8259 §2), which it
