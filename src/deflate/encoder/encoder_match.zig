@@ -16,6 +16,12 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Block = @import("encoder_block.zig").Block;
 const Appender = @import("encoder_block.zig").Appender;
+const cost = @import("encoder_match_cost.zig");
+
+/// What the lazy steps read for decision 42: the prices in their priced copy, nothing in the other.
+fn CostsOf(comptime cheap: bool) type {
+    return if (cheap) *const cost.Costs else void;
+}
 const walk = @import("encoder_match_walk.zig");
 const best = walk.best;
 const best_inline = walk.best_inline;
@@ -115,7 +121,15 @@ pub fn Matcher(comptime level: constants.Level) type {
         }
 
         pub fn advance(self: *Self, block: *Block, ending: bool) void {
-            advance_positions(level, self, block, ending);
+            advance_positions(level, false, self, block, ending, {});
+        }
+
+        /// `advance` in a block after one with cheap literals, its matches priced by `costs`
+        /// (decision 42): a copy of the steps of its own, so every other block runs the steps it
+        /// ran before.
+        pub fn advance_priced(self: *Self, block: *Block, ending: bool, costs: *const cost.Costs) void {
+            comptime assert(level.chains);
+            advance_positions(level, true, self, block, ending, costs);
         }
 
         /// Adds the lazy step's waiting symbol when the stream flushes or ends. Returns false, and
@@ -161,14 +175,14 @@ fn slide_positions(positions: []u16, half: u16) void {
 /// Decides positions into `block` while `lookahead_min` octets lie ahead, or up to `filled` when
 /// `ending`, until the block is full: the positions with the whole lookahead in their loop first,
 /// then the rest a step at a time. Each step adds at most one symbol and moves on a position or
-/// more.
-fn advance_positions(comptime level: constants.Level, self: *Matcher(level), block: *Block, ending: bool) void {
-    if (level.chains) advance_lazy(level, self, block) else advance_greedy(level, self, block);
+/// more. `cheap` compiles in the prices of decision 42, `costs`.
+fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) void {
+    if (level.chains) advance_lazy(level, cheap, self, block, costs) else advance_greedy(level, self, block);
     for (0..self.filled + 1) |_| {
         if (block.full()) return;
         const ahead = self.filled - self.position;
         if (ahead == 0 or (!ending and ahead < constants.lookahead_min)) return;
-        if (level.chains) step_lazy(level, self, block, ahead) else step_greedy(level, self, block, ahead);
+        if (level.chains) step_lazy(level, cheap, self, block, ahead, costs) else step_greedy(level, self, block, ahead);
     }
     unreachable;
 }
@@ -183,8 +197,9 @@ fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level)) ?
 
 /// The lazy levels' positions with the whole lookahead ahead, decided until the block fills or the
 /// lookahead runs out; `step_lazy` takes the positions after them. The step's state, the position
-/// and the waiting match, lives in locals through the loop.
-fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block) void {
+/// and the waiting match, lives in locals through the loop. `cheap` compiles in the prices of
+/// decision 42.
+fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
     comptime assert(level.chains);
     const lookahead = lookahead_end(level, self) orelse return;
     // The end is bounded by the window too, so every position the loop inserts, a match's
@@ -202,7 +217,7 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
             // A fresh start: this position's search waits, the next position's is compared with
             // it, and the two walks share one loop.
             insert(level, self, state.position + 1);
-            const pair = best_pair(level, self, state.position);
+            const pair = best_pair(level, cheap, self, state.position);
             state.previous = pair.first;
             state.waiting = true;
             state.position += 1;
@@ -211,9 +226,9 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
             // A waiting match at least `lazy_len` long is taken without a search here.
             assert(state.waiting or state.previous.len == 0);
             self.position = state.position;
-            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = search(level, self, constants.match_len_max, state.previous.len);
+            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
         }
-        decide_lazy(level, self, &symbols, &state, current);
+        decide_lazy(level, cheap, self, costs, &symbols, &state, current);
     }
     symbols.finish(state.position - @intFromBool(state.waiting) - covered_from);
     self.position = state.position;
@@ -223,8 +238,8 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
 
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
 /// and a call to `best` at level 9, whose walks run long.
-inline fn search(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
-    return if (level.pair_walks) best_inline(level, self, len_max, previous_len) else best(level, self, len_max, previous_len);
+inline fn search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+    return if (level.pair_walks) best_inline(level, cheap, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
 }
 
 /// The lazy step's state through `advance_lazy`: the next position, and the match waiting from the
@@ -237,8 +252,8 @@ const LazyState = struct {
 
 /// Takes the waiting match when it is worth at least the `current` one, else adds the position
 /// before as a literal and lets `current` wait.
-fn decide_lazy(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender, state: *LazyState, current: Match) void {
-    if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score() >= current.score()) {
+fn decide_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), costs: CostsOf(cheap), symbols: *Appender, state: *LazyState, current: Match) void {
+    if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score() >= current.score() and accepted(level, cheap, self, costs, state.position, state.previous)) {
         state.position = take_waiting(level, self, symbols, state.position, state.previous);
         state.waiting = false;
         state.previous = .{};
@@ -250,9 +265,17 @@ fn decide_lazy(comptime level: constants.Level, self: *Matcher(level), symbols: 
     state.position += 1;
 }
 
+/// Whether the lazy step may take `found`, the match waiting from the position before `position`:
+/// always, unless the block before had cheap literals, when the match must cost fewer bits than the
+/// literals it covers (decision 42).
+inline fn accepted(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), costs: CostsOf(cheap), position: usize, found: Match) bool {
+    return if (cheap) cost.saves_bits(costs, self.window[position - 1 ..][0..found.len], found.distance) else true;
+}
+
 /// Adds the match waiting from the position before `position`, every position it covers joining
-/// the chains, as a later match may start there. Returns the first position after it.
-fn take_waiting(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender, position: usize, previous: Match) usize {
+/// the chains, as a later match may start there. Returns the first position after it. Inline, as
+/// each copy of the lazy loop calls it once a match (decision 42).
+inline fn take_waiting(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender, position: usize, previous: Match) usize {
     assert(previous.len >= constants.match_len_taken_min);
     const match_end = position - 1 + previous.len;
     assert(match_end + constants.hash_len <= self.filled);
@@ -346,14 +369,14 @@ inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level),
 }
 
 /// One lazy step at a position with `ahead` octets ahead, fewer than the lookahead.
-fn step_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block, ahead: usize) void {
+fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ahead: usize, costs: CostsOf(cheap)) void {
     if (ahead >= constants.hash_len) insert(level, self, self.position);
     // A waiting match at least `lazy_len` long is taken without a search here.
     const skip = self.waiting and self.previous.len >= level.lazy_len;
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
-    const current = if (skip) Match{} else search(level, self, @min(ahead, constants.match_len_max), self.previous.len);
-    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score() >= current.score()) {
+    const current = if (skip) Match{} else search(level, cheap, self, @min(ahead, constants.match_len_max), self.previous.len);
+    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score() >= current.score() and accepted(level, cheap, self, costs, self.position, self.previous)) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.
         for (self.position + 1..end) |covered| {

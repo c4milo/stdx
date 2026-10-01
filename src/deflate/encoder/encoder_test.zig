@@ -272,6 +272,76 @@ test "a candidate at encoder_distance_max is found, and one octet farther is out
 const letters_len = 24_576;
 const letters = 2;
 
+test "each level's output for seeded DNA, whose literals cost two bits, is the one recorded here" {
+    // Four letters, with stretches copied from earlier ones: after the first block, levels 6 and 9
+    // price their matches and walk `cheap_candidates_max` candidates (decision 42).
+    const recorded = [_]struct { usize, u64 }{
+        .{ 30766, 0xde3d5a5c996f8b6a },
+        .{ 26062, 0x6afbd81d864c356d },
+        .{ 24782, 0x9807eddab9916d2d },
+    };
+    var input: [dna_len]u8 = undefined;
+    fill_dna(&input, 29);
+    var output: [input.len + 1024]u8 = undefined;
+    inline for (levels, recorded) |level, expected| {
+        const written = try encode_whole(level, &input, &output);
+        try expect_decodes_to(output[0..written], &input);
+        try testing.expectEqual(expected[0], written);
+        try testing.expectEqual(expected[1], std.hash.Wyhash.hash(0, output[0..written]));
+    }
+}
+
+test "a state that encoded DNA encodes the next stream as a fresh one does" {
+    // The DNA's last blocks leave the prices of decision 42 set; `init` must clear them.
+    var dna: [dna_len]u8 = undefined;
+    fill_dna(&dna, 31);
+    var input: [16 * 1024]u8 = undefined;
+    fill(&input, .mixed, 37);
+    var output: [dna_len + 1024]u8 = undefined;
+    var fresh: [input.len + 1024]u8 = undefined;
+    inline for (levels) |level| {
+        const Encoder = encoder_module.Encoder(.{ .level = level });
+        var state: Encoder = undefined;
+        state.init(.{});
+        _ = try state.encode_all(&dna, &output);
+        state.init(.{});
+        const written = try state.encode_all(&input, &output);
+        const expected = try encode_whole(level, &input, &fresh);
+        try testing.expectEqualSlices(u8, fresh[0..expected], output[0..written]);
+    }
+}
+
+/// The octets of seeded DNA the third recorded output encodes: blocks enough for the prices of
+/// decision 42 to take hold.
+const dna_len = 98_304;
+/// Each stretch of DNA's length, `dna_stretch_min` and up to `dna_stretch_span` more, and how far
+/// back a copied stretch starts.
+const dna_stretch_min = 8;
+const dna_stretch_span = 64;
+const dna_reach = 30_000;
+/// A stretch of DNA is a copy one time in this many.
+const dna_copy_odds = 2;
+
+/// Fills `input` with stretches of four letters, each fresh or, half the time, a copy of an earlier
+/// stretch with one letter changed, as DNA repeats itself.
+fn fill_dna(input: []u8, seed: u64) void {
+    const dna_letters = "acgt";
+    var generator = codec.split.Generator.init(seed);
+    var at: usize = 0;
+    for (0..input.len) |_| {
+        if (at == input.len) break;
+        const run = input[at..][0..@min(input.len - at, dna_stretch_min + generator.below(dna_stretch_span))];
+        if (at > dna_reach and generator.below(dna_copy_odds) == 0) {
+            const from = at - 1 - generator.below(dna_reach);
+            for (run, from..) |*octet, earlier| octet.* = input[earlier];
+            run[generator.below(run.len)] = dna_letters[generator.below(dna_letters.len)];
+        } else {
+            for (run) |*octet| octet.* = dna_letters[generator.below(dna_letters.len)];
+        }
+        at += run.len;
+    }
+}
+
 test "a stream that ends or flushes as the window fills gives the same octets under every split" {
     // The input fills the window exactly at `encoder_window_len` octets, and at every
     // `window_len` after. A caller that gives those octets with `none` and then finishes or

@@ -89,17 +89,20 @@ const Walk = struct {
 /// `candidates_max` earlier positions with its hash, the nearest first, up to `len_max` octets; a
 /// search ends early at `nice_len`. When the match waiting from the position before is
 /// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`.
-pub fn best(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
-    return best_inline(level, self, len_max, previous_len);
+pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+    return best_inline(level, cheap, self, len_max, previous_len);
 }
 
 /// `best`, inline in its caller: level 6's positions mostly start a walk that meets a candidate or
 /// two, so a call's own cost is a large share of the walk there; level 9's walks run long, and it
 /// calls `best`.
-pub inline fn best_inline(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
     if (self.position + constants.hash_len > self.filled) return .{};
     const cut = previous_len >= level.cut_len;
-    var walk = Walk.init(level, self, self.position, len_max, if (cut) level.cut_candidates_max else level.candidates_max);
+    // A block with cheap literals walks long chains of short matches its prices turn away
+    // (decision 42).
+    const budget = if (cheap) level.cheap_candidates_max else if (cut) level.cut_candidates_max else level.candidates_max;
+    var walk = Walk.init(level, self, self.position, len_max, budget);
     while (!walk.done) walk.step(level, self, false);
     return walk.found;
 }
@@ -109,9 +112,10 @@ pub inline fn best_inline(comptime level: constants.Level, self: *const Matcher(
 /// second walk follows the first's match as `best` would after it: cut to `cut_candidates_max`
 /// once the first is `cut_len` long, and ended once it is `lazy_len` long, when the step skips the
 /// second search. Both positions have `match_len_max` octets ahead.
-pub fn best_pair(comptime level: constants.Level, self: *const Matcher(level), position: usize) Pair {
-    var first = Walk.init(level, self, position, constants.match_len_max, level.candidates_max);
-    var second = Walk.init(level, self, position + 1, constants.match_len_max, level.candidates_max);
+pub fn best_pair(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), position: usize) Pair {
+    const budget = if (cheap) level.cheap_candidates_max else level.candidates_max;
+    var first = Walk.init(level, self, position, constants.match_len_max, budget);
+    var second = Walk.init(level, self, position + 1, constants.match_len_max, budget);
     // The first walk's nearest candidate often settles the second's budget, so it goes first.
     first.step(level, self, false);
     follow(level, first.found, &second);

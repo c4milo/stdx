@@ -15,6 +15,7 @@ const constants = @import("../constants.zig");
 const block_module = @import("encoder_block.zig");
 const emit_module = @import("encoder_emit.zig");
 const Matcher = @import("encoder_match.zig").Matcher;
+const cost = @import("encoder_match_cost.zig");
 
 pub const EncoderOptions = struct {
     /// 1, 6 or 9 (decision 13).
@@ -30,6 +31,9 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         const Self = @This();
 
         matcher: Matcher(level),
+        /// The prices of decision 42, at a lazy level, outside the match finder, so the finder's
+        /// fields stay where its loop reads them.
+        prices: if (level.chains) cost.Prices else void,
         block: block_module.Block,
         plan: block_module.Plan,
         emit: emit_module.Emit,
@@ -54,6 +58,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         pub fn init(self: *Self, features: codec.Features) void {
             _ = features;
             self.matcher.init();
+            if (level.chains) self.prices.start();
             self.block.reset(0);
             self.emit = .{};
             self.bits = .{};
@@ -150,7 +155,7 @@ fn step(comptime options: EncoderOptions, self: *Encoder(options), input: []cons
         return null;
     }
     const ending = flush != .none and consumed.* == input.len;
-    self.matcher.advance(&self.block, ending);
+    advance(options, self, ending);
     if (self.block.full()) return end_block(options, self, false, writer);
     if (consumed.* < input.len) {
         // The window filled: the next step slides it and takes more.
@@ -161,6 +166,15 @@ fn step(comptime options: EncoderOptions, self: *Encoder(options), input: []cons
     if (!self.matcher.settle(&self.block)) return end_block(options, self, false, writer);
     if (flush == .finish) return end_block(options, self, true, writer);
     return flush_point(options, self, writer);
+}
+
+/// Decides positions into the block, priced in a block after one with cheap literals (decision
+/// 42).
+inline fn advance(comptime options: EncoderOptions, self: *Encoder(options), ending: bool) void {
+    if (comptime constants.level(options.level).chains) {
+        if (self.prices.cheap) return self.matcher.advance_priced(&self.block, ending, &self.prices.costs);
+    }
+    self.matcher.advance(&self.block, ending);
 }
 
 /// A flush ends the block and adds an empty stored block, once for each point in the input.
@@ -175,6 +189,10 @@ fn flush_point(comptime options: EncoderOptions, self: *Encoder(options), writer
 /// Plans the block and starts writing it. Returns null, for the call to go on.
 fn end_block(comptime options: EncoderOptions, self: *Encoder(options), final: bool, writer: *const codec.BitWriter) ?codec.Status {
     block_module.plan(&self.block, final, @intCast(writer.bits.count % @bitSizeOf(u8)), &self.plan);
+    // The next block's prices come from this one's codes; the last has no block after it.
+    if (comptime constants.level(options.level).chains) {
+        if (!final) self.prices.update(&self.plan, &self.block.literal_length_counts);
+    }
     self.emitting_final = final;
     self.emit.start();
     return null;

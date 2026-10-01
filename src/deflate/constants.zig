@@ -278,9 +278,28 @@ pub const Level = struct {
     /// walk's budget follows the first's too late and the two walks crowd the cache (design §8
     /// step 9, 2026-09-29).
     pair_walks: bool,
+    /// In a block whose literals are cheap (`cheap_literal_cost_max`), the candidates a search
+    /// tries at a position. Such data, DNA's four letters say, holds long chains of short matches
+    /// that the block's prices turn away, and a full budget walks them at every literal (decision
+    /// 42).
+    cheap_candidates_max: u16,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
 };
+
+/// The prices of a lazy level's block whose literals are cheap count eighths of a bit, fine enough
+/// for the bits the literals' share of the block's symbols adds to each (decision 42).
+pub const cost_eighths_per_bit = 8;
+
+/// A lazy level prices its matches in a block after one whose literals cost at most this, in
+/// eighths of a bit, among themselves: there a short match far back costs more than the literals
+/// it covers (decision 42). Two and a quarter bits: DNA's four letters cost two, E.coli's blocks
+/// 15 to 17 eighths, and the corpus's next cheapest block, one of xml's at level 9, 19.
+pub const cheap_literal_cost_max = 2 * cost_eighths_per_bit + cost_eighths_per_bit / 4;
+
+/// The octets of a match that its price counts one by one: the rest count at the literals' average
+/// (decision 42).
+pub const priced_len_max = 8;
 
 /// What a match's distance costs the lazy step, in octets of literals, when it compares the match
 /// waiting from the position before with the next position's: a farther match must be longer by
@@ -301,9 +320,9 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .state_budget_len = 259 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .state_budget_len = 259 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .cheap_candidates_max = 1, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .cheap_candidates_max = 16, .state_budget_len = 260 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .cheap_candidates_max = 32, .state_budget_len = 260 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
@@ -314,6 +333,11 @@ comptime {
         const chosen = level(number);
         assert(chosen.cut_candidates_max >= 1 and chosen.cut_candidates_max <= chosen.candidates_max);
         assert(chosen.cut_len >= match_len_taken_min);
+        // A block with cheap literals searches less than any other, and still tries a candidate.
+        assert(chosen.cheap_candidates_max >= 1 and chosen.cheap_candidates_max <= chosen.cut_candidates_max);
+        // A pair's second walk takes the cut budget once the first's match is `cut_len` long, which
+        // in a block with cheap literals is the budget it already has.
+        assert(!chosen.pair_walks or chosen.cheap_candidates_max == chosen.cut_candidates_max);
     }
 }
 
