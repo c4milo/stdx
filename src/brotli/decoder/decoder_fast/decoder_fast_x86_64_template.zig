@@ -15,9 +15,9 @@
 //! the tables but the literal ones, the blocks' elements left, the ring of last distances, p1 and p2
 //! between runs, and the distance parameters stay in the machine, which the loop reads in place.
 //!
-//! BMI2's SHRX shifts by a register's low six bits, which an entry's length is after RORX brings it
-//! to the low octet; BZHI keeps the bits below an index, which a root entry's second bits are after
-//! RORX brings them there. SSSE3's PSHUFB repeats an octet for a distance of 1.
+//! BMI2's SHRX shifts by a register's low six bits, which an entry's length is, in its low octet;
+//! BZHI keeps the bits below an index, which a root entry's second bits are after RORX brings them
+//! to the low octet. SSSE3's PSHUFB repeats an octet for a distance of 1.
 //!
 //! The numbered labels are those of the aarch64 text, and 65 the run's start past its checks, 70 to
 //! 73 the run of the entries' mode, 58 and 59 its second level. The common path falls through: the
@@ -65,14 +65,15 @@ pub fn refill(comptime scratch: []const u8) []const u8 {
     , .{ .s = scratch, .d = dword_of(scratch) });
 }
 
-/// The entry of the symbol the buffer starts with, from `table`, into `entry`: its value in the low
-/// 16 bits and its length in the next 8 (`prefix.Entry`), through `second` when the root entry
-/// links a second level (RFC 7932 §3.2), which comes back to `back`. `entry` takes the index first.
+/// The entry of the symbol the buffer starts with, from `table`, into `entry`: its length in the low
+/// 8 bits, its second level's bits in the next 8 and its value in the top 16 (`prefix.Entry`),
+/// through `second` when the root entry links a second level (RFC 7932 §3.2), which comes back to
+/// `back`. `entry` takes the index first.
 pub fn lookup(comptime table: []const u8, comptime entry: []const u8, comptime second: []const u8, comptime back: []const u8) []const u8 {
     return std.fmt.comptimePrint(
         \\    movzx {[e]s}, r8b
         \\    mov {[e]s}, dword ptr [{[table]s} + {[entry]s}*4]
-        \\    test {[e]s}, 0xff000000
+        \\    test {[e]s}, {{[entry_second_mask]}}
         \\    jnz {[second]s}f
         \\{[back]s}:
         \\
@@ -82,12 +83,12 @@ pub fn lookup(comptime table: []const u8, comptime entry: []const u8, comptime s
 /// The second level of a `lookup` with the same registers and labels, out of the common path's way,
 /// `scratch` free: the bits past the root's 8, as many as the root entry's second bits, index the
 /// level its value starts (`prefix.Table`); the entry found takes the root's bits into its length.
-/// RORX brings the second bits to the entry's low octet, BZHI's index, and the value past them.
+/// RORX brings the second bits to the entry's low octet, BZHI's index, and the value above them.
 pub fn second_level(comptime table: []const u8, comptime entry: []const u8, comptime scratch: []const u8, comptime second: []const u8, comptime back: []const u8) []const u8 {
     return std.fmt.comptimePrint(
         \\{[second]s}:
         \\    rorx {[x]s}, r8, {{[root_bits]}}
-        \\    rorx {[e]s}, {[e]s}, 24
+        \\    rorx {[e]s}, {[e]s}, {{[entry_second_at]}}
         \\    bzhi {[x]s}, {[x]s}, {[entry]s}
         \\    shr {[e]s}, 8
         \\    movzx {[e]s}, {[e_w]s}
@@ -140,11 +141,10 @@ pub const command =
     \\    je 81f
     \\    mov rax, qword ptr [rdi + {[ic_table]}]
 ++ "\n" ++ lookup("rax", "rcx", "50", "54") ++
-    \\    rorx ebx, ecx, 16
-    \\    shrx r8, r8, rbx
-    \\    sub r9b, bl
+    \\    shrx r8, r8, rcx
+    \\    sub r9b, cl
     \\    dec qword ptr [rdi + {[ic_count]}]
-    \\    movzx ecx, cx
+    \\    shr ecx, {[entry_value_at]}
     \\    // The symbol's codes, packed; a symbol below 128 reuses the last distance (RFC 7932 §5).
     \\    mov r13, qword ptr [rdi + {[command_codes]}]
     \\    mov r13, qword ptr [r13 + rcx*8]
@@ -222,10 +222,10 @@ pub const literals =
     \\    or eax, r10d
     \\    mov rax, qword ptr [r13 + rax*8]
 ++ "\n" ++ lookup("rax", "rcx", "51", "55") ++
-    \\    rorx r10d, ecx, 16
-    \\    shrx r8, r8, r10
-    \\    sub r9b, r10b
+    \\    shrx r8, r8, rcx
+    \\    sub r9b, cl
     \\    mov r12d, r11d
+    \\    shr ecx, {[entry_value_at]}
     \\    movzx r11d, cl
     \\    mov byte ptr [rdx], cl
     \\    inc rdx
@@ -249,11 +249,11 @@ pub const literals =
     \\    or eax, r10d
     \\    mov rax, qword ptr [r13 + rax*8]
 ++ "\n" ++ lookup("rax", "rcx", "58", "59") ++
-    \\    rorx eax, ecx, 16
-    \\    shrx r8, r8, rax
-    \\    sub r9b, al
+    \\    shrx r8, r8, rcx
+    \\    sub r9b, cl
     \\    movzx r10d, byte ptr [r15 + r11]
-    \\    movzx r14d, cx
+    \\    shr ecx, {[entry_value_at]}
+    \\    mov r14d, ecx
     \\    shr r14d, {[entry_p1_part_shift]}
     \\    mov r12d, r11d
     \\    movzx r11d, cl
@@ -271,10 +271,10 @@ pub const literals =
     \\    jb 29f
     \\27:
 ++ "\n" ++ lookup("rax", "rcx", "53", "57") ++
-    \\    rorx r10d, ecx, 16
-    \\    shrx r8, r8, r10
-    \\    sub r9b, r10b
+    \\    shrx r8, r8, rcx
+    \\    sub r9b, cl
     \\    mov r12d, r11d
+    \\    shr ecx, {[entry_value_at]}
     \\    movzx r11d, cl
     \\    mov byte ptr [rdx], cl
     \\    inc rdx

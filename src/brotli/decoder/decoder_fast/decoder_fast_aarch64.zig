@@ -287,10 +287,10 @@ comptime {
     assert(@offsetOf(Machine, "insert_left") == @offsetOf(Machine, "copy_len") + @sizeOf(u64));
     assert(@offsetOf(Machine, "coded_distances") == @offsetOf(Machine, "coded_first") + @sizeOf(u64));
     assert(@offsetOf(Machine, "direct_plus_one") == @offsetOf(Machine, "postfix_bits") + @sizeOf(u64));
-    // An entry: its value in the low 16 bits, its length in the next 8, its second level's bits in
-    // the top 8, 4 octets in all; a table's pointer 8.
-    assert(@sizeOf(prefix.Entry) == @sizeOf(u32) and @offsetOf(prefix.Entry, "value") == 0);
-    assert(@offsetOf(prefix.Entry, "len") == @sizeOf(u16) and @offsetOf(prefix.Entry, "second_bits") == @sizeOf(u16) + @sizeOf(u8));
+    // An entry: its length in the low 8 bits, its second level's bits in the next 8, its value in
+    // the top 16, 4 octets in all; a table's pointer 8.
+    assert(@sizeOf(prefix.Entry) == @sizeOf(u32) and @offsetOf(prefix.Entry, "len") == 0);
+    assert(@offsetOf(prefix.Entry, "second_bits") == @sizeOf(u8) and @offsetOf(prefix.Entry, "value") == @sizeOf(u16));
     assert(@sizeOf(*const literal_runs.LiteralTable) == @sizeOf(u64));
     // The numbers the text writes (decoder_fast_aarch64_template.zig): a buffer of 64 bits refilled
     // to 56, a root of 8 bits, 16-bit values, a copy of 16-octet chunks or 8-octet words, and a
@@ -328,12 +328,16 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .p1 = @offsetOf(Machine, "p1"),
     .command_codes = @offsetOf(Machine, "command_codes"),
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.command, .{
+    .entry_second_at = entry_second_at,
+    .entry_value_at = entry_value_at,
     .refill_bits = fast.refill_bits,
     .count_symbol = counts.symbol,
     .extra_bits_at = packed_tables.extra_bits_at,
     .insert_extra_bits_at = packed_tables.insert_extra_bits_at,
     .copy_base_at = packed_tables.copy_base_at,
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.literals, .{
+    .entry_second_at = entry_second_at,
+    .entry_value_at = entry_value_at,
     .code_len_max = constants.code_len_max,
     .chunk_len_max = constants.chunk_len_max,
     .copy_len = @offsetOf(Machine, "copy_len"),
@@ -341,10 +345,12 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .lut_p1 = @offsetOf(Machine, "lut_p1"),
     .run_kind = @offsetOf(Machine, "run_kind"),
     .kind_entry_parts = @intFromEnum(literal_runs.RunKind.entry_parts),
-    .entry_p1_part_shift = context.entry_p1_part_shift,
+    .entry_p1_part_shift = entry_value_at + context.entry_p1_part_shift,
     .context_id_bits = std.math.log2_int(u64, constants.literal_contexts_count),
     .count_literal = counts.symbol,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.distance, .{
+    .entry_second_at = entry_second_at,
+    .entry_value_at = entry_value_at,
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,
     .distance_context_last_copy_len = constants.distance_context_last_copy_len,
     .distance_context_copy_len_min = constants.distance_context_copy_len_min,
@@ -375,7 +381,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .lit_tables = @offsetOf(Machine, "lit_tables"),
     .command_codes = @offsetOf(Machine, "command_codes"),
     .count_distance = counts.distance,
-}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{ .refill_bits = fast.refill_bits, .root_bits_at_len = root_bits_at_len, .produced_offset = @offsetOf(Machine, "produced_offset") }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
+}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{ .refill_bits = fast.refill_bits, .root_bits_at_len = root_bits_at_len, .produced_offset = @offsetOf(Machine, "produced_offset"), .entry_value_at = entry_value_at }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
     .link_go_on = @intFromEnum(Link.go_on),
     .link_command = @intFromEnum(Link.command),
     .link_literal = @intFromEnum(Link.literal),
@@ -406,6 +412,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
 
 /// A root's bits placed at an entry's length, which a second-level entry adds to its own.
 const root_bits_at_len = @as(u32, constants.table_root_bits) << @bitOffsetOf(prefix.Entry, "len");
+/// Where an entry's second level's bits and its value start.
+const entry_second_at = @bitOffsetOf(prefix.Entry, "second_bits");
+const entry_value_at = @bitOffsetOf(prefix.Entry, "value");
 
 /// The instructions that count symbols in a test build, and nothing in another: the command's and a
 /// literal's with x14 free, a distance's with x23.

@@ -62,8 +62,8 @@ pub const distance =
     \\    mul x13, x13, x14
     \\    add x13, x9, x13
 ++ "\n" ++ lookup("x13", "x23", "x14", "x28", "52", "56") ++
-    \\    and w14, w23, #0xffff
-    \\    ubfx w23, w23, #16, #8
+    \\    lsr w14, w23, #{[entry_value_at]}
+    \\    and w23, w23, #0xff
     \\    lsr x26, x6, x23
     \\    mov w25, #0
     \\    // A short code (33) or a direct one (34), of no extra bits (RFC 7932 §4).

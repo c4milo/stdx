@@ -22,6 +22,7 @@ const transform = @import("../../transform.zig");
 const fast = @import("decoder_fast.zig");
 const loop_text = @import("decoder_fast_x86_64_template.zig");
 const rest_text = @import("decoder_fast_x86_64_template_distance.zig");
+const packed_tables = @import("decoder_fast_packed.zig");
 const State = state_module.State;
 const Phase = state_module.Phase;
 const Loop = fast.Loop;
@@ -127,7 +128,7 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
     if (literal_tables.block_type != lit_blocks.type_current) literal_runs.look_up_literal_tables(literal_tables, state, lit_blocks.type_current);
     const ring = &state.last_distances;
     const mode = state.context_modes[lit_blocks.type_current];
-    const luts = &context_luts[@intFromEnum(mode)];
+    const luts = &packed_tables.context_luts[@intFromEnum(mode)];
     var machine: Machine = .{
         .input = loop.input.ptr + loop.position,
         .input_limit = loop.input.ptr + (loop.input.len - fast.input_slack),
@@ -157,8 +158,8 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .postfix_shift = @as(u64, state.postfix_bits) + 1,
         .direct_count = state.direct_count,
         .direct_end = @as(u64, state.direct_count) + constants.distance_short_codes_count,
-        .command_codes = &packed_command_codes,
-        .short_codes = &packed_short_codes,
+        .command_codes = &packed_tables.command_codes,
+        .short_codes = &packed_tables.short_codes,
         .write_word = &write_word,
     };
     const link: Link = @enumFromInt(execute(&machine));
@@ -269,70 +270,16 @@ const word_convention: std.builtin.CallingConvention = if (builtin.cpu.arch == .
 /// What `write_word` returns for a word it leaves to the checked path, which the loop tests as -1.
 const word_refused = std.math.maxInt(u64);
 
-/// Where a command's packed codes hold each value: the first insert length in the low 16 bits, then
-/// the first copy length, the insert's extra bits, both lengths' extra bits, and the two codes.
-const copy_base_at = 16;
-const insert_extra_bits_at = 32;
-const extra_bits_at = 40;
-const insert_code_at = 48;
-const copy_code_at = 56;
-/// The copy code's bits: its octet but the top bit, which marks a reuse of the last distance.
-const copy_code_bits = @bitSizeOf(u64) - copy_code_at - 1;
-
-/// The evaluation the packed tables take at comptime.
-const packed_tables_quota = 20_000;
-
-/// Each insert-and-copy symbol's codes (RFC 7932 §5), packed for one load.
-const packed_command_codes: [constants.insert_copy_alphabet_len]u64 = codes: {
-    @setEvalBranchQuota(packed_tables_quota);
-    var table: [constants.insert_copy_alphabet_len]u64 = undefined;
-    for (&table, commands.command_codes) |*out, code| {
-        assert(code.insert_base < 1 << copy_base_at and code.copy_base < 1 << copy_base_at);
-        assert(code.copy_code < 1 << copy_code_bits);
-        out.* = code.insert_base | @as(u64, code.copy_base) << copy_base_at | @as(u64, code.insert_extra_bits) << insert_extra_bits_at |
-            @as(u64, code.extra_bits) << extra_bits_at | @as(u64, code.insert_code) << insert_code_at | @as(u64, code.copy_code) << copy_code_at;
-    }
-    break :codes table;
-};
-
-/// Where a short distance code's delta sits in its packed form, as a signed octet; the last distance
-/// it takes sits in the low bits (RFC 7932 §4).
-const short_delta_at = 8;
-
-const packed_short_codes: [constants.distance_short_codes_count]u64 = codes: {
-    var table: [constants.distance_short_codes_count]u64 = undefined;
-    for (&table, constants.distance_short_codes) |*out, code| {
-        out.* = @as(u64, code.last) | @as(u64, @as(u8, @bitCast(@as(i8, code.delta)))) << short_delta_at;
-    }
-    break :codes table;
-};
-
-/// The parts p1 and p2 give a context ID in each mode (RFC 7932 §7.1), one table per part.
-const context_luts: [@typeInfo(context.Mode).@"enum".fields.len][context_parts][constants.lut_len]u8 = luts: {
-    @setEvalBranchQuota(packed_tables_quota);
-    var luts: [@typeInfo(context.Mode).@"enum".fields.len][context_parts][constants.lut_len]u8 = undefined;
-    for (std.enums.values(context.Mode)) |mode| {
-        for (0..constants.lut_len) |value| {
-            luts[@intFromEnum(mode)][0][value] = context.p1_part(mode, @intCast(value));
-            luts[@intFromEnum(mode)][1][value] = context.p2_part(mode, @intCast(value));
-        }
-    }
-    break :luts luts;
-};
-
-/// The parts of a context ID: p1's and p2's (RFC 7932 §7.1).
-const context_parts = 2;
-
 comptime {
     // One vector moves the ring's four distances, last first.
     assert(@offsetOf(Machine, "ring23") == @offsetOf(Machine, "ring01") + @sizeOf(u64));
-    // An entry: its value in the low 16 bits, its length in the next 8, its second level's bits in
-    // the top 8, 4 octets in all; a table's pointer 8; a short code's last distance in its low 2
+    // An entry: its length in the low 8 bits, its second level's bits in the next 8, its value in
+    // the top 16, 4 octets in all; a table's pointer 8; a short code's last distance in its low 2
     // bits and its delta in the octet after.
-    assert(@sizeOf(prefix.Entry) == @sizeOf(u32) and @offsetOf(prefix.Entry, "value") == 0);
-    assert(@offsetOf(prefix.Entry, "len") == @sizeOf(u16) and @offsetOf(prefix.Entry, "second_bits") == @sizeOf(u16) + @sizeOf(u8));
+    assert(@sizeOf(prefix.Entry) == @sizeOf(u32) and @offsetOf(prefix.Entry, "len") == 0);
+    assert(@offsetOf(prefix.Entry, "second_bits") == @sizeOf(u8) and @offsetOf(prefix.Entry, "value") == @sizeOf(u16));
     assert(@sizeOf(*const literal_runs.LiteralTable) == @sizeOf(u64));
-    assert(constants.distance_short_codes_count == 16 and short_delta_at == 8);
+    assert(constants.distance_short_codes_count == 16 and packed_tables.short_delta_at == 8);
     // The numbers the text writes (decoder_fast_x86_64_template.zig): a buffer of 64 bits refilled
     // to 56, a root of 8 bits, 16-bit values, a copy of 16-octet chunks or 8-octet words, and a
     // context ID that takes 63 at most.
@@ -362,6 +309,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .count = @offsetOf(Machine, "count"),
     .meta_block_left = @offsetOf(Machine, "meta_block_left"),
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.command, .{
+    .entry_second_mask = entry_second_mask,
+    .entry_value_at = entry_value_at,
     .output_limit = @offsetOf(Machine, "output_limit"),
     .input_limit = @offsetOf(Machine, "input_limit"),
     .refill_bits = fast.refill_bits,
@@ -370,10 +319,12 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .command_codes = @offsetOf(Machine, "command_codes"),
     .last_distance_symbols = constants.insert_copy_last_distance_symbols,
     .count_symbol = counts.symbol,
-    .extra_bits_at = extra_bits_at,
-    .insert_extra_bits_at = insert_extra_bits_at,
-    .copy_base_at = copy_base_at,
+    .extra_bits_at = packed_tables.extra_bits_at,
+    .insert_extra_bits_at = packed_tables.insert_extra_bits_at,
+    .copy_base_at = packed_tables.copy_base_at,
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.literals, .{
+    .entry_second_mask = entry_second_mask,
+    .entry_value_at = entry_value_at,
     .code_len_max = constants.code_len_max,
     .input_limit = @offsetOf(Machine, "input_limit"),
     .output_limit = @offsetOf(Machine, "output_limit"),
@@ -394,6 +345,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .entry_p1_part_shift = context.entry_p1_part_shift,
     .count_literal = counts.symbol,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.distance, .{
+    .entry_second_mask = entry_second_mask,
+    .entry_value_at = entry_value_at,
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,
     .dist_count = @offsetOf(Machine, "dist_count"),
     .distance_context_last_copy_len = constants.distance_context_last_copy_len,
@@ -434,6 +387,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .dist_count = @offsetOf(Machine, "dist_count"),
     .count_distance = counts.distance,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{
+    .entry_second_at = @bitOffsetOf(prefix.Entry, "second_bits"),
     .input_limit = @offsetOf(Machine, "input_limit"),
     .root_bits = constants.table_root_bits,
     .root_bits_at_len = root_bits_at_len,
@@ -461,16 +415,19 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .buffer = @offsetOf(Machine, "buffer"),
     .count = @offsetOf(Machine, "count"),
     .phase = @offsetOf(Machine, "phase"),
-    .insert_code_at = insert_code_at,
+    .insert_code_at = packed_tables.insert_code_at,
     .insert_code = @offsetOf(Machine, "insert_code"),
-    .copy_code_at = copy_code_at,
-    .copy_code_mask = (1 << copy_code_bits) - 1,
+    .copy_code_at = packed_tables.copy_code_at,
+    .copy_code_mask = (1 << packed_tables.copy_code_bits) - 1,
     .copy_code = @offsetOf(Machine, "copy_code"),
     .last_distance = @offsetOf(Machine, "last_distance"),
 }) ++ "\n";
 
 /// A root's bits placed at an entry's length, which a second-level entry adds to its own.
 const root_bits_at_len = @as(u32, constants.table_root_bits) << @bitOffsetOf(prefix.Entry, "len");
+/// An entry's second level's bits, in place, and where its value starts.
+const entry_second_mask = @as(u32, std.math.maxInt(u8)) << @bitOffsetOf(prefix.Entry, "second_bits");
+const entry_value_at = @bitOffsetOf(prefix.Entry, "value");
 
 /// The instructions that count symbols in a test build, and nothing in another.
 const counts = if (builtin.is_test) .{
@@ -484,16 +441,4 @@ const chunks_unconditional = 2;
 test "the loop runs only on an x86-64 CPU with BMI2 and SSSE3" {
     try std.testing.expect(!runs(.{}));
     try std.testing.expectEqual(builtin.cpu.arch == .x86_64, runs(.{ .bmi2 = true }));
-}
-
-test "the packed command codes hold each symbol's codes" {
-    const testing = std.testing;
-    for (packed_command_codes, commands.command_codes) |word, code| {
-        try testing.expectEqual(code.insert_base, @as(u32, @truncate(word & std.math.maxInt(u16))));
-        try testing.expectEqual(code.copy_base, @as(u32, @truncate((word >> copy_base_at) & std.math.maxInt(u16))));
-        try testing.expectEqual(code.insert_extra_bits, @as(u5, @truncate(word >> insert_extra_bits_at)));
-        try testing.expectEqual(code.extra_bits, @as(u6, @truncate(word >> extra_bits_at)));
-        try testing.expectEqual(code.insert_code, @as(u8, @truncate(word >> insert_code_at)));
-        try testing.expectEqual(code.copy_code, @as(u8, @truncate(word >> copy_code_at)));
-    }
 }

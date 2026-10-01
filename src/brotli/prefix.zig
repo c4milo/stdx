@@ -18,15 +18,16 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const fill = @import("prefix_fill.zig");
 
-/// One entry of a table.
+/// One entry of a table, its length in the low octet, so that a shift by the whole entry, which
+/// takes its count's low six bits, takes the code's bits.
 pub const Entry = extern struct {
-    /// The symbol; for a root entry that links to a second level, where that level starts.
-    value: u16,
     /// The bits the entry's code takes at its level: its whole length in the root, the length past
     /// the root's bits in a second level. A link's is the root's bits.
     len: u8,
     /// A link's second level takes this many bits; 0 for a symbol.
     second_bits: u8,
+    /// The symbol; for a root entry that links to a second level, where that level starts.
+    value: u16,
 };
 
 /// A symbol, and the length of its code in bits: 0 for a code of one symbol.

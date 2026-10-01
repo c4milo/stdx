@@ -33,9 +33,8 @@ pub const distance =
     \\    imul eax, eax, {[distance_table_size]}
     \\    add rax, qword ptr [rdi + {[dist_tables]}]
 ++ "\n" ++ lookup("rax", "rcx", "52", "56") ++
-    \\    rorx ebx, ecx, 16
-    \\    movzx ebx, bl
-    \\    movzx ecx, cx
+    \\    movzx ebx, cl
+    \\    shr ecx, {[entry_value_at]}
     \\    // The extra bits (RFC 7932 §4): none below 16 + NDIRECT, 1 + ((dcode - NDIRECT - 16) >>
     \\    // (NPOSTFIX + 1)) after them.
     \\    xor eax, eax

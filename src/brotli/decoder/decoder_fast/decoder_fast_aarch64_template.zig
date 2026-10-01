@@ -66,14 +66,15 @@ pub fn refill(comptime scratch: []const u8) []const u8 {
     , .{ .s = scratch, .w = w_of(scratch) });
 }
 
-/// The symbol the buffer starts with, from `table`, into `entry`: its value in the low 16 bits and
-/// its length in the next 8 (`prefix.Entry`), through `second_level` when the root entry links one
-/// (RFC 7932 §3.2), which comes back to `back`. `t1` and `t2` are scratch.
+/// The symbol the buffer starts with, from `table`, into `entry`: its length in the low 8 bits, its
+/// second level's bits in the next 8 and its value in the top 16 (`prefix.Entry`), through
+/// `second_level` when the root entry links one (RFC 7932 §3.2), which comes back to `back`. `t1`
+/// and `t2` are scratch, `t2` holding the second level's bits for `second_level`.
 pub fn lookup(comptime table: []const u8, comptime entry: []const u8, comptime t1: []const u8, comptime t2: []const u8, comptime second: []const u8, comptime back: []const u8) []const u8 {
     return std.fmt.comptimePrint(
         \\    and {[t1]s}, x6, #0xff
         \\    ldr {[entry_w]s}, [{[table]s}, {[t1]s}, lsl #2]
-        \\    lsr {[t2_w]s}, {[entry_w]s}, #24
+        \\    ubfx {[t2_w]s}, {[entry_w]s}, #{{[entry_second_at]}}, #8
         \\    cbnz {[t2_w]s}, {[second]s}f
         \\{[back]s}:
         \\
@@ -90,7 +91,7 @@ pub fn second_level(comptime table: []const u8, comptime entry: []const u8, comp
         \\    lsl {[t1]s}, {[t1]s}, {[t2]s}
         \\    lsr {[t2]s}, x6, #8
         \\    bic {[t2]s}, {[t2]s}, {[t1]s}
-        \\    and {[entry_w]s}, {[entry_w]s}, #0xffff
+        \\    lsr {[entry_w]s}, {[entry_w]s}, #{{[entry_value_at]}}
         \\    add {[t2]s}, {[t2]s}, {[entry]s}
         \\    ldr {[entry_w]s}, [{[table]s}, {[t2]s}, lsl #2]
         \\    add {[entry_w]s}, {[entry_w]s}, #{{[root_bits_at_len]}}
@@ -136,11 +137,10 @@ pub const command =
     \\    // RFC 7932 §9.3: a spent block takes a block switch first, in Zig.
     \\    cbz x15, 81f
 ++ "\n" ++ lookup("x8", "x13", "x14", "x23", "50", "54") ++
-    \\    ubfx w14, w13, #16, #8
-    \\    lsr x6, x6, x14
-    \\    sub w7, w7, w14
+    \\    lsr x6, x6, x13
+    \\    sub w7, w7, w13, uxtb
     \\    sub x15, x15, #1
-    \\    and w13, w13, #0xffff
+    \\    lsr w13, w13, #{[entry_value_at]}
     \\    // The symbol's codes, packed, the top bit set for a symbol below 128, which reuses the
     \\    // last distance (RFC 7932 §5).
     \\    ldr x24, [x30, x13, lsl #3]
@@ -203,11 +203,10 @@ pub const literals =
     \\    orr w14, w14, w23
     \\    ldr x23, [x10, x14, lsl #3]
 ++ "\n" ++ lookup("x23", "x27", "x14", "x28", "51", "55") ++
-    \\    ubfx w14, w27, #16, #8
-    \\    lsr x6, x6, x14
-    \\    sub w7, w7, w14
+    \\    lsr x6, x6, x27
+    \\    sub w7, w7, w27, uxtb
     \\    mov w22, w21
-    \\    and w21, w27, #0xff
+    \\    ubfx w21, w27, #{[entry_value_at]}, #8
     \\    strb w21, [x3], #1
     \\    {[count_literal]s}
     \\    subs w13, w13, #1
@@ -227,13 +226,12 @@ pub const literals =
     \\    orr w23, w23, w25
     \\    ldr x23, [x10, x23, lsl #3]
 ++ "\n" ++ lookup("x23", "x27", "x14", "x28", "58", "59") ++
-    \\    ubfx w14, w27, #16, #8
-    \\    lsr x6, x6, x14
-    \\    sub w7, w7, w14
+    \\    lsr x6, x6, x27
+    \\    sub w7, w7, w27, uxtb
     \\    ldrb w25, [x26, x21]
     \\    ubfx w23, w27, #{[entry_p1_part_shift]}, #{[context_id_bits]}
     \\    mov w22, w21
-    \\    and w21, w27, #0xff
+    \\    ubfx w21, w27, #{[entry_value_at]}, #8
     \\    strb w21, [x3], #1
     \\    {[count_literal]s}
     \\    subs w13, w13, #1
@@ -247,11 +245,10 @@ pub const literals =
     \\    b.lo 29f
     \\27:
 ++ "\n" ++ lookup("x23", "x27", "x14", "x28", "53", "57") ++
-    \\    ubfx w14, w27, #16, #8
-    \\    lsr x6, x6, x14
-    \\    sub w7, w7, w14
+    \\    lsr x6, x6, x27
+    \\    sub w7, w7, w27, uxtb
     \\    mov w22, w21
-    \\    and w21, w27, #0xff
+    \\    ubfx w21, w27, #{[entry_value_at]}, #8
     \\    strb w21, [x3], #1
     \\    {[count_literal]s}
     \\    subs w13, w13, #1
