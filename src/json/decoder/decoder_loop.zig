@@ -410,9 +410,21 @@ inline fn first_block(content: []const u8, room: []u8) First {
     if (content.len < constants.vector_len or room.len < constants.vector_len) return .{ .head = 0 };
     const block: @Vector(constants.vector_len, u8) = content[0..constants.vector_len].*;
     room[0..constants.vector_len].* = block;
-    const lane = scan.plain_stop(block) orelse return .{ .head = constants.vector_len };
-    if (!scan.is_quotation_mark(block, lane)) return .{ .head = lane };
-    return .{ .ended = .{ .input_len = lane, .output_len = lane } };
+    // With no octet but plain ASCII and quotation marks, the closing one is found an octet at a
+    // time, a branch each that the CPU predicts, so the next token's address waits on no transfer
+    // from a vector: on the M1 Pro qlog's records took 6% fewer cycles (design §8 step 18).
+    const shifted = block -% @as(@Vector(constants.vector_len, u8), @splat(constants.unescaped_min));
+    const outside = shifted >= @as(@Vector(constants.vector_len, u8), @splat(constants.non_ascii_min - constants.unescaped_min));
+    const reverse_solidi = block == @as(@Vector(constants.vector_len, u8), @splat(constants.reverse_solidus));
+    if (@reduce(.Or, outside | reverse_solidi)) {
+        const lane = scan.plain_stop(block) orelse return .{ .head = constants.vector_len };
+        if (!scan.is_quotation_mark(block, lane)) return .{ .head = lane };
+        return .{ .ended = .{ .input_len = lane, .output_len = lane } };
+    }
+    inline for (0..constants.vector_len) |index| {
+        if (content[index] == constants.quotation_mark) return .{ .ended = .{ .input_len = index, .output_len = index } };
+    }
+    return .{ .head = constants.vector_len };
 }
 
 /// What `first_block` found: a string its first block ended, or the octets of its content copied
