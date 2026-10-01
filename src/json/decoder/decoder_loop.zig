@@ -277,64 +277,12 @@ const Loop = struct {
     /// Takes a name or a string whose content the loop copies, and its closing quotation mark.
     inline fn string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
         const content = self.in[1..];
-        const copied = (if (claims.decoder_string_vectors) self.copy_blocks(claims, content) else self.copy_scalar(content)) orelse return null;
+        const copied = (if (claims.decoder_string_vectors) first_block(content, self.out) orelse
+            copy_blocks(claims, self.decoder.level, content, self.out) else self.copy_scalar(content)) orelse return null;
         self.in = content[copied.input_len + 1 ..];
         self.out = self.out[copied.output_len..];
         if (kind == .name) self.expect = .name_separator else self.value_ended(kind);
         return kind;
-    }
-
-    /// Copies a string's `content`, the input after its opening quotation mark, up to its closing
-    /// one, and returns what it took and wrote, or null where the checked path must take it. Its
-    /// first `constants.wide_run_len_min` octets of plain ASCII go a block of 16 at a time, a run
-    /// past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
-    /// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig.
-    inline fn copy_blocks(self: *Loop, comptime claims: Claims, content: []const u8) ?Copied {
-        var len: usize = 0;
-        for (0..constants.wide_run_len_min / constants.vector_len) |_| {
-            // Each block's slices first: their lengths' test then proves the load and the store in
-            // bounds, which a test of the lengths left over did not, and each paid a check again.
-            const input_rest = content[len..];
-            const output_rest = self.out[len..];
-            if (input_rest.len < constants.vector_len or output_rest.len < constants.vector_len) return self.copy_short(claims, content, len);
-            const block: @Vector(constants.vector_len, u8) = input_rest[0..constants.vector_len].*;
-            output_rest[0..constants.vector_len].* = block;
-            if (scan.plain_stop(block)) |lane| {
-                if (scan.is_quotation_mark(block, lane)) return .{ .input_len = len + lane, .output_len = len + lane };
-                return self.copy_rest(claims, content, len + lane);
-            }
-            len += constants.vector_len;
-        }
-        const run_len = copy_long(self.decoder.level.with(claims), content[len..], self.out[len..]);
-        return self.after_run(claims, content, len + run_len);
-    }
-
-    /// The rest of a run past its first `head_len` octets, when fewer than 16 of input or of room
-    /// are left: scanned up to the end of either as `scan.plain_len_vector` scans a short run, and
-    /// copied. Claim J8's fast path took such a string, near the end of the input or of the output,
-    /// where the loop left it.
-    inline fn copy_short(self: *Loop, comptime claims: Claims, content: []const u8, head_len: usize) ?Copied {
-        const rest = content[head_len..];
-        const room = self.out[head_len..];
-        const window = rest[0..@min(rest.len, room.len)];
-        const run_len = scan.plain_len_vector(constants.vector_len, window);
-        scan.copy(room[0..run_len], window[0..run_len]);
-        return self.after_run(claims, content, head_len + run_len);
-    }
-
-    /// The string whose first `len` octets of content are copied and plain ASCII: whole at its
-    /// closing quotation mark, and else taken on past them by `copy_rest`.
-    inline fn after_run(self: *Loop, comptime claims: Claims, content: []const u8, len: usize) ?Copied {
-        if (len == content.len) return null;
-        if (content[len] == constants.quotation_mark) return .{ .input_len = len, .output_len = len };
-        return self.copy_rest(claims, content, len);
-    }
-
-    /// The string past its first `head_len` octets of content, copied and plain ASCII: its escapes,
-    /// its UTF-8 and the runs between them (decoder_loop_string.zig).
-    inline fn copy_rest(self: *Loop, comptime claims: Claims, content: []const u8, head_len: usize) ?Copied {
-        const rest = loop_string.copy_rest_at(claims, self.decoder.level, content[head_len..], self.out[head_len..]) orelse return null;
-        return .{ .input_len = head_len + rest.input_len, .output_len = head_len + rest.output_len };
     }
 
     /// `copy_blocks` an octet at a time, for plain ASCII alone (claim J3 off).
@@ -347,11 +295,12 @@ const Loop = struct {
 
     /// Takes a whole number and leaves the octet that ends it.
     inline fn number(self: *Loop) ?Kind {
-        const ended_number = @call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return null;
-        if (self.out.len < ended_number.len) return null;
-        scan.copy(self.out[0..ended_number.len], self.in[0..ended_number.len]);
-        self.in = self.in[ended_number.len..];
-        self.out = self.out[ended_number.len..];
+        const len = @call(.always_inline, number_grammar.plain_len, .{self.in}) orelse
+            (@call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return null).len;
+        if (self.out.len < len) return null;
+        scan.copy(self.out[0..len], self.in[0..len]);
+        self.in = self.in[len..];
+        self.out = self.out[len..];
         self.value_ended(.number);
         return .number;
     }
@@ -378,6 +327,74 @@ const Loop = struct {
         };
     }
 };
+
+/// A string's `content`, the input after its opening quotation mark, copied into `room` when its
+/// first block of 16 holds its closing quotation mark with plain ASCII before it: what it took and
+/// wrote. Null for every other string, which `copy_blocks` takes. Inline and with no call, so the
+/// loop's values stay in registers: with the paths that call out inline at every string, aarch64
+/// stored eight of them to the stack at each one (design §8 step 18).
+inline fn first_block(content: []const u8, room: []u8) ?Copied {
+    if (content.len < constants.vector_len or room.len < constants.vector_len) return null;
+    const block: @Vector(constants.vector_len, u8) = content[0..constants.vector_len].*;
+    room[0..constants.vector_len].* = block;
+    const lane = scan.plain_stop(block) orelse return null;
+    if (!scan.is_quotation_mark(block, lane)) return null;
+    return .{ .input_len = lane, .output_len = lane };
+}
+
+/// Copies a string's `content`, the input after its opening quotation mark, up to its closing
+/// one, into `room`, and returns what it took and wrote, or null where the checked path must take
+/// it. Its first `constants.wide_run_len_min` octets of plain ASCII go a block of 16 at a time, a
+/// run past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
+/// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig. Out
+/// of line, and taking no `*Loop`, for the strings `first_block` leaves.
+noinline fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8) ?Copied {
+    var len: usize = 0;
+    for (0..constants.wide_run_len_min / constants.vector_len) |_| {
+        // Each block's slices first: their lengths' test then proves the load and the store in
+        // bounds, which a test of the lengths left over did not, and each paid a check again.
+        const input_rest = content[len..];
+        const output_rest = room[len..];
+        if (input_rest.len < constants.vector_len or output_rest.len < constants.vector_len) return copy_short(claims, level, content, room, len);
+        const block: @Vector(constants.vector_len, u8) = input_rest[0..constants.vector_len].*;
+        output_rest[0..constants.vector_len].* = block;
+        if (scan.plain_stop(block)) |lane| {
+            if (scan.is_quotation_mark(block, lane)) return .{ .input_len = len + lane, .output_len = len + lane };
+            return copy_rest(claims, level, content, room, len + lane);
+        }
+        len += constants.vector_len;
+    }
+    const run_len = copy_long(level.with(claims), content[len..], room[len..]);
+    return after_run(claims, level, content, room, len + run_len);
+}
+
+/// The rest of a run past its first `head_len` octets, when fewer than 16 of input or of room
+/// are left: scanned up to the end of either as `scan.plain_len_vector` scans a short run, and
+/// copied. Claim J8's fast path took such a string, near the end of the input or of the output,
+/// where the loop left it.
+inline fn copy_short(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
+    const rest = content[head_len..];
+    const rest_room = room[head_len..];
+    const window = rest[0..@min(rest.len, rest_room.len)];
+    const run_len = scan.plain_len_vector(constants.vector_len, window);
+    scan.copy(rest_room[0..run_len], window[0..run_len]);
+    return after_run(claims, level, content, room, head_len + run_len);
+}
+
+/// The string whose first `len` octets of content are copied and plain ASCII: whole at its
+/// closing quotation mark, and else taken on past them by `copy_rest`.
+inline fn after_run(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, len: usize) ?Copied {
+    if (len == content.len) return null;
+    if (content[len] == constants.quotation_mark) return .{ .input_len = len, .output_len = len };
+    return copy_rest(claims, level, content, room, len);
+}
+
+/// The string past its first `head_len` octets of content, copied and plain ASCII: its escapes,
+/// its UTF-8 and the runs between them (decoder_loop_string.zig).
+inline fn copy_rest(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
+    const rest = loop_string.copy_rest_at(claims, level, content[head_len..], room[head_len..]) orelse return null;
+    return .{ .input_len = head_len + rest.input_len, .output_len = head_len + rest.output_len };
+}
 
 /// The run of plain ASCII past the blocks `copy_blocks` took, from `rest`, its octets after them,
 /// into `room`, the output after them, as far as `room` holds: copied, and its length returned. It

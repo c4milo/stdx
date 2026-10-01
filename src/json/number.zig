@@ -164,6 +164,53 @@ fn digits_len(octets: []const u8) usize {
     return octets.len;
 }
 
+/// The length of the plain number that starts `octets`, a minus, an integer part and a fraction
+/// with no exponent, when an octet of `octets` that no number goes on with ends it (RFC 8259 §6);
+/// or null for every other number, which `ended_in` then takes. Its digits are counted a word at
+/// a time, where the machine took a step and a test an octet: about 116 instructions a number of
+/// qlog's records on aarch64 (design §8 step 18).
+pub fn plain_len(octets: []const u8) ?usize {
+    const start: usize = @intFromBool(octets.len > 0 and octets[0] == constants.minus);
+    const integer_len = digits_in_words(octets[start..]) orelse return null;
+    // RFC 8259 §6: an integer part of one digit at least, and no leading zero.
+    if (integer_len == 0 or (integer_len > 1 and octets[start] == constants.zero)) return null;
+    var len = start + integer_len;
+    if (octets[len] == constants.decimal_point) {
+        // RFC 8259 §6: a decimal point and one digit at least.
+        const fraction_len = digits_in_words(octets[len + 1 ..]) orelse return null;
+        if (fraction_len == 0) return null;
+        len += 1 + fraction_len;
+    }
+    // An octet of no class the grammar names ends a whole number, as `accept` finds.
+    return if (classes[octets[len]] == .other) len else null;
+}
+
+/// The digits that start `octets`, counted a word at a time while a word of `octets` is left: an
+/// octet is a digit where adding `from_zero` carries it into its high bit and adding `past_nine`
+/// does not. An ASCII octet carries out of none, and an octet from 0x80 up fails both tests
+/// whatever carries into it, so the lowest octet that fails is the first that is no digit. Null
+/// where fewer than a word of `octets` holds the octet after the digits, or past
+/// `constants.plain_number_words_max` words.
+fn digits_in_words(octets: []const u8) ?usize {
+    var len: usize = 0;
+    for (0..constants.plain_number_words_max) |_| {
+        if (octets.len - len < constants.word_len) return null;
+        const word = std.mem.readInt(u64, octets[len..][0..constants.word_len], .little);
+        const digits = (word +% from_zero) & ~(word +% past_nine) & octet_high_bits;
+        const others = ~digits & octet_high_bits;
+        if (others != 0) return len + @ctz(others) / @bitSizeOf(u8);
+        len += constants.word_len;
+    }
+    return null;
+}
+
+/// One in each octet of a word, the high bit of each, and the sums that carry an ASCII octet into
+/// its high bit from '0' on and from past '9' on.
+const octet_lanes: u64 = std.math.maxInt(u64) / std.math.maxInt(u8);
+const octet_high_bits = octet_lanes * constants.non_ascii_min;
+const from_zero = octet_lanes * (constants.non_ascii_min - constants.zero);
+const past_nine = octet_lanes * (constants.non_ascii_min - constants.nine - 1);
+
 /// True for an octet that can start a number (RFC 8259 §6).
 pub fn starts_number(octet: u8) bool {
     return octet == constants.minus or is_digit(octet);
@@ -353,3 +400,56 @@ const Grammar = struct {
         return index;
     }
 };
+
+test "plain_len gives ended_in's length wherever it takes a number, for every text of up to six octets" {
+    const letters = "019-+.eE,x ";
+    var text: [plain_text_len_max + plain_padding.len]u8 = undefined;
+    for (0..plain_text_len_max + 1) |len| {
+        var counter: [plain_text_len_max]u8 = @splat(0);
+        for (0..std.math.pow(usize, letters.len, len)) |_| {
+            for (text[0..len], counter[0..len]) |*octet, index| octet.* = letters[index];
+            text[len..][0..plain_padding.len].* = plain_padding.*;
+            try expect_plain_as_machine(text[0 .. len + plain_padding.len]);
+            for (counter[0..len]) |*digit| {
+                digit.* += 1;
+                if (digit.* < letters.len) break;
+                digit.* = 0;
+            }
+        }
+    }
+}
+
+test "plain_len takes long runs of digits and fractions as ended_in does, at every word's edge" {
+    var text: [plain_long_len_max]u8 = undefined;
+    for (1..plain_long_digits_max) |integer_len| {
+        for (0..plain_long_digits_max) |fraction_len| {
+            @memset(text[0..integer_len], '7');
+            var len = integer_len;
+            if (fraction_len > 0) {
+                text[len] = '.';
+                @memset(text[len + 1 ..][0..fraction_len], '3');
+                len += 1 + fraction_len;
+            }
+            text[len..][0..plain_padding.len].* = plain_padding.*;
+            try testing.expectEqual(len, plain_len(text[0 .. len + plain_padding.len]));
+            try testing.expectEqual(ended_in(text[0 .. len + plain_padding.len]).?.len, len);
+            // Cut at its last digit, the number may go on: neither takes it.
+            try testing.expectEqual(null, plain_len(text[0..len]));
+        }
+    }
+}
+
+/// The longest text the exhaustive test of `plain_len` tries, and the octets after each, which
+/// end a number as a value separator does and hold a word.
+const plain_text_len_max = 6;
+const plain_padding = ",       ";
+/// The longest integer part and fraction the test of long runs tries, past three words each.
+const plain_long_digits_max = 26;
+const plain_long_len_max = plain_long_digits_max + plain_long_digits_max + plain_padding.len + 1;
+
+/// Requires `plain_len` to give `ended_in`'s length where it gives one.
+fn expect_plain_as_machine(octets: []const u8) !void {
+    const plain = plain_len(octets) orelse return;
+    const ended = ended_in(octets) orelse return error.TestExpectedEqual;
+    try testing.expectEqual(ended.len, plain);
+}

@@ -95,6 +95,10 @@ pub const exponent_upper: u8 = 'E';
 /// octets, and the encoder's token loop copies a short one in moves of 8.
 pub const word_len = @sizeOf(u64);
 
+/// The words of digits `number.plain_len` counts in an integer part or a fraction before it leaves
+/// the number to the machine: 32 digits, past every integer a 64-bit word holds.
+pub const plain_number_words_max = 4;
+
 /// The octets of a string (RFC 8259 §7).
 pub const quotation_mark: u8 = '"';
 pub const reverse_solidus: u8 = '\\';
