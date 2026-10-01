@@ -90,19 +90,14 @@ pub const distance =
     \\    lea r15d, [rcx + 1]
     \\    mov ecx, 1
     \\36:
-    \\    // A distance past the octets the reference can reach names a dictionary word (RFC 7932
-    \\    // §4), which a call into Zig takes; one past this call's output reads the window, in Zig.
-    \\    mov rax, qword ptr [rdi + {[produced_offset]}]
-    \\    add rax, rdx
-    \\    mov r11, qword ptr [rdi + {[window_distance_max]}]
-    \\    cmp rax, r11
-    \\    cmovae rax, r11
-    \\    cmp r15, rax
-    \\    ja 37f
+    \\    // A distance past this call's output or past the window (35): a dictionary word or the
+    \\    // window.
     \\    mov rax, rdx
     \\    sub rax, qword ptr [rdi + {[output_base]}]
     \\    cmp r15, rax
-    \\    ja 90f
+    \\    ja 35f
+    \\    cmp r15, qword ptr [rdi + {[window_distance_max]}]
+    \\    ja 35f
     \\    cmp r14d, {[chunk_len_max]}
     \\    ja 90f
     \\    // RFC 7932 §9.3: a copy length that would exceed MLEN; the checked path refuses it.
@@ -124,17 +119,11 @@ pub const distance =
     \\40:
     \\    // The last distance reused (RFC 7932 §5): no bits, no element, no push.
     \\    mov r15d, dword ptr [rdi + {[ring01]}]
-    \\    mov rax, qword ptr [rdi + {[produced_offset]}]
-    \\    add rax, rdx
-    \\    mov r11, qword ptr [rdi + {[window_distance_max]}]
-    \\    cmp rax, r11
-    \\    cmovae rax, r11
-    \\    cmp r15, rax
-    \\    ja 37f
+    \\    // A distance past this call's output (35); the ring's distances are within the window.
     \\    mov rax, rdx
     \\    sub rax, qword ptr [rdi + {[output_base]}]
     \\    cmp r15, rax
-    \\    ja 90f
+    \\    ja 35f
     \\    cmp r14d, {[chunk_len_max]}
     \\    ja 90f
     \\    cmp r14d, r10d
@@ -279,8 +268,8 @@ pub const word =
 
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
-/// a run's literal (28, 29 and 73) and a distance (32), and the second level of each lookup (50 to
-/// 53 and 58).
+/// a run's literal (28, 29 and 73) and a distance (32), the second level of each lookup (50 to 53
+/// and 58), and a distance past this call's output or the window (35).
 pub const cold =
     \\12:
     \\    cmp rsi, qword ptr [rdi + {[input_limit]}]
@@ -311,7 +300,19 @@ pub const cold =
     second_level("rax", "rcx", "r10", "51", "55") ++
     second_level("rax", "rcx", "rbx", "52", "56") ++
     second_level("rax", "rcx", "r10", "53", "57") ++
-    second_level("rax", "rcx", "r14", "58", "59");
+    second_level("rax", "rcx", "r14", "58", "59") ++
+    \\35:
+    \\    // A distance past the octets the reference can reach names a dictionary word (RFC 7932
+    \\    // §4), which a call into Zig takes; one within them reads the window, in Zig.
+    \\    mov rax, qword ptr [rdi + {[produced_offset]}]
+    \\    add rax, rdx
+    \\    mov r11, qword ptr [rdi + {[window_distance_max]}]
+    \\    cmp rax, r11
+    \\    cmovae rax, r11
+    \\    cmp r15, rax
+    \\    ja 37b
+    \\    jmp 90f
+;
 
 /// The exits: the link in rax and the phase in rcx, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.

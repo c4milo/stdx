@@ -364,7 +364,6 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .coded_distance_base = constants.coded_distance_base,
     .coded_distance_bias = constants.coded_distance_bias,
     .direct_count = @offsetOf(Machine, "direct_count"),
-    .produced_offset = @offsetOf(Machine, "produced_offset"),
     .window_distance_max = @offsetOf(Machine, "window_distance_max"),
     .output_base = @offsetOf(Machine, "output_base"),
     .chunk_len_max = constants.chunk_len_max,
@@ -389,6 +388,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{
     .entry_second_at = @bitOffsetOf(prefix.Entry, "second_bits"),
     .input_limit = @offsetOf(Machine, "input_limit"),
+    .produced_offset = @offsetOf(Machine, "produced_offset"),
+    .window_distance_max = @offsetOf(Machine, "window_distance_max"),
     .root_bits = constants.table_root_bits,
     .root_bits_at_len = root_bits_at_len,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
