@@ -427,7 +427,7 @@ const LongString = struct { kind: Kind, head_len: usize };
 /// How `Loop.take_long_string` calls `copy_blocks`, outside the loop of `fill`: inline on aarch64,
 /// where qlog's records took 107 instructions a token against 114 out of line; out of line on
 /// x86-64, where inline it held more of the loop's values (design §8 step 18).
-const copy_blocks_call: std.builtin.CallModifier = if (builtin.cpu.arch == .x86_64) .never_inline else .always_inline;
+const copy_blocks_call: std.builtin.CallModifier = .always_inline;
 
 /// Copies a string's `content`, the input after its opening quotation mark, up to its closing
 /// one, into `room`, and returns what it took and wrote, or null where the checked path must take
