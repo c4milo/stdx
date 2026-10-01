@@ -84,6 +84,42 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
 /// holds a number's last state.
 const Last = struct { matched: u8, number: number_grammar.Number };
 
+/// What a step of the loop took: a token of each `Kind`, numbered as `Kind` numbers it, or `stop`
+/// where the loop leaves the rest to `Decoder.run`. One octet each path returns in a register: as
+/// `?Kind`, each path's result went through a constant in memory, loaded with its flag at every
+/// token (design §8 step 18).
+const Taken = enum(u8) {
+    begin_object,
+    end_object,
+    begin_array,
+    end_array,
+    name,
+    string,
+    number,
+    true,
+    false,
+    null,
+    stop,
+
+    /// The step that took a token of `kind`.
+    inline fn of(comptime kind: Kind) Taken {
+        return comptime @enumFromInt(@intFromEnum(kind));
+    }
+
+    /// The kind of the token a step took.
+    inline fn as_kind(self: Taken) Kind {
+        assert(self != .stop);
+        return @enumFromInt(@intFromEnum(self));
+    }
+};
+
+comptime {
+    // Each token's step is numbered as its kind, so `Taken.as_kind` is one cast.
+    for (std.enums.values(Kind)) |kind| {
+        assert(std.mem.eql(u8, @tagName(kind), @tagName(@as(Taken, @enumFromInt(@intFromEnum(kind))))));
+    }
+}
+
 /// The `Last` of the loop's `slots`, whose octets are in `output`, found from its last slot of a
 /// name, string, number or literal name; or null where it holds none, and the decoder keeps its
 /// own. Found once a batch, where each token wrote it to the loop's locals.
@@ -125,8 +161,9 @@ const Loop = struct {
     inline fn fill(self: *Loop, comptime claims: Claims, slots: []Slot, first: usize, output: []const u8) usize {
         return for (slots[first..], first..) |*slot, index| {
             const room_len = self.out.len;
-            const kind = self.step(claims) orelse break index;
-            slot.* = .{ .kind = kind, .ended = true, .start = output.len - room_len, .len = room_len - self.out.len };
+            const taken = self.step(claims);
+            if (taken == .stop) break index;
+            slot.* = .{ .kind = taken.as_kind(), .ended = true, .start = output.len - room_len, .len = room_len - self.out.len };
         } else slots.len;
     }
 
@@ -175,7 +212,7 @@ const Loop = struct {
     /// the loop's `out`, and returns its kind; or returns null where the loop leaves the rest to
     /// `Decoder.run`, with `expect` what the grammar expects there. Each state takes its own
     /// separator: the expectation is switched on once a token, and nothing is put back.
-    inline fn step(self: *Loop, comptime claims: Claims) ?Kind {
+    inline fn step(self: *Loop, comptime claims: Claims) Taken {
         return switch (self.expect) {
             .separator_or_end => self.after_value(claims),
             .name_separator => self.after_name(claims),
@@ -183,7 +220,7 @@ const Loop = struct {
             .value_or_end_array => self.value_or_end(claims),
             .name => self.name(claims),
             .name_or_end_object => self.name_or_end(claims),
-            .end_of_text => null,
+            .end_of_text => .stop,
         };
     }
 
@@ -212,8 +249,8 @@ const Loop = struct {
 
     /// After a value in a container: a value separator and the next member's name or element, or
     /// the container's end (RFC 8259 §4, §5).
-    inline fn after_value(self: *Loop, comptime claims: Claims) ?Kind {
-        const octet = self.next_octet() orelse return null;
+    inline fn after_value(self: *Loop, comptime claims: Claims) Taken {
+        const octet = self.next_octet() orelse return .stop;
         if (octet == constants.value_separator) {
             self.in = self.in[1..];
             if (self.in_object) {
@@ -225,57 +262,57 @@ const Loop = struct {
         }
         if (octet == constants.end_object and self.in_object) return self.end(.end_object);
         if (octet == constants.end_array and !self.in_object) return self.end(.end_array);
-        return null;
+        return .stop;
     }
 
     /// After a name: its name separator, and the member's value (RFC 8259 §4).
-    inline fn after_name(self: *Loop, comptime claims: Claims) ?Kind {
-        const octet = self.next_octet() orelse return null;
-        if (octet != constants.name_separator) return null;
+    inline fn after_name(self: *Loop, comptime claims: Claims) Taken {
+        const octet = self.next_octet() orelse return .stop;
+        if (octet != constants.name_separator) return .stop;
         self.in = self.in[1..];
         self.expect = .value;
         return self.value(claims);
     }
 
-    inline fn name(self: *Loop, comptime claims: Claims) ?Kind {
-        const octet = self.next_octet() orelse return null;
-        if (octet != constants.quotation_mark) return null;
+    inline fn name(self: *Loop, comptime claims: Claims) Taken {
+        const octet = self.next_octet() orelse return .stop;
+        if (octet != constants.quotation_mark) return .stop;
         return self.string(claims, .name);
     }
 
-    inline fn name_or_end(self: *Loop, comptime claims: Claims) ?Kind {
-        const octet = self.next_octet() orelse return null;
+    inline fn name_or_end(self: *Loop, comptime claims: Claims) Taken {
+        const octet = self.next_octet() orelse return .stop;
         if (octet == constants.end_object) return self.end(.end_object);
-        if (octet != constants.quotation_mark) return null;
+        if (octet != constants.quotation_mark) return .stop;
         return self.string(claims, .name);
     }
 
-    inline fn value(self: *Loop, comptime claims: Claims) ?Kind {
-        const octet = self.next_octet() orelse return null;
+    inline fn value(self: *Loop, comptime claims: Claims) Taken {
+        const octet = self.next_octet() orelse return .stop;
         return self.value_of(claims, octet);
     }
 
-    inline fn value_or_end(self: *Loop, comptime claims: Claims) ?Kind {
-        const octet = self.next_octet() orelse return null;
+    inline fn value_or_end(self: *Loop, comptime claims: Claims) Taken {
+        const octet = self.next_octet() orelse return .stop;
         if (octet == constants.end_array) return self.end(.end_array);
         return self.value_of(claims, octet);
     }
 
     /// Takes the value `octet` starts (RFC 8259 §3).
-    inline fn value_of(self: *Loop, comptime claims: Claims, octet: u8) ?Kind {
+    inline fn value_of(self: *Loop, comptime claims: Claims, octet: u8) Taken {
         return switch (octet) {
             constants.quotation_mark => self.string(claims, .string),
             constants.begin_object, constants.begin_array => self.begin(octet),
             constants.literal_true[0] => self.literal(.true, constants.literal_true),
             constants.literal_false[0] => self.literal(.false, constants.literal_false),
             constants.literal_null[0] => self.literal(.null, constants.literal_null),
-            else => if (number_grammar.starts_number(octet)) self.number() else null,
+            else => if (number_grammar.starts_number(octet)) self.number() else .stop,
         };
     }
 
     /// Opens an object or an array below the depth limit, where the checked path refuses one.
-    inline fn begin(self: *Loop, octet: u8) ?Kind {
-        if (self.depth == constants.depth_max) return null;
+    inline fn begin(self: *Loop, octet: u8) Taken {
+        if (self.depth == constants.depth_max) return .stop;
         const object = octet == constants.begin_object;
         self.decoder.containers.set(self.depth, object);
         self.depth += 1;
@@ -285,24 +322,25 @@ const Loop = struct {
         return if (object) .begin_object else .begin_array;
     }
 
-    inline fn end(self: *Loop, kind: Kind) Kind {
+    inline fn end(self: *Loop, comptime kind: Kind) Taken {
         assert(self.depth > 0 and self.in_object == (kind == .end_object));
         assert(self.in_object == self.decoder.containers.is_object(self.depth - 1));
         self.depth -= 1;
         self.in_object = self.depth > 0 and self.decoder.containers.is_object(self.depth - 1);
         self.in = self.in[1..];
         self.value_ended(kind);
-        return kind;
+        return .of(kind);
     }
 
     /// Takes a name or a string whose content the loop copies, and its closing quotation mark.
-    inline fn string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
+    inline fn string(self: *Loop, comptime claims: Claims, comptime kind: Kind) Taken {
         const content = self.in[1..];
         const copied = (if (claims.decoder_string_vectors) first_block(content, self.out) else self.copy_scalar(content)) orelse {
             if (claims.decoder_string_vectors) self.long_string = kind;
-            return null;
+            return .stop;
         };
-        return self.string_taken(kind, content, copied);
+        self.string_taken(kind, content, copied);
+        return .of(kind);
     }
 
     /// The name or string at the start of `in` that `fill` stopped at, copied by `copy_blocks`; or
@@ -310,16 +348,16 @@ const Loop = struct {
     fn take_long_string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
         const content = self.in[1..];
         const copied = copy_blocks(claims, self.decoder.level, content, self.out) orelse return null;
-        return self.string_taken(kind, content, copied);
+        self.string_taken(kind, content, copied);
+        return kind;
     }
 
     /// Moves the loop past a name or string whose `content` it `copied`, and past its closing
     /// quotation mark.
-    inline fn string_taken(self: *Loop, kind: Kind, content: []const u8, copied: Copied) Kind {
+    inline fn string_taken(self: *Loop, kind: Kind, content: []const u8, copied: Copied) void {
         self.in = content[copied.input_len + 1 ..];
         self.out = self.out[copied.output_len..];
         if (kind == .name) self.expect = .name_separator else self.value_ended(kind);
-        return kind;
     }
 
     /// `copy_blocks` an octet at a time, for plain ASCII alone (claim J3 off).
@@ -331,10 +369,10 @@ const Loop = struct {
     }
 
     /// Takes a whole number and leaves the octet that ends it.
-    inline fn number(self: *Loop) ?Kind {
+    inline fn number(self: *Loop) Taken {
         const len = @call(.always_inline, number_grammar.plain_len, .{self.in}) orelse
-            (@call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return null).len;
-        if (self.out.len < len) return null;
+            (@call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return .stop).len;
+        if (self.out.len < len) return .stop;
         scan.copy(self.out[0..len], self.in[0..len]);
         self.in = self.in[len..];
         self.out = self.out[len..];
@@ -343,12 +381,12 @@ const Loop = struct {
     }
 
     /// Takes the literal name `text`, whose first letter starts the loop's input.
-    inline fn literal(self: *Loop, kind: Kind, comptime text: []const u8) ?Kind {
-        if (self.in.len < text.len) return null;
-        if (!std.mem.eql(u8, self.in[0..text.len], text)) return null;
+    inline fn literal(self: *Loop, comptime kind: Kind, comptime text: []const u8) Taken {
+        if (self.in.len < text.len) return .stop;
+        if (!std.mem.eql(u8, self.in[0..text.len], text)) return .stop;
         self.in = self.in[text.len..];
         self.value_ended(kind);
-        return kind;
+        return .of(kind);
     }
 
     /// Moves the grammar past a value of `kind` that just ended, as `Decoder.value_ended` does.
