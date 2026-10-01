@@ -191,7 +191,7 @@ pub fn plain_len(octets: []const u8) ?usize {
 /// whatever carries into it, so the lowest octet that fails is the first that is no digit. Null
 /// where fewer than a word of `octets` holds the octet after the digits, or past
 /// `constants.plain_number_words_max` words.
-fn digits_in_words(octets: []const u8) ?usize {
+inline fn digits_in_words(octets: []const u8) ?usize {
     var len: usize = 0;
     for (0..constants.plain_number_words_max) |_| {
         if (octets.len - len < constants.word_len) return null;
