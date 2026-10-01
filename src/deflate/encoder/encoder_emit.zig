@@ -156,8 +156,10 @@ fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *c
 /// Writes symbols while the output has room for a store: each symbol's codes go into the buffer
 /// and one store follows, a pair's 48 bits at most on the 7 a store leaves (decision 14, E5). The
 /// loop runs on a copy of the bit writer, so its buffer, count and position stay in registers
-/// through the loop, and the bits it wrote are counted once at the end.
-fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) void {
+/// through the loop, and the bits it wrote are counted once at the end. A function of its own:
+/// inline in `write`, the code tables' and the symbols' addresses went to the stack, and each
+/// literal loaded them back.
+noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) void {
     const store_len = codec.BitWriter.store_len;
     // The first store drops the whole octets a header left, a full buffer included, so the loop
     // starts with under 8 bits and every store in it moves under 8 octets.
@@ -171,18 +173,18 @@ fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, wri
     const start_position = position;
     const start_count = count;
     var index = emit.index;
-    const end = block.symbol_count;
+    const symbols = block.symbols[0..block.symbol_count];
     // Each pass puts one symbol, at most 48 bits on at most 7, or two literals, at most 30, then
     // stores the buffer whole, its whole octets counting as written (`BitWriter.store`). A second
     // literal saves a store and the shifts after it.
-    while (index < end) {
+    while (index < symbols.len) {
         if (position + store_len > octets.len) break;
-        const symbol = block.symbols[index];
+        const symbol = symbols[index];
         index += 1;
         if (symbol.distance == 0) {
             put_literal(plan, symbol.value, &buffer, &count);
-            if (index < end and block.symbols[index].distance == 0) {
-                put_literal(plan, block.symbols[index].value, &buffer, &count);
+            if (index < symbols.len and symbols[index].distance == 0) {
+                put_literal(plan, symbols[index].value, &buffer, &count);
                 index += 1;
             }
         } else {
