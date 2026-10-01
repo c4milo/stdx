@@ -63,11 +63,36 @@ fn copy_stream(stream: *Stream, distance: u8, copy: Copy) void {
     for (test_stream.trailer) |octet| stream.put(octet, @bitSizeOf(u8));
 }
 
+/// The stream: an uncompressed `distance` octets of the pattern, then a meta-block of `count`
+/// commands, each a copy of 2 from `distance` back, of no bits: symbol 128, insert code 0 and copy
+/// code 0 in the cell of explicit distances (RFC 7932 §5), and one direct code. A copy at a distance
+/// of a chunk or more stores two chunks whatever its length, the most past its length.
+fn short_copies_stream(stream: *Stream, distance: u8, count: u32) void {
+    var pattern: [distance_max]u8 = undefined;
+    for (pattern[0..distance], 0..) |*octet, index| octet.* = pattern_octet(index);
+    stream.window_bits_16();
+    stream.uncompressed(pattern[0..distance]);
+    stream.meta_block(true, count * short_copy_len);
+    stream.simple_header(postfix_three, direct_high_thirteen, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{0}, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{short_copy_symbol}, false);
+    stream.simple_code(distance_alphabet_len, &.{direct_codes_first + distance}, false);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (test_stream.trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+const short_copy_symbol = 128;
+const short_copy_len = 2;
+const short_copies_count = 200;
+
 fn check_rooms(distance: u8, copy: Copy) !void {
     var stream: Stream = .{};
     copy_stream(&stream, distance, copy);
-    const input = stream.written();
-    const len = distance + copy.len;
+    try check_stream_rooms(stream.written(), distance, distance + copy.len);
+}
+
+/// Decodes `input`, `len` octets of the pattern repeated every `distance`, into every room up to two
+/// margins past its end, each followed by octets that nothing may write.
+fn check_stream_rooms(input: []const u8, distance: u8, len: usize) !void {
     var expected: [distance_max + copy_len_max]u8 = undefined;
     for (expected[0..len], 0..) |*octet, index| octet.* = pattern_octet(index % distance);
     var output: [distance_max + copy_len_max + past_len + past_len]u8 = undefined;
@@ -82,6 +107,12 @@ fn check_rooms(distance: u8, copy: Copy) !void {
         for (output[room..]) |octet| try testing.expectEqual(sentinel, octet);
         if (room >= len) try testing.expectEqual(.done, progress.status);
     }
+}
+
+test "short copies at a distance of chunks write nothing past any room, each checked as it comes" {
+    var stream: Stream = .{};
+    short_copies_stream(&stream, distance_max, short_copies_count);
+    try check_stream_rooms(stream.written(), distance_max, distance_max + short_copies_count * short_copy_len);
 }
 
 test "a copy of each kind writes its octets into every room, and nothing past it" {

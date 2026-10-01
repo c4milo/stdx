@@ -143,8 +143,8 @@ pub const distance =
 
 /// The copy (S4, RFC 7932 §10): chunks of 16 where the distance holds one, of 8 where it holds one,
 /// a fill for a distance of 1, and an octet at a time below 8; each reads octets written before it,
-/// and the margin's room holds the last chunk's overrun. Then p1, p2, the meta-block's octets, and
-/// the next command.
+/// and the reserve past `output_limit` holds what it stores past its length. Then p1, p2, the
+/// meta-block's octets, and the next command.
 pub const copy =
     \\41:
     \\    mov rax, rdx
@@ -222,6 +222,11 @@ pub const copy =
 /// distance was reused.
 pub const word =
     \\37:
+    \\    // A word stores `transform.wide_output_len` octets whatever its length: past the room, Zig
+    \\    // takes it (90), its distance's bits unused.
+    \\    lea r11, [rdx + {[word_room]}]
+    \\    cmp r11, qword ptr [rdi + {[output_limit]}]
+    \\    ja 90f
     \\    sub r15, rax
     \\    dec r15
     \\    mov qword ptr [rdi + {[input]}], rsi
@@ -316,6 +321,15 @@ pub const cold =
 /// The exits: the link in rax and the phase in rcx, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.
 pub const exits =
+    \\92:
+    \\    // The room short of the command's stores, its lengths taken: Zig takes its literals, or
+    \\    // its distance.
+    \\    mov eax, {[link_go_on]}
+    \\    mov ecx, {[phase_literal]}
+    \\    test r15d, r15d
+    \\    jnz 99f
+    \\    mov ecx, {[phase_distance]}
+    \\    jmp 99f
     \\80:
     \\    xor r13d, r13d
     \\    xor r14d, r14d

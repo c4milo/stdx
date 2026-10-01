@@ -55,7 +55,8 @@ const Machine = extern struct {
     /// The input's next octet, and the last place an 8-octet load may start.
     input: [*]const u8,
     input_limit: [*]const u8,
-    /// The output's next octet, the last place a command may start, and the call's first octet.
+    /// The output's next octet, the output's end less `fast.copy_store_reserve`, which a command's
+    /// literals and copy may not pass, and the call's first octet.
     output: [*]u8,
     output_limit: [*]const u8,
     output_base: [*]const u8,
@@ -133,7 +134,7 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .input = loop.input.ptr + loop.position,
         .input_limit = loop.input.ptr + (loop.input.len - fast.input_slack),
         .output = loop.output.ptr + loop.written,
-        .output_limit = loop.output.ptr + (loop.output.len - fast.output_margin),
+        .output_limit = loop.output.ptr + (loop.output.len - fast.copy_store_reserve),
         .output_base = loop.output.ptr,
         .buffer = loop.buffer,
         .count = loop.count,
@@ -298,6 +299,8 @@ comptime {
     assert(constants.distance_context_copy_len_min == 2 and constants.distance_context_last_copy_len == 5);
     // A word's transform stores inside the margin's room.
     assert(transform.wide_output_len <= fast.output_margin and constants.transformed_word_len_max <= fast.output_margin);
+    // The reserve holds the chunks a copy stores whatever its length, and a word its own past it.
+    assert(fast.copy_store_reserve == chunks_unconditional * constants.copy_chunk_len and transform.wide_output_len >= fast.copy_store_reserve);
 }
 
 /// The loop's text, each piece printed with the offsets and constants it names: a format takes 32
@@ -327,7 +330,6 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .entry_value_at = entry_value_at,
     .code_len_max = constants.code_len_max,
     .input_limit = @offsetOf(Machine, "input_limit"),
-    .output_limit = @offsetOf(Machine, "output_limit"),
     .lit_count = @offsetOf(Machine, "lit_count"),
     .chunk_len_max = constants.chunk_len_max,
     .copy_len = @offsetOf(Machine, "copy_len"),
@@ -376,6 +378,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .p1 = @offsetOf(Machine, "p1"),
     .p2 = @offsetOf(Machine, "p2"),
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.word, .{
+    .word_room = transform.wide_output_len - fast.copy_store_reserve,
+    .output_limit = @offsetOf(Machine, "output_limit"),
     .input = @offsetOf(Machine, "input"),
     .output = @offsetOf(Machine, "output"),
     .buffer = @offsetOf(Machine, "buffer"),

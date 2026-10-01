@@ -8,36 +8,12 @@ const refill = text.refill;
 const lookup = text.lookup;
 const second_level = text.second_level;
 const constants = @import("../../constants.zig");
-const fast = @import("decoder_fast.zig");
-
-/// The most octets a copy's stores reach past its end: a chunk less one, its last chunk's.
-const copy_overrun_max = constants.copy_chunk_len - 1;
-
-/// The room of a copy of more than a chunk, from `at` back to `back` with x13 free: the loop takes
-/// it where its octets and its overrun end inside the output, `x3 + len + overrun <= x4 + margin`;
-/// Zig takes it otherwise.
-fn long_copy_room(comptime at: []const u8, comptime back: []const u8) []const u8 {
-    return std.fmt.comptimePrint(
-        \\{[at]s}:
-        \\    add x13, x3, x27
-        \\    sub x13, x13, #{[slack]d}
-        \\    cmp x13, x4
-        \\    b.hi 90f
-        \\    b {[back]s}b
-    , .{ .at = at, .back = back, .slack = fast.output_margin - copy_overrun_max });
-}
 
 comptime {
     // The ring's distances are within the smallest window: its first four (RFC 7932 §4), and every
     // later one a copy's, which 36 takes only within the window.
     for (constants.last_distances_initial) |ring_distance| {
         std.debug.assert(ring_distance <= (1 << constants.window_bits_min) - constants.window_len_gap);
-    }
-    // A symbol below 128 reuses the last distance (RFC 7932 §5), at label 40, with a copy code
-    // below 16 from its cell, 69 octets at most, so that path takes no check of the copy's length.
-    for (constants.insert_copy_cells[0 .. constants.insert_copy_last_distance_symbols >> constants.insert_copy_cell_bits]) |cell| {
-        const code = constants.copy_length_codes[cell.copy + (1 << constants.insert_copy_code_bits) - 1];
-        std.debug.assert(code.base + (1 << code.extra_bits) - 1 <= constants.chunk_len_max);
     }
 }
 
@@ -93,10 +69,6 @@ pub const distance =
     \\    cmp x26, x13
     \\    ccmp x26, x28, #2, ls
     \\    b.hi 35f
-    \\    // A copy of more than a chunk (38) where the room holds it.
-    \\    cmp w27, #{[chunk_len_max]}
-    \\    b.hi 38f
-    \\39:
     \\    // RFC 7932 §9.3: a copy length that would exceed MLEN; the checked path refuses it.
     \\    cmp w27, w12
     \\    b.hi 91f
@@ -138,15 +110,14 @@ pub const distance =
     \\    sub x13, x3, x5
     \\    cmp x26, x13
     \\    b.hi 35f
-    \\    // The copy, of 69 octets at most (asserted), needs no room past the margin's.
     \\    cmp w27, w12
     \\    b.hi 91f
 ;
 
 /// The copy (S4, RFC 7932 §10): chunks of 16 where the distance holds one, of 8 where it holds one,
 /// a fill for a distance of 1, and an octet at a time below 8; each reads octets written before it,
-/// and the margin's room holds the last chunk's overrun. Then p1 and p2, the meta-block's octets,
-/// and the next command.
+/// and the reserve past x4 holds what it stores past its length. Then p1 and p2, the meta-block's
+/// octets, and the next command.
 pub const copy =
     \\41:
     \\    sub x13, x3, x26
@@ -222,6 +193,11 @@ pub const copy =
 /// the word's octets, and the distance's bits and element unless the last distance was reused.
 pub const word =
     \\37:
+    \\    // A word stores `transform.wide_output_len` octets whatever its length: past the room, Zig
+    \\    // takes it (90), its distance's bits unused.
+    \\    add x14, x3, #{[word_room]}
+    \\    cmp x14, x4
+    \\    b.hi 90f
     \\    sub x2, x26, x13
     \\    sub x2, x2, #1
     \\    str x1, [x0, #{[input]}]
@@ -275,9 +251,8 @@ pub const word =
 
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
-/// a run's literal (28, 29 and 73) and a distance (32), the room of a copy of more than a chunk
-/// (38), a distance past this call's output or the window (35), and the second level of each lookup
-/// (50 to 53 and 58).
+/// a run's literal (28, 29 and 73) and a distance (32), a distance past this call's output or the
+/// window (35), and the second level of each lookup (50 to 53 and 58).
 pub const cold =
     \\12:
     \\    cmp x1, x2
@@ -309,7 +284,6 @@ pub const cold =
 ++ "\n" ++ refill("x14") ++
     \\
     \\    b 72b
-++ "\n" ++ long_copy_room("38", "39") ++
     \\
     \\35:
     \\    // A distance past the octets the reference can reach names a dictionary word (RFC 7932
@@ -330,6 +304,14 @@ pub const cold =
 /// The exits: the link in x13 and the phase in x14, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.
 pub const exits =
+    \\92:
+    \\    // The room short of the command's stores, its lengths taken: Zig takes its literals, or
+    \\    // its distance.
+    \\    mov x13, #{[link_go_on]}
+    \\    mov x14, #{[phase_literal]}
+    \\    cbnz w28, 99f
+    \\    mov x14, #{[phase_distance]}
+    \\    b 99f
     \\80:
     \\    mov x24, #0
     \\    mov x27, #0

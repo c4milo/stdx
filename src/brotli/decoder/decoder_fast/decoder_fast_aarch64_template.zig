@@ -43,11 +43,11 @@
 //! - p1 and p2 after a copy, the last two octets of its source, `distance` before the copy's last
 //!   two: at or past the source's first octet, since a copy writes 2 at least, and before the copy's
 //!   end. After a word, one and two octets before the output's next, which the word's octets gate.
-//! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
-//!   with the margin's room, `x3 <= x4`; its literals write at most 256; its copy starts only with
-//!   the room checked again after them, writes at most 256 and overruns by a chunk at most, or, for
-//!   a copy of more than 256, only where its octets and its overrun end inside the output; a word
-//!   writes at most the margin (asserted); the machine's fields sit at fixed offsets.
+//! - A literal's store, and a copy's or a word's, past the output's next octet: once a command's
+//!   lengths are known, its literals and its copy end at or before x4, the output's end less
+//!   `copy_store_reserve`, the two chunks that hold the most a copy stores past its length; a word
+//!   starts only where its `transform.wide_output_len` octets end inside the output (37); the
+//!   machine's fields sit at fixed offsets.
 
 const std = @import("std");
 
@@ -125,9 +125,9 @@ pub const prologue =
 /// A command: the margins, the refill, its block, its symbol (RFC 7932 §5) and its extra bits.
 pub const command =
     \\1:
-    \\    // Decision 16's margins: the room of a chain, and the 8 octets of a refill.
-    \\    cmp x3, x4
-    \\    ccmp x1, x2, #2, ls
+    \\    // Decision 16's input slack, the 8 octets of a refill; the output's room once the command's
+    \\    // lengths are known.
+    \\    cmp x1, x2
     \\    b.hi 80f
     \\    // The refill whatever the count: a buffer of 56 bits or more takes no octet, and a command
     \\    // finds it short nearly always.
@@ -167,6 +167,13 @@ pub const command =
     \\    lsr x27, x27, x13
     \\    ubfx w14, w24, #{[copy_base_at]}, #16
     \\    add w27, w27, w14
+    \\    // The command's stores (decision 16): its literals, then its copy and the two chunks a copy
+    \\    // may store past its length, which x4 keeps short of the output's end; Zig takes a command
+    \\    // past them (92). A word checks its own (37).
+    \\    add x13, x3, x28
+    \\    add x13, x13, x27
+    \\    cmp x13, x4
+    \\    b.hi 92f
     \\    cbz w28, 30f
 ;
 
@@ -255,7 +262,7 @@ pub const literals =
     \\    b.ne 26b
     \\23:
     \\    // The run's octets: off the block, the insert and the meta-block. Literals left take the
-    \\    // next run while the room's margin holds.
+    \\    // next run.
     \\    ldr x14, [x0, #{[batch]}]
     \\    sub w14, w14, w13
     \\    ldp x27, x28, [x0, #{[copy_len]}]
@@ -263,11 +270,7 @@ pub const literals =
     \\    sub w28, w28, w14
     \\    sub w12, w12, w14
     \\    cbz w28, 24f
-    \\    cmp x3, x4
-    \\    b.hi 87f
     \\    b 20b
     \\24:
     \\    cbz w12, 88f
-    \\    cmp x3, x4
-    \\    b.hi 89f
 ;

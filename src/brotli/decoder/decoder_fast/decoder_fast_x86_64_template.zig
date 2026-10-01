@@ -41,10 +41,11 @@
 //!   chunk at least.
 //! - p1 and p2, one and two octets before the output's next: a copy writes 2 at least, and a word's
 //!   octets gate each read.
-//! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
-//!   with the margin's room, rdx at most `output_limit`; its literals write at most 256; its copy
-//!   starts only with the room checked again after them, writes at most 256 and overruns by a chunk
-//!   at most; a word writes at most the margin (asserted); the machine's fields sit at fixed offsets.
+//! - A literal's store, and a copy's or a word's, past the output's next octet: once a command's
+//!   lengths are known, its literals and its copy end at or before `output_limit`, the output's end
+//!   less `copy_store_reserve`, the two chunks that hold the most a copy stores past its length; a
+//!   word starts only where its `transform.wide_output_len` octets end inside the output (37); the
+//!   machine's fields sit at fixed offsets.
 //! - The call into `write_word`, on a stack aligned to 16 below the red zone, with the loop's values
 //!   stored first and loaded again after.
 
@@ -127,9 +128,8 @@ pub const prologue =
 /// A command: the margins, the refill, its block, its symbol (RFC 7932 §5) and its extra bits.
 pub const command =
     \\1:
-    \\    // Decision 16's margins: the room of a chain, and the 8 octets of a refill.
-    \\    cmp rdx, qword ptr [rdi + {[output_limit]}]
-    \\    ja 80f
+    \\    // Decision 16's input slack, the 8 octets of a refill; the output's room once the command's
+    \\    // lengths are known.
     \\    cmp rsi, qword ptr [rdi + {[input_limit]}]
     \\    ja 80f
     \\    cmp r9d, {[refill_bits]}
@@ -174,6 +174,13 @@ pub const command =
     \\    rorx rcx, r13, {[copy_base_at]}
     \\    movzx ecx, cx
     \\    add r14d, ecx
+    \\    // The command's stores (decision 16): its literals, then its copy and the two chunks a copy
+    \\    // may store past its length, which `output_limit` keeps short of the output's end; Zig
+    \\    // takes a command past them (92). A word checks its own (37).
+    \\    lea rax, [rdx + r15]
+    \\    add rax, r14
+    \\    cmp rax, qword ptr [rdi + {[output_limit]}]
+    \\    ja 92f
     \\    test r15d, r15d
     \\    jz 30f
 ;
@@ -283,7 +290,7 @@ pub const literals =
     \\    jnz 26b
     \\23:
     \\    // The run's octets: off the block, the insert and the meta-block. Literals left take the
-    \\    // next run while the room's margin holds.
+    \\    // next run.
     \\    mov rax, qword ptr [rdi + {[batch]}]
     \\    sub eax, ebx
     \\    mov r14, qword ptr [rdi + {[copy_len]}]
@@ -297,12 +304,8 @@ pub const literals =
     \\    sub r10d, eax
     \\    test r15d, r15d
     \\    jz 24f
-    \\    cmp rdx, qword ptr [rdi + {[output_limit]}]
-    \\    ja 87f
     \\    jmp 20b
     \\24:
     \\    test r10d, r10d
     \\    jz 88f
-    \\    cmp rdx, qword ptr [rdi + {[output_limit]}]
-    \\    ja 89f
 ;
