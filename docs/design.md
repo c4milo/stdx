@@ -1186,6 +1186,29 @@ to 12 are reordered and nothing else changes.
     [36749286009](https://github.com/c4milo/stdx/actions/runs/36749286009) and
     [36749295243](https://github.com/c4milo/stdx/actions/runs/36749295243)), where its loops kept
     more of the two walks' values on the stack. It did not land.
+  - The block writer, 2026-10-01. The owner chose the writer next: on x-ray, level 1 spent 32% of
+    its cycles writing symbols, and the store loop cost about 32 instructions a literal in the
+    M1's code. Three commits, with the same output:
+    - f9cee01 stores two literals at a time. Two codes take at most 30 bits, under a pair's 48, so a
+      literal followed by another shares one store and the shifts after it.
+    - 6694fec gives the store loop a function of its own. Inline in `write` it shared its registers
+      with the pair path's tables, so each literal loaded the code tables' and the symbols'
+      addresses back from the stack, and each symbol checked its index against the array's 16384
+      entries; a slice of the block's symbols now bounds the index once.
+    - 516b662 steps the loop's symbol index in a `usize`, with no overflow check of its own.
+
+    Bench runs [36794825133](https://github.com/c4milo/stdx/actions/runs/36794825133) and
+    [36794832065](https://github.com/c4milo/stdx/actions/runs/36794832065) paired main (e23b890)
+    and the three commits (f357368 on their branch) in each job. Level 1 ran at 1.054 of its speed
+    on the N2 in both jobs, every file faster, and at 1.025 and 1.018 on an EPYC 9V74, 22 files
+    faster and none slower: stdx over libdeflate went from 0.983 to 1.056 and 1.064 on the N2 and
+    from 0.993 to 1.013 on the EPYC 9V74, past libdeflate at the median for the first time, the
+    output unchanged. Level 6 ran at 1.010 and 1.008 on the N2 and at 1.018 and 1.010 on x86-64,
+    and level 9 at 1.000 to 1.006. One file ran slower in both jobs: E.coli at level 6 on the N2, at
+    0.987 and 0.981, where literals and short matches alternate and the test for a second literal
+    goes either way; the owner ruled it in. A third literal per store ran at 1.001 to 1.012 of the
+    two-literal loop's time on the M1, and a second literal taken without a branch at up to 1.023:
+    neither stayed.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
