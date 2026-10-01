@@ -34,7 +34,9 @@
 //! - A packed command code, at the insert-and-copy symbol: the symbol is below the alphabet, 704.
 //! - The distance context map's row, at an id 0 to 3; a distance table, at a tree the map names,
 //!   which the header checked below NTREESD; a literal table, at a context ID the luts give, below
-//!   64 (`context`); a lut, at p1 or p2, an octet; a short code, at a code below 16.
+//!   64 (`context`); a lut, at p1 or p2, an octet; a short code, at a code below 16; a coded
+//!   distance's entry, at its code less 16 and NDIRECT, below 48 << NPOSTFIX, since a code's table
+//!   holds symbols of its alphabet alone.
 //! - A copy's loads, from `distance` octets before the output's next: the distance is at most the
 //!   octets this call wrote (`x3 - x5`), so every load reads this call's output; a chunk's load reads
 //!   octets written before it, since each kind of copy needs a distance of its chunk at least.
@@ -138,12 +140,10 @@ pub const command =
     \\    sub w7, w7, w14
     \\    sub x15, x15, #1
     \\    and w13, w13, #0xffff
-    \\    // The symbol's codes, packed; a symbol below 128 reuses the last distance (RFC 7932 §5).
+    \\    // The symbol's codes, packed, the top bit set for a symbol below 128, which reuses the
+    \\    // last distance (RFC 7932 §5).
     \\    ldr x24, [x0, #{[command_codes]}]
     \\    ldr x24, [x24, x13, lsl #3]
-    \\    cmp w13, #{[last_distance_symbols]}
-    \\    cset x25, lo
-    \\    orr x24, x24, x25, lsl #63
     \\    {[count_symbol]s}
     \\    // The extra bits (RFC 7932 §5), after a second refill (12) when the buffer holds fewer.
     \\    ubfx x26, x24, #{[extra_bits_at]}, #8

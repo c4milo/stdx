@@ -8,6 +8,7 @@ const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
 const context = @import("../../context.zig");
 const dictionary = @import("../../dictionary.zig");
+const transform = @import("../../transform.zig");
 const test_stream = @import("../test_stream.zig");
 const Stream = test_stream.Stream;
 const trailer = test_stream.trailer;
@@ -175,4 +176,42 @@ test "a word's distance takes its block's element" {
     try testing.expectEqualSlices(u8, word, output[0..short_word_len]);
     // Distance 2 repeats the word's last two octets.
     try testing.expectEqualSlices(u8, word[short_word_len - counted_copy_len ..], output[short_word_len..whole.written]);
+}
+
+/// Symbol 140, the literal 'a' and a copy of 6 past the one octet produced (RFC 7932 §5): word 0 of
+/// length 6 with transform 70, whose reference, the transform above NDBITS 11, makes the distance
+/// 143,362 (§8). With NPOSTFIX and NDIRECT 0 that is the distance code 46, 16 extra bits over the
+/// offset (2 << 16) - 4 (§4): more extra bits than any shorter distance takes.
+const far_word_symbol = 140;
+const far_word_len = 6;
+const far_word_transform = 70;
+const far_word_id = far_word_transform << dictionary.bits[far_word_len];
+const far_word_distance = 1 + 1 + far_word_id;
+const far_word_distance_code = 46;
+const far_word_extra_bits = 16;
+const far_word_offset = (constants.coded_distance_base << far_word_extra_bits) - constants.coded_distance_bias;
+
+fn far_word_stream(stream: *Stream, output_len: u32) void {
+    stream.window_bits_16();
+    stream.meta_block(true, output_len);
+    stream.simple_header(0, 0, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{'a'}, false);
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{far_word_symbol}, false);
+    stream.simple_code(constants.distance_short_codes_count + constants.distance_code_groups, &.{far_word_distance_code}, false);
+    stream.put(far_word_distance - 1 - far_word_offset, far_word_extra_bits);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+
+test "a word whose distance takes 16 extra bits decodes on the fast path" {
+    var word: [constants.transformed_word_len_max]u8 = undefined;
+    const word_len = transform.apply(far_word_transform, dictionary.word(far_word_len, 0), &word);
+    var stream: Stream = .{};
+    far_word_stream(&stream, @intCast(1 + word_len));
+    var output: [512]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(codec.Features.detect());
+    const whole = try decoder.decode_all(stream.written(), &output);
+    try testing.expectEqual('a', output[0]);
+    try testing.expectEqualSlices(u8, word[0..word_len], output[1..whole.written]);
 }

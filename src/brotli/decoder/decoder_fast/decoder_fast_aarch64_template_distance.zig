@@ -59,65 +59,25 @@ pub const distance =
 ++ "\n" ++ lookup("x13", "x23", "x14", "x28", "52", "56") ++
     \\    and w14, w23, #0xffff
     \\    ubfx w23, w23, #16, #8
-    \\    // The extra bits (RFC 7932 §4): none below 16 + NDIRECT, 1 + ((dcode - NDIRECT - 16) >>
-    \\    // (NPOSTFIX + 1)) after them.
-    \\    ldr x28, [x0, #{[direct_count]}]
-    \\    add w28, w28, #{[distance_short_codes_count]}
-    \\    mov w25, #0
-    \\    cmp w14, w28
-    \\    b.lo 33f
-    \\    sub w25, w14, w28
-    \\    ldr x26, [x0, #{[postfix_bits]}]
-    \\    add w26, w26, #1
-    \\    lsr w25, w25, w26
-    \\    add w25, w25, #1
-    \\33:
     \\    lsr x26, x6, x23
-    \\    mov x13, #-1
-    \\    lsl x13, x13, x25
-    \\    bic x26, x26, x13
+    \\    mov w25, #0
+    \\    // A short code (33) or a direct one (34), of no extra bits (RFC 7932 §4).
     \\    cmp w14, #{[distance_short_codes_count]}
-    \\    b.hs 34f
-    \\    // A short code (RFC 7932 §4): a last distance and a delta; one that resolves to zero or
-    \\    // less should be rejected as invalid, which the checked path does.
-    \\    ldr x13, [x0, #{[short_codes]}]
-    \\    ldr x13, [x13, x14, lsl #3]
-    \\    and x28, x13, #3
-    \\    sbfx x13, x13, #8, #8
-    \\    cmp x28, #2
-    \\    csel x26, x20, x19, hs
-    \\    tst x28, #1
-    \\    lsr x28, x26, #32
-    \\    csel x26, x28, x26, ne
-    \\    and x26, x26, #0xffffffff
-    \\    add x26, x26, x13
-    \\    cmp x26, #1
-    \\    b.lt 90f
-    \\    b 36f
-    \\34:
-    \\    cmp w14, w28
-    \\    b.hs 35f
-    \\    // A direct code (RFC 7932 §4): the distances 1 to NDIRECT.
-    \\    sub w26, w14, #{[direct_code_offset]}
-    \\    b 36f
-    \\35:
-    \\    // A coded distance (RFC 7932 §4).
-    \\    ldr x13, [x0, #{[postfix_bits]}]
-    \\    sub w28, w14, w28
-    \\    lsr x14, x28, x13
-    \\    and x14, x14, #1
-    \\    add x14, x14, #{[coded_distance_base]}
+    \\    b.lo 33f
+    \\    ldp x28, x13, [x0, #{[coded_first]}]
+    \\    subs w28, w14, w28
+    \\    b.lo 34f
+    \\    // A coded distance (RFC 7932 §4): its extra bits and base from its entry; the distance is
+    \\    // the base, the extra bits shifted by NPOSTFIX, NDIRECT and 1.
+    \\    ldr x13, [x13, x28, lsl #3]
+    \\    ubfx x25, x13, #0, #{[coded_distance_base_at]}
+    \\    mov x14, #-1
     \\    lsl x14, x14, x25
-    \\    sub x14, x14, #{[coded_distance_bias]}
-    \\    add x14, x14, x26
-    \\    lsl x14, x14, x13
-    \\    mov x26, #-1
-    \\    lsl x26, x26, x13
-    \\    bic x28, x28, x26
-    \\    add x14, x14, x28
-    \\    ldr x26, [x0, #{[direct_count]}]
-    \\    add x14, x14, x26
-    \\    add x26, x14, #1
+    \\    bic x26, x26, x14
+    \\    ldp x14, x28, [x0, #{[postfix_bits]}]
+    \\    lsl x26, x26, x14
+    \\    add x26, x26, x13, lsr #{[coded_distance_base_at]}
+    \\    add x26, x26, x28
     \\    mov w14, #1
     \\36:
     \\    add w23, w23, w25
@@ -148,6 +108,27 @@ pub const distance =
     \\    extr x20, x20, x19, #32
     \\    orr x19, x26, x19, lsl #32
     \\    b 41f
+    \\33:
+    \\    // A short code (RFC 7932 §4): a last distance and a delta; one that resolves to zero or
+    \\    // less should be rejected as invalid, which the checked path does.
+    \\    ldr x13, [x0, #{[short_codes]}]
+    \\    ldr x13, [x13, x14, lsl #3]
+    \\    and x28, x13, #3
+    \\    sbfx x13, x13, #8, #8
+    \\    cmp x28, #2
+    \\    csel x26, x20, x19, hs
+    \\    tst x28, #1
+    \\    lsr x28, x26, #32
+    \\    csel x26, x28, x26, ne
+    \\    and x26, x26, #0xffffffff
+    \\    add x26, x26, x13
+    \\    cmp x26, #1
+    \\    b.lt 90f
+    \\    b 36b
+    \\34:
+    \\    // A direct code (RFC 7932 §4): the distances 1 to NDIRECT.
+    \\    sub w26, w14, #{[direct_code_offset]}
+    \\    b 36b
     \\40:
     \\    // The last distance reused (RFC 7932 §5): no bits, no element, no push.
     \\    and x26, x19, #0xffffffff

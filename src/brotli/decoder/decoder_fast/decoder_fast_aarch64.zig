@@ -31,6 +31,7 @@ const transform = @import("../../transform.zig");
 const fast = @import("decoder_fast.zig");
 const loop_text = @import("decoder_fast_aarch64_template.zig");
 const rest_text = @import("decoder_fast_aarch64_template_distance.zig");
+const packed_tables = @import("decoder_fast_packed.zig");
 const State = state_module.State;
 const Phase = state_module.Phase;
 const Loop = fast.Loop;
@@ -83,8 +84,13 @@ const Machine = extern struct {
     ring23: u64,
     p1: u64,
     p2: u64,
+    /// The distance codes past the direct ones (RFC 7932 §4): the first, 16 + NDIRECT, and its
+    /// NPOSTFIX's entries in `packed_tables.coded_distances`; then NPOSTFIX and NDIRECT + 1, which
+    /// a coded distance adds.
+    coded_first: u64,
+    coded_distances: [*]const u64,
     postfix_bits: u64,
-    direct_count: u64,
+    direct_plus_one: u64,
     command_codes: *const [constants.insert_copy_alphabet_len]u64,
     short_codes: *const [constants.distance_short_codes_count]u64,
     /// The function that transforms a dictionary word into the output (`write_word`).
@@ -118,7 +124,7 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
     if (literal_tables.block_type != lit_blocks.type_current) literal_runs.look_up_literal_tables(literal_tables, state, lit_blocks.type_current);
     const ring = &state.last_distances;
     const mode = state.context_modes[lit_blocks.type_current];
-    const luts = &context_luts[@intFromEnum(mode)];
+    const luts = &packed_tables.context_luts[@intFromEnum(mode)];
     var machine: Machine = .{
         .input = loop.input.ptr + loop.position,
         .input_limit = loop.input.ptr + (loop.input.len - fast.input_slack),
@@ -144,10 +150,12 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .ring23 = @as(u64, ring[ring_per_field]) | @as(u64, ring[ring_per_field + 1]) << ring_half_bits,
         .p1 = loop.p1,
         .p2 = loop.p2,
+        .coded_first = constants.distance_short_codes_count + @as(u64, state.direct_count),
+        .coded_distances = packed_tables.coded_distances[packed_tables.coded_distances_first[state.postfix_bits]..].ptr,
         .postfix_bits = state.postfix_bits,
-        .direct_count = state.direct_count,
-        .command_codes = &packed_command_codes,
-        .short_codes = &packed_short_codes,
+        .direct_plus_one = @as(u64, state.direct_count) + 1,
+        .command_codes = &packed_tables.command_codes,
+        .short_codes = &packed_tables.short_codes,
         .write_word = &write_word,
         .phase = 0,
         .insert_code = 0,
@@ -263,62 +271,6 @@ fn write_word(output: [*]u8, len: u64, word_id: u64, meta_block_left: u64) callc
 /// What `write_word` returns for a word the loop must leave to the checked path: no length.
 const word_refused = std.math.maxInt(u64);
 
-/// Where a command's packed codes hold each value: the first insert length in the low 16 bits, then
-/// the first copy length, the insert length's extra bits, both lengths' extra bits, the insert code
-/// and the copy code.
-const copy_base_at = 16;
-const insert_extra_bits_at = 32;
-const extra_bits_at = 40;
-const insert_code_at = 48;
-const copy_code_at = 56;
-/// The copy code's bits: its octet less the top bit, which the loop sets for a symbol that reuses
-/// the last distance.
-const copy_code_bits = @bitSizeOf(u64) - copy_code_at - 1;
-
-/// The evaluation the packed tables take at comptime.
-const packed_tables_quota = 20_000;
-
-/// Each insert-and-copy symbol's codes (RFC 7932 §5), packed for one load.
-const packed_command_codes: [constants.insert_copy_alphabet_len]u64 = codes: {
-    @setEvalBranchQuota(packed_tables_quota);
-    var table: [constants.insert_copy_alphabet_len]u64 = undefined;
-    for (&table, commands.command_codes) |*out, code| {
-        assert(code.insert_base < 1 << copy_base_at and code.copy_base < 1 << copy_base_at);
-        assert(code.copy_code < 1 << copy_code_bits);
-        out.* = code.insert_base | @as(u64, code.copy_base) << copy_base_at | @as(u64, code.insert_extra_bits) << insert_extra_bits_at |
-            @as(u64, code.extra_bits) << extra_bits_at | @as(u64, code.insert_code) << insert_code_at | @as(u64, code.copy_code) << copy_code_at;
-    }
-    break :codes table;
-};
-
-/// Where a short distance code's delta sits in its packed form, as a signed octet; the last distance
-/// it takes sits in the low bits (RFC 7932 §4).
-const short_delta_at = 8;
-
-const packed_short_codes: [constants.distance_short_codes_count]u64 = codes: {
-    var table: [constants.distance_short_codes_count]u64 = undefined;
-    for (&table, constants.distance_short_codes) |*out, code| {
-        out.* = @as(u64, code.last) | @as(u64, @as(u8, @bitCast(@as(i8, code.delta)))) << short_delta_at;
-    }
-    break :codes table;
-};
-
-/// The parts p1 and p2 give a context ID in each mode (RFC 7932 §7.1), one table per part.
-const context_luts: [@typeInfo(context.Mode).@"enum".fields.len][context_parts][constants.lut_len]u8 = luts: {
-    @setEvalBranchQuota(packed_tables_quota);
-    var luts: [@typeInfo(context.Mode).@"enum".fields.len][context_parts][constants.lut_len]u8 = undefined;
-    for (std.enums.values(context.Mode)) |mode| {
-        for (0..constants.lut_len) |value| {
-            luts[@intFromEnum(mode)][0][value] = context.p1_part(mode, @intCast(value));
-            luts[@intFromEnum(mode)][1][value] = context.p2_part(mode, @intCast(value));
-        }
-    }
-    break :luts luts;
-};
-
-/// The parts of a context ID: p1's and p2's (RFC 7932 §7.1).
-const context_parts = 2;
-
 comptime {
     // The fields `ldp` and `stp` move in pairs are adjacent.
     assert(@offsetOf(Machine, "input_limit") == @offsetOf(Machine, "input") + @sizeOf(u64));
@@ -333,6 +285,8 @@ comptime {
     assert(@offsetOf(Machine, "p2") == @offsetOf(Machine, "p1") + @sizeOf(u64));
     assert(@offsetOf(Machine, "copy_code") == @offsetOf(Machine, "insert_code") + @sizeOf(u64));
     assert(@offsetOf(Machine, "insert_left") == @offsetOf(Machine, "copy_len") + @sizeOf(u64));
+    assert(@offsetOf(Machine, "coded_distances") == @offsetOf(Machine, "coded_first") + @sizeOf(u64));
+    assert(@offsetOf(Machine, "direct_plus_one") == @offsetOf(Machine, "postfix_bits") + @sizeOf(u64));
     // An entry: its value in the low 16 bits, its length in the next 8, its second level's bits in
     // the top 8, 4 octets in all; a table's pointer 8.
     assert(@sizeOf(prefix.Entry) == @sizeOf(u32) and @offsetOf(prefix.Entry, "value") == 0);
@@ -375,11 +329,10 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.command, .{
     .refill_bits = fast.refill_bits,
     .command_codes = @offsetOf(Machine, "command_codes"),
-    .last_distance_symbols = constants.insert_copy_last_distance_symbols,
     .count_symbol = counts.symbol,
-    .extra_bits_at = extra_bits_at,
-    .insert_extra_bits_at = insert_extra_bits_at,
-    .copy_base_at = copy_base_at,
+    .extra_bits_at = packed_tables.extra_bits_at,
+    .insert_extra_bits_at = packed_tables.insert_extra_bits_at,
+    .copy_base_at = packed_tables.copy_base_at,
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.literals, .{
     .code_len_max = constants.code_len_max,
     .chunk_len_max = constants.chunk_len_max,
@@ -396,13 +349,12 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .distance_context_last_copy_len = constants.distance_context_last_copy_len,
     .distance_context_copy_len_min = constants.distance_context_copy_len_min,
     .distance_table_size = @sizeOf(@TypeOf(@as(State, undefined).distance_codes[0])),
-    .direct_count = @offsetOf(Machine, "direct_count"),
+    .coded_first = @offsetOf(Machine, "coded_first"),
     .distance_short_codes_count = constants.distance_short_codes_count,
     .postfix_bits = @offsetOf(Machine, "postfix_bits"),
     .short_codes = @offsetOf(Machine, "short_codes"),
     .direct_code_offset = constants.distance_short_codes_count - 1,
-    .coded_distance_base = constants.coded_distance_base,
-    .coded_distance_bias = constants.coded_distance_bias,
+    .coded_distance_base_at = packed_tables.coded_distance_base_at,
     .produced_offset = @offsetOf(Machine, "produced_offset"),
     .chunk_len_max = constants.chunk_len_max,
     .count_distance = counts.distance,
@@ -444,9 +396,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .ring01 = @offsetOf(Machine, "ring01"),
     .p1 = @offsetOf(Machine, "p1"),
     .phase = @offsetOf(Machine, "phase"),
-    .insert_code_at = insert_code_at,
-    .copy_code_at = copy_code_at,
-    .copy_code_bits = copy_code_bits,
+    .insert_code_at = packed_tables.insert_code_at,
+    .copy_code_at = packed_tables.copy_code_at,
+    .copy_code_bits = packed_tables.copy_code_bits,
     .insert_code = @offsetOf(Machine, "insert_code"),
     .last_distance = @offsetOf(Machine, "last_distance"),
 }) ++ "\n";
@@ -463,35 +415,3 @@ const counts = if (builtin.is_test) .{
 
 /// The chunks a copy writes before it looks at the length, as `decoder_fast_copy.zig` writes them.
 const chunks_unconditional = 2;
-
-test "the packed command codes hold each symbol's codes" {
-    const testing = std.testing;
-    for (packed_command_codes, commands.command_codes) |word, code| {
-        try testing.expectEqual(code.insert_base, @as(u32, @truncate(word & std.math.maxInt(u16))));
-        try testing.expectEqual(code.copy_base, @as(u32, @truncate((word >> copy_base_at) & std.math.maxInt(u16))));
-        try testing.expectEqual(code.insert_extra_bits, @as(u5, @truncate(word >> insert_extra_bits_at)));
-        try testing.expectEqual(code.extra_bits, @as(u6, @truncate(word >> extra_bits_at)));
-        try testing.expectEqual(code.insert_code, @as(u8, @truncate(word >> insert_code_at)));
-        try testing.expectEqual(code.copy_code, @as(u8, @truncate(word >> copy_code_at)));
-    }
-}
-
-test "the packed short codes hold each code's last distance and delta" {
-    const testing = std.testing;
-    for (packed_short_codes, constants.distance_short_codes) |word, code| {
-        try testing.expectEqual(code.last, @as(u2, @truncate(word)));
-        try testing.expectEqual(code.delta, @as(i3, @intCast(@as(i8, @bitCast(@as(u8, @truncate(word >> short_delta_at)))))));
-    }
-}
-
-test "the context luts give each mode's context ID" {
-    const testing = std.testing;
-    for (std.enums.values(context.Mode)) |mode| {
-        for (0..constants.lut_len) |p1| {
-            for ([_]usize{ 0, 1, 100, 200, 255 }) |p2| {
-                const id = context_luts[@intFromEnum(mode)][0][p1] | context_luts[@intFromEnum(mode)][1][p2];
-                try testing.expectEqual(context.literal_id(mode, @intCast(p1), @intCast(p2)), @as(u6, @intCast(id)));
-            }
-        }
-    }
-}
