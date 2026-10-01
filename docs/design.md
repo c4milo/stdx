@@ -1863,6 +1863,27 @@ to 12 are reordered and nothing else changes.
     Mutations: nine of the fill, four of the table, eight of the sums and six of the loop, all
     CAUGHT, the sums' skipped run slot once a new test pinned the runs' count. Pushed to main the
     same day.
+  - p1 and p2 from a copy's source, cc484ac, paired against e23b890 (runs
+    [36794444432](https://github.com/c4milo/stdx/actions/runs/36794444432) and
+    [36794453593](https://github.com/c4milo/stdx/actions/runs/36794453593); reports in
+    `bench/results/`, dated 2026-10-01, "p1-source"). On the N2, 25.8% of nci's samples in the
+    aarch64 loop sat at a copy's first store and 9.4% at the reload of p2 after the copy (run
+    [36783219073](https://github.com/c4milo/stdx/actions/runs/36783219073)): the loop read p1 and p2
+    back from the octets the copy had just stored, so the next command's literals waited for those
+    stores. Each octet a copy writes equals the one a distance before it, so the loop now reads the
+    source's last two octets, which a distance at least the length leaves as they were before the
+    copy. A local count of the commands of Google's quality 11 found 518,125 copies a decode in nci,
+    64% followed by literals, and 2,636,736 in webster, 22%. On the N2, 26 files gain in both jobs
+    and none loses: x-ray +9.0% and +6.9% (1.08 to 1.18 of Google's speed), json-16k +9.3% and
+    +9.6%, kennedy.xls +7.8% and +8.3%, osdb +5.8% and +6.4%, nci +3.2% and +2.4% (1.11 to 1.14),
+    webster +3.1% and +2.7% (1.11 to 1.15) and dickens +3.1% and +2.4%, the median +2.0%. On an EPYC
+    7763 and an EPYC 9V74, whose builds hold no aarch64 code, no file moves past its bar. A copy of
+    64 octets before its length at a distance of 32 or more, paired on top (runs
+    [36795039872](https://github.com/c4milo/stdx/actions/runs/36795039872) and
+    [36795049799](https://github.com/c4milo/stdx/actions/runs/36795049799)), lost 15 files on the
+    N2, dickens and reymont 5%, for a gain on nci inside its spread, and was dropped. Mutations: p1
+    one octet early, p2 one octet late, the source's end not taken, and p1 from the source's next
+    octet, all CAUGHT. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
