@@ -53,13 +53,20 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
         .in_object = decoder.depth > 0 and decoder.containers.is_object(decoder.depth - 1),
     };
     if (decoder.stage != .tokens and !loop.text_start()) return 0;
-    // Each slot is written here, from values in registers: built on the stack by each kind's path
-    // and loaded back whole, a slot stalled on its narrower stores (design §8 step 18).
-    const filled = for (slots, 0..) |*slot, index| {
+    // The tokens the loop takes with no call, and between their runs each string its first block
+    // did not end, copied out of line: with that call inside the loop, aarch64 kept six of the
+    // loop's values on the stack across every string (design §8 step 18). Each pass fills a slot
+    // at least, or ends.
+    var filled: usize = 0;
+    for (0..slots.len + 1) |_| {
+        filled = loop.fill(claims, slots, filled, output);
+        const kind = loop.long_string orelse break;
+        loop.long_string = null;
         const room_len = loop.out.len;
-        const kind = loop.step(claims) orelse break index;
-        slot.* = .{ .kind = kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
-    } else slots.len;
+        if (loop.take_long_string(claims, kind) == null) break;
+        slots[filled] = .{ .kind = kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
+        filled += 1;
+    }
     // With every slot filled, the checked path asks for slots before it takes the text's end.
     if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
     decoder.expect = loop.expect;
@@ -108,6 +115,20 @@ const Loop = struct {
     /// batch: read from the decoder, they took a load at every separator and container.
     depth: u16,
     in_object: bool,
+    /// The kind of the name or string at the start of `in` that stopped `fill`, when its first
+    /// block did not end it: `take` copies it out of line.
+    long_string: ?Kind = null,
+
+    /// Fills `slots` from `first` on, each slot written here from values in registers: built on
+    /// the stack by each kind's path and loaded back whole, a slot stalled on its narrower stores
+    /// (design §8 step 18). Returns the slots filled, up to the token that stopped it.
+    inline fn fill(self: *Loop, comptime claims: Claims, slots: []Slot, first: usize, output: []const u8) usize {
+        return for (slots[first..], first..) |*slot, index| {
+            const room_len = self.out.len;
+            const kind = self.step(claims) orelse break index;
+            slot.* = .{ .kind = kind, .ended = true, .start = output.len - room_len, .len = room_len - self.out.len };
+        } else slots.len;
+    }
 
     /// Takes the record separator that starts a sequence's text (RFC 7464 §2.1) and passes the check
     /// for a byte order mark (RFC 8259 §8.1), as `Decoder.step` does, when the separator is one and
@@ -277,8 +298,24 @@ const Loop = struct {
     /// Takes a name or a string whose content the loop copies, and its closing quotation mark.
     inline fn string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
         const content = self.in[1..];
-        const copied = (if (claims.decoder_string_vectors) first_block(content, self.out) orelse
-            copy_blocks(claims, self.decoder.level, content, self.out) else self.copy_scalar(content)) orelse return null;
+        const copied = (if (claims.decoder_string_vectors) first_block(content, self.out) else self.copy_scalar(content)) orelse {
+            if (claims.decoder_string_vectors) self.long_string = kind;
+            return null;
+        };
+        return self.string_taken(kind, content, copied);
+    }
+
+    /// The name or string at the start of `in` that `fill` stopped at, copied by `copy_blocks`; or
+    /// null where the checked path must take it.
+    fn take_long_string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
+        const content = self.in[1..];
+        const copied = copy_blocks(claims, self.decoder.level, content, self.out) orelse return null;
+        return self.string_taken(kind, content, copied);
+    }
+
+    /// Moves the loop past a name or string whose `content` it `copied`, and past its closing
+    /// quotation mark.
+    inline fn string_taken(self: *Loop, kind: Kind, content: []const u8, copied: Copied) Kind {
         self.in = content[copied.input_len + 1 ..];
         self.out = self.out[copied.output_len..];
         if (kind == .name) self.expect = .name_separator else self.value_ended(kind);
