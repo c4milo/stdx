@@ -300,7 +300,7 @@ pub fn add(b: *std.Build, options: Options) void {
     const profile_run = b.addRunArtifact(profile);
     profile_run.has_side_effects = true;
     oracle_corpus.add_args(b, profile_run, corpus);
-    profile_step.dependOn(&profile_run.step);
+    _ = &profile_run;
     const bench_checksum_module = b.createModule(.{
         .root_source_file = b.path("bench/checksum/checksum.zig"),
         .target = baseline,
@@ -322,7 +322,6 @@ pub fn add(b: *std.Build, options: Options) void {
         // After the decoders' counters, so the two programs neither share the core nor mix their
         // tables.
         const json_profile = oracle_json.run(b, bench_json, corpus, .profile);
-        json_profile.step.dependOn(&profile_run.step);
         profile_step.dependOn(&json_profile.step);
     }
 
