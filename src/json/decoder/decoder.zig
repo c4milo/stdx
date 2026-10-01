@@ -88,8 +88,14 @@ pub fn refusal(err: Error) codec.Refusal {
     return .corrupt;
 }
 
-/// What the grammar allows next (RFC 8259 §2 to §5).
+/// What the grammar allows next (RFC 8259 §2 to §5). The two that most tokens follow come first,
+/// where a switch on them tests the least: claim J10's loop reached them through three and four
+/// compares when they came last (design §8 step 18).
 pub const Expect = enum(u8) {
+    /// After a value inside a container: a value separator, or the container's end.
+    separator_or_end,
+    /// After a name: a name separator.
+    name_separator,
     /// A value: the text's, or after a name separator, or after a value separator in an array.
     value,
     /// After `[`: a value, or `]`.
@@ -98,10 +104,6 @@ pub const Expect = enum(u8) {
     name_or_end_object,
     /// After a value separator in an object: a name.
     name,
-    /// After a name: a name separator.
-    name_separator,
-    /// After a value inside a container: a value separator, or the container's end.
-    separator_or_end,
     /// After the text's value: whitespace, then the end.
     end_of_text,
 };

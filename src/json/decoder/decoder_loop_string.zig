@@ -62,9 +62,20 @@ extern fn stdx_json_copy_rest_x86_64_avx2(rest: [*]const u8, rest_len: usize, ro
 /// in memory on every x86-64 CPU, whether or not it ran, and hex strings and tokens, which never
 /// reach it, ran 5% to 10% slower on an AMD EPYC 7763 (design §8 step 18).
 pub inline fn copy_rest_at(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
-    if (comptime !wide.has_kernels or !std.meta.eql(claims, Claims{})) return copy_rest(claims, level, rest, room);
+    if (comptime !wide.has_kernels or !is_default(claims)) return copy_rest(claims, level, rest, room);
     return copy_rest_kernel_or_here(level, rest, room);
 }
+
+/// Whether `claims` holds every claim at its default, at comptime. Inline at each of the token
+/// loop's string paths, `std.meta.eql` passed comptime's default branch quota on x86-64.
+fn is_default(comptime claims: Claims) bool {
+    @setEvalBranchQuota(claims_compare_branch_quota);
+    return std.meta.eql(claims, Claims{});
+}
+
+/// Comptime's backwards branches for `is_default`'s comparisons across one token loop's inline
+/// string paths: ten times the default of 1,000.
+const claims_compare_branch_quota = 10_000;
 
 noinline fn copy_rest_kernel_or_here(level: wide.Level, rest: []const u8, room: []u8) ?Copied {
     if (level == .avx2) {
