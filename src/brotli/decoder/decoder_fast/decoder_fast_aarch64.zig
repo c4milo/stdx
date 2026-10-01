@@ -5,9 +5,9 @@
 //! It takes the margin's room mode with the unchecked loop, the word refill and the chunk copies on;
 //! the Zig loop takes every other setting, and every other target. Like the Zig loop, it checks
 //! decision 16's margins before each command, and leaves what the straight path leaves to the
-//! chain: a block switch, a dictionary word, a copy from the window or of more than a chunk, and a
-//! value the checked path refuses, with the state as the phases would have it and the bits of the
-//! phase the chain takes again unused.
+//! chain but a copy of more than a chunk whose stores the room holds: a block switch, a dictionary
+//! word, a copy from the window, and a value the checked path refuses, with the state as the phases
+//! would have it and the bits of the phase the chain takes again unused.
 //!
 //! Its reads and writes go by address, without Zig's bounds checks. The margins keep a refill's load
 //! inside the input and a command's stores inside the output; a root's index and an entry's

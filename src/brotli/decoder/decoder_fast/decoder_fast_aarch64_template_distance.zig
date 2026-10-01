@@ -7,6 +7,34 @@ const text = @import("decoder_fast_aarch64_template.zig");
 const refill = text.refill;
 const lookup = text.lookup;
 const second_level = text.second_level;
+const constants = @import("../../constants.zig");
+const fast = @import("decoder_fast.zig");
+
+/// The most octets a copy's stores reach past its end: a chunk less one, its last chunk's.
+const copy_overrun_max = constants.copy_chunk_len - 1;
+
+/// The room of a copy of more than a chunk, from `at` back to `back` with x13 free: the loop takes
+/// it where its octets and its overrun end inside the output, `x3 + len + overrun <= x4 + margin`;
+/// Zig takes it otherwise.
+fn long_copy_room(comptime at: []const u8, comptime back: []const u8) []const u8 {
+    return std.fmt.comptimePrint(
+        \\{[at]s}:
+        \\    add x13, x3, x27
+        \\    sub x13, x13, #{[slack]d}
+        \\    cmp x13, x4
+        \\    b.hi 90f
+        \\    b {[back]s}b
+    , .{ .at = at, .back = back, .slack = fast.output_margin - copy_overrun_max });
+}
+
+comptime {
+    // A symbol below 128 reuses the last distance (RFC 7932 §5), at label 40, with a copy code
+    // below 16 from its cell, 69 octets at most, so that path takes no check of the copy's length.
+    for (constants.insert_copy_cells[0 .. constants.insert_copy_last_distance_symbols >> constants.insert_copy_cell_bits]) |cell| {
+        const code = constants.copy_length_codes[cell.copy + (1 << constants.insert_copy_code_bits) - 1];
+        std.debug.assert(code.base + (1 << code.extra_bits) - 1 <= constants.chunk_len_max);
+    }
+}
 
 /// The command's distance (RFC 7932 §4): the last distance for a symbol below 128, or the code of
 /// the tree its block type and copy length pick, its extra bits and the distance they give.
@@ -104,8 +132,10 @@ pub const distance =
     \\    sub x13, x3, x5
     \\    cmp x26, x13
     \\    b.hi 90f
+    \\    // A copy of more than a chunk (38) where the room holds it.
     \\    cmp w27, #{[chunk_len_max]}
-    \\    b.hi 90f
+    \\    b.hi 38f
+    \\39:
     \\    // RFC 7932 §9.3: a copy length that would exceed MLEN; the checked path refuses it.
     \\    cmp w27, w12
     \\    b.hi 91f
@@ -130,8 +160,7 @@ pub const distance =
     \\    sub x13, x3, x5
     \\    cmp x26, x13
     \\    b.hi 90f
-    \\    cmp w27, #{[chunk_len_max]}
-    \\    b.hi 90f
+    \\    // The copy, of 69 octets at most (asserted), needs no room past the margin's.
     \\    cmp w27, w12
     \\    b.hi 91f
 ;
@@ -267,8 +296,8 @@ pub const word =
 
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
-/// a run's literal (28, 29 and 73) and a distance (32), and the second level of each lookup (50 to
-/// 53 and 58).
+/// a run's literal (28, 29 and 73) and a distance (32), the room of a copy of more than a chunk
+/// (38), and the second level of each lookup (50 to 53 and 58).
 pub const cold =
     \\12:
     \\    cmp x1, x2
@@ -300,7 +329,8 @@ pub const cold =
 ++ "\n" ++ refill("x14") ++
     \\
     \\    b 72b
-++ "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
+++ "\n" ++ long_copy_room("38", "39") ++
+    "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "51", "55") ++
     "\n" ++ second_level("x13", "x23", "x14", "x28", "52", "56") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "53", "57") ++

@@ -21,9 +21,9 @@
 //! and 70 to 72 their runs, 30 to 36 its distance, 40 the last distance reused, 41 the copy and 42
 //! to 45 and 60 to 63 the copy's kinds, 37 and 46 to 48 a dictionary word, 80 to 91 the exits, 99
 //! the machine stored back. The common path falls through: the refills that need the slack checked
-//! (12, 28, 29, 32 and 73) and the second level of each lookup (50 to 53 and 58, back at 54 to 57
-//! and 59) stand after the word, in `cold`, each reached by a branch the common path leaves untaken
-//! and ending in one back.
+//! (12, 28, 29, 32 and 73), the room of a copy of more than a chunk (38, back at 39) and the second
+//! level of each lookup (50 to 53 and 58, back at 54 to 57 and 59) stand after the word, in `cold`,
+//! each reached by a branch the common path leaves untaken and ending in one back.
 //!
 //! The accesses (decision 24), each with the check that bounds it:
 //! - The refill's 8-octet load at the input's next octet: the slack check before every refill,
@@ -43,7 +43,8 @@
 //!   end. After a word, one and two octets before the output's next, which the word's octets gate.
 //! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
 //!   with the margin's room, `x3 <= x4`; its literals write at most 256; its copy starts only with
-//!   the room checked again after them, writes at most 256 and overruns by a chunk at most; a word
+//!   the room checked again after them, writes at most 256 and overruns by a chunk at most, or, for
+//!   a copy of more than 256, only where its octets and its overrun end inside the output; a word
 //!   writes at most the margin (asserted); the machine's fields sit at fixed offsets.
 
 const std = @import("std");
