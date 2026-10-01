@@ -138,8 +138,8 @@ pub const distance =
 
 /// The copy (S4, RFC 7932 §10): chunks of 16 where the distance holds one, of 8 where it holds one,
 /// a fill for a distance of 1, and an octet at a time below 8; each reads octets written before it,
-/// and the margin's room holds the last chunk's overrun. Then p1, p2, the meta-block's octets, and
-/// the next command.
+/// and the margin's room holds the last chunk's overrun. Then p1 and p2, the meta-block's octets,
+/// and the next command.
 pub const copy =
     \\41:
     \\    sub x13, x3, x26
@@ -197,9 +197,13 @@ pub const copy =
     \\    cmp x14, x27
     \\    b.lo 63b
     \\45:
+    \\    // p1 and p2 from the source's last two octets: each octet a copy writes equals the one
+    \\    // `distance` before it, and where the distance is at least the length, the source's octets
+    \\    // were written before the copy, so that neither load waits for the copy's stores.
+    \\    add x13, x13, x27
     \\    add x3, x3, x27
-    \\    ldurb w21, [x3, #-1]
-    \\    ldurb w22, [x3, #-2]
+    \\    ldurb w21, [x13, #-1]
+    \\    ldurb w22, [x13, #-2]
     \\    sub w12, w12, w27
     \\    cbz w12, 88f
     \\    b 1b

@@ -38,8 +38,9 @@
 //! - A copy's loads, from `distance` octets before the output's next: the distance is at most the
 //!   octets this call wrote (`x3 - x5`), so every load reads this call's output; a chunk's load reads
 //!   octets written before it, since each kind of copy needs a distance of its chunk at least.
-//! - p1 and p2, one and two octets before the output's next: a copy writes 2 at least, and a word's
-//!   octets gate each read.
+//! - p1 and p2 after a copy, the last two octets of its source, `distance` before the copy's last
+//!   two: at or past the source's first octet, since a copy writes 2 at least, and before the copy's
+//!   end. After a word, one and two octets before the output's next, which the word's octets gate.
 //! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
 //!   with the margin's room, `x3 <= x4`; its literals write at most 256; its copy starts only with
 //!   the room checked again after them, writes at most 256 and overruns by a chunk at most; a word
