@@ -172,7 +172,8 @@ noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const B
     assert(count < @bitSizeOf(u8));
     const start_position = position;
     const start_count = count;
-    var index = emit.index;
+    // In a `usize`, the index steps with no check of its own; a block holds fewer symbols.
+    var index: usize = emit.index;
     const symbols = block.symbols[0..block.symbol_count];
     // Each pass puts one symbol, at most 48 bits on at most 7, or two literals, at most 30, then
     // stores the buffer whole, its whole octets counting as written (`BitWriter.store`). A second
@@ -206,7 +207,7 @@ noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const B
     writer.bits.buffer = buffer;
     writer.bits.count = @intCast(count);
     emit.bits += (position - start_position) * @bitSizeOf(u8) + count - start_count;
-    emit.index = index;
+    emit.index = @intCast(index);
 }
 
 /// Puts the code of the literal `value` above the `count` bits of `buffer`.
