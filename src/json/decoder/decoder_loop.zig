@@ -60,11 +60,11 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
     var filled: usize = 0;
     for (0..slots.len + 1) |_| {
         filled = loop.fill(claims, slots, filled, output);
-        const kind = loop.long_string orelse break;
+        const long = loop.long_string orelse break;
         loop.long_string = null;
         const room_len = loop.out.len;
-        if (loop.take_long_string(claims, kind) == null) break;
-        slots[filled] = .{ .kind = kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
+        if (!loop.take_long_string(claims, long)) break;
+        slots[filled] = .{ .kind = long.kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
         filled += 1;
     }
     // With every slot filled, the checked path asks for slots before it takes the text's end.
@@ -151,9 +151,9 @@ const Loop = struct {
     /// batch: read from the decoder, they took a load at every separator and container.
     depth: u16,
     in_object: bool,
-    /// The kind of the name or string at the start of `in` that stopped `fill`, when its first
-    /// block did not end it: `take` copies it out of line.
-    long_string: ?Kind = null,
+    /// The name or string at the start of `in` that stopped `fill`, when its first block did not
+    /// end it: `take` copies it out of line.
+    long_string: ?LongString = null,
 
     /// Fills `slots` from `first` on, each slot written here from values in registers: built on
     /// the stack by each kind's path and loaded back whole, a slot stalled on its narrower stores
@@ -335,21 +335,27 @@ const Loop = struct {
     /// Takes a name or a string whose content the loop copies, and its closing quotation mark.
     inline fn string(self: *Loop, comptime claims: Claims, comptime kind: Kind) Taken {
         const content = self.in[1..];
-        const copied = (if (claims.decoder_string_vectors) first_block(content, self.out) else self.copy_scalar(content)) orelse {
-            if (claims.decoder_string_vectors) self.long_string = kind;
-            return .stop;
-        };
-        self.string_taken(kind, content, copied);
+        if (!claims.decoder_string_vectors) {
+            self.string_taken(kind, content, self.copy_scalar(content) orelse return .stop);
+            return .of(kind);
+        }
+        switch (first_block(content, self.out)) {
+            .ended => |copied| self.string_taken(kind, content, copied),
+            .head => |head_len| {
+                self.long_string = .{ .kind = kind, .head_len = head_len };
+                return .stop;
+            },
+        }
         return .of(kind);
     }
 
-    /// The name or string at the start of `in` that `fill` stopped at, copied by `copy_blocks`; or
-    /// null where the checked path must take it.
-    fn take_long_string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
+    /// The name or string at the start of `in` that `fill` stopped at, copied by `copy_blocks`
+    /// from where `first_block` stopped; or false where the checked path must take it.
+    fn take_long_string(self: *Loop, comptime claims: Claims, long: LongString) bool {
         const content = self.in[1..];
-        const copied = copy_blocks(claims, self.decoder.level, content, self.out) orelse return null;
-        self.string_taken(kind, content, copied);
-        return kind;
+        const copied = copy_blocks(claims, self.decoder.level, content, self.out, long.head_len) orelse return false;
+        self.string_taken(long.kind, content, copied);
+        return true;
     }
 
     /// Moves the loop past a name or string whose `content` it `copied`, and past its closing
@@ -408,14 +414,23 @@ const Loop = struct {
 /// wrote. Null for every other string, which `copy_blocks` takes. Inline and with no call, so the
 /// loop's values stay in registers: with the paths that call out inline at every string, aarch64
 /// stored eight of them to the stack at each one (design §8 step 18).
-inline fn first_block(content: []const u8, room: []u8) ?Copied {
-    if (content.len < constants.vector_len or room.len < constants.vector_len) return null;
+inline fn first_block(content: []const u8, room: []u8) First {
+    if (content.len < constants.vector_len or room.len < constants.vector_len) return .{ .head = 0 };
     const block: @Vector(constants.vector_len, u8) = content[0..constants.vector_len].*;
     room[0..constants.vector_len].* = block;
-    const lane = scan.plain_stop(block) orelse return null;
-    if (!scan.is_quotation_mark(block, lane)) return null;
-    return .{ .input_len = lane, .output_len = lane };
+    const lane = scan.plain_stop(block) orelse return .{ .head = constants.vector_len };
+    if (!scan.is_quotation_mark(block, lane)) return .{ .head = lane };
+    return .{ .ended = .{ .input_len = lane, .output_len = lane } };
 }
+
+/// What `first_block` found: a string its first block ended, or the octets of its content copied
+/// and plain before what stopped the block, from which `copy_blocks` goes on: a long string's
+/// first block, copied again, took a 1 KiB hex string 2% more time on the N2 (design §8 step 18).
+const First = union(enum) { ended: Copied, head: usize };
+
+/// A name or string `fill` stopped at: its kind, and the octets of its content `first_block`
+/// copied and found plain.
+const LongString = struct { kind: Kind, head_len: usize };
 
 /// Copies a string's `content`, the input after its opening quotation mark, up to its closing
 /// one, into `room`, and returns what it took and wrote, or null where the checked path must take
@@ -423,8 +438,8 @@ inline fn first_block(content: []const u8, room: []u8) ?Copied {
 /// run past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
 /// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig. Out
 /// of line, and taking no `*Loop`, for the strings `first_block` leaves.
-noinline fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8) ?Copied {
-    var len: usize = 0;
+noinline fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
+    var len: usize = head_len;
     for (0..constants.wide_run_len_min / constants.vector_len) |_| {
         // Each block's slices first: their lengths' test then proves the load and the store in
         // bounds, which a test of the lengths left over did not, and each paid a check again.
