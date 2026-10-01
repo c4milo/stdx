@@ -326,9 +326,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .dist_count = @offsetOf(Machine, "dist_count"),
     .ring01 = @offsetOf(Machine, "ring01"),
     .p1 = @offsetOf(Machine, "p1"),
+    .command_codes = @offsetOf(Machine, "command_codes"),
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.command, .{
     .refill_bits = fast.refill_bits,
-    .command_codes = @offsetOf(Machine, "command_codes"),
     .count_symbol = counts.symbol,
     .extra_bits_at = packed_tables.extra_bits_at,
     .insert_extra_bits_at = packed_tables.insert_extra_bits_at,
@@ -355,7 +355,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .short_codes = @offsetOf(Machine, "short_codes"),
     .direct_code_offset = constants.distance_short_codes_count - 1,
     .coded_distance_base_at = packed_tables.coded_distance_base_at,
-    .produced_offset = @offsetOf(Machine, "produced_offset"),
+    .window_distance_max = @offsetOf(Machine, "window_distance_max"),
     .chunk_len_max = constants.chunk_len_max,
     .count_distance = counts.distance,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.copy, .{
@@ -373,8 +373,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .output_base = @offsetOf(Machine, "output_base"),
     .ic_table = @offsetOf(Machine, "ic_table"),
     .lit_tables = @offsetOf(Machine, "lit_tables"),
+    .command_codes = @offsetOf(Machine, "command_codes"),
     .count_distance = counts.distance,
-}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{ .refill_bits = fast.refill_bits, .root_bits_at_len = root_bits_at_len }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
+}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{ .refill_bits = fast.refill_bits, .root_bits_at_len = root_bits_at_len, .produced_offset = @offsetOf(Machine, "produced_offset") }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
     .link_go_on = @intFromEnum(Link.go_on),
     .link_command = @intFromEnum(Link.command),
     .link_literal = @intFromEnum(Link.literal),

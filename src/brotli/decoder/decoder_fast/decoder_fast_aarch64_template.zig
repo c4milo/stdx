@@ -116,6 +116,7 @@ pub const prologue =
     \\    ldr x17, [x0, #{[dist_count]}]
     \\    ldp x19, x20, [x0, #{[ring01]}]
     \\    ldp x21, x22, [x0, #{[p1]}]
+    \\    ldr x30, [x0, #{[command_codes]}]
     \\    // The loop starts a fetch line of its own, wherever the code before it ends.
     \\    .p2align 6
 ;
@@ -127,8 +128,8 @@ pub const command =
     \\    cmp x3, x4
     \\    ccmp x1, x2, #2, ls
     \\    b.hi 80f
-    \\    cmp w7, #{[refill_bits]}
-    \\    b.hs 10f
+    \\    // The refill whatever the count: a buffer of 56 bits or more takes no octet, and a command
+    \\    // finds it short nearly always.
 ++ "\n" ++ refill("x13") ++
     \\
     \\10:
@@ -142,8 +143,7 @@ pub const command =
     \\    and w13, w13, #0xffff
     \\    // The symbol's codes, packed, the top bit set for a symbol below 128, which reuses the
     \\    // last distance (RFC 7932 §5).
-    \\    ldr x24, [x0, #{[command_codes]}]
-    \\    ldr x24, [x24, x13, lsl #3]
+    \\    ldr x24, [x30, x13, lsl #3]
     \\    {[count_symbol]s}
     \\    // The extra bits (RFC 7932 §5), after a second refill (12) when the buffer holds fewer.
     \\    ubfx x26, x24, #{[extra_bits_at]}, #8

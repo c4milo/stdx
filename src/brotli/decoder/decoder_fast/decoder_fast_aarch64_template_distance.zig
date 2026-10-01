@@ -28,6 +28,11 @@ fn long_copy_room(comptime at: []const u8, comptime back: []const u8) []const u8
 }
 
 comptime {
+    // The ring's distances are within the smallest window: its first four (RFC 7932 §4), and every
+    // later one a copy's, which 36 takes only within the window.
+    for (constants.last_distances_initial) |ring_distance| {
+        std.debug.assert(ring_distance <= (1 << constants.window_bits_min) - constants.window_len_gap);
+    }
     // A symbol below 128 reuses the last distance (RFC 7932 §5), at label 40, with a copy code
     // below 16 from its cell, 69 octets at most, so that path takes no check of the copy's length.
     for (constants.insert_copy_cells[0 .. constants.insert_copy_last_distance_symbols >> constants.insert_copy_cell_bits]) |cell| {
@@ -81,17 +86,13 @@ pub const distance =
     \\    mov w14, #1
     \\36:
     \\    add w23, w23, w25
-    \\    // A distance past the octets the reference can reach names a dictionary word (RFC 7932
-    \\    // §4), which Zig takes; one past this call's output reads the window, in Zig too.
-    \\    ldp x13, x28, [x0, #{[produced_offset]}]
-    \\    add x13, x13, x3
-    \\    cmp x13, x28
-    \\    csel x13, x13, x28, lo
-    \\    cmp x26, x13
-    \\    b.hi 37f
+    \\    // A distance past this call's output or past the window (35): a dictionary word or the
+    \\    // window.
+    \\    ldr x28, [x0, #{[window_distance_max]}]
     \\    sub x13, x3, x5
     \\    cmp x26, x13
-    \\    b.hi 90f
+    \\    ccmp x26, x28, #2, ls
+    \\    b.hi 35f
     \\    // A copy of more than a chunk (38) where the room holds it.
     \\    cmp w27, #{[chunk_len_max]}
     \\    b.hi 38f
@@ -132,15 +133,11 @@ pub const distance =
     \\40:
     \\    // The last distance reused (RFC 7932 §5): no bits, no element, no push.
     \\    and x26, x19, #0xffffffff
-    \\    ldp x13, x28, [x0, #{[produced_offset]}]
-    \\    add x13, x13, x3
-    \\    cmp x13, x28
-    \\    csel x13, x13, x28, lo
-    \\    cmp x26, x13
-    \\    b.hi 37f
+    \\    // A distance past this call's output (35); the ring's distances are within the window
+    \\    // (asserted).
     \\    sub x13, x3, x5
     \\    cmp x26, x13
-    \\    b.hi 90f
+    \\    b.hi 35f
     \\    // The copy, of 69 octets at most (asserted), needs no room past the margin's.
     \\    cmp w27, w12
     \\    b.hi 91f
@@ -250,6 +247,7 @@ pub const word =
     \\    ldr x12, [x0, #{[meta_block_left]}]
     \\    ldp x15, x16, [x0, #{[ic_count]}]
     \\    ldr x17, [x0, #{[dist_count]}]
+    \\    ldr x30, [x0, #{[command_codes]}]
     \\    cmn x13, #1
     \\    b.eq 91f
     \\    add x3, x3, x13
@@ -278,7 +276,8 @@ pub const word =
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
 /// a run's literal (28, 29 and 73) and a distance (32), the room of a copy of more than a chunk
-/// (38), and the second level of each lookup (50 to 53 and 58).
+/// (38), a distance past this call's output or the window (35), and the second level of each lookup
+/// (50 to 53 and 58).
 pub const cold =
     \\12:
     \\    cmp x1, x2
@@ -311,7 +310,18 @@ pub const cold =
     \\
     \\    b 72b
 ++ "\n" ++ long_copy_room("38", "39") ++
-    "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
+    \\
+    \\35:
+    \\    // A distance past the octets the reference can reach names a dictionary word (RFC 7932
+    \\    // §4), which the word's call takes; one within them reads the window, in Zig.
+    \\    ldp x13, x28, [x0, #{[produced_offset]}]
+    \\    add x13, x13, x3
+    \\    cmp x13, x28
+    \\    csel x13, x13, x28, lo
+    \\    cmp x26, x13
+    \\    b.hi 37b
+    \\    b 90f
+++ "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "51", "55") ++
     "\n" ++ second_level("x13", "x23", "x14", "x28", "52", "56") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "53", "57") ++
