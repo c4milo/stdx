@@ -1209,6 +1209,41 @@ to 12 are reordered and nothing else changes.
     goes either way; the owner ruled it in. A third literal per store ran at 1.001 to 1.012 of the
     two-literal loop's time on the M1, and a second literal taken without a branch at up to 1.023:
     neither stayed.
+  - Cheap literals, 2026-10-01. The owner chose level 6's output next, then 3-octet matches, then
+    a model of what each lazy decision costs in bits. Each was built on the M1 and measured on the
+    39 files against libdeflate's output, whose geometric mean stood at 1.0059 at level 6:
+    - Every lazy decision priced in bits from the last block's codes, octet by octet: 1.0034, at
+      2.5% to 17% of level 6's speed.
+    - That and 3-octet matches from a 32 KiB table: 1.0013, text 0.3% to 1.3% larger, at 10% to
+      38% of the speed; keeping the table current alone cost 4% to 9%.
+
+    The owner then chose "Cheaper walks first": why stdx's walk at a literal cost about twice
+    libdeflate's instructions on E.coli, whose size moved the most. E.coli's parse has two settled
+    states (decision 42), and in the one libdeflate reaches each literal position walked the full
+    64 candidates, as the cut follows only a waiting match of 8 octets or more: 53 candidates a
+    walk, 37 an octet. x-ray and mozilla walk 1.1 and 7.4 candidates a walk; their gap is each
+    position's own cost. 8e3ce08 prices a lazy level's matches after a block of cheap literals and
+    cuts its walks there to `cheap_candidates_max` (decision 42). Of the 39 files only E.coli's
+    output changes: 1.074 to 1.001 of libdeflate's at level 6, 1.059 to 1.007 at level 9.
+
+    The priced steps are a copy of their own, which the encoder's step chooses, and the prices
+    live in the encoder: a first version kept both copies of the lazy loop in one function and
+    the prices in the match finder, and runs
+    [36856227214](https://github.com/c4milo/stdx/actions/runs/36856227214) and 36856238411 put
+    level 6 at 0.98 of its speed on x86-64, 16 files slower in both jobs, on the same output. In
+    the version that stayed, the lazy loops at levels 1, 6 and 9 compile to the instructions they
+    compiled to before, on aarch64 and x86-64, addresses aside.
+
+    Bench runs [36863971833](https://github.com/c4milo/stdx/actions/runs/36863971833) and
+    [36863984298](https://github.com/c4milo/stdx/actions/runs/36863984298) paired main (365675f)
+    and the change (3b93480 on its branch) in each job, on a Neoverse N2 and an EPYC 7763. The
+    medians held: level 1 at 1.002 and 0.999 of its speed on the N2 and 1.009 and 0.998 on the
+    EPYC, level 6 at 1.006 and 1.005 and at 1.004 and 0.999, level 9 at 1.003 and 1.000 and at
+    1.000. E.coli at level 6 ran at 0.89 of its speed on the N2 and 0.96 on the EPYC, still 1.52
+    and 1.36 times libdeflate's, and at level 9 at 1.78 and 1.93 times its speed. One other file ran
+    slower in both jobs: js-1k at level 9 on the EPYC, 0.965 and 0.887, on the instructions it ran
+    before; the N2's 1 KiB files at level 1, on code the change leaves alone, moved 2% to 5% in
+    both jobs.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
