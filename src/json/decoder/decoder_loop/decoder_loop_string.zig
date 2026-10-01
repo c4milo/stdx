@@ -13,14 +13,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
-const utf8 = @import("../utf8.zig");
-const scan = @import("../scan.zig");
-const wide = @import("../wide.zig");
-const Claims = @import("../claims.zig").Claims;
-const string_walk = @import("../string_walk.zig");
+const constants = @import("../../constants.zig");
+const utf8 = @import("../../utf8.zig");
+const scan = @import("../../scan.zig");
+const wide = @import("../../wide.zig");
+const Claims = @import("../../claims.zig").Claims;
+const string_walk = @import("../../string_walk.zig");
 const Walk = string_walk.Walk;
-const hex_value = @import("decoder_string.zig").hex_value;
+const hex_value = @import("../decoder_string.zig").hex_value;
 
 /// What a string's content took: its octets in the input, up to its closing quotation mark, and
 /// the octets written for them.

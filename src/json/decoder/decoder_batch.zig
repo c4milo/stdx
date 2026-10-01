@@ -13,7 +13,7 @@ const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Error = decoder_file.Error;
 const Kind = decoder_file.Kind;
-const token_loop = @import("decoder_loop.zig");
+const token_loop = @import("decoder_loop/decoder_loop.zig");
 
 /// One token of a batch.
 pub const Slot = struct {
