@@ -1907,6 +1907,38 @@ to 12 are reordered and nothing else changes.
     N2, dickens and reymont 5%, for a gain on nci inside its spread, and was dropped. Mutations: p1
     one octet early, p2 one octet late, the source's end not taken, and p1 from the source's next
     octet, all CAUGHT. Pushed to main the same day.
+  - Long copies, comptime distance tables and per-command cuts, three commits on main as 7dfccdc,
+    5fce82f and abdb7a2, each paired against the one before it (reports in `bench/results/`, dated
+    2026-10-01, "long-copy", "distance-table" and "command-cuts"). A copy of more than 256 octets
+    had left the aarch64 loop for Zig, 13,882 times a decode on nci, 23.5% of its octets; the loop
+    now takes one where its octets and its last chunk's overrun end inside the output, and a copy at
+    the last distance, 69 octets at most, drops its length check (asserted). A coded distance code's
+    extra bits and base now come from a table for each NPOSTFIX built at comptime, which leaves the
+    state's size as it was, and the command codes carry the bit that marks a symbol below 128;
+    valgrind's callgrind, with each instruction's count beside the loop's disassembly, had put 47%
+    of webster's loop instructions in the distance, 94% of its commands taking a coded one. The
+    cuts: the refill whatever the count, one `ccmp` testing a distance against this call's output
+    and the window, the last distance's window test dropped as the ring holds none past it
+    (asserted), and the command codes' address in x30. Under callgrind nci takes 111.2 million
+    instructions a decode at 1a792e4, 103.2 with the long copies, 96.9 with the tables and 93.5 with
+    the cuts; webster's first 20 MB 208.3, 208.2, 182.1 and 173.2. On the N2 the long copies (runs
+    [36799633940](https://github.com/c4milo/stdx/actions/runs/36799633940) and
+    [36799643344](https://github.com/c4milo/stdx/actions/runs/36799643344)) gain five files in both
+    jobs and lose none: nci +9.5% and +2.8% (1.08 to 1.18 of Google's speed), xml +5.4% and +6.3%,
+    ptt5, js-1m and css-1m; nci then reads 1.14 to 1.18 and webster 1.08 to 1.10 in the decoding and
+    ReleaseFast tables of both jobs. The tables (runs
+    [36800101315](https://github.com/c4milo/stdx/actions/runs/36800101315) and
+    [36804117273](https://github.com/c4milo/stdx/actions/runs/36804117273), which replaced
+    [36800110072](https://github.com/c4milo/stdx/actions/runs/36800110072), cancelled on the runner
+    mid-measure) gain six files and lose none: webster +6.4% and +2.9% (1.10 to 1.17), reymont +5.1%
+    and +2.3%, dickens +3.0% and +3.4%, json-1m, html-16k and ptt5, the median +0.8%. The cuts (runs
+    [36800994851](https://github.com/c4milo/stdx/actions/runs/36800994851) and
+    [36801003346](https://github.com/c4milo/stdx/actions/runs/36801003346)) gain json-1m +2.8% and
+    +2.2% and lose none. The x86-64 bench object at e140d09 matches 1a792e4's in all 568 function
+    bodies, addresses masked, so the x86-64 jobs measured drift alone. Mutations: five of the long
+    copies, four failing a new test that copies each kind at every room past its end, one the
+    comptime assert; six of the tables, the extra bits' width failing only a new test of a word
+    whose distance takes 16 extra bits; four of the cuts; all CAUGHT. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
