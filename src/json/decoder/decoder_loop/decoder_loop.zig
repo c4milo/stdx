@@ -19,7 +19,6 @@ const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
 const scan = @import("../../scan.zig");
 const number_grammar = @import("../../number.zig");
-const wide = @import("../../wide.zig");
 const Claims = @import("../../claims.zig").Claims;
 const decoder_file = @import("../decoder.zig");
 const Decoder = decoder_file.Decoder;
@@ -27,8 +26,9 @@ const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
 const Piece = @import("../../framing.zig").Piece;
 const Slot = @import("../decoder_batch.zig").Slot;
-const loop_string = @import("decoder_loop_string.zig");
-const Copied = loop_string.Copied;
+const Copied = @import("decoder_loop_string.zig").Copied;
+const copy = @import("decoder_loop_copy.zig");
+const LongString = copy.LongString;
 
 /// Where a batch stands in its input and its output.
 pub const Cursor = struct {
@@ -53,20 +53,28 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
         .in_object = decoder.depth > 0 and decoder.containers.is_object(decoder.depth - 1),
     };
     if (decoder.stage != .tokens and !loop.text_start()) return 0;
+    // The tokens the loop takes with no call, and between their runs each string its first block
+    // did not end, copied out of line: with that call inside the loop, aarch64 kept six of the
+    // loop's values on the stack across every string (design §8 step 18). Each pass fills a slot
+    // at least, or ends.
     var filled: usize = 0;
-    // Each slot is written here, from values in registers: built on the stack by each kind's path
-    // and loaded back whole, a slot stalled on its narrower stores (design §8 step 18).
-    for (slots) |*slot| {
+    for (0..slots.len + 1) |_| {
+        filled = loop.fill(claims, slots, filled, output);
+        const long = loop.long_string orelse break;
+        loop.long_string = null;
         const room_len = loop.out.len;
-        const kind = loop.token(claims) orelse break;
-        slot.* = .{ .kind = kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
+        if (!loop.take_long_string(claims, long)) break;
+        slots[filled] = .{ .kind = long.kind, .ended = true, .start = output.len - room_len, .len = room_len - loop.out.len };
         filled += 1;
+        // A string that ends the text's value, as one long string does a text of its own, needs
+        // no second pass of the loop to find the text's end.
+        if (loop.expect == .end_of_text) break;
     }
     // With every slot filled, the checked path asks for slots before it takes the text's end.
     if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
     decoder.expect = loop.expect;
     decoder.depth = loop.depth;
-    if (loop.last) |last| {
+    if (last_value(slots[0..filled], output)) |last| {
         decoder.matched = last.matched;
         decoder.number = last.number;
     }
@@ -79,7 +87,55 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
 /// holds a number's last state.
 const Last = struct { matched: u8, number: number_grammar.Number };
 
-const Loop = struct {
+/// The prongs of `Loop.fill`'s switch: the grammar's states, numbered as `Expect` numbers them,
+/// and those a prong goes on to: `value_next` and `name_next`, with a slot found for the value or
+/// the name, `value_at` and `name_at`, with its first octet found too, and `value_end`, after a
+/// value.
+const State = enum(u8) {
+    value,
+    value_or_end_array,
+    name_or_end_object,
+    name,
+    name_separator,
+    separator_or_end,
+    end_of_text,
+    value_next,
+    name_next,
+    value_at,
+    name_at,
+    value_end,
+
+    inline fn of(expect: Expect) State {
+        return @enumFromInt(@intFromEnum(expect));
+    }
+};
+
+comptime {
+    // Each of the grammar's states is the prong of its name, so `State.of` is one cast.
+    for (std.enums.values(Expect)) |expect| {
+        assert(std.mem.eql(u8, @tagName(expect), @tagName(State.of(expect))));
+    }
+}
+
+/// The `Last` of the loop's `slots`, whose octets are in `output`, found from its last slot of a
+/// name, string, number or literal name; or null where it holds none, and the decoder keeps its
+/// own. Found once a batch, where each token wrote it to the loop's locals.
+fn last_value(slots: []const Slot, output: []const u8) ?Last {
+    for (0..slots.len) |back| {
+        const slot = slots[slots.len - 1 - back];
+        switch (slot.kind) {
+            .begin_object, .end_object, .begin_array, .end_array => {},
+            .name, .string => return .{ .matched = 1, .number = .{} },
+            .number => return .{ .matched = 1, .number = number_grammar.whole_number(output[slot.start..][0..slot.len]).? },
+            .true => return .{ .matched = constants.literal_true.len, .number = .{} },
+            .false => return .{ .matched = constants.literal_false.len, .number = .{} },
+            .null => return .{ .matched = constants.literal_null.len, .number = .{} },
+        }
+    }
+    return null;
+}
+
+pub const Loop = struct {
     decoder: *Decoder,
     /// The input not yet taken, and the output not yet written. Each token reads and writes from
     /// their starts, and the loop moves past what it took: slices whose lengths the compiler knows.
@@ -92,7 +148,168 @@ const Loop = struct {
     /// batch: read from the decoder, they took a load at every separator and container.
     depth: u16,
     in_object: bool,
-    last: ?Last = null,
+    /// The name or string at the start of `in` that stopped `fill`, when its first block did not
+    /// end it: `take` copies it out of line.
+    long_string: ?LongString = null,
+
+    /// Fills `slots` from `first` on, and returns the slots filled, up to the token that stopped
+    /// it. Each state of the grammar is a prong of one labeled switch, and a prong that takes a
+    /// token goes on to the state after it with a jump of its own (`continue :state`), where a
+    /// switch at the loop's head tested the state again at every token (design §8 step 18). The
+    /// switch's value is the state whose token the loop did not take, with nothing to put back:
+    /// each place it stops names its state, which cost no register through the loop, where a state
+    /// set at each prong cost aarch64 one to two instructions a token more.
+    inline fn fill(self: *Loop, comptime claims: Claims, slots: []Slot, first: usize, output: []const u8) usize {
+        var index = first;
+        // The slot of the token the loop takes next, found once a token, where the loop checks
+        // that a slot is left; the first octet of a value or of a name, for `value_at` and
+        // `name_at`; and for `value_end`, whether the value is delimited, as
+        // `Decoder.value_ended` finds; and the state `value_at` and `name_at` stop in.
+        var slot: *Slot = undefined;
+        var octet: u8 = undefined;
+        var delimited = false;
+        var at: Expect = undefined;
+        self.expect = state: switch (State.of(self.expect)) {
+            .separator_or_end => {
+                if (index >= slots.len) break :state .separator_or_end;
+                slot = &slots[index];
+                if (self.separator_pair(constants.value_separator)) |after| {
+                    octet = after;
+                    at = if (self.in_object) .name else .value;
+                    if (self.in_object) continue :state .name_at;
+                    continue :state .value_at;
+                }
+                octet = self.next_octet() orelse break :state .separator_or_end;
+                if (octet == constants.value_separator) {
+                    self.in = self.in[1..];
+                    if (self.in_object) continue :state .name_next;
+                    continue :state .value_next;
+                }
+                if (octet != (if (self.in_object) constants.end_object else constants.end_array)) break :state .separator_or_end;
+                put(slot, &index, self.end(if (self.in_object) .end_object else .end_array), self.written(output), 0);
+                delimited = true;
+                continue :state .value_end;
+            },
+            .name_separator => {
+                if (index >= slots.len) break :state .name_separator;
+                slot = &slots[index];
+                if (self.separator_pair(constants.name_separator)) |after| {
+                    octet = after;
+                    at = .value;
+                    continue :state .value_at;
+                }
+                octet = self.next_octet() orelse break :state .name_separator;
+                if (octet != constants.name_separator) break :state .name_separator;
+                self.in = self.in[1..];
+                continue :state .value_next;
+            },
+            .value => {
+                if (index >= slots.len) break :state .value;
+                slot = &slots[index];
+                continue :state .value_next;
+            },
+            .value_or_end_array => {
+                if (index >= slots.len) break :state .value_or_end_array;
+                slot = &slots[index];
+                octet = self.next_octet() orelse break :state .value_or_end_array;
+                at = .value_or_end_array;
+                if (octet != constants.end_array) continue :state .value_at;
+                put(slot, &index, self.end(.end_array), self.written(output), 0);
+                delimited = true;
+                continue :state .value_end;
+            },
+            .name_or_end_object => {
+                if (index >= slots.len) break :state .name_or_end_object;
+                slot = &slots[index];
+                octet = self.next_octet() orelse break :state .name_or_end_object;
+                at = .name_or_end_object;
+                if (octet != constants.end_object) continue :state .name_at;
+                put(slot, &index, self.end(.end_object), self.written(output), 0);
+                delimited = true;
+                continue :state .value_end;
+            },
+            .name => {
+                if (index >= slots.len) break :state .name;
+                slot = &slots[index];
+                continue :state .name_next;
+            },
+            .end_of_text => break :state .end_of_text,
+            .value_next => {
+                at = .value;
+                octet = self.next_octet() orelse break :state .value;
+                continue :state .value_at;
+            },
+            .name_next => {
+                at = .name;
+                octet = self.next_octet() orelse break :state .name;
+                continue :state .name_at;
+            },
+            .name_at => {
+                if (octet != constants.quotation_mark) break :state at;
+                const start = self.written(output);
+                const len = copy.string(self, claims, .name) orelse break :state at;
+                put(slot, &index, .name, start, len);
+                continue :state .name_separator;
+            },
+            .value_at => switch (octet) {
+                constants.quotation_mark => {
+                    const start = self.written(output);
+                    const len = copy.string(self, claims, .string) orelse break :state at;
+                    put(slot, &index, .string, start, len);
+                    delimited = true;
+                    continue :state .value_end;
+                },
+                constants.begin_object => {
+                    if (!self.begin(true)) break :state at;
+                    put(slot, &index, .begin_object, self.written(output), 0);
+                    continue :state .name_or_end_object;
+                },
+                constants.begin_array => {
+                    if (!self.begin(false)) break :state at;
+                    put(slot, &index, .begin_array, self.written(output), 0);
+                    continue :state .value_or_end_array;
+                },
+                constants.literal_true[0] => {
+                    if (!self.literal(constants.literal_true)) break :state at;
+                    put(slot, &index, .true, self.written(output), 0);
+                    delimited = false;
+                    continue :state .value_end;
+                },
+                constants.literal_false[0] => {
+                    if (!self.literal(constants.literal_false)) break :state at;
+                    put(slot, &index, .false, self.written(output), 0);
+                    delimited = false;
+                    continue :state .value_end;
+                },
+                constants.literal_null[0] => {
+                    if (!self.literal(constants.literal_null)) break :state at;
+                    put(slot, &index, .null, self.written(output), 0);
+                    delimited = false;
+                    continue :state .value_end;
+                },
+                else => {
+                    if (!number_grammar.starts_number(octet)) break :state at;
+                    const start = self.written(output);
+                    const len = self.number() orelse break :state at;
+                    put(slot, &index, .number, start, len);
+                    delimited = false;
+                    continue :state .value_end;
+                },
+            },
+            .value_end => {
+                if (self.depth > 0) continue :state .separator_or_end;
+                self.decoder.value_delimited = delimited;
+                continue :state .end_of_text;
+            },
+        };
+        return index;
+    }
+
+    /// The octets of `output` before `out`, where the next token's go. `out` is the rest of
+    /// `output`, which the loop only moves past its start, so the difference never wraps.
+    inline fn written(self: *const Loop, output: []const u8) usize {
+        return output.len -% self.out.len;
+    }
 
     /// Takes the record separator that starts a sequence's text (RFC 7464 §2.1) and passes the check
     /// for a byte order mark (RFC 8259 §8.1), as `Decoder.step` does, when the separator is one and
@@ -135,30 +352,25 @@ const Loop = struct {
         self.decoder.stage = .done;
     }
 
-    /// Takes the next token, whose octets it writes at the start of the loop's `out`, and returns
-    /// its kind; or leaves the loop as it was and returns null.
-    inline fn token(self: *Loop, comptime claims: Claims) ?Kind {
-        const in = self.in;
-        const expect = self.expect;
-        if (self.next(claims)) |kind| return kind;
-        self.in = in;
-        self.expect = expect;
-        return null;
+    /// The first octet of the token after the separator `separator` that starts the loop's input,
+    /// read with it as a pair where no whitespace comes between them (RFC 8259 §2), and the loop
+    /// moved past the separator; or null, and nothing moved. Read apart, each paid a test of the
+    /// input's length and of whitespace: about 8 instructions a member on x86-64 (design §8 step
+    /// 18).
+    inline fn separator_pair(self: *Loop, comptime separator: u8) ?u8 {
+        if (self.in.len < 2 or self.in[0] != separator or self.in[1] <= constants.space) return null;
+        self.in = self.in[1..];
+        return self.in[0];
     }
 
-    inline fn next(self: *Loop, comptime claims: Claims) ?Kind {
-        var octet = self.skip_whitespace() orelse return null;
-        if (self.expect == .separator_or_end or self.expect == .name_separator) {
-            self.expect = self.after_separator(octet) orelse return self.container_end(octet);
-            self.in = self.in[1..];
-            octet = self.skip_whitespace() orelse return null;
-        }
-        return switch (self.expect) {
-            .name, .name_or_end_object => self.name(claims, octet),
-            .value, .value_or_end_array => self.value(claims, octet),
-            .end_of_text => null,
-            .separator_or_end, .name_separator => unreachable,
-        };
+    /// The octet past the whitespace at the start of the loop's input (RFC 8259 §2), which it
+    /// leaves there; or null at the input's end. Every token's first octet and every separator is
+    /// above a space, so text with no whitespace between its tokens takes one compare.
+    inline fn next_octet(self: *Loop) ?u8 {
+        if (self.in.len == 0) return null;
+        const octet = self.in[0];
+        if (octet > constants.space) return octet;
+        return self.skip_whitespace();
     }
 
     /// Takes the whitespace at the start of the loop's input (RFC 8259 §2), and returns the octet
@@ -174,154 +386,62 @@ const Loop = struct {
         return null;
     }
 
-    /// What the grammar expects after `octet`, when it is the separator the loop expects, or null.
-    inline fn after_separator(self: *const Loop, octet: u8) ?Expect {
-        if (self.expect == .name_separator) return if (octet == constants.name_separator) .value else null;
-        if (octet != constants.value_separator) return null;
-        return if (self.in_object) .name else .value;
-    }
-
-    /// The end of the container `octet` closes after one of its values, or null.
-    inline fn container_end(self: *Loop, octet: u8) ?Kind {
-        if (self.expect != .separator_or_end) return null;
-        const in_object = self.in_object;
-        if (octet == constants.end_object and in_object) return self.end(.end_object);
-        if (octet == constants.end_array and !in_object) return self.end(.end_array);
-        return null;
-    }
-
-    inline fn name(self: *Loop, comptime claims: Claims, octet: u8) ?Kind {
-        if (octet == constants.quotation_mark) return self.string(claims, .name);
-        if (octet == constants.end_object and self.expect == .name_or_end_object) return self.end(.end_object);
-        return null;
-    }
-
-    inline fn value(self: *Loop, comptime claims: Claims, octet: u8) ?Kind {
-        return switch (octet) {
-            constants.quotation_mark => self.string(claims, .string),
-            constants.end_array => if (self.expect == .value_or_end_array) self.end(.end_array) else null,
-            constants.begin_object, constants.begin_array => self.begin(octet),
-            constants.literal_true[0] => self.literal(.true, constants.literal_true),
-            constants.literal_false[0] => self.literal(.false, constants.literal_false),
-            constants.literal_null[0] => self.literal(.null, constants.literal_null),
-            else => if (number_grammar.starts_number(octet)) self.number() else null,
-        };
-    }
-
     /// Opens an object or an array below the depth limit, where the checked path refuses one.
-    inline fn begin(self: *Loop, octet: u8) ?Kind {
-        if (self.depth == constants.depth_max) return null;
-        const object = octet == constants.begin_object;
+    inline fn begin(self: *Loop, comptime object: bool) bool {
+        if (self.depth == constants.depth_max) return false;
         self.decoder.containers.set(self.depth, object);
         self.depth += 1;
         self.in_object = object;
-        self.expect = if (object) .name_or_end_object else .value_or_end_array;
         self.in = self.in[1..];
-        return if (object) .begin_object else .begin_array;
+        return true;
     }
 
+    /// Closes the container the loop is in at its end, a token of `kind`, and returns `kind`.
     inline fn end(self: *Loop, kind: Kind) Kind {
         assert(self.depth > 0 and self.in_object == (kind == .end_object));
         assert(self.in_object == self.decoder.containers.is_object(self.depth - 1));
         self.depth -= 1;
         self.in_object = self.depth > 0 and self.decoder.containers.is_object(self.depth - 1);
         self.in = self.in[1..];
-        self.value_ended(kind);
         return kind;
     }
 
-    /// Takes a name or a string whose content the loop copies, and its closing quotation mark.
-    inline fn string(self: *Loop, comptime claims: Claims, kind: Kind) ?Kind {
+    /// The name or string at the start of `in` that `fill` stopped at, copied by `copy_blocks`
+    /// from where its first block stopped; or false where the checked path must take it. Inline,
+    /// outside the loop of `fill`: on aarch64 qlog's records took 107 instructions a token against
+    /// 114 with it out of line, and on x86-64 123 against 128 (design §8 step 18).
+    fn take_long_string(self: *Loop, comptime claims: Claims, long: LongString) bool {
         const content = self.in[1..];
-        const copied = (if (claims.decoder_string_vectors) self.copy_blocks(claims, content) else self.copy_scalar(content)) orelse return null;
+        const copied = @call(.always_inline, copy.copy_blocks, .{ claims, self.decoder.level, content, self.out, long.head_len }) orelse return false;
+        self.string_taken(long.kind, content, copied);
+        return true;
+    }
+
+    /// Moves the loop past a name or string whose `content` it `copied`, and past its closing
+    /// quotation mark.
+    inline fn string_taken(self: *Loop, kind: Kind, content: []const u8, copied: Copied) void {
         self.in = content[copied.input_len + 1 ..];
         self.out = self.out[copied.output_len..];
-        self.last = .{ .matched = 1, .number = .{} };
         if (kind == .name) self.expect = .name_separator else self.value_ended(kind);
-        return kind;
     }
 
-    /// Copies a string's `content`, the input after its opening quotation mark, up to its closing
-    /// one, and returns what it took and wrote, or null where the checked path must take it. Its
-    /// first `constants.wide_run_len_min` octets of plain ASCII go a block of 16 at a time, a run
-    /// past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
-    /// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig.
-    inline fn copy_blocks(self: *Loop, comptime claims: Claims, content: []const u8) ?Copied {
-        var len: usize = 0;
-        for (0..constants.wide_run_len_min / constants.vector_len) |_| {
-            // Each block's slices first: their lengths' test then proves the load and the store in
-            // bounds, which a test of the lengths left over did not, and each paid a check again.
-            const input_rest = content[len..];
-            const output_rest = self.out[len..];
-            if (input_rest.len < constants.vector_len or output_rest.len < constants.vector_len) return self.copy_short(claims, content, len);
-            const block: @Vector(constants.vector_len, u8) = input_rest[0..constants.vector_len].*;
-            output_rest[0..constants.vector_len].* = block;
-            if (scan.plain_stop(block)) |lane| {
-                if (scan.is_quotation_mark(block, lane)) return .{ .input_len = len + lane, .output_len = len + lane };
-                return self.copy_rest(claims, content, len + lane);
-            }
-            len += constants.vector_len;
-        }
-        const run_len = copy_long(self.decoder.level.with(claims), content[len..], self.out[len..]);
-        return self.after_run(claims, content, len + run_len);
-    }
-
-    /// The rest of a run past its first `head_len` octets, when fewer than 16 of input or of room
-    /// are left: scanned up to the end of either as `scan.plain_len_vector` scans a short run, and
-    /// copied. Claim J8's fast path took such a string, near the end of the input or of the output,
-    /// where the loop left it.
-    inline fn copy_short(self: *Loop, comptime claims: Claims, content: []const u8, head_len: usize) ?Copied {
-        const rest = content[head_len..];
-        const room = self.out[head_len..];
-        const window = rest[0..@min(rest.len, room.len)];
-        const run_len = scan.plain_len_vector(constants.vector_len, window);
-        scan.copy(room[0..run_len], window[0..run_len]);
-        return self.after_run(claims, content, head_len + run_len);
-    }
-
-    /// The string whose first `len` octets of content are copied and plain ASCII: whole at its
-    /// closing quotation mark, and else taken on past them by `copy_rest`.
-    inline fn after_run(self: *Loop, comptime claims: Claims, content: []const u8, len: usize) ?Copied {
-        if (len == content.len) return null;
-        if (content[len] == constants.quotation_mark) return .{ .input_len = len, .output_len = len };
-        return self.copy_rest(claims, content, len);
-    }
-
-    /// The string past its first `head_len` octets of content, copied and plain ASCII: its escapes,
-    /// its UTF-8 and the runs between them (decoder_loop_string.zig).
-    inline fn copy_rest(self: *Loop, comptime claims: Claims, content: []const u8, head_len: usize) ?Copied {
-        const rest = loop_string.copy_rest_at(claims, self.decoder.level, content[head_len..], self.out[head_len..]) orelse return null;
-        return .{ .input_len = head_len + rest.input_len, .output_len = head_len + rest.output_len };
-    }
-
-    /// `copy_blocks` an octet at a time, for plain ASCII alone (claim J3 off).
-    inline fn copy_scalar(self: *Loop, content: []const u8) ?Copied {
-        const len = scan.plain_len_scalar(content[0..@min(content.len, self.out.len)]);
-        if (len == content.len or content[len] != constants.quotation_mark) return null;
-        @memcpy(self.out[0..len], content[0..len]);
-        return .{ .input_len = len, .output_len = len };
-    }
-
-    /// Takes a whole number and leaves the octet that ends it.
-    inline fn number(self: *Loop) ?Kind {
-        const ended_number = @call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return null;
-        if (self.out.len < ended_number.len) return null;
-        scan.copy(self.out[0..ended_number.len], self.in[0..ended_number.len]);
-        self.in = self.in[ended_number.len..];
-        self.out = self.out[ended_number.len..];
-        self.last = .{ .matched = 1, .number = ended_number.number };
-        self.value_ended(.number);
-        return .number;
+    /// Takes a whole number and leaves the octet that ends it, and returns its length.
+    inline fn number(self: *Loop) ?usize {
+        const len = @call(.always_inline, number_grammar.plain_len, .{self.in}) orelse
+            (@call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return null).len;
+        if (self.out.len < len) return null;
+        scan.copy(self.out[0..len], self.in[0..len]);
+        self.in = self.in[len..];
+        self.out = self.out[len..];
+        return len;
     }
 
     /// Takes the literal name `text`, whose first letter starts the loop's input.
-    inline fn literal(self: *Loop, kind: Kind, comptime text: []const u8) ?Kind {
-        if (self.in.len < text.len) return null;
-        if (!std.mem.eql(u8, self.in[0..text.len], text)) return null;
+    inline fn literal(self: *Loop, comptime text: []const u8) bool {
+        if (self.in.len < text.len) return false;
+        if (!std.mem.eql(u8, self.in[0..text.len], text)) return false;
         self.in = self.in[text.len..];
-        self.last = .{ .matched = text.len, .number = .{} };
-        self.value_ended(kind);
-        return kind;
+        return true;
     }
 
     /// Moves the grammar past a value of `kind` that just ended, as `Decoder.value_ended` does.
@@ -338,15 +458,9 @@ const Loop = struct {
     }
 };
 
-/// The run of plain ASCII past the blocks `copy_blocks` took, from `rest`, its octets after them,
-/// into `room`, the output after them, as far as `room` holds: copied, and its length returned. It
-/// is scanned at the widest vector the caller's features allow (claim J7), in a function of its own
-/// as `wide.plain_len` scans it, and copied whole: 16 at a time, the loop ran long hex strings up to
-/// 10% slower than the checked path on an AMD EPYC 7763 (design §8 step 18). It takes no `*Loop`,
-/// which would keep the loop's fields in memory.
-fn copy_long(level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) usize {
-    const window = rest[0..@min(rest.len, room.len)];
-    const run_len = wide.plain_len(level, window);
-    @memcpy(room[0..run_len], window[0..run_len]);
-    return run_len;
+/// Writes `slot` for a token of `kind` whose octets are `output[start..][0..len]`, and moves
+/// `index` past it.
+inline fn put(slot: *Slot, index: *usize, kind: Kind, start: usize, len: usize) void {
+    slot.* = .{ .kind = kind, .ended = true, .start = start, .len = len };
+    index.* += 1;
 }
