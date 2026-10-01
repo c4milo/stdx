@@ -480,8 +480,8 @@ test {
     _ = @import("decoder_fast_test.zig");
     _ = batch;
     _ = @import("decoder_batch_test.zig");
-    _ = @import("decoder_loop.zig");
-    _ = @import("decoder_loop_test.zig");
+    _ = @import("decoder_loop/decoder_loop.zig");
+    _ = @import("decoder_loop/decoder_loop_test.zig");
     _ = @import("decoder_test.zig");
     _ = @import("decoder_refusal_test.zig");
     _ = @import("decoder_fuzz_test.zig");

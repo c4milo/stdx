@@ -16,17 +16,17 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
-const scan = @import("../scan.zig");
-const number_grammar = @import("../number.zig");
-const wide = @import("../wide.zig");
-const Claims = @import("../claims.zig").Claims;
-const decoder_file = @import("decoder.zig");
+const constants = @import("../../constants.zig");
+const scan = @import("../../scan.zig");
+const number_grammar = @import("../../number.zig");
+const wide = @import("../../wide.zig");
+const Claims = @import("../../claims.zig").Claims;
+const decoder_file = @import("../decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
-const Piece = @import("../framing.zig").Piece;
-const Slot = @import("decoder_batch.zig").Slot;
+const Piece = @import("../../framing.zig").Piece;
+const Slot = @import("../decoder_batch.zig").Slot;
 const loop_string = @import("decoder_loop_string.zig");
 const Copied = loop_string.Copied;
 

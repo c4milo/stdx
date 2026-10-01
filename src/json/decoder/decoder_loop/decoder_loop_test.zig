@@ -6,16 +6,16 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("../constants.zig");
-const claims = @import("../claims.zig");
-const framing_file = @import("../framing.zig");
+const constants = @import("../../constants.zig");
+const claims = @import("../../claims.zig");
+const framing_file = @import("../../framing.zig");
 const Framing = framing_file.Framing;
 const Piece = framing_file.Piece;
-const decoder_file = @import("decoder.zig");
+const decoder_file = @import("../decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Slot = Decoder.Slot;
 const token_loop = @import("decoder_loop.zig");
-const decoder_fast_test = @import("decoder_fast_test.zig");
+const decoder_fast_test = @import("../decoder_fast_test.zig");
 
 /// The largest input one case takes, the room one batch has at most, and the most slots.
 const input_len_max = 1024;
