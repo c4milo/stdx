@@ -2337,3 +2337,28 @@ their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside
       36856227214 and 36856238411 put level 6 at 0.98 of its speed on x86-64 where the output was
       the same, 16 files slower in both jobs, as the larger function's registers fell out
       differently.
+
+43. **A batch's exit checks its ends, not each slot.** Ruled by the owner on 2026-10-01, from
+    callgrind's count of a decoded token's instructions (design §8 step 18).
+
+    What the exit did:
+    - `check_batch` read every slot of a batch back before `Decoder.decode_batch` returned: each
+      slot started where the one before it ended, each but the last had ended, and the last ended
+      where the batch's octets do.
+    - The read cost 11 instructions a token, about a tenth of a decoded token. qlog's records took
+      103 instructions a token with it and 92 without on aarch64, and 114 and 103 on x86-64;
+      CLDR's texts 87 and 76, and 101 and 90.
+
+    The rule:
+    - A batch's exit checks invariant 7's counts, the slots filled against the slots given, the
+      last slot's `ended` against the batch's status, and the last slot's octets ending where the
+      batch's do.
+    - The slots before the last are as the token loop and `Decoder.run` wrote them, each from the
+      one position in the output that the call only moves forward. decoder_loop_test.zig's lockstep
+      requires every slot of every batch to equal the checked path's, whole, under seeded splits
+      and slot counts, and over seeded corruptions.
+
+    The alternatives refused:
+    - The read kept as it was: a tenth of decoding qlog's records and CLDR's texts.
+    - The read with no branch a slot, its mismatches gathered into one test: estimated at 8
+      instructions a token where the read took 11, and not built.
