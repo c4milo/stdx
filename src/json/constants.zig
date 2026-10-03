@@ -95,6 +95,23 @@ pub const exponent_upper: u8 = 'E';
 /// octets, and the encoder's token loop copies a short one in moves of 8.
 pub const word_len = @sizeOf(u64);
 
+/// The words of digits `number.plain_len` counts in an integer part or a fraction before it leaves
+/// the number to the machine: 32 digits, past every integer a 64-bit word holds.
+pub const plain_number_words_max = 4;
+
+/// The octets the decoder's token loop reads together where a token follows its separator with
+/// no whitespace between them: the separator, and the token's first octet.
+pub const separator_pair_len = 2;
+
+/// The blocks of `vector_len` octets the decoder's token loop copies of a name or a string inside
+/// the loop, before it leaves the rest to its out-of-line copy.
+pub const loop_string_blocks = 2;
+
+/// Comptime's backwards branches for the decoder's token loop, whose inline steps instantiate
+/// scan.zig's generic vector helpers at each place a name or a string starts: ten times the
+/// default of 1,000.
+pub const token_loop_branch_quota = 10_000;
+
 /// The octets of a string (RFC 8259 §7).
 pub const quotation_mark: u8 = '"';
 pub const reverse_solidus: u8 = '\\';
