@@ -119,9 +119,12 @@ fn after_loop(claims: Claims) Claims {
     return run_claims;
 }
 
-/// The checks every batch makes at its exit: invariant 7 for the counts; a token that did not end
-/// only in the last slot, of a batch that ran out of input or room; and slots that hold the
-/// output's octets in order, with none between them.
+/// The checks every batch makes at its exit: invariant 7 for the counts, the slots filled against
+/// the slots given, a last slot that did not end only in a batch that ran out of input or room, and
+/// the last slot's octets ending where the batch's do. The slots before the last start where the
+/// one before ended, as the token loop and `Decoder.run` write them from one position in the
+/// output, which decoder_loop_test.zig's lockstep compares at every batch: read back here, they
+/// cost 11 instructions a token, about a tenth of decoding qlog's records (decision 43).
 fn check_batch(input_len: usize, output_len: usize, slots: []const Slot, batch: Batch) void {
     const status: codec.Status = switch (batch.status) {
         .needs_input => .needs_input,
@@ -130,20 +133,10 @@ fn check_batch(input_len: usize, output_len: usize, slots: []const Slot, batch: 
     };
     codec.check_progress(input_len, output_len, .{ .consumed = batch.consumed, .written = batch.written, .status = status });
     assert(batch.filled <= slots.len and (batch.status != .needs_slots or batch.filled == slots.len));
+    if (batch.filled == 0) return assert(batch.written == 0 and batch.status != .needs_room);
+    const last = slots[batch.filled - 1];
     const ran_out = batch.status == .needs_input or batch.status == .needs_room;
-    assert(batch.status != .needs_room or (batch.filled > 0 and !slots[batch.filled - 1].ended));
-    // The last slot's case is checked apart, so each slot before it costs two compares: in the
-    // loop, it took about 6% of decoding qlog's records on the N2 (design §8 step 18).
-    const before_last = batch.filled -| 1;
-    var end: usize = 0;
-    for (slots[0..before_last]) |slot| {
-        assert(slot.start == end and slot.ended);
-        end += slot.len;
-    }
-    if (batch.filled > 0) {
-        const last = slots[before_last];
-        assert(last.start == end and (last.ended or ran_out));
-        end += last.len;
-    }
-    assert(end == batch.written);
+    assert(last.ended or ran_out);
+    assert(batch.status != .needs_room or !last.ended);
+    assert(last.start + last.len == batch.written);
 }
