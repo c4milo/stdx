@@ -2264,13 +2264,13 @@ their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside
     every `memset` call in a program, glibc linked or not (design §8 step 9); Zig's next release
     stores vectors. `codec.fill` (b47400b) kept stdx's clears and fills out of that loop: the
     DEFLATE encoder's clear of its heads at each stream's start, which took 33,500 cycles on a
-    Neoverse N2 at level 1 and 66,000 at level 6 through it, the encoder's counts at each block,
-    the Zstandard decoder's repeated blocks, which decoded 3.40 times as fast through
-    `codec.fill` on the N2 (design §8 step 11), and brotli's runs of zeros in a context map. With their own `memset`, the benchmarks no longer
-    show those costs. So stdx calls `@memset`, and a program on Linux under Zig 0.16 that wants
-    these fills fast exports a `memset` of its own, as `bench/timing/memset.zig` does for the
-    benchmarks (pepegrillo's `performance_zig.md`, "Copies and fills"). A library exports none,
-    since its caller's program owns the symbol.
+    Neoverse N2 at level 1 and 66,000 at level 6 through it, the encoder's counts at each block, the
+    Zstandard decoder's repeated blocks, which decoded 3.40 times as fast through `codec.fill` on
+    the N2 (design §8 step 11), and brotli's runs of zeros in a context map. With their own
+    `memset`, the benchmarks no longer show those costs. So stdx calls `@memset`, and a program on
+    Linux under Zig 0.16 that wants these fills fast exports a `memset` of its own, as
+    `bench/timing/memset.zig` does for the benchmarks (pepegrillo's `performance_zig.md`, "Copies
+    and fills"). A library exports none, since its caller's program owns the symbol.
 
     Measured with the benchmarks' own `memset` (design §8 step 11), the removal encoded the 1 KiB
     bodies 2% to 15% faster on both architectures, and fields.c and js-16k at level 9 4% to 6%

@@ -1877,16 +1877,16 @@ to 12 are reordered and nothing else changes.
     through the reader and the state in memory: 6% of a js-1k decode on an Intel Xeon 8573C, twice
     Google's context map. `decoder_fast_map.zig` keeps the reader and the index in registers, as the
     code lengths' loop does, and hands runs of zeros and every refusal to the checked path's
-    functions; `header.fill_zeros` now fills through `codec.fill`, since outside Darwin `@memset`
-    takes an octet at a time. Against main before the alignment (runs 36717723633 and 36717734822)
-    it won on both runners and lost world192.txt on the N2 on hot code it had only moved, and
-    html-16k and css-1m on x86-64, the latter as Google's decoder ran faster in the second phase;
-    the owner then ruled the alignment first. On top of it, the N2 gains html-1k +1.8% and +1.3% and
-    js-1k +2.5% and +1.7% (0.96 to 0.99 of Google's speed) in both jobs, and x86-64 js-1k +7.0% and
-    +4.6% (0.94 to 1.01), on an EPYC 9V45 and then an EPYC 7763; no file loses on either runner.
-    Mutations: the run past the end, the value's offset, a run's extra bits dropped, a value
-    uncounted, the refill too late and the reader not handed back, all CAUGHT. Pushed to main the
-    same day.
+    functions; `header.fill_zeros` filled through `codec.fill`, since outside Darwin Zig 0.16's
+    `memset` takes an octet at a time; fcf25d4 put it back on `@memset`, as decision 41 rules.
+    Against main before the alignment (runs 36717723633 and 36717734822) it won on both runners and
+    lost world192.txt on the N2 on hot code it had only moved, and html-16k and css-1m on x86-64,
+    the latter as Google's decoder ran faster in the second phase; the owner then ruled the
+    alignment first. On top of it, the N2 gains html-1k +1.8% and +1.3% and js-1k +2.5% and +1.7%
+    (0.96 to 0.99 of Google's speed) in both jobs, and x86-64 js-1k +7.0% and +4.6% (0.94 to 1.01),
+    on an EPYC 9V45 and then an EPYC 7763; no file loses on either runner. Mutations: the run past
+    the end, the value's offset, a run's extra bits dropped, a value uncounted, the refill too late
+    and the reader not handed back, all CAUGHT. Pushed to main the same day.
   - The header's second cuts, four commits on main as de63265, 04f4b1d, aa7f3fd and 061dc84, paired
     as one stack, 2e89335 on its branch, against e27ee05 (runs
     [36759714649](https://github.com/c4milo/stdx/actions/runs/36759714649) and
