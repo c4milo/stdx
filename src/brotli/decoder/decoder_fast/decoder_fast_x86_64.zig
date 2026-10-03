@@ -308,6 +308,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .buffer = @offsetOf(Machine, "buffer"),
     .count = @offsetOf(Machine, "count"),
     .meta_block_left = @offsetOf(Machine, "meta_block_left"),
+    .p1 = @offsetOf(Machine, "p1"),
+    .p2 = @offsetOf(Machine, "p2"),
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.command, .{
     .entry_second_mask = entry_second_mask,
     .entry_value_at = entry_value_at,

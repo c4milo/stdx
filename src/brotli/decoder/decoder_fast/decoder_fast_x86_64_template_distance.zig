@@ -205,11 +205,15 @@ pub const copy =
     \\    cmp ecx, r14d
     \\    jb 63b
     \\45:
+    \\    // p1 and p2 from the source's last two octets, into the registers the next run reads and
+    \\    // the machine: each octet a copy writes equals the one `distance` before it, and where the
+    \\    // distance is at least the length, the source's octets were written before the copy, so
+    \\    // that neither load waits for the copy's stores.
+    \\    movzx r11d, byte ptr [rax + r14 - 1]
+    \\    movzx r12d, byte ptr [rax + r14 - 2]
     \\    add rdx, r14
-    \\    movzx eax, byte ptr [rdx - 1]
-    \\    mov qword ptr [rdi + {[p1]}], rax
-    \\    movzx eax, byte ptr [rdx - 2]
-    \\    mov qword ptr [rdi + {[p2]}], rax
+    \\    mov qword ptr [rdi + {[p1]}], r11
+    \\    mov qword ptr [rdi + {[p2]}], r12
     \\    sub r10d, r14d
     \\    jz 88f
     \\    jmp 1b
@@ -249,21 +253,20 @@ pub const word =
     \\    je 91f
     \\    add rdx, rax
     \\    sub r10d, eax
-    \\    // p1 and p2 as `wrote` keeps them: both from the output past two octets, p1 alone past one.
+    \\    // p1 and p2 as `wrote` keeps them, into the registers the next run reads and the
+    \\    // machine: both from the output past two octets, p1 alone past one, neither past none.
+    \\    mov r11, qword ptr [rdi + {[p1]}]
+    \\    mov r12, qword ptr [rdi + {[p2]}]
     \\    test rax, rax
     \\    jz 46f
+    \\    mov r12, r11
+    \\    movzx r11d, byte ptr [rdx - 1]
     \\    cmp rax, 1
     \\    je 47f
-    \\    movzx ecx, byte ptr [rdx - 1]
-    \\    mov qword ptr [rdi + {[p1]}], rcx
-    \\    movzx ecx, byte ptr [rdx - 2]
-    \\    mov qword ptr [rdi + {[p2]}], rcx
-    \\    jmp 46f
+    \\    movzx r12d, byte ptr [rdx - 2]
     \\47:
-    \\    mov rcx, qword ptr [rdi + {[p1]}]
-    \\    mov qword ptr [rdi + {[p2]}], rcx
-    \\    movzx ecx, byte ptr [rdx - 1]
-    \\    mov qword ptr [rdi + {[p1]}], rcx
+    \\    mov qword ptr [rdi + {[p1]}], r11
+    \\    mov qword ptr [rdi + {[p2]}], r12
     \\46:
     \\    test r13, r13
     \\    js 48f

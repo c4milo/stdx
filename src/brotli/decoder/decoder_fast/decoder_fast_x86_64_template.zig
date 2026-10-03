@@ -7,13 +7,15 @@
 //! Registers: rdi the machine; rsi the input's next octet and rdx the output's; r8 the bit buffer and
 //! r9 its count, which never passes 64 and so changes as its low octet; r10 the meta-block's octets
 //! left. Between literal runs, r13 holds the command's packed code with bit 63 set when it reuses
-//! the last distance, r14 its copy length and r15 its literals left, and then its distance. In a
-//! run, r11 and r12 hold p1 and p2, r13 the literal tables of the block type, r14 and r15 the parts
-//! of a context ID p1 and p2 give (or p1's part itself, in the entries' mode), rbx the literals left
-//! in the run, and r10 is free, the run keeping the command's packed code and values and the
-//! meta-block's octets in the machine. rax, rcx, rbx, r11 and r12 are otherwise free. The limits,
-//! the tables but the literal ones, the blocks' elements left, the ring of last distances, p1 and p2
-//! between runs, and the distance parameters stay in the machine, which the loop reads in place.
+//! the last distance, r14 its copy length and r15 its literals left, and then its distance. From a
+//! copy's or a word's end, through the next command's symbol and its literal runs, r11 and r12 hold
+//! p1 and p2; the distance and the copy take them as scratch, with p1 and p2 in the machine. In a
+//! run, r13 holds the literal tables of the block type, r14 and r15 the parts of a context ID p1
+//! and p2 give (or p1's part itself, in the entries' mode), rbx the literals left in the run, and
+//! r10 is free, the run keeping the command's packed code and values and the meta-block's octets
+//! in the machine. rax, rcx and rbx are otherwise free. The limits, the tables but the literal
+//! ones, the blocks' elements left, the ring of last distances and the distance parameters stay in
+//! the machine, which the loop reads in place.
 //!
 //! BMI2's SHRX shifts by a register's low six bits, which an entry's length is, in its low octet;
 //! BZHI keeps the bits below an index, which a root entry's second bits are after RORX brings them
@@ -39,8 +41,9 @@
 //!   octets this call wrote (rdx less `output_base`), so every load reads this call's output; a
 //!   chunk's load reads octets written before it, since each kind of copy needs a distance of its
 //!   chunk at least.
-//! - p1 and p2, one and two octets before the output's next: a copy writes 2 at least, and a word's
-//!   octets gate each read.
+//! - p1 and p2 after a copy, the last two octets of its source, `distance` before the copy's last
+//!   two: at or past the source's first octet, since a copy writes 2 at least, and before the copy's
+//!   end. After a word, one and two octets before the output's next, which the word's octets gate.
 //! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
 //!   with the margin's room, rdx at most `output_limit`; its literals write at most 256; its copy
 //!   starts only with the room checked again after them, writes at most 256 and overruns by a chunk
@@ -120,6 +123,8 @@ pub const prologue =
     \\    mov r8, qword ptr [rdi + {[buffer]}]
     \\    mov r9, qword ptr [rdi + {[count]}]
     \\    mov r10, qword ptr [rdi + {[meta_block_left]}]
+    \\    mov r11, qword ptr [rdi + {[p1]}]
+    \\    mov r12, qword ptr [rdi + {[p2]}]
     \\    // The loop starts a fetch line of its own, wherever the code before it ends.
     \\    .p2align 6
 ;
@@ -163,8 +168,8 @@ pub const command =
     \\    rorx rax, r13, {[insert_extra_bits_at]}
     \\    movzx eax, al
     \\    bzhi r15, rcx, rax
-    \\    movzx r11d, r13w
-    \\    add r15d, r11d
+    \\    movzx r14d, r13w
+    \\    add r15d, r14d
     \\    // RFC 7932 §9.3: literals that would exceed MLEN; the checked path refuses them.
     \\    cmp r15d, r10d
     \\    ja 83f
@@ -202,8 +207,9 @@ pub const literals =
     \\    mov qword ptr [rdi + {[batch]}], rbx
     \\    mov qword ptr [rdi + {[meta_block_left]}], r10
     \\    mov qword ptr [rdi + {[packed_code]}], r13
-    \\    mov r11, qword ptr [rdi + {[p1]}]
-    \\    mov r12, qword ptr [rdi + {[p2]}]
+    \\    // The two loads this text took here, as no-operations: a run's speed moves with its address.
+    \\    .byte 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00
+    \\    .byte 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00
     \\    mov r13, qword ptr [rdi + {[lit_tables]}]
     \\    mov rax, qword ptr [rdi + {[run_kind]}]
     \\    test rax, rax

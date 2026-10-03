@@ -79,6 +79,68 @@ test "a word of one octet moves p2 as a literal does, for the next literal's con
     try testing.expectEqualSlices(u8, &.{ 'a', word_octet, 'x' }, output[0..whole.written]);
 }
 
+/// Word 0 of length 4 with transform 42, OmitLast4 with no prefix or suffix (RFC 7932 §8, Appendix
+/// B): no octet at all. Two commands in UTF8 mode (§5, §7.1): symbol 146, the literals "ab" and a
+/// copy of 4 past the two octets produced, the word; then symbol 136, one literal, whose context
+/// map names tree 1, 'x', at the ID p1 'b' and p2 'a' give, and tree 0, of 'a' and 'b', elsewhere.
+/// The word's distance, 2 + 1 + its reference, is the distance code 42, 14 extra bits over the
+/// offset (2 << 14) - 4 (§4).
+const empty_word_symbol = 146;
+const omit_last_4 = 42;
+const empty_word_literals = "ab";
+const empty_word_id = omit_last_4 << dictionary.bits[short_word_len];
+const empty_word_distance = empty_word_literals.len + 1 + empty_word_id;
+const empty_word_distance_code = 42;
+const empty_word_extra_bits = 14;
+const empty_word_offset = (constants.coded_distance_base << empty_word_extra_bits) - constants.coded_distance_bias;
+const empty_word_output = "abx";
+
+fn empty_word_stream(stream: *Stream) void {
+    stream.window_bits_16();
+    stream.meta_block(true, empty_word_output.len);
+    stream.count(1);
+    stream.count(1);
+    stream.count(1);
+    stream.put(0, constants.postfix_field_bits);
+    stream.put(0, constants.direct_field_bits);
+    stream.put(@intFromEnum(context.Mode.utf8), constants.context_mode_bits);
+    // NTREESL 2 and the literal context map, as `short_word_stream` writes them; NTREESD 1.
+    stream.count(constants.context_map_trees_min);
+    stream.put(0, 1);
+    stream.simple_code(constants.context_map_trees_min, &.{ 0, 1 }, false);
+    for (0..constants.literal_contexts_count) |id| stream.put_code(@intFromBool(id == context.literal_id(.utf8, 'b', 'a')), 1);
+    stream.put(0, 1);
+    stream.count(1);
+    stream.simple_code(constants.literal_alphabet_len, &.{ 'a', 'b' }, false);
+    stream.simple_code(constants.literal_alphabet_len, &.{'x'}, false);
+    // Symbol 136 takes the code 0 and symbol 146 the code 1; 'a' the code 0 and 'b' 1.
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{ short_copy_symbol, empty_word_symbol }, false);
+    stream.simple_code(constants.distance_short_codes_count + constants.distance_code_groups, &.{empty_word_distance_code}, false);
+    stream.put_code(1, 1);
+    stream.put_code(0, 1);
+    stream.put_code(1, 1);
+    stream.put(empty_word_distance - 1 - empty_word_offset, empty_word_extra_bits);
+    stream.put_code(0, 1);
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+
+test "a word of no octets leaves p1 and p2 for the next literal's context" {
+    // The contexts before the word, and p1 with any other p2, take the other tree.
+    const after_word = context.literal_id(.utf8, 'b', 'a');
+    try testing.expect(after_word != context.literal_id(.utf8, 0, 0) and after_word != context.literal_id(.utf8, 'a', 0));
+    try testing.expect(after_word != context.literal_id(.utf8, 'b', 0));
+    var word: [constants.transformed_word_len_max]u8 = undefined;
+    try testing.expectEqual(0, transform.apply(omit_last_4, dictionary.word(short_word_len, 0), &word));
+    var stream: Stream = .{};
+    empty_word_stream(&stream);
+    var output: [512]u8 = undefined;
+    var decoder: Decoder = undefined;
+    decoder.init(codec.Features.detect());
+    const whole = try decoder.decode_all(stream.written(), &output);
+    try testing.expectEqualStrings(empty_word_output, output[0..whole.written]);
+}
+
 /// Symbol 64, no literals and copy code 8, a copy of 10 or 11 at the last distance, 4, with 1 extra
 /// bit (RFC 7932 §5): with nothing produced, word 3 of length 10 (§8). Then symbol 136, the literal
 /// 'b' and a copy the meta-block's end cuts off. A word takes no bits of its own, and a loop that
