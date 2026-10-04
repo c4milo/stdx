@@ -32,12 +32,17 @@ const letter_escape_len = 2;
 const unicode_escape_len = letter_escape_len + constants.escape_hex_digits;
 const pair_escape_len = unicode_escape_len + unicode_escape_len;
 
-/// The character each escape letter names, or null for an octet that is no escape letter.
-const escaped_characters = table: {
-    var characters: [std.math.maxInt(u8) + 1]?u8 = @splat(null);
+/// The character each escape letter names, and zero for every other octet: no letter names
+/// U+0000 (RFC 8259 §7). One load an escape, where optionals took two (design §8 step 18).
+const letter_characters = table: {
+    var characters: [std.math.maxInt(u8) + 1]u8 = @splat(0);
     for (constants.escape_letters, constants.escaped_characters) |letter, character| characters[letter] = character;
     break :table characters;
 };
+
+comptime {
+    for (constants.escaped_characters) |character| assert(character != 0);
+}
 
 /// Each octet's value as a hexadecimal digit of either case, or `not_hex_digit` for an octet that
 /// is none: a load a digit, and one test for a `\u` escape's four, where `hex_value`'s ranges took
@@ -93,27 +98,42 @@ pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, r
             if (!walk.take_to_stop(claims, two_loops, level, rest, room)) return null;
             if (walk.input.len == 0) return null;
         }
-        const escape = switch (walk.input[0]) {
+        switch (walk.input[0]) {
             constants.quotation_mark => return .{ .input_len = rest.len - walk.input.len, .output_len = room.len - walk.output.len },
-            constants.reverse_solidus => unescape(claims, walk.input, walk.output) orelse return null,
+            constants.reverse_solidus => if (!take_escape(claims, &walk)) return null,
             else => return null,
-        };
-        walk.take(escape.input_len, escape.output_len);
+        }
     }
     unreachable;
 }
 
-/// Writes the character the escape that starts `escape` names (RFC 8259 §7) at the start of
-/// `room`, and returns the octets it took and wrote; or null for an escape the checked path
-/// refuses, one the input cuts, and a room too short for its character. Inline, as are the
-/// functions it calls: out of line, each escape paid a call and returned what it took through
-/// memory, about a third of decoding a text of `\u` escapes.
-inline fn unescape(comptime claims: Claims, escape: []const u8, room: []u8) ?Copied {
-    assert(escape[0] == constants.reverse_solidus);
-    if (escape.len < letter_escape_len or room.len == 0) return null;
-    if (escape[1] == constants.escape_unicode) return @call(unicode_call(claims), unescape_unicode, .{ claims, escape, room });
-    room[0] = escaped_characters[escape[1]] orelse return null;
-    return .{ .input_len = letter_escape_len, .output_len = 1 };
+/// Takes the escape that starts the walk's input (RFC 8259 §7): writes the character it names,
+/// and moves the walk past the escape and the character. Returns false, with nothing taken, for an
+/// escape the checked path refuses, one the input cuts, and a room too short for its character.
+///
+/// A letter's escape has its lengths as constants here, tested before the moves, so the moves
+/// check nothing: passed through `Copied`, each took 11 instructions more on aarch64, and on the
+/// N2 an instruction on this path costs its share of a cycle (design §8 step 18).
+inline fn take_escape(comptime claims: Claims, walk: *Walk) bool {
+    assert(walk.input[0] == constants.reverse_solidus);
+    if (walk.input.len < letter_escape_len or walk.output.len == 0) return false;
+    // `u` first, as before: tested after the table's load, a text of `\u` escapes paid the load
+    // at each run of them.
+    if (walk.input[1] == constants.escape_unicode) return take_unicode(claims, walk);
+    const character = letter_characters[walk.input[1]];
+    if (character == 0) return false;
+    walk.output[0] = character;
+    walk.take(letter_escape_len, 1);
+    return true;
+}
+
+/// `take_escape` for an escape of `u`, of at least its two first octets, with room for an octet.
+/// Inline on aarch64, as are the functions it calls: out of line, each escape paid a call and
+/// returned what it took through memory, about a third of decoding a text of `\u` escapes.
+inline fn take_unicode(comptime claims: Claims, walk: *Walk) bool {
+    const escape = @call(unicode_call(claims), unescape_unicode, .{ claims, walk.input, walk.output }) orelse return false;
+    walk.take(escape.input_len, escape.output_len);
+    return true;
 }
 
 /// A `\u` escape, or a high surrogate's and the low one's after it (RFC 8259 §7), written as the
