@@ -5,8 +5,8 @@ installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-me
 [copy on GitHub](https://github.com/c4milo/pepegrillo/blob/main/docs/performance.md) is the current
 one); read it first. This appendix is what that method leaves to the project:
 stdx's instruments, its admission rule, its baselines, its costs, and the pitfalls it has paid for.
-CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 23, 24, 29 and 32
-hold the rulings, and [costs.md](costs.md) the prices.
+CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 23, 24, 29, 32 and
+45 hold the rulings, and [costs.md](costs.md) the prices.
 
 ## The instruments
 
@@ -31,6 +31,12 @@ hold the rulings, and [costs.md](costs.md) the prices.
   branch that never lands adds beside the corpus. Decision 20 says how to prove each.
 - Every speed states the stream's compression beside it, as `bench-brotli`, `bench-deflate` and
   `bench-zstd` print it.
+- A row codes a corpus file whole, but for the 1 KiB and 16 KiB HTTP bodies: those it codes as
+  the slices of their 1 MiB payload, one stream a slice, one after another, each from a state
+  started anew (decision 45, `bench/timing/inputs.zig`). A branch predictor learns one input that
+  a row repeats, the shorter the input the more, and a row of slices meets each slice once a
+  round. Each table names the files of 256 KiB or less that a row still repeats; read their rows
+  as an input the predictor has learned.
 - `bench-profile` gives cycles, instructions and branch misses per octet on the runners, beside
   each baseline's; the M1 sampler and `llvm-symbolizer --inlining` over a dSYM give the layers
   below that.

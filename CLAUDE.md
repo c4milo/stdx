@@ -306,10 +306,15 @@ Change this section when a step adds or renames a command.
   A person may run the workflow for one module, named in its `module` input.
 - Costs: `zig build costs` prints docs/costs.md's rows for this host, built ReleaseFast.
   `bench/run.sh <report.md> costs` pins it to one core on Linux and records the run.
+- Benchmark rows: each benchmark below takes every corpus file whole, but for the 1 KiB and 16 KiB
+  HTTP bodies. A row codes those as the slices of their 1 MiB payload, 1024 of 1 KiB and 64 of
+  16 KiB, one stream a slice, one after another, and is named `<file>x<count>` (decision 45,
+  `bench/timing/inputs.zig`). Each table names, beneath its heading, the files of 256 KiB or less
+  that a row still repeats: the branch predictor learns those, the shorter the file the more.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
   libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, each claim
   of decision 14 off against all on, and the gzip encoders of zlib, zlib-ng, libdeflate and stdx
-  at levels 1, 6 and 9, over every corpus file: every candidate interleaved in one run, the median of five runs with the spread. A second program then repeats the raw A/B with
+  at levels 1, 6 and 9, over every row: every candidate interleaved in one run, the median of five runs with the spread. A second program then repeats the raw A/B with
   stdx built ReleaseFast, decision 17's measure of what the safety checks cost. On an x86-64 host
   with x86-64-v3's instructions, a third program then times the gzip decoders again with stdx built
   for x86-64-v3 (decision 34). `bench/run.sh <report.md> bench-deflate -Doracles`
@@ -318,22 +323,22 @@ Change this section when a step adds or renames a command.
   same job, so that an A/B pairs one CPU. Each published report is committed under
   `bench/results/`, as the workflow wrote it.
 - Zstandard benchmark: `zig build bench-zstd -Doracles` times libzstd's decoder, with a context
-  kept across decodes, and stdx's HTTP decoder over every corpus file encoded by libzstd at level
+  kept across decodes, and stdx's HTTP decoder over every row, encoded by libzstd at level
   3; then stdx's fast paths against its checked path, and each claim of decision 14 off against
   all on: every candidate interleaved in one run, the median of five runs with the spread. A
   second program then repeats the comparison with libzstd with stdx built ReleaseFast, decision
   17's measure of what the safety checks cost.
 - brotli benchmark: `zig build bench-brotli -Doracles` times Google's brotli decoder and stdx's
-  HTTP decoder over every corpus file, encoded once by Google's brotli at its default quality 11
-  and window 22, each row stating the stream's size as a percentage of the file's; then stdx's fast path against its checked path, and each claim off against all
+  HTTP decoder over every row, encoded once by Google's brotli at its default quality 11
+  and window 22, each row stating its streams' size as a percentage of its octets; then stdx's fast path against its checked path, and each claim off against all
   on: every candidate interleaved in one run, the median of five runs with the spread. A second
   program then repeats the comparison with Google's brotli with stdx built ReleaseFast, decision
   17's measure of what the safety checks cost. The `bench` workflow offers it.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
-  takes each symbol of every corpus file, on any host. It then counts cycles, instructions and
+  takes each symbol of every row, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder, for libzstd's and stdx's Zstandard
   decoders, and for Google's and stdx's brotli decoders over each file's first MiB, over every
-  corpus file, through Linux's perf_event_open, and says so where the host exposes no counters. Last, `bench_json --profile` counts them per token and per octet for the
+  row, through Linux's perf_event_open, and says so where the host exposes no counters. Last, `bench_json --profile` counts them per token and per octet for the
   `json` module's decoder and encoder, with every claim on and every claim off, for the encoder
   with J11's loop unchecked, and for simdjson, yyjson and Zig's std.json, over one workload of each
   shape (`bench/json/json_profile.zig`). The `bench` workflow's `profile` option runs it on both
@@ -343,8 +348,8 @@ Change this section when a step adds or renames a command.
   J10, J11 and J12 off in turn, and every one off, one token a call with every claim on, and the
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
   CLDR's JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII
-  text, decoded also with its characters as `\u` escapes, and hex strings, beside simdjson, yyjson
-  and Zig's std.json: every candidate interleaved in one
+  text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's
+  slices each a text of its own, beside simdjson, yyjson and Zig's std.json: every candidate interleaved in one
   run, the median of five runs with the spread, and the losses listed (decision 27). It then times
   the module's `is_utf8` alone over each string workload's octets at the width the host's features
   pick, and on a host with AVX-512 with AVX2 alone, beside simdutf's `validate_utf8`, once every copy
