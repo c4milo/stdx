@@ -2028,6 +2028,28 @@ to 12 are reordered and nothing else changes.
     out of the machine, not loaded at the loop's start or past a word's call, or not taken from a
     word: all CAUGHT under Rosetta, one only by a new test of a word of no octets. Pushed to main
     the same day.
+  - A distance's table from one pointer a distance context, 6f1d82f, measured as 0a58366 over
+    83bb4d2, before 8f0d1e9 landed (runs
+    [37162427465](https://github.com/c4milo/stdx/actions/runs/37162427465) and
+    [37162431922](https://github.com/c4milo/stdx/actions/runs/37162431922); reports in
+    `bench/results/`, dated 2026-10-03, "distance-contexts"). Both loops found a distance's tree in
+    the context map's row of the block type, multiplied it by a table's size and added the tables'
+    address: a load, a multiply and an add between a command's copy length and its distance's
+    lookup, which a command without literals waits for. The machine now holds one table pointer for
+    each of the four distance contexts (RFC 7932 §7.3), filled where the loop is entered, and the
+    copy length, taken as 5 at most, indexes them: four instructions fewer a distance on aarch64,
+    where x9 is free again, and on x86-64 four fewer and two no-operations, which keep the copy
+    loops where they stood. Under callgrind webster's first 20 MB take 3.0% fewer instructions and
+    nci 1.2%. On the N2, 31 files gain in both jobs and none loses, the median +2.9%: dickens +6.3%
+    and +7.8% (1.17 to 1.24 of Google's speed), bible.txt +5.0% and +6.1%, webster +5.2% and +5.0%,
+    and reymont, lcet10.txt, html-16k and js-16k 4 to 5%. On an EPYC 9V74 and an EPYC 7763, 17 files
+    gain in both jobs and none loses, the median +2.7%: css-16k +7.5% and +6.3% (0.98 to 1.06 on the
+    9V74), alice29.txt +7.0% and +5.3%, html-1k +7.9% and +3.2% (1.00 to 1.08) and world192.txt
+    +8.4% and +2.7%. E.coli and the shuffled dickens-1m move 0.3% at most on both runners.
+    Mutations, 9: the pointers two contexts late in each loop, or one late after a word's call on
+    aarch64; a length of 5 and above taken as 4, or every length as the last context, in each loop;
+    the first tree for every context; and the first block type's row for every type, which only a
+    new test of two distance block types catches: all CAUGHT. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
