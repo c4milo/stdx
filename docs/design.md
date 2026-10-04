@@ -2121,6 +2121,55 @@ to 12 are reordered and nothing else changes.
     a bit early or a bit short, the tables' pointer a context late, and the copy code stored back
     with the context's bits; on aarch64 the pointer late after a word's call: all CAUGHT. Pushed to
     main the same day.
+  - A command's extra bit count in its table entry, 908ccfb, measured as 9a29e8f over c6f9059,
+    before ee94cfa landed (runs
+    [37166592152](https://github.com/c4milo/stdx/actions/runs/37166592152) and
+    [37166597029](https://github.com/c4milo/stdx/actions/runs/37166597029); reports in
+    `bench/results/`, dated 2026-10-04, "command-count"). Both loops looked a command's symbol up,
+    loaded its packed codes, and took from them the count of the command's extra bits, which the bit
+    buffer's shift waited for: a load on the path from one command's entry to the next lookup. An
+    insert-and-copy table's entry now holds the count in the six bits above its 10-bit symbol, which
+    the fills take from a comptime table of each symbol's value, and the checked path, the Zig loops
+    and both assembly loops mask the symbol. The aarch64 loop keeps its instruction count, with the
+    packed codes' load beside the chain and no longer on it. The x86-64 loop drops the compare that
+    marked a symbol below 128 as reusing the last distance, which the packed code's top bit already
+    holds: three instructions fewer a command, and two no-operations that keep what follows in
+    place. Under callgrind on aarch64 a 1 KiB body takes 172 to 181 instructions more, 0.4%, in the
+    fills, and alice29.txt, kennedy.xls, webster and nci stay within 0.02%. On the N2, 12 files gain
+    in both jobs and none loses, the median +1.1%: kennedy.xls +5.0% and +5.1% (1.39 to 1.46 of
+    Google's speed), xargs.1 +2.3% and +3.7%, json-16k +2.2% and +3.8%, css-16k +2.4% and +2.9%,
+    css-1m +2.2% and +2.5%; osdb falls 4.1% in the second job alone, where the silesia files'
+    spreads reach 6%. On two EPYC 7763s, 11 files gain in both jobs and none loses in both, the
+    median +1.6%: kennedy.xls +4.0% and +4.7% (1.12 to 1.16), json-16k +4.2% and +3.2% (1.24 to
+    1.30), css-1m +3.9% and +3.7%, html-1m +2.6% and +3.2%, bible.txt +1.5% and +4.6%; html-1k falls
+    4.0% in the first job alone, and grammar.lsp 3.7%, plrabn12.txt 2.3% and fields.c 2.1% in the
+    second alone. The aarch64 shift moved nine instructions earlier on top of it, with a block at
+    the exit that puts the bits back (1cf9849 over 9a29e8f, runs
+    [37166967683](https://github.com/c4milo/stdx/actions/runs/37166967683) and
+    [37166973521](https://github.com/c4milo/stdx/actions/runs/37166973521)), was refused: no file
+    gained in both N2 jobs, and reymont lost 3.0% and 1.6%. Mutations, 17: an entry's count zero or
+    one more, and the tables built with no count; the symbol unmasked in the checked path, the chain
+    and the straight command, and its mask a bit short; in each loop the count's field a bit off,
+    the symbol's field a bit short, and the symbol taken with the count; on x86-64 the packed code
+    without the last distance's bit: all CAUGHT, the aarch64 count's field a bit short only by a new
+    test of a command with 32 extra bits. Pushed to main the same day.
+  - Refused on 2026-10-04: a distance's bits taken off the bit buffer before the distance's
+    arithmetic, which shortens the buffer's chain by the distance's lookup and adds a block that
+    puts the bits back at an exit. On aarch64 (603156e over 4009998, runs
+    [37163278570](https://github.com/c4milo/stdx/actions/runs/37163278570) and
+    [37163284490](https://github.com/c4milo/stdx/actions/runs/37163284490)) it cost a coded distance
+    three instructions: dickens lost 2.8% and 2.3%, bible.txt 1.7% and 2.0% and xargs.1 1.5% and
+    1.3% in both N2 jobs, and no file gained in both. On x86-64 a first form (90d51ec over c6f9059,
+    runs [37164613021](https://github.com/c4milo/stdx/actions/runs/37164613021) and
+    [37164617589](https://github.com/c4milo/stdx/actions/runs/37164617589)) gained 8 text files 1.5
+    to 5.1% in both jobs on two EPYC 7763s and lost nci 1.5% and 2.1%, its copy loops moved by 7
+    octets. With the copy loops where they stood (51dbcee over c6f9059, runs
+    [37168664280](https://github.com/c4milo/stdx/actions/runs/37168664280) and
+    [37168670725](https://github.com/c4milo/stdx/actions/runs/37168670725)), 18 files gained in an
+    EPYC 7763's job, webster 5.6% and bible.txt 4.2%, and 2 in a Xeon 8573C's; alice29.txt and
+    asyoulik.txt gained in both, and js-16k lost 1.1% and 1.5%. On the N2 no form that moves the bit
+    buffer's shift earlier has gained, and on x86-64 the gain is one CPU's. The branches are
+    deleted.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
