@@ -2050,6 +2050,77 @@ to 12 are reordered and nothing else changes.
     aarch64; a length of 5 and above taken as 4, or every length as the last context, in each loop;
     the first tree for every context; and the first block type's row for every type, which only a
     new test of two distance block types catches: all CAUGHT. Pushed to main the same day.
+  - The loops going on past the output's margin, 842f015, measured as c6f9059 over 0241715 (runs
+    [37165996935](https://github.com/c4milo/stdx/actions/runs/37165996935) and
+    [37166002110](https://github.com/c4milo/stdx/actions/runs/37166002110); reports in
+    `bench/results/`, dated 2026-10-04, "past-margin"). Both assembly loops left once less than 272
+    octets of room remained, decision 16's margin, and Zig's loops decoded the rest: about 22 of
+    js-1k's 90 commands, with `straight_loop` entered about 7 times a decode at about 830
+    instructions each. Below the margin a block the common path never enters now takes the room,
+    less the two chunks a copy may store past its length, as the meta-block's octets left, keeps the
+    octets it took off in the machine and sets the output's limit to all ones: the loop's checks of
+    RFC 7932 §9.3 then bound every store, as decision 32 asks of each write. It does so at the
+    loop's top, after a run that left literals, and after a command's literals. A dictionary word
+    checks its 64 octets of room, and with less room than the two chunks the loop leaves as before,
+    to Zig's mode that checks each write. Each exit adds the octets taken off back and hands Zig a
+    phase and no link, since Zig's chain checks no room where the margin held. From each loop's top,
+    402 instructions on aarch64 and 461 on x86-64 keep their place and their text, 23 and 27 of them
+    with another branch target. Under callgrind on aarch64 a decode takes 7.3% fewer instructions
+    for html-1k (46,511 to 43,105), 4.8% for json-1k, 4.6% for js-1k and 1.6% for css-1k, and 0.03
+    to 0.16% more for nci, webster, kennedy.xls and alice29.txt. On the N2, 6 files gain in both
+    jobs and none loses: json-1k +6.0% and +5.4% (1.15 to 1.22 of Google's speed), html-1k +5.3% and
+    +5.1% (1.15 to 1.21), js-1k +4.2% and +4.8% (1.08 to 1.13), and css-1k, grammar.lsp and xargs.1
+    1.1 to 2.8%; x-ray and js-1m fall 1.4% in the second job alone. On a Xeon 8573C and an EPYC
+    7763, 4 files gain in both jobs and none loses in both: html-1k +7.0% and +6.7% (1.09 to 1.16 on
+    the 8573C), json-1k +6.2% and +4.6% (1.09 to 1.16), js-1k +3.6% and +8.6% (1.02 to 1.06) and
+    grammar.lsp +2.5% and +1.7%. On the 7763 alone seven files fall past their spread, plrabn12.txt
+    4.3%, asyoulik.txt 2.7%, ptt5 2.6%, alice29.txt and sum 2.2%, fields.c and css-1m 1.3%, none of
+    them past it on the 8573C. A first pair of the same form, before the distance contexts landed
+    (7d00f45 over 83bb4d2, runs
+    [37162748153](https://github.com/c4milo/stdx/actions/runs/37162748153) and
+    [37162752979](https://github.com/c4milo/stdx/actions/runs/37162752979)), had kennedy.xls lose
+    2.7% and 1.2% on two EPYC 7763s with the loop's instructions in place, which is why this pair
+    ran; here it moves +0.1% and -0.6%. Two forms before this one were refused. A room check of
+    every command (runs [36875077679](https://github.com/c4milo/stdx/actions/runs/36875077679) and
+    [36875090324](https://github.com/c4milo/stdx/actions/runs/36875090324)) cost a command without
+    literals three instructions, and reymont, lcet10.txt, plrabn12.txt, bible.txt and the shuffled
+    dickens-1m lost 1 to 2.5% in both N2 jobs. The margin's compare moved beside the check of the
+    octets left (runs [37157365057](https://github.com/c4milo/stdx/actions/runs/37157365057) and
+    [37157369931](https://github.com/c4milo/stdx/actions/runs/37157369931)) kept main's instruction
+    count and still lost xml, alice29.txt, lcet10.txt, plrabn12.txt, world192.txt and html-1m 1.1 to
+    2.1% in both N2 jobs; it also returned links below the margin, where Zig's chain then wrote a
+    command with no room check, which no test covered until this form's test of a block switch below
+    the margin. Mutations, 33: the reserve of one chunk; at each of the three places the room is
+    taken, the octets left not cut to the room, the octets taken off not kept, and a room below the
+    two chunks taken; literals left past the octets left going on; the octets taken off not added
+    back; a link kept below the margin; the room's last octet taken as the meta-block's, at each of
+    its two exits; a word's room unchecked; each of these in both loops, and on aarch64 the limit
+    left at the margin: all CAUGHT, two only by a new stream of 5 literals and a copy of 2 in turn
+    with a copy of 250. Pushed to main the same day.
+  - A distance's context from the command's packed code, ee94cfa, measured as 4c7ef66 over c6f9059,
+    the entry above (runs [37164894109](https://github.com/c4milo/stdx/actions/runs/37164894109) and
+    [37164899152](https://github.com/c4milo/stdx/actions/runs/37164899152); reports in
+    `bench/results/`, dated 2026-10-04, "context-code"). Both loops took the distance context from
+    the copy length, taken as 5 at most, so the context's table pointer, and the distance's lookup
+    behind it, waited for the copy length's extra bits. Every copy length of one copy code gives one
+    context (RFC 7932 §7.3), which a comptime assertion checks at each code's shortest and longest
+    copy, so the packed command code now holds the context in two bits beside the copy code, which
+    keeps the five bits its 24 codes need. One field's extract replaces a constant, a compare and a
+    conditional move: two instructions fewer a distance on aarch64 and one on x86-64, where two
+    no-operations keep the copy loops where they stood. Under callgrind on aarch64 webster's first
+    20 MB take 1.5% fewer instructions, alice29.txt 1.3% and nci 0.7%. On the N2, 23 files gain in
+    both jobs and none loses, the median +2.6%: dickens +3.8% and +5.8% (1.24 to 1.29 of Google's
+    speed), alice29.txt +4.8% and +4.5% (1.29 to 1.35), lcet10.txt +4.8% and +4.1%, bible.txt +4.8%
+    and +4.6%, plrabn12.txt +4.5% and +5.5%, and reymont, asyoulik.txt, fields.c, html-16k, html-1m,
+    js-1m and css-16k 3.4 to 4.4%. On a Xeon 8370C and an EPYC 7763, 7 files gain in both jobs and
+    none loses in both, the median +1.0%: bible.txt +2.4% and +5.8%, lcet10.txt +2.5% and +4.1%,
+    asyoulik.txt +1.2% and +3.8%, js-1m +1.7% and +3.4%, and js-16k, fields.c and world192.txt 1.2
+    to 2.4%; grammar.lsp falls 4.2% on the 7763 alone. E.coli, kennedy.xls, the shuffled dickens-1m,
+    js-1k and json-1k move 0.6% at most on the N2. Mutations, 15: no context in a code, the context
+    one more, and the context of the copy code before; in each loop the context's field a bit late,
+    a bit early or a bit short, the tables' pointer a context late, and the copy code stored back
+    with the context's bits; on aarch64 the pointer late after a word's call: all CAUGHT. Pushed to
+    main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over

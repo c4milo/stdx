@@ -1745,6 +1745,17 @@ their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside
     instances, which two instances had left out of line, gained nothing on the N2 and cost
     html-16k 2% (runs [36501364058](https://github.com/c4milo/stdx/actions/runs/36501364058) and [36501370200](https://github.com/c4milo/stdx/actions/runs/36501370200)); dropped.
 
+    **The assembly loops**, 2026-10-04 (842f015). The loops of decision 23's brotli extension ran in
+    the margin's mode alone and left with 272 octets of room, to the second mode in Zig. They now go
+    on below the margin in the one instance they have: a block the common path never enters takes
+    the room, less the two chunks a copy may store past its length, as the meta-block's octets left,
+    so the loop's checks of RFC 7932 §9.3 are the checks of each write; a dictionary word checks the
+    room its wide transform stores into; and with less room than the two chunks the loop leaves to
+    Zig's second mode, as a write whose room is short does. An exit below the margin hands Zig a
+    phase and no link, since Zig's margin instance checks no room. The margin's mode keeps every
+    instruction in its place, which is what an instance of its own gave the Zig loop. Design §8 step
+    12 holds the runs and the mutations.
+
     The alternatives refused:
     - The fixed margin, as decision 16 ruled it: every call's last 272 octets at the checked path's
       speed.
