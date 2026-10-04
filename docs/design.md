@@ -1512,6 +1512,94 @@ to 12 are reordered and nothing else changes.
     What a small stream still pays: `init` clears the heads, 32 KiB at level 1 and 64 KiB at
     levels 6 and 9, about 5,000 and 10,000 instructions with the benchmarks' `memset`, 8% to 10%
     of a 1 KiB encode. Decision 11 allows `init` that clear.
+  - Small bodies as slices in rotation, 2026-10-04 (decision 45). The entry on longer blocks
+    found the M1's branch predictor learning a 16 KiB file that a harness repeats, and every
+    benchmark timed its small files that way. A probe put the question to the runners on
+    `perf-deflate-rotation`, a branch that never lands (decision 20): its `deflate_probe.zig`
+    cuts a file into slices and times every candidate over them four ways. `first` takes the
+    first slice again and again, as a row was timed. `copies` takes copies of the first slice,
+    one after another in memory. `each` takes every slice 64 times before the next. `rotation`
+    takes every slice once a round. `each` and `rotation` code the same octets, so the repeats
+    alone set them apart; `first` and `copies` code the same octets at other addresses. Its 20
+    reports are in `bench/results/`, dated 2026-10-04, "rotation".
+
+    The small bodies, 046c4c7 on main's 5da4397: each HTTP payload of 1 MiB in 1024 slices of
+    1 KiB and 64 of 16 KiB, the gzip encoders at levels 1, 6 and 9 and the gzip decoders, in runs
+    [37219738358](https://github.com/c4milo/stdx/actions/runs/37219738358) (Neoverse N2, EPYC
+    9V45) and [37219744137](https://github.com/c4milo/stdx/actions/runs/37219744137) (Neoverse
+    N2, EPYC 7763).
+    - The two N2 jobs agree within 1% on 536 of their 544 cells.
+    - html on the N2, MB/s in `each` and in `rotation`. Encoding 1 KiB slices at level 1: zlib
+      102 and 62, zlib-ng 135 and 121, libdeflate 114 and 96, stdx 159 and 125, for output of
+      39.1%, 47.6%, 38.2% and 38.9% of the input. Encoding 16 KiB slices at level 1: 224 and 185,
+      466 and 377, 419 and 324, 520 and 355, for 23.7%, 28.9%, 21.9% and 23.5%. Decoding 16 KiB
+      members that hold 20.4% of their slices: zlib 861 and 570, zlib-ng 1149 and 880, libdeflate
+      1649 and 1298, Wuffs 1114 and 791, stdx 1462 and 1119.
+    - Decision 45 holds what the four ways measured on each CPU: the ratios, the N2's counters,
+      the copies, and where stdx stands in each way.
+    - `first` read as the published rows read. Against the N2's report of 2026-10-04 at 91394d5,
+      100 of the baselines' 104 cells came within 3%, and the rest within 5%. stdx's cells came
+      within 3% but for two sets: its level 1 encoder over 1 KiB, 4% to 11% below the report, and
+      its decoder, 6% to 9% above it over 1 KiB and 2% to 5% over 16 KiB. The probe is another
+      program, which places stdx's code elsewhere and inlines its entries its own way.
+
+    The pair, runs [37219749131](https://github.com/c4milo/stdx/actions/runs/37219749131)
+    (Neoverse N2, EPYC 9V74) and
+    [37219754894](https://github.com/c4milo/stdx/actions/runs/37219754894) (Neoverse N2, Xeon
+    6973P-C): the probe on ccb4b1b, which only moved the encoder's code (eca26f4 on its branch),
+    after the probe on that commit's parent (2f53121) in the same job. By decision 20's rule a
+    cell moves when it passes the larger of its spreads and 1% in both jobs.
+    - The baselines are the same C in both programs. On the N2, 15 of their 104 cells moved in
+      `first`, the largest by 5.5%, and 8 in `rotation`, the largest by 1.9%, all but one of them
+      over 16 KiB slices. zlib-ng's level 1 over 16 KiB slices ran 4% to 7% slower in both jobs in
+      `first` on three payloads of four; in `rotation` it stayed within 1% in one job and ran 1%
+      to 3% slower in the other. Over 1 KiB slices it held within 1.4% in one job and ran 7% to
+      13% slower in the other, in every way: one job is not a pair.
+    - On x86-64, 13 of the baselines' cells moved in `first` and 6 in `rotation`, the largest by
+      9.4% and 8.6%. zlib-ng's level 1 over 1 KiB slices ran 7% to 17% slower in every way,
+      `rotation` included: placement moves a row that no predictor has learned.
+    - stdx's encoder, whose code the commit moved, moved 3 of its 24 cells in `first` and 4 in
+      `rotation` on the N2, level 9 over 16 KiB slices 1.6% to 6.3% faster, as that commit's own
+      pair found level 9; and 9 and 3 on x86-64, 1 KiB slices 5% to 11% faster in `first`.
+
+    Longer inputs, in runs
+    [37224864097](https://github.com/c4milo/stdx/actions/runs/37224864097) (Neoverse N2, EPYC
+    7763), [37224868777](https://github.com/c4milo/stdx/actions/runs/37224868777),
+    [37227179878](https://github.com/c4milo/stdx/actions/runs/37227179878) and
+    [37227185061](https://github.com/c4milo/stdx/actions/runs/37227185061) (Neoverse N2, Xeon
+    8573C in each): the HTTP payloads in slices of 64, 128 and 256 KiB at 7c91e04, then the
+    decoders over dickens and webster in slices of 64 KiB to 4 MiB at 7355ced. Decision 45 holds
+    the ratios. Over dickens in slices of 64 KiB the N2 counted, in `each` and in `rotation`, 69
+    and 83 branch misses a KiB for libdeflate's decoder and 56 and 95 for stdx's; in slices of
+    1 MiB, 66 and 67, and 77 and 78.
+
+    What landed. `bench/timing/inputs.zig` gives every benchmark program its rows: a corpus file
+    whole, or a small body's slices; a candidate placed over them, which codes every part once a
+    repetition through one call a part, out of line for every candidate alike; one stream a part
+    for the decoders; and the note each table prints beneath its heading. bench-deflate,
+    bench-zstd, bench-brotli, bench-profile and bench-json take their rows from it. A row of one
+    file times as it did, with one more call a repetition.
+
+    Mutations of `inputs.zig`, 41, all CAUGHT.
+    - The rows: the payload matched without its whole name; only the first small suffix
+      recognized; a small body never cut; slices of another length; no check that the small body
+      starts the payload; no check that the payload is whole slices; an empty small body cut; the
+      slices one slice late; every slice the first; the last slice left out; the row named
+      without its count; the row named after the payload; a whole file's length off by one; the
+      length counting one part.
+    - The rotation: its last input skipped; its first input alone; backwards; placed over no
+      input.
+    - The streams: every stream written over the first; a stream one octet short; gaps between
+      the streams; a failed encode going on; the compression counting parts; the total leaving
+      the last part out.
+    - The decoder's check: not compared with its part; compared over the octets it wrote alone;
+      the first stream alone; a failed decode passing; placed unchecked; placed over its parts.
+    - The mark and the note: a file at the limit not learned; one past it learned; slices
+      learned; no row of slices counted; no learned file counted; no blank line after the note;
+      a note for neither kind of row; the files that are not learned named; the first learned
+      file alone; no space between the sentences; the limit left out.
+    - Four were NOT CAUGHT at first, and each got a test: the gaps between the streams, the
+      failed encode, the decoder checked on its first stream alone, and the missing space.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
@@ -4430,8 +4518,10 @@ Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the
 - **Encoders at their strongest levels will likely lose** to libzstd, Google's brotli and
   libdeflate's level 12, and decision 14 says so in advance.
 - **A benchmark that decodes one small payload many times lets the branch predictor learn its
-  branches.** On the M1 Pro, a 16 KiB payload decoded again and again mispredicts less than
-  payloads that differ on each decode. Step 11 measured it on the Zstandard sequence loop, which
+  branches.** Since decision 45 the benchmarks time the 1 KiB and 16 KiB HTTP bodies as slices in
+  rotation, and name the files of 256 KiB or less that a row still repeats. On the M1 Pro, a
+  16 KiB payload decoded again and again mispredicts less than payloads that differ on each
+  decode. Step 11 measured it on the Zstandard sequence loop, which
   takes a block's offsets by selects rather than branches when the block's offset table names a
   repeat in at least 20 of every 256 cells: json-16k decoded alone ran 2% slower by selects, and
   json-1m cut into 64 distinct frames of 16 KiB ran 5.7% faster. The loop keeps the rule that
