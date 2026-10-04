@@ -11,10 +11,17 @@ const std = @import("std");
 /// Hardware counters, for bench-profile.
 pub const counters = @import("counters.zig");
 
+/// What a row codes: a corpus file whole, or a small body's slices in rotation (decision 45).
+pub const inputs = @import("inputs.zig");
+
 comptime {
     // Every benchmark program imports this module, so each exports the vector `memset` of
     // memset.zig on Linux, for stdx and for the baselines' C code alike.
     _ = @import("memset.zig");
+}
+
+test {
+    _ = inputs;
 }
 
 /// Runs per measurement; decision 10 reports the median of five.
