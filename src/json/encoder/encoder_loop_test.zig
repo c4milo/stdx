@@ -211,6 +211,86 @@ test "the loop leaves to the checked path the characters that blocks of 16 cut a
     }
 }
 
+/// Strings that end a text: of no octet, of three, of 8, of 16 and of 17, which each take a path
+/// of their own, and one with an escape.
+const last_strings = [_][]const u8{ "", "abc", "01234567", "0123456789abcdef", "0123456789abcdefg", "a\"b" };
+
+test "the loop writes a string that ends a text into an output of just its octets, and none into one octet fewer" {
+    for (last_strings) |octets| {
+        for ([_]Framing{ .text, .sequence }) |framing| {
+            const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = octets }};
+            var expected: [text_len_max]u8 = undefined;
+            var whole: Encoder = undefined;
+            whole.init(framing, codec.Features.detect());
+            const expected_len = (try whole.encode_batch_with(with_loop(claims.vector, false), &items, &expected)).written;
+            for ([_]usize{ expected_len, expected_len - 1 }) |room_len| {
+                var encoder: Encoder = undefined;
+                encoder.init(framing, codec.Features.detect());
+                var output: [text_len_max]u8 = undefined;
+                var written: usize = 0;
+                const taken = token_loop.take(&encoder, claims.vector, &items, output[0..room_len], &written);
+                try testing.expectEqual(@intFromBool(room_len == expected_len), taken);
+                try testing.expectEqualSlices(u8, expected[0 .. taken * expected_len], output[0..written]);
+            }
+        }
+    }
+}
+
+test "the loop tells an overlap of an item's octets and the output as codec does, for every two slices of a buffer" {
+    var buffer: [overlap_buffer_len]u8 = undefined;
+    for (0..buffer.len + 1) |octets_start| {
+        for (octets_start..buffer.len + 1) |octets_end| {
+            for (0..buffer.len + 1) |output_start| {
+                for (output_start..buffer.len + 1) |output_end| {
+                    const octets = buffer[octets_start..octets_end];
+                    const output = buffer[output_start..output_end];
+                    try testing.expectEqual(codec.overlap(octets, output), token_loop.overlap(octets, output));
+                }
+            }
+        }
+    }
+}
+
+/// The buffer whose every two slices the overlap test takes: longer than any case of one slice
+/// before, inside, across or after another needs.
+const overlap_buffer_len = 9;
+
+/// Octets a string does not carry as they are, and octets at the edges of the ones it does (RFC
+/// 8259 §7).
+const short_stops = [_]u8{ '\x00', '\x1f', '"', '\\', '\x80', '\xff' };
+const short_plain = [_]u8{ ' ', '!', '#', '[', ']', '\x7f', '/' };
+
+test "a string of up to 16 octets is copied as it is, and told plain when no octet of it stops a string" {
+    for (0..constants.vector_len + 1) |len| {
+        var source: [constants.vector_len]u8 = "0123456789abcdef".*;
+        try expect_short(source[0..len], true);
+        for (0..len) |at| {
+            for (short_stops) |stop| {
+                source[at] = stop;
+                try expect_short(source[0..len], false);
+            }
+            for (short_plain) |plain| {
+                source[at] = plain;
+                try expect_short(source[0..len], true);
+            }
+            source[at] = 'a';
+        }
+    }
+}
+
+/// Requires `copy_plain_short` to copy `source` between two guard octets it leaves alone, and to
+/// tell it plain or not as `plain` says.
+fn expect_short(source: []const u8, plain: bool) !void {
+    const guard = '\xa5';
+    const guards = 2;
+    var storage: [constants.vector_len + guards]u8 = @splat(guard);
+    const destination = storage[1..][0..source.len];
+    try testing.expectEqual(plain, token_loop.copy_plain_short(claims.vector, destination, source));
+    try testing.expectEqualSlices(u8, source, destination);
+    try testing.expectEqual(guard, storage[0]);
+    try testing.expectEqual(guard, storage[source.len + 1]);
+}
+
 /// How a function starts where decision 35 lets a caller turn its runtime safety checks off: with
 /// the caller's field, which a test build and a Debug build override.
 const runtime_safety_call = "@setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);";

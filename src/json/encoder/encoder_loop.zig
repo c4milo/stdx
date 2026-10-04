@@ -39,6 +39,9 @@ const loop_string = @import("encoder_loop_string.zig");
 /// returns how many it wrote.
 pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, output: []u8, written: *usize) usize {
     @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    // The loop's steps are inline, and each kind of item that takes octets instantiates the scans'
+    // and the copies' generic helpers again.
+    @setEvalBranchQuota(constants.token_loop_branch_quota);
     assert(encoder.part == .between_tokens and encoder.pending_len == 0);
     assert(written.* <= output.len);
     var loop: Loop = .{ .encoder = encoder, .output = output, .rest = output[written.*..], .position = encoder.position, .depth = encoder.depth, .sequence = encoder.framing == .sequence };
@@ -119,7 +122,7 @@ const Loop = struct {
     /// overlap, as each call checks its input (decision 11).
     inline fn octets_of(self: *const Loop, comptime claims: Claims, entry: *const Item) []const u8 {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
-        codec.check_entry(entry.octets, self.output);
+        assert(!overlap(entry.octets, self.output));
         return entry.octets;
     }
 
@@ -218,16 +221,61 @@ const Loop = struct {
     inline fn string(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, piece: Piece) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (piece == .more) return false;
-        const run_len = if (claims.encoder_string_vectors) wide.plain_len(self.encoder.level.with(claims), octets) else scan.plain_len_scalar(octets);
         const closing = if (kind == .name) [_]u8{ constants.quotation_mark, constants.name_separator } else [_]u8{constants.quotation_mark};
         const frame = self.frame_of(claims, kind);
-        const content_len = if (run_len == octets.len) octets.len else self.escaped(claims, frame, closing.len, octets) orelse return false;
-        const body = self.open_body(claims, frame, 1 + content_len + closing.len) orelse return false;
-        body[0] = constants.quotation_mark;
-        if (run_len == octets.len) scan.copy(body[1..][0..octets.len], octets);
-        body[body.len - closing.len ..][0..closing.len].* = closing;
-        self.close(claims, kind, frame.ends_text);
+        // A string takes its octets as they are at the least, so an output with no room for those
+        // holds no form of it.
+        const start = @as(usize, @intFromBool(frame.record_separator)) + @intFromBool(frame.value_separator) + 1;
+        const around_len = start + closing.len + @intFromBool(frame.line_feed);
+        if (self.rest.len < around_len or self.rest.len - around_len < octets.len) return false;
+        if (!claims.encoder_string_vectors or octets.len > constants.vector_len) return self.string_long(claims, kind, frame, &closing, start, octets);
+        // At most 16 octets, as most names and strings are: copied where the content goes as they
+        // are scanned, each loaded once. Scanned and then copied, a name or a string of CLDR's
+        // texts loaded its octets twice and chose by its length twice (design §8 step 18).
+        if (copy_plain_short(claims, self.rest[start..][0..octets.len], octets)) {
+            self.write_around(claims, kind, frame, &closing, start, around_len + octets.len);
+            return true;
+        }
+        const content_len = self.escaped(claims, frame, closing.len, octets) orelse return false;
+        self.write_around(claims, kind, frame, &closing, start, around_len + content_len);
         return true;
+    }
+
+    /// `string` for a string of more than 16 octets, and for every string with claim J1 off: its
+    /// plain run scanned, then copied.
+    inline fn string_long(self: *Loop, comptime claims: Claims, comptime kind: Kind, frame: Frame, comptime closing: []const u8, start: usize, octets: []const u8) bool {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        const run_len = if (claims.encoder_string_vectors) wide.plain_len(self.encoder.level.with(claims), octets) else scan.plain_len_scalar(octets);
+        var content_len = octets.len;
+        if (run_len == octets.len) {
+            scan.copy(self.rest[start..][0..octets.len], octets);
+        } else {
+            content_len = self.escaped(claims, frame, closing.len, octets) orelse return false;
+        }
+        self.write_around(claims, kind, frame, closing, start, start + content_len + closing.len + @intFromBool(frame.line_feed));
+        return true;
+    }
+
+    /// Writes what stands around a string's content, which starts `start` octets into the output
+    /// left: the one separator its frame has and its opening quotation mark before it, and at the
+    /// end of the string's `whole_len` octets its `closing` octets and the line feed that ends a
+    /// sequence's text. Then moves the loop and the grammar past the string. The caller checked
+    /// that the output holds them all, so one slice takes them, checked once.
+    inline fn write_around(self: *Loop, comptime claims: Claims, comptime kind: Kind, frame: Frame, comptime closing: []const u8, start: usize, whole_len: usize) void {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        // A record separator starts a text and a value separator follows a value, so a frame has
+        // one of them at most.
+        assert(!(frame.record_separator and frame.value_separator));
+        const whole = self.rest[0..whole_len];
+        if (frame.record_separator) whole[0] = constants.record_separator;
+        if (frame.value_separator) whole[0] = constants.value_separator;
+        whole[start - 1] = constants.quotation_mark;
+        const end = whole[whole_len - closing.len - @intFromBool(frame.line_feed) ..];
+        end[0..closing.len].* = closing[0..closing.len].*;
+        if (frame.line_feed) end[closing.len] = constants.line_feed;
+        self.rest = self.rest[whole_len..];
+        encoder_file.advance_with(&self.position, &self.depth, &self.encoder.containers, kind);
+        assert((self.position == .text_end) == frame.ends_text);
     }
 
     /// Writes the escaped content of a string that is not all plain ASCII where its body's content
@@ -294,3 +342,70 @@ const Loop = struct {
         self.rest = self.rest[octets.len..];
     }
 };
+
+/// `codec.overlap`: true when `octets` and `output` share any octet. An octet of the one stands
+/// inside the other when its start is fewer octets past the other's start than the other holds,
+/// counted with a subtraction that wraps: a slice that starts before the other wraps to more
+/// than any slice holds, and a slice with no octet shares none. The sums of `codec.overlap`, each
+/// checked for overflow, took 14 instructions of every item with octets (design §8 step 18).
+pub inline fn overlap(octets: []const u8, output: []const u8) bool {
+    const octets_start = @intFromPtr(octets.ptr);
+    const output_start = @intFromPtr(output.ptr);
+    const octets_inside = octets.len != 0 and octets_start -% output_start < output.len;
+    const output_inside = output.len != 0 and output_start -% octets_start < octets.len;
+    return octets_inside or output_inside;
+}
+
+/// One for each octet a string carries as it is that is ASCII (`scan.is_plain_ascii`), and zero
+/// for every other: one load answers an octet, where the compares took four branches.
+const plain_ascii = table: {
+    var plain: [std.math.maxInt(u8) + 1]u8 = undefined;
+    for (&plain, 0..) |*entry, octet| entry.* = @intFromBool(scan.is_plain_ascii(octet));
+    break :table plain;
+};
+
+/// The octets of the halves `copy_plain_short` joins below 8 octets.
+const half_word_len = @sizeOf(u32);
+
+/// Copies `source`, of at most 16 octets, into `destination`, of the same length, as `scan.copy`
+/// does, and returns whether every octet is plain ASCII: in two moves of 8 or 4 that overlap and
+/// stay inside both (invariant 6), checked as one block of 16 or 8 lanes; and below 4 octets,
+/// the first, the last and the middle one, which cover them all.
+pub inline fn copy_plain_short(comptime claims: Claims, destination: []u8, source: []const u8) bool {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    const len = source.len;
+    assert(destination.len == len);
+    assert(len <= constants.vector_len);
+    inline for (.{ constants.word_len, half_word_len }) |half| {
+        if (len >= half) {
+            const first: [half]u8 = source[0..half].*;
+            const last: [half]u8 = source[len - half ..][0..half].*;
+            destination[0..half].* = first;
+            destination[len - half ..][0..half].* = last;
+            return !has_stop(halves_joined * half, first ++ last);
+        }
+    }
+    if (len == 0) return true;
+    const first = source[0];
+    const last = source[len - 1];
+    const middle = source[len >> 1];
+    destination[0] = first;
+    destination[len - 1] = last;
+    destination[len >> 1] = middle;
+    return plain_ascii[first] & plain_ascii[last] & plain_ascii[middle] != 0;
+}
+
+/// The halves `copy_plain_short` joins into a block.
+const halves_joined = 2;
+
+/// Whether a lane of `block` holds an octet a string must escape or one that is not ASCII (RFC
+/// 8259 §7): below U+0020 or from 0x80 up, which as a signed octet is below 0x20 too, a quotation
+/// mark or a reverse solidus. The lanes as one integer answer it, with no count of the first.
+inline fn has_stop(comptime width: usize, block: @Vector(width, u8)) bool {
+    const signed: @Vector(width, i8) = @bitCast(block);
+    const outside = signed < @as(@Vector(width, i8), @splat(constants.unescaped_min));
+    const quotation_mark = block == @as(@Vector(width, u8), @splat(constants.quotation_mark));
+    const reverse_solidus = block == @as(@Vector(width, u8), @splat(constants.reverse_solidus));
+    const stops = @select(u8, outside | quotation_mark | reverse_solidus, @as(@Vector(width, u8), @splat(std.math.maxInt(u8))), @as(@Vector(width, u8), @splat(0)));
+    return @as(std.meta.Int(.unsigned, width * @bitSizeOf(u8)), @bitCast(stops)) != 0;
+}

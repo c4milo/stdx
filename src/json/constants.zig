@@ -107,9 +107,9 @@ pub const separator_pair_len = 2;
 /// the loop, before it leaves the rest to its out-of-line copy.
 pub const loop_string_blocks = 2;
 
-/// Comptime's backwards branches for the decoder's token loop, whose inline steps instantiate
-/// scan.zig's generic vector helpers at each place a name or a string starts: ten times the
-/// default of 1,000.
+/// Comptime's backwards branches for the token loops, whose inline steps instantiate scan.zig's
+/// generic vector helpers at each place a name or a string starts: ten times the default of
+/// 1,000.
 pub const token_loop_branch_quota = 10_000;
 
 /// The octets of a string (RFC 8259 §7).
