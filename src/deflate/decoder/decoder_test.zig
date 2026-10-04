@@ -366,6 +366,31 @@ test "long pairs back to back keep the fast path's bit buffer full" {
     try testing.expectEqualSlices(u8, &expected, output[0..progress.written]);
 }
 
+test "a call that fills its output at a block's end leaves its octets in the window" {
+    // A fixed block of four literals, a stored block, and a match that reaches the literals.
+    var stream: Stream = .{};
+    stream.block_header(false, .fixed);
+    for ("abcd") |octet| stream.fixed_literal(octet);
+    stream.fixed_literal(constants.end_of_block);
+    stream.stored(false, "wxyz0123");
+    stream.block_header(true, .fixed);
+    stream.fixed_pair(4, 12);
+    stream.fixed_literal(constants.end_of_block);
+    var buffer: [padded_len_max]u8 = undefined;
+    const input = padded(stream.slice(), &buffer);
+    var output: [output_len_max]u8 = undefined;
+    var decoder = fresh();
+    // Room for the first block alone: the fast path's tail decodes it whole and syncs nothing,
+    // and the stored block finds no room.
+    const first = try deflate.decode(&decoder, input, output[0..4]);
+    try testing.expectEqual(codec.Status.needs_room, first.status);
+    try testing.expectEqual(4, first.written);
+    try testing.expectEqual(4, decoder.window.reach());
+    const second = try deflate.decode(&decoder, input[first.consumed..], output[first.written..]);
+    try testing.expectEqual(codec.Status.done, second.status);
+    try testing.expectEqualSlices(u8, "abcdwxyz0123abcd", output[0 .. first.written + second.written]);
+}
+
 test "a distance of 32,768, the whole window, is in reach without a limit (RFC 1951 section 3.3)" {
     // A stored block of a window's octets, not the last: BFINAL 0 and BTYPE 00, padded to the
     // octet, then LEN and NLEN.

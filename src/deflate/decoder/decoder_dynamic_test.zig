@@ -143,6 +143,52 @@ test "a dynamic block's codes, from lengths that use every repeat symbol" {
     try decoder_test.expect_decodes(stream.slice(), "abcdcdcccccc");
 }
 
+test "the window takes a call's octets unless the call ends the stream (decision 14, S5)" {
+    // A fixed block of four literals, then a dynamic block whose match reaches them.
+    const block = small_block();
+    var stream: Stream = .{};
+    stream.block_header(false, .fixed);
+    for ("abcd") |symbol| stream.fixed_literal(symbol);
+    stream.fixed_literal(constants.end_of_block);
+    const fixed_len = stream.slice().len;
+    block.header(&stream, true);
+    block.literal(&stream, 259); // length 5
+    block.distance(&stream, 1); // distance 2
+    block.literal(&stream, constants.end_of_block);
+    // Padded, so the fast path's margins hold to the stream's end.
+    var input: [test_stream.stream_len_max + header_cut_len + padding_len]u8 = @splat(0);
+    @memcpy(input[0..stream.slice().len], stream.slice());
+    var output: [output_len]u8 = undefined;
+    var decoder: deflate.Decoder = undefined;
+    deflate.init(&decoder, codec.Features.detect());
+    // The first call ends inside the dynamic block's header, past the fixed block's last symbol
+    // by more than a pair's bits, so the fast path decodes that block whole and syncs nothing.
+    const cut = fixed_len + header_cut_len;
+    const first = try deflate.decode(&decoder, input[0..cut], &output);
+    try testing.expectEqual(codec.Progress{ .consumed = cut, .written = 4, .status = .needs_input }, first);
+    // The call's end gave the window its four octets, which the next call's match copies.
+    try testing.expectEqual(4, decoder.window.reach());
+    const second = try deflate.decode(&decoder, input[cut .. stream.slice().len + padding_len], output[first.written..]);
+    try testing.expectEqual(codec.Status.done, second.status);
+    try testing.expectEqualSlices(u8, "abcdcdcdc", output[0 .. first.written + second.written]);
+    // The call that ended the stream copied nothing: no call reads the window after `done`.
+    try testing.expectEqual(4, decoder.window.reach());
+}
+
+/// The octets of a dynamic block's header the test above gives its first call: more than a pair's
+/// bits, and fewer than the header's counts and code length code take.
+const header_cut_len = 8;
+/// The zero octets after that test's stream, and the room it decodes into: more than the fast
+/// path's margins.
+const padding_len = 16;
+const output_len = 512;
+
+comptime {
+    std.debug.assert(header_cut_len * @bitSizeOf(u8) > constants.pair_bits_max);
+    const header_start_bits = constants.final_bits + constants.type_bits + constants.hlit_bits + constants.hdist_bits + constants.hclen_bits;
+    std.debug.assert(header_cut_len * @bitSizeOf(u8) < header_start_bits + constants.code_length_alphabet_len * constants.code_length_code_bits);
+}
+
 test "codes longer than the fast path's tables decode alike, literals, lengths and distances" {
     var stream: Stream = .{};
     long_codes_stream(&stream);
