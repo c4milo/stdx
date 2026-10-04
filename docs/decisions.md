@@ -19,7 +19,8 @@ entry 37 out of design §8 step 18's non-ASCII rows, entry 38 out of the questio
 how fast the check runs alone, entry 39 out of the owner's ruling on the gap entry 38 measured on
 x86-64, entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s request for a
 probe of the CPU, entry 41 out of the owner's ruling once the benchmarks carried a `memset` of
-their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside libdeflate's.
+their own, entry 42 out of design §8 step 9's look at E.coli's parse beside libdeflate's, and
+entry 44 out of the blocks that look counted.
 
 ## Scope and shape
 
@@ -2386,3 +2387,93 @@ their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside
     - The read kept as it was: a tenth of decoding qlog's records and CLDR's texts.
     - The read with no branch a slot, its mismatches gathered into one test: estimated at 8
       instructions a token where the read took 11, and not built.
+
+44. **A lazy level's block ends where its codes stop paying, and may cross a slide of the window.**
+    Ruled by the owner on 2026-10-01, from the comparison of decision 42. It amends what decision
+    14's E3 rested on until now: a block ended before each slide of the window, so that its input
+    stayed in the window and its stored form stayed a choice.
+
+    What the comparison found, on the corpus of decision 15:
+    - libdeflate's blocks ran two to three times as long as stdx's: mr's first MiB in 9 blocks
+      against 31, asyoulik in 2 against 4. Each block pays a header, 0.7% of mr's and x-ray's
+      output against libdeflate's 0.2%.
+    - Longer blocks alone are not the gain. stdx's own parse, cut into blocks at other places and
+      priced with the codes each block would get, came out 0.19% to 0.60% smaller with the best
+      cuts at 1024-symbol marks within the 16,384 symbols a block already holds (mr, lcet10,
+      dickens, x-ray, mozilla), and 0.04% to 0.15% smaller again with 65,536. Cut every 16,384
+      symbols whatever the slides, mr came out 0.62% larger, as its statistics change.
+    - sum, one block of 38 KiB, came out 2.3% smaller as three, where libdeflate cuts it too.
+
+    The rule, at levels 6 and 9 (`Level.block_checks`):
+    - Every `block_chunk_symbols` symbols, 4096, a check prices the block's newest symbols apart
+      from the rest and together with them: each side's entropy from its counts, in eighths of a
+      bit, and a dynamic header estimated at `header_estimate_symbol_bits` a symbol with a code
+      and `header_estimate_bits` more. When apart costs less, the block ends before its newest
+      symbols, and they start the next block.
+    - The newest symbols are checked too where a block would otherwise go on unchecked: at a slide
+      of the window, at a flush and at the stream's end. Fewer than a check's worth must save 1
+      part in `partial_chunk_margin_divisor`, 256, of the price together, as few symbols' entropy
+      undercounts what their codes cost.
+    - At a slide, a block whose fixed code prices below its stored form, or failing that whose
+      plan does, goes on across it. Its symbols before the slide can then only be coded, as their
+      octets leave the window. If the block's end finds the stored form cheapest, those symbols go
+      out alone, coded, as the slide found them cheaper so, and the rest starts the next block. So
+      every block still costs at most its octets stored and a stored block's header.
+    - The match finder's loops and the block writer stay the code they were. A wrapper calls the
+      loops in rounds, and shows each round the window only as far as the lookahead of as many
+      positions as the block takes symbols before its next check: a position decided adds a
+      symbol at most. To the loops a round is a call whose input ended there, which changes no
+      decision (invariant 5). The last positions before a flush or the end, fewer than
+      `lookahead_min`, are decided a step at a time as before, and may pass a check by as many
+      symbols. The checks' state lives in the encoder, outside the block, so the block's fields
+      stay at the offsets the loops and the writer read.
+    - `encoded_len_max` at these levels counts a block for every 4096 octets of input where it
+      counted one for every 16,384, and three for each slide where it counted one: 40 octets more
+      for every 32 KiB of input, 0.17% of the input in all against 0.05%.
+    - The checks' state, the counts of the symbols before the newest and three prices, takes 688
+      octets: level 6's budget goes from 260 to 261 KiB, and level 9's 260 KiB hold it.
+
+    What it gains, the 39 files' geometric mean over libdeflate's output: level 6 1.0041 to
+    1.0016, level 9 1.0122 to 1.0098. sum comes out 2.3% smaller, kennedy.xls 1.5% at level 6,
+    nci, asyoulik and xml 0.5% to 0.6%, and 27 files are smaller at level 6. The largest growth
+    is cp.html's 0.09% at level 6 and E.coli's 0.09% at level 9.
+
+    What it costs. A check takes about 2000 instructions and a block about 58,000 whatever it
+    holds, so a file pays where the checks add blocks and gains where they take blocks away.
+    Callgrind's count of one encode of each file against main, on aarch64: level 6's median is
+    0.07% fewer instructions, from nci's 2.0% fewer to sum's 4.2% more, kennedy.xls 2.6% more and
+    cp.html 2.0%; level 9's is 0.06% fewer, from osdb's 1.3% fewer to E.coli's 4.2% more, its
+    matches priced (decision 42) from blocks that end elsewhere. Runs
+    [37173839885](https://github.com/c4milo/stdx/actions/runs/37173839885) and
+    [37173841351](https://github.com/c4milo/stdx/actions/runs/37173841351) paired the change with
+    its base, whose hot functions start on 64-octet lines (design §8 step 9), on a Neoverse N2 and
+    on an EPYC 7763 and an EPYC 9V74. The medians held: level 6 at 1.002 and 1.001 of its speed
+    on the N2 and 1.000 and 1.004 on the EPYCs, level 9 at 1.000 and 0.997 and at 1.000. The files
+    that ran slower in both runs are files that run more instructions: at level 6 sum at 0.95 on
+    the N2 and 0.95 and 0.87 on the EPYCs, for 2.3% less output, cp.html at 0.96 to 0.97, for
+    0.09% more, and on the N2 kennedy.xls at 0.96, for 1.5% less, and dickens-1m at 0.99; at level
+    9 E.coli at 0.97 on the N2 and 0.98 on the EPYCs, and on the N2 cp.html at 0.98 and sum at
+    0.99. The owner accepted these costs on 2026-10-04.
+
+    Level 1 keeps its blocks, its output, its bound and its 163 KiB. With the checks it came out
+    0.2% smaller at the mean, 1.0570 to 1.0549 of libdeflate's, sum and kennedy.xls 2.1%, and runs
+    [37164372472](https://github.com/c4milo/stdx/actions/runs/37164372472) and 37164373926 put
+    nine files slower in both jobs on the Neoverse N2: text at 0.98 of its speed, kennedy.xls at
+    0.94 and sum at 0.96. A check costs about 2000 instructions and a block about 58,000 whatever
+    it holds, which level 1 spends on fewer octets of work than the lazy levels.
+
+    The alternatives refused:
+    - The checks inside the loops, a bound of positions or a count of symbols tested each turn,
+      and the state inside the block, where it moved the block's symbols 688 octets: the same
+      runs put level 6 at 0.981 of its speed on an EPYC 9V74, 21 files slower in both jobs, while
+      it ran 2% to 7% fewer instructions there. The loops' code had changed, and instruction
+      counts did not predict it.
+    - No check at a slide, on the M1 at level 6 (decision 10): json-1m 2.3% larger and css-1m
+      1.3%, as a block that crosses a slide mixes statistics that change, and kennedy.xls 0.5%.
+    - A check that ends a block only once it holds 4096 symbols: json-1m and css-1m 1% larger.
+    - A margin on every check, 1 part in 32 to 128 of the price: sum's gain and json-1m's lost.
+    - 6 or 7 header bits a symbol: sum 1.7% smaller where 5 bits give 2.3%.
+    - No margin on a check of few symbols: dickens 0.10% smaller where the margin gives 0.22%, and
+      asyoulik 0.37% where it gives 0.57%.
+    - 32,768 or 65,536 symbols a block, 64 or 192 KiB more state: 0.02% to 0.15% in the best
+      cuts' count.
