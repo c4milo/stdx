@@ -11,6 +11,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const Stream = @import("decoder_test.zig").Stream;
+const fast_lengths = @import("../fast/fast_lengths.zig");
 
 /// The minimal blocks of the first worst case, the one-bit literals of the second, and the
 /// literals that end the stream decoded an octet at a time.
@@ -21,6 +22,7 @@ const split_literals = 1024;
 /// The code lengths the code length code gives a length: 1 for symbol 1 and for symbol 18, which
 /// writes 11 to 138 zeros, and none for the rest. HCLEN covers `code_length_order` up to symbol 1.
 const code_length_count = 18;
+const code_length_codes = 2;
 const zeros_symbol = constants.repeat_zero_long;
 const zeros_extra_bits = constants.repeat_extra_bits[zeros_symbol - constants.repeat_previous];
 const zeros_min = constants.repeat_count_min[zeros_symbol - constants.repeat_previous];
@@ -88,7 +90,10 @@ fn minimal_block(stream: *Stream, last: bool, shape: Shape, literal_count: usize
     const literal_length_codes = 2;
     const literal_length_table_work = table_entries + literal_length_codes;
     const distance_table_work: u64 = table_entries + @as(u64, @intFromBool(rest == 1));
-    return constants.code_lengths_len + code_length_count + constants.build_work_max(constants.code_length_alphabet_len) +
+    // The code lengths' loop asks for the code length code's table, every entry and a write for
+    // each of its two codes, and for that code's lengths cleared again (decision 14, S13).
+    const code_length_table_work = fast_lengths.Table.len + code_length_codes + constants.code_length_alphabet_len;
+    return constants.code_lengths_len + code_length_count + constants.build_work_max(constants.code_length_alphabet_len) + code_length_table_work +
         code_length_symbols + literal_length_count + distance_count + constants.build_work_max(literal_length_count) +
         constants.build_work_max(distance_count) + literal_length_table_work + distance_table_work + literal_count + 1;
 }

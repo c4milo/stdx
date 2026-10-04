@@ -493,6 +493,7 @@ pub inline fn count_symbol(loop: *Loop, how: How) void {
 test {
     _ = @import("fast_copy.zig");
     _ = @import("fast_step.zig");
+    _ = @import("fast_lengths.zig");
     _ = @import("fast_aarch64.zig");
     _ = @import("fast_x86_64.zig");
     _ = @import("fast_test.zig");
