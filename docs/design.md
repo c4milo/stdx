@@ -3194,6 +3194,31 @@ to 12 are reordered and nothing else changes.
   string on the EPYC by 4.4% and 2.1%: the encoder runs no function that differs between the two
   commits.
 
+  **The walk's counters, 2026-10-03.** bench-profile run
+  [37166112829](https://github.com/c4milo/stdx/actions/runs/37166112829), on main at b631bc5,
+  counted a decoded token with the N2's hardware counters, beside simdjson 4.6.11 and yyjson
+  0.13.0 in the same job:
+
+  | Decoding, a token | Cycles | Instructions | Branch misses | Instructions a cycle |
+  |---|---|---|---|---|
+  | CLDR's texts, stdx | 25.3 | 74.1 | 0.120 | 2.93 |
+  | CLDR's texts, simdjson | 31.2 | 109.0 | 0.097 | 3.50 |
+  | CLDR's texts, yyjson | 27.8 | 107.1 | 0.294 | 3.85 |
+  | qlog's records, stdx | 27.3 | 89.6 | 0.004 | 3.29 |
+  | qlog's records, simdjson | 29.2 | 108.7 | 0.028 | 3.73 |
+  | qlog's records, yyjson | 27.7 | 106.7 | 0.049 | 3.85 |
+
+  callgrind had counted 75.6 and 91.7 instructions a token on aarch64. stdx takes 68% to 84% of
+  the baselines' instructions and runs fewer of them a cycle; no counter in the run says where its
+  cycles wait. The x86-64 job drew an Intel Xeon 6973P-C, which refused the counters.
+
+  bench-json run [37166300124](https://github.com/c4milo/stdx/actions/runs/37166300124), on main
+  at b631bc5, drew an AMD EPYC 9V74, a CPU with AVX-512, which neither paired run had drawn. stdx
+  decoded CLDR's texts at 1.012 of simdjson's speed and 1.085 of yyjson's, and qlog's records at
+  1.104 and 1.016. Its report lists three losses past decision 20's noise floor: reymont as a
+  string decoded at 0.722 of simdjson's speed, and json-1m as a string decoded at 0.714 of
+  yyjson's and encoded at 0.862.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
