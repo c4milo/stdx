@@ -53,13 +53,19 @@ pub const Looks = struct {
     /// fewer, the handover cost more than it gave, and the next stretch is twice as long, as it
     /// is after a stretch whose escapes came far apart: a text of `\u` escapes looks dense at
     /// every look and holds nothing for the blocks.
+    ///
+    /// A build with no lookup holds no blocks, and none of their code: `has_blocks` keeps the
+    /// walk from looking there, and a look is then a count alone, which a test may still take.
+    /// Zig's own x86-64 backend cannot build the blocks for the baseline (design §8 step 18).
     pub fn look(self: *Looks, left: *Left, input_len: usize, output_len: usize) void {
-        if (dense(input_len, output_len)) {
-            const before_len = left.input.len;
-            escape_blocks.take(left, left.input);
-            if (before_len - left.input.len >= constants.escape_useful_len_min) {
-                self.len = constants.escape_look_len_min;
-                return;
+        if (comptime escape_blocks.available) {
+            if (dense(input_len, output_len)) {
+                const before_len = left.input.len;
+                escape_blocks.take(left, left.input);
+                if (before_len - left.input.len >= constants.escape_useful_len_min) {
+                    self.len = constants.escape_look_len_min;
+                    return;
+                }
             }
         }
         self.len = @min(self.len + self.len, constants.escape_look_len_max);
