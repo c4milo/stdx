@@ -2422,6 +2422,12 @@ to 12 are reordered and nothing else changes.
     The reports in `bench/results/`, dated 2026-10-04, "main", are the first run's and the sixth
     job's. Over the day a js-1k decode fell from 51,939 to 48,397 instructions under callgrind on
     aarch64.
+  - Ruled by the owner on 2026-10-04, on the ten reports above: the decoder's speed goal, every
+    corpus file above Google's decoder on the hosted runners
+    ([issue 6](https://github.com/c4milo/stdx/issues/6)), is met, and its speed work stops here.
+    js-1k on the EPYC 9V74 holds the thinnest margin. The Xeon 8573C, 8370C and 6973P-C were last
+    measured in the pairs of the entries above, each before main held all five changes, with no file
+    below Google's speed.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
