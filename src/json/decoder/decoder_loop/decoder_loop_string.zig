@@ -128,8 +128,9 @@ inline fn take_escape(comptime claims: Claims, walk: *Walk) bool {
 }
 
 /// `take_escape` for an escape of `u`, of at least its two first octets, with room for an octet.
-/// Inline on aarch64, as are the functions it calls: out of line, each escape paid a call and
-/// returned what it took through memory, about a third of decoding a text of `\u` escapes.
+/// With claim J12 off it is inline, as are the functions it calls: out of line, each escape paid
+/// a call and returned what it took through memory, about a third of decoding a text of `\u`
+/// escapes. With the claim on, one call takes a text of them (`unicode_call`).
 inline fn take_unicode(comptime claims: Claims, walk: *Walk) bool {
     const escape = @call(unicode_call(claims), unescape_unicode, .{ claims, walk.input, walk.output }) orelse return false;
     walk.take(escape.input_len, escape.output_len);
@@ -283,12 +284,14 @@ inline fn unicode_text(escape: []const u8, room: []u8, taken: Copied) Copied {
     return .{ .input_len = escape.len - rest.len, .output_len = room.len - space.len };
 }
 
-/// How `unescape` calls `unescape_unicode`: out of line on x86-64 with claim J12, where claim J12's
-/// loop inlined into `copy_rest` kept the letter escapes' path in memory, and json-1m as a string,
-/// all escapes of a letter, decoded 5% and 9% slower on an AMD EPYC 9V74 and 7763 (design §8 step
-/// 18). aarch64's registers hold both, and it stays inline there, as it does with J12 off.
+/// How `take_unicode` calls `unescape_unicode`: out of line with claim J12, and inline with it
+/// off. Inlined into `copy_rest`, claim J12's loop kept the letter escapes' path in memory on
+/// x86-64: json-1m as a string, all escapes of a letter, decoded 5% and 9% slower on an AMD EPYC
+/// 9V74 and 7763. On aarch64 the registers held both, but the loop's constants were set again
+/// at every stop of the walk's blocks, four to eight instructions a stop in every string (design
+/// §8 step 18).
 fn unicode_call(comptime claims: Claims) std.builtin.CallModifier {
-    return if (claims.decoder_escape_words and builtin.cpu.arch == .x86_64) .never_inline else .always_inline;
+    return if (claims.decoder_escape_words) .never_inline else .always_inline;
 }
 
 /// True for an ASCII octet a string carries as it is: from U+0020 up, but the quotation mark and
