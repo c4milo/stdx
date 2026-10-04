@@ -117,17 +117,17 @@ pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, r
 inline fn take_escape(comptime claims: Claims, walk: *Walk) bool {
     assert(walk.input[0] == constants.reverse_solidus);
     if (walk.input.len < letter_escape_len or walk.output.len == 0) return false;
-    // `u` first, as before: tested after the table's load, a text of `\u` escapes paid the load
-    // at each run of them.
-    if (walk.input[1] == constants.escape_unicode) return take_unicode(claims, walk);
+    // The table holds zero for `u` and for every octet that starts no escape, which
+    // `unescape_unicode` tells apart: tested for `u` first, each letter paid the test.
     const character = letter_characters[walk.input[1]];
-    if (character == 0) return false;
+    if (character == 0) return take_unicode(claims, walk);
     walk.output[0] = character;
     walk.take(letter_escape_len, 1);
     return true;
 }
 
-/// `take_escape` for an escape of `u`, of at least its two first octets, with room for an octet.
+/// `take_escape` for an escape of no letter, of at least its two first octets, with room for an
+/// octet: an escape of `u`, or one the checked path refuses.
 /// With claim J12 off it is inline, as are the functions it calls: out of line, each escape paid
 /// a call and returned what it took through memory, about a third of decoding a text of `\u`
 /// escapes. With the claim on, one call takes a text of them (`unicode_call`).
