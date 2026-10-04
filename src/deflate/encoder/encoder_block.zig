@@ -274,23 +274,52 @@ const CodedBits = struct {
 };
 
 /// The bits of a block's symbols and end-of-block under two codes at once, with their extra bits
-/// (RFC 1951 §3.2.5): one pass over the counts prices both the fixed and the dynamic code.
+/// (RFC 1951 §3.2.5): the fixed code and the dynamic. A block holds at most `block_symbols_max`
+/// symbols and end-of-block, each `pair_bits_max` bits at most, so no sum wraps, and they add
+/// without an overflow check.
 fn coded_bits(block: *const Block, fixed_lengths: []const u8, fixed_distance_lengths: []const u8, lengths: []const u8, distance_lengths: []const u8) CodedBits {
-    var fixed: u64 = 0;
-    var dynamic: u64 = 0;
-    for (block.literal_length_counts, fixed_lengths, lengths) |count, fixed_len, len| {
-        fixed += @as(u64, count) * fixed_len;
-        dynamic += @as(u64, count) * len;
-    }
-    var extra: u64 = 0;
+    var fixed = weigh(&block.literal_length_counts, fixed_lengths);
+    var dynamic = weigh(&block.literal_length_counts, lengths);
+    var extra: u32 = 0;
     for (block.literal_length_counts[constants.first_length_symbol..], constants.length_extra_bits) |count, extra_bits| {
-        extra += @as(u64, count) * extra_bits;
+        extra +%= @as(u32, count) *% extra_bits;
     }
     for (block.distance_counts, fixed_distance_lengths, distance_lengths, constants.distance_extra_bits) |count, fixed_len, len, extra_bits| {
-        fixed += @as(u64, count) * (fixed_len + extra_bits);
-        dynamic += @as(u64, count) * (len + extra_bits);
+        fixed +%= @as(u32, count) *% (@as(u32, fixed_len) + extra_bits);
+        dynamic +%= @as(u32, count) *% (@as(u32, len) + extra_bits);
     }
-    return .{ .fixed = fixed + extra, .dynamic = dynamic + extra };
+    return .{ .fixed = fixed +% extra, .dynamic = dynamic +% extra };
+}
+
+/// The counts one vector op of `weigh` takes.
+const weigh_vector_len = 16;
+
+/// What the mask of `weigh` leaves of a count.
+const count_mask = std.math.maxInt(i16);
+
+comptime {
+    assert((constants.block_symbols_max + 1) * @as(u64, constants.pair_bits_max) <= std.math.maxInt(u32));
+    assert(constants.block_symbols_max + 1 <= count_mask);
+}
+
+/// The sum of each literal/length count times its code's length, `weigh_vector_len` counts at a
+/// time: Zig 0.16 turns no loop into vector code, so the vectors are written out.
+fn weigh(counts: *const [constants.literal_length_used]u16, lengths: []const u8) align(constants.hot_function_alignment) u32 {
+    assert(lengths.len == counts.len);
+    const Counts = @Vector(weigh_vector_len, u16);
+    const Products = @Vector(weigh_vector_len, u32);
+    var sums: Products = @splat(0);
+    var index: usize = 0;
+    while (index + weigh_vector_len <= counts.len) : (index += weigh_vector_len) {
+        // The mask changes no count. It tells the compiler that both factors fit 15 bits, which
+        // x86-64 multiplies and adds in pairs with one instruction.
+        const bounded = @as(Counts, counts[index..][0..weigh_vector_len].*) & @as(Counts, @splat(count_mask));
+        const len: @Vector(weigh_vector_len, u8) = lengths[index..][0..weigh_vector_len].*;
+        sums +%= @as(Products, bounded) *% @as(Products, len);
+    }
+    var sum: u32 = @reduce(.Add, sums);
+    for (counts[index..], lengths[index..]) |count, len| sum +%= @as(u32, count) *% len;
+    return sum;
 }
 
 /// Plans `block`, final or not, to start `bit_position` bits into an octet: its dynamic code, then
