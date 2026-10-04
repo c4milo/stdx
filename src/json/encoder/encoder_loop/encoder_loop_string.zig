@@ -13,7 +13,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
-const scan = @import("../../scan.zig");
 const wide = @import("../../wide.zig");
 const claims_file = @import("../../claims.zig");
 const Claims = claims_file.Claims;
@@ -26,15 +25,31 @@ const Walk = string_walk.Walk;
 const letter_escape_len = 2;
 const control_escape_len = constants.control_escape_prefix.len + constants.hex_digits_per_octet;
 
-/// The escape letter of each control character that has one, or null. A quotation mark's and a
-/// reverse solidus's letters are themselves.
+/// What `escape_letters` holds for a control character with no letter of its own, which a string
+/// writes as `\u00` and two digits. It is the value next to zero, which no letter has, so that
+/// one compare tells both from a letter.
+const control_mark = 1;
+
+/// For each octet a string must escape (RFC 8259 §7), the letter of its two-character escape: a
+/// quotation mark's and a reverse solidus's are themselves. For a control character with none,
+/// `control_mark`. For every other octet zero, so that one load says whether an octet is escaped
+/// and how: a test of each class, then a table of optionals for the control characters' letters,
+/// took five to eight instructions an escape more (design §8 step 18).
 const escape_letters = table: {
-    var letters: [constants.unescaped_min]?u8 = @splat(null);
+    var letters: [std.math.maxInt(u8) + 1]u8 = @splat(0);
+    for (0..constants.unescaped_min) |control| letters[control] = control_mark;
     for (constants.escape_letters, constants.escaped_characters) |letter, character| {
         if (character < constants.unescaped_min) letters[character] = letter;
     }
+    letters[constants.quotation_mark] = constants.quotation_mark;
+    letters[constants.reverse_solidus] = constants.reverse_solidus;
     break :table letters;
 };
+
+comptime {
+    // Every letter is above the mark, so the mark alone names an escape of `\u00` and two digits.
+    for (constants.escape_letters) |letter| assert(letter > control_mark);
+}
 
 /// What the variant object's `copy_escaped` returns for a string left to the checked path: more
 /// than any room holds.
@@ -77,36 +92,41 @@ pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const 
         // An octet to escape that follows an escaped one is taken at once, with no block walked to
         // find it: a text of lines that end in a carriage return and a line feed has two at each
         // line's end.
-        if (walk.input.len == 0 or !escapes(walk.input[0])) {
+        if (walk.input.len == 0 or escape_letters[walk.input[0]] == 0) {
             if (!walk.take_to_stop(claims, two_loops, level, octets, room)) return null;
             if (walk.input.len == 0) return room.len - walk.output.len;
         }
-        const octet = walk.input[0];
-        // A character UTF-8 rules out or the string cuts, or an octet the room stopped.
-        if (!escapes(octet)) return null;
-        walk.take(1, escape(claims, octet, walk.output) orelse return null);
+        if (!take_escaped(claims, &walk)) return null;
     }
     unreachable;
 }
 
-/// Whether a string must escape `octet`: a quotation mark, a reverse solidus or a control character
-/// (RFC 8259 §7).
-inline fn escapes(octet: u8) bool {
-    return octet < constants.non_ascii_min and !scan.is_plain_ascii(octet);
+/// Writes the escape of the octet the walk stands at and moves the walk past both, and returns
+/// true. Returns false, with nothing written, where the checked path must take the string: at a
+/// character UTF-8 rules out or the string cuts, at an octet the room stopped, and where the
+/// room is too short for the escape.
+inline fn take_escaped(comptime claims: Claims, walk: *Walk) bool {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    const letter = escape_letters[walk.input[0]];
+    if (letter <= control_mark) {
+        if (letter == 0) return false;
+        walk.take(1, escape_control(claims, walk.input[0], walk.output) orelse return false);
+        return true;
+    }
+    // A letter's escape is two octets, tested before the walk moves, so the move checks nothing.
+    if (walk.output.len < letter_escape_len) return false;
+    walk.output[0..letter_escape_len].* = .{ constants.reverse_solidus, letter };
+    walk.take(1, letter_escape_len);
+    return true;
 }
 
-/// Writes the escape of `octet`, a quotation mark, a reverse solidus or a control character (RFC
-/// 8259 §7), at the start of `room`: its two-character form where it has one, and else `\u00` and
-/// two lowercase digits. Returns its length, or null when `room` is too short for it.
-fn escape(comptime claims: Claims, octet: u8, room: []u8) ?usize {
+/// Writes the escape of `octet`, a control character with no letter of its own (RFC 8259 §7), at
+/// the start of `room`: `\u00` and two lowercase digits. Returns its length, or null when `room`
+/// is too short for it.
+fn escape_control(comptime claims: Claims, octet: u8, room: []u8) ?usize {
     @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
-    assert(octet < constants.unescaped_min or octet == constants.quotation_mark or octet == constants.reverse_solidus);
-    const letter = if (octet < constants.unescaped_min) escape_letters[octet] else octet;
-    if (letter) |named| {
-        if (room.len < letter_escape_len) return null;
-        room[0..letter_escape_len].* = .{ constants.reverse_solidus, named };
-        return letter_escape_len;
-    }
+    assert(octet < constants.unescaped_min);
+    assert(escape_letters[octet] == control_mark);
     if (room.len < control_escape_len) return null;
     room[0..constants.control_escape_prefix.len].* = constants.control_escape_prefix.*;
     room[constants.control_escape_prefix.len..][0..constants.hex_digits_per_octet].* = .{
