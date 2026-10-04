@@ -14,6 +14,13 @@ const low_bits = decoder_module.low_bits;
 const Claims = @import("../claims.zig").Claims;
 const huffman = @import("../huffman.zig");
 const lookup = @import("../lookup.zig");
+const fast_lengths = @import("../fast/fast_lengths.zig");
+
+/// Whether a decode on `options` reads a header's lengths through the loops of fast_lengths.zig
+/// (decision 14, S13).
+fn loops_lengths(comptime options: decoder_module.Options) bool {
+    return options.fast_paths and options.claims.code_lengths_loop;
+}
 
 /// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills.
 pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
@@ -32,9 +39,13 @@ pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec
 }
 
 /// Reads one 3-bit code length of the code length alphabet, or builds that code after the last.
-pub fn read_code_length_code(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+/// The loop of fast_lengths.zig reads the lengths first, while the input's margin holds.
+pub fn read_code_length_code(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+    const loops = comptime loops_lengths(options);
+    if (loops) count_work(decoder, fast_lengths.read_code_length_code(&decoder.lengths, &decoder.header_index, decoder.code_length_count, bits));
     if (decoder.header_index == decoder.code_length_count) {
         try decoder.code_length_code.build(decoder.lengths[0..constants.code_length_alphabet_len], .complete, &decoder.work);
+        if (loops) prepare_lengths_loop(decoder);
         decoder.header_index = 0;
         decoder.phase = .code_lengths;
         return null;
@@ -46,10 +57,21 @@ pub fn read_code_length_code(decoder: *Decoder, bits: *codec.BitReader) Error!?c
     return null;
 }
 
+/// What the code lengths' loop needs once the code length code is built: that code as a lookup
+/// table, and its own lengths cleared, since the loop writes nothing for a run of zeros and so
+/// needs every length ahead of it to be zero.
+fn prepare_lengths_loop(decoder: *Decoder) void {
+    count_work(decoder, decoder.code_length_table.build(&decoder.code_length_code));
+    decoder.lengths[0..constants.code_length_alphabet_len].* = @splat(0);
+    count_work(decoder, constants.code_length_alphabet_len);
+}
+
 /// Reads the code length symbols, with their repeats' extra bits, while the input holds them, then
-/// builds the block's codes after the last length, its tables in the shape `options` gives.
+/// builds the block's codes after the last length, its tables in the shape `options` gives. The
+/// loop of fast_lengths.zig reads the symbols first, while the input's margin holds.
 pub fn read_code_lengths(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const total = decoder.literal_length_count + decoder.distance_count;
+    if (comptime loops_lengths(options)) count_work(decoder, fast_lengths.read(&decoder.code_length_table, &decoder.lengths, &decoder.header_index, total, bits));
     // Each symbol writes at least one length.
     for (0..total - decoder.header_index) |_| {
         if (decoder.header_index == total) break;

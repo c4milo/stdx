@@ -21,7 +21,8 @@
 //!
 //! Decision 16 lets the fast paths it names leave the checked reader and writer. Each lives in a
 //! file of its own, which this rule does not read: `src/deflate/fast/fast.zig`, the DEFLATE
-//! symbol loop and match copy of design §8 step 7, `src/zstd/fast_sequences/fast_sequences.zig`,
+//! symbol loop and match copy of design §8 step 7, `src/deflate/fast/fast_lengths.zig`, a dynamic
+//! block's code lengths of that step, `src/zstd/fast_sequences/fast_sequences.zig`,
 //! `src/zstd/fast_literals.zig` and `src/zstd/fast_reader.zig`, the Zstandard sequence execution,
 //! literal decoding and backward stream of step 11, and the files of `src/brotli/decoder/decoder_fast/`
 //! but its test, the brotli command loop, its literal runs, its copies and the header's code
@@ -59,6 +60,7 @@ pub const scope: Scope = .{
         "src/codec/bit_reader.zig",
         // Decision 16's fast paths.
         "src/deflate/fast/fast.zig",
+        "src/deflate/fast/fast_lengths.zig",
         "src/zstd/fast_sequences/fast_sequences.zig",
         "src/zstd/fast_literals.zig",
         "src/zstd/fast_reader.zig",

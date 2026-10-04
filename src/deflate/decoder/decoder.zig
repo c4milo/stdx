@@ -16,6 +16,7 @@ const constants = @import("../constants.zig");
 const huffman = @import("../huffman.zig");
 const lookup = @import("../lookup.zig");
 const fast = @import("../fast/fast.zig");
+const fast_lengths = @import("../fast/fast_lengths.zig");
 const header = @import("decoder_header.zig");
 const Claims = @import("../claims.zig").Claims;
 const options_module = @import("../options.zig");
@@ -87,8 +88,10 @@ pub const Decoder = struct {
     distance_count: u16,
     code_length_count: u16,
     header_index: u16,
-    lengths: [constants.literal_length_alphabet_len + constants.distance_alphabet_len]u8,
+    lengths: fast_lengths.Lengths,
     code_length_code: huffman.Code(constants.code_length_alphabet_len),
+    /// The code length code as the lookup table the code lengths' loop reads (decision 14, S13).
+    code_length_table: fast_lengths.Table,
     literal_length_code: huffman.Code(constants.literal_length_alphabet_len),
     distance_code: huffman.Code(constants.distance_alphabet_len),
     /// The dynamic block's codes as the fast path's lookup tables (decision 14, S2).
@@ -219,7 +222,7 @@ fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, wr
         .stored_header => try read_stored_header(decoder, bits),
         .stored_copy => copy_stored(options.claims, decoder, bits, writer),
         .table_counts => try header.read_table_counts(decoder, bits),
-        .code_length_code => try header.read_code_length_code(decoder, bits),
+        .code_length_code => try header.read_code_length_code(options, decoder, bits),
         .code_lengths => try header.read_code_lengths(options, decoder, bits),
         .symbols => if (options.fast_paths) try read_symbols_fast(options, decoder, bits, writer, lookups) else try read_symbol(options, decoder, bits, writer, lookups),
         .copy => copy_match(decoder, writer),

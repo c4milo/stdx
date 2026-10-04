@@ -108,6 +108,17 @@ pub fn table_build_work_max(table_bits: u4, symbols: usize) usize {
     return (@as(usize, 1) << table_bits) + symbols;
 }
 
+/// The bits the fast path's table takes of a code of the code length code (decision 14, S13): that
+/// code's longest, so one lookup decodes every code length symbol.
+pub const code_length_table_bits = code_length_code_len_max;
+
+/// The most bits one code length symbol takes on the fast path, its code and a repeat's extra bits
+/// (RFC 1951 §3.2.7): what the code lengths' loop holds in its buffer before each symbol.
+pub const code_length_symbol_bits: u7 = code_length_code_len_max + std.mem.max(u7, &repeat_extra_bits);
+
+/// Invariant 17's count for the build of the code length code's table, at most.
+pub const code_length_table_work_max = table_build_work_max(code_length_table_bits, code_length_alphabet_len);
+
 /// Invariant 17's count for one code build, at most: the build reads each code length twice, to
 /// count the lengths and to place the symbols, and writes at most one symbol per length. It also
 /// makes five passes over its counts, one entry per code length value: it clears them, checks them
@@ -154,11 +165,13 @@ pub const combine_input_min = 16384;
 pub const code_lengths_len = literal_length_alphabet_len + distance_alphabet_len;
 
 /// Invariant 17's count for one dynamic block's header, at most: every code length cleared, each
-/// of the code length code's written, each of the block's written, the three codes built, and the
+/// of the code length code's written, each of the block's written, the three codes built, the code
+/// length code's table and its lengths cleared again for the code lengths' loop (S13), and the
 /// fast path's two lookup tables.
 pub const block_table_work_max = code_lengths_len + code_length_alphabet_len +
     (literal_length_used + distance_alphabet_len) + build_work_max(code_length_alphabet_len) +
     build_work_max(literal_length_used) + build_work_max(distance_alphabet_len) +
+    code_length_table_work_max + code_length_alphabet_len +
     table_build_work_max(literal_length_table_bits, literal_length_used) +
     table_build_work_max(distance_table_bits, distance_alphabet_len);
 
@@ -448,6 +461,10 @@ comptime {
     assert(block_chunk_symbols < block_symbols_max and block_symbols_max % block_chunk_symbols == 0);
     assert(code_length_symbols_min == 2);
     assert(dynamic_block_bits_min == 32);
+    // A length of the code length code takes 3 bits, so its codes take 7 at most (RFC 1951 §3.2.7),
+    // and a symbol with a repeat's 7 extra bits 14.
+    assert(code_length_code_len_max == (1 << code_length_code_bits) - 1);
+    assert(code_length_symbol_bits == 14);
     for (repeat_extra_bits, repeat_count_min, repeat_count_max) |extra, min, max| {
         assert(max == min + (1 << extra) - 1);
     }
