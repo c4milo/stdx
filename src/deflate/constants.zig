@@ -216,6 +216,14 @@ comptime {
     assert(std.math.maxInt(u16) + match_len_max <= array_len);
 }
 
+/// The alignment of the encoder's hot functions: a 64-octet line, so that a function's loops sit
+/// where its own code puts them, and not where the functions before it end, which every change to
+/// them moves. Decision 44's checks changed no instruction of the match finder's loops and started
+/// three of them 16 or 32 octets into the lines main starts them on: an EPYC 7763 ran five files
+/// 1.3% to 5% slower at level 1, whose output was main's, in both runs (37168945298 and
+/// 37168947275), and none once the functions started on lines (37173839885).
+pub const hot_function_alignment = 64;
+
 /// The octets the encoder's hash reads at a position (decision 14, E1).
 pub const hash_len = 4;
 

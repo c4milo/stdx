@@ -89,7 +89,7 @@ const Walk = struct {
 /// `candidates_max` earlier positions with its hash, the nearest first, up to `len_max` octets; a
 /// search ends early at `nice_len`. When the match waiting from the position before is
 /// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`.
-pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) align(constants.hot_function_alignment) Match {
     return best_inline(level, cheap, self, len_max, previous_len);
 }
 

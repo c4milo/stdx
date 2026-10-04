@@ -295,7 +295,7 @@ fn coded_bits(block: *const Block, fixed_lengths: []const u8, fixed_distance_len
 
 /// Plans `block`, final or not, to start `bit_position` bits into an octet: its dynamic code, then
 /// the cheapest of the three types by exact size.
-pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) void {
+pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) align(constants.hot_function_alignment) void {
     assert(block.literal_length_counts[constants.end_of_block] == 1);
     result.final = final;
     if (block.symbol_count == 0) return plan_empty(bit_position, result);

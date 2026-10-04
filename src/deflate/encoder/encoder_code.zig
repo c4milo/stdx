@@ -94,7 +94,7 @@ fn huffman_lengths(comptime n: usize, counts: *const [n]u16, order: []const u16,
 /// The first pass: joined node `next` takes slot `next`, and holds its weight until a later node
 /// joins it, which then leaves its parent's slot there. Leaves come from `leaf` on and joined
 /// nodes from `root` on, the lighter first and a leaf on a tie.
-fn join_in_place(nodes: []u32) void {
+fn join_in_place(nodes: []u32) align(constants.hot_function_alignment) void {
     const count = nodes.len;
     nodes[0] += nodes[1];
     var root: usize = 0;
@@ -123,7 +123,7 @@ fn join_in_place(nodes: []u32) void {
 }
 
 /// The second pass: each joined node's depth from its parent's, the root, the last, at 0.
-fn depths_in_place(nodes: []u32) void {
+fn depths_in_place(nodes: []u32) align(constants.hot_function_alignment) void {
     const count = nodes.len;
     var next = count - tree_arity;
     nodes[next] = 0;
@@ -136,7 +136,7 @@ fn depths_in_place(nodes: []u32) void {
 
 /// The third pass: at each depth from the root down, the nodes there that are not joined nodes are
 /// leaves, which take their depth from the heaviest slot down.
-fn leaf_depths_in_place(nodes: []u32) void {
+fn leaf_depths_in_place(nodes: []u32) align(constants.hot_function_alignment) void {
     const count = nodes.len;
     // Joined nodes not yet counted, from the root down, and the next leaf slot, from the end.
     var joined_left: usize = count - 1;
@@ -246,7 +246,7 @@ const insertion_sort_alphabet_len_max = constants.distance_used;
 
 /// `sort_by_weight` by insertion, on a key of each symbol's weight above its number: the same
 /// order, lightest first and by symbol among equals.
-fn insertion_sort_by_weight(counts: []const u16, from: []const u16, to: []u16) void {
+fn insertion_sort_by_weight(counts: []const u16, from: []const u16, to: []u16) align(constants.hot_function_alignment) void {
     assert(from.len == to.len);
     for (from, 0..) |symbol, index| {
         const key = sort_key(counts, symbol);
@@ -267,7 +267,7 @@ inline fn sort_key(counts: []const u16, symbol: u16) u32 {
 
 /// One stable counting pass over `bucket_count` buckets: writes `from` into `to` ordered by the
 /// octet of each symbol's weight `shift` bits up, equals in their order.
-fn counting_pass(counts: []const u16, from: []const u16, to: []u16, shift: u4, bucket_count: usize) void {
+fn counting_pass(counts: []const u16, from: []const u16, to: []u16, shift: u4, bucket_count: usize) align(constants.hot_function_alignment) void {
     assert(from.len == to.len and bucket_count <= pass_buckets);
     var starts: [pass_buckets]u16 = undefined;
     @memset(starts[0..bucket_count], 0);
@@ -337,7 +337,7 @@ pub fn build_codes(lengths: []const u8, codes: []u16) void {
 /// `build_codes` for the symbols of `listed`, in increasing order, which are every symbol with a
 /// length; every other code is set to 0. A code is built only for a symbol the block uses, and no
 /// branch asks which those are.
-pub fn build_codes_listed(lengths: []const u8, listed: []const u16, codes: []u16) void {
+pub fn build_codes_listed(lengths: []const u8, listed: []const u16, codes: []u16) align(constants.hot_function_alignment) void {
     assert(lengths.len == codes.len and listed.len <= lengths.len);
     @memset(codes, 0);
     var counts: [constants.code_len_max + 1]u16 = @splat(0);
@@ -418,7 +418,7 @@ const Runs = struct {
 };
 
 /// Writes a run of `run` lengths `len` as items, and returns how many.
-fn run_items(len: u8, run: usize, items: []Item) usize {
+fn run_items(len: u8, run: usize, items: []Item) align(constants.hot_function_alignment) usize {
     var left = run;
     var count: usize = 0;
     if (len != 0) {

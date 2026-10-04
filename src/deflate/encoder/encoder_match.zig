@@ -176,7 +176,7 @@ fn slide_positions(positions: []u16, half: u16) void {
 /// `ending`, until the block is full: the positions with the whole lookahead in their loop first,
 /// then the rest a step at a time. Each step adds at most one symbol and moves on a position or
 /// more. `cheap` compiles in the prices of decision 42, `costs`.
-fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) void {
+fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
     if (level.chains) advance_lazy(level, cheap, self, block, costs) else advance_greedy(level, self, block);
     for (0..self.filled + 1) |_| {
         if (block.full()) return;
@@ -392,7 +392,7 @@ fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Match
 }
 
 /// Adds the waiting position's symbol, and moves past what it covers.
-fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: *Block) void {
+fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: *Block) align(constants.hot_function_alignment) void {
     assert(self.waiting);
     self.waiting = false;
     if (self.previous.len >= constants.match_len_taken_min) {
@@ -448,7 +448,7 @@ inline fn hash_of_word(comptime level: constants.Level, octets: u32) Hash(level)
 /// How many octets from the start of `earlier` equal those of `later`: 8 octets at a time, the
 /// first that differs found by the trailing zeros of their XOR (decision 14, E1). Both runs are
 /// walked as slices of words and then of octets, so no read checks its bounds on its own.
-pub fn match_len(earlier: []const u8, later: []const u8) usize {
+pub fn match_len(earlier: []const u8, later: []const u8) align(constants.hot_function_alignment) usize {
     assert(earlier.len == later.len and earlier.len <= constants.match_len_max);
     const word_len = @sizeOf(u64);
     const words_len = earlier.len - earlier.len % word_len;

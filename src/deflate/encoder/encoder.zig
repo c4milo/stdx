@@ -111,7 +111,7 @@ fn encode_call(comptime options: EncoderOptions, self: *Encoder(options), input:
     return progress;
 }
 
-fn run(comptime options: EncoderOptions, self: *Encoder(options), input: []const u8, flush: codec.Flush, writer: *codec.BitWriter, consumed: *usize) codec.Status {
+fn run(comptime options: EncoderOptions, self: *Encoder(options), input: []const u8, flush: codec.Flush, writer: *codec.BitWriter, consumed: *usize) align(constants.hot_function_alignment) codec.Status {
     const steps_max = constants.encoder_steps_per_octet * (input.len + writer.writer.octets.len) + constants.encoder_steps_floor;
     for (0..steps_max) |_| {
         if (self.emit.active()) {

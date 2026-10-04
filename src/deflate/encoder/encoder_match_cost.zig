@@ -45,7 +45,7 @@ pub const Prices = struct {
 
     /// Prices the next block from the block just planned, `plan` its codes and `counts` its
     /// literal/length symbols (decision 42).
-    pub fn update(self: *Prices, plan: *const Plan, counts: *const [constants.literal_length_used]u16) void {
+    pub fn update(self: *Prices, plan: *const Plan, counts: *const [constants.literal_length_used]u16) align(constants.hot_function_alignment) void {
         self.cheap = update_costs(&self.costs, plan, counts);
     }
 };
@@ -105,7 +105,7 @@ fn eighths(len: u8) u32 {
 /// Whether a match of `octets`, `distance` back, costs fewer bits than its octets as literals: its
 /// first `priced_len_max` octets priced one by one, the rest at the literals' average. Not inline:
 /// only a block with cheap literals calls it.
-pub noinline fn saves_bits(costs: *const Costs, octets: []const u8, distance: u16) bool {
+pub noinline fn saves_bits(costs: *const Costs, octets: []const u8, distance: u16) align(constants.hot_function_alignment) bool {
     assert(octets.len >= constants.match_len_taken_min and octets.len <= constants.match_len_max);
     assert(distance >= 1);
     const priced = octets[0..@min(octets.len, constants.priced_len_max)];

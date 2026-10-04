@@ -53,7 +53,7 @@ const phases_max = @typeInfo(Phase).@"enum".fields.len;
 
 /// Writes as much of the planned block as the output takes. Returns true when all of it is in the
 /// bit writer, and false when the output filled first; the next call goes on from there.
-pub fn write(emit: *Emit, plan: *const Plan, block: *const Block, window: []const u8, writer: *codec.BitWriter) bool {
+pub fn write(emit: *Emit, plan: *const Plan, block: *const Block, window: []const u8, writer: *codec.BitWriter) align(constants.hot_function_alignment) bool {
     for (0..phases_max) |_| {
         const whole = switch (emit.phase) {
             .header => write_header(emit, plan, writer),
@@ -159,7 +159,7 @@ fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *c
 /// through the loop, and the bits it wrote are counted once at the end. A function of its own:
 /// inline in `write`, the code tables' and the symbols' addresses went to the stack, and each
 /// literal loaded them back.
-noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) void {
+noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) align(constants.hot_function_alignment) void {
     const store_len = codec.BitWriter.store_len;
     // The first store drops the whole octets a header left, a full buffer included, so the loop
     // starts with under 8 bits and every store in it moves under 8 octets.
