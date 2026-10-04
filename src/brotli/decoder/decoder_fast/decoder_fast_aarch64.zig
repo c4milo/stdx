@@ -343,7 +343,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .entry_value_at = entry_value_at,
     .refill_bits = fast.refill_bits,
     .count_symbol = counts.symbol,
-    .extra_bits_at = packed_tables.extra_bits_at,
+    .entry_extra_count_at = entry_value_at + constants.insert_copy_symbol_bits,
+    .extra_count_bits = constants.insert_copy_extra_count_bits,
+    .symbol_bits = constants.insert_copy_symbol_bits,
     .insert_extra_bits_at = packed_tables.insert_extra_bits_at,
     .copy_base_at = packed_tables.copy_base_at,
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.literals, .{

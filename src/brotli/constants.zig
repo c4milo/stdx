@@ -203,8 +203,15 @@ pub const insert_copy_cells = [_]struct { insert: u5, copy: u5 }{
 };
 pub const insert_copy_last_distance_symbols = 128;
 
+/// The bits an insert-and-copy symbol takes in a table entry's value, and the bits above it, which
+/// hold the count of the symbol's extra bits, 48 at most (RFC 7932 §5).
+pub const insert_copy_symbol_bits = 10;
+pub const insert_copy_extra_count_bits = 6;
+
 comptime {
     std.debug.assert(insert_copy_cells.len << insert_copy_cell_bits == insert_copy_alphabet_len);
+    std.debug.assert(insert_copy_alphabet_len <= 1 << insert_copy_symbol_bits);
+    std.debug.assert(insert_copy_symbol_bits + insert_copy_extra_count_bits == @bitSizeOf(u16));
 }
 
 /// The window's size is (1 << WBITS) - 16 (RFC 7932 §9.1), with WBITS 10 to 24.

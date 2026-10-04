@@ -147,13 +147,14 @@ pub const command =
     \\    lsr x6, x6, x13
     \\    sub w7, w7, w13, uxtb
     \\    sub x15, x15, #1
-    \\    lsr w13, w13, #{[entry_value_at]}
-    \\    // The symbol's codes, packed, the top bit set for a symbol below 128, which reuses the
-    \\    // last distance (RFC 7932 §5).
+    \\    // The count of the extra bits (RFC 7932 §5), which the entry holds above the symbol, so
+    \\    // that the buffer waits for no load after the entry's; then the symbol's codes, packed,
+    \\    // the top bit set for a symbol below 128, which reuses the last distance.
+    \\    ubfx x26, x13, #{[entry_extra_count_at]}, #{[extra_count_bits]}
+    \\    ubfx w13, w13, #{[entry_value_at]}, #{[symbol_bits]}
     \\    ldr x24, [x30, x13, lsl #3]
     \\    {[count_symbol]s}
-    \\    // The extra bits (RFC 7932 §5), after a second refill (12) when the buffer holds fewer.
-    \\    ubfx x26, x24, #{[extra_bits_at]}, #8
+    \\    // The extra bits, after a second refill (12) when the buffer holds fewer.
     \\    cmp w26, w7
     \\    b.hi 12f
     \\11:

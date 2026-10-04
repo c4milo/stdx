@@ -187,6 +187,10 @@ test {
 }
 
 test {
+    _ = @import("decoder_fast/decoder_fast_command_extra_test.zig");
+}
+
+test {
     _ = @import("decoder_fast/decoder_fast_literals_test.zig");
 }
 

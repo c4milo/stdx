@@ -332,9 +332,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .ic_count = @offsetOf(Machine, "ic_count"),
     .ic_table = @offsetOf(Machine, "ic_table"),
     .command_codes = @offsetOf(Machine, "command_codes"),
-    .last_distance_symbols = constants.insert_copy_last_distance_symbols,
+    .symbol_bits = constants.insert_copy_symbol_bits,
+    .symbol_mask = (1 << constants.insert_copy_symbol_bits) - 1,
     .count_symbol = counts.symbol,
-    .extra_bits_at = packed_tables.extra_bits_at,
     .insert_extra_bits_at = packed_tables.insert_extra_bits_at,
     .copy_base_at = packed_tables.copy_base_at,
 }) ++ "\n" ++ std.fmt.comptimePrint(loop_text.literals, .{

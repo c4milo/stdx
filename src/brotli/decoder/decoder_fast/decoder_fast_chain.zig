@@ -139,7 +139,7 @@ inline fn block_switch(comptime claims: Claims, loop: *Loop, state: *State, cate
 inline fn command(comptime claims: Claims, loop: *Loop, state: *State) commands.CommandCode {
     @setRuntimeSafety(!claims.unchecked_loop);
     const blocks = commands.blocks_of(state, .insert_copy);
-    const symbol = loop.decode(!claims.unchecked_loop, &state.insert_copy_codes[blocks.type_current]);
+    const symbol = commands.insert_copy_symbol(loop.decode(!claims.unchecked_loop, &state.insert_copy_codes[blocks.type_current]));
     commands.take_element(blocks);
     const code = commands.command_codes[symbol];
     state.command.insert_code = code.insert_code;

@@ -52,7 +52,7 @@ pub inline fn straight_command(comptime claims: Claims, comptime room: fast.Room
     @setRuntimeSafety(!claims.unchecked_loop);
     const blocks = commands.blocks_of(state, .insert_copy);
     if (commands.needs_switch(state, .insert_copy)) return .command;
-    const symbol = loop.decode(!claims.unchecked_loop, &state.insert_copy_codes[blocks.type_current]);
+    const symbol = commands.insert_copy_symbol(loop.decode(!claims.unchecked_loop, &state.insert_copy_codes[blocks.type_current]));
     commands.take_element(blocks);
     const code = commands.command_codes[symbol];
     state.command.insert_code = code.insert_code;

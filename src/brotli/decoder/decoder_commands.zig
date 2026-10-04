@@ -95,7 +95,7 @@ fn decode_symbol(bits: *codec.BitReader, code: anytype) ?u16 {
 pub fn read_command(state: *State, bits: *codec.BitReader) ?codec.Status {
     if (needs_switch(state, .insert_copy)) return start_switch(state, .insert_copy, .command);
     const blocks = blocks_of(state, .insert_copy);
-    const symbol = decode_symbol(bits, &state.insert_copy_codes[blocks.type_current]) orelse return .needs_input;
+    const symbol = insert_copy_symbol(decode_symbol(bits, &state.insert_copy_codes[blocks.type_current]) orelse return .needs_input);
     count_work(state, 1);
     take_element(blocks);
     set_command_codes(&state.command, symbol);
@@ -135,6 +135,32 @@ pub fn command_code_of(insert_code: u8, copy_code: u8) CommandCode {
         .insert_code = insert_code,
         .copy_code = copy_code,
     };
+}
+
+/// The value of an insert-and-copy table's entry: the symbol, and above it the count of the extra
+/// bits its codes give (RFC 7932 §5), so that a loop takes the extra bits off the bit buffer with
+/// no load after the entry's.
+pub fn insert_copy_entry_value(symbol: u16) u16 {
+    assert(symbol < constants.insert_copy_alphabet_len);
+    return insert_copy_entry_values[@as(SymbolIndex, @truncate(symbol))];
+}
+
+/// A symbol as it indexes `insert_copy_entry_values`, which holds a value for each index, so that
+/// the read takes no bounds check.
+const SymbolIndex = std.meta.Int(.unsigned, constants.insert_copy_symbol_bits);
+
+/// Each symbol's entry value, at comptime; the indices past the alphabet hold zeros.
+const insert_copy_entry_values: [1 << constants.insert_copy_symbol_bits]u16 = values: {
+    @setEvalBranchQuota(command_codes_branch_quota);
+    assert(std.math.maxInt(@TypeOf(command_codes[0].extra_bits)) < 1 << constants.insert_copy_extra_count_bits);
+    var values = [_]u16{0} ** (1 << constants.insert_copy_symbol_bits);
+    for (command_codes, 0..) |code, symbol| values[symbol] = symbol | @as(u16, code.extra_bits) << constants.insert_copy_symbol_bits;
+    break :values values;
+};
+
+/// The insert-and-copy symbol of an entry's value.
+pub inline fn insert_copy_symbol(value: u16) u16 {
+    return value & ((1 << constants.insert_copy_symbol_bits) - 1);
 }
 
 /// The comptime branches `command_codes` takes at most: a few for each of the 704 symbols.

@@ -10,6 +10,7 @@ const context = @import("../context.zig");
 const prefix = @import("../prefix.zig");
 const state_module = @import("decoder_state.zig");
 const header = @import("decoder_header.zig");
+const commands = @import("decoder_commands.zig");
 const lengths_fast = @import("decoder_fast/decoder_fast_lengths.zig");
 const State = state_module.State;
 const Target = state_module.Target;
@@ -336,7 +337,7 @@ fn finish_code(state: *State, code: Code) align(constants.hot_function_alignment
         .block_count => |category| build(&state.blocks[@intFromEnum(category)].count_code, code),
         .map => build(&state.map_code, code),
         .literal => |index| build_literal(&state.literal_codes[index], code, literal_entry_mode(state)),
-        .insert_copy => |index| build(&state.insert_copy_codes[index], code),
+        .insert_copy => |index| build_valued(&state.insert_copy_codes[index], code, commands.insert_copy_entry_value),
         .distance => |index| build(&state.distance_codes[index], code),
     };
     count_work(state, entries);
@@ -349,6 +350,15 @@ fn build(table: anytype, code: Code) usize {
         .single => |symbol| table.build_single(symbol),
         .simple => |simple| table.build_simple(simple.symbols, simple.tree_select),
         .ranged => |ranged| table.build_ranged(ranged.ranges, ranged.counts),
+    };
+}
+
+/// Builds the table whose entries hold `value_of` of each symbol, and returns the entries it wrote.
+fn build_valued(table: anytype, code: Code, comptime value_of: fn (u16) u16) usize {
+    return switch (code) {
+        .single => |symbol| table.build_single_valued(symbol, value_of),
+        .simple => |simple| table.build_simple_valued(simple.symbols, simple.tree_select, value_of),
+        .ranged => |ranged| table.build_ranged_valued(ranged.ranges, ranged.counts, value_of),
     };
 }
 

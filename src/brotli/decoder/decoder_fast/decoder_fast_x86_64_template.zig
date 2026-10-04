@@ -157,17 +157,20 @@ pub const command =
     \\    sub r9b, cl
     \\    dec qword ptr [rdi + {[ic_count]}]
     \\    shr ecx, {[entry_value_at]}
-    \\    // The symbol's codes, packed; a symbol below 128 reuses the last distance (RFC 7932 §5).
+    \\    // The count of the extra bits (RFC 7932 §5), which the entry holds above the symbol, so
+    \\    // that the buffer waits for no load after the entry's; then the symbol's codes, packed,
+    \\    // the top bit set for a symbol below 128, which reuses the last distance.
+    \\    mov ebx, ecx
+    \\    shr ebx, {[symbol_bits]}
+    \\    and ecx, {[symbol_mask]}
     \\    mov r13, qword ptr [rdi + {[command_codes]}]
     \\    mov r13, qword ptr [r13 + rcx*8]
-    \\    cmp ecx, {[last_distance_symbols]}
-    \\    sbb ebx, ebx
-    \\    shl rbx, 63
-    \\    or r13, rbx
     \\    {[count_symbol]s}
-    \\    // The extra bits (RFC 7932 §5), after a second refill (12) when the buffer holds fewer.
-    \\    rorx rbx, r13, {[extra_bits_at]}
-    \\    movzx ebx, bl
+    \\    // The octets the top bit's compare and the packed code's field took here, as
+    \\    // no-operations: the literal runs keep their addresses.
+    \\    .byte 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00
+    \\    .byte 0x66, 0x0f, 0x1f, 0x44, 0x00, 0x00
+    \\    // The extra bits, after a second refill (12) when the buffer holds fewer.
     \\    cmp ebx, r9d
     \\    ja 12f
     \\11:
