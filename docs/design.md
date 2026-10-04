@@ -1789,6 +1789,108 @@ to 12 are reordered and nothing else changes.
   Google's brotli; the large-window signature refused as `error.LargeWindow`; then as step 7;
   mutations.
 
+  **Check passed, 2026-10-04.** Zig 0.16.0 on macOS 26.6 arm64 by hand, under Rosetta 2 for x86-64,
+  and on the hosted runners, at 5da4397, whose brotli sources are 22db43a's. The entries after this
+  one record each change of the step, from 2026-09-28 to the owner's ruling of 2026-10-04.
+  - The decoder: B1's dictionary and transforms (f5dc3d2) and B2's context lookup tables (ba452fd),
+    generated from RFC 7932's appendices; the checked path (bf28aab); the prefix codes' two-level
+    lookup tables, built once a meta-block (7a16b7a, B3); then decision 16's fast path for commands
+    (e8f073a), which refills a 64-bit buffer with one load (S1), copies in chunks (S4) and gives the
+    window a call's octets once (S5, 3152484); decision 32's check of each write below the output's
+    margin (d238737); the command loop without Zig's checks, as ruled (26f6f22); and the header's
+    phases in one loop (0082bbc). Under decision 23's brotli extension the straight command loop
+    runs in aarch64 assembly (c6eaba3) and, where the CPU has BMI2, in x86-64 assembly (7eaaf1f).
+  - The dictionary, B1: `dictionary.zig` embeds DICT as an array of `constants.dictionary_len`,
+    122,784 octets, so a file of another length does not compile, and its test asserts the CRC-32
+    0x5136cb04 at comptime, in test builds alone, since the CRC-32 adds about 5 s to a build.
+    `zig build brotli-tables-check` requires the committed dictionary and tables to be what
+    `tools/brotli_tables.zig` writes from the RFC's Appendices A and B.
+  - The table budget: `tools/brotli_table_budget.zig` finds the most entries a two-level table of
+    each alphabet can take with the 8-bit root, the root and the worst second levels, and
+    `zig build brotli-table-budget-check` requires `constants.zig` to pin them: 630 entries for a
+    literal code, 1,080 for an insert-and-copy code, 896 for a distance code, 632 for a block type
+    code, 396 for a block count code and 646 for a context map's code. With them the tables of 256
+    trees of each kind take 2,683,592 octets, under decision 12's 3 MiB, and `decoder.zig` asserts
+    at comptime that a decoder takes its window, `constants.decoder_state_len`, 2,705,808 octets,
+    and in a test build invariant 17's count of work.
+  - Decision 15 against Google's brotli: CI run
+    [37215191286](https://github.com/c4milo/stdx/actions/runs/37215191286) passed
+    `differential-brotli` at 5da4397 on its three runners, x86-64 Linux, aarch64 Linux and macOS
+    arm64, with the same counts on each: 39 files and 726 streams, 0 failed; 170,865 corrupted
+    inputs, 0 failed, of which the one verdict entry allows 6, a complex prefix code whose code
+    lengths sum past 32768, where Google's decoder takes the whole input and asks for more. The same
+    run passed `zig build test`, which holds the unit tests and the two checks above, and a short
+    fuzz pass of 20,000 runs. By hand the check gave the same counts on aarch64 and, under Rosetta 2
+    with the x86-64 assembly loop running, on x86-64.
+  - The large window: `decoder_stream.zig` refuses RFC 9841 §6's signature as `error.LargeWindow`,
+    and `decoder_test.zig` decodes a stream that starts with it and requires that error.
+  - Equality: the unit tests decode each fixture whole and split with every claim off in turn, and
+    the fast path's tests decode their streams on the checked path too. The fuzz test decodes each
+    input in one call and split, on the checked path alone and with each claim off, and requires the
+    same octets, verdict and count consumed: the `fuzz` workflow's run
+    [37219079715](https://github.com/c4milo/stdx/actions/runs/37219079715) ran it 2,005,892 times on
+    x86-64, 2,005,764 on aarch64 and 2,006,669 on macOS arm64 at 5da4397, with no failure.
+  - Each claim's A/B, from `bench-brotli` at f855d98: runs
+    [37201487229](https://github.com/c4milo/stdx/actions/runs/37201487229) and
+    [37201492713](https://github.com/c4milo/stdx/actions/runs/37201492713), and the six jobs of run
+    [37201465574](https://github.com/c4milo/stdx/actions/runs/37201465574) that drew an EPYC 9V74,
+    which the standing entry below describes. Each cell is the median over the 39 corpus files of
+    the throughput with the claim off over the throughput with all on, then the files where on beats
+    off and off beats on by more than the larger of the two spreads.
+
+    | Claim | N2 | EPYC 7763 | EPYC 9V45 | EPYC 9V74, six jobs | Verdict |
+    |---|---|---|---|---|---|
+    | S1, the word refill | 0.62; 39 and 0 | 0.68; 39 and 0 | 0.72; 37 and 0 | 0.69 to 0.70; 39 and 0 | Kept |
+    | S4, chunk copies | 0.56; 39 and 0 | 0.57; 39 and 0 | 0.65; 37 and 0 | 0.60 to 0.63; 39 and 0 | Kept |
+    | S5, the window once | 0.98; 33 and 0 | 0.98; 31 and 1 | 0.97; 8 and 0 | 0.98; 22 to 26 and 1 to 5 | Kept |
+    | The unchecked loop | 0.59; 39 and 0 | 0.66; 39 and 0 | 0.70; 37 and 0 | 0.67 to 0.68; 37 to 38 and 0 to 1 | Kept, as ruled on 2026-09-29 |
+
+    - The N2's cells are run 37201487229's. Run 37201492713's are the same but for S5's counts, 30
+      and 0. The EPYC 9V45's job was disturbed: its spreads have a median of 3.8% and reach 61%,
+      against 0.5% and 5.5% on the N2, so 31 files tie under S5 there.
+    - S5 gains most where the output is large for its stream: css-1m runs at 0.86 of all on without
+      it on the N2, nci at 0.92 and xml at 0.94. On 2026-09-28 its A/B read 0.99 and 1.01, inside
+      the noise.
+    - The files where off beats on are small, 152 KiB at most, and none repeats in every job. With
+      S5 off the decoder does more work: it writes each call's octets into the window as well. On
+      the 7763 json-1k reads 1.17: the claims' program decodes it with all on at 262.9 MB/s, where
+      the decoding table's candidate decodes it at 314.5. On the 9V74 one to five files a job read
+      1.01 to 1.05, cp.html and html-1k in three jobs of six. As step 7 found, where a candidate's
+      loop lands on x86-64 moves its A/B by a few percent. E.coli reads 1.01 with the unchecked loop
+      off in one 9V74 job.
+    - B1 is the dictionary above. B2's context lookup tables are comptime data (`context.zig`), and
+      no switch turns them off. B3: `decoder_work_test.zig` decodes a stream with a block switch
+      before every symbol and requires each switch to cost its two symbols alone, with no table
+      built.
+  - Decision 17: built ReleaseFast, stdx runs at a median of 1.015 and 1.020 of its ReleaseSafe
+    speed on the N2 (0.98 to 1.14), 0.999 on the EPYC 7763 (0.94 to 1.12), 0.998 on the EPYC 9V45
+    (0.76 to 1.13, in its disturbed job) and 0.999 to 1.037 on the EPYC 9V74 (0.91 to 1.15), each as
+    a ratio of the two builds' ratios to Google in one run. The command loop runs without Zig's
+    checks in both builds, so the difference is the header's and the checked path's: json-1k pays
+    most on the N2, 1.14 and 1.12.
+  - The benchmark: Google's brotli at quality 11 and window 22 encodes each file. stdx's throughput
+    over Google's, over the 39 files, at f855d98:
+
+    | CPU | Run | Median | Range | Faster | Slower |
+    |---|---|---|---|---|---|
+    | Neoverse N2 | 37201487229 | 1.39 | 1.13 to 3.35 | 39 | 0 |
+    | Neoverse N2 | 37201492713 | 1.39 | 1.12 to 3.35 | 39 | 0 |
+    | AMD EPYC 7763 | 37201487229 | 1.29 | 1.07 to 3.05 | 39 | 0 |
+    | AMD EPYC 9V45 | 37201492713 | 1.33 | 1.09 to 4.76 | 39 | 0 |
+    | AMD EPYC 9V74, six jobs | 37201465574 | 1.21 to 1.25 | 1.003 to 3.53 | 39 in each | 0 |
+
+    - No file loses. The thinnest margin is js-1k's on the EPYC 9V74, 1.05 to 1.06 in five jobs and
+      1.003 in one; the standing entry below gives each CPU's lowest files and the owner's ruling on
+      them.
+    - The fast path runs at a median of 5.34 and 5.22 times the checked path's speed on the N2 (2.9
+      to 19.2), 4.77 on the EPYC 7763, 4.38 on the EPYC 9V45 and 4.33 to 4.54 on the EPYC 9V74.
+    - The Xeon 8573C, 8370C and 6973P-C were last measured in the paired runs of 2026-10-04's
+      entries, each before main held all five of that day's changes, with no file below Google's
+      speed.
+  - Mutations are listed with each change, in its entry below and in its commit's body. Each NOT
+    CAUGHT found a test that was then written, but for the equivalent mutants, which the entry or
+    the body names.
+
   **The benchmark's candidates, 2026-09-28**, checked as step 7's note on its candidates
   describes, before this step's check. The checked candidate took all on's claims, so the two
   shared the checked path's functions over `Output`, and LLVM kept `read_literal`, `copy_match`
