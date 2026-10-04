@@ -111,9 +111,12 @@ test "the \\u text takes a letter's escape between two \\u escapes, and stops at
     try expect_text("\\u0430\\u\\u0431 \"", unicode_escape_len, "\u{430}");
 }
 
+/// The longest room a case here gives `copy_rest`: every ASCII octet's, and a line more.
+const room_len_max = constants.non_ascii_min + constants.kernel_alignment;
+
 /// What `copy_rest` takes of `rest` into a room of `room_len` octets, with every claim on.
 fn copied_of(rest: []const u8, room_len: usize) ?Copied {
-    var room: [constants.kernel_alignment]u8 = undefined;
+    var room: [room_len_max]u8 = undefined;
     return loop_string.copy_rest_at(.{}, wide.Level.of(codec.Features.detect()), rest, room[0..room_len]);
 }
 
@@ -137,4 +140,15 @@ test "copy_rest leaves a string whose room ends inside a run of \\u escapes to t
     // The escape's character and four octets after it fill the room; a fifth has none.
     try testing.expectEqual(Copied{ .input_len = 10, .output_len = 5 }, copied_of("\\u0041bcde\"", 5));
     try testing.expectEqual(null, copied_of("\\u0041bcdef\"", 5));
+}
+
+test "copy_rest takes every plain ASCII octet in its blocks, from the space to U+007F" {
+    // Past an escape, every octet a string carries as it is, in blocks of 16: the space is the
+    // first of them and U+007F the last (RFC 8259 §7).
+    comptime var plain: []const u8 = "";
+    comptime for (constants.unescaped_min..constants.non_ascii_min) |octet| {
+        if (octet != constants.quotation_mark and octet != constants.reverse_solidus) plain = plain ++ [_]u8{octet};
+    };
+    const rest = "\\n" ++ plain ++ "\"" ++ " " ** constants.vector_len;
+    try testing.expectEqual(Copied{ .input_len = 2 + plain.len, .output_len = 1 + plain.len }, copied_of(rest, room_len_max));
 }

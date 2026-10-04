@@ -255,8 +255,18 @@ pub inline fn word_first(word: LaneWord) usize {
 /// The lanes of `block` that end a run of plain ASCII: an octet a string must escape (RFC 8259
 /// §7) or one from 0x80 up, which UTF-8 judges (RFC 3629 §4). One transfer from a vector to a
 /// word for both questions (string_walk.zig).
+///
+/// Read as signed octets, a control character and an octet from 0x80 up are both below 0x20, so
+/// one compare finds them: a compare for each range and an OR took three of the block's eight
+/// vector instructions, and the N2 has two pipes for them (design §8 step 18). `plain_stops`
+/// keeps its form: with this one, the token loop that inlines it took 1.6 instructions a token
+/// more on CLDR's texts.
 pub inline fn ascii_stops(block: Block(constants.vector_len)) LaneWord {
-    return lane_word(escape_lanes(constants.vector_len, block) | (block >= splat(constants.vector_len, constants.non_ascii_min)));
+    const signed: @Vector(constants.vector_len, i8) = @bitCast(block);
+    const outside = signed < @as(@Vector(constants.vector_len, i8), @splat(constants.unescaped_min));
+    const quotation_mark = block == splat(constants.vector_len, constants.quotation_mark);
+    const reverse_solidus = block == splat(constants.vector_len, constants.reverse_solidus);
+    return lane_word(outside | quotation_mark | reverse_solidus);
 }
 
 /// True when the block `string_stop` checked holds no octet from 0x80 up.
