@@ -3,12 +3,15 @@
 //! runs each, the median and the spread reported, and the losses shown. The timing is
 //! bench/timing/timing.zig's.
 //!
+//! - The rows: one a corpus file, taken whole, but for the 1 KiB and 16 KiB HTTP bodies, which a
+//!   row codes as the slices of their 1 MiB payload, one stream a slice, one after another
+//!   (decision 45, bench/timing/inputs.zig).
 //! - Decoding: Google's brotli decoder, an instance created and freed for each stream as its
 //!   one-shot decode does, since its public API resets none, and stdx's HTTP decoder, a window of
-//!   2^24 (decision 12), over each corpus file encoded once by Google's brotli at its default
+//!   2^24 (decision 12), over each row's streams, encoded once by Google's brotli at its default
 //!   quality and window. Throughput counts decoded octets. Each decoder's output is compared with
-//!   the input before any is timed. Each row states the stream's size as a percentage of the
-//!   file's, the ratio the decoders' speed is measured at.
+//!   the input before any is timed. Each row states its streams' size as a percentage of its
+//!   octets, the ratio the decoders' speed is measured at.
 //! - stdx's paths: its HTTP decoder with the fast path of decision 16 and on its checked path
 //!   alone, the A/B that admits the fast path. The checked path's decoder takes claims no other
 //!   candidate takes (`checked_claims`).
@@ -33,20 +36,32 @@ const timing = @import("timing");
 const codec = @import("codec");
 const brotli = @import("brotli");
 const bench_options = @import("bench_options");
+const inputs = timing.inputs;
+const Input = inputs.Input;
 
 /// Google's default quality and window, as its command-line tool takes them.
 const decode_quality: c_int = 11;
 const decode_window_bits: c_int = 22;
 
+/// Google's encoder at `decode_quality` and `decode_window_bits`, which writes one stream a part
+/// for the decoders (`inputs.streams`).
+const Streams = struct {
+    pub fn bound(_: Streams, part_len: usize) usize {
+        return oracle.brotli_bound(part_len);
+    }
+
+    pub fn encode(_: Streams, part: []const u8, room: []u8) ?usize {
+        return oracle.brotli_encode(.{ .quality = decode_quality, .window_bits = decode_window_bits }, part, room);
+    }
+};
+
 /// A decode of one stream by Google's brotli.
 const GoogleDecode = struct {
-    stream: []const u8,
     output: []u8,
 
-    fn run_once(context: *const anyopaque) void {
-        const self: *const GoogleDecode = @ptrCast(@alignCast(context));
-        const result = oracle.brotli_decode_verdict(self.stream, self.output);
-        std.debug.assert(result.verdict == .ok and result.written == self.output.len);
+    pub fn run(self: *const GoogleDecode, stream: []const u8) ?usize {
+        const result = oracle.brotli_decode_verdict(stream, self.output);
+        return if (result.verdict == .ok) result.written else null;
     }
 };
 
@@ -57,20 +72,20 @@ fn StdxDecode(comptime paths: brotli.claims.Paths) type {
         const Self = @This();
         pub const Decoder = brotli.Decoder(.{ .paths = paths });
 
-        stream: []const u8,
         output: []u8,
         decoder: *Decoder,
         features: codec.Features,
 
-        fn run_once(context: *const anyopaque) void {
-            const self: *const Self = @ptrCast(@alignCast(context));
+        pub fn run(self: *const Self, stream: []const u8) ?usize {
             self.decoder.init(self.features);
-            const progress = self.decoder.decode(self.stream, self.output) catch unreachable;
-            std.debug.assert(progress.status == .done and progress.written == self.output.len);
+            const progress = self.decoder.decode(stream, self.output) catch return null;
+            return if (progress.status == .done) progress.written else null;
         }
 
-        fn of(arena: std.mem.Allocator, stream: []const u8, len: usize) !Self {
-            return .{ .stream = stream, .output = try arena.alloc(u8, len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
+        /// The decoder checked over `row`'s streams against its input, and placed for timing.
+        fn operation(arena: std.mem.Allocator, row: Row) !timing.Operation {
+            const candidate: Self = .{ .output = try arena.alloc(u8, row.input.part_len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
+            return inputs.decoder_operation(arena, candidate, row.coded, row.input);
         }
     };
 }
@@ -92,15 +107,15 @@ comptime {
 const Fast = StdxDecode(.{});
 const Checked = StdxDecode(.{ .fast_paths = false, .claims = checked_claims });
 
-/// A corpus file and Google's stream of it.
-const File = struct {
-    name: []const u8,
-    input: []const u8,
-    stream: []const u8,
+/// A row's input and Google's stream of each of its parts.
+const Row = struct {
+    input: Input,
+    coded: []const []const u8,
 
-    /// The stream's size as a percentage of the file's: the compression the decoders decode at.
-    fn compressed_percent(self: File) f64 {
-        return 100 * @as(f64, @floatFromInt(self.stream.len)) / @as(f64, @floatFromInt(self.input.len));
+    /// The streams' size as a percentage of the row's octets: the compression the decoders decode
+    /// at.
+    fn compressed_percent(self: Row) f64 {
+        return inputs.compressed_percent(inputs.total_len(self.coded), self.input);
     }
 };
 
@@ -112,42 +127,43 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
 
-    var files: std.ArrayList(File) = .empty;
+    var files: std.ArrayList(inputs.File) = .empty;
     for (args[1..]) |argument| {
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
-        const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
-        try files.append(arena, .{ .name = argument[0..split], .input = input, .stream = try stream_of(arena, input) });
+        const octets = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
+        try files.append(arena, .{ .name = argument[0..split], .octets = octets });
     }
+    const all = try inputs.of(arena, files.items);
+    // Google's encoder runs once a part, before any table: quality 11 is slow.
+    const rows = try arena.alloc(Row, all.len);
+    for (all, rows) |input, *row| row.* = .{ .input = input, .coded = try inputs.streams(arena, input, Streams{}) };
     const header = "| File | Octets | Compressed, % | Google, MB/s | stdx, MB/s | stdx / Google |\n|---|---|---|---|---|---|\n";
     if (bench_options.release_fast) {
         try out.print("\n## stdx built ReleaseFast against Google's brotli, quality {d}, window {d} (decision 17)\n\n", .{ decode_quality, decode_window_bits });
+        try inputs.note(out, all);
         try out.print(header, .{});
-        for (files.items) |file| try report_decode(arena, io, out, file);
+        for (rows) |row| try report_decode(arena, io, out, row);
         try out.flush();
         return;
     }
     try out.print("## Decoding, quality {d}, window {d}\n\n", .{ decode_quality, decode_window_bits });
+    try inputs.note(out, all);
     try out.print(header, .{});
-    for (files.items) |file| try report_decode(arena, io, out, file);
+    for (rows) |row| try report_decode(arena, io, out, row);
     try out.print("\n## stdx's fast path against its checked path\n\n", .{});
+    try inputs.note(out, all);
     try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_paths(arena, io, out, file);
+    for (rows) |row| try report_paths(arena, io, out, row);
     try out.print("\n## The claims, each off against the fast path with all on\n\n", .{});
     try out.print("Each claim's column is its throughput with the claim off over the throughput with all on.\n\n", .{});
+    try inputs.note(out, all);
     try out.print("| File | Octets | Compressed, % | All on, MB/s |", .{});
     for (brotli.claims.each_off_names) |name| try out.print(" {s} off |", .{name});
     try out.print("\n|---|---|---|---|", .{});
     for (brotli.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
-    for (files.items) |file| try report_claims(arena, io, out, file);
+    for (rows) |row| try report_claims(arena, io, out, row);
     try out.flush();
-}
-
-/// Google's stream of `input` at `decode_quality` and `decode_window_bits`.
-fn stream_of(arena: std.mem.Allocator, input: []const u8) ![]const u8 {
-    const encoded = try arena.alloc(u8, oracle.brotli_bound(input.len));
-    const stream_len = oracle.brotli_encode(.{ .quality = decode_quality, .window_bits = decode_window_bits }, input, encoded) orelse return error.EncodeFailed;
-    return encoded[0..stream_len];
 }
 
 /// The median rate of each candidate's runs over `len` octets, and its spread in percent.
@@ -161,69 +177,49 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
     return result;
 }
 
-/// Times each candidate over `file`'s stream after checking it decodes the file, and returns the
-/// median rates and spreads.
-fn time_candidates(comptime count: usize, io: std.Io, file: File, candidates: *const [count]timing.Operation, outputs: *const [count][]const u8) ![2][count]f64 {
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    for (outputs) |output| {
-        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
-    }
+/// Times each candidate, every one already checked against `row`'s input, and returns the median
+/// rates and spreads.
+fn time_candidates(comptime count: usize, io: std.Io, row: Row, candidates: *const [count]timing.Operation) [2][count]f64 {
     var runs: [count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, candidates, &runs);
-    return rates_of(count, &runs, file.input.len);
+    return rates_of(count, &runs, row.input.len());
 }
 
-/// Prints one row of two candidates: the file's compression, their rates and spreads, and the
+/// Prints one row of two candidates: the row's compression, their rates and spreads, and the
 /// second's rate over the first's.
-fn print_pair(out: *std.Io.Writer, file: File, rates: [2][2]f64) !void {
+fn print_pair(out: *std.Io.Writer, row: Row, rates: [2][2]f64) !void {
     try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
-        file.name,   file.input.len,            file.compressed_percent(), rates[0][0], rates[1][0], rates[0][1],
-        rates[1][1], rates[0][1] / rates[0][0],
+        row.input.name, row.input.len(),           row.compressed_percent(), rates[0][0], rates[1][0], rates[0][1],
+        rates[1][1],    rates[0][1] / rates[0][0],
     });
 }
 
-fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const google: GoogleDecode = .{ .stream = file.stream, .output = try arena.alloc(u8, file.input.len) };
-    const stdx = try Fast.of(arena, file.stream, file.input.len);
+fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, row: Row) !void {
+    const google: GoogleDecode = .{ .output = try arena.alloc(u8, row.input.part_len) };
+    // Every candidate decodes every part back before any is timed.
     const candidates = [_]timing.Operation{
-        .{ .context = &google, .run_once = GoogleDecode.run_once },
-        .{ .context = &stdx, .run_once = Fast.run_once },
+        try inputs.decoder_operation(arena, google, row.coded, row.input),
+        try Fast.operation(arena, row),
     };
-    try print_pair(out, file, try time_candidates(candidates.len, io, file, &candidates, &.{ google.output, stdx.output }));
+    try print_pair(out, row, time_candidates(candidates.len, io, row, &candidates));
 }
 
-fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const checked = try Checked.of(arena, file.stream, file.input.len);
-    const fast = try Fast.of(arena, file.stream, file.input.len);
+fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, row: Row) !void {
     const candidates = [_]timing.Operation{
-        .{ .context = &checked, .run_once = Checked.run_once },
-        .{ .context = &fast, .run_once = Fast.run_once },
+        try Checked.operation(arena, row),
+        try Fast.operation(arena, row),
     };
-    try print_pair(out, file, try time_candidates(candidates.len, io, file, &candidates, &.{ checked.output, fast.output }));
+    try print_pair(out, row, time_candidates(candidates.len, io, row, &candidates));
 }
 
-/// One decode per claim off, each of its own type.
-const ClaimsOff = claims_off: {
-    var types: [brotli.claims.each_off.len]type = undefined;
-    for (brotli.claims.each_off, 0..) |off, index| types[index] = StdxDecode(.{ .claims = off });
-    break :claims_off std.meta.Tuple(&types);
-};
-
-fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const all_on = try Fast.of(arena, file.stream, file.input.len);
+fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, row: Row) !void {
     var candidates: [1 + brotli.claims.each_off.len]timing.Operation = undefined;
-    var outputs: [candidates.len][]const u8 = undefined;
-    candidates[0] = .{ .context = &all_on, .run_once = Fast.run_once };
-    outputs[0] = all_on.output;
-    var offs: ClaimsOff = undefined;
-    inline for (brotli.claims.each_off, 0..) |off, index| {
-        const Off = StdxDecode(.{ .claims = off });
-        offs[index] = try Off.of(arena, file.stream, file.input.len);
-        candidates[1 + index] = .{ .context = &offs[index], .run_once = Off.run_once };
-        outputs[1 + index] = offs[index].output;
+    candidates[0] = try Fast.operation(arena, row);
+    inline for (brotli.claims.each_off, 1..) |off, index| {
+        candidates[index] = try StdxDecode(.{ .claims = off }).operation(arena, row);
     }
-    const rates = try time_candidates(candidates.len, io, file, &candidates, &outputs);
-    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% |", .{ file.name, file.input.len, file.compressed_percent(), rates[0][0], rates[1][0] });
+    const rates = time_candidates(candidates.len, io, row, &candidates);
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% |", .{ row.input.name, row.input.len(), row.compressed_percent(), rates[0][0], rates[1][0] });
     for (1..candidates.len) |index| try out.print(" {d:.2} ±{d:.1}% |", .{ rates[0][index] / rates[0][0], rates[1][index] });
     try out.print("\n", .{});
 }

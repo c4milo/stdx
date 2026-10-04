@@ -3,10 +3,13 @@
 //! runs each, the median and the spread reported, and the losses shown. The timing is
 //! bench/timing/timing.zig's.
 //!
+//! - The rows: one a corpus file, taken whole, but for the 1 KiB and 16 KiB HTTP bodies, which a
+//!   row codes as the slices of their 1 MiB payload, one frame a slice, one after another
+//!   (decision 45, bench/timing/inputs.zig).
 //! - Decoding: libzstd's decoder, with a context kept across decodes as a server keeps one, and
-//!   stdx's HTTP decoder, a window of 2^23 (decision 12), over each corpus file encoded by libzstd
-//!   at `decode_level`, its default. Throughput counts decoded octets. Each decoder's output is
-//!   compared with the input before any is timed.
+//!   stdx's HTTP decoder, a window of 2^23 (decision 12), over each row's frames, encoded by
+//!   libzstd at `decode_level`, its default. Throughput counts decoded octets. Each decoder's
+//!   output is compared with the input before any is timed.
 //!
 //! - stdx's paths: its HTTP decoder with the fast paths of decision 16 and on its checked path
 //!   alone, the A/B that admits the fast paths.
@@ -31,19 +34,31 @@ const timing = @import("timing");
 const codec = @import("codec");
 const zstd = @import("zstd");
 const bench_options = @import("bench_options");
+const inputs = timing.inputs;
+const Input = inputs.Input;
 
 /// The libzstd level whose frames the decoders are timed on: its default.
 const decode_level: c_int = 3;
 
+/// libzstd's encoder at `decode_level`, which writes one frame a part for the decoders
+/// (`inputs.streams`).
+const Frames = struct {
+    pub fn bound(_: Frames, part_len: usize) usize {
+        return oracle.zstd_bound(part_len);
+    }
+
+    pub fn encode(_: Frames, part: []const u8, room: []u8) ?usize {
+        return oracle.zstd_encode(.{ .level = decode_level }, part, room);
+    }
+};
+
 /// A decode of one frame by libzstd, with a context kept across runs.
 const LibzstdDecode = struct {
-    frame: []const u8,
     output: []u8,
     context: *oracle.ZstdContext,
 
-    fn run_once(context: *const anyopaque) void {
-        const self: *const LibzstdDecode = @ptrCast(@alignCast(context));
-        std.debug.assert(oracle.zstd_decode_with(self.context, self.frame, self.output) == self.output.len);
+    pub fn run(self: *const LibzstdDecode, frame: []const u8) ?usize {
+        return oracle.zstd_decode_with(self.context, frame, self.output);
     }
 };
 
@@ -54,31 +69,26 @@ fn StdxDecode(comptime paths: zstd.claims.Paths) type {
         const Self = @This();
         pub const Decoder = zstd.Decoder(.{ .paths = paths });
 
-        frame: []const u8,
         output: []u8,
         decoder: *Decoder,
         features: codec.Features,
 
-        fn run_once(context: *const anyopaque) void {
-            const self: *const Self = @ptrCast(@alignCast(context));
+        pub fn run(self: *const Self, frame: []const u8) ?usize {
             self.decoder.init(self.features);
-            const progress = self.decoder.decode(self.frame, self.output) catch unreachable;
-            std.debug.assert(progress.status == .done and progress.written == self.output.len);
+            const progress = self.decoder.decode(frame, self.output) catch return null;
+            return if (progress.status == .done) progress.written else null;
         }
 
-        fn of(arena: std.mem.Allocator, frame: []const u8, len: usize) !Self {
-            return .{ .frame = frame, .output = try arena.alloc(u8, len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
+        /// The decoder checked over `coded` against `input`, and placed for timing.
+        fn operation(arena: std.mem.Allocator, coded: []const []const u8, input: Input) !timing.Operation {
+            const candidate: Self = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
+            return inputs.decoder_operation(arena, candidate, coded, input);
         }
     };
 }
 
 const Fast = StdxDecode(.{});
 const Checked = StdxDecode(.{ .fast_paths = false });
-
-const File = struct {
-    name: []const u8,
-    input: []const u8,
-};
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -88,36 +98,41 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
 
-    var files: std.ArrayList(File) = .empty;
+    var files: std.ArrayList(inputs.File) = .empty;
     for (args[1..]) |argument| {
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
-        const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
-        try files.append(arena, .{ .name = argument[0..split], .input = input });
+        const octets = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
+        try files.append(arena, .{ .name = argument[0..split], .octets = octets });
     }
+    const rows = try inputs.of(arena, files.items);
     const context = oracle.zstd_context_create() orelse return error.OutOfMemory;
     defer oracle.zstd_context_free(context);
 
     if (bench_options.release_fast) {
         try out.print("\n## stdx built ReleaseFast against libzstd, libzstd level {d} (decision 17)\n\n", .{decode_level});
+        try inputs.note(out, rows);
         try out.print("| File | Octets | Compressed, % | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|---|\n", .{});
-        for (files.items) |file| try report_decode(arena, io, out, file, context);
+        for (rows) |row| try report_decode(arena, io, out, row, context);
         try out.flush();
         return;
     }
     try out.print("## Decoding, libzstd level {d}\n\n", .{decode_level});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | libzstd, MB/s | stdx, MB/s | stdx / libzstd |\n|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_decode(arena, io, out, file, context);
+    for (rows) |row| try report_decode(arena, io, out, row, context);
     try out.print("\n## stdx's fast paths against its checked path, libzstd level {d}\n\n", .{decode_level});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_paths(arena, io, out, file);
+    for (rows) |row| try report_paths(arena, io, out, row);
     try out.print("\n## Decision 14's claims, each off against the fast paths with all on, libzstd level {d}\n\n", .{decode_level});
     try out.print("Each claim's column is its throughput with the claim off over the throughput with all on.\n\n", .{});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | All on, MB/s |", .{});
     for (zstd.claims.each_off_names) |name| try out.print(" {s} off |", .{name});
     try out.print("\n|---|---|---|---|", .{});
     for (zstd.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
-    for (files.items) |file| try report_claims(arena, io, out, file);
+    for (rows) |row| try report_claims(arena, io, out, row);
     try out.flush();
 }
 
@@ -132,90 +147,57 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
     return result;
 }
 
-/// The frame's size as a percentage of the file's: the compression the decoders decode at.
-fn compressed_percent(frame: []const u8, input: []const u8) f64 {
-    return 100 * @as(f64, @floatFromInt(frame.len)) / @as(f64, @floatFromInt(input.len));
+/// The frames' size as a percentage of the row's octets: the compression the decoders decode at.
+fn compressed_percent(coded: []const []const u8, input: Input) f64 {
+    return inputs.compressed_percent(inputs.total_len(coded), input);
 }
 
-/// libzstd's frame of `file` at `decode_level`.
-fn frame_of(arena: std.mem.Allocator, file: File) ![]const u8 {
-    const encoded = try arena.alloc(u8, oracle.zstd_bound(file.input.len));
-    const frame_len = oracle.zstd_encode(.{ .level = decode_level }, file.input, encoded) orelse return error.EncodeFailed;
-    return encoded[0..frame_len];
-}
-
-fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File, context: *oracle.ZstdContext) !void {
-    const frame = try frame_of(arena, file);
-    const libzstd: LibzstdDecode = .{ .frame = frame, .output = try arena.alloc(u8, file.input.len), .context = context };
-    const stdx = try Fast.of(arena, frame, file.input.len);
-    const candidates = [_]timing.Operation{
-        .{ .context = &libzstd, .run_once = LibzstdDecode.run_once },
-        .{ .context = &stdx, .run_once = Fast.run_once },
-    };
-    // Every candidate decodes the input back before any is timed.
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    for ([_][]const u8{ libzstd.output, stdx.output }) |output| {
-        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
-    }
-    var runs: [candidates.len][timing.run_count]f64 = undefined;
-    timing.time_interleaved(io, &candidates, &runs);
-    const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, compressed_percent(frame, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
-        rates[0][1] / rates[0][0],
-    });
-}
-
-/// Times each candidate over `file`'s frame after checking it decodes the file, and returns the
-/// median rates and spreads.
-fn time_candidates(comptime count: usize, io: std.Io, file: File, candidates: *const [count]timing.Operation, outputs: *const [count][]const u8) ![2][count]f64 {
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    for (outputs) |output| {
-        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
-    }
+/// Times each candidate, every one already checked against `input`, and returns the median rates
+/// and spreads.
+fn time_candidates(comptime count: usize, io: std.Io, input: Input, candidates: *const [count]timing.Operation) [2][count]f64 {
     var runs: [count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, candidates, &runs);
-    return rates_of(count, &runs, file.input.len);
+    return rates_of(count, &runs, input.len());
 }
 
-fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const frame = try frame_of(arena, file);
-    const checked = try Checked.of(arena, frame, file.input.len);
-    const fast = try Fast.of(arena, frame, file.input.len);
-    const candidates = [_]timing.Operation{
-        .{ .context = &checked, .run_once = Checked.run_once },
-        .{ .context = &fast, .run_once = Fast.run_once },
-    };
-    const rates = try time_candidates(candidates.len, io, file, &candidates, &.{ checked.output, fast.output });
+/// Prints one row of two candidates: the row's compression, their rates and spreads, and the
+/// second's rate over the first's.
+fn print_pair(out: *std.Io.Writer, input: Input, coded: []const []const u8, rates: [2][2]f64) !void {
     try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% | {d:.1} ±{d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, compressed_percent(frame, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
-        rates[0][1] / rates[0][0],
+        input.name,  input.len(),               compressed_percent(coded, input), rates[0][0], rates[1][0], rates[0][1],
+        rates[1][1], rates[0][1] / rates[0][0],
     });
 }
 
-/// One decode per claim off, each of its own type.
-const ClaimsOff = claims_off: {
-    var types: [zstd.claims.each_off.len]type = undefined;
-    for (zstd.claims.each_off, 0..) |off, index| types[index] = StdxDecode(.{ .claims = off });
-    break :claims_off std.meta.Tuple(&types);
-};
+fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input, context: *oracle.ZstdContext) !void {
+    const coded = try inputs.streams(arena, input, Frames{});
+    const libzstd: LibzstdDecode = .{ .output = try arena.alloc(u8, input.part_len), .context = context };
+    // Every candidate decodes every part back before any is timed.
+    const candidates = [_]timing.Operation{
+        try inputs.decoder_operation(arena, libzstd, coded, input),
+        try Fast.operation(arena, coded, input),
+    };
+    try print_pair(out, input, coded, time_candidates(candidates.len, io, input, &candidates));
+}
 
-fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const frame = try frame_of(arena, file);
-    const all_on = try Fast.of(arena, frame, file.input.len);
+fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const coded = try inputs.streams(arena, input, Frames{});
+    const candidates = [_]timing.Operation{
+        try Checked.operation(arena, coded, input),
+        try Fast.operation(arena, coded, input),
+    };
+    try print_pair(out, input, coded, time_candidates(candidates.len, io, input, &candidates));
+}
+
+fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const coded = try inputs.streams(arena, input, Frames{});
     var candidates: [1 + zstd.claims.each_off.len]timing.Operation = undefined;
-    var outputs: [candidates.len][]const u8 = undefined;
-    candidates[0] = .{ .context = &all_on, .run_once = Fast.run_once };
-    outputs[0] = all_on.output;
-    var offs: ClaimsOff = undefined;
-    inline for (zstd.claims.each_off, 0..) |off, index| {
-        const Off = StdxDecode(.{ .claims = off });
-        offs[index] = try Off.of(arena, frame, file.input.len);
-        candidates[1 + index] = .{ .context = &offs[index], .run_once = Off.run_once };
-        outputs[1 + index] = offs[index].output;
+    candidates[0] = try Fast.operation(arena, coded, input);
+    inline for (zstd.claims.each_off, 1..) |off, index| {
+        candidates[index] = try StdxDecode(.{ .claims = off }).operation(arena, coded, input);
     }
-    const rates = try time_candidates(candidates.len, io, file, &candidates, &outputs);
-    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% |", .{ file.name, file.input.len, compressed_percent(frame, file.input), rates[0][0], rates[1][0] });
+    const rates = time_candidates(candidates.len, io, input, &candidates);
+    try out.print("| {s} | {d} | {d:.1} | {d:.1} ±{d:.1}% |", .{ input.name, input.len(), compressed_percent(coded, input), rates[0][0], rates[1][0] });
     for (1..candidates.len) |index| try out.print(" {d:.2} ±{d:.1}% |", .{ rates[0][index] / rates[0][0], rates[1][index] });
     try out.print("\n", .{});
 }
