@@ -15,6 +15,9 @@
 //! - every claim off: the scalar and checked paths alone, the reference (decision 16) and the
 //!   baseline each vector path and the fast path are priced against.
 //!
+//! A hex workload of a 1 KiB or 16 KiB HTTP body holds one text a slice of the body's 1 MiB
+//! payload, which every candidate takes one after another (decision 45, bench/timing/inputs.zig).
+//!
 //! Decoding counts the text's octets; encoding counts the octets it writes. Every candidate's
 //! output is compared with the reference's before any is timed. The timed decode counts each token
 //! into a tally, the work the baselines do too.
@@ -227,7 +230,8 @@ pub fn main(init: std.process.Init) !void {
     const out = &stdout.interface;
     const args = try init.minimal.args.toSlice(arena);
     const profiling = args.len > 1 and std.mem.eql(u8, args[1], "--profile");
-    const all = try load(arena, io, if (profiling) args[2..] else args[1..]);
+    const loaded = try load(arena, io, if (profiling) args[2..] else args[1..]);
+    const all = loaded.workloads;
     if (profiling) {
         try profile(arena, out, all);
         return out.flush();
@@ -238,7 +242,9 @@ pub fn main(init: std.process.Init) !void {
     const encoding_rows = try arena.alloc(baselines.Row, encoded.len);
     const unchecked_rows = try arena.alloc(baselines.Row, encoded.len);
 
-    try header(out, "Decoding", &decoder_claims, "Octets are the text's.", false);
+    const texts_note = try std.fmt.allocPrint(arena, "Octets are the text's.{s}", .{loaded.note});
+    const written_note = try std.fmt.allocPrint(arena, "Octets are the ones written.{s}", .{loaded.note});
+    try header(out, "Decoding", &decoder_claims, texts_note, false);
     for (all, decoding_rows) |*workload, *row| {
         const rates = try time(arena, io, workload, decoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
@@ -246,7 +252,7 @@ pub fn main(init: std.process.Init) !void {
         try record_losses(arena, &losses, workload, "decoding", rates, &decoder_claims);
         try out.flush();
     }
-    try header(out, "Encoding", &encoder_claims, "Octets are the ones written.", true);
+    try header(out, "Encoding", &encoder_claims, written_note, true);
     for (encoded, encoding_rows, unchecked_rows) |*workload, *row, *unchecked_row| {
         const rates = try time(arena, io, workload, encoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
@@ -263,9 +269,9 @@ pub fn main(init: std.process.Init) !void {
     }
     try json_utf8.report(arena, io, out, all);
     try baselines.report(out, &.{
-        .{ .title = "Decoding against the baselines", .octets_are = "Octets are the text's.", .side = "decoding", .rows = decoding_rows },
-        .{ .title = "Encoding against the baselines", .octets_are = "Octets are the ones stdx writes.", .side = "encoding", .rows = encoding_rows },
-        .{ .title = "Encoding against the baselines, J11's loop unchecked", .octets_are = "stdx's encoder with claim J11's loop's runtime safety checks off, as a caller may choose (decision 35). Octets are the ones stdx writes.", .side = "encoding with J11's loop unchecked", .rows = unchecked_rows },
+        .{ .title = "Decoding against the baselines", .octets_are = texts_note, .side = "decoding", .rows = decoding_rows },
+        .{ .title = "Encoding against the baselines", .octets_are = try std.fmt.allocPrint(arena, "Octets are the ones stdx writes.{s}", .{loaded.note}), .side = "encoding", .rows = encoding_rows },
+        .{ .title = "Encoding against the baselines, J11's loop unchecked", .octets_are = try std.fmt.allocPrint(arena, "stdx's encoder with claim J11's loop's runtime safety checks off, as a caller may choose (decision 35). Octets are the ones stdx writes.{s}", .{loaded.note}), .side = "encoding with J11's loop unchecked", .rows = unchecked_rows },
     });
     try out.flush();
 }
@@ -302,8 +308,15 @@ fn encoded_of(arena: std.mem.Allocator, all: []const Workload) ![]const Workload
     return encoded.toOwnedSlice(arena);
 }
 
+/// The workloads, and what their tables say of the hex rows: a space and `inputs.note_text`, or
+/// nothing.
+const Loaded = struct { workloads: []const Workload, note: []const u8 };
+
+/// The most octets the note of the hex rows takes: its two sentences and a few file names.
+const note_len_max = 1024;
+
 /// The workloads, from the corpus files and the CLDR directory `args` name.
-fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) ![]const Workload {
+fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) !Loaded {
     var files: std.ArrayList(workloads.File) = .empty;
     var cldr: std.ArrayList(workloads.File) = .empty;
     for (args) |argument| {
@@ -327,8 +340,14 @@ fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) ![]con
         try all.append(arena, raw);
         try all.append(arena, try workloads.non_ascii_escaped(arena, &raw));
     }
-    try all.appendSlice(arena, try workloads.hex(arena, files.items));
-    return all.toOwnedSlice(arena);
+    const rows = try timing.inputs.of(arena, files.items);
+    try all.appendSlice(arena, try workloads.hex(arena, rows));
+    const note = try arena.alloc(u8, note_len_max);
+    var writer: std.Io.Writer = .fixed(note);
+    try writer.print(" ", .{});
+    try timing.inputs.note_text(&writer, rows);
+    const noted = writer.buffered();
+    return .{ .workloads = try all.toOwnedSlice(arena), .note = if (noted.len > 1) noted else "" };
 }
 
 /// Every `.json` file of `path`, in name order.

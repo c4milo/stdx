@@ -10,7 +10,9 @@
 //!   and three octets, claim J5's input. Decoded a second time with each of those characters
 //!   written as a `\u` escape, as Python's json.dumps writes them by default: the UTF-8 the
 //!   decoder writes for an escape.
-//! - Each corpus file's first 256 KiB as a hex string: claim J2's input.
+//! - Each corpus file's first 256 KiB as a hex string: claim J2's input. A 1 KiB or 16 KiB HTTP
+//!   body is the slices of its 1 MiB payload, each a hex string in a text of its own, one after
+//!   another (decision 45, bench/timing/inputs.zig).
 //!
 //! Every text is written, and every CLDR text read, by stdx with every path scalar, the reference,
 //! so no workload depends on the paths it times.
@@ -18,6 +20,8 @@
 const std = @import("std");
 const json = @import("json");
 const codec = @import("codec");
+const timing = @import("timing");
+const Input = timing.inputs.Input;
 
 /// One token and all of its octets, as the encoder's batches take them (decision 33).
 pub const Item = json.Encoder.Item;
@@ -39,10 +43,7 @@ pub const Workload = struct {
 };
 
 /// A corpus file: its name and octets.
-pub const File = struct {
-    name: []const u8,
-    octets: []const u8,
-};
+pub const File = timing.inputs.File;
 
 /// The longest string or hex input taken from one corpus file.
 const string_len_max = 1 << 20;
@@ -246,21 +247,36 @@ pub fn non_ascii_escaped(arena: std.mem.Allocator, raw: *const Workload) !Worklo
     return .{ .name = "string: dickens as Cyrillic and CJK, as \\u escapes", .framing = raw.framing, .texts = texts, .octets = escaped.items.len, .items = raw.items, .content_len_max = raw.content_len_max, .decode_only = true };
 }
 
-/// Each corpus file's first 256 KiB as a hex string.
-pub fn hex(arena: std.mem.Allocator, files: []const File) ![]const Workload {
+/// Each row's input as hex strings: a file taken whole gives its first 256 KiB as one string, and
+/// a small body gives each slice of its payload as a string in a text of its own.
+pub fn hex(arena: std.mem.Allocator, rows: []const Input) ![]const Workload {
     var workloads: std.ArrayList(Workload) = .empty;
-    for (files) |file| {
-        const octets = file.octets[0..@min(file.octets.len, hex_len_max)];
-        try workloads.append(arena, try one_token(arena, try std.fmt.allocPrint(arena, "hex: {s}", .{file.name}), .{ .token = .{ .hex = .last }, .octets = octets }));
+    for (rows) |row| {
+        const name = try std.fmt.allocPrint(arena, "hex: {s}", .{row.name});
+        const items = try arena.alloc(Item, row.parts.len);
+        for (row.parts, items) |part, *item| {
+            const octets = if (row.parts.len == 1) part[0..@min(part.len, hex_len_max)] else part;
+            item.* = .{ .token = .{ .hex = .last }, .octets = octets };
+        }
+        try workloads.append(arena, try one_token_texts(arena, name, items));
     }
     return workloads.toOwnedSlice(arena);
 }
 
 fn one_token(arena: std.mem.Allocator, name: []const u8, item: Item) !Workload {
-    const texts = try arena.alloc([]const Item, 1);
-    texts[0] = try arena.dupe(Item, &.{item});
-    // A hex string's digits are twice its octets, and a string's content is at most its octets.
-    return finish(arena, name, .text, texts, json.constants.hex_digits_per_octet * item.octets.len);
+    return one_token_texts(arena, name, &.{item});
+}
+
+/// A workload of one text an item, each text that one token.
+fn one_token_texts(arena: std.mem.Allocator, name: []const u8, items: []const Item) !Workload {
+    const texts = try arena.alloc([]const Item, items.len);
+    var content_len_max: usize = 0;
+    for (items, texts) |item, *text| {
+        text.* = try arena.dupe(Item, &.{item});
+        // A hex string's digits are twice its octets, and a string's content is at most its octets.
+        content_len_max = @max(content_len_max, json.constants.hex_digits_per_octet * item.octets.len);
+    }
+    return finish(arena, name, .text, texts, content_len_max);
 }
 
 /// The workload whose texts are `texts`' tokens, encoded with every claim off.
