@@ -255,13 +255,14 @@ const pair_room_len = @sizeOf(u64);
 /// Four zeros as the second escape's digits, for a pair of one escape.
 const zero_digits = (octet_lanes * constants.zero) << escape_digits_bits;
 
-/// `taken`, and after it the `\u` escapes whose code units are no surrogates and the plain ASCII
-/// between them, while the room holds their UTF-8 (claim J12): two escapes at once where two follow
-/// each other, their reverse solidi and `u`s checked in one word and their eight digits read in
-/// another, where one escape at a time took about 28 instructions an escape to read; and up to
-/// `constants.escape_gap_len_max` octets of plain ASCII between two escapes, one at a time, where a
-/// return to the walk took about 100 instructions at each (design §8 step 18).
-inline fn unicode_text(escape: []const u8, room: []u8, taken: Copied) Copied {
+/// `taken`, and after it the `\u` escapes whose code units are no surrogates, and the plain ASCII
+/// and the letters' escapes between them, while the room holds their characters (claim J12): two
+/// `\u` escapes at once where two follow each other, their reverse solidi and `u`s checked in one
+/// word and their eight digits read in another, where one escape at a time took about 28
+/// instructions an escape to read; and between two escapes a letter's escape, or up to
+/// `constants.escape_gap_len_max` octets of plain ASCII one at a time, where a return to the walk
+/// took about 100 instructions at each (design §8 step 18).
+pub inline fn unicode_text(escape: []const u8, room: []u8, taken: Copied) Copied {
     var rest = escape[taken.input_len..];
     var space = room[taken.output_len..];
     var gap_len: usize = 0;
@@ -276,12 +277,22 @@ inline fn unicode_text(escape: []const u8, room: []u8, taken: Copied) Copied {
             gap_len += 1;
             continue;
         }
-        const escapes = take_escapes(rest, space) orelse break;
+        const escapes = take_escapes(rest, space) orelse take_letter(rest, space) orelse break;
         rest = rest[escapes.input_len..];
         space = space[escapes.output_len..];
         gap_len = 0;
     }
     return .{ .input_len = escape.len - rest.len, .output_len = room.len - space.len };
+}
+
+/// The escape of a letter that starts `rest` (RFC 8259 §7), written at the start of `space`, which
+/// holds an octet or more; or null where `rest` starts with none.
+inline fn take_letter(rest: []const u8, space: []u8) ?Copied {
+    if (rest.len < letter_escape_len) return null;
+    const character = letter_characters[rest[1]];
+    if (character == 0) return null;
+    space[0] = character;
+    return .{ .input_len = letter_escape_len, .output_len = 1 };
 }
 
 /// How `take_unicode` calls `unescape_unicode`: out of line with claim J12, and inline with it

@@ -1,10 +1,13 @@
-//! Tests of the string loop's `\u` escapes (decoder_loop_string.zig): claim J12's words against
-//! the escape read a digit at a time.
+//! Tests of the string loop (decoder_loop_string.zig): claim J12's words against the escape read
+//! a digit at a time, the text of escapes its loop takes, and where `copy_rest` ends.
 
 const std = @import("std");
 const testing = std.testing;
+const codec = @import("codec");
 const constants = @import("../../constants.zig");
+const wide = @import("../../wide.zig");
 const loop_string = @import("decoder_loop_string.zig");
+const Copied = loop_string.Copied;
 
 const letter_escape_len = loop_string.letter_escape_len;
 const unicode_escape_len = loop_string.unicode_escape_len;
@@ -87,4 +90,51 @@ test "code_unit_word refuses an escape with any octet it cannot hold where it st
             try expect_word_as_single(&text);
         }
     }
+}
+
+/// What `unicode_text` takes from the start of `text`, and the characters it writes.
+fn expect_text(text: []const u8, input_len: usize, characters: []const u8) !void {
+    var room: [constants.kernel_alignment]u8 = undefined;
+    const taken = loop_string.unicode_text(text, &room, .{ .input_len = 0, .output_len = 0 });
+    try testing.expectEqual(input_len, taken.input_len);
+    try testing.expectEqualStrings(characters, room[0..taken.output_len]);
+}
+
+test "the \\u text takes a letter's escape between two \\u escapes, and stops at one of no letter" {
+    // Both `\u` escapes, the line feed between them, and the space; the quotation mark stops it.
+    try expect_text("\\u0430\\n\\u0431 \"", "\\u0430\\n\\u0431 ".len, "\u{430}\n\u{431} ");
+    inline for (constants.escape_letters, constants.escaped_characters) |letter, character| {
+        const text = "\\u0041\\" ++ [_]u8{letter} ++ "\\u0042 \"";
+        try expect_text(text, text.len - 1, "A" ++ [_]u8{character} ++ "B ");
+    }
+    try expect_text("\\u0430\\q\\u0431 \"", unicode_escape_len, "\u{430}");
+    try expect_text("\\u0430\\u\\u0431 \"", unicode_escape_len, "\u{430}");
+}
+
+/// What `copy_rest` takes of `rest` into a room of `room_len` octets, with every claim on.
+fn copied_of(rest: []const u8, room_len: usize) ?Copied {
+    var room: [constants.kernel_alignment]u8 = undefined;
+    return loop_string.copy_rest_at(.{}, wide.Level.of(codec.Features.detect()), rest, room[0..room_len]);
+}
+
+test "copy_rest takes a string up to a closing quotation mark that is the input's last octet" {
+    try testing.expectEqual(Copied{ .input_len = 2, .output_len = 1 }, copied_of("\\n\"", constants.vector_len));
+    try testing.expectEqual(Copied{ .input_len = 4, .output_len = 2 }, copied_of("\\r\\n\"", constants.vector_len));
+}
+
+test "copy_rest leaves a string the input ends inside to the checked path" {
+    try testing.expectEqual(null, copied_of("\\n", constants.vector_len));
+    try testing.expectEqual(null, copied_of("\\n\\", constants.vector_len));
+    try testing.expectEqual(null, copied_of("\\nab", constants.vector_len));
+    // A `\u` escape and a reverse solidus the input ends with, and two escapes claim J12 takes as
+    // a pair, which the input ends with.
+    try testing.expectEqual(null, copied_of("\\u0041\\", constants.vector_len));
+    try testing.expectEqual(null, copied_of("\\u0041\\u0042\\", constants.vector_len));
+    try testing.expectEqual(null, copied_of("\\u0041\\u0042", constants.vector_len));
+}
+
+test "copy_rest leaves a string whose room ends inside a run of \\u escapes to the checked path" {
+    // The escape's character and four octets after it fill the room; a fifth has none.
+    try testing.expectEqual(Copied{ .input_len = 10, .output_len = 5 }, copied_of("\\u0041bcde\"", 5));
+    try testing.expectEqual(null, copied_of("\\u0041bcdef\"", 5));
 }
