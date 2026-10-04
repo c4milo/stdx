@@ -107,6 +107,44 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     return walk.found;
 }
 
+/// The candidates `short_chain_misses` reads.
+const short_chain_len = 2;
+
+/// Whether the chain at `position` holds at most `short_chain_len` candidates in reach and none of
+/// them starts with the position's 4 octets: a walk there finds no match.
+///
+/// In data that does not repeat, a chain holds no candidate, one or two about as often as each
+/// other. A walk tests each candidate's reach in turn, so one of its branches mispredicts at about
+/// every other position, and each miss waits on the chain's loads. This reads the first
+/// `short_chain_len` candidates whatever the chain holds and gives one answer, which the caller's
+/// one branch tests.
+///
+/// A candidate out of reach is read where the one before it was read, and the first at the
+/// position itself, so every load stays on octets and links a walk reads. The link read there is
+/// the candidate that fell out of reach, so every candidate after one out of reach is out of
+/// reach too.
+pub inline fn short_chain_misses(comptime level: constants.Level, self: *const Matcher(level), position: usize) bool {
+    // The window's padding keeps a load at any 16-bit position inside the array.
+    comptime assert(level.pair_walks);
+    const word = tail_octets(self.window[position..], 0);
+    const lowest = @max(1, position -| constants.encoder_distance_max);
+    // Each value is as wide as an index. A 16-bit value here would join the walk's own candidate,
+    // which the compiler then keeps 16 bits wide and extends at every link.
+    const nearest: usize = self.chain[slot(position)];
+    var at: usize = @as(u16, @intCast(position));
+    var read = nearest;
+    var matched: u32 = 0;
+    inline for (0..short_chain_len) |_| {
+        at = if (read >= lowest) read else at;
+        matched |= @intFromBool(tail_octets(self.window[at..], 0) == word);
+        read = self.chain[slot(at)];
+    }
+    // The 4 octets read at the position itself are its own, so a match counts only when the
+    // nearest candidate is in reach.
+    const walks = (@intFromBool(nearest >= lowest) & matched) | @intFromBool(read >= lowest);
+    return walks == 0;
+}
+
 /// The lazy step's two searches after a taken match, at `position` and the next, walked in one loop
 /// so their loads overlap: the first's match waits, and the second's is compared with it. The
 /// second walk follows the first's match as `best` would after it: cut to `cut_candidates_max`
@@ -148,4 +186,128 @@ inline fn longer_match(comptime level: constants.Level, self: *const Matcher(lev
     const len = match_len(self.window[candidate..][0..later.len], later);
     if (len <= found.len) return found;
     return .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
+}
+
+// Tests of `short_chain_misses`: chains set by hand in a window of zeros, then a seeded window
+// whose chains are built as the lazy loop builds them.
+
+const testing = std.testing;
+const codec = @import("codec");
+
+/// Level 6, whose walks run inline: the level that reads short chains.
+const short_level_number = 6;
+const short_level = constants.level(short_level_number);
+
+/// The 4 octets a test's position holds, and 4 that differ from them.
+const position_octets = "ABCD";
+const other_octets = "ABCE";
+
+/// One candidate of a test's chain: its position, and whether it holds the position's octets.
+const Link = struct { at: u16, holds: bool = false };
+
+/// `short_chain_misses` at `position` in a window of zeros that holds `position_octets` there.
+/// The chain names `links`, the nearest first: each link's own link is the next, the last's none.
+fn misses(position: usize, links: []const Link) bool {
+    var matcher: Matcher(short_level) = undefined;
+    matcher.init();
+    @memset(&matcher.window, 0);
+    @memset(&matcher.chain, 0);
+    matcher.filled = constants.encoder_window_len;
+    @memcpy(matcher.window[position..][0..position_octets.len], position_octets);
+    var from = position;
+    for (links) |link| {
+        matcher.chain[slot(from)] = link.at;
+        @memcpy(matcher.window[link.at..][0..position_octets.len], if (link.holds) position_octets else other_octets);
+        from = link.at;
+    }
+    return short_chain_misses(short_level, &matcher, position);
+}
+
+test "a chain of no candidate, one or two, none holding the position's octets, misses" {
+    const position = 40_000;
+    try testing.expect(misses(position, &.{}));
+    try testing.expect(misses(position, &.{.{ .at = 39_000 }}));
+    try testing.expect(misses(position, &.{ .{ .at = 39_000 }, .{ .at = 38_000 } }));
+}
+
+test "a candidate that holds the position's octets, or a third in reach, does not miss" {
+    const position = 40_000;
+    try testing.expect(!misses(position, &.{.{ .at = 39_000, .holds = true }}));
+    try testing.expect(!misses(position, &.{ .{ .at = 39_000 }, .{ .at = 38_000, .holds = true } }));
+    try testing.expect(!misses(position, &.{ .{ .at = 39_000 }, .{ .at = 38_000 }, .{ .at = 37_000 } }));
+}
+
+test "each candidate's reach ends at encoder_distance_max" {
+    const position = 40_000;
+    const farthest = position - constants.encoder_distance_max;
+    // The nearest: at the farthest distance it is read, and one octet farther it is no candidate.
+    try testing.expect(!misses(position, &.{.{ .at = farthest, .holds = true }}));
+    try testing.expect(misses(position, &.{.{ .at = farthest }}));
+    try testing.expect(misses(position, &.{.{ .at = farthest - 1, .holds = true }}));
+    // The second.
+    try testing.expect(!misses(position, &.{ .{ .at = 39_000 }, .{ .at = farthest, .holds = true } }));
+    try testing.expect(misses(position, &.{ .{ .at = 39_000 }, .{ .at = farthest - 1, .holds = true } }));
+    // The third starts a walk when in reach, whatever it holds.
+    try testing.expect(!misses(position, &.{ .{ .at = 39_000 }, .{ .at = 38_000 }, .{ .at = farthest } }));
+    try testing.expect(misses(position, &.{ .{ .at = 39_000 }, .{ .at = 38_000 }, .{ .at = farthest - 1 } }));
+}
+
+test "position 0 names no candidate, and position 1 is one" {
+    const position = 100;
+    try testing.expect(misses(position, &.{.{ .at = 0, .holds = true }}));
+    try testing.expect(!misses(position, &.{.{ .at = 1, .holds = true }}));
+    try testing.expect(misses(position, &.{.{ .at = 1 }}));
+}
+
+test "the link in a slot whose candidate fell out of reach is not followed" {
+    // A candidate out of reach shares its slot with the position `window_len` after it, so the
+    // link there may name a candidate in reach that holds the position's octets.
+    const position = 40_000;
+    const stale = 5_000;
+    try testing.expect(misses(position, &.{ .{ .at = stale, .holds = true }, .{ .at = 37_500, .holds = true }, .{ .at = 37_000 } }));
+    try testing.expect(misses(position, &.{ .{ .at = 39_000 }, .{ .at = stale, .holds = true }, .{ .at = 37_000, .holds = true } }));
+}
+
+/// `short_chain_misses`, by a walk that tests one candidate after another.
+fn misses_plainly(matcher: *const Matcher(short_level), position: usize) bool {
+    const lowest = @max(1, position -| constants.encoder_distance_max);
+    const word = tail_octets(matcher.window[position..], 0);
+    var candidate = matcher.chain[slot(position)];
+    for (0..short_chain_len) |_| {
+        if (candidate < lowest) return true;
+        if (tail_octets(matcher.window[candidate..], 0) == word) return false;
+        candidate = matcher.chain[slot(candidate)];
+    }
+    return candidate < lowest;
+}
+
+/// The values a seeded window's octets take: few enough that 4 octets recur, and enough that most
+/// positions with one hash hold other octets.
+const seeded_values = 16;
+
+test "over a seeded window the answer is a plain walk's, and where it misses a search finds none" {
+    var matcher: Matcher(short_level) = undefined;
+    matcher.init();
+    var generator = codec.split.Generator.init(29);
+    for (matcher.window[0..constants.encoder_window_len]) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(seeded_values)));
+    matcher.filled = constants.encoder_window_len;
+    // Every position joins its chain as the lazy loop's insert joins it, past a slide's worth of
+    // positions, so later positions take the slots of earlier ones.
+    const positions = constants.encoder_window_len - constants.lookahead_min;
+    const hash_shift = @bitSizeOf(u32) - @as(u6, short_level.hash_bits);
+    var missed: usize = 0;
+    for (1..positions) |position| {
+        const word = tail_octets(matcher.window[position..], 0);
+        const head = &matcher.heads[(word *% constants.hash_multiplier) >> hash_shift];
+        matcher.chain[slot(position)] = head.*;
+        head.* = @intCast(position);
+        matcher.position = position;
+        const expected = misses_plainly(&matcher, position);
+        try testing.expectEqual(expected, short_chain_misses(short_level, &matcher, position));
+        if (!expected) continue;
+        try testing.expectEqual(0, best_inline(short_level, false, &matcher, constants.match_len_max, 0).len);
+        missed += 1;
+    }
+    // Both answers occur often.
+    try testing.expect(missed > positions / 4 and missed < positions - positions / 4);
 }

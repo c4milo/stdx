@@ -245,10 +245,9 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
             state.position += 1;
             if (state.previous.len < level.lazy_len) current = pair.second;
         } else {
-            // A waiting match at least `lazy_len` long is taken without a search here.
             assert(state.waiting or state.previous.len == 0);
             self.position = state.position;
-            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
+            if (!skips_search(level, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
         }
         decide_lazy(level, cheap, self, costs, &symbols, &state, current);
     }
@@ -256,6 +255,16 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
     self.position = state.position;
     self.previous = state.previous;
     self.waiting = state.waiting;
+}
+
+/// Whether the lazy loop's position starts no search. A waiting match at least `lazy_len` long is
+/// taken without one. At a level whose walks run inline, a position after a literal starts none
+/// when its chain is short and holds none of its 4 octets; a position after a match found mostly
+/// has candidates, and would pay the chain's reads for nothing.
+inline fn skips_search(comptime level: constants.Level, self: *const Matcher(level), position: usize, previous_len: u16, waiting: bool) bool {
+    const taken = waiting and previous_len >= level.lazy_len;
+    if (!level.pair_walks) return taken;
+    return taken or (previous_len == 0 and walk.short_chain_misses(level, self, position));
 }
 
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
