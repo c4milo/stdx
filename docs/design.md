@@ -2170,6 +2170,35 @@ to 12 are reordered and nothing else changes.
     asyoulik.txt gained in both, and js-16k lost 1.1% and 1.5%. On the N2 no form that moves the bit
     buffer's shift earlier has gained, and on x86-64 the gain is one CPU's. The branches are
     deleted.
+  - The header's phases in one labeled switch, 1bea505, measured as e34fb75 over b631bc5, before the
+    three changes above landed (runs
+    [37167932415](https://github.com/c4milo/stdx/actions/runs/37167932415) and
+    [37167937854](https://github.com/c4milo/stdx/actions/runs/37167937854); reports in
+    `bench/results/`, dated 2026-10-04, "header-switch"). The header's loop called
+    `header.read_phase` once a phase: a function with a frame of 648 octets that saved six registers
+    and reached every phase's code through one indirect jump. A profile of js-1k on an EPYC 9V74
+    (run [37157410568](https://github.com/c4milo/stdx/actions/runs/37157410568)) put 657 ns of a 5.0
+    us decode in it, 70% of them on its entry and its jump, and the header 0.5 us behind Google's
+    where the commands were 0.6 us ahead. `fast_header.read_header` now holds the 16 phases in one
+    labeled switch: each phase's function is inlined at its case and jumps to the next phase's case
+    itself, so a phase costs no call and shares no jump with the others. The checked path keeps
+    `read_phase`, which takes each phase through the same `read_phase_of`. Under callgrind on
+    aarch64 a decode takes 3.2% fewer instructions for json-1k, 2.8% for js-1k (51,938 to 50,465),
+    2.6% for css-1k and 2.3% for html-1k. On the N2, 9 files gain in both jobs and none loses:
+    json-1k +6.1% and +6.3% (1.16 to 1.23 of Google's speed), css-1k +4.9% and +4.3% (1.19 to 1.25),
+    html-1k +4.1% and +4.2% (1.13 to 1.18), js-1k +3.9% and +4.9% (1.10 to 1.14), json-16k +2.2% and
+    +2.9%, grammar.lsp +1.3% and +3.1% and xargs.1 +1.7% and +1.2%. E.coli and the shuffled
+    dickens-1m rise 1.5 to 3.2% in both jobs with 0.08% and 0.2% of their instructions in the
+    functions that differ, which decision 20 counts as placement and not as the change's gain. In
+    the first N2 job alone samba, lcet10.txt, world192.txt, html-1m and css-1m fall 1.1 to 1.4%. On
+    a Xeon 8573C and an EPYC 7763, json-1k gains in both jobs, +7.4% and +2.6% (1.06 to 1.13 on the
+    8573C), and none loses in both. js-1k gains 6.4% on the 8573C (1.02 to 1.09), where the spreads
+    were 3 to 29%, and nothing on the 7763, where 13 files gain 1.3 to 4.1% and fields.c and css-16k
+    fall 2.1% and 1.7%. Mutations, 5: a phase going on at itself and not at the state's, under each
+    target's tests; the simple count's phase read as a kind, and the map's values as a run length;
+    the checked dispatch without the code lengths' phase: all CAUGHT. The count of phases left and
+    the reader's top-up change no output: no test tells them from their absence. Pushed to main the
+    same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
