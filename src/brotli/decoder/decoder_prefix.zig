@@ -338,7 +338,7 @@ fn finish_code(state: *State, code: Code) align(constants.hot_function_alignment
         .map => build(&state.map_code, code),
         .literal => |index| build_literal(&state.literal_codes[index], code, literal_entry_mode(state)),
         .insert_copy => |index| build_valued(&state.insert_copy_codes[index], code, commands.insert_copy_entry_value),
-        .distance => |index| build(&state.distance_codes[index], code),
+        .distance => |index| build_with(&state.distance_codes[index], code, commands.DistanceEntryValue.of_state(state)),
     };
     count_work(state, entries);
     header.after_code(state);
@@ -359,6 +359,16 @@ fn build_valued(table: anytype, code: Code, comptime value_of: fn (u16) u16) usi
         .single => |symbol| table.build_single_valued(symbol, value_of),
         .simple => |simple| table.build_simple_valued(simple.symbols, simple.tree_select, value_of),
         .ranged => |ranged| table.build_ranged_valued(ranged.ranges, ranged.counts, value_of),
+    };
+}
+
+/// Builds the table whose entries hold `value.of` of each symbol, `value` with its state, and
+/// returns the entries it wrote.
+fn build_with(table: anytype, code: Code, value: anytype) usize {
+    return switch (code) {
+        .single => |symbol| table.build_single_with(symbol, value),
+        .simple => |simple| table.build_simple_with(simple.symbols, simple.tree_select, value),
+        .ranged => |ranged| table.build_ranged_with(ranged.ranges, ranged.counts, value),
     };
 }
 

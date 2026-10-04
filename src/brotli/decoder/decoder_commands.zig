@@ -253,7 +253,7 @@ pub fn read_distance(state: *State, bits: *codec.BitReader) Error!?codec.Status 
         .symbol => |symbol| symbol,
         .needs_bits => return .needs_input,
     };
-    const code: u32 = decoded.value;
+    const code: u32 = distance_code(decoded.value);
     const extra_bits = distance_extra_bits(state, code);
     if (decoded.len + extra_bits > available) return .needs_input;
     const extra: u32 = @intCast((buffer >> @intCast(decoded.len)) & low_mask(extra_bits));
@@ -263,6 +263,34 @@ pub fn read_distance(state: *State, bits: *codec.BitReader) Error!?codec.Status 
     take_element(blocks);
     // RFC 7932 §4: the distance code 0 does not push its distance to the ring of last distances.
     return try resolve_distance(state, distance, code != 0);
+}
+
+/// The value of a distance table's entry: the distance code, and above it the count of the extra
+/// bits the code takes under the meta-block's NPOSTFIX and NDIRECT (RFC 7932 §4), so that a loop
+/// takes a distance's bits off the bit buffer with no arithmetic on its code. The header reads
+/// both parameters before the distance codes (§9.2).
+pub const DistanceEntryValue = struct {
+    /// 16 + NDIRECT, the first code with extra bits, and NPOSTFIX + 1.
+    coded_first: u32,
+    group_shift: u5,
+
+    pub fn of_state(state: *const State) DistanceEntryValue {
+        return .{ .coded_first = constants.distance_short_codes_count + @as(u32, state.direct_count), .group_shift = @as(u5, state.postfix_bits) + 1 };
+    }
+
+    /// A fill calls this for each symbol of a code, so it takes no branch: below the first code
+    /// with extra bits the wrapped difference's count is dropped. A fill's symbols are below
+    /// their alphabet's length, which the count's place clears (`constants.distance_symbol_bits`).
+    pub inline fn of(self: DistanceEntryValue, code: u16) u16 {
+        const extra_bits = 1 +% ((@as(u32, code) -% self.coded_first) >> self.group_shift);
+        const count = if (code < self.coded_first) 0 else extra_bits;
+        return @truncate(code | count << constants.distance_symbol_bits);
+    }
+};
+
+/// The distance code of an entry's value.
+pub inline fn distance_code(value: u16) u16 {
+    return value & ((1 << constants.distance_symbol_bits) - 1);
 }
 
 /// The extra bits of a distance code: none for the 16 short codes and the NDIRECT direct ones,

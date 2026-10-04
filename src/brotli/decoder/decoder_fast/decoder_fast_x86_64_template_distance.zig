@@ -35,17 +35,15 @@ pub const distance =
 ++ "\n" ++ lookup("rax", "rcx", "52", "56") ++
     \\    movzx ebx, cl
     \\    shr ecx, {[entry_value_at]}
-    \\    // The extra bits (RFC 7932 §4): none below 16 + NDIRECT, 1 + ((dcode - NDIRECT - 16) >>
-    \\    // (NPOSTFIX + 1)) after them.
-    \\    xor eax, eax
-    \\    cmp ecx, dword ptr [rdi + {[direct_end]}]
-    \\    jb 33f
+    \\    // The count of the code's extra bits (RFC 7932 §4), which the entry holds above the code,
+    \\    // so that the buffer waits for no arithmetic on the code.
     \\    mov eax, ecx
-    \\    sub eax, dword ptr [rdi + {[direct_end]}]
-    \\    mov r11d, dword ptr [rdi + {[postfix_shift]}]
-    \\    shrx eax, eax, r11d
-    \\    inc eax
-    \\33:
+    \\    shr eax, {[distance_symbol_bits]}
+    \\    and ecx, {[distance_symbol_mask]}
+    \\    // The octets the count's arithmetic took here, as no-operations: the copy's loops keep
+    \\    // their addresses.
+    \\    .byte 0x66, 0x66, 0x2e, 0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00
+    \\    .byte 0x66, 0x2e, 0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00
     \\    shrx r15, r8, rbx
     \\    bzhi r15, r15, rax
     \\    add ebx, eax

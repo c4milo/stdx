@@ -1,6 +1,6 @@
 //! The tables the aarch64 loop of `decoder_fast_aarch64.zig` reads, packed at comptime from RFC
 //! 7932's: each insert-and-copy symbol's codes, the short distance codes, the parts p1 and p2 give a
-//! context ID, and the extra bits and base of each coded distance code for each NPOSTFIX.
+//! context ID, and the base of each coded distance code for each NPOSTFIX.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -81,13 +81,7 @@ pub const context_luts: [@typeInfo(context.Mode).@"enum".fields.len][context_par
 /// The parts of a context ID: p1's and p2's (RFC 7932 §7.1).
 pub const context_parts = 2;
 
-/// A coded distance code's entry: its extra bits in the low octet, and above them the part of its
-/// distance that NDIRECT and the extra bits leave, ((offset << NPOSTFIX) + lcode) (RFC 7932 §4),
-/// so that the distance is the base, the extra bits shifted by NPOSTFIX, NDIRECT and 1. Indexed by
-/// the code less 16 and NDIRECT, from `coded_distances_first[NPOSTFIX]`.
-pub const coded_distance_base_at = @bitSizeOf(u8);
-
-/// Where each NPOSTFIX's entries start: 48 << NPOSTFIX each (RFC 7932 §4).
+/// Where each NPOSTFIX's entries of `coded_distances` start: 48 << NPOSTFIX each (RFC 7932 §4).
 pub const coded_distances_first: [constants.postfix_bits_max + 1]usize = first: {
     var first: [constants.postfix_bits_max + 1]usize = undefined;
     var at: usize = 0;
@@ -99,6 +93,11 @@ pub const coded_distances_first: [constants.postfix_bits_max + 1]usize = first: 
 };
 const coded_distances_len = coded_distances_first[constants.postfix_bits_max] + (constants.distance_code_groups << constants.postfix_bits_max);
 
+/// A coded distance code's base: the part of its distance that NDIRECT and the extra bits leave,
+/// ((offset << NPOSTFIX) + lcode) (RFC 7932 §4), so that the distance is the base, the extra bits
+/// shifted by NPOSTFIX, NDIRECT and 1. Indexed by the code less 16 and NDIRECT, from
+/// `coded_distances_first[NPOSTFIX]`. The count of the code's extra bits is in its table's entry
+/// (`commands.DistanceEntryValue`).
 pub const coded_distances: [coded_distances_len]u64 = entries: {
     @setEvalBranchQuota(packed_tables_quota);
     var entries: [coded_distances_len]u64 = undefined;
@@ -109,7 +108,7 @@ pub const coded_distances: [coded_distances_len]u64 = entries: {
             const low = index & ((1 << postfix_bits) - 1);
             const offset = ((constants.coded_distance_base + (high & 1)) << extra_bits) - constants.coded_distance_bias;
             assert(extra_bits <= constants.distance_extra_bits_max);
-            entries[first + index] = @as(u64, (offset << postfix_bits) + low) << coded_distance_base_at | extra_bits;
+            entries[first + index] = (offset << postfix_bits) + low;
         }
     }
     break :entries entries;
@@ -148,7 +147,7 @@ test "the context luts give each mode's context ID" {
     }
 }
 
-test "each coded distance code's entry gives the checked path's extra bits and distance" {
+test "each coded distance code's base and its entry's value give the checked path's extra bits and distance" {
     const testing = std.testing;
     var state: state_module.State = undefined;
     for (0..constants.postfix_bits_max + 1) |postfix_bits| {
@@ -157,13 +156,14 @@ test "each coded distance code's entry gives the checked path's extra bits and d
             state.direct_count = @intCast(@min(direct_high << @intCast(postfix_bits), constants.direct_count_max));
             const first = constants.distance_short_codes_count + @as(u32, state.direct_count);
             for (0..@as(usize, constants.distance_code_groups) << @intCast(postfix_bits)) |index| {
-                const entry = coded_distances[coded_distances_first[postfix_bits] + index];
+                const base = coded_distances[coded_distances_first[postfix_bits] + index];
                 const code: u32 = first + @as(u32, @intCast(index));
                 const extra_bits = commands.distance_extra_bits(&state, code);
-                try testing.expectEqual(@as(u64, extra_bits), entry & std.math.maxInt(u8));
+                const value = commands.DistanceEntryValue.of_state(&state).of(@intCast(code));
+                try testing.expectEqual(code, commands.distance_code(value));
+                try testing.expectEqual(@as(u16, extra_bits), value >> constants.distance_symbol_bits);
                 const mask = (@as(u32, 1) << extra_bits) - 1;
                 for ([_]u32{ 0, 1, mask >> 1, mask }) |extra| {
-                    const base = entry >> coded_distance_base_at;
                     const distance = base + (@as(u64, extra & mask) << @intCast(postfix_bits)) + state.direct_count + 1;
                     try testing.expectEqual(@as(u64, try commands.distance_of(&state, code, extra & mask)), distance);
                 }

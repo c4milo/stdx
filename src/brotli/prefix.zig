@@ -115,7 +115,12 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// As `build_single`, the entries holding `value_of(symbol)`: the symbol, and bits above it
         /// that the decoder reads with it.
         pub fn build_single_valued(self: *Self, symbol: u16, comptime value_of: fn (u16) u16) usize {
-            @memset(self.entries[0 .. 1 << root_bits], .{ .value = value_of(symbol), .len = 0, .second_bits = 0 });
+            return self.build_single_with(symbol, fill.Stateless(value_of){});
+        }
+
+        /// As `build_single_valued`, the value from `value.of`, which may hold state.
+        pub fn build_single_with(self: *Self, symbol: u16, value: anytype) usize {
+            @memset(self.entries[0 .. 1 << root_bits], .{ .value = value.of(symbol), .len = 0, .second_bits = 0 });
             return 1 << root_bits;
         }
 
@@ -139,7 +144,7 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
         /// As `build_sorted`, each symbol entry holding `value_of(symbol)`. A link's value stays the
         /// place of its second level.
         pub fn build_sorted_valued(self: *Self, sorted: []const Coded, counts: *const Counts, comptime value_of: fn (u16) u16) usize {
-            return fill.fill_canonical(root_bits, value_of, &self.entries, sorted, counts);
+            return fill.fill_canonical(root_bits, fill.Stateless(value_of){}, &self.entries, sorted, counts);
         }
 
         /// The code of a simple code of two to four symbols (RFC 7932 §3.4), `symbols` in the order
@@ -150,7 +155,12 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
 
         /// As `build_simple`, each symbol entry holding `value_of(symbol)`.
         pub fn build_simple_valued(self: *Self, symbols: []const u16, tree_select: bool, comptime value_of: fn (u16) u16) usize {
-            return fill.fill_simple(root_bits, value_of, &self.entries, symbols, tree_select);
+            return self.build_simple_with(symbols, tree_select, fill.Stateless(value_of){});
+        }
+
+        /// As `build_simple_valued`, the value from `value.of`, which may hold state.
+        pub fn build_simple_with(self: *Self, symbols: []const u16, tree_select: bool, value: anytype) usize {
+            return fill.fill_simple(root_bits, value, &self.entries, symbols, tree_select);
         }
 
         /// As `build_sorted`, from the runs of equal lengths the reading appended (`Ranges`).
@@ -160,7 +170,12 @@ pub fn Table(comptime entries_len: usize, comptime root_bits: u5) type {
 
         /// As `build_ranged`, each symbol entry holding `value_of(symbol)`.
         pub fn build_ranged_valued(self: *Self, ranges: *const Ranges, counts: *const Counts, comptime value_of: fn (u16) u16) usize {
-            return fill.fill_ranged(root_bits, value_of, &self.entries, ranges, counts);
+            return self.build_ranged_with(ranges, counts, fill.Stateless(value_of){});
+        }
+
+        /// As `build_ranged_valued`, the value from `value.of`, which may hold state.
+        pub fn build_ranged_with(self: *Self, ranges: *const Ranges, counts: *const Counts, value: anytype) usize {
+            return fill.fill_ranged(root_bits, value, &self.entries, ranges, counts);
         }
 
         /// The canonical code of `lengths` (RFC 7932 §3.2), every length at most `root_bits`, which

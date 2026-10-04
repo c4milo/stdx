@@ -14,6 +14,17 @@ const Ranges = prefix.Ranges;
 const reversed = prefix.reversed;
 const reversed_octets = prefix.reversed_octets;
 
+/// A value function with no state, as the fills take one: `of` gives `value_of` of a symbol. A fill
+/// takes any value with an `of`, so that one with state, a meta-block's parameters, fills a table
+/// by the same code.
+pub fn Stateless(comptime value_of: fn (u16) u16) type {
+    return struct {
+        pub inline fn of(_: @This(), symbol: u16) u16 {
+            return value_of(symbol);
+        }
+    };
+}
+
 /// Writes the table of the canonical code whose symbols `sorted` holds in canonical order, and
 /// returns the entries it takes: the root, and behind it a second level for each root entry whose
 /// codes are longer. The codes take consecutive values in that order (RFC 7932 §3.2), so the
@@ -24,7 +35,7 @@ const reversed_octets = prefix.reversed_octets;
 /// copied the entries written before it to fill them (`double_root`), so each copy repeats every
 /// shorter code; the root is whole once it is copied to its full width. Before the first code no
 /// entry is written, so the first width needs no copy.
-pub fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, sorted: []const Coded, counts: *const Counts) align(constants.hot_function_alignment) usize {
+pub fn fill_canonical(comptime root_bits: u5, value_of: anytype, entries: []Entry, sorted: []const Coded, counts: *const Counts) align(constants.hot_function_alignment) usize {
     var fill = Fill.start(root_bits, sorted[0].len, sorted[sorted.len - 1].len, counts);
     for (sorted) |coded| fill_symbol(root_bits, value_of, entries, &fill, coded.symbol, coded.len);
     return fill_end(root_bits, entries, &fill);
@@ -34,7 +45,7 @@ pub fn fill_canonical(comptime root_bits: u5, comptime value_of: fn (u16) u16, e
 /// the stream gave them, and returns the entries it takes: the root. The code's shape names the
 /// symbol of each of the root's first entries, which it writes once each, and the rest of the root
 /// repeats them (`replicate_root`).
-pub fn fill_simple(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, symbols: []const u16, tree_select: bool) usize {
+pub fn fill_simple(comptime root_bits: u5, value_of: anytype, entries: []Entry, symbols: []const u16, tree_select: bool) usize {
     assert(symbols.len >= constants.code_symbols_min and symbols.len <= constants.simple_symbols_max);
     assert(!tree_select or symbols.len == constants.simple_symbols_max);
     const shape_index = symbols.len - constants.code_symbols_min + @intFromBool(tree_select);
@@ -85,12 +96,12 @@ fn simple_shape(comptime lengths: []const u8) SimpleShape {
 }
 
 /// Writes the root's first entries for a simple code of `shape`, each once, and returns how many.
-inline fn fill_shape(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, symbols: []const u16, comptime shape: SimpleShape) usize {
+inline fn fill_shape(comptime root_bits: u5, value_of: anytype, entries: []Entry, symbols: []const u16, comptime shape: SimpleShape) usize {
     comptime assert(shape.ranks.len <= 1 << root_bits);
     assert(symbols.len == shape.lengths.len);
     var canonical: [shape.lengths.len]u16 = symbols[0..shape.lengths.len].*;
     sort_equal_lengths(&canonical, shape.lengths);
-    inline for (shape.ranks, 0..) |rank, index| entries[index] = symbol_entry(value_of(canonical[rank]), shape.lengths[rank]);
+    inline for (shape.ranks, 0..) |rank, index| entries[index] = symbol_entry(value_of.of(canonical[rank]), shape.lengths[rank]);
     return shape.ranks.len;
 }
 
@@ -114,7 +125,7 @@ inline fn sort_equal_lengths(symbols: []u16, comptime lengths: []const u8) void 
 /// `fill_canonical` writes it from the sorted symbols: each length's runs in symbol order, the
 /// lengths in order. The codes up to the root's length take one loop per length, the root doubled
 /// once before it and each code one store (`fill_root_runs`); the longer ones take `fill_symbol`.
-pub fn fill_ranged(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, ranges: *const Ranges, counts: *const Counts) align(constants.hot_function_alignment) usize {
+pub fn fill_ranged(comptime root_bits: u5, value_of: anytype, entries: []Entry, ranges: *const Ranges, counts: *const Counts) align(constants.hot_function_alignment) usize {
     const len_max = longest_len(counts);
     var fill = Fill.start(root_bits, shortest_len(counts), len_max, counts);
     for (1..@min(len_max, root_bits) + 1) |len| {
@@ -141,7 +152,7 @@ pub fn fill_ranged(comptime root_bits: u5, comptime value_of: fn (u16) u16, entr
 /// Writes the codes of `len` bits, at most the root's, of each run of that length in order, the
 /// first taking `code`, once each among the root's first 1 << `len` entries, which the caller has
 /// doubled to that width; returns the code after the last.
-inline fn fill_root_runs(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, ranges: *const Ranges, len: u8, first_code: u32) u32 {
+inline fn fill_root_runs(comptime root_bits: u5, value_of: anytype, entries: []Entry, ranges: *const Ranges, len: u8, first_code: u32) u32 {
     assert(len >= 1 and len <= root_bits);
     const Index = std.meta.Int(.unsigned, root_bits);
     const root: *[1 << root_bits]Entry = entries[0 .. 1 << root_bits];
@@ -162,7 +173,7 @@ inline fn fill_root_runs(comptime root_bits: u5, comptime value_of: fn (u16) u16
         var symbol = range.first;
         for (0..range.count) |_| {
             const index: Index = if (by_table) @intCast(reversed_root(code, len)) else @truncate(@bitReverse(code) >> shift);
-            root[index] = symbol_entry(value_of(symbol), len);
+            root[index] = symbol_entry(value_of.of(symbol), len);
             code +%= 1;
             symbol +%= 1;
         }
@@ -243,11 +254,11 @@ const Fill = struct {
 };
 
 /// Writes the entries of the next code, `len` bits long, for `symbol`: what the fills do per symbol.
-inline fn fill_symbol(comptime root_bits: u5, comptime value_of: fn (u16) u16, entries: []Entry, fill: *Fill, symbol: u16, len: u8) void {
+inline fn fill_symbol(comptime root_bits: u5, value_of: anytype, entries: []Entry, fill: *Fill, symbol: u16, len: u8) void {
     assert(len >= fill.code_len and len <= constants.code_len_max);
     fill.code <<= @intCast(len - fill.code_len);
     fill.code_len = len;
-    const value = value_of(symbol);
+    const value = value_of.of(symbol);
     if (len <= root_bits) {
         fill.filled = double_root(root_bits, entries, fill.filled, len);
         entries[reversed(fill.code, len)] = .{ .value = value, .len = len, .second_bits = 0 };

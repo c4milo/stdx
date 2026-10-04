@@ -108,6 +108,17 @@ pub const distance_extra_bits_max = 24;
 pub const distance_code_groups = 48;
 pub const distance_alphabet_len_max = distance_short_codes_count + direct_count_max + (distance_code_groups << postfix_bits_max);
 
+/// The bits a distance code takes in a table entry's value, and the bits above it, which hold the
+/// count of the code's extra bits, 24 at most (RFC 7932 §4).
+pub const distance_symbol_bits = 10;
+pub const distance_extra_count_bits = 6;
+
+comptime {
+    std.debug.assert(distance_alphabet_len_max <= 1 << distance_symbol_bits);
+    std.debug.assert(distance_extra_bits_max < 1 << distance_extra_count_bits);
+    std.debug.assert(distance_symbol_bits + distance_extra_count_bits == @bitSizeOf(u16));
+}
+
 /// RLEMAX of a context map, 0 to 16 (RFC 7932 §7.3), and so the largest alphabet of a context map's
 /// prefix code.
 pub const run_length_codes_max = 16;

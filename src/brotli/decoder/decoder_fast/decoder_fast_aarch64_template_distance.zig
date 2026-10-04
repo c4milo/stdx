@@ -57,26 +57,27 @@ pub const distance =
     \\    ubfx x13, x24, #{[distance_context_at]}, #{[distance_context_bits]}
     \\    ldr x13, [x11, x13, lsl #3]
 ++ "\n" ++ lookup("x13", "x23", "x14", "x28", "52", "56") ++
-    \\    lsr w14, w23, #{[entry_value_at]}
+    \\    // The code, and the count of its extra bits (RFC 7932 §4), which the entry holds above
+    \\    // it, so that the buffer waits for no load after the entry's.
+    \\    ubfx w14, w23, #{[entry_value_at]}, #{[distance_symbol_bits]}
+    \\    ubfx w25, w23, #{[entry_extra_count_at]}, #{[distance_extra_count_bits]}
     \\    and w23, w23, #0xff
     \\    lsr x26, x6, x23
-    \\    mov w25, #0
     \\    // A short code (33) or a direct one (34), of no extra bits (RFC 7932 §4).
     \\    cmp w14, #{[distance_short_codes_count]}
     \\    b.lo 33f
     \\    ldp x28, x13, [x0, #{[coded_first]}]
     \\    subs w28, w14, w28
     \\    b.lo 34f
-    \\    // A coded distance (RFC 7932 §4): its extra bits and base from its entry; the distance is
-    \\    // the base, the extra bits shifted by NPOSTFIX, NDIRECT and 1.
+    \\    // A coded distance (RFC 7932 §4): its base from its table's entry; the distance is the
+    \\    // base, the extra bits shifted by NPOSTFIX, NDIRECT and 1.
     \\    ldr x13, [x13, x28, lsl #3]
-    \\    ubfx x25, x13, #0, #{[coded_distance_base_at]}
     \\    mov x14, #-1
     \\    lsl x14, x14, x25
     \\    bic x26, x26, x14
     \\    ldp x14, x28, [x0, #{[postfix_bits]}]
     \\    lsl x26, x26, x14
-    \\    add x26, x26, x13, lsr #{[coded_distance_base_at]}
+    \\    add x26, x26, x13
     \\    add x26, x26, x28
     \\    mov w14, #1
     \\36:

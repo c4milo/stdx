@@ -179,7 +179,7 @@ inline fn distance_of(comptime claims: Claims, loop: *const Loop, state: *State)
     const id = context.distance_id(state.command.copy_len);
     const tree = state.distance_context_map[@as(usize, blocks.type_current) * constants.distance_contexts_count + id];
     const symbol = state.distance_codes[tree].decode_whole(!claims.unchecked_loop, loop.buffer);
-    const code: u32 = symbol.value;
+    const code: u32 = commands.distance_code(symbol.value);
     const extra_bits = commands.distance_extra_bits(state, code);
     const extra: u32 = @intCast(fast.low_bits(loop.buffer >> @intCast(symbol.len), extra_bits));
     const value = commands.distance_of(state, code, extra) catch return null;

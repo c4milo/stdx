@@ -90,9 +90,8 @@ const Machine = extern struct {
     ring23: u64,
     p1: u64,
     p2: u64,
-    /// NPOSTFIX, NPOSTFIX + 1, NDIRECT and 16 + NDIRECT, where the first coded distance code starts.
+    /// NPOSTFIX, NDIRECT and 16 + NDIRECT, where the first coded distance code starts.
     postfix_bits: u64,
-    postfix_shift: u64,
     direct_count: u64,
     direct_end: u64,
     command_codes: *const [constants.insert_copy_alphabet_len]u64,
@@ -165,7 +164,6 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .p1 = loop.p1,
         .p2 = loop.p2,
         .postfix_bits = state.postfix_bits,
-        .postfix_shift = @as(u64, state.postfix_bits) + 1,
         .direct_count = state.direct_count,
         .direct_end = @as(u64, state.direct_count) + constants.distance_short_codes_count,
         .command_codes = &packed_tables.command_codes,
@@ -368,7 +366,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .distance_context_mask = (1 << packed_tables.distance_context_bits) - 1,
     .dist_context_tables = @offsetOf(Machine, "dist_context_tables"),
     .direct_end = @offsetOf(Machine, "direct_end"),
-    .postfix_shift = @offsetOf(Machine, "postfix_shift"),
+    .distance_symbol_bits = constants.distance_symbol_bits,
+    .distance_symbol_mask = (1 << constants.distance_symbol_bits) - 1,
     .distance_short_codes_count = constants.distance_short_codes_count,
     .short_codes = @offsetOf(Machine, "short_codes"),
     .ring01 = @offsetOf(Machine, "ring01"),
