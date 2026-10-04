@@ -270,8 +270,9 @@ pub const Prices = struct {
     }
 };
 
-/// The block's prices, with `dynamic` its planned dynamic code's, which `plan_dynamic` built.
-pub fn prices(block: *const Block, dynamic: *const Plan, bit_position: u3) Prices {
+/// The block's prices, with `dynamic` its planned dynamic code's, which `plan_dynamic` built, and
+/// `dynamic_header_bits` the bits `plan_dynamic` counted for its header.
+pub fn prices(block: *const Block, dynamic: *const Plan, dynamic_header_bits: u64, bit_position: u3) Prices {
     const block_header = constants.final_bits + constants.type_bits;
     const fixed_lengths = constants.fixed_literal_length_lengths[0..constants.literal_length_used];
     const fixed_distance_lengths = constants.fixed_distance_lengths[0..constants.distance_used];
@@ -279,7 +280,7 @@ pub fn prices(block: *const Block, dynamic: *const Plan, bit_position: u3) Price
     return .{
         .stored = stored_bits(block.input_len, bit_position),
         .fixed = block_header + coded.fixed,
-        .dynamic = block_header + header_bits(dynamic) + coded.dynamic,
+        .dynamic = block_header + dynamic_header_bits + coded.dynamic,
     };
 }
 
@@ -353,8 +354,8 @@ pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) a
     assert(block.literal_length_counts[constants.end_of_block] == 1);
     result.final = final;
     if (block.symbol_count == 0) return plan_empty(bit_position, result);
-    plan_dynamic(block, result);
-    const priced = prices(block, result, bit_position);
+    const dynamic_header_bits = plan_dynamic(block, result);
+    const priced = prices(block, result, dynamic_header_bits, bit_position);
     result.kind = priced.cheapest();
     result.bits = switch (result.kind) {
         .stored => priced.stored,
@@ -403,20 +404,27 @@ pub fn stored_bits(len: usize, bit_position: u3) u64 {
     return block_header + pad + constants.stored_header_bits + @as(u64, len) * @bitSizeOf(u8);
 }
 
+/// The extra bits an item of each code length symbol carries (RFC 1951 §3.2.7).
+const item_extra_bits: [constants.code_length_alphabet_len]u8 = extra: {
+    var bits: [constants.code_length_alphabet_len]u8 = @splat(0);
+    for (constants.repeat_extra_bits, constants.repeat_previous..) |extra_bits, symbol| bits[symbol] = extra_bits;
+    break :extra bits;
+};
+
 /// A dynamic block's header bits, BFINAL and BTYPE excluded: HLIT, HDIST and HCLEN, the code
-/// length code, and the code lengths as items (RFC 1951 §3.2.7).
-fn header_bits(dynamic: *const Plan) u64 {
+/// length code, and the code lengths as items (RFC 1951 §3.2.7), `item_counts` of each symbol.
+fn header_bits(dynamic: *const Plan, item_counts: *const code.ItemCounts) u64 {
     var bits: u64 = constants.hlit_bits + constants.hdist_bits + constants.hclen_bits;
     bits += @as(u64, dynamic.code_length_count) * constants.code_length_code_bits;
-    for (dynamic.items[0..dynamic.item_count]) |item| {
-        bits += dynamic.code_length_lengths[item.symbol];
-        if (item.symbol >= constants.repeat_previous) bits += constants.repeat_extra_bits[item.symbol - constants.repeat_previous];
+    for (item_counts, dynamic.code_length_lengths, item_extra_bits) |count, len, extra_bits| {
+        bits += @as(u64, count) * (@as(u64, len) + extra_bits);
     }
     return bits;
 }
 
-/// Builds the block's own codes and the header that carries them (RFC 1951 §3.2.7).
-fn plan_dynamic(block: *const Block, result: *Plan) void {
+/// Builds the block's own codes and the header that carries them (RFC 1951 §3.2.7). Returns the
+/// header's bits, as `header_bits` counts them.
+fn plan_dynamic(block: *const Block, result: *Plan) u64 {
     var literal_listed: [constants.literal_length_used]u16 = undefined;
     const literals_listed = code.build_lengths_listed(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths, &literal_listed);
     code.build_codes_listed(&result.literal_length_lengths, literal_listed[0..literals_listed], &result.literal_length_codes);
@@ -426,9 +434,8 @@ fn plan_dynamic(block: *const Block, result: *Plan) void {
     // RFC 1951 §3.2.7: HLIT + 257 literal/length lengths, HDIST + 1 distance lengths.
     result.literal_length_count = @intCast(@max(constants.hlit_base, last_used(&result.literal_length_lengths)));
     result.distance_count = @intCast(@max(constants.hdist_base, last_used(&result.distance_lengths)));
-    result.item_count = @intCast(code.run_lengths(result.literal_length_lengths[0..result.literal_length_count], result.distance_lengths[0..result.distance_count], &result.items));
-    var item_counts: [constants.code_length_alphabet_len]u16 = @splat(0);
-    for (result.items[0..result.item_count]) |item| item_counts[item.symbol] += 1;
+    var item_counts: code.ItemCounts = undefined;
+    result.item_count = @intCast(code.run_lengths(result.literal_length_lengths[0..result.literal_length_count], result.distance_lengths[0..result.distance_count], &result.items, &item_counts));
     code.build_lengths(&item_counts, constants.code_length_code_len_max, &result.code_length_lengths);
     code.build_codes(&result.code_length_lengths, &result.code_length_codes);
     // RFC 1951 §3.2.7: HCLEN + 4 code length code lengths, in `code_length_order`.
@@ -437,6 +444,7 @@ fn plan_dynamic(block: *const Block, result: *Plan) void {
         if (result.code_length_lengths[symbol] != 0) count = @max(count, @as(u16, @intCast(index)));
     }
     result.code_length_count = count;
+    return header_bits(result, &item_counts);
 }
 
 /// One more than the last symbol with a length, found from the end.

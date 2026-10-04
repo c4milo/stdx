@@ -1,7 +1,7 @@
 //! The encoder's Huffman codes (RFC 1951 §3.2.2): code lengths for a block's symbol counts, at most
 //! 15 bits long, or 7 for the code length code (§3.2.7); the canonical codes of those lengths,
-//! bit-reversed for a stream packed least significant bit first (§3.1.1); and the run-length coding
-//! of a dynamic block's code lengths with symbols 16, 17 and 18 (§3.2.7).
+//! bit-reversed for a stream packed least significant bit first (§3.1.1). The run-length coding of
+//! a dynamic block's code lengths with symbols 16, 17 and 18 (§3.2.7) is in `encoder_code_runs.zig`.
 //!
 //! The lengths come from Huffman's tree, built in one pass over the sorted counts. When a length
 //! passes the limit, the package-merge algorithm builds them again: it gives the least coded size
@@ -372,82 +372,12 @@ const reversed_octets: [1 << @bitSizeOf(u8)]u8 = table: {
     break :table octets;
 };
 
-/// One symbol of the code length alphabet, and the value of its extra bits (RFC 1951 §3.2.7).
-pub const Item = struct {
-    symbol: u8,
-    extra: u8 = 0,
-};
-
-/// The most items a dynamic header's code lengths take: one for each length.
-pub const items_max = constants.literal_length_used + constants.distance_used;
-
-/// Writes `first` and then `second` as one sequence of code length symbols (RFC 1951 §3.2.7): a
-/// run of zeros as 17 or 18, a run of one length as the length and 16, and the rest one symbol
-/// each. A run may cross from `first` into `second`, as §3.2.7 lets it cross from the literal and
-/// length lengths into the distance lengths. Returns how many.
-pub fn run_lengths(first: []const u8, second: []const u8, items: *[items_max]Item) usize {
-    assert(first.len + second.len > 0 and first.len + second.len <= items_max);
-    // One pass over both tables, one compare a length: a run ends where a length differs.
-    var runs: Runs = .{ .value = if (first.len > 0) first[0] else second[0] };
-    for (first) |len| runs.take(len, items);
-    for (second) |len| runs.take(len, items);
-    runs.count += run_items(runs.value, runs.run, items[runs.count..]);
-    assert(runs.taken == first.len + second.len);
-    return runs.count;
-}
-
-/// The run `run_lengths` has open: its length and how many it holds, the items written before it,
-/// and the lengths taken in all.
-const Runs = struct {
-    value: u8,
-    run: usize = 0,
-    count: usize = 0,
-    taken: usize = 0,
-
-    /// Adds `len` to the open run, or writes the run and opens one of `len`.
-    inline fn take(runs: *Runs, len: u8, items: *[items_max]Item) void {
-        runs.taken += 1;
-        if (len == runs.value) {
-            runs.run += 1;
-            return;
-        }
-        runs.count += run_items(runs.value, runs.run, items[runs.count..]);
-        runs.value = len;
-        runs.run = 1;
-    }
-};
-
-/// Writes a run of `run` lengths `len` as items, and returns how many.
-fn run_items(len: u8, run: usize, items: []Item) align(constants.hot_function_alignment) usize {
-    var left = run;
-    var count: usize = 0;
-    if (len != 0) {
-        items[0] = .{ .symbol = len };
-        left -= 1;
-        count = 1;
-    }
-    for (0..run) |_| {
-        const repeat = repeat_for(len, left) orelse break;
-        const kind = repeat - constants.repeat_previous;
-        const taken = @min(left, constants.repeat_count_max[kind]);
-        items[count] = .{ .symbol = repeat, .extra = @intCast(taken - constants.repeat_count_min[kind]) };
-        count += 1;
-        left -= taken;
-    }
-    for (items[count..][0..left]) |*item| item.* = .{ .symbol = len };
-    return count + left;
-}
-
-/// The repeat symbol for `left` more lengths `len`, or null when too few are left for one
-/// (RFC 1951 §3.2.7).
-fn repeat_for(len: u8, left: usize) ?u8 {
-    if (len != 0) return if (left >= constants.repeat_count_min[0]) constants.repeat_previous else null;
-    const long = constants.repeat_zero_long - constants.repeat_previous;
-    const short = constants.repeat_zero_short - constants.repeat_previous;
-    if (left >= constants.repeat_count_min[long]) return constants.repeat_zero_long;
-    if (left >= constants.repeat_count_min[short]) return constants.repeat_zero_short;
-    return null;
-}
+/// The run-length coding of a dynamic block's code lengths (RFC 1951 §3.2.7), in a file of its own.
+const runs = @import("encoder_code_runs.zig");
+pub const Item = runs.Item;
+pub const items_max = runs.items_max;
+pub const ItemCounts = runs.Counts;
+pub const run_lengths = runs.run_lengths;
 
 test {
     _ = @import("encoder_code_test.zig");

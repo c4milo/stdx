@@ -142,7 +142,8 @@ fn expand(items: []const code.Item, lengths: []u8) usize {
 test "code lengths as runs: zeros as 17 and 18, a repeated length as 16, and back" {
     const lengths = [_]u8{0} ** 20 ++ [_]u8{5} ** 8 ++ [_]u8{3} ++ [_]u8{0} ** 7 ++ [_]u8{4} ++ [_]u8{0} ** 11 ++ [_]u8{2};
     var items: [code.items_max]code.Item = undefined;
-    const count = code.run_lengths(&lengths, &.{}, &items);
+    var counts: code.ItemCounts = undefined;
+    const count = code.run_lengths(&lengths, &.{}, &items, &counts);
     // 20 zeros are 18 with 9; the first 5 is itself and 6 more are 16 with 3, the last 5 itself;
     // 7 zeros are 17 with 4; 11 zeros, the fewest 18 takes, are 18 with 0.
     const expected = [_]code.Item{
@@ -151,16 +152,25 @@ test "code lengths as runs: zeros as 17 and 18, a repeated length as 16, and bac
         .{ .symbol = 4 },              .{ .symbol = 18, .extra = 0 }, .{ .symbol = 2 },
     };
     try testing.expectEqualSlices(code.Item, &expected, items[0..count]);
+    try expect_counts(items[0..count], &counts);
     for (0..200) |seed| {
         var generator = codec.split.Generator.init(seed);
         var random: [code.items_max]u8 = undefined;
         const len = generator.between(1, random.len);
         for (random[0..len]) |*value| value.* = if (generator.below(3) == 0) @intCast(generator.below(16)) else 0;
-        const random_count = code.run_lengths(random[0..len], &.{}, &items);
+        const random_count = code.run_lengths(random[0..len], &.{}, &items, &counts);
         var expanded: [code.items_max]u8 = undefined;
         try testing.expectEqual(len, expand(items[0..random_count], &expanded));
         try testing.expectEqualSlices(u8, random[0..len], expanded[0..len]);
+        try expect_counts(items[0..random_count], &counts);
     }
+}
+
+/// Requires `counts` to say how often each code length symbol occurs among `items`.
+fn expect_counts(items: []const code.Item, counts: *const code.ItemCounts) !void {
+    var expected: code.ItemCounts = @splat(0);
+    for (items) |item| expected[item.symbol] += 1;
+    try testing.expectEqualSlices(u16, &expected, counts);
 }
 
 test "code lengths split across the two tables give the items of one sequence" {
@@ -178,10 +188,13 @@ test "code lengths split across the two tables give the items of one sequence" {
             if (generator.below(8) == 0) value = @intCast(generator.below(4));
             length.* = value;
         }
-        const whole_count = code.run_lengths(lengths[0..len], &.{}, &whole_items);
+        var whole_counts: code.ItemCounts = undefined;
+        var split_counts: code.ItemCounts = undefined;
+        const whole_count = code.run_lengths(lengths[0..len], &.{}, &whole_items, &whole_counts);
         for (1..len) |at| {
-            const split_count = code.run_lengths(lengths[0..at], lengths[at..len], &split_items);
+            const split_count = code.run_lengths(lengths[0..at], lengths[at..len], &split_items, &split_counts);
             try testing.expectEqualSlices(code.Item, whole_items[0..whole_count], split_items[0..split_count]);
+            try testing.expectEqualSlices(u16, &whole_counts, &split_counts);
         }
     }
 }

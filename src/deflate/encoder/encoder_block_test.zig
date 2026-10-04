@@ -74,8 +74,20 @@ test "the plan takes the least of the three prices, for every seeded block" {
         }
         const bit_position: u3 = @intCast(generator.below(8));
         block_module.plan(&block, seed % 2 == 0, bit_position, &result);
-        const priced = block_module.prices(&block, &result, bit_position);
+        const priced = block_module.prices(&block, &result, header_bits_by_item(&result), bit_position);
         try testing.expectEqual(@min(priced.stored, priced.fixed, priced.dynamic), result.bits);
         try testing.expectEqual(priced.cheapest(), result.kind);
     }
+}
+
+/// A dynamic header's bits after BFINAL and BTYPE, counted an item at a time (RFC 1951 §3.2.7),
+/// where the plan counts them from how often each code length symbol occurs.
+fn header_bits_by_item(dynamic: *const block_module.Plan) u64 {
+    var bits: u64 = constants.hlit_bits + constants.hdist_bits + constants.hclen_bits;
+    bits += @as(u64, dynamic.code_length_count) * constants.code_length_code_bits;
+    for (dynamic.items[0..dynamic.item_count]) |item| {
+        bits += dynamic.code_length_lengths[item.symbol];
+        if (item.symbol >= constants.repeat_previous) bits += constants.repeat_extra_bits[item.symbol - constants.repeat_previous];
+    }
+    return bits;
 }
