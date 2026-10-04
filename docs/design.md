@@ -2402,6 +2402,26 @@ to 12 are reordered and nothing else changes.
     there as on the checked path. On x86-64 a mask a bit wide changes no distance: a short or a
     direct code has no count, and a coded distance's arithmetic reads the code's bits below NPOSTFIX
     + 1 alone. Pushed to main the same day.
+  - Where the decoder stands at f855d98, with the five changes of 2026-10-04 together: no file
+    decodes below Google's speed in any of ten reports. Two runs of the bench workflow on main
+    ([37201487229](https://github.com/c4milo/stdx/actions/runs/37201487229) and
+    [37201492713](https://github.com/c4milo/stdx/actions/runs/37201492713)) drew the N2 twice, an
+    EPYC 7763 and an EPYC 9V45. On the N2 the median is 1.39 of Google's speed in both jobs, and the
+    lowest files are the shuffled dickens-1m, 1.13 and 1.12, E.coli, 1.14 in both, and js-1k, 1.19
+    and 1.20. On the 7763 the median is 1.29 and the lowest are js-1k, 1.07, and kennedy.xls, 1.15;
+    on the 9V45 the median is 1.33 and the lowest are js-1k, 1.09, and kennedy.xls, 1.10. The EPYC
+    9V74, where js-1k read 0.998 at 0a58366, comes up about once in 15 jobs, so the owner approved a
+    temporary workflow on a branch of its own, deleted since (run
+    [37201465574](https://github.com/c4milo/stdx/actions/runs/37201465574), at 396b7b6, which is
+    f855d98 and the workflow's file): 40 jobs named their CPU, 25 an EPYC 7763, six an EPYC 9V74,
+    five an EPYC 9V45, two a Xeon 8370C, one a Xeon 6973P-C and one a Xeon 8573C, and the six on the
+    9V74 ran `bench-brotli`. Their medians are 1.21 to 1.25. js-1k is the lowest file in each: 1.05
+    to 1.06 in five jobs, and 1.003 in the sixth, 235.1 MB/s against Google's 234.4, a job where
+    css-16k's spread reached 18% and css-16k, fields.c and html-16k read 1.06, 1.07 and 1.09, each
+    its lowest of the six. E.coli reads 1.08 in each job and the shuffled dickens-1m 1.09 to 1.10.
+    The reports in `bench/results/`, dated 2026-10-04, "main", are the first run's and the sixth
+    job's. Over the day a js-1k decode fell from 51,939 to 48,397 instructions under callgrind on
+    aarch64.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
