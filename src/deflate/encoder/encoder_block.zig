@@ -1,7 +1,8 @@
 //! The encoder's block: the symbols it holds, their counts, and the plan it is written by. The plan
 //! prices the block exactly three ways from its counts, stored, fixed and dynamic, and takes the
-//! cheapest (decision 14, E3; RFC 1951 §3.2.3). A block's input is always in the window, so the
-//! stored form is always a choice, and no block costs more than its input stored.
+//! cheapest (decision 14, E3; RFC 1951 §3.2.3). A block's input is in the window, so its stored
+//! form is a choice, until it crosses a slide of the window, which it does only while it codes for
+//! less than its stored form (decision 44): no block costs more than its input stored.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -101,9 +102,13 @@ pub const Block = struct {
     symbol_count: u16,
     literal_length_counts: [constants.literal_length_used]u16,
     distance_counts: [constants.distance_used]u16,
-    /// Where the block's input starts in the window, and how many octets its symbols cover.
+    /// Where the block's input starts in the window, after its last slide when it crossed one
+    /// (decision 44), and how many octets its symbols cover.
     input_start: usize,
     input_len: usize,
+    /// The symbols the block holds at its next check, or `block_symbols_max`: the rounds that
+    /// decide positions stop there (decision 44).
+    limit: u16,
 
     /// Starts an empty block at `input_start`. Every block ends with end-of-block (RFC 1951
     /// §3.2.3), which its counts hold from the start.
@@ -114,10 +119,21 @@ pub const Block = struct {
         self.literal_length_counts[constants.end_of_block] = 1;
         self.input_start = input_start;
         self.input_len = 0;
+        self.limit = constants.block_symbols_max;
     }
 
     pub fn full(self: *const Block) bool {
         return self.symbol_count == constants.block_symbols_max;
+    }
+
+    /// Whether the block holds its `limit`: it is full, or its newest symbols wait for a check.
+    pub fn at_limit(self: *const Block) bool {
+        return self.symbol_count >= self.limit;
+    }
+
+    /// Whether the block's newest symbols wait for their check (decision 44).
+    pub fn at_check(self: *const Block) bool {
+        return self.at_limit() and !self.full();
     }
 
     /// Symbols added by one loop with the count in a local, which the loop's stores elsewhere do not
@@ -322,6 +338,15 @@ fn weigh(counts: *const [constants.literal_length_used]u16, lengths: []const u8)
     return sum;
 }
 
+/// Whether the block's fixed code prices below its stored form, so that its plan does not take
+/// the stored form (decision 44).
+pub fn fixed_beats_stored(block: *const Block, bit_position: u3) bool {
+    const fixed_lengths = constants.fixed_literal_length_lengths[0..constants.literal_length_used];
+    const fixed_distance_lengths = constants.fixed_distance_lengths[0..constants.distance_used];
+    const coded = coded_bits(block, fixed_lengths, fixed_distance_lengths, fixed_lengths, fixed_distance_lengths);
+    return constants.final_bits + constants.type_bits + coded.fixed < stored_bits(block.input_len, bit_position);
+}
+
 /// Plans `block`, final or not, to start `bit_position` bits into an octet: its dynamic code, then
 /// the cheapest of the three types by exact size.
 pub fn plan(block: *const Block, final: bool, bit_position: u3, result: *Plan) align(constants.hot_function_alignment) void {
@@ -370,8 +395,9 @@ pub fn plan_empty_stored(bit_position: u3, result: *Plan) void {
 
 /// The bits of a stored block of `len` octets starting `bit_position` bits into an octet, with its
 /// header: BFINAL and BTYPE, the pad to the octet, LEN and NLEN, and the octets (RFC 1951 §3.2.4).
+/// A block that crossed a slide of the window may cover more octets than one stored block holds,
+/// and is priced here all the same; it is never written stored (decision 44).
 pub fn stored_bits(len: usize, bit_position: u3) u64 {
-    assert(len <= constants.stored_len_max);
     const block_header = constants.final_bits + constants.type_bits;
     const pad = (@bitSizeOf(u8) - (@as(u64, bit_position) + block_header) % @bitSizeOf(u8)) % @bitSizeOf(u8);
     return block_header + pad + constants.stored_header_bits + @as(u64, len) * @bitSizeOf(u8);

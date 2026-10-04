@@ -117,11 +117,11 @@ pub noinline fn saves_bits(costs: *const Costs, octets: []const u8, distance: u1
 }
 
 /// The bits after the leading one that `log2_eighths` reads.
-const fraction_bits = std.math.log2_int(u32, constants.cost_eighths_per_bit);
+pub const fraction_bits = std.math.log2_int(u32, constants.cost_eighths_per_bit);
 
 /// log2 of `n` in eighths of a bit: the leading one's place, and the eighth the next
 /// `fraction_bits` bits give, rounded.
-fn log2_eighths(n: u32) u32 {
+pub fn log2_eighths(n: u32) u32 {
     assert(n > 0);
     const whole: u32 = @bitSizeOf(u32) - 1 - @clz(n);
     const mask = (1 << fraction_bits) - 1;
@@ -131,7 +131,7 @@ fn log2_eighths(n: u32) u32 {
 
 /// log2(1 + k / 8) in eighths of a bit, rounded, for each fraction k the leading one's next bits
 /// give.
-const fraction_eighths: [1 << fraction_bits]u8 = table: {
+pub const fraction_eighths: [1 << fraction_bits]u8 = table: {
     var table: [1 << fraction_bits]u8 = undefined;
     for (&table, 0..) |*entry, k| {
         const fraction: f64 = @as(f64, @floatFromInt(k)) / constants.cost_eighths_per_bit;

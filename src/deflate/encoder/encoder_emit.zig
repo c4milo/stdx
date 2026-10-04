@@ -280,7 +280,10 @@ fn write_stored_octets(emit: *Emit, plan: *const Plan, block: *const Block, wind
 }
 
 /// A stored block's octets: the block's input, none for a flush's empty block (RFC 1951 §3.2.4).
+/// A block that crossed a slide of the window is never stored, so its input is all in the window
+/// and fits LEN's 16 bits (decision 44).
 fn stored_len(plan: *const Plan, block: *const Block) u16 {
     assert(plan.kind == .stored);
+    assert(block.input_len <= constants.stored_len_max);
     return @intCast(block.input_len);
 }

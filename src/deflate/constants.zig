@@ -249,9 +249,25 @@ pub const match_len_taken_min = hash_len;
 /// The symbols a block holds before the encoder ends it (decision 12).
 pub const block_symbols_max = 16384;
 
+/// The symbols a block takes between two checks of whether its newest ones code in fewer bits in a
+/// block of their own, at a level that checks (decision 44). A block a check ends holds this many
+/// symbols or more, unless a slide of the window, a flush or the stream's end cut its first
+/// symbols short, and `encoded_len_max` counts those blocks apart.
+pub const block_chunk_symbols = 4096;
+
+/// What a check of decision 44 counts for a dynamic header (RFC 1951 §3.2.7): bits for each symbol
+/// with a code, which its length takes in the header, and bits for the rest of the header.
+pub const header_estimate_symbol_bits = 5;
+pub const header_estimate_bits = 40;
+
+/// A check of fewer than `block_chunk_symbols` newest symbols, at a slide or a flush or the end,
+/// ends the block before them only when apart saves this fraction of their price together, 1 in
+/// this many: few symbols' entropy undercounts what their codes cost (decision 44).
+pub const partial_chunk_margin_divisor = 256;
+
 /// The bound on an encoder call's steps (invariant 9): each step takes input, writes output,
-/// decides positions into the block, or ends a block, and a call ends at most a few blocks of the
-/// input its window already held.
+/// decides positions into the block, checks the block's newest symbols, or ends a block, and a
+/// call checks and ends at most a few blocks of the input its window already held.
 pub const encoder_steps_per_octet = 8;
 pub const encoder_steps_floor = 64;
 
@@ -291,6 +307,10 @@ pub const Level = struct {
     /// that the block's prices turn away, and a full budget walks them at every literal (decision
     /// 42).
     cheap_candidates_max: u16,
+    /// Whether the level checks its blocks' newest symbols, and lets a block cross a slide of the
+    /// window (decision 44). The lazy levels do. The greedy level ends its blocks where it did: a
+    /// check and the blocks it adds cost its speed more than they take off its output.
+    block_checks: bool,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
 };
@@ -328,9 +348,9 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .cheap_candidates_max = 1, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .cheap_candidates_max = 16, .state_budget_len = 260 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .cheap_candidates_max = 32, .state_budget_len = 260 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .cheap_candidates_max = 1, .block_checks = false, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .cheap_candidates_max = 16, .block_checks = true, .state_budget_len = 261 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .cheap_candidates_max = 32, .block_checks = true, .state_budget_len = 260 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
@@ -421,9 +441,11 @@ comptime {
     assert(pair_bits_max == 48);
     // Four length codes each take 1 to 5 extra bits (RFC 1951 §3.2.5).
     assert(resolved_length_entries_max == 4 * (2 + 4 + 8 + 16 + 32));
-    // A block ending at a slide holds at most the window's input, which one stored block holds.
+    // A block that crossed no slide holds at most the window's input, which one stored block holds.
     assert(encoder_window_len - lookahead_min <= stored_len_max);
     assert(block_symbols_max * @sizeOf(u32) + encoder_window_len <= level(1).state_budget_len);
+    // A block's checks fall between its first symbol and its last.
+    assert(block_chunk_symbols < block_symbols_max and block_symbols_max % block_chunk_symbols == 0);
     assert(code_length_symbols_min == 2);
     assert(dynamic_block_bits_min == 32);
     for (repeat_extra_bits, repeat_count_min, repeat_count_max) |extra, min, max| {

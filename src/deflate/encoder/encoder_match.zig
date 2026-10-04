@@ -121,7 +121,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         }
 
         pub fn advance(self: *Self, block: *Block, ending: bool) void {
-            advance_positions(level, false, self, block, ending, {});
+            if (level.block_checks) advance_rounds(level, false, self, block, ending, {}) else advance_positions(level, false, self, block, ending, {});
         }
 
         /// `advance` in a block after one with cheap literals, its matches priced by `costs`
@@ -129,7 +129,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// ran before.
         pub fn advance_priced(self: *Self, block: *Block, ending: bool, costs: *const cost.Costs) void {
             comptime assert(level.chains);
-            advance_positions(level, true, self, block, ending, costs);
+            if (level.block_checks) advance_rounds(level, true, self, block, ending, costs) else advance_positions(level, true, self, block, ending, costs);
         }
 
         /// Adds the lazy step's waiting symbol when the stream flushes or ends. Returns false, and
@@ -172,11 +172,33 @@ fn slide_positions(positions: []u16, half: u16) void {
     }
 }
 
+/// `advance_positions` in rounds that stop at the block's limit (decision 44). A round shows the
+/// loops the window only as far as the lookahead of as many positions as the limit leaves
+/// symbols: a position decided adds a symbol at most, so the round adds no more. To the loops a
+/// round is a call whose input ended there, which changes no decision (invariant 5), so they run
+/// the code they ran without a limit. The last positions before a flush or the stream's end, fewer
+/// than `lookahead_min`, are decided a step at a time and may pass the limit by as many symbols.
+fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) void {
+    comptime assert(level.block_checks);
+    const filled = self.filled;
+    for (0..filled + 1) |_| {
+        // The symbols the block takes before its limit.
+        const room: usize = block.limit - block.symbol_count;
+        assert(room > 0);
+        self.filled = @min(filled, self.position + room + (constants.lookahead_min - 1));
+        const whole = self.filled == filled;
+        advance_positions(level, cheap, self, block, ending and whole, costs);
+        if (whole or block.at_limit()) break;
+    } else unreachable;
+    self.filled = filled;
+}
+
 /// Decides positions into `block` while `lookahead_min` octets lie ahead, or up to `filled` when
 /// `ending`, until the block is full: the positions with the whole lookahead in their loop first,
 /// then the rest a step at a time. Each step adds at most one symbol and moves on a position or
-/// more. `cheap` compiles in the prices of decision 42, `costs`.
-fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
+/// more. `cheap` compiles in the prices of decision 42, `costs`. Never inline, so a round calls
+/// the code a call ran before the rounds.
+noinline fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
     if (level.chains) advance_lazy(level, cheap, self, block, costs) else advance_greedy(level, self, block);
     for (0..self.filled + 1) |_| {
         if (block.full()) return;

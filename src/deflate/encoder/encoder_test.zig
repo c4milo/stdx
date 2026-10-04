@@ -13,7 +13,7 @@ const encoder_module = @import("encoder.zig");
 const levels = constants.encoder_levels;
 
 /// The most octets a test encodes, 150 KiB: past two slides of the window.
-const input_len_max = 153_600;
+pub const input_len_max = 153_600;
 
 /// The longest run of one kind in mixed input, and the kinds a mixed input mixes.
 const run_len_max = 2000;
@@ -56,7 +56,7 @@ fn write_words(target: []u8, generator: *codec.split.Generator) void {
 
 /// Decodes `stream` with stdx's decoder and requires `expected` and the stream's end at its last
 /// octet.
-fn expect_decodes_to(stream: []const u8, expected: []const u8) !void {
+pub fn expect_decodes_to(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max + 1]u8 = undefined;
     var state: decoder.Decoder = undefined;
     decoder.init(&state, codec.Features.detect());
@@ -66,7 +66,7 @@ fn expect_decodes_to(stream: []const u8, expected: []const u8) !void {
 }
 
 /// The encoded length of `input` at `level`, written into `output`.
-fn encode_whole(comptime level: u4, input: []const u8, output: []u8) !usize {
+pub fn encode_whole(comptime level: u4, input: []const u8, output: []u8) !usize {
     const Encoder = encoder_module.Encoder(.{ .level = level });
     var state: Encoder = undefined;
     state.init(.{});
@@ -154,7 +154,7 @@ test "after each flush the output so far decodes to the input so far, and splits
 
 /// Requires the stream so far to decode to `expected` and to ask for more: a flush leaves the
 /// stream open, on an octet boundary.
-fn expect_prefix_decodes(stream: []const u8, expected: []const u8) !void {
+pub fn expect_prefix_decodes(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max]u8 = undefined;
     var state: decoder.Decoder = undefined;
     decoder.init(&state, codec.Features.detect());
@@ -181,6 +181,19 @@ test "encoded_len_max holds where short repeats keep stored blocks across the wi
         try testing.expect(written <= encoder_module.Encoder(.{ .level = level }).encoded_len_max(input.len));
         try expect_decodes_to(output[0..written], &input);
     }
+}
+
+test "encoded_len_max counts a block for every 4096 octets, three for each slide, and two more" {
+    // Each block costs its octets stored and 42 bits at most: BFINAL, BTYPE, the pad to an octet,
+    // LEN and NLEN (RFC 1951 §3.2.3 and §3.2.4). No input: 2 blocks, 84 bits, and the pad's octet.
+    // 1 MiB at a level that checks its blocks: 256 blocks, 96 for its 32 slides at most, and 2.
+    const Encoder = encoder_module.Encoder(.{ .level = 6 });
+    try testing.expectEqual(@as(usize, 12), Encoder.encoded_len_max(0));
+    try testing.expectEqual(@as(usize, (1 << 20) + 1860), Encoder.encoded_len_max(1 << 20));
+    // Level 1 checks none: a block for every 16,384 octets, 64, one for each slide, and 2.
+    const Greedy = encoder_module.Encoder(.{ .level = 1 });
+    try testing.expectEqual(@as(usize, 12), Greedy.encoded_len_max(0));
+    try testing.expectEqual(@as(usize, (1 << 20) + 516), Greedy.encoded_len_max(1 << 20));
 }
 
 /// The short repeats: where the first starts, the octets each copies, how far back, and the least
@@ -210,8 +223,8 @@ test "each level's output for a seeded input is the one recorded here" {
     // Any change to what the encoder decides changes these; a change meant to must record new ones.
     const recorded = [_]struct { usize, u64 }{
         .{ 49100, 0x36c0bead5df53163 },
-        .{ 46142, 0xd9026d86cd56b3e5 },
-        .{ 45749, 0x284a7722def6a3be },
+        .{ 46111, 0xec3d80ea7728eb57 },
+        .{ 45737, 0xefb8f9a9559edd8b },
     };
     var input: [120 * 1024]u8 = undefined;
     fill(&input, .mixed, 11);
@@ -277,8 +290,8 @@ test "each level's output for seeded DNA, whose literals cost two bits, is the o
     // price their matches and walk `cheap_candidates_max` candidates (decision 42).
     const recorded = [_]struct { usize, u64 }{
         .{ 30766, 0xde3d5a5c996f8b6a },
-        .{ 26062, 0x6afbd81d864c356d },
-        .{ 24782, 0x9807eddab9916d2d },
+        .{ 26296, 0x2352880cbd54c392 },
+        .{ 24878, 0x29d7a43acf09079a },
     };
     var input: [dna_len]u8 = undefined;
     fill_dna(&input, 29);
