@@ -19,8 +19,9 @@ entry 37 out of design §8 step 18's non-ASCII rows, entry 38 out of the questio
 how fast the check runs alone, entry 39 out of the owner's ruling on the gap entry 38 measured on
 x86-64, entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s request for a
 probe of the CPU, entry 41 out of the owner's ruling once the benchmarks carried a `memset` of
-their own, entry 42 out of design §8 step 9's look at E.coli's parse beside libdeflate's, and
-entry 44 out of the blocks that look counted.
+their own, entry 42 out of design §8 step 9's look at E.coli's parse beside libdeflate's, entry
+44 out of the blocks that look counted, and entry 45 out of a probe of how the benchmarks time a
+small file.
 
 ## Scope and shape
 
@@ -155,7 +156,8 @@ entry 44 out of the blocks that look counted.
 10. **Real numbers come from Linux, measured one way.** Ruled by the owner on 2026-09-25, as
     colibri's decision 32 ruled it for colibri. Entry 20 amends it: the Linux hosts are GitHub's
     hosted runners, and a result is a ratio within one job. Entry 25 adds a literal-heavy text to
-    its corpora.
+    its corpora. Entry 45 has the benchmarks time the 1 KiB and 16 KiB payloads as slices of the
+    1 MiB payload.
     - Benchmarks run on Linux alone, with the machine written down beside the numbers: CPU model,
       core count, kernel, compiler versions. macOS publishes no number.
     - Each result is the median of five runs, with the spread.
@@ -568,7 +570,7 @@ entry 44 out of the blocks that look counted.
     31 does:
     - **Win, plausibly:** 1 KiB and 16 KiB messages, where starting a stream and crossing the
       call boundary dominate (S6, S7), and memory per stream, which is fixed, known and placed
-      by the caller.
+      by the caller. Entry 45 changes the rows those messages are read on: slices in rotation.
     - **Match, at best:** 1 MiB DEFLATE decoding against libdeflate, which is years deep and needs
       the whole buffer; checksums against zlib-ng's and libdeflate's vector paths; Zstandard
       decoding against libzstd.
@@ -636,6 +638,8 @@ entry 44 out of the blocks that look counted.
       distance DEFLATE's 32 KiB window cannot reach and Zstandard's and brotli's can, so its ratios
       favour those two, and each report says so beside the number.
     - Entry 25 adds a literal-heavy text, derived from Silesia's dickens rather than fetched.
+    - Entry 45 amends how the benchmarks take the HTTP payloads: a 1 KiB or 16 KiB piece is timed
+      as the slices of its 1 MiB piece, in rotation. The checks read the pieces as before.
 
     **Decoders against the oracles.** `tools/oracle/` runs the same inputs through stdx and through
     every ruled oracle, and requires byte-identical output.
@@ -1056,6 +1060,11 @@ entry 44 out of the blocks that look counted.
       alone, which gives up an AMD EPYC 9V45's encoding gains of 4% to 18% and leaves the N2's
       row as it is; and holding the stack for a form that loses no row on any CPU drawn, which
       no measurement found, since each change to these loops moved the predictor on some row.
+    - Entry 45, ruled by the owner on 2026-10-04, changes the rows the rule reads: a 1 KiB or
+      16 KiB HTTP body is timed as the slices of its 1 MiB payload, in rotation, where a row
+      repeated one file. A small-body row of a report published before it compares with none
+      after it, and the rule still reads the rows of the seven files of 256 KiB or less that a
+      row repeats.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
@@ -2500,3 +2509,111 @@ entry 44 out of the blocks that look counted.
       asyoulik 0.37% where it gives 0.57%.
     - 32,768 or 65,536 symbols a block, 64 or 192 KiB more state: 0.02% to 0.15% in the best
       cuts' count.
+
+45. **The benchmarks time a small HTTP body as slices of its 1 MiB payload, in rotation.** Ruled by
+    the owner on 2026-10-04, from a probe of how bench-deflate times a small file (design §8 step
+    9). It amends what entries 10 and 15 give the benchmarks as the 1 KiB and 16 KiB payloads, the
+    rows entry 14's predictions for those sizes are read on, and the rows entry 20's rule reads.
+
+    What a row did until now: it timed one file by coding it again and again, for 50 ms a run. A
+    CPU's branch predictor learns a small file coded that way, so the row measured a state that
+    a caller who codes payloads that differ never reaches.
+
+    What the probe found. It cut each HTTP payload of 1 MiB into 1024 slices of 1 KiB and into 64
+    of 16 KiB, and timed zlib, zlib-ng, libdeflate, Wuffs and stdx over them four ways: the first
+    slice alone, again and again, as a row was timed; copies of the first slice, one after
+    another in memory; each slice 64 times before the next; and every slice once a round, in
+    rotation. The last two code the same octets. Runs
+    [37219738358](https://github.com/c4milo/stdx/actions/runs/37219738358) and
+    [37219744137](https://github.com/c4milo/stdx/actions/runs/37219744137) ran it on main (5da4397,
+    the probe at 046c4c7 on its branch), on a Neoverse N2 in both, an EPYC 9V45 and an EPYC 7763.
+    - Every candidate ran slower in rotation on every CPU. A candidate's speed in rotation over
+      its speed with each slice repeated, at the median of the four payloads: 0.61 to 0.95 on the
+      N2, 0.55 to 0.91 on the EPYC 7763 and 0.39 to 0.84 on the EPYC 9V45. stdx's encoder ran at
+      0.78 to 0.82 over 1 KiB slices on the N2 and 0.62 to 0.64 on the 9V45; over 16 KiB slices at
+      0.72, 0.89 and 0.94 at levels 1, 6 and 9 on the N2, and 0.48, 0.57 and 0.66 on the 9V45.
+      Its decoder ran at 0.77 on the N2 over both lengths, and at 0.63 and 0.57 on the 9V45.
+    - The N2's counters put the whole gap in branch misses. Each slice repeated and the rotation
+      counted the same instructions an octet, within 0.04% in each of 136 cells, and the rotation
+      took 1.1 to 15.8 times the misses, 6.7 at the median: stdx's encoder at level 1 over 16 KiB slices 37 a KiB
+      against 188, zlib's over 1 KiB slices 103 against 1370. Each added miss cost 11 to 26
+      cycles, 16 at the median.
+    - Copies of one slice at other addresses ran at 0.99 to 1.00 of the slice's own speed, at the
+      median of each candidate's rows on every CPU: where an input lies plays no part.
+    - In rotation the predictor learns nothing: over 16 KiB slices stdx's decoder took 37 to 80
+      misses a KiB, where bench-profile's report of 2026-09-28 had counted 22 to 56 for the HTTP
+      payloads of 1 MiB whole and 1.7 to 12 for the files of 16 KiB.
+    - The rows misstated where stdx stands. With each slice repeated, stdx's level 1 encoder over
+      16 KiB slices ran at 1.06 to 1.11 of zlib-ng's speed on the N2 and at 0.93 to 1.07 on the
+      EPYCs; in rotation, at 0.90 to 1.01 and at 0.71 to 0.93, for output of 23.5% of html's
+      octets against zlib-ng's 28.9%. Its decoder over 16 KiB slices ran at 0.87 to 0.89 of
+      libdeflate's on the N2 and 0.86 to 0.92 on the EPYCs; in rotation, at 0.84 to 0.87 and at
+      0.63 to 0.78.
+    - The corpus's 1 KiB and 16 KiB files are each payload's first octets, and not its mean: zlib
+      at level 6 codes html's first KiB to 49.4% of its length, and its 1024 slices to 38.0%.
+    - Rotation steadies a pair and does not make it immune. Runs
+      [37219749131](https://github.com/c4milo/stdx/actions/runs/37219749131) and
+      [37219754894](https://github.com/c4milo/stdx/actions/runs/37219754894) paired ccb4b1b, which
+      only moved the encoder's code, with its parent, on a Neoverse N2 in both, an EPYC 9V74 and a
+      Xeon 6973P-C. The baselines are the same C in both programs. On the N2, 15 of their 104
+      cells moved past the larger of their spreads and 1% in both jobs with the first slice
+      repeated, the largest by 5.5%, and 8 in rotation, the largest by 1.9%; on x86-64, 13 and 6,
+      the largest by 9.4% and 8.6%.
+    - The learning shrinks with an input's length and has no edge. Runs
+      [37224864097](https://github.com/c4milo/stdx/actions/runs/37224864097) and
+      [37224868777](https://github.com/c4milo/stdx/actions/runs/37224868777) cut the same payloads
+      into slices of 64, 128 and 256 KiB, and runs
+      [37227179878](https://github.com/c4milo/stdx/actions/runs/37227179878) and
+      [37227185061](https://github.com/c4milo/stdx/actions/runs/37227185061) cut dickens and
+      webster into slices of 64 KiB to 4 MiB for the decoders, on a Neoverse N2, an EPYC 7763
+      and a Xeon 8573C. In rotation the decoders ran slices of 64 KiB at 0.57 to 0.97 of their
+      repeated speed, slices of 128 KiB at 0.64 to 0.98, slices of 256 KiB at 0.75 to 0.99, and
+      slices of 1 MiB and 4 MiB at 0.98 or more. The encoders came back sooner: at level 1 0.68
+      to 0.97 at 64 KiB and 0.90 or more at 256 KiB, at level 6 0.90 or more from 64 KiB on.
+    - stdx's decoder gains the most from a repeated input. Over dickens in slices of 64 KiB it
+      ran at 1.24 of libdeflate's speed with each slice repeated and at 1.11 to 1.12 in rotation
+      on the N2, and at 1.38 to 1.40 and at 1.03 on the Xeon 8573C. In rotation it took 95 branch
+      misses a KiB there on the N2 against libdeflate's 83, and 82 against 70 at 256 KiB.
+
+    The rule:
+    - Every benchmark program times a corpus file named `<kind>-1k` or `<kind>-16k` as the slices
+      of that file's length of `<kind>-1m`, whose first octets the file holds: 1024 slices of
+      1 KiB, 64 of 16 KiB. The row takes the file's name, `x` and the count of slices:
+      `http/html-1kx1024`.
+    - One repetition codes every slice once, in the payload's order, each from a state started
+      anew. An encoder writes one stream a slice. A decoder takes one stream a slice, each
+      encoded once before any candidate is timed, by the encoder the table names. Every candidate
+      takes the same slices in the same order, into one buffer of a slice's length.
+    - Throughput counts the slices' octets, and a row's compression is its streams' octets over
+      its slices'.
+    - The 1 KiB and 16 KiB files stay in the corpus: the differential checks and the tests read
+      them as before.
+    - A file that a row still takes whole and repeats is learned the more the shorter it is, and
+      none has a larger file to cut. Each table names, beneath its heading, the files of
+      `learned_len_max` octets, 256 KiB, or less: Canterbury's grammar.lsp, xargs.1, fields.c,
+      cp.html and sum, 3.7 to 38 KiB, and asyoulik.txt and alice29.txt, 125 and 152 KiB. Entry
+      20's rule reads their rows as before, with its amendment of 2026-10-04 for a move the
+      counters put in branch misses. lcet10.txt, plrabn12.txt and ptt5, 427 to 513 KiB, carry no
+      mark: text measured 0.94 to 0.99 at 256 KiB and 0.98 or more at 1 MiB.
+
+    The owner ruled three times: for the slices in place of the eight rows of one file repeated;
+    for the five Canterbury files of 38 KiB or less kept and marked; and, once the longer slices
+    were measured, for the mark at 256 KiB.
+
+    Cost: a small-body row published before this entry compares with none after it; a slice
+    starts and ends where the cut falls, inside an element or a token; and a pair still moves
+    with placement. Gain: the small-body rows measure a payload the CPU has not seen, as a caller
+    codes one; they rank the candidates as a caller finds them; and fewer rows move in a pair on
+    code a change leaves alone.
+
+    The alternatives refused:
+    - The rotation rows beside the repeated ones: eight more rows a table and about a fifth more
+      run time, to keep publishing rows that overstate every candidate.
+    - The benchmarks as they were, with the pitfall written in docs/performance.md.
+    - The five Canterbury files taken out of the timing tables, which removes five of the
+      corpus's 39 files from the rows the per-file standard reads.
+    - The same five timed unlearned: a clock read around each coding, and other data through the
+      candidate in between. Estimated at 20 times the wall time a row, and not built.
+    - The mark at 64 KiB, which leaves asyoulik.txt and alice29.txt unmarked where slices of
+      128 KiB measured 0.64 to 0.98; and the mark under 1 MiB, which names ten files, three of
+      them where text measured 0.94 or more.
