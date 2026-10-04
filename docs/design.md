@@ -3571,6 +3571,240 @@ to 12 are reordered and nothing else changes.
   string decoded at 0.722 of simdjson's speed, and json-1m as a string decoded at 0.714 of
   yyjson's and encoded at 0.862.
 
+  **An escape's instructions, 2026-10-04.** With the grammar walked, a text file as a string
+  spends its decode in `copy_rest`: blocks of 16 octets up to an escape, the escape, and blocks
+  again. On the N2 an instruction on that path costs its share of a cycle: with two more a run of
+  blocks, css-1m had decoded 2.7% slower (runs
+  [37172464746](https://github.com/c4milo/stdx/actions/runs/37172464746) and
+  [37172468452](https://github.com/c4milo/stdx/actions/runs/37172468452)). callgrind counted, on
+  aarch64, the instructions of a letter's escape, of the stop of the blocks before it, and of
+  three texts as strings, at main and at four of the six commits of a stack:
+
+  | Build | An escape | A stop | alice29.txt, an octet | nci, an octet | json-1m, an octet |
+  |---|---|---|---|---|---|
+  | main at e125fea | 30 | 26 | 3.312 | 3.026 | 8.741 |
+  | A letter's lengths known (1d6510f) | 21 | 26 | 2.898 | 2.804 | 7.670 |
+  | The `\u` loop out of line on every target (328a7e7) | 19 | 22 | 2.736 | 2.660 | 6.979 |
+  | The letter's table read before the test for `u` (458b008) | 17 | 22 | 2.644 | 2.610 | 6.741 |
+  | A block's stops in one compare (3b2105b) | 17 | 22 | 2.513 | 2.459 | 6.502 |
+
+  - 1d6510f: a letter's escape carried 11 instructions it did not need. Its character came from
+    a table of optionals in two loads, and its two lengths went through `Copied`, where the
+    walk's moves checked them again. `letter_characters` holds a character or zero an octet, and
+    the step tests the input's and the room's lengths once, before it moves the walk.
+  - 328a7e7: claim J12's loop was inline in `copy_rest` on aarch64. Its eight constants lived
+    across the walk's loop, in registers the block loop also takes, so LLVM set them again at
+    each stop of the blocks: four instructions a stop in every string, whether or not it holds a
+    `\u` escape. x86-64 already called the loop out of line.
+  - ab5965b: out of line, the loop left at each escape of a letter between two `\u` escapes and
+    came back through the walk, about 100 instructions and a call. It takes the letter's escape
+    itself now. The text of `\u` escapes takes 8.379 instructions an octet where main took
+    8.191: in a function of its own, the loop's count of its passes costs two instructions a
+    pass more.
+  - 458b008: the table's zero stands for `u` and for an octet that starts no escape, so the step
+    reads the table first and a letter pays no test for `u`; `unescape_unicode` tells the two
+    apart.
+  - 3b2105b: the walk's ASCII block loop found a block's stops with four compares and three ORs.
+    Read as signed octets, a control character and an octet from 0x80 up are both below 0x20, so
+    one compare finds both: six vector instructions a block where there were eight, in the
+    decoder's walk and the encoder's (`scan.ascii_stops`). `plain_stops`, which the token loop
+    inlines for a string's first blocks, keeps its form: with the signed compare there, callgrind
+    counted 1.6 instructions a token more on CLDR's texts, in the loop's own code.
+  - 72a6489 moved the string loop's tests to `decoder_loop_string_test.zig`, for the 500 lines a
+    file may hold.
+
+  callgrind on an emulated x86-64, the 16-octet paths, counted alice29.txt at 3.745 instructions
+  an octet on main and 3.042 at 3b2105b, nci at 3.457 and 2.959, json-1m at 9.402 and 7.733, and
+  the non-ASCII text at 6.928 and 6.669.
+
+  Mutations: 9 of 9 CAUGHT for the escape's step, 6 of 6 for the letter's escape inside the `\u`
+  text and 6 of 6 for the block's stops, each named in its commit. One was NOT CAUGHT at first:
+  with a space taken for a stop, the walk left the string to the checked path, which copies it
+  alike. A test now sends every plain ASCII octet through the walk's blocks and requires the walk
+  to take the string.
+
+  **The stack against main, 2026-10-04.** bench-json runs
+  [37187020196](https://github.com/c4milo/stdx/actions/runs/37187020196),
+  [37187025246](https://github.com/c4milo/stdx/actions/runs/37187025246),
+  [37189209542](https://github.com/c4milo/stdx/actions/runs/37189209542) and
+  [37189214892](https://github.com/c4milo/stdx/actions/runs/37189214892) paired the stack with
+  main at e125fea. All four aarch64 jobs drew an N2; three x86-64 jobs drew an AMD EPYC 7763 and
+  one an AMD EPYC 9V45. Each cell is stdx's speed over main's, the lowest and the highest of the
+  CPU's jobs:
+
+  | Decoding | N2, four jobs | AMD EPYC 7763, three jobs | AMD EPYC 9V45, one job |
+  |---|---|---|---|
+  | CLDR's texts | 1.000 to 1.003 | 0.999 to 1.003 | 1.001 |
+  | qlog's records | 0.998 to 1.030 | 0.969 to 1.017 | 1.019 |
+  | dickens | 1.192 to 1.194 | 1.139 to 1.149 | 1.133 |
+  | nci | 1.116 to 1.120 | 1.104 to 1.107 | 1.111 |
+  | reymont | 1.096 to 1.105 | 1.013 to 1.030 | 1.112 |
+  | samba | 1.054 to 1.058 | 1.048 to 1.050 | 1.046 |
+  | webster | 1.146 to 1.150 | 1.100 to 1.110 | 1.115 |
+  | xml | 1.127 to 1.137 | 1.074 to 1.079 | 1.054 |
+  | alice29.txt | 1.248 to 1.253 | 1.114 to 1.153 | 1.039 |
+  | asyoulik.txt | 1.172 to 1.178 | 1.107 to 1.138 | 1.108 |
+  | lcet10.txt | 1.184 to 1.189 | 1.155 to 1.162 | 1.125 |
+  | plrabn12.txt | 1.069 to 1.072 | 1.124 to 1.131 | 1.125 |
+  | E.coli | 0.996 to 1.002 | 0.990 to 1.021 | 1.000 |
+  | bible.txt | 1.092 to 1.102 | 0.946 to 0.948 | 1.094 |
+  | world192.txt | 1.136 to 1.140 | 1.096 to 1.109 | 1.107 |
+  | html-1m | 1.138 to 1.149 | 1.022 to 1.041 | 1.068 |
+  | json-1m | 1.066 to 1.070 | 1.136 to 1.145 | 1.074 |
+  | js-1m | 1.155 to 1.163 | 1.101 to 1.106 | 1.086 |
+  | css-1m | 1.078 to 1.081 | 1.059 to 1.100 | 1.106 |
+  | The non-ASCII text | 1.021 to 1.023 | 0.976 to 0.979 | 1.003 |
+  | The text of `\u` escapes | 0.998 to 1.000 | 1.035 to 1.038 | 1.008 |
+
+  | Encoding | N2, four jobs | AMD EPYC 7763, three jobs | AMD EPYC 9V45, one job |
+  |---|---|---|---|
+  | CLDR's texts | 0.994 to 0.997 | 1.003 to 1.007 | 1.002 |
+  | qlog's records | 0.981 to 0.992 | 0.990 to 0.997 | 1.043 |
+  | dickens | 1.111 to 1.115 | 0.988 to 1.016 | 1.122 |
+  | nci | 1.106 to 1.109 | 0.983 to 0.986 | 1.170 |
+  | reymont | 1.018 to 1.042 | 1.017 to 1.027 | 1.082 |
+  | samba | 1.035 to 1.041 | 0.919 to 0.926 | 1.168 |
+  | webster | 1.066 to 1.069 | 0.994 to 0.996 | 1.134 |
+  | xml | 1.108 to 1.112 | 0.987 to 0.997 | 1.145 |
+  | alice29.txt | 1.107 to 1.116 | 0.931 to 1.019 | 1.091 |
+  | asyoulik.txt | 1.060 to 1.070 | 0.931 to 0.946 | 1.155 |
+  | lcet10.txt | 1.099 to 1.103 | 0.998 to 1.013 | 1.159 |
+  | plrabn12.txt | 1.094 to 1.096 | 0.733 to 0.850 | 1.143 |
+  | E.coli | 0.996 to 1.002 | 0.996 to 1.000 | 1.070 |
+  | bible.txt | 0.938 to 0.958 | 0.986 to 1.000 | 1.180 |
+  | world192.txt | 1.065 to 1.068 | 0.990 to 0.993 | 1.109 |
+  | html-1m | 1.068 to 1.075 | 1.007 to 1.011 | 1.136 |
+  | json-1m | 1.053 to 1.054 | 1.017 to 1.019 | 1.138 |
+  | js-1m | 1.033 to 1.036 | 0.999 to 1.016 | 1.092 |
+  | css-1m | 1.082 to 1.083 | 1.005 to 1.007 | 1.161 |
+  | The non-ASCII text | 1.006 to 1.009 | 1.004 to 1.005 | 1.052 |
+
+  In the same N2 jobs a text file as a string decodes at 1.4 to 3.2 times simdjson's speed and
+  encodes at 1.03 to 2.3 times it. Three sets of rows still lose there: json-1m as a string
+  decodes at 0.52 of yyjson's speed and encodes at 0.78, CLDR's texts encode at 0.91 to 0.92 of
+  simdjson's, and qlog's records at 0.90 to 0.91.
+
+  Two earlier pairs drew other x86-64 CPUs. The pair of the first five commits (runs
+  [37182560572](https://github.com/c4milo/stdx/actions/runs/37182560572) and
+  [37182565583](https://github.com/c4milo/stdx/actions/runs/37182565583)) drew an Intel Xeon 8573C,
+  where fifteen text rows decoded 4.5% to 28% faster and none slower, and an AMD EPYC 9V45, whose
+  spreads of 3% to 9% hid every move but dickens's 6%. The pair of the compare
+  alone (runs [37184958089](https://github.com/c4milo/stdx/actions/runs/37184958089) and
+  [37184962695](https://github.com/c4milo/stdx/actions/runs/37184962695)) drew an Intel Xeon 6973P-C
+  and an AMD EPYC 9V74: text rows decoded and encoded up to 21% faster, json-1m decoded at 0.958
+  on the 9V74 and the non-ASCII text encoded at 0.964 on the Xeon, each in its one job.
+
+  The pairs and the branch's CI (run
+  [37187037341](https://github.com/c4milo/stdx/actions/runs/37187037341), which passed on all
+  three runners) ran the stack as 6a9bbf6 to 6b87c2d, on e125fea. Main took it rebased onto
+  f855d98, as 1d6510f to 3b2105b: the nine commits between the two bases change the DEFLATE
+  encoder and the brotli decoder, and no file of the json module or of its benchmark.
+
+  **The rows below main, 2026-10-04.** Four sets of rows read below main past the larger of
+  their spread and 1% in both jobs of a pair.
+
+  - Hex strings decoding on the N2: nci, samba, sao, world192.txt and js-1m in the first pair,
+    and samba, x-ray, kennedy.xls and E.coli in the second, at 0.947 to 0.983 of main's speed.
+    They count as placement (decision 20, amended 2026-09-29). The bench program, cross-built
+    for the runner at both commits, holds 779 functions identical apart from their addresses,
+    90 of them at another offset in their 64-octet line, and six of the json module's that
+    differ: `copy_rest`, `unescape_unicode`, `copy_escaped`, and the checked path's
+    `decoder_string.content`, `encoder_content.string` and `encoder_content.hex`. callgrind
+    counted 688,756 instructions a decode of each of the eight files at both commits, 688,034
+    of them in `scan.plain_len_vector` and `memcpy`, and none in a function that differs. The
+    39 hex rows' geometric mean held at 0.991 to 0.997.
+  - qlog's records encoding on the N2: 0.989, 0.992, 0.981 and 0.989, past the floor in both
+    jobs of the second pair. Placement by the same rule: callgrind counted 120,761,578 and
+    120,761,574 instructions for five encodes of the records at the two commits, none of them
+    in a function that differs. In the same four jobs simdjson, the same code in both programs,
+    encoded the records 3.7% to 6.3% faster in the change's program.
+  - bible.txt as a string encoding on the N2: 0.946, 0.938, 0.939 and 0.958. The compare of
+    3b2105b took two vector instructions out of `copy_escaped`'s block loop, and the function's
+    177 branch instructions are the same, in the same order, at both commits. bench-json's
+    `--profile`, on probe branches that add the file to its list, counted an encode of the
+    file's first MiB on the N2 before the compare (run
+    [37187852741](https://github.com/c4milo/stdx/actions/runs/37187852741)) and after it (run
+    [37188390726](https://github.com/c4milo/stdx/actions/runs/37188390726)): 1,970,877 and
+    1,832,887 instructions, 7,093 and 10,220 branch misses, 621,586 and 649,002 cycles. The
+    text's 7,308 lines each end in one escape, so the encode mispredicts 0.43 times more a line,
+    at about 28 cycles a miss, on 7% fewer instructions. The same commit took a decode of the
+    text from 12,389 misses to 7,826. The owner ruled the row the predictor's, neither the
+    change's loss nor its gain (decision 20, amended 2026-10-04).
+  - On the AMD EPYC 7763, whose three jobs agree: the non-ASCII text decodes at 0.976 to 0.979
+    of main's speed and bible.txt at 0.946 to 0.948; nci encodes at 0.983 to 0.986 and samba at
+    0.919 to 0.926. asyoulik.txt and plrabn12.txt encode at 0.931 to 0.946 and 0.733 to 0.850,
+    inside spreads of 7% to 35%. Each row runs a function the stack changed, so no placement
+    rule exempts it, and the x86-64 runners refuse the counters, so no count says why. In the
+    same jobs the baselines, the same code in both programs, moved past their own floors on 19
+    to 41 of the 60 decoding rows and 5 to 16 of the 59 encoding rows, samba's among them, which
+    simdjson encoded 2.9% to 4.8% slower and yyjson 2.3% to 3.3%. On the EPYC 9V45 the same
+    rows gained or held: bible.txt decoded at 1.094 and samba encoded at 1.168. The owner ruled
+    that the stack lands with these rows recorded here.
+
+  Every row of the last two sets still runs at 1.14 times simdjson's speed or more and 1.77
+  times yyjson's or more.
+
+  **The walk's branch misses on the N2, 2026-10-04.** The pair of the stack's first five commits
+  put bible.txt as a string at 0.819 and 0.824 of main's decoding speed on the N2, and html-1m at
+  0.959 and 0.957, on fewer instructions than main takes. Both are the texts whose escapes come
+  furthest apart, 143 and 130 octets where the other texts' come 8 to 64 apart, so the walk's
+  ASCII block loop takes most of their time, and its 24 instructions were the same at both
+  commits. Three probes that never land looked for the cause.
+
+  - The loop's place. `probe-json-walk-align` put the loop at each of the 16 places an
+    instruction has in a 64-octet line, behind an unconditional branch that skips the padding,
+    sixteen candidates in one job (runs
+    [37184701061](https://github.com/c4milo/stdx/actions/runs/37184701061) and
+    [37184706073](https://github.com/c4milo/stdx/actions/runs/37184706073); the two N2 jobs agree
+    within 0.5%). At every place bible.txt decoded at 1.20 to 1.26 of the unpadded build's speed,
+    the unpadded build's own place included, and two places in 32 were 4% to 5% slower than the
+    rest. E.coli, one run of blocks with no stop, moved under 1% at every place, and
+    alice29.txt lost up to 3.5% to the added branch. So the loop's place was not the cause, and
+    the added branch removed it.
+  - Padding. One instruction at `copy_rest`'s start moves every branch of the function by one
+    place. bible.txt stayed as slow, and plrabn12.txt and alice29.txt lost 2% to 3% (runs
+    [37185811478](https://github.com/c4milo/stdx/actions/runs/37185811478) and
+    [37185816035](https://github.com/c4milo/stdx/actions/runs/37185816035)).
+  - The counters (run [37187852741](https://github.com/c4milo/stdx/actions/runs/37187852741)), for a
+    decode of bible.txt's first MiB, 7,308 lines:
+
+    | Build | Cycles | Instructions | Branch misses |
+    |---|---|---|---|
+    | The first five commits | 759,728 | 1,897,830 | 12,389 |
+    | The same, the loop entered through the added branch, three places | 602,769 to 611,240 | 1,905,138 | 6,554 to 7,041 |
+    | yyjson | 1,291,473 | 4,748,730 | 7,187 |
+
+  So the N2's branch predictor took that build's branches worse: 1.7 misses a line where the
+  same instructions behind one more branch took 0.9 to 0.96, at about 28 cycles a miss. The
+  compare of 3b2105b, which alters no branch, brought the decode to 7,826 misses and took the
+  encode from 7,093 to 10,220. The predictor learns short runs of blocks and not long ones: a
+  decode of alice29.txt, whose escapes come 54 octets apart, takes 725 misses over its 2,836
+  runs of blocks, and one of bible.txt takes about one a run at best. A change to these loops
+  therefore moves bible.txt and html-1m by up to a fifth either way without altering a branch;
+  read their branch misses before their speeds.
+
+  Two forms of the walk's cycle were measured for a steadier state, and neither is kept.
+
+  - Two functions that each start on a 64-octet line and end in a call to the other, which LLVM
+    makes a jump: 5% to 45% more instructions an octet on every text but bible.txt, since each
+    entry pays a frame and its setup.
+  - The block loop with its blocks counted once, the form rejected on 2026-09-30 above ("One
+    index for the walk's block loops"), measured again with the counters (1058b48, runs
+    [37188360400](https://github.com/c4milo/stdx/actions/runs/37188360400),
+    [37188365321](https://github.com/c4milo/stdx/actions/runs/37188365321) and
+    [37188367904](https://github.com/c4milo/stdx/actions/runs/37188367904)). A block takes 14
+    instructions and two branches where it took 22 and four, and the loop's entry and its stop
+    take 19 more. The predictor still missed bible.txt's stop 0.95 times a line, and took 1,036
+    misses a decode of alice29.txt where it took 725. On the N2 bible.txt decoded 4% faster, and
+    dickens, alice29.txt and asyoulik.txt 7% to 8% slower. It stays rejected.
+
+  A third form waits on the owner: the walk's loops bounded by the input left, with no count of
+  their passes (branch `exp-json-walk-s2`, runs
+  [37182681660](https://github.com/c4milo/stdx/actions/runs/37182681660) and
+  [37182686538](https://github.com/c4milo/stdx/actions/runs/37182686538)). The count takes three
+  instructions an escape. A mutation that ignores the escape step's refusal then spins
+  where the count panics, so the form weakens an assertion, and it is not in the stack.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped

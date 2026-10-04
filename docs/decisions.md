@@ -1037,6 +1037,25 @@ entry 44 out of the blocks that look counted.
       is unchanged, lost 1.9% to 2.9% on the three hex rows, and the 39 hex rows' geometric mean
       held at 0.999 and 0.995. The alternatives refused: a third pair, which this binary's layout
       would repeat; and holding the walk for a layout that keeps those four rows.
+    - Amended by the owner on 2026-10-04, after design §8 step 18's stack on an escape's
+      instructions: a row that moves past the larger of its spread and 1% in both jobs counts as
+      the branch predictor's, neither the change's loss nor its gain, when the runner's counters
+      put the move in branch misses and the change altered no branch of the code the row runs.
+      The proof counts the row's cycles, instructions and branch misses at both commits with
+      bench-json's `--profile` on the runner, a probe branch adding the row to the profile's list
+      where it is not there, and compares the branch instructions of each function that differs
+      in the bench program built at both commits. There, 3b2105b took two vector instructions
+      out of the block loop of the encoder's walk and left the function's 177 branch
+      instructions as they were. On the N2 bible.txt as a string encoded at 0.938 to 0.958 of
+      main's speed in four jobs: on 7% fewer instructions, an encode took 10,220 branch misses
+      against 7,093 and 649,002 cycles against 621,586, while the same commit took the decoder's
+      misses on that text from 12,389 to 7,826. The x86-64 runners expose no counters, so the
+      rule exempts no row there: the owner landed the stack with an AMD EPYC 7763's rows below
+      main recorded in the design, beside the baselines, which moved past their own floors on up
+      to 41 of 60 rows in the same jobs. The alternatives refused: keeping the compare on aarch64
+      alone, which gives up an AMD EPYC 9V45's encoding gains of 4% to 18% and leaves the N2's
+      row as it is; and holding the stack for a form that loses no row on any CPU drawn, which
+      no measurement found, since each change to these loops moved the predictor on some row.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
@@ -1401,12 +1420,14 @@ entry 44 out of the blocks that look counted.
     | J3. The decoder finds the run of a string's octets up to the next quotation mark, reverse solidus, control character or non-ASCII octet a vector at a time | As J1, in the decoder | A/B |
     | J4. The decoder skips whitespace a vector at a time | A compare and a branch per octet of whitespace | A/B on pretty-printed texts |
     | J5. Inside J1's and J3's runs, UTF-8 is validated a vector at a time, so a run goes on past non-ASCII characters | A state machine step per non-ASCII octet | A/B on text of two- and three-octet characters |
-    | J12. Inside claim J10's loop, two `\u` escapes that follow each other are read at once, their reverse solidi and `u`s checked in one word and their eight digits turned into two code units in another, and the plain ASCII between escaped words stays in the loop | Four table loads and a store by length an escape, and a return to the walk at each word's end | A/B on text of `\u` escapes |
+    | J12. Inside claim J10's loop, two `\u` escapes that follow each other are read at once, their reverse solidi and `u`s checked in one word and their eight digits turned into two code units in another, and the plain ASCII and the letters' escapes between escaped words stay in the loop | Four table loads and a store by length an escape, and a return to the walk at each word's end | A/B on text of `\u` escapes |
 
     A claim stays only where `bench-json` shows its vector path faster than the scalar path by more
     than the noise, on each runner of entry 20; design §8 step 16 records the runs. J12 joined on
-    2026-09-30, when the owner chose the `\u` escapes, and design §8 step 18 records its runs. Wider vectors
-    behind entry 21's per-level objects wait until a measurement asks for them.
+    2026-09-30, when the owner chose the `\u` escapes, and design §8 step 18 records its runs. On
+    2026-10-04 its loop took in a letter's escape between two `\u` escapes and went out of line
+    on every target. Wider vectors behind entry 21's per-level objects wait until a measurement
+    asks for them.
 
     **The checks, with no oracle.** A conformance corpus such as JSONTestSuite and an oracle are
     each a dependency, which CLAUDE.md asks the owner about; neither is added. In their place:

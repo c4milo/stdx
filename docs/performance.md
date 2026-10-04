@@ -18,13 +18,16 @@ hold the rulings, and [costs.md](costs.md) the prices.
   measures the base and the change in one job on one VM and one CPU. The aarch64 runner is a
   Neoverse-N2 or a V3; the x86-64 runner draws an EPYC 7763, 9V45, 9V74 or a Xeon from run to run,
   so a comparison holds inside a job and never across two runs.
-- The admission rule (decision 20, amended 2026-09-28, 2026-09-29 and 2026-09-30): a file wins or
-  loses when it moves past the larger of its own spread and 1% in every job; a change stays when it
-  wins somewhere and no file loses. Two paired runs a change, compared with each job's base report.
-  A move is placement, neither a win nor a loss, when the bench program built at both commits runs
-  that file on code identical apart from its addresses; and a ratio's fall is the baseline's, not
-  the change's, when stdx's own speed on that file stays within its spread in every job while the
-  baseline's moved. A change whose code no corpus file runs wins on a probe's inputs, which a
+- The admission rule (decision 20, amended 2026-09-28, 2026-09-29, 2026-09-30, 2026-10-03 and
+  2026-10-04): a file wins or loses when it moves past the larger of its own spread and 1% in
+  every job; a change stays when it wins somewhere and no file loses. Two paired runs a change,
+  compared with each job's base report. A move is placement, neither a win nor a loss, when the
+  bench program built at both commits runs that file on code identical apart from its addresses,
+  or when callgrind counts the functions that differ at under 1% of the file's instructions. A
+  move is the branch predictor's, neither a win nor a loss, when the runner's counters put it in
+  branch misses and the change altered no branch the file runs. A ratio's fall is the baseline's,
+  not the change's, when stdx's own speed on that file stays within its spread in every job while
+  the baseline's moved. A change whose code no corpus file runs wins on a probe's inputs, which a
   branch that never lands adds beside the corpus. Decision 20 says how to prove each.
 - Every speed states the stream's compression beside it, as `bench-brotli`, `bench-deflate` and
   `bench-zstd` print it.
@@ -107,6 +110,10 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | five files 1.3% to 5% slower at level 1 on an EPYC 7763 in both runs, on fewer instructions and loops that are main's | the functions before the encoder's loops changed size, and each loop started 16 or 32 octets from where main starts it in its 64-octet line | start a codec's hot functions on a line before judging a change to it (`hot_function_alignment`, design §8 step 9) |
 | a pair's losses that no count of instructions explains | zlib, zlib-ng and libdeflate, whose code the change does not touch, ran up to 32 files slower in both runs of the same jobs, by the same rule | apply the admission rule to the baselines' columns first; a pair resolves no move smaller than theirs |
 | a 16 KiB file 9% to 20% slower on the M1 at level 1 in one harness and level in another, on fewer instructions | each harness repeats one input, which the branch predictor learns: one slice of 16 KiB repeated takes 5.2 cycles an octet, 64 slices in rotation 8.7 on fewer instructions | time a small input as many slices in rotation; one input repeated measures what the predictor remembers |
+| a text 18% slower on the N2 on fewer instructions, its block loop unchanged | the branch predictor took the build's branches worse: 1.7 misses a line of bible.txt where one more branch before the loop took 0.9 | count the row's branch misses at both commits with `bench_json --profile` before reading its speed; the loop's place and padding do not move it (decision 20, amended 2026-10-04) |
+| four instructions at each stop of a string's blocks, in strings with no `\u` escape | a rarer loop inlined beside the walk's kept eight constants in registers the block loop takes, and LLVM set them again at each of its exits | call the rarer loop out of line (`unicode_call`, design §8 step 18) |
+| the token loop 1.6 instructions a token slower from a cheaper compare in a scan it inlines | the compare changed the register allocation of the loop that inlines it | count each caller that inlines a changed helper; keep the old form where a caller loses (`scan.plain_stops`) |
+| a ruling asked for on a list of losing rows that missed two sets | the list came from reading the pair's text rows; hex strings and qlog's records were down in both jobs too | apply the admission rule to every row and every candidate of both pairs by script before asking |
 
 ## Commands
 
