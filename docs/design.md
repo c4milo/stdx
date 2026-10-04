@@ -3699,6 +3699,56 @@ to 12 are reordered and nothing else changes.
   string decoded at 0.722 of simdjson's speed, and json-1m as a string decoded at 0.714 of
   yyjson's and encoded at 0.862.
 
+  **A block's escapes by a shuffle, measured again, 2026-10-03.** json-1m as one string holds an
+  escape every 8 octets, 141,694 of them, and main decodes it at 0.50 of yyjson's speed on the N2,
+  0.91 on an EPYC 7763 and 0.71 on an EPYC 9V74. The entry of 2026-09-30 above rejected two loops
+  for it. This entry measured why the second lost, built it again without those costs, and found
+  where a shuffle gains and where it cannot.
+
+  - The walk stops at each escape and scans again from the octet after it: 73.4 instructions an
+    escape under callgrind on aarch64, and on the N2 2.98 cycles an octet at 2.93 instructions a
+    cycle (run [37166112829](https://github.com/c4milo/stdx/actions/runs/37166112829)), about 25
+    cycles an escape.
+  - The rejected shuffle, ac39178, took 51.0 instructions an escape. Its assembly on aarch64 shows
+    three costs the shuffle does not need: LLVM loaded each half's kept lanes into a general
+    register and built the shuffle's 16 indices from them a lane at a time, 25 vector instructions
+    a block; the upper half of the reverse solidi's word went to the stack and back; and the carry
+    lived on the stack.
+  - decoder_loop_escapes.zig loads each half's kept lanes into a vector register as 8 octets,
+    takes the reverse solidi's word through an empty assembly statement so that LLVM reads both
+    halves from the register, and keeps the carry in one: 32.4 instructions an escape. On the M1
+    Pro json-1m took 0.55 cycles an octet, where main took 2.91 and yyjson 1.37, and alice29.txt
+    0.34, where main took 0.73.
+
+  With every string's blocks shuffled (c4f9e79), bench-json runs
+  [37168259502](https://github.com/c4milo/stdx/actions/runs/37168259502) and
+  [37168262901](https://github.com/c4milo/stdx/actions/runs/37168262901) paired it with main at
+  b631bc5. Each string decoded at this speed over main's:
+
+  | String | N2, first run | N2, second run | AMD EPYC 9V45 | Intel Xeon 6973P-C |
+  |---|---|---|---|---|
+  | json-1m | 2.232 | 2.230 | 4.565 | 3.995 |
+  | css-1m | 1.023 | 1.020 | 2.285 | 1.402 |
+  | js-1m | 1.026 | 1.023 | 1.160 | 1.476 |
+  | alice29.txt | 1.101 | 1.108 | 1.633 | 1.574 |
+  | asyoulik.txt | 1.061 | 1.052 | 2.047 | 1.572 |
+  | dickens | 1.000 | 0.867 | 1.376 | 1.371 |
+  | plrabn12.txt | 0.874 | 0.873 | 1.540 | 1.288 |
+  | world192.txt | 0.867 | 0.859 | 1.069 | 1.239 |
+  | lcet10.txt | 0.828 | 0.827 | 1.208 | 1.123 |
+  | xml | 0.826 | 0.825 | 1.383 | 1.175 |
+  | webster | 0.819 | 0.822 | 0.934 | 1.236 |
+  | html-1m | 0.767 | 0.753 | 0.897 | 1.172 |
+  | bible.txt | 0.689 | 0.687 | 0.643 | 0.998 |
+  | reymont | 0.531 | 0.526 | 0.690 | 0.925 |
+  | The non-ASCII text | 0.808 | 0.815 | 1.023 | 0.993 |
+
+  The M1 Pro had said every one of them gains. A shuffled block runs about 31 vector instructions,
+  and on the N2 json-1m, 94% of whose blocks hold a reverse solidus, took about 22 cycles a block:
+  what the walk's stop at one escape costs there. So on the N2 the shuffle gains where a block
+  holds more than one escape, and loses where it holds one. The x86-64 CPUs gain on most prose
+  too, and still lose bible.txt or reymont.
+
   **An escape's instructions, 2026-10-04.** With the grammar walked, a text file as a string
   spends its decode in `copy_rest`: blocks of 16 octets up to an escape, the escape, and blocks
   again. On the N2 an instruction on that path costs its share of a cycle: with two more a run of
@@ -3926,12 +3976,182 @@ to 12 are reordered and nothing else changes.
     misses a decode of alice29.txt where it took 725. On the N2 bible.txt decoded 4% faster, and
     dickens, alice29.txt and asyoulik.txt 7% to 8% slower. It stays rejected.
 
-  A third form waits on the owner: the walk's loops bounded by the input left, with no count of
-  their passes (branch `exp-json-walk-s2`, runs
+  A third form the owner refused on 2026-10-04: the walk's loops bounded by the input left, with
+  no count of their passes (bfff2cf, runs
   [37182681660](https://github.com/c4milo/stdx/actions/runs/37182681660) and
   [37182686538](https://github.com/c4milo/stdx/actions/runs/37182686538)). The count takes three
-  instructions an escape. A mutation that ignores the escape step's refusal then spins
-  where the count panics, so the form weakens an assertion, and it is not in the stack.
+  instructions an escape. A mutation that ignores the escape step's refusal then spins where the
+  count panics, so the form weakens an assertion. A count that runs down to zero keeps the bound
+  for two instructions an escape, and may be paired on its own.
+
+  **The blocks where a long string's escapes come close, claim J13, 2026-10-04.** The shuffle
+  gains where a block holds more than one escape and loses where it holds one, so the walk keeps
+  every string, and hands a long one's close escapes to the blocks.
+
+  - The walk takes a string a stretch at a time. The first is `constants.escape_look_len_first`
+    octets, 4096, so a string that closes inside them never reaches the blocks.
+  - After a stretch that did not close the string, `Looks.look` compares the octets the stretch
+    held with the octets written for them. Where the escapes dropped an octet in every
+    `escape_dense_octets_max`, 12, or more, the blocks take the string on, until an octet they do
+    not take or `escape_quiet_blocks_max` blocks, 2, with no reverse solidus.
+  - Where the blocks took `escape_useful_len_min` octets, 256, or more, the next stretch is
+    `escape_look_len_min` octets, 256. After fewer, and after a stretch whose escapes came far
+    apart, it is twice the last, up to `escape_look_len_max`, 65536: a text of `\u` escapes
+    looks dense at every look and holds nothing for the blocks.
+  - A stretch ends where its length says, so it may cut an escape or a character. The walk stops
+    there, and the next stretch starts at the stop. A stop further from the stretch's end than
+    the longest escape reaches, 12 octets, is the octet's own, and the checked path names it.
+
+  The hand-off took three forms.
+
+  1. 69acae8 walked a string's first stretch inline in `copy_rest` and the later ones in a second
+     copy, out of line. Paired with the stack it stood on (runs
+     [37187239370](https://github.com/c4milo/stdx/actions/runs/37187239370) and
+     [37187245222](https://github.com/c4milo/stdx/actions/runs/37187245222)), json-1m as a string
+     decoded at 2.116 and 2.114 of that speed on the N2, 2.607 on an AMD EPYC 9V74 and 2.228 on
+     an EPYC 7763. bible.txt decoded at 0.760 and 0.785 on the N2 and html-1m at 0.928 and 0.923:
+     a long string ran the second copy, whose branches the N2 took worse, as the entry above
+     found for the stack's first five commits. On the 9V74 ten text rows lost 1% to 5% and
+     reymont 12%.
+  2. e09fa25 ran one copy of the walk, out of line, for every stretch; the walk reported the
+     octets it took. Paired with main at 9733e92 (runs
+     [37213587186](https://github.com/c4milo/stdx/actions/runs/37213587186),
+     [37213594651](https://github.com/c4milo/stdx/actions/runs/37213594651),
+     [37217282069](https://github.com/c4milo/stdx/actions/runs/37217282069) and
+     [37217291282](https://github.com/c4milo/stdx/actions/runs/37217291282)), the N2 lost no row in
+     four jobs and bible.txt decoded at 1.036 to 1.051. The 9V74, in three jobs, decoded reymont
+     at 0.896 to 0.898 of main's speed, plrabn12.txt at 0.900 to 0.932, js-1m at 0.888 to 0.949,
+     lcet10.txt at 0.925 to 0.965 and webster at 0.944 to 0.964. The AVX2 object says why. Each of
+     the walk's five ends subtracted, checked, what was left from the stretch's and the room's
+     lengths. LLVM kept both lengths in registers for the checks' panics, so the count of the
+     walk's passes took a register the block loop also uses, and went to the stack and back
+     around each run of blocks. At the x86-64 baseline, under callgrind, a run of blocks took 28
+     instructions where main's takes 24.
+  3. cccd692 has the walk report what it left, which it holds in registers wherever it ends, with
+     an unchecked cast; `Walked.copied` subtracts, checked, in the caller. A report of the octets
+     left through a checked cast had cost aarch64 three instructions an escape and two a stop.
+
+  The walk then takes as many instructions as main's, where callgrind can count it:
+
+  | Instructions, callgrind | main at 9733e92 | cccd692 |
+  |---|---|---|
+  | aarch64: a letter's escape, a stop, a block | 17, 22, 22 | 17, 22, 22 |
+  | aarch64: json-1m, an octet | 6.502 | 4.032 |
+  | aarch64: alice29.txt, an octet | 2.513 | 2.520 |
+  | aarch64: bible.txt, an octet | 1.667 | 1.670 |
+  | aarch64: the non-ASCII text, an octet | 3.061 | 3.062 |
+  | aarch64: the text of `\u` escapes, an octet | 8.379 | 8.386 |
+  | aarch64: CLDR's texts, a token | 75.42 | 75.66 |
+  | x86-64 baseline: a run of blocks | 24 | 24 |
+  | x86-64 baseline: alice29.txt, an octet | 3.042 | 3.043 |
+  | x86-64 baseline: alice29.txt as Cyrillic, an octet | 6.897 | 6.813 |
+
+  The x86-64 counts are of the baseline's paths, where the blocks are compiled out and the walk
+  is the same function: the emulator here stops at x86-64-v2, so the AVX2 object's instructions
+  were read from its disassembly and timed on the runners. A stretch costs a text about 170
+  instructions, 0.2% of prose. A string that reaches `copy_rest` pays 46 instructions for the
+  call to the walk, one string in 180 of CLDR's texts. `take`, the token loop, is identical to
+  main's apart from its addresses; inlined into it, the short `copy_rest` had cost each token
+  1.15 instructions.
+
+  Other things the forms taught:
+
+  - `copy_rest` is given the rest of the input, not the string, so it cannot tell a long string
+    before the walk has taken its first stretch.
+  - A Zig `inline` function that returns `?Copied` from several places, and a local whose address
+    a callee takes, each leave a copy on the stack whose address puts a stack guard in the
+    caller, 9 instructions a call. The walk's report is two words, returned in registers.
+  - With a pass of the walk's loop in a function of its own that named how the pass ended,
+    x86-64 took 3% to 6% more instructions an octet of text. The walk returns from inside its
+    loop.
+
+  bench-json runs [37220242176](https://github.com/c4milo/stdx/actions/runs/37220242176),
+  [37220251603](https://github.com/c4milo/stdx/actions/runs/37220251603),
+  [37223892779](https://github.com/c4milo/stdx/actions/runs/37223892779),
+  [37223901235](https://github.com/c4milo/stdx/actions/runs/37223901235),
+  [37226425413](https://github.com/c4milo/stdx/actions/runs/37226425413) and
+  [37226434057](https://github.com/c4milo/stdx/actions/runs/37226434057) paired cccd692
+  with main at 9733e92. Each cell is stdx's decoding speed over main's, the lowest and the
+  highest of the CPU's jobs:
+
+  | Decoding | N2, six jobs | AMD EPYC 7763, four jobs | AMD EPYC 9V74, two jobs |
+  |---|---|---|---|
+  | CLDR's texts | 0.995 to 0.995 | 0.993 to 1.003 | 0.987 to 0.992 |
+  | qlog's records | 0.998 to 1.010 | 0.998 to 1.022 | 1.005 to 1.014 |
+  | dickens | 1.006 to 1.010 | 1.019 to 1.029 | 0.996 to 1.001 |
+  | nci | 1.003 to 1.008 | 1.052 to 1.055 | 1.016 to 1.028 |
+  | reymont | 0.996 to 1.004 | 1.055 to 1.085 | 1.076 to 1.078 |
+  | samba | 0.993 to 0.996 | 0.993 to 0.999 | 0.998 to 1.005 |
+  | webster | 1.007 to 1.009 | 1.026 to 1.036 | 0.991 to 1.007 |
+  | xml | 1.007 to 1.014 | 1.009 to 1.018 | 1.068 to 1.072 |
+  | alice29.txt | 0.984 to 0.991 | 1.003 to 1.029 | 0.999 to 0.999 |
+  | asyoulik.txt | 1.019 to 1.029 | 0.958 to 0.992 | 0.988 to 0.989 |
+  | lcet10.txt | 1.005 to 1.011 | 1.007 to 1.010 | 0.981 to 0.989 |
+  | plrabn12.txt | 1.055 to 1.060 | 1.045 to 1.050 | 0.948 to 0.951 |
+  | E.coli | 0.998 to 1.007 | 0.997 to 1.046 | 1.004 to 1.040 |
+  | bible.txt | 1.020 to 1.053 | 1.144 to 1.148 | 1.329 to 1.330 |
+  | world192.txt | 1.003 to 1.009 | 1.027 to 1.036 | 1.016 to 1.029 |
+  | html-1m | 0.990 to 1.010 | 1.061 to 1.079 | 1.100 to 1.119 |
+  | json-1m | 2.123 to 2.126 | 2.214 to 2.227 | 2.602 to 2.606 |
+  | js-1m | 0.998 to 1.004 | 1.005 to 1.008 | 0.982 to 0.985 |
+  | css-1m | 1.018 to 1.024 | 0.956 to 1.000 | 1.024 to 1.029 |
+  | The non-ASCII text | 0.991 to 0.995 | 1.008 to 1.013 | 0.988 to 0.990 |
+  | The text of `\u` escapes | 0.989 to 0.993 | 1.007 to 1.008 | 1.004 to 1.006 |
+
+  json-1m as a string decodes at 1.12 of yyjson's speed on the N2, where main decodes it at
+  0.53; at 2.18 on the EPYC 7763, where main decodes it at 0.98; and at 1.99 on the EPYC 9V74,
+  where main decodes it at 0.76.
+
+  Mutations: 88 of 88 CAUGHT. 56 are of the blocks, their tables, carry and halves, the looks and
+  the scan's word; 32 of the walk, its report, its entry and the stretches. Four of the 32 left a
+  name unused at first and did not compile; each was formed again to use the name, and then
+  CAUGHT.
+
+  The N2's counters, in bench-profile runs on main and on the branch (runs
+  [37229129400](https://github.com/c4milo/stdx/actions/runs/37229129400) and
+  [37229121372](https://github.com/c4milo/stdx/actions/runs/37229121372)), counted a decode of
+  json-1m as a string at 3,343,243 cycles, 7,739,138 instructions and 2,981 branch misses on
+  main, and at 1,570,087, 4,799,763 and 1,247 with the claim. A token of CLDR's texts took 74.0
+  instructions and 25.3 cycles on main, and 74.3 and 25.5 with it. dickens as a string, which the
+  walk takes in five stretches, took 1,002 instructions and 8 branch misses more a decode, of
+  402,837 and 490.
+
+  **The rows below main with claim J13, 2026-10-04.** A row counts where it is past the larger of
+  its spread and 1% in both jobs of a CPU.
+
+  - On the N2 and on the EPYC 7763 no string decodes slower than main in both jobs of a pair. On
+    the N2 two texts sit near the floor in all six jobs, and past it in one job of each pair:
+    alice29.txt at 0.984 to 0.991 of main's speed, and the text of `\u` escapes at 0.989 to
+    0.993.
+  - On the AMD EPYC 9V74, whose two jobs agree: asyoulik.txt decodes at 0.989 and 0.988 of main's
+    speed and lcet10.txt at 0.981 and 0.989, and plrabn12.txt at 0.948 and 0.951, inside a spread
+    of 5.6% in the first job. The same jobs decode bible.txt at 1.33 of main's speed, html-1m at
+    1.12 and 1.10, reymont at 1.08 and xml at 1.07. The x86-64 runners refuse the counters, so no
+    count says why. Hex strings, whose code the claim leaves as it is, moved further there: nci
+    as a hex string decoded at 0.886 and 0.884.
+  - Hex strings decoding, on code the claim leaves as it is: none, six and one on the N2 in its
+    three pairs, at 0.962 to 0.989; three on the EPYC 7763 in the pair that drew it twice, at
+    0.923 to 0.988; six on the EPYC 9V74. A hex decode of 256 KiB takes 688,756 instructions at
+    both commits on aarch64, in `scan.plain_len_vector` and `memcpy`, and one of html-1k 3,880
+    at the x86-64 baseline.
+  - Encoding, which the claim does not touch: on the N2 alice29.txt at 0.936 to 0.944 in all six
+    jobs and css-1m at 0.986 and 0.988 in the first pair; on the EPYC 7763 qlog's records at
+    0.975 and 0.977 in the first pair; and four to twelve hex strings on each x86-64 CPU. An
+    encode of alice29.txt takes 477,496 instructions at both commits and one of css-1m
+    4,051,767, all in `copy_escaped`.
+
+  The last two sets count as placement (decision 20, amended 2026-09-29). The bench program,
+  cross-built for each runner at both commits, holds 776 of 788 function instances identical
+  apart from their addresses on aarch64, 434 of them at another offset in their 64-octet line,
+  and 1,650 of 1,664 on x86-64, 505 of them at another offset. The ones that differ are
+  `copy_rest`, which the claim rewrote; the benchmark's own report functions, which print the
+  claim's column; and, on aarch64, the standard library's handler of a segmentation fault.
+
+  The owner ruled on 2026-10-04 that the claim lands on aarch64 and on x86-64, with the EPYC
+  9V74's three rows recorded here as below main. The ruling reverses the rejection of 2026-09-30
+  above. The pairs ran the claim as cccd692, on main at 9733e92. Main took it as ca736c8, rebased
+  onto e681627 and with two comments rewrapped: the six commits between the two bases touch no
+  file of the json module or of its benchmark.
 
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token

@@ -1421,13 +1421,15 @@ entry 44 out of the blocks that look counted.
     | J4. The decoder skips whitespace a vector at a time | A compare and a branch per octet of whitespace | A/B on pretty-printed texts |
     | J5. Inside J1's and J3's runs, UTF-8 is validated a vector at a time, so a run goes on past non-ASCII characters | A state machine step per non-ASCII octet | A/B on text of two- and three-octet characters |
     | J12. Inside claim J10's loop, two `\u` escapes that follow each other are read at once, their reverse solidi and `u`s checked in one word and their eight digits turned into two code units in another, and the plain ASCII and the letters' escapes between escaped words stay in the loop | Four table loads and a store by length an escape, and a return to the walk at each word's end | A/B on text of `\u` escapes |
+    | J13. Inside claim J10's loop, a long string's stretches whose letters' escapes come close together are taken a block of 16 at a time: each escaped letter becomes its character where it stands, and one shuffle a half leaves the reverse solidi out | A stop at each escape and a scan from the octet after it, about 25 cycles an escape on the N2 | A/B on a text with an escape every 8 octets |
 
     A claim stays only where `bench-json` shows its vector path faster than the scalar path by more
     than the noise, on each runner of entry 20; design §8 step 16 records the runs. J12 joined on
     2026-09-30, when the owner chose the `\u` escapes, and design §8 step 18 records its runs. On
     2026-10-04 its loop took in a letter's escape between two `\u` escapes and went out of line
-    on every target. Wider vectors behind entry 21's per-level objects wait until a measurement
-    asks for them.
+    on every target. J13 joined on 2026-10-04 by the owner's ruling, which reverses the rejection
+    of 2026-09-30 that design §8 step 18 records. Wider vectors behind entry 21's per-level
+    objects wait until a measurement asks for them.
 
     **The checks, with no oracle.** A conformance corpus such as JSONTestSuite and an oracle are
     each a dependency, which CLAUDE.md asks the owner about; neither is added. In their place:

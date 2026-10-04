@@ -115,6 +115,10 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | four instructions at each stop of a string's blocks, in strings with no `\u` escape | a rarer loop inlined beside the walk's kept eight constants in registers the block loop takes, and LLVM set them again at each of its exits | call the rarer loop out of line (`unicode_call`, design §8 step 18) |
 | the token loop 1.6 instructions a token slower from a cheaper compare in a scan it inlines | the compare changed the register allocation of the loop that inlines it | count each caller that inlines a changed helper; keep the old form where a caller loses (`scan.plain_stops`) |
 | a ruling asked for on a list of losing rows that missed two sets | the list came from reading the pair's text rows; hex strings and qlog's records were down in both jobs too | apply the admission rule to every row and every candidate of both pairs by script before asking |
+| prose 4% to 11% slower on an EPYC 9V74, its loop's source unchanged and its count on aarch64 the same | a checked subtraction at each of a function's five ends kept its operands in registers for the panics, and the loop's count of its passes went to the stack around the hot loop | report what the loop already holds, cast unchecked, and check in the caller; read which register the object spills around the hot loop (design §8 step 18) |
+| each token 1.15 instructions slower after a function the token loop calls became short | LLVM inlined it into the loop | `@call(.never_inline, ...)` at the loop's call site; compare the loop's function with main's after each change to what it calls |
+| 9 instructions a call in a short function that only passes a result on | a stack guard: a Zig `inline` function that returns an optional struct from several places, or a local whose address a callee takes, leaves a copy on the stack | return two words in registers, and return once for each outcome |
+| every string of a long text sent down the path for long strings | the function is given the rest of the input, whose length is not the string's | tell a long string only once its first stretch has not closed it |
 
 ## Commands
 
