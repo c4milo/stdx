@@ -119,6 +119,16 @@ fn write_counts(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
 }
 
 fn write_code_length_lengths(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+    if (emit.index == 0 and writer.has_store_room()) {
+        // All of them in one put, on the bits a store leaves (decision 14, E5).
+        writer.store();
+        var lengths: u64 = 0;
+        for (constants.code_length_order[0..plan.code_length_count], 0..) |symbol, index| {
+            lengths |= @as(u64, plan.code_length_lengths[symbol]) << @intCast(index * constants.code_length_code_bits);
+        }
+        put(emit, writer, lengths, @intCast(plan.code_length_count * constants.code_length_code_bits));
+        return true;
+    }
     for (emit.index..plan.code_length_count) |index| {
         if (!writer.make_room(constants.code_length_code_bits)) return false;
         put(emit, writer, plan.code_length_lengths[constants.code_length_order[index]], constants.code_length_code_bits);
@@ -127,7 +137,59 @@ fn write_code_length_lengths(emit: *Emit, plan: *const Plan, writer: *codec.BitW
     return true;
 }
 
+/// The items one put of `write_items_stored` holds.
+const items_per_put = 4;
+
+/// The most bits an item takes: a code of the code length code and the longest repeat's extra bits
+/// (RFC 1951 §3.2.7).
+const item_bits_max = constants.code_length_code_len_max + constants.repeat_extra_bits[constants.repeat_zero_long - constants.repeat_previous];
+
+comptime {
+    // A put of items, and the one put of the code length code's lengths, fit above the bits a
+    // store leaves.
+    const left_bits_max = @bitSizeOf(u8) - 1;
+    assert(items_per_put * item_bits_max + left_bits_max <= codec.constants.bit_buffer_bits);
+    assert(constants.code_length_alphabet_len * constants.code_length_code_bits + left_bits_max <= codec.constants.bit_buffer_bits);
+}
+
+/// What an item of one code length symbol puts: the symbol's code, the code's bits, and the bits
+/// the item takes with its extra bits.
+const ItemEntry = struct {
+    code: u16,
+    code_bits: u8,
+    bits: u8,
+};
+
+/// Writes items `items_per_put` at a time while the output has room for a store: their codes and
+/// extra bits go into the buffer in one put, on the bits a store leaves (decision 14, E5). The
+/// items left, and every item once the output is short, go one at a time in `write_items`.
+fn write_items_stored(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) void {
+    var entries: [constants.code_length_alphabet_len]ItemEntry = undefined;
+    for (&entries, plan.code_length_codes, plan.code_length_lengths, 0..) |*entry, code_of, len, symbol| {
+        const extra_bits: u8 = if (symbol >= constants.repeat_previous) constants.repeat_extra_bits[symbol - constants.repeat_previous] else 0;
+        entry.* = .{ .code = code_of, .code_bits = len, .bits = len + extra_bits };
+    }
+    const items = plan.items[0..plan.item_count];
+    var index: usize = emit.index;
+    while (index + items_per_put <= items.len) : (index += items_per_put) {
+        if (!writer.has_store_room()) break;
+        writer.store();
+        var bits: u64 = 0;
+        var count: usize = 0;
+        for (items[index..][0..items_per_put]) |item| {
+            const entry = entries[item.symbol];
+            // A symbol under 16 has no extra bits, and its item's `extra` is 0.
+            bits |= (@as(u64, entry.code) | @as(u64, item.extra) << @intCast(entry.code_bits)) << @intCast(count);
+            count += entry.bits;
+        }
+        assert(count <= items_per_put * item_bits_max);
+        put(emit, writer, bits, @intCast(count));
+    }
+    emit.index = @intCast(index);
+}
+
 fn write_items(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+    write_items_stored(emit, plan, writer);
     for (plan.items[emit.index..plan.item_count]) |item| {
         const extra_bits: u7 = if (item.symbol >= constants.repeat_previous) constants.repeat_extra_bits[item.symbol - constants.repeat_previous] else 0;
         if (!writer.make_room(@as(u7, @intCast(plan.code_length_lengths[item.symbol])) + extra_bits)) return false;
