@@ -734,6 +734,89 @@ to 12 are reordered and nothing else changes.
     nci 0.88, css-1m 0.89 and html-1m 0.90; Intel Xeon 8573C 0.984 and 0.997, faster on 18 or 19,
     behind on ptt5 0.84, css-1m 0.87, html-1m 0.87 and nci 0.89.
 
+  **A small body's decode, split into its parts, 2026-10-04.** Decision 45's rows read stdx's gzip
+  decoder at 0.67 to 0.78 of the fastest baseline over 1 KiB slices on the N2 and at 0.82 to 0.85
+  over 16 KiB slices (step 9's entry on the slices). A probe on `perf-deflate-split`, a branch that
+  never lands (decision 20), split one member's decode into its parts on both runners: runs
+  [37240035013](https://github.com/c4milo/stdx/actions/runs/37240035013) at fa00b10 and
+  [37240834498](https://github.com/c4milo/stdx/actions/runs/37240834498) at e6ee392, on a
+  Neoverse N2 in both, an EPYC 9V45 and an EPYC 9V74. The four reports are in `bench/results/`,
+  dated 2026-10-04, "split". The first run's are its jobs' logs of the report: a later step
+  failed there and skipped the upload.
+  - How the probe splits a decode. The decoder resumes (decision 11), so a member cut short costs
+    what the decoder does with the octets it was given, and no more. `bench_split` reads each
+    member's block header itself (RFC 1951 §3.2.7) and cuts every member of a row at the same
+    point of it. It requires the decoder to stand in the phase a cut names, and in the phase
+    before it with one octet less. It then gives the cut members to the decoder in rotation,
+    through the one function bench-profile calls the decoder through, and counts each stage with
+    the runner's counters. A stage less the stage before it is one part. A buffer with 512 octets
+    of room past the slice prices the tail loop. `bench_split_parts` calls each build, the CRC-32
+    and the window's copy apart, on each member's code lengths. `split_decode`, stdx's modules
+    alone, decodes the same members under valgrind 3.22's callgrind on each runner, for a count
+    by source line.
+  - The rows hold fixed blocks. zlib writes 379 of json's 1024 slices of 1 KiB as one fixed
+    block, one each of js's and css's and none of html's. Every 16 KiB slice is one dynamic
+    block. The split is of the dynamic members. The N2 decodes one of json's fixed members in
+    2,665 cycles with stdx, 2,744 with zlib-ng and 8,962 with libdeflate.
+  - The parts on the N2, for one dynamic member of html's slices, the median of five runs, in the
+    first run:
+
+    | Part | 1 KiB: instructions | 1 KiB: branch misses | 1 KiB: cycles | 16 KiB: instructions | 16 KiB: branch misses | 16 KiB: cycles |
+    |---|---|---|---|---|---|---|
+    | The state started, the member's header, one call that finds no input | 760 | 0.1 | 210 | 760 | 0.1 | 206 |
+    | BFINAL, BTYPE, HLIT, HDIST and HCLEN, the code length code read and built | 3,132 | 3.3 | 999 | 2,907 | 1.6 | 901 |
+    | The code lengths read | 16,080 | 71.7 | 4,339 | 22,559 | 64.8 | 5,418 |
+    | The two codes and the two tables built | 11,348 | 52.0 | 3,988 | 15,055 | 30.0 | 4,548 |
+    | The symbols with room past the slice, the window's copy, the CRC-32, the trailer | 7,292 | 84.9 | 4,250 | 76,488 | 906.8 | 36,854 |
+    | What a buffer of the slice's length adds: the tail loop | 3,963 | 44.4 | 1,297 | 3,156 | 31.2 | 1,083 |
+    | stdx, whole | 42,575 | 256.5 | 15,083 | 120,926 | 1,034.6 | 49,011 |
+    | libdeflate, whole | 20,537 | 154.9 | 10,965 | 99,039 | 945.0 | 43,072 |
+    | zlib-ng, whole | 29,111 | 217.6 | 12,946 | 123,546 | 1,367.2 | 62,797 |
+
+  - Over the four kinds, in both runs. The block's header, the three parts from BFINAL to the
+    tables, takes 60% to 69% of a 1 KiB member's cycles and 19% to 28% of a 16 KiB member's; 70% to
+    74% and 30% to 39% of the instructions; 46% to 61% and 7% to 17% of the branch misses. The
+    code lengths' read takes 29% to 32% and 10% to 14% of the cycles: 157 to 165 instructions, 38
+    to 46 cycles and 0.44 to 0.88 branch misses a code length symbol. The builds take 25% to 29%
+    and 8% to 12%, and the tail loop 6% to 9% and 1% to 2%. Over the stages' 108 cells the two
+    runs count the same branches in every cell, instructions within 0.34% and cycles within 2.1%.
+  - The symbol loop keeps libdeflate's pace on the N2. From a 1 KiB member of html to a 16 KiB
+    one the decode grows by 2,891 symbols: stdx's cycles outside the header grow by 11.2 a symbol,
+    and libdeflate's whole decode by 11.1. What sets the two apart is what each pays for a
+    stream. libdeflate takes 8,962 cycles for one of json's fixed members, 169.5 octets, which
+    stdx decodes in 2,665; stdx takes more than libdeflate for every dynamic member.
+  - Called apart on the N2, over all eight rows. The literal/length code's build takes 5,267 to
+    6,037 instructions and 1,964 to 2,310 cycles, about 20 instructions a length, with 8 to 27
+    branch misses over 1 KiB slices and about 1 over 16 KiB slices. Its table takes 614 to 1,323
+    cycles, the distance code and its table 490 to 692, and the code length code 179 to 185. The
+    window's copy takes 99 to 118 cycles of a 1 KiB slice and 1,285 to 1,336 of a 16 KiB slice,
+    2.3% to 3.6% of that decode. The CRC-32 takes 129 to 147 and 1,574 to 1,812.
+  - valgrind's count for one dynamic member of html's 1 KiB slices on the N2, 42,255
+    instructions: the canonical decode a bit at a time, which reads the code length code, 5,454;
+    the loop over the code lengths, 4,683; the checked bit reader, 4,320; the codes' builds,
+    6,643; the tables' builds, 3,729; the assembly symbol loop, 5,001; in the tail, a match
+    copied an octet at a time, 2,273, the refill an octet at a time, 771, and its steps, 2,882;
+    assertions, 1,778; the CRC-32, 493. On an EPYC 9V74 the same member takes 53,967: the
+    canonical decode 9,267 and the checked bit reader 6,004.
+  - A buffer of the slice's length costs every decoder. Room past the slice saves stdx 6.4% to
+    9.0% of a 1 KiB member's cycles on the N2, zlib-ng 7.3% to 10.1% and libdeflate 1.7% to 5.1%.
+  - x86-64, timed alone, since its runners expose no counters. The header takes 58% to 69% of a
+    1 KiB member's time on both CPUs and 12% to 20% of a 16 KiB member's. Over 16 KiB slices the
+    symbols' part alone takes longer than libdeflate's whole decode on html, js and css on the
+    9V45 (14,502 ns against 12,899 on html) and on all four kinds on the 9V74. The header
+    cannot close those rows there.
+  - What the documents held. This step measured a lookup table for the code length code on the
+    M1's 1 KiB bodies, repeated, and did not keep it (above): decision 45 has since replaced that
+    instrument. Decision 16's table named no function of the DEFLATE header, where brotli's
+    header loop has a row. Decision 32 gave brotli's loop a check of each write below the
+    margin, where DEFLATE's tail refills and copies an octet at a time.
+  - What the owner ruled, on 2026-10-04, through four questions. A loop of its own for the code
+    lengths, with a lookup table for the code length code, may be measured again on the
+    rotation rows, its claim and its row in decisions 14 and 16 written first. The codes built
+    from counts taken as the lengths are read come after it, paired apart. The tail may take
+    decision 32's rule, after the header, its amendment of decision 16 written first. And a call
+    that ends the stream may copy nothing into the window.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
