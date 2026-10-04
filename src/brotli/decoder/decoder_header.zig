@@ -33,6 +33,15 @@ pub fn is_header_phase(phase: Phase) bool {
 pub fn read_phase(comptime fast_paths: bool, state: *State, bits: *codec.BitReader) align(constants.hot_function_alignment) Error!?codec.Status {
     assert(is_header_phase(state.phase));
     return switch (state.phase) {
+        inline .meta_block_header, .meta_block_len, .uncompressed_flag, .block_types_count, .first_block_count, .distance_parameters, .context_modes, .trees_count, .map_run_length, .map_values, .map_inverse_transform, .prefix_kind, .simple_count, .simple_symbols, .code_length_code, .code_lengths => |phase| read_phase_of(phase, fast_paths, state, bits),
+        else => unreachable,
+    };
+}
+
+/// The header's phase `phase`, which the state stands at, by the function that reads it, and the
+/// status that ends the call, or null to go on.
+pub inline fn read_phase_of(comptime phase: Phase, comptime fast_paths: bool, state: *State, bits: *codec.BitReader) Error!?codec.Status {
+    return switch (phase) {
         .meta_block_header => stream.read_meta_block_header(state, bits),
         .meta_block_len => try stream.read_meta_block_len(state, bits),
         .uncompressed_flag => stream.read_uncompressed_flag(state, bits),
@@ -49,7 +58,7 @@ pub fn read_phase(comptime fast_paths: bool, state: *State, bits: *codec.BitRead
         .simple_symbols => try prefix_reader.read_simple_symbols(state, bits),
         .code_length_code => try prefix_reader.read_code_length_code(fast_paths, state, bits),
         .code_lengths => try prefix_reader.read_code_lengths(fast_paths, state, bits),
-        else => unreachable,
+        else => comptime unreachable,
     };
 }
 
