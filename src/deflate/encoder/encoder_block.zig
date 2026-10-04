@@ -425,12 +425,13 @@ fn header_bits(dynamic: *const Plan, item_counts: *const code.ItemCounts) u64 {
 /// Builds the block's own codes and the header that carries them (RFC 1951 §3.2.7). Returns the
 /// header's bits, as `header_bits` counts them.
 fn plan_dynamic(block: *const Block, result: *Plan) u64 {
-    var literal_listed: [constants.literal_length_used]u16 = undefined;
-    const literals_listed = code.build_lengths_listed(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths, &literal_listed);
-    code.build_codes_listed(&result.literal_length_lengths, literal_listed[0..literals_listed], &result.literal_length_codes);
-    var distance_listed: [constants.distance_used]u16 = undefined;
-    const distances_listed = code.build_lengths_listed(&block.distance_counts, constants.code_len_max, &result.distance_lengths, &distance_listed);
-    code.build_codes_listed(&result.distance_lengths, distance_listed[0..distances_listed], &result.distance_codes);
+    var length_counts: code.LengthCounts = undefined;
+    var literal_listed: [constants.literal_length_used]code.Key = undefined;
+    const literals_listed = code.build_lengths_listed(&block.literal_length_counts, constants.code_len_max, &result.literal_length_lengths, &literal_listed, &length_counts);
+    code.build_codes_listed(&result.literal_length_lengths, literal_listed[0..literals_listed], &length_counts, &result.literal_length_codes);
+    var distance_listed: [constants.distance_used]code.Key = undefined;
+    const distances_listed = code.build_lengths_listed(&block.distance_counts, constants.code_len_max, &result.distance_lengths, &distance_listed, &length_counts);
+    code.build_codes_listed(&result.distance_lengths, distance_listed[0..distances_listed], &length_counts, &result.distance_codes);
     // RFC 1951 §3.2.7: HLIT + 257 literal/length lengths, HDIST + 1 distance lengths.
     result.literal_length_count = @intCast(@max(constants.hlit_base, last_used(&result.literal_length_lengths)));
     result.distance_count = @intCast(@max(constants.hdist_base, last_used(&result.distance_lengths)));

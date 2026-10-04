@@ -121,6 +121,68 @@ test "each canonical code, reversed, decodes to its symbol" {
     }
 }
 
+/// The symbols a skewed seed of `listed_seed_counts` uses: Fibonacci counts on so many make
+/// Huffman's code pass 15 bits.
+const fibonacci_symbols = 24;
+
+/// One seed in so many of `listed_seed_counts` is skewed.
+const skewed_seed_period = 3;
+
+/// One count in so many of an unskewed seed is 0, and the others reach `seed_count_max`.
+const unused_period = 3;
+const seed_count_max = 400;
+
+/// Seeded counts for the literal/length alphabet: some unused, and every third seed Fibonacci
+/// counts on its first symbols and no other, so that its lengths come from package-merge.
+fn listed_seed_counts(seed: usize) [constants.literal_length_used]u16 {
+    var generator = codec.split.Generator.init(seed);
+    var counts: [constants.literal_length_used]u16 = @splat(0);
+    if (seed % skewed_seed_period != 0) {
+        for (&counts) |*count| count.* = if (generator.below(unused_period) == 0) 0 else @intCast(1 + generator.below(seed_count_max));
+        return counts;
+    }
+    // The number after the last one stored passes a count's 16 bits.
+    var before: u32 = 0;
+    var next: u32 = 1;
+    for (counts[0..fibonacci_symbols]) |*count| {
+        count.* = @intCast(next);
+        next += before;
+        before = count.*;
+    }
+    return counts;
+}
+
+test "the listed builders give the codes of the plain ones, and each length's count" {
+    var deepest: u8 = 0;
+    for (0..60) |seed| {
+        const counts = listed_seed_counts(seed);
+        var lengths: [counts.len]u8 = undefined;
+        var listed: [counts.len]code.Key = undefined;
+        var length_counts: code.LengthCounts = undefined;
+        const used = code.build_lengths_listed(&counts, constants.code_len_max, &lengths, &listed, &length_counts);
+        try expect_complete(constants.literal_length_alphabet_len, &lengths, constants.code_len_max);
+        // A key holds its symbol's count, and the keys come in the order of their symbols.
+        var expected_counts: code.LengthCounts = @splat(0);
+        var listed_len: usize = 0;
+        for (lengths, counts, 0..) |len, count, symbol| {
+            if (len == 0) continue;
+            expected_counts[len] += 1;
+            try testing.expectEqual((@as(code.Key, @max(count, 1)) << @bitSizeOf(u16)) | @as(code.Key, @intCast(symbol)), listed[listed_len]);
+            listed_len += 1;
+        }
+        try testing.expectEqual(listed_len, used);
+        try testing.expectEqualSlices(u16, &expected_counts, &length_counts);
+        var plain: [counts.len]u16 = @splat(0);
+        code.build_codes(&lengths, &plain);
+        var codes: [counts.len]u16 = undefined;
+        code.build_codes_listed(&lengths, listed[0..used], &length_counts, &codes);
+        try testing.expectEqualSlices(u16, &plain, &codes);
+        deepest = @max(deepest, std.mem.max(u8, &lengths));
+    }
+    // Some seed's counts reached the limit, where package-merge sets the lengths.
+    try testing.expectEqual(constants.code_len_max, deepest);
+}
+
 /// The lengths `items` stand for (RFC 1951 §3.2.7).
 fn expand(items: []const code.Item, lengths: []u8) usize {
     var len: usize = 0;
