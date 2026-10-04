@@ -273,8 +273,8 @@ pub const word =
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
 /// a run's literal (28, 29 and 73) and a distance (32), the room of a copy of more than a chunk
-/// (38), a distance past this call's output or the window (35), and the second level of each lookup
-/// (50 to 53 and 58).
+/// (38), a distance past this call's output or the window (35), the second level of each lookup
+/// (50 to 53 and 58), a word's room (93), and the room taken as the octets left (94, 95, 97, 98).
 pub const cold =
     \\12:
     \\    cmp x1, x2
@@ -316,13 +316,80 @@ pub const cold =
     \\    cmp x13, x28
     \\    csel x13, x13, x28, lo
     \\    cmp x26, x13
-    \\    b.hi 37b
+    \\    b.hi 93f
     \\    b 90f
 ++ "\n" ++ second_level("x8", "x13", "x14", "x23", "50", "54") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "51", "55") ++
     "\n" ++ second_level("x13", "x23", "x14", "x28", "52", "56") ++
     "\n" ++ second_level("x23", "x27", "x14", "x28", "53", "57") ++
-    "\n" ++ second_level("x23", "x27", "x14", "x28", "58", "59");
+    "\n" ++ second_level("x23", "x27", "x14", "x28", "58", "59") ++
+    \\
+    \\93:
+    \\    // A word's transform takes `transform.wide_output_len` octets of room whatever the word's
+    \\    // length: past the room, Zig takes the word (90), its distance's bits unused.
+    \\    ldr x14, [x0, #{[word_limit]}]
+    \\    cmp x3, x14
+    \\    b.hi 90f
+    \\    b 37b
+    \\97:
+    \\    // The input's slack gone: Zig takes the command (80).
+    \\    cmp x1, x2
+    \\    b.hi 80f
+    \\    // Less than the margin's room (decisions 16 and 32). The loop goes on with the room's
+    \\    // octets, less the two chunks a copy may store past its length, as the octets left
+    \\    // where the meta-block has more: the checks of RFC 7932 §9.3 then keep a command's
+    \\    // literals and its copy inside the output. x4 holds all ones from here, in the machine
+    \\    // too, and the machine the octets taken off, which the exit adds back (99). No room past
+    \\    // the two chunks: Zig takes the command (80).
+    \\    add x13, x4, #{[margin_less_reserve]}
+    \\    subs x13, x13, x3
+    \\    b.ls 80f
+    \\    mov x4, #-1
+    \\    str x4, [x0, #{[output_limit]}]
+    \\    cmp x13, x12
+    \\    b.hs 1b
+    \\    sub x14, x12, x13
+    \\    mov x12, x13
+    \\    str x14, [x0, #{[budget_delta]}]
+    \\    b 1b
+    \\94:
+    \\    // The same after a run that left literals, which go on where the octets left hold them;
+    \\    // Zig takes the others (87).
+    \\    add x13, x4, #{[margin_less_reserve]}
+    \\    subs x13, x13, x3
+    \\    b.ls 87f
+    \\    mov x4, #-1
+    \\    str x4, [x0, #{[output_limit]}]
+    \\    cmp x13, x12
+    \\    b.hs 96f
+    \\    sub x14, x12, x13
+    \\    mov x12, x13
+    \\    str x14, [x0, #{[budget_delta]}]
+    \\96:
+    \\    cmp w28, w12
+    \\    b.hi 87f
+    \\    b 20b
+    \\95:
+    \\    // The same after the literals: the distance checks the copy against the octets left.
+    \\    // No room past the two chunks: Zig takes the distance (89).
+    \\    add x13, x4, #{[margin_less_reserve]}
+    \\    subs x13, x13, x3
+    \\    b.ls 89f
+    \\    mov x4, #-1
+    \\    str x4, [x0, #{[output_limit]}]
+    \\    cmp x13, x12
+    \\    b.hs 30b
+    \\    sub x14, x12, x13
+    \\    mov x12, x13
+    \\    str x14, [x0, #{[budget_delta]}]
+    \\    b 30b
+    \\98:
+    \\    // No octet left after the literals: the meta-block's (88), or the room's, which leaves
+    \\    // the distance to Zig (89).
+    \\    ldr x13, [x0, #{[budget_delta]}]
+    \\    cbz x13, 88f
+    \\    b 89f
+;
 
 /// The exits: the link in x13 and the phase in x14, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.
@@ -374,6 +441,10 @@ pub const exits =
     \\    mov x14, #{[phase_literal]}
     \\    b 99f
     \\88:
+    \\    // No octet left: the room's, which leaves the next command to Zig (80), or the
+    \\    // meta-block's.
+    \\    ldr x13, [x0, #{[budget_delta]}]
+    \\    cbnz x13, 80b
     \\    mov x13, #{[link_stop]}
     \\    mov x14, #{[phase_meta_block_end]}
     \\    b 99f
@@ -389,6 +460,17 @@ pub const exits =
     \\    mov x13, #{[link_stop]}
     \\    mov x14, #{[phase_distance]}
     \\99:
+    \\    // Where the room was the octets left (97), the meta-block's come back, and Zig, whose
+    \\    // chain checks no room where the margin held, goes on from the phase alone.
+    \\    ldr x23, [x0, #{[output_limit]}]
+    \\    cmn x23, #1
+    \\    b.ne 79f
+    \\    ldr x23, [x0, #{[budget_delta]}]
+    \\    add x12, x12, x23
+    \\    cmp x13, #{[link_stop]}
+    \\    b.eq 79f
+    \\    mov x13, #{[link_go_on]}
+    \\79:
     \\    str x1, [x0, #{[input]}]
     \\    str x3, [x0, #{[output]}]
     \\    stp x6, x7, [x0, #{[buffer]}]

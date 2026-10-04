@@ -277,3 +277,89 @@ test "a word whose distance takes 16 extra bits decodes on the fast path" {
     try testing.expectEqual('a', output[0]);
     try testing.expectEqualSlices(u8, word[0..word_len], output[1..whole.written]);
 }
+
+/// `prefixed_pairs` pairs of commands of no literals (RFC 7932 §5). First symbol 130, a copy of 4 at
+/// a distance past every octet produced: with 37k octets produced, word 1023 - 37k of length 4 with
+/// transform 41, the prefix " the " and no suffix, 9 octets (§8, Appendix B); with NPOSTFIX and
+/// NDIRECT 0 that distance is the code 42, 14 extra bits over the offset (2 << 14) - 4 (§4). Then
+/// symbol 196, a copy of 28, copy code 12 and 3 extra bits, at the distance code 0, the last
+/// distance, 4 (§4): the word's last 4 octets, repeated. `transform.apply_wide` copies
+/// `transform.body_copy_len` octets after the prefix, 1 octet more than a command of 4 octets and
+/// the two chunks kept past it take, and the copy brings a word to every room from 36 octets up:
+/// only the check of a word's own room keeps that octet inside the output, in the loop and in the
+/// Zig the loop leaves the word to.
+const prefixed_word_symbol = 130;
+const prefixed_copy_symbol = 196;
+const prefixed_word_transform = 41;
+const prefixed_word_prefix = " the ";
+const prefixed_word_output_len = prefixed_word_prefix.len + short_word_len;
+const prefixed_copy_len = 28;
+const prefixed_copy_code = 12;
+const prefixed_pair_len = prefixed_word_output_len + prefixed_copy_len;
+const prefixed_pairs = 28;
+const prefixed_word_index_first = (1 << dictionary.bits[short_word_len]) - 1;
+const prefixed_word_distance = 1 + (prefixed_word_transform << dictionary.bits[short_word_len]) + prefixed_word_index_first;
+const prefixed_word_distance_code = 42;
+const prefixed_word_extra_bits = 14;
+const prefixed_word_offset = (constants.coded_distance_base << prefixed_word_extra_bits) - constants.coded_distance_bias;
+const prefixed_room_past = 512;
+
+fn prefixed_pairs_stream(stream: *Stream) void {
+    const copy = constants.copy_length_codes[prefixed_copy_code];
+    stream.window_bits_16();
+    stream.meta_block(true, prefixed_pairs * prefixed_pair_len);
+    stream.simple_header(0, 0, 0);
+    stream.simple_code(constants.literal_alphabet_len, &.{'q'}, false);
+    // Symbol 130 takes the code 0 and symbol 196 the code 1; the distance code 0 the code 0 and
+    // the code 42 the code 1.
+    stream.simple_code(constants.insert_copy_alphabet_len, &.{ prefixed_word_symbol, prefixed_copy_symbol }, false);
+    stream.simple_code(constants.distance_short_codes_count + constants.distance_code_groups, &.{ 0, prefixed_word_distance_code }, false);
+    for (0..prefixed_pairs) |_| {
+        stream.put_code(0, 1);
+        stream.put_code(1, 1);
+        stream.put(prefixed_word_distance - 1 - prefixed_word_offset, prefixed_word_extra_bits);
+        stream.put_code(1, 1);
+        stream.put(prefixed_copy_len - copy.base, copy.extra_bits);
+        stream.put_code(0, 1);
+    }
+    stream.bit_len = std.mem.alignForward(usize, stream.bit_len, @bitSizeOf(u8));
+    for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
+}
+
+/// What the pairs write, into `expected`.
+fn prefixed_pairs_expected(expected: *[prefixed_pairs * prefixed_pair_len]u8) !void {
+    for (0..prefixed_pairs) |pair| {
+        const at = pair * prefixed_pair_len;
+        const index: u32 = @intCast(prefixed_word_index_first - at);
+        var word: [constants.transformed_word_len_max]u8 = undefined;
+        const word_len = transform.apply(prefixed_word_transform, dictionary.word(short_word_len, index), &word);
+        try testing.expectEqual(prefixed_word_output_len, word_len);
+        @memcpy(expected[at..][0..word_len], word[0..word_len]);
+        for (at + word_len..at + prefixed_pair_len) |octet| expected[octet] = expected[octet - constants.last_distances_initial[0]];
+    }
+}
+
+test "words behind a prefix write nothing past any room, in the loop or in the Zig it leaves them to" {
+    // The prefix puts the body's copy past the 4 octets of the command and the two chunks.
+    try testing.expectEqualStrings(prefixed_word_prefix, transform.table[prefixed_word_transform].prefix);
+    try testing.expect(prefixed_word_prefix.len + transform.body_copy_len > short_word_len + constants.copy_chunk_len + constants.copy_chunk_len);
+    try testing.expectEqual(prefixed_copy_len, constants.copy_length_codes[prefixed_copy_code].base + 6);
+    var stream: Stream = .{};
+    prefixed_pairs_stream(&stream);
+    var expected: [prefixed_pairs * prefixed_pair_len]u8 = undefined;
+    try prefixed_pairs_expected(&expected);
+    // Two sentinels, since an octet of DICT may equal one of them.
+    for ([_]u8{ 0xff, 0x00 }) |sentinel| {
+        var output: [expected.len + prefixed_room_past + prefixed_room_past]u8 = undefined;
+        for (0..expected.len + prefixed_room_past + 1) |room| {
+            @memset(&output, sentinel);
+            var decoder: Decoder = undefined;
+            decoder.init(codec.Features.detect());
+            const progress = try decoder.decode(stream.written(), output[0..room]);
+            const written = @min(room, expected.len);
+            try testing.expectEqual(written, progress.written);
+            try testing.expectEqualSlices(u8, expected[0..written], output[0..written]);
+            for (output[room..]) |octet| try testing.expectEqual(sentinel, octet);
+        }
+    }
+}

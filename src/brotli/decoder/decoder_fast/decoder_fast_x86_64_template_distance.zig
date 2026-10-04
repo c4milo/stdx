@@ -99,7 +99,7 @@ pub const distance =
     \\    cmp rax, r11
     \\    cmovae rax, r11
     \\    cmp r15, rax
-    \\    ja 37f
+    \\    ja 93f
     \\    mov rax, rdx
     \\    sub rax, qword ptr [rdi + {[output_base]}]
     \\    cmp r15, rax
@@ -131,7 +131,7 @@ pub const distance =
     \\    cmp rax, r11
     \\    cmovae rax, r11
     \\    cmp r15, rax
-    \\    ja 37f
+    \\    ja 93f
     \\    mov rax, rdx
     \\    sub rax, qword ptr [rdi + {[output_base]}]
     \\    cmp r15, rax
@@ -283,8 +283,8 @@ pub const word =
 
 /// The blocks the common path passes over, each entered by a branch it leaves untaken and ending in
 /// a branch back: the refills that need the input's slack checked, for a command's extra bits (12),
-/// a run's literal (28, 29 and 73) and a distance (32), and the second level of each lookup (50 to
-/// 53 and 58).
+/// a run's literal (28, 29 and 73) and a distance (32), the second level of each lookup (50 to 53
+/// and 58), a word's room (93), and the room taken as the octets left (94, 95, 97 and 98).
 pub const cold =
     \\12:
     \\    cmp rsi, qword ptr [rdi + {[input_limit]}]
@@ -315,7 +315,73 @@ pub const cold =
     second_level("rax", "rcx", "r10", "51", "55") ++
     second_level("rax", "rcx", "rbx", "52", "56") ++
     second_level("rax", "rcx", "r10", "53", "57") ++
-    second_level("rax", "rcx", "r14", "58", "59");
+    second_level("rax", "rcx", "r14", "58", "59") ++
+    \\93:
+    \\    // A word's transform takes `transform.wide_output_len` octets of room whatever the word's
+    \\    // length: past the room, Zig takes the word (90), its distance's bits unused.
+    \\    mov r11, qword ptr [rdi + {[word_limit]}]
+    \\    cmp rdx, r11
+    \\    ja 90f
+    \\    jmp 37b
+    \\97:
+    \\    // Less than the margin's room (decisions 16 and 32). The loop goes on with the room's
+    \\    // octets, less the two chunks a copy may store past its length, as the octets left
+    \\    // where the meta-block has more: the checks of RFC 7932 §9.3 then keep a command's
+    \\    // literals and its copy inside the output. `output_limit` holds all ones from here, and
+    \\    // the machine the octets taken off, which the exit adds back (99). No room past the two
+    \\    // chunks: Zig takes the command (80).
+    \\    mov rax, qword ptr [rdi + {[output_limit]}]
+    \\    add rax, {[margin_less_reserve]}
+    \\    sub rax, rdx
+    \\    jbe 80f
+    \\    mov qword ptr [rdi + {[output_limit]}], -1
+    \\    cmp rax, r10
+    \\    jae 1b
+    \\    mov rcx, r10
+    \\    sub rcx, rax
+    \\    mov r10, rax
+    \\    mov qword ptr [rdi + {[budget_delta]}], rcx
+    \\    jmp 1b
+    \\94:
+    \\    // The same after a run that left literals, which go on where the octets left hold them;
+    \\    // Zig takes the others (87).
+    \\    mov rax, qword ptr [rdi + {[output_limit]}]
+    \\    add rax, {[margin_less_reserve]}
+    \\    sub rax, rdx
+    \\    jbe 87f
+    \\    mov qword ptr [rdi + {[output_limit]}], -1
+    \\    cmp rax, r10
+    \\    jae 96f
+    \\    mov rcx, r10
+    \\    sub rcx, rax
+    \\    mov r10, rax
+    \\    mov qword ptr [rdi + {[budget_delta]}], rcx
+    \\96:
+    \\    cmp r15d, r10d
+    \\    ja 87f
+    \\    jmp 20b
+    \\95:
+    \\    // The same after the literals: the distance checks the copy against the octets left.
+    \\    // No room past the two chunks: Zig takes the distance (89).
+    \\    mov rax, qword ptr [rdi + {[output_limit]}]
+    \\    add rax, {[margin_less_reserve]}
+    \\    sub rax, rdx
+    \\    jbe 89f
+    \\    mov qword ptr [rdi + {[output_limit]}], -1
+    \\    cmp rax, r10
+    \\    jae 30b
+    \\    mov rcx, r10
+    \\    sub rcx, rax
+    \\    mov r10, rax
+    \\    mov qword ptr [rdi + {[budget_delta]}], rcx
+    \\    jmp 30b
+    \\98:
+    \\    // No octet left after the literals: the meta-block's (88), or the room's, which leaves
+    \\    // the distance to Zig (89).
+    \\    cmp qword ptr [rdi + {[budget_delta]}], 0
+    \\    je 88f
+    \\    jmp 89f
+;
 
 /// The exits: the link in rax and the phase in rcx, the command's values where a command is in
 /// progress, then the machine stored back and the link returned.
@@ -372,7 +438,11 @@ pub const exits =
     \\    mov ecx, {[phase_literal]}
     \\    jmp 99f
     \\88:
-    \\    // No literals left, where r15 held the distance or, past a word, the stack.
+    \\    // No octet left: the room's, which leaves the next command to Zig (80), or the
+    \\    // meta-block's. No literals left either way, where r15 held the distance or, past a
+    \\    // word, the stack.
+    \\    cmp qword ptr [rdi + {[budget_delta]}], 0
+    \\    jne 80b
     \\    xor r15d, r15d
     \\    mov eax, {[link_stop]}
     \\    mov ecx, {[phase_meta_block_end]}
@@ -392,6 +462,15 @@ pub const exits =
     \\    mov eax, {[link_stop]}
     \\    mov ecx, {[phase_distance]}
     \\99:
+    \\    // Where the room was the octets left (97), the meta-block's come back, and Zig, whose
+    \\    // chain checks no room where the margin held, goes on from the phase alone.
+    \\    cmp qword ptr [rdi + {[output_limit]}], -1
+    \\    jne 79f
+    \\    add r10, qword ptr [rdi + {[budget_delta]}]
+    \\    cmp eax, {[link_stop]}
+    \\    je 79f
+    \\    mov eax, {[link_go_on]}
+    \\79:
     \\    mov qword ptr [rdi + {[input]}], rsi
     \\    mov qword ptr [rdi + {[output]}], rdx
     \\    mov qword ptr [rdi + {[buffer]}], r8

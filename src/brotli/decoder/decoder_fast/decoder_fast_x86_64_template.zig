@@ -4,18 +4,19 @@
 //! decoder_fast_x86_64_template_distance.zig. It is the port of decoder_fast_aarch64_template.zig,
 //! whose comment describes what the loop takes; x86-64's 14 registers hold less of it.
 //!
-//! Registers: rdi the machine; rsi the input's next octet and rdx the output's; r8 the bit buffer and
-//! r9 its count, which never passes 64 and so changes as its low octet; r10 the meta-block's octets
-//! left. Between literal runs, r13 holds the command's packed code with bit 63 set when it reuses
-//! the last distance, r14 its copy length and r15 its literals left, and then its distance. From a
-//! copy's or a word's end, through the next command's symbol and its literal runs, r11 and r12 hold
-//! p1 and p2; the distance and the copy take them as scratch, with p1 and p2 in the machine. In a
-//! run, r13 holds the literal tables of the block type, r14 and r15 the parts of a context ID p1
-//! and p2 give (or p1's part itself, in the entries' mode), rbx the literals left in the run, and
-//! r10 is free, the run keeping the command's packed code and values and the meta-block's octets
-//! in the machine. rax, rcx and rbx are otherwise free. The limits, the tables but the literal
-//! ones, the blocks' elements left, the ring of last distances and the distance parameters stay in
-//! the machine, which the loop reads in place.
+//! Registers: rdi the machine; rsi the input's next octet and rdx the output's; r8 the bit buffer
+//! and r9 its count, which never passes 64 and so changes as its low octet; r10 the meta-block's
+//! octets left, or the room's where the room is shorter (97). Between literal runs, r13 holds the
+//! command's packed code with bit 63 set when it reuses the last distance, r14 its copy length and
+//! r15 its literals left, and then its distance. From a copy's or a word's end, through the next
+//! command's symbol and its literal runs, r11 and r12 hold p1 and p2; the distance and the copy
+//! take them as scratch, with p1 and p2 in the machine. In a run, r13 holds the literal tables of
+//! the block type, r14 and r15 the parts of a context ID p1 and p2 give (or p1's part itself, in
+//! the entries' mode), rbx the literals left in the run, and r10 is free, the run keeping the
+//! command's packed code and values and the meta-block's octets in the machine. rax, rcx and rbx
+//! are otherwise free. The limits, the tables but the literal ones, the blocks' elements left, the
+//! ring of last distances and the distance parameters stay in the machine, which the loop reads in
+//! place.
 //!
 //! BMI2's SHRX shifts by a register's low six bits, which an entry's length is, in its low octet;
 //! BZHI keeps the bits below an index, which a root entry's second bits are after RORX brings them
@@ -23,8 +24,9 @@
 //!
 //! The numbered labels are those of the aarch64 text, and 65 the run's start past its checks, 70 to
 //! 73 the run of the entries' mode, 58 and 59 its second level. The common path falls through: the
-//! refills that need the slack checked (12, 28, 29, 32 and 73) and each lookup's second level (50
-//! to 53 and 58, back at 54 to 57 and 59) stand after the word, in `cold`.
+//! refills that need the slack checked (12, 28, 29, 32 and 73), each lookup's second level (50 to
+//! 53 and 58, back at 54 to 57 and 59), a word's room (93) and the room taken as the octets left
+//! where the margin is gone (94, 95 and 97, with 98) stand after the word, in `cold`.
 //!
 //! The accesses (decision 24), each with the check that bounds it:
 //! - The refill's 8-octet load at the input's next octet: the slack check before every refill, rsi
@@ -44,10 +46,14 @@
 //! - p1 and p2 after a copy, the last two octets of its source, `distance` before the copy's last
 //!   two: at or past the source's first octet, since a copy writes 2 at least, and before the copy's
 //!   end. After a word, one and two octets before the output's next, which the word's octets gate.
-//! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
-//!   with the margin's room, rdx at most `output_limit`; its literals write at most 256; its copy
-//!   starts only with the room checked again after them, writes at most 256 and overruns by a chunk
-//!   at most; a word writes at most the margin (asserted); the machine's fields sit at fixed offsets.
+//! - A literal's store, and a copy's or a word's, past the output's next octet: with the margin's
+//!   room, rdx at most `output_limit`, a command's literals write at most 256; its copy starts only
+//!   with the room checked again after them, writes at most 256 and overruns by a chunk at most.
+//!   With less room, r10 holds at most the room's octets less `copy_store_reserve`, the two chunks
+//!   that hold the most a copy stores past its length, so the checks of the literals and of the
+//!   copy against r10 (RFC 7932 §9.3) keep both inside the output. A word starts only where the
+//!   `transform.wide_output_len` octets its transform takes end inside the output (93); the
+//!   machine's fields sit at fixed offsets.
 //! - The call into `write_word`, on a stack aligned to 16 below the red zone, with the loop's values
 //!   stored first and loaded again after.
 
@@ -132,9 +138,10 @@ pub const prologue =
 /// A command: the margins, the refill, its block, its symbol (RFC 7932 §5) and its extra bits.
 pub const command =
     \\1:
-    \\    // Decision 16's margins: the room of a chain, and the 8 octets of a refill.
+    \\    // Decision 16's margins: the room of a chain, and the 8 octets of a refill. With less room
+    \\    // the loop goes on with the room as the octets left (97).
     \\    cmp rdx, qword ptr [rdi + {[output_limit]}]
-    \\    ja 80f
+    \\    ja 97f
     \\    cmp rsi, qword ptr [rdi + {[input_limit]}]
     \\    ja 80f
     \\    cmp r9d, {[refill_bits]}
@@ -289,7 +296,8 @@ pub const literals =
     \\    jnz 26b
     \\23:
     \\    // The run's octets: off the block, the insert and the meta-block. Literals left take the
-    \\    // next run while the room's margin holds.
+    \\    // next run while the room's margin holds, or the room as the octets left (94); so does
+    \\    // the copy (95).
     \\    mov rax, qword ptr [rdi + {[batch]}]
     \\    sub eax, ebx
     \\    mov r14, qword ptr [rdi + {[copy_len]}]
@@ -304,11 +312,11 @@ pub const literals =
     \\    test r15d, r15d
     \\    jz 24f
     \\    cmp rdx, qword ptr [rdi + {[output_limit]}]
-    \\    ja 87f
+    \\    ja 94f
     \\    jmp 20b
     \\24:
     \\    test r10d, r10d
-    \\    jz 88f
+    \\    jz 98f
     \\    cmp rdx, qword ptr [rdi + {[output_limit]}]
-    \\    ja 89f
+    \\    ja 95f
 ;

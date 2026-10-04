@@ -7,7 +7,9 @@
 //! decision 16's margins before each command, and leaves what the straight path leaves to the
 //! chain but a copy of more than a chunk whose stores the room holds: a block switch, a dictionary
 //! word, a copy from the window, and a value the checked path refuses, with the state as the phases
-//! would have it and the bits of the phase the chain takes again unused.
+//! would have it and the bits of the phase the chain takes again unused. Once less than the output's
+//! margin remains, it goes on with the room as the meta-block's octets left, and then hands Zig a
+//! phase and no link, since Zig's chain checks no room where the margin held.
 //!
 //! Its reads and writes go by address, without Zig's bounds checks. The margins keep a refill's load
 //! inside the input and a command's stores inside the output; a root's index and an entry's
@@ -49,7 +51,8 @@ const Machine = extern struct {
     /// The input's next octet, and the last place an 8-octet load may start.
     input: [*]const u8,
     input_limit: [*]const u8,
-    /// The output's next octet, the last place a command may start, and the call's first octet.
+    /// The output's next octet, the last place a command starts with the margin's room, which the
+    /// loop sets to all ones once it takes the room as the octets left, and the call's first octet.
     output: [*]u8,
     output_limit: [*]const u8,
     output_base: [*]const u8,
@@ -103,6 +106,12 @@ const Machine = extern struct {
     insert_left: u64,
     /// A literal run's length, kept while the run goes.
     batch: u64,
+    /// The last place a dictionary word's transform may start: `transform.wide_output_len` before
+    /// the output's end.
+    word_limit: [*]const u8,
+    /// The meta-block's octets left less the room's, which the loop takes off them where the room
+    /// is the shorter, and its exit adds back.
+    budget_delta: u64,
     /// The symbols decoded, which a test build counts (invariant 17).
     decoded: u64,
 };
@@ -162,6 +171,8 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .copy_len = 0,
         .insert_left = 0,
         .batch = 0,
+        .word_limit = loop.output.ptr + (loop.output.len - transform.wide_output_len),
+        .budget_delta = 0,
         .decoded = 0,
     };
     const link: Link = @enumFromInt(execute(&machine));
@@ -311,6 +322,9 @@ comptime {
     assert(constants.distance_context_copy_len_min == 2 and constants.distance_context_last_copy_len == 5);
     // A word's transform stores inside the margin's room.
     assert(transform.wide_output_len <= fast.output_margin and constants.transformed_word_len_max <= fast.output_margin);
+    // The reserve holds the chunks a copy stores whatever its length, and the octets a long copy's
+    // last chunk stores past its length, inside the margin.
+    assert(fast.copy_store_reserve == chunks_unconditional * constants.copy_chunk_len and fast.copy_store_reserve <= fast.output_margin);
 }
 
 /// The loop's text, each piece printed with the offsets and constants it names.
@@ -379,7 +393,18 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .dist_context_tables_by_len = @offsetOf(Machine, "dist_context_tables") - dist_context_bias,
     .command_codes = @offsetOf(Machine, "command_codes"),
     .count_distance = counts.distance,
-}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{ .refill_bits = fast.refill_bits, .root_bits_at_len = root_bits_at_len, .produced_offset = @offsetOf(Machine, "produced_offset"), .entry_value_at = entry_value_at }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
+}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{
+    .refill_bits = fast.refill_bits,
+    .root_bits_at_len = root_bits_at_len,
+    .produced_offset = @offsetOf(Machine, "produced_offset"),
+    .entry_value_at = entry_value_at,
+    .word_limit = @offsetOf(Machine, "word_limit"),
+    .margin_less_reserve = fast.output_margin - fast.copy_store_reserve,
+    .output_limit = @offsetOf(Machine, "output_limit"),
+    .budget_delta = @offsetOf(Machine, "budget_delta"),
+}) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
+    .budget_delta = @offsetOf(Machine, "budget_delta"),
+    .output_limit = @offsetOf(Machine, "output_limit"),
     .link_go_on = @intFromEnum(Link.go_on),
     .link_command = @intFromEnum(Link.command),
     .link_literal = @intFromEnum(Link.literal),

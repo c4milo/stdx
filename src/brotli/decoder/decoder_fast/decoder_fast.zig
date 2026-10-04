@@ -52,6 +52,12 @@ pub const input_slack = @sizeOf(u64);
 /// may run past the copy.
 pub const output_margin = constants.chunk_len_max + constants.copy_chunk_len;
 
+/// The octets the assembly loops keep clear past a command's literals and copy once less than the
+/// margin remains: the two chunks a short copy stores whatever its length, the most any copy of
+/// theirs stores past its length.
+pub const copy_store_reserve = copy_store_chunks * constants.copy_chunk_len;
+const copy_store_chunks = 2;
+
 /// How the loop checks the output's room (decision 32): against the margin, at the top of each chain
 /// and after its literals, or at each write, once less than the margin remains. Each mode is its
 /// own instance of `run`, so the margin's mode compiles as though the other did not exist.

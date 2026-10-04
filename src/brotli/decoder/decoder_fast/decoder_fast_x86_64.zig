@@ -55,7 +55,8 @@ const Machine = extern struct {
     /// The input's next octet, and the last place an 8-octet load may start.
     input: [*]const u8,
     input_limit: [*]const u8,
-    /// The output's next octet, the last place a command may start, and the call's first octet.
+    /// The output's next octet, the last place a command starts with the margin's room, which the
+    /// loop sets to all ones once it takes the room as the octets left, and the call's first octet.
     output: [*]u8,
     output_limit: [*]const u8,
     output_base: [*]const u8,
@@ -112,6 +113,12 @@ const Machine = extern struct {
     decoded: u64 = 0,
     /// The current distance block type's table for each distance context (RFC 7932 §7.3).
     dist_context_tables: [constants.distance_contexts_count][*]const prefix.Entry,
+    /// The last place a dictionary word's transform may start: `transform.wide_output_len` before
+    /// the output's end.
+    word_limit: [*]const u8,
+    /// The meta-block's octets left less the room's, which the loop takes off them where the room
+    /// is the shorter, and its exit adds back.
+    budget_delta: u64 = 0,
 };
 
 /// Runs the straight loop from a command's start as `fast.straight_loop` does, for a caller that
@@ -164,6 +171,7 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .command_codes = &packed_tables.command_codes,
         .short_codes = &packed_tables.short_codes,
         .write_word = &write_word,
+        .word_limit = loop.output.ptr + (loop.output.len - transform.wide_output_len),
     };
     const link: Link = @enumFromInt(execute(&machine));
     loop.position = @intFromPtr(machine.input) - @intFromPtr(loop.input.ptr);
@@ -304,6 +312,8 @@ comptime {
     assert(@offsetOf(Machine, "dist_context_tables") >= constants.distance_context_copy_len_min * @sizeOf(u64));
     // A word's transform stores inside the margin's room.
     assert(transform.wide_output_len <= fast.output_margin and constants.transformed_word_len_max <= fast.output_margin);
+    // The reserve holds the chunks a copy stores whatever its length, inside the margin.
+    assert(fast.copy_store_reserve == chunks_unconditional * constants.copy_chunk_len and fast.copy_store_reserve <= fast.output_margin);
 }
 
 /// The loop's text, each piece printed with the offsets and constants it names: a format takes 32
@@ -394,9 +404,15 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{
     .entry_second_at = @bitOffsetOf(prefix.Entry, "second_bits"),
     .input_limit = @offsetOf(Machine, "input_limit"),
+    .word_limit = @offsetOf(Machine, "word_limit"),
+    .output_limit = @offsetOf(Machine, "output_limit"),
+    .margin_less_reserve = fast.output_margin - fast.copy_store_reserve,
+    .budget_delta = @offsetOf(Machine, "budget_delta"),
     .root_bits = constants.table_root_bits,
     .root_bits_at_len = root_bits_at_len,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.exits, .{
+    .budget_delta = @offsetOf(Machine, "budget_delta"),
+    .output_limit = @offsetOf(Machine, "output_limit"),
     .link_go_on = @intFromEnum(Link.go_on),
     .link_command = @intFromEnum(Link.command),
     .link_literal = @intFromEnum(Link.literal),

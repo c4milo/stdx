@@ -3,17 +3,18 @@
 //! exits in decoder_fast_aarch64_template_distance.zig, with the refill and the lookup both use.
 //!
 //! Registers: x0 the machine; x1 the input's next octet and x2 the last place an 8-octet load may
-//! start; x3 the output's next octet, x4 the last place a command may start and x5 the call's first
-//! octet; x6 the bit buffer and w7 its count; x8 the insert-and-copy table of the current block
-//! type; x10 the literal tables of the current block type, one pointer per context; x11 the
-//! distance tables of the current block type, one pointer per distance context, from two pointers
-//! before the first, so that a copy length indexes them; w12 the meta-block's octets left; w15, w16
-//! and w17 the elements left in the insert-and-copy, literal and distance blocks; x19 and x20 the
-//! ring of last distances, two 32-bit distances each, the last in the low half of x19; w21 p1 and
-//! w22 p2. x13, x14, x23 and x25 to x28 hold each command's values: x24 its packed code with bit 63
-//! set when it reuses the last distance, x27 its copy length and x28 its literals left, both kept
-//! in the machine while its literals run; in a run of the entries' mode, w23 holds p1's part of the
-//! next context ID and w25 p2's.
+//! start; x3 the output's next octet, x4 the last place a command starts with the margin's room, or
+//! all ones once the room is the octets left (97), and x5 the call's first octet; x6 the bit buffer
+//! and w7 its count; x8 the insert-and-copy table of the current block type; x10 the literal tables
+//! of the current block type, one pointer per context; x11 the distance tables of the current block
+//! type, one pointer per distance context, from two pointers before the first, so that a copy
+//! length indexes them; w12 the meta-block's octets left, or the room's where the room is shorter
+//! (97); w15, w16 and w17 the elements left in the insert-and-copy, literal and distance blocks;
+//! x19 and x20 the ring of last distances, two 32-bit distances each, the last in the low half of
+//! x19; w21 p1 and w22 p2. x13, x14, x23 and x25 to x28 hold each command's values: x24 its packed
+//! code with bit 63 set when it reuses the last distance, x27 its copy length and x28 its literals
+//! left, both kept in the machine while its literals run; in a run of the entries' mode, w23 holds
+//! p1's part of the next context ID and w25 p2's.
 //!
 //! Each of the buffer's 64 bits is the stream's: a refill ORs the next 8 octets in above the count
 //! and takes the whole octets that fit (S1), and a command uses at most 56 bits between refills.
@@ -22,9 +23,10 @@
 //! and 70 to 72 their runs, 30 to 36 its distance, 40 the last distance reused, 41 the copy and 42
 //! to 45 and 60 to 63 the copy's kinds, 37 and 46 to 48 a dictionary word, 80 to 91 the exits, 99
 //! the machine stored back. The common path falls through: the refills that need the slack checked
-//! (12, 28, 29, 32 and 73), the room of a copy of more than a chunk (38, back at 39) and the second
-//! level of each lookup (50 to 53 and 58, back at 54 to 57 and 59) stand after the word, in `cold`,
-//! each reached by a branch the common path leaves untaken and ending in one back.
+//! (12, 28, 29, 32 and 73), the room of a copy of more than a chunk (38, back at 39), the second
+//! level of each lookup (50 to 53 and 58, back at 54 to 57 and 59), a word's room (93) and the
+//! room taken as the octets left where the margin is gone (94, 95 and 97, with 98) stand after the
+//! word, in `cold`, each reached by a branch the common path leaves untaken and ending in one back.
 //!
 //! The accesses (decision 24), each with the check that bounds it:
 //! - The refill's 8-octet load at the input's next octet: the slack check before every refill,
@@ -44,11 +46,15 @@
 //! - p1 and p2 after a copy, the last two octets of its source, `distance` before the copy's last
 //!   two: at or past the source's first octet, since a copy writes 2 at least, and before the copy's
 //!   end. After a word, one and two octets before the output's next, which the word's octets gate.
-//! - A literal's store, and a copy's or a word's, past the output's next octet: a command starts
-//!   with the margin's room, `x3 <= x4`; its literals write at most 256; its copy starts only with
-//!   the room checked again after them, writes at most 256 and overruns by a chunk at most, or, for
-//!   a copy of more than 256, only where its octets and its overrun end inside the output; a word
-//!   writes at most the margin (asserted); the machine's fields sit at fixed offsets.
+//! - A literal's store, and a copy's or a word's, past the output's next octet: with the margin's
+//!   room, `x3 <= x4`, a command's literals write at most 256; its copy starts only with the room
+//!   checked again after them, writes at most 256 and overruns by a chunk at most, or, for a copy
+//!   of more than 256, only where its octets and its overrun end inside the output. With less
+//!   room, w12 holds at most the room's octets less `copy_store_reserve`, the two chunks that hold
+//!   the most a copy stores past its length, so the checks of the literals and of the copy against
+//!   w12 (RFC 7932 §9.3) keep both inside the output. A word starts only where the
+//!   `transform.wide_output_len` octets its transform takes end inside the output (93); the
+//!   machine's fields sit at fixed offsets.
 
 const std = @import("std");
 
@@ -126,10 +132,11 @@ pub const prologue =
 /// A command: the margins, the refill, its block, its symbol (RFC 7932 §5) and its extra bits.
 pub const command =
     \\1:
-    \\    // Decision 16's margins: the room of a chain, and the 8 octets of a refill.
+    \\    // Decision 16's margins: the room of a chain, and the 8 octets of a refill. With less room
+    \\    // the loop goes on with the room as the octets left (97).
     \\    cmp x3, x4
     \\    ccmp x1, x2, #2, ls
-    \\    b.hi 80f
+    \\    b.hi 97f
     \\    // The refill whatever the count: a buffer of 56 bits or more takes no octet, and a command
     \\    // finds it short nearly always.
 ++ "\n" ++ refill("x13") ++
@@ -256,7 +263,8 @@ pub const literals =
     \\    b.ne 26b
     \\23:
     \\    // The run's octets: off the block, the insert and the meta-block. Literals left take the
-    \\    // next run while the room's margin holds.
+    \\    // next run while the room's margin holds, or the room as the octets left (94); so does
+    \\    // the copy (95).
     \\    ldr x14, [x0, #{[batch]}]
     \\    sub w14, w14, w13
     \\    ldp x27, x28, [x0, #{[copy_len]}]
@@ -265,10 +273,10 @@ pub const literals =
     \\    sub w12, w12, w14
     \\    cbz w28, 24f
     \\    cmp x3, x4
-    \\    b.hi 87f
+    \\    b.hi 94f
     \\    b 20b
     \\24:
-    \\    cbz w12, 88f
+    \\    cbz w12, 98f
     \\    cmp x3, x4
-    \\    b.hi 89f
+    \\    b.hi 95f
 ;

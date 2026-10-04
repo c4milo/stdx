@@ -416,7 +416,7 @@ fn short_copies_stream(stream: *Stream) void {
     for (0..fast.input_slack) |_| stream.put(0, @bitSizeOf(u8));
 }
 
-test "many short copies write nothing past any room, the margin checked before each command" {
+test "many short copies write nothing past any room, the margin checked for each command" {
     var stream: Stream = .{};
     short_copies_stream(&stream);
     const input = stream.written();
