@@ -8,6 +8,7 @@ const constants = @import("../../constants.zig");
 const context = @import("../../context.zig");
 const commands = @import("../decoder_commands.zig");
 const state_module = @import("../decoder_state.zig");
+const prefix = @import("../../prefix.zig");
 
 /// Where a command's packed codes hold each value: the first insert length in the low 16 bits, then
 /// the first copy length, the insert length's extra bits, both lengths' extra bits, the insert code
@@ -157,4 +158,14 @@ test "each coded distance code's entry gives the checked path's extra bits and d
             }
         }
     }
+}
+
+/// The table of the distance code each distance context takes under a distance block type (RFC
+/// 7932 §7.3), which the header read below NTREESD: one pointer a context, so that a loop takes a
+/// distance's table with one load.
+pub fn distance_context_tables(state: *const state_module.State, block_type: usize) [constants.distance_contexts_count][*]const prefix.Entry {
+    var tables: [constants.distance_contexts_count][*]const prefix.Entry = undefined;
+    const row = state.distance_context_map[block_type * constants.distance_contexts_count ..][0..constants.distance_contexts_count];
+    for (&tables, row) |*table, tree| table.* = &state.distance_codes[tree].entries;
+    return tables;
 }

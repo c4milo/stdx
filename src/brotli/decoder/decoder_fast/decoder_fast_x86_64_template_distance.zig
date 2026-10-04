@@ -23,15 +23,16 @@ pub const distance =
     \\    // RFC 7932 §9.3: a spent block takes a block switch first, in Zig.
     \\    cmp qword ptr [rdi + {[dist_count]}], 0
     \\    je 90f
-    \\    // The distance context (RFC 7932 §7.3): the copy length, 2 to 5 and above, less 2.
+    \\    // The distance context (RFC 7932 §7.3): the copy length, 2 to 5 and above, which indexes
+    \\    // its table's pointer.
     \\    mov eax, {[distance_context_last_copy_len]}
     \\    cmp r14d, eax
     \\    cmovb eax, r14d
-    \\    sub eax, {[distance_context_copy_len_min]}
-    \\    mov rcx, qword ptr [rdi + {[dist_map_row]}]
-    \\    movzx eax, byte ptr [rcx + rax]
-    \\    imul eax, eax, {[distance_table_size]}
-    \\    add rax, qword ptr [rdi + {[dist_tables]}]
+    \\    mov rax, qword ptr [rdi + {[dist_context_tables_by_len]} + rax*8]
+    \\    // The octets the map's load, the multiply and the add took here, as no-operations: the
+    \\    // copy's loops keep their addresses.
+    \\    .byte 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00
+    \\    .byte 0x66, 0x0f, 0x1f, 0x44, 0x00, 0x00
 ++ "\n" ++ lookup("rax", "rcx", "52", "56") ++
     \\    movzx ebx, cl
     \\    shr ecx, {[entry_value_at]}

@@ -5,14 +5,15 @@
 //! Registers: x0 the machine; x1 the input's next octet and x2 the last place an 8-octet load may
 //! start; x3 the output's next octet, x4 the last place a command may start and x5 the call's first
 //! octet; x6 the bit buffer and w7 its count; x8 the insert-and-copy table of the current block
-//! type; x9 the distance tables; x10 the literal tables of the current block type, one pointer per
-//! context; x11 the distance context map's row of the current block type; w12 the meta-block's
-//! octets left; w15, w16 and w17 the elements left in the insert-and-copy, literal and distance
-//! blocks; x19 and x20 the ring of last distances, two 32-bit distances each, the last in the low
-//! half of x19; w21 p1 and w22 p2. x13, x14, x23 and x25 to x28 hold each command's values: x24 its
-//! packed code with bit 63 set when it reuses the last distance, x27 its copy length and x28 its
-//! literals left, both kept in the machine while its literals run; in a run of the entries' mode,
-//! w23 holds p1's part of the next context ID and w25 p2's.
+//! type; x10 the literal tables of the current block type, one pointer per context; x11 the
+//! distance tables of the current block type, one pointer per distance context, from two pointers
+//! before the first, so that a copy length indexes them; w12 the meta-block's octets left; w15, w16
+//! and w17 the elements left in the insert-and-copy, literal and distance blocks; x19 and x20 the
+//! ring of last distances, two 32-bit distances each, the last in the low half of x19; w21 p1 and
+//! w22 p2. x13, x14, x23 and x25 to x28 hold each command's values: x24 its packed code with bit 63
+//! set when it reuses the last distance, x27 its copy length and x28 its literals left, both kept
+//! in the machine while its literals run; in a run of the entries' mode, w23 holds p1's part of the
+//! next context ID and w25 p2's.
 //!
 //! Each of the buffer's 64 bits is the stream's: a refill ORs the next 8 octets in above the count
 //! and takes the whole octets that fit (S1), and a command uses at most 56 bits between refills.
@@ -32,8 +33,8 @@
 //!   second-level entry, at the root entry's value plus an index below 1 << `second_bits`: the build
 //!   wrote that level inside the table (`fill_end`).
 //! - A packed command code, at the insert-and-copy symbol: the symbol is below the alphabet, 704.
-//! - The distance context map's row, at an id 0 to 3; a distance table, at a tree the map names,
-//!   which the header checked below NTREESD; a literal table, at a context ID the luts give, below
+//! - A distance context's table pointer, at a copy length 2 to 5, each the table of a tree the map
+//!   names, which the header checked below NTREESD; a literal table, at a context ID the luts give, below
 //!   64 (`context`); a lut, at p1 or p2, an octet; a short code, at a code below 16; a coded
 //!   distance's entry, at its code less 16 and NDIRECT, below 48 << NPOSTFIX, since a code's table
 //!   holds symbols of its alphabet alone.
@@ -110,8 +111,8 @@ pub const prologue =
     \\    ldp x3, x4, [x0, #{[output]}]
     \\    ldr x5, [x0, #{[output_base]}]
     \\    ldp x6, x7, [x0, #{[buffer]}]
-    \\    ldp x8, x9, [x0, #{[ic_table]}]
-    \\    ldp x10, x11, [x0, #{[lit_tables]}]
+    \\    ldp x8, x10, [x0, #{[ic_table]}]
+    \\    add x11, x0, #{[dist_context_tables_by_len]}
     \\    ldr x12, [x0, #{[meta_block_left]}]
     \\    ldp x15, x16, [x0, #{[ic_count]}]
     \\    ldr x17, [x0, #{[dist_count]}]

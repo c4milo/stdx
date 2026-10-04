@@ -110,6 +110,8 @@ const Machine = extern struct {
     packed_code: u64 = 0,
     /// The symbols decoded, which a test build counts (invariant 17).
     decoded: u64 = 0,
+    /// The current distance block type's table for each distance context (RFC 7932 §7.3).
+    dist_context_tables: [constants.distance_contexts_count][*]const prefix.Entry,
 };
 
 /// Runs the straight loop from a command's start as `fast.straight_loop` does, for a caller that
@@ -141,6 +143,7 @@ pub inline fn straight_commands(loop: *Loop, literal_tables: *fast.LiteralTables
         .dist_tables = @ptrCast(&state.distance_codes),
         .lit_tables = &literal_tables.tables,
         .dist_map_row = state.distance_context_map[@as(usize, dist_blocks.type_current) * constants.distance_contexts_count ..].ptr,
+        .dist_context_tables = packed_tables.distance_context_tables(state, dist_blocks.type_current),
         .lut_p1 = &luts[0],
         .lut_p2 = &luts[1],
         .run_kind = @intFromEnum(literal_runs.run_kind(literal_tables.one_tree, mode, prefix_reader.literal_entry_mode(state))),
@@ -296,6 +299,9 @@ comptime {
     // A distance's tree table, whose size the text multiplies by.
     assert(@sizeOf(@TypeOf(@as(State, undefined).distance_codes[0])) == constants.distance_table_len_max * @sizeOf(prefix.Entry));
     assert(constants.distance_context_copy_len_min == 2 and constants.distance_context_last_copy_len == 5);
+    // The copy lengths 2 to 5 index the distance contexts' tables from two pointers before them.
+    assert(constants.distance_contexts_count == constants.distance_context_last_copy_len - constants.distance_context_copy_len_min + 1);
+    assert(@offsetOf(Machine, "dist_context_tables") >= constants.distance_context_copy_len_min * @sizeOf(u64));
     // A word's transform stores inside the margin's room.
     assert(transform.wide_output_len <= fast.output_margin and constants.transformed_word_len_max <= fast.output_margin);
 }
@@ -352,10 +358,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,
     .dist_count = @offsetOf(Machine, "dist_count"),
     .distance_context_last_copy_len = constants.distance_context_last_copy_len,
-    .distance_context_copy_len_min = constants.distance_context_copy_len_min,
-    .dist_map_row = @offsetOf(Machine, "dist_map_row"),
-    .distance_table_size = @sizeOf(@TypeOf(@as(State, undefined).distance_codes[0])),
-    .dist_tables = @offsetOf(Machine, "dist_tables"),
+    .dist_context_tables_by_len = @offsetOf(Machine, "dist_context_tables") - constants.distance_context_copy_len_min * @sizeOf(u64),
     .direct_end = @offsetOf(Machine, "direct_end"),
     .postfix_shift = @offsetOf(Machine, "postfix_shift"),
     .distance_short_codes_count = constants.distance_short_codes_count,

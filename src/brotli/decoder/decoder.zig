@@ -199,6 +199,10 @@ test {
 }
 
 test {
+    _ = @import("decoder_fast/decoder_fast_distance_test.zig");
+}
+
+test {
     _ = @import("decoder_fast/decoder_fast_copy.zig");
 }
 
