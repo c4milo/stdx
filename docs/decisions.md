@@ -1023,6 +1023,19 @@ their own, and entry 42 out of design §8 step 9's look at E.coli's parse beside
       probe's inputs in the benchmark for good, which times inputs outside decision 15's corpora in
       every run; and leaving the fill as it was, an octet at a time on Linux for every repeated
       block.
+    - Amended by the owner on 2026-10-03, after design §8 step 18's walk of the grammar: a file
+      that moves past the larger of its spread and 1% in both jobs also counts as placement when
+      callgrind counts the functions that differ at under 1% of the file's instructions at both
+      commits, and every other function the file runs is identical apart from its addresses.
+      There, the walk rewrote `take`, which every decode runs, so the amendment of 2026-09-29
+      exempted no file. On the N2 three hex strings of 512 KiB lost 1.2% to 3.3%, and alice29.txt
+      as a string 2.1% and 2.2%, in both runs (37162989866 and 37162995161). callgrind counted
+      688,756 and 688,757 instructions a hex decode at the two commits, 316 and 424 of them in
+      `take`, and 528,014 and 528,042 for alice29.txt, 268 and 308 in `take` and 527,440 in
+      `copy_rest`, identical. In the same jobs the candidate with the token loop off, whose code
+      is unchanged, lost 1.9% to 2.9% on the three hex rows, and the 39 hex rows' geometric mean
+      held at 0.999 and 0.995. The alternatives refused: a third pair, which this binary's layout
+      would repeat; and holding the walk for a layout that keeps those four rows.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,

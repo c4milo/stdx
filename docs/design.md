@@ -3050,6 +3050,150 @@ to 12 are reordered and nothing else changes.
   encoded 1% to 1.8% slower; on x86-64, hex json-1k decoded slower and four hex rows encoded
   slower. They count as placement (decision 20), and main took the change at 5048c54.
 
+  **The token loop as a walk of the grammar, 2026-10-03.** After J12 the owner asked for megabytes
+  a second on tokens and chose to rebuild claim J10's loop around the grammar's state. On the N2
+  main decoded qlog's records and CLDR's texts at 0.87 of yyjson's speed, and on an AMD EPYC 7763
+  at 0.75 and 0.85. callgrind counted a decoded token's instructions on aarch64 Linux in a
+  container on the development Mac and on x86-64 under Rosetta, in a harness that calls `take` out
+  of line and tallies each slot as bench-json does:
+
+  | The loop | qlog, aarch64 | CLDR, aarch64 | qlog, x86-64 | CLDR, x86-64 |
+  |---|---|---|---|---|
+  | Main at 9594899 | 153.1 | 133.1 | 174.1 | 155.3 |
+  | A switch on the state a token, each state taking its own separator (0167a1f) | 124.6 | 107.7 | 143.4 | 131.3 |
+  | One labeled switch, a jump a transition (97d3253, with decision 43) | 96.8 | 80.0 | 101.9 | 87.6 |
+  | A function a state that returns the next, behind one switch | 111.4 | 96.2 | 120.3 | 106.0 |
+  | The walk, each slot read back at the batch's exit (11105e9) | 102.8 | 86.6 | 113.5 | 100.5 |
+  | The walk, with decision 43 (f9a9301) | 91.7 | 75.6 | 102.9 | 89.8 |
+  | yyjson 0.13.0, each text's tree walked into the same tally | | | 105.5 | 94.5 |
+
+  **The switch on the state.** Six commits on a branch of main, 104089d to 0167a1f, kept J10's
+  loop and its switch on `Expect` at every token, and found what the walk keeps:
+
+  - Each state takes its own separator, and nothing is put back. Main's loop gave a separator back
+    when it left the token after it, and the checked path took both again. Runs
+    [36803030120](https://github.com/c4milo/stdx/actions/runs/36803030120) and
+    [36803035554](https://github.com/c4milo/stdx/actions/runs/36803035554) paired 104089d with
+    main: CLDR's texts decoded 8.8% and 7.8% faster on the N2, 11.0% on an EPYC 9V74 and 10.7% on
+    an EPYC 7763.
+  - A plain number's digits are counted a word at a time, in `number.plain_len`. The machine took a
+    step and a test an octet, 116 instructions a number of qlog's records on aarch64; the words
+    take 56.
+  - A name's or a string's first block of 16 is taken with no call, and a string the block does
+    not end is copied between the loop's runs, by `take`. With the copy's calls inside the loop,
+    aarch64 kept six of the loop's values on the stack across every string.
+  - The copy goes on from the octets the first block found plain. Copied again, the first block
+    took a 1 KiB hex string 2% more time on the N2 (3c23ddf, runs
+    [36808157555](https://github.com/c4milo/stdx/actions/runs/36808157555) and
+    [36808164163](https://github.com/c4milo/stdx/actions/runs/36808164163)).
+  - A scan of the octets before a block for the quotation mark left: run
+    [36855905565](https://github.com/c4milo/stdx/actions/runs/36855905565) put qlog's records 3.9%
+    behind main on the N2 (ce1bd90).
+
+  **A jump a token, measured and not landed.** One labeled switch held a prong a state, and each
+  prong went on to the state after it with `continue :state`, a jump with no test of the state.
+  Two more changes came with it, and both stay:
+
+  - A separator and the first octet of the token after it are read as a pair, behind one test of
+    the input's length, where no whitespace comes between them.
+  - A string's second block of 16 stays in the loop. qlog's records hold two strings of 16 to 31
+    octets each.
+
+  Runs [36874636266](https://github.com/c4milo/stdx/actions/runs/36874636266) and
+  [36874650604](https://github.com/c4milo/stdx/actions/runs/36874650604) paired it, at 97d3253 with
+  decision 43's check, with main at d9f6a3d:
+
+  | Decoding over main | N2, first run | N2, second run | AMD EPYC 7763 | Intel Xeon 8573C |
+  |---|---|---|---|---|
+  | CLDR's texts | 1.261 | 1.264 | 1.270 | 1.454 |
+  | qlog's records | 1.223 | 1.225 | 1.435 | 1.504 |
+
+  The complexity lint scored the function 126 against its limit of 15: it counts every
+  `continue` and `break` that names a label, and Zig takes a `continue :state` only inside the
+  function that holds the switch, so the function cannot be split. It did not land.
+
+  **A function a state, rejected.** Each state's code moved to a function of its own that returns
+  the next state, and one labeled switch continued to it; a second form switched on the returned
+  state so that each `continue` named a constant. Both passed the lint. The first took 15 to 18
+  instructions a token more than the jumps and the second 14 to 25: on aarch64 callgrind counted
+  8.3 register moves a token where the jumps took 4.6, 7.6 constants loaded where they took 5.6,
+  and the string's three vector constants built again at each string.
+
+  **The walk.** decoder_loop_grammar.zig reads as the grammar does (RFC 8259 §2 to §5), so the
+  state between two tokens is the place in its loops, and no token tests it:
+
+  - `tokens` takes a value from its first octet, then `after_values` takes what follows it: the
+    ends of the containers the value closes, then a value separator and, in an object, the next
+    member's name and its name separator, up to the next value's first octet.
+  - The slots bound the outer loop and the depth the inner one. A container's start goes round the
+    outer loop to its first value.
+  - Where a step takes no token it names the grammar's state there, and nothing is put back.
+    `enter` goes on from the state a batch begins in.
+  - The slots are a cursor and an end. As an index with the slot's address beside it, they took
+    1.8 and 2.9 instructions a token more on aarch64. `put` asserts a slot is left before it
+    writes one.
+  - The steps stand twice in `take`, once where a batch begins and once in the loops, and `take`
+    is 11.2 KiB on aarch64 where main's was 6.2, and 15.8 KiB on x86-64 where it was 8.5. One
+    copy, which a batch entered through a flag the loop tested at every value, took 4 to 10
+    instructions a token more.
+  - Every function scores 15 or less on the lint.
+
+  What each part is worth, each taken out of f9a9301 alone, in instructions a token more:
+
+  | Taken out | qlog, aarch64 | CLDR, aarch64 | qlog, x86-64 | CLDR, x86-64 |
+  |---|---|---|---|---|
+  | The separator's pair | 6.8 | 9.4 | 4.4 | 6.0 |
+  | The string's second block | 6.0 | 7.8 | 3.3 | 2.8 |
+  | The long copy inline in `take` | 5.8 | 8.0 | 1.2 | 1.6 |
+
+  Three forms of the walk left, each measured: the loops turned round, with the depth bounding the
+  outer one (93.5 and 78.5 on aarch64, 110.0 and 96.6 on x86-64); the slots as an index with the
+  slot's address taken where one is left (95.1 and 80.9, 104.9 and 91.8), which x86-64 turned into
+  a conditional move of a value on its stack; and an array's first element found from the slot
+  before it where the loop stops (91.5 and 77.0, 105.5 and 91.5). On x86-64 the loop keeps about
+  15 loads and stores of its stack a token, and its count moves by up to 3 with a change that
+  touches no hot code: an assertion at `take`'s entry cost 1.7 a token.
+
+  **Decision 43.** `check_batch` read every slot back at a batch's exit: 11.1 and 11.0
+  instructions a token on aarch64, 10.6 and 10.7 on x86-64, the fifth and sixth rows of the table
+  above. The exit now checks the batch's ends.
+
+  **Mutations, 2026-10-03**, each applied to f9a9301, run against `zig build test-json` and
+  reverted: 34, 33 CAUGHT. They cover each state a step stops in, each slot test, the mark of an
+  array's first element, the text's end at depth 0 and its delimited flag, an object closed by
+  `]`, the depth limit, both string blocks' lengths and room, the plain number's leading zero,
+  fraction and end, and decision 43's four checks, each inverted. NOT CAUGHT: a separator's pair
+  that takes a space as the next token's first octet. Every step refuses a space as a first octet
+  and stops there, and `Decoder.run` takes the whitespace and the token, so the tokens, the octets
+  and the state are the same.
+
+  **The walk's runs, 2026-10-03.** bench-json runs
+  [37162989866](https://github.com/c4milo/stdx/actions/runs/37162989866) and
+  [37162995161](https://github.com/c4milo/stdx/actions/runs/37162995161) paired the walk, on a
+  branch at dd1af2b, with main at 83bb4d2, and CI run
+  [37162986411](https://github.com/c4milo/stdx/actions/runs/37162986411) passed on the three
+  runners. Both x86-64 jobs drew an AMD EPYC 7763. Decoding, over main and over simdjson 4.6.11 and
+  yyjson 0.13.0 in the same jobs:
+
+  | Decoding | N2, first run | N2, second run | EPYC 7763, first run | EPYC 7763, second run |
+  |---|---|---|---|---|
+  | CLDR's texts over main | 1.270 | 1.269 | 1.230 | 1.279 |
+  | qlog's records over main | 1.207 | 1.191 | 1.324 | 1.435 |
+  | CLDR's texts over simdjson | 1.227 | 1.231 | 1.020 | 0.992 |
+  | CLDR's texts over yyjson | 1.106 | 1.104 | 1.053 | 1.141 |
+  | qlog's records over simdjson | 1.065 | 1.054 | 1.008 | 1.076 |
+  | qlog's records over yyjson | 1.036 | 1.033 | 1.076 | 1.065 |
+
+  On the EPYC 7763 the four hex strings of 1 KiB files decoded 2.1% to 8.6% faster in both jobs,
+  and no row decoded slower in both. On the N2 four rows did: E.coli, ptt5 and xml as hex strings,
+  at 0.986 and 0.972, 0.974 and 0.967, and 0.988 and 0.984 of main's speed, and alice29.txt as a
+  string at 0.979 and 0.978. Each runs `take`, which the walk rewrote, for 308 to 424 of its
+  528,042 to 688,757 instructions, and identical code for the rest; the owner ruled them
+  placement (decision 20, amended 2026-10-03), and main took the walk at f9a9301. Two rows encoded
+  slower in both jobs of a runner, asyoulik.txt as a string on the N2 by 1.5% and html-1k as a hex
+  string on the EPYC by 4.4% and 2.1%: the encoder runs no function that differs between the two
+  commits.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped

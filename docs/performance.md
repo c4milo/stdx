@@ -101,6 +101,9 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | a fill whose A/B could show nothing on any corpus file | libzstd writes no repeated block for any corpus file at level 3 | count how often the corpus runs the changed code before measuring; a probe of inputs that run it (design §8 step 11) |
 | two mutation runs over different mutations failed the same tests in step | copies of the tree compiled by `zig test` with the same flags shared a cache and took each other's binaries | give every tree its own `--cache-dir` |
 | the x86-64 small bodies 2.0 to 2.9 µs a decode behind Google's decoder, whatever their size | the benchmark ran `codec.Features.detect()` for each decode: three CPUIDs, each a virtual machine's exit to its hypervisor | detect once, as a caller does; read a gap that stays the same in µs a decode as a cost of each call |
+| a token loop 16 to 21 instructions a token slower with each state in a function of its own | the functions returned the next state to one switch, and the join of every state's values cost register moves and constants built again | write the grammar as loops, so the state is the place in the code; a labeled switch with a jump a transition is as fast, and the complexity lint counts each jump (design §8 step 18) |
+| 8 instructions to find a slot on x86-64 where 3 do | a pointer assigned only where a test passed became a conditional move of a value kept on the stack | take the address before the test, and assert the test before each write |
+| a row 2% slower in both N2 jobs with its instructions unchanged | the function that holds the row's time is identical and sits at a new address | count the file's instructions at both commits with callgrind (decision 20, amended 2026-10-03) |
 
 ## Commands
 
