@@ -2365,6 +2365,43 @@ to 12 are reordered and nothing else changes.
     the checked dispatch without the code lengths' phase: all CAUGHT. The count of phases left and
     the reader's top-up change no output: no test tells them from their absence. Pushed to main the
     same day.
+  - A distance's extra bit count in its table entry, 22db43a, measured as a3c10ab over e125fea,
+    before 1bea505 landed (runs
+    [37173037047](https://github.com/c4milo/stdx/actions/runs/37173037047) and
+    [37173042006](https://github.com/c4milo/stdx/actions/runs/37173042006); reports in
+    `bench/results/`, dated 2026-10-04, "distance-count"). Both loops worked a distance code's extra
+    bit count out of the code before the bit buffer could give the bits up: on aarch64 a load from
+    the table of coded distances, on x86-64 a compare, a subtraction and a shift. A distance table's
+    entry now holds the count in the six bits above its 10-bit code. The fills take each symbol's
+    value from `commands.DistanceEntryValue`, which holds the meta-block's 16 + NDIRECT and NPOSTFIX
+    + 1 and takes no branch, and the checked path, the Zig loops and both assembly loops mask the
+    code. The aarch64 loop takes one instruction fewer a coded distance, and its table of coded
+    distances keeps the base alone. The x86-64 loop takes five fewer, with no-operations that keep
+    the copy loops in place, and its machine no longer holds NPOSTFIX + 1. Under callgrind on
+    aarch64 webster's first 20 MB take 0.7% fewer instructions and alice29.txt 0.6%, kennedy.xls
+    0.2% more, and a 1 KiB body 118 to 269 more, 0.4 to 0.6%, in the fill of its distance tables. On
+    the N2, 23 files gain in both jobs and none loses, the median +2.6%: lcet10.txt +8.6% and +8.1%
+    (1.38 to 1.50 of Google's speed), plrabn12.txt +7.7% and +7.9%, alice29.txt +7.4% and +7.1%
+    (1.36 to 1.46), bible.txt +7.3% and +7.6%, asyoulik.txt +7.1% and +6.3%, and dickens, reymont,
+    xml, fields.c, html-16k, html-1m, js-1m and css-16k 3.3 to 5.3%. In the first N2 job alone nci
+    falls 2.0% and css-1k, html-1k and json-1k 1.2 to 1.6%; in the second each is within 0.5%. On an
+    EPYC 7763 and a Xeon 6973P-C, alice29.txt and asyoulik.txt gain in both jobs, 1.4 to 2.7%, and
+    none loses in both, the median +0.7%; in the 7763's job 12 files gain 1.4 to 3.6% and js-16k,
+    mozilla and json-16k fall 2.7%, 1.9% and 1.1%. A first pair, on top of the refused early shift
+    of a command (a8846bc over 1cf9849, runs
+    [37169241373](https://github.com/c4milo/stdx/actions/runs/37169241373) and
+    [37169247046](https://github.com/c4milo/stdx/actions/runs/37169247046)), gained 22 N2 files in
+    both jobs, the median +3.8%; the change was then rebuilt on main, its value made free of
+    branches, and paired again. Mutations, 20: an entry's count zero, one more, or kept below the
+    first coded code; the first coded code one late, and the count's shift without its one; the
+    tables built with no count; the code unmasked in the checked path, the chain and the straight
+    command, and its mask a bit short; on aarch64 the code's field a bit short or taken with the
+    count, the count's field two bits short or a bit early, and a coded distance's base halved; on
+    x86-64 the count's shift a bit long or short and the code's mask a bit short: all CAUGHT, a
+    field or a mask a bit short in the loops only by a new test that a code past 511 is refused
+    there as on the checked path. On x86-64 a mask a bit wide changes no distance: a short or a
+    direct code has no count, and a coded distance's arithmetic reads the code's bits below NPOSTFIX
+    + 1 alone. Pushed to main the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
