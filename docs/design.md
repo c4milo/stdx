@@ -2000,6 +2000,34 @@ to 12 are reordered and nothing else changes.
     index, a value an octet low and the second bits misread in each loop, a literal or p1's part
     misplaced, all CAUGHT, one by a hang, the x86-64 ones under Rosetta. Pushed to main the same
     day.
+  - p1 and p2 from a copy's source in the x86-64 loop, 8f0d1e9, paired against 83bb4d2 (runs
+    [37161933608](https://github.com/c4milo/stdx/actions/runs/37161933608) and
+    [37161937941](https://github.com/c4milo/stdx/actions/runs/37161937941); reports in
+    `bench/results/`, dated 2026-10-03, "x86-p1"). The owner ruled on 2026-10-01 that the small
+    bodies on an EPYC 9V74, where js-1k trailed Google, come next. A program that decodes one small
+    body for a given time under `perf record`, kept on a branch of its own, drew a 9V74 twice in 16
+    jobs (runs [37157410568](https://github.com/c4milo/stdx/actions/runs/37157410568) and
+    [37158773651](https://github.com/c4milo/stdx/actions/runs/37158773651)): js-1k at 0.99 of
+    Google's speed and css-16k at 1.00 to 1.02. Against an EPYC 7763 running the same binary, the
+    9V74 took 14% longer in the x86-64 loop over js-1k and 10% longer over css-16k, where Google's
+    loop took 5% and 1% longer: the loop, more than the header, is what the 9V74 runs slower. The
+    x86-64 loop still read p1 and p2 back from the octets a copy had just stored, as the aarch64
+    loop did before 5f52c50, and kept them in the machine between literal runs, so a command's first
+    literal waited for two stores to forward. It now reads the source's last two octets into r11 and
+    r12, which hold them to the next run; the command's scratch moved to r14, and two no-operations
+    keep each literal run at its place in a fetch line, the loop's text 64 octets later behind the
+    longer prologue. On two EPYC 9V45s four files gain in both jobs and none loses: js-1k +3.9% and
+    +3.1% (1.03 to 1.07 of Google's speed), json-1k +4.2% and +4.6%, json-16k +5.0% and +7.3% and
+    cp.html +3.0% and +2.9%, the median +1.7%. Paired on two EPYC 7763s over a commit that did not
+    land (runs [37158660891](https://github.com/c4milo/stdx/actions/runs/37158660891) and
+    [37158667553](https://github.com/c4milo/stdx/actions/runs/37158667553)), the same change gained
+    18 files in both jobs and lost none, the median +2.9%: js-1k +5.2% and +7.5%, json-16k +9.6% and
+    +7.3%, html-1k +6.0% and +3.2%, and osdb, sao, reymont and cp.html 4 to 6%. The aarch64 bench
+    object matches 83bb4d2's in all 566 function bodies, addresses masked, so the N2 jobs measured
+    drift alone, nci +2.3% and +2.9%. Mutations, 15: p1 or p2 from another octet of the source, kept
+    out of the machine, not loaded at the loop's start or past a word's call, or not taken from a
+    word: all CAUGHT under Rosetta, one only by a new test of a word of no octets. Pushed to main
+    the same day.
 
 - **Step 13: the Zstandard encoder.** Levels 1 and 3.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
