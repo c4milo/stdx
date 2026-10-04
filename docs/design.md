@@ -1580,6 +1580,79 @@ to 12 are reordered and nothing else changes.
     bench-zstd, bench-brotli, bench-profile and bench-json take their rows from it. A row of one
     file times as it did, with one more call a repetition.
 
+    The rows in the programs. Runs
+    [37230088956](https://github.com/c4milo/stdx/actions/runs/37230088956) and
+    [37230093829](https://github.com/c4milo/stdx/actions/runs/37230093829) timed bench-deflate at
+    62875f6, the commits above on their branch, after main (e681627) in the same job, on a
+    Neoverse N2 and an EPYC 7763 in both. Run
+    [37230098844](https://github.com/c4milo/stdx/actions/runs/37230098844) did the same for
+    bench-zstd, runs [37230103795](https://github.com/c4milo/stdx/actions/runs/37230103795) and
+    [37233768758](https://github.com/c4milo/stdx/actions/runs/37233768758) for bench-brotli, and run
+    [37231268773](https://github.com/c4milo/stdx/actions/runs/37231268773) for bench-json at 6407678
+    after main's 0162d08. Run [37230114053](https://github.com/c4milo/stdx/actions/runs/37230114053)
+    counted bench-profile. The reports are in `bench/results/`, dated 2026-10-04, "rows".
+    - Decoding gzip, stdx over the fastest baseline: 0.67 to 0.78 over 1 KiB slices on the N2 and
+      0.68 to 0.75 on the EPYC; 0.82 to 0.85 and 0.71 to 0.76 over 16 KiB slices. The members
+      hold 21.9% to 42.5% of their 1 KiB slices and 12.8% to 24.4% of their 16 KiB slices.
+    - Encoding at level 1, over 1 KiB slices: 1.55 to 1.94 of libdeflate's speed and 1.28 to 1.50
+      of zlib-ng's on the N2, 1.52 to 1.81 and 1.13 to 1.29 on the EPYC, for output 1.9% to 3.8%
+      larger than libdeflate's and 12% to 19% smaller than zlib-ng's. Over 16 KiB slices: 1.05 to
+      1.40 and 0.93 to 1.07 on the N2, 1.07 to 1.36 and 0.82 to 0.95 on the EPYC, for output 5.1%
+      to 8.9% larger than libdeflate's and 18% to 22% smaller than zlib-ng's.
+    - Encoding at level 6, stdx over libdeflate: 1.18 to 1.29 over 1 KiB slices on the N2 and 1.23
+      to 1.33 on the EPYC; 0.91 to 1.07 and 0.80 to 0.97 over 16 KiB slices, for output within
+      0.5% of libdeflate's. At level 9: 1.19 to 1.50 and 1.18 to 1.54 over 1 KiB; 1.13 to 1.27 and
+      1.01 to 1.19 over 16 KiB, for output within 0.8%.
+    - Zstandard, stdx over libzstd: 0.93 to 1.03 over 1 KiB slices and 0.99 to 1.02 over 16 KiB
+      on the N2; 0.95 to 1.03 and 1.11 to 1.15 on the EPYC. The frames hold 21.9% to 44.5% and
+      12.6% to 26.0% of their slices.
+    - brotli, stdx over Google: 1.08 to 1.20 over 1 KiB slices and 1.28 to 1.32 over 16 KiB on
+      the N2; 1.00 to 1.12 and 1.17 to 1.22 on the EPYC, where one file repeated had read 1.20 to
+      1.29 and 1.43 to 1.51, and 1.14 to 1.19 and 1.08 to 1.31. The streams hold 18.2% to 35.1%
+      and 8.9% to 20.7% of their slices. Every one of the 39 rows stays at or above Google's on
+      both; the lowest is json's 1 KiB slices on the EPYC, 190.1 MB/s against 189.7.
+    - JSON: a hex string's decode takes no branch on its digits, and its rows moved least. Over
+      1 KiB slices stdx and yyjson decoded at 0.91 of the repeated file's speed on the N2 and
+      simdjson at 1.00; over 16 KiB slices all three at 0.97 to 1.00. On the EPYC stdx read 1.03
+      and 0.98.
+    - The profile on the N2: over html's slices of 1 KiB and 16 KiB stdx's gzip decoder takes
+      253.5 and 67.2 branch misses a KiB and libdeflate's 156.1 and 60.5, where the files
+      repeated had read 30.0 and 11.0, and 10.0 and 5.1.
+
+    A row of one file times as it did, to within what placement moves.
+    - bench-deflate, two jobs a runner. Over the 31 files both reports hold, stdx's gzip decoder
+      ran at 1.006 of its speed at the median on the N2 and 1.008 on the EPYC, and its encoder at
+      1.000 on both over 93 rows. By decision 20's rule 5 of the decoder's 31 cells moved on the
+      N2, 1.1% to 1.9% faster, and 1 of the encoder's 93. On the EPYC 9 moved: the five
+      Canterbury files of 38 KiB or less, 4.3% to 10.7% faster, and four files 1.1% to 1.5%
+      faster; and 3 of the encoder's 93.
+    - The baselines, whose C the commits leave alone, moved as far. zlib's decoder ran 1.2%
+      faster at the median on the N2, 17 of its 31 cells moved; zlib-ng's 2.5% slower on the
+      EPYC, 21 moved, and Wuffs's 1.2% slower, 19 moved. Of the encoders' 93 cells each, 6 to 19
+      moved on the N2 and 16 to 27 on the EPYC.
+    - bench-zstd, one job a runner: stdx at 1.000 at the median on both, libzstd at 1.000 and
+      1.006. bench-json, one job: stdx's decoder at 0.998 on the N2 and 0.993 on the EPYC, its
+      encoder at 1.000 and 0.999, while yyjson's encoder moved past its bar on 41 of 51 rows on
+      the N2.
+    - bench-brotli, two jobs a runner, an EPYC 7763 in both x86-64 jobs. Of stdx's 31 cells 1
+      moved on the N2, lcet10.txt 1.0% to 1.1% slower, and none on the EPYC; of Google's, 1 and
+      2. One N2 job alone had read stdx at 0.987 of its speed at the median, 16 cells slower by
+      1.0% to 4.6%, with Google's at 0.999; the other read it at 1.008. One job is not a pair.
+      In the second jobs json's 1 KiB slices read 1.09 of Google's speed on the N2 and 1.02 on
+      the EPYC.
+    - Built for each runner at both commits as the bench builds it, the C left out (`zig
+      build-obj`), every function of the library is the same but for its addresses, its fill
+      and the numbers of its error values, which shift as a program names more errors.
+      bench-deflate for the N2 holds 476 functions the same and 104 with those numbers shifted,
+      of main's 614; for x86-64, 482 and 107 of 622; bench-brotli for the N2, 444 and 107 of 573.
+      The rest are the programs' own and a dozen of std's that no decode or encode runs. The
+      brotli decoder's hot functions start on their lines in both programs. On x86-64 the DEFLATE
+      decoder's assembly loop starts 48 octets into its line where main's program starts it at
+      32. So these moves are placement (decision 20, amended 2026-09-30).
+
+    The Mac ran each program over four to six files to check the rows, their sizes and the
+    notes. Its timings say nothing: other sessions' builds kept its load between 30 and 100.
+
     Mutations of `inputs.zig`, 41, all CAUGHT.
     - The rows: the payload matched without its whole name; only the first small suffix
       recognized; a small body never cut; slices of another length; no check that the small body
@@ -4486,7 +4559,8 @@ Decision 10 fixes the method before the first measurement, so the numbers cannot
 afterwards. Decision 14 lists the claims and the cost each removes, priced against
 [costs.md](costs.md). Decision 16 says where a hot loop may leave the checked reader and writer, and
 decision 17 what the safety checks cost. Every claim is measured against a correct checked path,
-and one that does not beat the noise is removed.
+and one that does not beat the noise is removed. Decision 45 says what a benchmark's row codes: a
+corpus file whole, or a small HTTP body as the slices of its 1 MiB payload in rotation.
 
 ## 10. Open questions for the owner
 

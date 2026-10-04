@@ -2579,7 +2579,8 @@ small file.
     - Every benchmark program times a corpus file named `<kind>-1k` or `<kind>-16k` as the slices
       of that file's length of `<kind>-1m`, whose first octets the file holds: 1024 slices of
       1 KiB, 64 of 16 KiB. The row takes the file's name, `x` and the count of slices:
-      `http/html-1kx1024`.
+      `http/html-1kx1024`. bench-json, whose rows of those files are hex strings, takes each slice
+      as a hex string in a text of its own.
     - One repetition codes every slice once, in the payload's order, each from a state started
       anew. An encoder writes one stream a slice. A decoder takes one stream a slice, each
       encoded once before any candidate is timed, by the encoder the table names. Every candidate
