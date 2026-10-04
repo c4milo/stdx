@@ -11,16 +11,24 @@ const state_module = @import("../decoder_state.zig");
 const prefix = @import("../../prefix.zig");
 
 /// Where a command's packed codes hold each value: the first insert length in the low 16 bits, then
-/// the first copy length, the insert length's extra bits, both lengths' extra bits, the insert code
-/// and the copy code, and in the top bit whether the symbol reuses the last distance.
+/// the first copy length, the insert length's extra bits, both lengths' extra bits, the insert code,
+/// the copy code, the distance context every copy length of that code gives (RFC 7932 §7.3), and in
+/// the top bit whether the symbol reuses the last distance.
 pub const copy_base_at = 16;
 pub const insert_extra_bits_at = 32;
 pub const extra_bits_at = 40;
 pub const insert_code_at = 48;
 pub const copy_code_at = 56;
+pub const distance_context_at = copy_code_at + copy_code_bits;
 pub const last_distance_at = @bitSizeOf(u64) - 1;
-/// The copy code's bits: its octet less the top bit.
-pub const copy_code_bits = last_distance_at - copy_code_at;
+/// The copy code's bits, which hold its 24 codes, and the distance context's, its four.
+pub const copy_code_bits = 5;
+pub const distance_context_bits = last_distance_at - distance_context_at;
+
+comptime {
+    assert(constants.copy_length_codes.len <= 1 << copy_code_bits);
+    assert(constants.distance_contexts_count == 1 << distance_context_bits);
+}
 
 /// The evaluation the packed tables take at comptime.
 const packed_tables_quota = 20_000;
@@ -34,9 +42,13 @@ pub const command_codes: [constants.insert_copy_alphabet_len]u64 = codes: {
         assert(code.insert_base < 1 << copy_base_at and code.copy_base < 1 << copy_base_at);
         assert(code.copy_code < 1 << copy_code_bits);
         const last_distance: u64 = @intFromBool(symbol < constants.insert_copy_last_distance_symbols);
+        // The code's shortest copy and its longest give one distance context.
+        const copy = constants.copy_length_codes[code.copy_code];
+        const distance_context: u64 = context.distance_id(copy.base);
+        assert(distance_context == context.distance_id(copy.base + (1 << copy.extra_bits) - 1));
         out.* = code.insert_base | @as(u64, code.copy_base) << copy_base_at | @as(u64, code.insert_extra_bits) << insert_extra_bits_at |
             @as(u64, code.extra_bits) << extra_bits_at | @as(u64, code.insert_code) << insert_code_at | @as(u64, code.copy_code) << copy_code_at |
-            last_distance << last_distance_at;
+            distance_context << distance_context_at | last_distance << last_distance_at;
     }
     break :codes table;
 };

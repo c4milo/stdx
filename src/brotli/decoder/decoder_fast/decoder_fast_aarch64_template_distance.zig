@@ -52,11 +52,9 @@ pub const distance =
     \\    tbnz x24, #63, 40f
     \\    // RFC 7932 §9.3: a spent block takes a block switch first, in Zig.
     \\    cbz x17, 90f
-    \\    // The distance context (RFC 7932 §7.3): the copy length, 2 to 5 and above, which indexes
-    \\    // its table's pointer.
-    \\    mov w13, #{[distance_context_last_copy_len]}
-    \\    cmp w27, w13
-    \\    csel w13, w27, w13, lo
+    \\    // The distance context (RFC 7932 §7.3), which the copy code gives and the packed code
+    \\    // holds, so that the table's pointer waits for no copy length.
+    \\    ubfx x13, x24, #{[distance_context_at]}, #{[distance_context_bits]}
     \\    ldr x13, [x11, x13, lsl #3]
 ++ "\n" ++ lookup("x13", "x23", "x14", "x28", "52", "56") ++
     \\    lsr w14, w23, #{[entry_value_at]}
@@ -240,7 +238,7 @@ pub const word =
     \\    ldr x5, [x0, #{[output_base]}]
     \\    ldp x6, x7, [x0, #{[buffer]}]
     \\    ldp x8, x10, [x0, #{[ic_table]}]
-    \\    add x11, x0, #{[dist_context_tables_by_len]}
+    \\    add x11, x0, #{[dist_context_tables]}
     \\    ldr x12, [x0, #{[meta_block_left]}]
     \\    ldp x15, x16, [x0, #{[ic_count]}]
     \\    ldr x17, [x0, #{[dist_count]}]

@@ -286,9 +286,6 @@ comptime {
     assert(@offsetOf(Machine, "output_limit") == @offsetOf(Machine, "output") + @sizeOf(u64));
     assert(@offsetOf(Machine, "count") == @offsetOf(Machine, "buffer") + @sizeOf(u64));
     assert(@offsetOf(Machine, "lit_tables") == @offsetOf(Machine, "ic_table") + @sizeOf(u64));
-    // The copy lengths 2 to 5 index the distance contexts' tables from a pointer two tables before.
-    assert(constants.distance_contexts_count == constants.distance_context_last_copy_len - constants.distance_context_copy_len_min + 1);
-    assert(@offsetOf(Machine, "dist_context_tables") >= dist_context_bias);
     assert(@offsetOf(Machine, "lut_p2") == @offsetOf(Machine, "lut_p1") + @sizeOf(u64));
     assert(@offsetOf(Machine, "window_distance_max") == @offsetOf(Machine, "produced_offset") + @sizeOf(u64));
     assert(@offsetOf(Machine, "lit_count") == @offsetOf(Machine, "ic_count") + @sizeOf(u64));
@@ -334,7 +331,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .output_base = @offsetOf(Machine, "output_base"),
     .buffer = @offsetOf(Machine, "buffer"),
     .ic_table = @offsetOf(Machine, "ic_table"),
-    .dist_context_tables_by_len = @offsetOf(Machine, "dist_context_tables") - dist_context_bias,
+    .dist_context_tables = @offsetOf(Machine, "dist_context_tables"),
     .meta_block_left = @offsetOf(Machine, "meta_block_left"),
     .ic_count = @offsetOf(Machine, "ic_count"),
     .dist_count = @offsetOf(Machine, "dist_count"),
@@ -366,7 +363,8 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .entry_second_at = entry_second_at,
     .entry_value_at = entry_value_at,
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,
-    .distance_context_last_copy_len = constants.distance_context_last_copy_len,
+    .distance_context_at = packed_tables.distance_context_at,
+    .distance_context_bits = packed_tables.distance_context_bits,
     .coded_first = @offsetOf(Machine, "coded_first"),
     .distance_short_codes_count = constants.distance_short_codes_count,
     .postfix_bits = @offsetOf(Machine, "postfix_bits"),
@@ -390,7 +388,7 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .write_word = @offsetOf(Machine, "write_word"),
     .output_base = @offsetOf(Machine, "output_base"),
     .ic_table = @offsetOf(Machine, "ic_table"),
-    .dist_context_tables_by_len = @offsetOf(Machine, "dist_context_tables") - dist_context_bias,
+    .dist_context_tables = @offsetOf(Machine, "dist_context_tables"),
     .command_codes = @offsetOf(Machine, "command_codes"),
     .count_distance = counts.distance,
 }) ++ "\n" ++ std.fmt.comptimePrint(rest_text.cold, .{
@@ -432,10 +430,6 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .insert_code = @offsetOf(Machine, "insert_code"),
     .last_distance = @offsetOf(Machine, "last_distance"),
 }) ++ "\n";
-
-/// The octets from a distance context's table pointer back to where the copy length indexes it:
-/// the least copy length's pointers.
-const dist_context_bias = constants.distance_context_copy_len_min * @sizeOf(u64);
 
 /// A root's bits placed at an entry's length, which a second-level entry adds to its own.
 const root_bits_at_len = @as(u32, constants.table_root_bits) << @bitOffsetOf(prefix.Entry, "len");

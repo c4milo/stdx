@@ -35,8 +35,8 @@
 //!   second-level entry, at the root entry's value plus an index below 1 << `second_bits`: the build
 //!   wrote that level inside the table (`fill_end`).
 //! - A packed command code, at the insert-and-copy symbol: the symbol is below the alphabet, 704.
-//! - A distance context's table pointer, at a copy length 2 to 5, each the table of a tree the map
-//!   names, which the header checked below NTREESD; a literal table, at a context ID the luts give, below
+//! - A distance context's table pointer, at a context 0 to 3 of the command's packed code, each the
+//!   table of a tree the map names, which the header checked below NTREESD; a literal table, at a context ID the luts give, below
 //!   64 (`context`); a lut, at p1 or p2, an octet; a short code, at a code below 16; the ring, at a
 //!   short code's last distance, 0 to 3.
 //! - A copy's loads, from `distance` octets before the output's next: the distance is at most the

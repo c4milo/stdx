@@ -307,9 +307,6 @@ comptime {
     // A distance's tree table, whose size the text multiplies by.
     assert(@sizeOf(@TypeOf(@as(State, undefined).distance_codes[0])) == constants.distance_table_len_max * @sizeOf(prefix.Entry));
     assert(constants.distance_context_copy_len_min == 2 and constants.distance_context_last_copy_len == 5);
-    // The copy lengths 2 to 5 index the distance contexts' tables from two pointers before them.
-    assert(constants.distance_contexts_count == constants.distance_context_last_copy_len - constants.distance_context_copy_len_min + 1);
-    assert(@offsetOf(Machine, "dist_context_tables") >= constants.distance_context_copy_len_min * @sizeOf(u64));
     // A word's transform stores inside the margin's room.
     assert(transform.wide_output_len <= fast.output_margin and constants.transformed_word_len_max <= fast.output_margin);
     // The reserve holds the chunks a copy stores whatever its length, inside the margin.
@@ -367,8 +364,9 @@ const template = std.fmt.comptimePrint(loop_text.prologue, .{
     .entry_value_at = entry_value_at,
     .distance_bits_max = constants.code_len_max + constants.distance_extra_bits_max,
     .dist_count = @offsetOf(Machine, "dist_count"),
-    .distance_context_last_copy_len = constants.distance_context_last_copy_len,
-    .dist_context_tables_by_len = @offsetOf(Machine, "dist_context_tables") - constants.distance_context_copy_len_min * @sizeOf(u64),
+    .distance_context_at = packed_tables.distance_context_at,
+    .distance_context_mask = (1 << packed_tables.distance_context_bits) - 1,
+    .dist_context_tables = @offsetOf(Machine, "dist_context_tables"),
     .direct_end = @offsetOf(Machine, "direct_end"),
     .postfix_shift = @offsetOf(Machine, "postfix_shift"),
     .distance_short_codes_count = constants.distance_short_codes_count,
