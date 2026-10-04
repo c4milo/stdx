@@ -28,9 +28,9 @@ pub const Copied = struct { input_len: usize, output_len: usize };
 
 /// The octets of an escape of a reverse solidus and a letter, of one of `\u` and its digits, and of
 /// a surrogate pair's two.
-const letter_escape_len = 2;
-const unicode_escape_len = letter_escape_len + constants.escape_hex_digits;
-const pair_escape_len = unicode_escape_len + unicode_escape_len;
+pub const letter_escape_len = 2;
+pub const unicode_escape_len = letter_escape_len + constants.escape_hex_digits;
+pub const pair_escape_len = unicode_escape_len + unicode_escape_len;
 
 /// The character each escape letter names, and zero for every other octet: no letter names
 /// U+0000 (RFC 8259 §7). One load an escape, where optionals took two (design §8 step 18).
@@ -188,7 +188,7 @@ inline fn unicode_singles(escape: []const u8, room: []u8, taken: Copied) Copied 
 
 /// The code unit of the `\u` escape at `offset` in `escape`, from its four hexadecimal digits of
 /// either case; or null when the escape is not there, or cut, or a digit is not one.
-inline fn code_unit(escape: []const u8, offset: usize) ?u16 {
+pub inline fn code_unit(escape: []const u8, offset: usize) ?u16 {
     if (escape.len - offset < unicode_escape_len) return null;
     if (escape[offset] != constants.reverse_solidus or escape[offset + 1] != constants.escape_unicode) return null;
     var unit: u16 = 0;
@@ -225,7 +225,7 @@ const pair_prefixes_mask = escape_prefix_mask | escape_prefix_mask << second_pre
 /// Where the first escape's digits start in the pair's first word, and the bits of one escape's
 /// four digits, where the second escape's unit starts in the word of units.
 const first_digits_shift = letter_escape_len * @bitSizeOf(u8);
-const escape_digits_bits = constants.escape_hex_digits * @bitSizeOf(u8);
+pub const escape_digits_bits = constants.escape_hex_digits * @bitSizeOf(u8);
 
 /// The first and last letters of a hexadecimal digit, lowercase, and what a letter's low nibble
 /// falls short of its value by: 'a' and 'A' end in 1 and are worth 10.
@@ -323,7 +323,7 @@ inline fn take_pair(octets: *const [pair_escape_len]u8, space: *[pair_room_len]u
 
 /// The code unit of the `\u` escape that starts `octets`, from the word that holds it: its digits
 /// read as a pair's first escape's, with four zeros as the second's.
-inline fn code_unit_word(octets: *const [constants.word_len]u8) ?u16 {
+pub inline fn code_unit_word(octets: *const [constants.word_len]u8) ?u16 {
     const word = std.mem.readInt(u64, octets, .little);
     if ((word & escape_prefix_mask) != escape_prefix) return null;
     const digits: u64 = @as(u32, @truncate(word >> first_digits_shift));
@@ -357,7 +357,7 @@ inline fn is_surrogate(unit: u16) bool {
 /// The code units of the two `\u` escapes that `octets` holds one after the other, the first's in
 /// the lower half of the word returned and the second's in the upper; or null when either is not a
 /// reverse solidus, a `u` and four hexadecimal digits of either case (RFC 8259 §7).
-inline fn code_unit_pair(octets: *const [pair_escape_len]u8) ?u64 {
+pub inline fn code_unit_pair(octets: *const [pair_escape_len]u8) ?u64 {
     const first = std.mem.readInt(u64, octets[0..constants.word_len], .little);
     if ((first & pair_prefixes_mask) != pair_prefixes) return null;
     const first_digits: u64 = @as(u32, @truncate(first >> first_digits_shift));
@@ -379,83 +379,4 @@ inline fn pair_units(digits: u64) ?u64 {
     const octet_values = ((values << constants.nibble_bits) | (values >> @bitSizeOf(u8))) & low_octets;
     // Each 32-bit field: its first octet's value times 256 plus its second's.
     return ((octet_values << @bitSizeOf(u8)) | (octet_values >> @bitSizeOf(u16))) & low_halves;
-}
-
-// Tests.
-
-const testing = std.testing;
-
-/// The case of each escape's digits in a pair `pair_text` writes.
-const Case = enum { lower, upper, upper_first, upper_second };
-
-/// Two `\u` escapes of `first` and `second`, their digits in `case`.
-fn pair_text(first: u16, second: u16, case: Case) [pair_escape_len]u8 {
-    var text: [pair_escape_len]u8 = undefined;
-    _ = std.fmt.bufPrint(text[0..unicode_escape_len], "\\u{x:0>4}", .{first}) catch unreachable;
-    _ = std.fmt.bufPrint(text[unicode_escape_len..], "\\u{x:0>4}", .{second}) catch unreachable;
-    const first_digits = text[letter_escape_len..unicode_escape_len];
-    const second_digits = text[unicode_escape_len + letter_escape_len ..];
-    if (case == .upper or case == .upper_first) _ = std.ascii.upperString(first_digits, first_digits);
-    if (case == .upper or case == .upper_second) _ = std.ascii.upperString(second_digits, second_digits);
-    return text;
-}
-
-/// Requires `code_unit_pair` to give what `code_unit` gives each escape of `text`, or null where it
-/// gives null for either.
-fn expect_pair_as_single(text: *const [pair_escape_len]u8) !void {
-    const first = code_unit(text, 0);
-    const second = code_unit(text, unicode_escape_len);
-    const pair = code_unit_pair(text);
-    if (first == null or second == null) return testing.expectEqual(null, pair);
-    try testing.expectEqual(first.?, @as(u16, @truncate(pair.?)));
-    try testing.expectEqual(second.?, @as(u16, @truncate(pair.? >> escape_digits_bits)));
-}
-
-test "code_unit_pair reads every code unit as code_unit does, in each case, first and second" {
-    for (0..std.math.maxInt(u16) + 1) |unit| {
-        const partner: u16 = @truncate(unit *% 40503 +% 11);
-        for (std.enums.values(Case)) |case| {
-            try expect_pair_as_single(&pair_text(@intCast(unit), partner, case));
-            try expect_pair_as_single(&pair_text(partner, @intCast(unit), case));
-        }
-    }
-}
-
-test "code_unit_pair refuses a pair with any octet an escape cannot hold where it stands" {
-    const valid = pair_text(0x0430, 0x4e2f, .lower);
-    for (0..pair_escape_len) |position| {
-        for (0..std.math.maxInt(u8) + 1) |octet| {
-            var text = valid;
-            text[position] = @intCast(octet);
-            try expect_pair_as_single(&text);
-        }
-    }
-}
-
-/// Requires `code_unit_word` to give what `code_unit` gives the escape that starts `text`.
-fn expect_word_as_single(text: *const [constants.word_len]u8) !void {
-    try testing.expectEqual(code_unit(text, 0), code_unit_word(text));
-}
-
-test "code_unit_word reads every code unit as code_unit does, in either case, whatever follows" {
-    for (0..std.math.maxInt(u16) + 1) |unit| {
-        for (std.enums.values(Case)) |case| {
-            const pair = pair_text(@intCast(unit), @truncate(unit *% 7), case);
-            try expect_word_as_single(pair[0..constants.word_len]);
-            var text = pair[0..constants.word_len].*;
-            text[unicode_escape_len] = '"';
-            try expect_word_as_single(&text);
-        }
-    }
-}
-
-test "code_unit_word refuses an escape with any octet it cannot hold where it stands" {
-    const valid = pair_text(0x0430, 0x4e2f, .lower);
-    for (0..unicode_escape_len) |position| {
-        for (0..std.math.maxInt(u8) + 1) |octet| {
-            var text = valid[0..constants.word_len].*;
-            text[position] = @intCast(octet);
-            try expect_word_as_single(&text);
-        }
-    }
 }
