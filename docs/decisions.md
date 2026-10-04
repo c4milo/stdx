@@ -534,7 +534,7 @@ small file.
     | S2. Primary tables of 11 bits for literal/length and 8 for distance, whose entries carry the base and the count of extra bits, so most symbols take one lookup | A second lookup and its branch per symbol (L1 hit, branch mispredict) | The fraction of one-lookup symbols per corpus, counted in a test build; A/B against 9 and 6 bits | libdeflate; zlib documents 9-bit root tables |
     | S3. Two literals from one lookup when both codes fit the table width | One lookup and one data-dependent branch per literal pair (branch mispredict) | A/B with the pairing off | None of the baselines documents it |
     | S4. Match copies of 8 or 16 octets at a time, overrunning into the output's scratch room; a fill for distance 1 and a repeated pattern for distances under 8 | A branch per copied octet (memcpy of 64 octets) | A/B against the octet copy of the checked path | libdeflate, zlib-ng (chunk copy), Wuffs |
-    | S5. Decoding straight into the caller's output, with one copy of the call's last 32 KiB into the window at the end of the call | A second write of every output octet (memcpy of 32 KiB per call at most) | Copies counted per call in a test build; A/B against decoding into the window and copying out | Wuffs |
+    | S5. Decoding straight into the caller's output, with one copy of the call's last 32 KiB into the window at the end of the call, and none at the end of the call that ends the stream | A second write of every output octet (memcpy of 32 KiB per call at most), and the one copy too of a stream that a call decodes to its end | Copies counted per call in a test build; A/B against decoding into the window and copying out | Wuffs |
     | S6. `init` writes a few dozen octets and clears no window or table | A 32 KiB clear per stream, which dominates a 1 KiB body (memcpy of 32 KiB) | Start-of-stream cost on the 1 KiB HTTP corpus against each baseline's reset | zlib.h: inflate defers allocating its window to the first call that needs it |
     | S7. The fixed codes of RFC 1951 §3.2.6 as comptime tables | A table build per fixed block; a small body is often one fixed block | The fraction of fixed blocks in the 1 KiB corpus from zlib's encoder; A/B with the tables built per block | — |
     | S8. A table build that writes only the entries the code uses | Clearing unused entries; bounds the cost of a stream of tiny dynamic blocks (invariant 17) | Entries written per octet consumed, counted in a test build, on the worst-case generators | — |
@@ -542,6 +542,7 @@ small file.
     | S10. The checksum runs over each call's output once, while it is still in cache | A second pass over output that left L1 (cache miss) | A/B against checksumming after the whole stream | — |
     | S11. A length and its distance's code in one literal/length entry, when both fit the table, so one lookup decodes both | The distance's lookup, a second load each match waits on (L1 hit) | A/B with the entries of a length and its distance apart | — |
     | S12. A length's extra bits in its literal/length entry, when its code and the extra bits fit the table | Reading the extra bits of most matches: a shift and a mask each | A/B with every table built plain | — |
+    | S13. A dynamic block's code lengths (RFC 1951 §3.2.7) read by a loop of their own: the bits from a 64-bit buffer refilled with one 8-octet load, and the code length code decoded by one lookup in a table of 7 bits, its longest code | For each code length symbol, 87 to 143 a block at the mean of entry 45's rows, the canonical code's branch a bit and the checked reader's branch an octet (branch mispredict), and 157 to 165 instructions where a lookup and a shift take a few | A/B with the loop off, on entry 45's rows of slices | — |
 
     Zstandard and brotli decoders:
 
@@ -614,6 +615,35 @@ small file.
       5% on 16 of the N2's files and 18 of the EPYC 9V74's, off on none (run
       [36478169575](https://github.com/c4milo/stdx/actions/runs/36478169575)). S12 off runs at
       0.97 and 0.92.
+
+    **What the small bodies' split found.** Recorded on 2026-10-04; design §8 step 7 holds the
+    runs and the parts.
+    - The prediction above, a win on 1 KiB and 16 KiB messages from S6 and S7, does not hold on
+      entry 45's rows. stdx's gzip decoder stands at 0.67 to 0.78 of the fastest baseline over
+      1 KiB slices on the N2 and at 0.82 to 0.85 over 16 KiB slices. zlib writes one dynamic block
+      for all but 381 of the 4,096 slices of 1 KiB and for every slice of 16 KiB, and S6 and S7
+      take nothing off a dynamic block's header.
+    - On the N2 that header takes 60% to 69% of a 1 KiB member's cycles and 19% to 28% of a 16 KiB
+      member's. Reading its code lengths takes 157 to 165 instructions and 0.44 to 0.88 branch
+      misses a code length symbol: about a third of the instructions are the canonical decode a
+      bit at a time, and about a quarter the checked reader's.
+    - S13 is the owner's ruling of 2026-10-04 on that read. Design §8 step 7 had measured a lookup
+      table for the code length code on the M1's 1 KiB bodies, found it 5% to 7% slower, and not
+      kept it. Those rows repeated one body, and a CPU's branch predictor learns a header that
+      repeats, as entry 45 found of every small input a row repeated. So that measurement priced
+      the table's build against a decode whose branches cost nothing. The owner ruled that the
+      table be measured again on entry 45's rows, inside a loop of its own under entry 16. The
+      alternatives refused: the table alone, read through the checked reader, which keeps the
+      reader's and the step's own instructions, about 100 a symbol; and the read left as it is.
+    - The prediction, stated before the code. On the N2 the code lengths' read falls from 4,339
+      cycles of one of html's 1 KiB members to about 1,500, and that member's decode from 15,083
+      to about 12,300; a 16 KiB member's decode falls by about 7%. On x86-64 the read is 30% to
+      34% of a 1 KiB member's time and 6% to 10% of a 16 KiB member's, and falls as far. No file
+      taken whole moves past entry 20's floor: a block reads its header once in thousands of
+      symbols.
+    - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
+      nothing into the window, which no call reads after `done`. Called apart on the N2, that
+      copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
 
 15. **The checks.** Proposed on 2026-09-25, the fifth decision record the owner asked for. Ruled by
     the owner on 2026-09-25, after a review of the proposal. The owner chose to fail closed where an
@@ -812,6 +842,7 @@ small file.
     |---|---|---|---|---|
     | DEFLATE symbol loop (S1, S2) | 7 | 8 octets, one refill per iteration | 258 plus 16 | Throughput against the checked path on all three corpora: a median of 11.68 times on the N2 and 9.29 on the EPYC 7763 in step 7 |
     | DEFLATE and brotli match copy (S4) | 7, 12 | none | 258 plus 16 for DEFLATE; `chunk_len_max` plus 16 for brotli | As above |
+    | DEFLATE code lengths, in a dynamic block's header (S13) | 7 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput against the loop off over entry 45's rows of slices, two paired jobs a runner, each row ahead by more than its spread and no file behind by more than entry 20's floor; the numbers follow the measurement |
     | Zstandard literal decoding, four streams (Z1, Z2) | 11 | 8 octets before each stream's position, read backward | none: literals go to the state's literal buffer, whose size is fixed | As above |
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |
