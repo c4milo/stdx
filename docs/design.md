@@ -1244,6 +1244,172 @@ to 12 are reordered and nothing else changes.
     slower in both jobs: js-1k at level 9 on the EPYC, 0.965 and 0.887, on the instructions it ran
     before; the N2's 1 KiB files at level 1, on code the change leaves alone, moved 2% to 5% in
     both jobs.
+  - The encoder's hot functions on 64-octet lines, 2026-10-04, ccb4b1b against main (e125fea),
+    paired (runs [37173837391](https://github.com/c4milo/stdx/actions/runs/37173837391) and
+    [37173838684](https://github.com/c4milo/stdx/actions/runs/37173838684); reports in
+    `bench/results/`, dated 2026-10-04, "lines"). The longer blocks below changed no instruction of
+    the match finder's loops, the block writer or the code builder, yet their second pair ran five
+    files 1.3% to 5% slower at level 1 on an EPYC 7763 in both runs, on output that is main's and
+    0.2% to 0.4% fewer instructions. Built as the bench builds them, the functions before those
+    loops had changed size, and each loop started elsewhere in its 64-octet line: on x86-64 three of
+    the match finder's loops that start a line on main started 16 or 32 octets into one, and six of
+    the code builder's seven passes at 16 octets where main starts them at 32. The 17 functions that
+    carry an encode now start on a line (`constants.hot_function_alignment`), as the brotli
+    decoder's do: the encoder's `run`, the match finder's `advance_positions`, `take_previous`,
+    `match_len`, `best` and `saves_bits`, the prices' `update`, the block's `plan`, the code
+    builder's seven passes and the block writer's two functions. That is 25 instances on each
+    target, where 7 started a line on x86-64 and 1 on aarch64; every function's body matches main's
+    with addresses masked. On an EPYC 9V74 and an EPYC 7763 no file moved in both runs at levels 1
+    and 9, and three ran slower at level 6, osdb at 0.989 and 0.985 of its speed, sao at 0.987 and
+    0.985 and x-ray at 0.985 and 0.980, the level's median at 0.995 and 0.991. On the N2 level 9 ran
+    24 files faster in both runs, its median at 1.018 and 1.016, and level 6 moved none; at level 1
+    cp.html and sum ran 2% to 7% faster and eight files 1.3% to 6.2% slower, six of them of 16 KiB
+    or less, the median at 1.000 and 0.999. Every move is of code the commit only moved, and
+    decision 20's amendment of 2026-09-30 lands such a change. On the M1 the filter's nine files ran
+    between 0.983 and 1.015 of their time at the three levels.
+  - Longer blocks, 2026-10-04. The owner chose longer blocks next, both parts: ends where the
+    statistics change, and blocks that cross a slide of the window (decision 44). The comparison
+    of decision 42 had found libdeflate's blocks two to three times as long as stdx's, and stdx's
+    own parse 0.19% to 0.60% smaller under the best cuts within the symbols a block already holds.
+
+    6812008 ends a lazy level's block before its newest symbols when a check, every 4096
+    symbols and at a slide, a flush and the stream's end, prices them cheaper apart, and lets the
+    block cross a slide while it codes for less than its stored form. The 39 files' geometric
+    mean over libdeflate's output goes from 1.0041 to 1.0016 at level 6 and from 1.0122 to 1.0098
+    at level 9. sum comes out 2.3% smaller, kennedy.xls 1.5% at level 6, nci, asyoulik and xml
+    0.5% to 0.6%; 27 files are smaller at level 6, and the largest growth is cp.html's 0.09% there
+    and E.coli's 0.09% at level 9. Of the 468 hashes in `tools/differential/encode_hashes.zig`,
+    218 are new, all at levels 6 and 9. Level 1's output is the one it was.
+
+    A first version put the checks in the loops, and at level 1 too. Runs
+    [37164372472](https://github.com/c4milo/stdx/actions/runs/37164372472) and
+    [37164373926](https://github.com/c4milo/stdx/actions/runs/37164373926) paired it (3d2289b on
+    its branch) with main (83bb4d2) in each job, on a Neoverse N2 and an EPYC 9V74:
+    - Level 6 ran at 0.981 of its speed on the EPYC in both runs, 21 files slower in both, text
+      at 0.963 to 0.985, while zlib, zlib-ng and libdeflate held. Callgrind had counted 2% to 7%
+      fewer instructions for it on x86-64. The lazy loop bounded its positions by the next check
+      in a loop around its own, and the checks' 688 octets of state sat inside the block, where
+      Zig's field order moved the block's symbols and counts 688 octets from where main keeps
+      them. Level 9, which the same count put 1% to 3% up, held at 1.004.
+    - Level 1 ran at 1.006 at the median on both CPUs, the files of 1 KiB and 16 KiB 2% to 9%
+      faster as a plan's pricing got cheaper, and nine files slower in both runs on the N2: text
+      at 0.98, kennedy.xls at 0.94 and sum at 0.96, for 0.2% less output at the mean.
+    - On the N2, level 6 held at 1.006 and 1.001 and level 9 at 1.010 and 1.007.
+
+    The version that stayed changes no code the match finder or the writer runs:
+    - The loops are called in rounds by a wrapper, `advance_rounds`, which shows each round the
+      window only as far as the lookahead of as many positions as the block takes symbols before
+      its next check. A position decided adds a symbol at most, and to the loops a round is a
+      call whose input ended there (invariant 5).
+    - The checks' state lives in the encoder, after the plan, so every field of the block and the
+      match finder keeps main's offset.
+    - Built as the bench builds them, for aarch64 and x86-64, `advance_positions` at every level,
+      the walks, `match_len`, the block writer and the code builder compile to the instructions
+      main compiles them to, offsets included. Of the encoder's functions main has, `plan` and
+      `run` alone differ.
+    - Level 1 keeps its blocks (`Level.block_checks`), its bound and its budget.
+
+    What a check and a block cost, counted with callgrind on Linux builds for both CPUs:
+    - A check first cost 9,500 to 14,000 instructions, two or three passes over the counts with a
+      logarithm each. It now prices the newest symbols and the whole block in one pass, 8 counts
+      at a time, each count's logarithm read from the exponent and the first fraction bits of the
+      count as a float, which is exact below 2^24: 1,600 instructions on aarch64 and 2,000 on
+      x86-64. Zig 0.16 turns no loop into vector code, so the vectors are written out.
+    - A check keeps its price of the whole block for the next check's rest, and its price of the
+      newest symbols for the block they start.
+    - 12559d4 adds a plan's literal/length counts times their code lengths 16 at a time, at
+      every level: 2,300 instructions to about 300 for each code priced, and a plan of json-1m's
+      at level 1 in 9,000 where it took 13,500.
+    - A block's own cost, its plan, its codes and its header, is about 58,000 instructions
+      whatever it holds, 6% to 12% of level 1's instructions on the files of 1 MiB. Fewer blocks
+      pay for the checks where blocks get fewer: x-ray's level 6 goes from 517 blocks to 405.
+    - Instructions against main for one encode of each of the 39 files, the first MiB of the
+      larger ones, on aarch64. Level 1 runs every file on fewer, by 0.15% to 0.62%. Level 6's
+      median is 0.07% fewer: nci 2.0% fewer, ptt5 1.9%, osdb and x-ray 1.8%; sum 4.2% more,
+      kennedy.xls 2.6%, cp.html 2.0%, mozilla and ooffice 0.9%, where the checks add blocks. Level
+      9's median is 0.06% fewer: osdb 1.3% fewer, x-ray 1.2%; E.coli 4.2% more, its matches priced
+      (decision 42) from blocks that end elsewhere, cp.html 1.6% and sum 1.0%. x86-64 counts the
+      same within half a point on the 11 files counted there.
+
+    A second pair, runs [37168945298](https://github.com/c4milo/stdx/actions/runs/37168945298)
+    and [37168947275](https://github.com/c4milo/stdx/actions/runs/37168947275), put that version
+    (1fe3189 on its branch) beside main (83bb4d2) on a Neoverse N2 and an EPYC 7763, and could
+    not be read file by file:
+    - Level 1, on main's loops and output and fewer instructions, ran five files 1.3% to 5%
+      slower on the EPYC in both runs: sum at 0.954 and 0.950, cp.html, dickens-1m, x-ray and
+      E.coli. Level 6 ran ten files slower there, css-16k among them, whose blocks are main's.
+    - zlib, zlib-ng and libdeflate, whose code is the same in main's program and the change's,
+      moved as far in both runs. By decision 20's rule zlib ran 16 files slower at level 6 on the
+      EPYC, at 0.989 and 0.990 of its speed at the median, and 29 at level 9; libdeflate 18 at
+      level 1; and on the N2 libdeflate 32 at level 9, at 0.979 and 0.976.
+    - The encoder's loops had moved within their 64-octet lines, which the entry above ends.
+
+    The pair that counts, runs
+    [37173839885](https://github.com/c4milo/stdx/actions/runs/37173839885) and
+    [37173841351](https://github.com/c4milo/stdx/actions/runs/37173841351), put the change
+    (91394d5 on its branch) beside the commit of the entry above (40e1125), on a Neoverse N2 in
+    both runs and on an EPYC 7763 and an EPYC 9V74. zlib, zlib-ng and libdeflate held: none ran
+    more than two files slower in both runs at any level.
+    - Level 1, whose output is main's: 1.007 and 1.009 of its speed at the median on the N2, 14
+      files faster in both runs, the 11 files of 16 KiB or less by 2.8% to 5.5%; 1.004 and 1.006
+      on the EPYCs, four faster and none slower. cp.html ran at 0.950 and 0.940 on the N2, on
+      0.17% fewer instructions, 0.7% and 0.5% of them in the functions that differ, so it counts
+      as placement (decision 20, amended 2026-10-03); the commit above, which only moved code,
+      had run it at 1.069 and 1.049.
+    - Level 6: 1.002 and 1.001 on the N2 and 1.000 and 1.004 on the EPYCs, ten files faster in
+      both runs on the N2 and three on the EPYCs. sum ran at 0.952 and 0.951 on the N2 and 0.950
+      and 0.872 on the EPYCs, for 2.3% less output; cp.html at 0.963 and 0.961, and 0.968 and
+      0.969, for 0.09% more; on the N2 kennedy.xls at 0.959 and 0.964, for 1.5% less, and
+      dickens-1m at 0.990 and 0.989, on the same output.
+    - Level 9: 1.000 and 0.997 on the N2 and 1.000 and 1.000 on the EPYCs. E.coli ran at 0.974
+      in both runs on the N2 and 0.981 and 0.983 on the EPYCs, for 0.09% more output; on the N2
+      cp.html at 0.976 and 0.977, for 0.06% more, sum at 0.989 and 0.984, and json-1m at 0.988 in
+      both, which counts as placement: 0.04% fewer instructions, 0.1% and 0.2% of them in the
+      functions that differ.
+    - Each file slower in both runs, but the two that count as placement, runs more instructions
+      than on main, as counted above. The owner accepted these costs on 2026-10-04 (decision 44).
+
+    On the M1, which publishes no number (decision 10), against the commit of the entry above:
+    level 1 ran eight files of the filter between 0.995 and 1.005 of their time; level 6 six
+    between 0.985 and 1.007, sum at 1.052 and kennedy.xls at 1.032; level 9 seven between 0.988
+    and 1.009, E.coli at 1.021. html-16k, one input repeated, ran at 1.09 to 1.20 of its time at
+    level 1 in one harness and at 1.004 in another: the M1's branch predictor learns one input
+    of 16 KiB repeated, 5.2 cycles an octet, and not 64 slices in rotation, 8.7 on fewer
+    instructions. In rotation, slices of 1 KiB of the four HTTP files of 1 MiB ran at 0.971 to
+    0.986 of their time at level 1, 0.962 to 0.986 at level 6 and 0.986 to 0.995 at level 9, and
+    slices of 16 KiB at 0.981 to 1.007 at the three levels.
+
+    Fuzz runs [37164383786](https://github.com/c4milo/stdx/actions/runs/37164383786), of the
+    first version, and [37170455523](https://github.com/c4milo/stdx/actions/runs/37170455523), of
+    the version that stayed before its functions took their lines (a428756): 2M runs of the
+    module on each of the three runners, and no finding.
+
+    Mutations, on 91394d5, all 51 CAUGHT. 12559d4: the last counts left out; a vector skipped.
+    6812008:
+    - The check: never splits; always splits; no margin on few symbols; the margin on a full
+      check; the kept price off by one; kept past its symbols; never used; the held-back symbols
+      at the block's price; without their price; kept after an uncut; checks every 2048 symbols.
+    - The cuts: a symbol more kept; the slide ignored by a carry; pairs skipped by the recount;
+      end-of-block left out of a carried block.
+    - The prices: the float's exponent bias off by one; no rounding of the fraction; a tally
+      without its total; every code counted as used; a tally without its last counts; a check
+      without them; the newest symbols counted with the rest; a bit more a code in the header's
+      estimate; no fixed part in it; the newest block without end-of-block; end-of-block not a
+      code; the distances priced once.
+    - Slides, flushes and the end: every block crosses; none does; the fixed price wins near
+      ties; no fallback; the fallback only for the last block; the fallback keeps the last
+      block's flag; held-back symbols wait past a flush; no check at the end, at slides, at
+      flushes, between.
+    - The rounds: a round sees a position more; a position fewer; every round ends the stream's
+      positions; the window stays short after the rounds; rounds go on past the limit; level 6
+      decides without rounds.
+    - The levels and the bound: level 1 checks its blocks too; level 9 checks none; the bound
+      counts one block a slide; a block per 16,384 symbols at every level; a block per 4096 at
+      every level.
+    - One mutation never ended: rounds that see a position fewer spun, and the wrapper's loop now
+      asserts each round's progress. One refactoring wrote a stored block whose first octets had
+      left the window, the fallback skipped for a block that was not the last; the crossing test
+      caught it, and an assertion now guards it.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
