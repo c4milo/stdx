@@ -191,8 +191,10 @@ fn decode_counted(comptime options: Options, decoder: *Decoder, input: []const u
         decoder.phase = .refused;
         return err;
     };
-    // The window takes the call's last octets once, whatever the fast path wrote (S5).
-    sync_window(options.claims, decoder, &writer);
+    // The window takes the call's last octets once, whatever the fast path wrote (S5). A call that
+    // ends the stream copies none: nothing reads the window after `done`, since the next stream
+    // starts with `init` (decision 11).
+    if (status != .done) sync_window(options.claims, decoder, &writer);
     // Decision 11's read-ahead rule: hand back the whole octets not used, unless the call ends for
     // want of input, when every octet it holds belongs to the step it could not finish.
     if (status != .needs_input) bits.unread_whole_octets();
