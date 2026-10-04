@@ -27,6 +27,10 @@ pub const Claims = struct {
     /// S12: a length's extra bits in its literal/length entry, when the code and the extra bits fit
     /// the table, so the fast path reads none for most matches. Off, every table builds plain.
     resolved_lengths: bool = true,
+    /// S13: a dynamic block's code lengths read by a loop of their own, the code length code by
+    /// one lookup in a table. Off, the checked steps read every length, a bit of its code at a
+    /// time.
+    code_lengths_loop: bool = true,
 };
 
 /// Each claim off in turn, the A/Bs design §8 step 7 runs.
@@ -38,6 +42,7 @@ pub const each_off = [_]Claims{
     .{ .comptime_fixed_tables = false },
     .{ .combined_entries = false },
     .{ .resolved_lengths = false },
+    .{ .code_lengths_loop = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
@@ -49,4 +54,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "S7 comptime fixed tables",
     "S11 combined entries",
     "S12 resolved lengths",
+    "S13 code lengths' loop",
 };
