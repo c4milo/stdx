@@ -1410,6 +1410,108 @@ to 12 are reordered and nothing else changes.
       asserts each round's progress. One refactoring wrote a stored block whose first octets had
       left the window, the fallback skipped for a block that was not the last; the crossing test
       caught it, and an assertion now guards it.
+  - A block's fixed cost, 2026-10-04, the lever the owner chose after the longer blocks. Callgrind
+    over Linux builds that carry the benchmarks' `memset` counted 53,100 instructions on aarch64
+    for a block of 16,384 symbols, whatever it held: 11.7% of json-1m's encode at level 1. The
+    entry above's 58,000 also counted the fills through Zig's own `memset`, which a benchmark
+    program replaces. A 1 KiB encode took 76,000 in all, 39,800 of them its one block's. A quarter
+    of a block's cost was the header's writer: an item at a time through the checked writer, each
+    with a room test and octet drains. The rest was the plan and its codes: the code lengths
+    taken into runs a length at a time, their items counted for the code length code and priced in
+    two more passes; and the sort, Huffman's three passes and the canonical codes, each looking a
+    count or a length up through a list of symbols.
+
+    Three commits change no output: `differential-encode`'s 819 checks hold with the recorded
+    hashes untouched, and built as the bench builds them the match finder's loops and the symbol
+    writer are main's instructions on both targets.
+    - fec790e writes a header's items four to a put, on the bits a store leaves (decision 14,
+      E5), and the code length code's lengths in one put. The items left, and every item when the
+      output is short, go as before.
+    - a519a0c finds where runs end with one compare of sixteen lengths with the sixteen after
+      them, writes a run too short for a repeat with no call, counts each item's symbol as it
+      writes it, and prices the header from those counts.
+    - 67e08cf sorts keys that hold a symbol's weight above its number, so the counting passes
+      and Huffman's passes read their arrays in order; sorts the two small alphabets with one
+      compare a step; passes 16 unused symbols with one test; takes each length's count from the
+      tree's last pass, where the codes took a pass to count them; and reverses a code with one
+      instruction on aarch64.
+
+    Instructions for one encode, counted with callgrind, at main and after each commit:
+
+    | Encode | aarch64, main | fec790e | a519a0c | 67e08cf | x86-64, main | 67e08cf |
+    |---|---|---|---|---|---|---|
+    | 1 KiB of html-1m, level 1 | 76,037 | 69,407 | 66,104 | 61,310 | 85,570 | 70,236 |
+    | 16 KiB of html-1m, level 1 | 368,677 | 359,701 | 355,849 | 347,865 | 436,479 | 413,855 |
+    | json-1m, level 1 | 14,487,783 | 14,237,358 | 14,121,050 | 13,880,538 | 17,081,525 | 16,426,817 |
+    | 1 KiB of html-1m, level 6 | 118,715 | 112,078 | 108,772 | 103,975 | 138,926 | 123,578 |
+
+    The slices of html-1m are encoded in rotation, 1024 of 1 KiB and 64 of 16 KiB. A block of
+    16,384 symbols now costs 33,900 instructions on aarch64 and the block of a 1 KiB encode
+    24,800, where they cost 53,100 and 39,800.
+
+    The header's items through the bit writer's store were tried on 2026-09-29, a store an item,
+    and not kept for costing the M1 3% on the 1 KiB files and 23% on html-16k. A header takes
+    under 5% of a 16 KiB encode: that harness repeated one input, which the M1's branch predictor
+    learns (the entry above). The owner admitted four items a put on 2026-10-04, on the numbers
+    that follow. On slices in rotation the M1, which publishes no number (decision 10), runs the
+    three commits against main at 0.816 to 0.837 of its time on 1 KiB at level 1, 0.869 to 0.890
+    at level 6 and 0.883 to 0.906 at level 9, over the four HTTP files of 1 MiB; on 16 KiB at
+    0.941 to 0.985, 0.977 to 0.996 and 0.980 to 1.007. Whole files retire 0.9% to 4.4% fewer
+    instructions at level 1, 0.1% to 2.6% at level 6 and 0.1% to 1.0% at level 9.
+
+    Bench runs [37223821735](https://github.com/c4milo/stdx/actions/runs/37223821735) and
+    [37223824084](https://github.com/c4milo/stdx/actions/runs/37223824084) paired main (5da4397)
+    and the three commits (67e08cf on their branch) in each job, on a Neoverse N2 in both and on
+    an EPYC 9V45 and an EPYC 9V74. No file ran slower in both runs at any level on either
+    architecture. On the N2 and the EPYC 9V74 zlib, zlib-ng and libdeflate held at 0.995 to 1.003
+    of their speed at the median.
+    - Level 1: 1.023 and 1.025 of its speed at the median on the N2, 33 files faster in both
+      runs: the 1 KiB files at 1.17 to 1.32, grammar.lsp, xargs.1 and json-16k at 1.07 to 1.15,
+      the larger files at 1.01 to 1.04 and E.coli level. On the EPYC 9V74 1.016, the 1 KiB files
+      at 1.09 to 1.12. stdx over libdeflate at the median went from 1.07 to 1.10 and 1.11 on the
+      N2, and from 1.02 to 1.04 on the 9V74.
+    - Level 6: 1.006 on the N2 in both runs, 14 files faster, the 1 KiB files at 1.10 to 1.22;
+      1.000 on the EPYC 9V74.
+    - Level 9: 1.003 on the N2, six files faster, the 1 KiB files at 1.08 to 1.25; 1.001 on the
+      EPYC 9V74.
+    - On the EPYC 9V45 the baselines themselves ran at 1.024 to 1.045 of their speed in the
+      change's phase, so that job's medians, 1.074, 1.052 and 1.037, carry drift; stdx over
+      libdeflate went from 1.013 to 1.050 there at level 1.
+    - The runners repeat each file, so their 1 KiB rows time an input the branch predictor has
+      learned, as the M1's rows in rotation do not.
+
+    A local fuzz pass of 40,000 runs over the module found nothing, and run
+    [37227481936](https://github.com/c4milo/stdx/actions/runs/37227481936), 2M runs on each of the
+    three runners, was under way when the commits landed.
+
+    Mutations, on 67e08cf, all 39 CAUGHT.
+    - fec790e: a put of items without an item's extra bits; an item's bits counted without
+      them; items stored with no room for a store; the items left after the puts skipped; a put
+      counted twice; the code length code's lengths put again after a full output; their put a
+      length short; a length at its index, not three bits each; the lengths in symbol order.
+    - a519a0c: a run's end sought a length late; no value after the last run; the second table
+      left out; a short run counted as one symbol; written as one item; a run of three on the
+      short path; a repeat not counted; a run's first length not counted; the lengths after the
+      repeats not counted; the counts not cleared; a run started at its last length; the header's
+      price without the items' extra bits; without the code length code's lengths; symbol 18's
+      items at symbol 17's extra bits.
+    - 67e08cf: a group with a symbol that occurs passed by; the symbols after the last whole
+      group not listed; a key in the slot after the last; the second pass on the low octet again;
+      the heaviest key sought in whole vectors alone; weights from whole vectors alone; a weight
+      with its symbol's bits; insertion with a heavier key first; the counting pass turning equal
+      keys round; a depth with a leaf too many; a depth's leaves not counted; package-merge's
+      lengths not counted, which a new test of the listed builders catches; the first codes
+      without their shift; a code not reversed; a code reversed over a bit more; a key from its
+      symbol's low octet.
+    - Built for baseline x86-64 Linux and run under emulation, the module's 106 tests pass: the
+      Mac runs aarch64's one instruction where x86-64 reverses a code through its table.
+
+    Not kept: a slot after Huffman's nodes that no node is lighter than, to drop each join's two
+    end tests, saved 185 instructions a block.
+
+    What a small stream still pays: `init` clears the heads, 32 KiB at level 1 and 64 KiB at
+    levels 6 and 9, about 5,000 and 10,000 instructions with the benchmarks' `memset`, 8% to 10%
+    of a 1 KiB encode. Decision 11 allows `init` that clear.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
