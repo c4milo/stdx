@@ -3,9 +3,13 @@
 //! each, the median and the spread reported, and the losses shown. The timing is
 //! bench/timing/timing.zig's.
 //!
-//! - Decoding: the gzip decoders of zlib, zlib-ng, libdeflate, Wuffs and stdx over each corpus file,
-//!   encoded by zlib at level 6, its default and the level HTTP servers commonly use. Throughput
-//!   counts decoded octets. Each decoder's output is compared with the input before any is timed.
+//! - The rows: one a corpus file, taken whole, but for the 1 KiB and 16 KiB HTTP bodies, which a
+//!   row codes as the slices of their 1 MiB payload, one stream a slice, one after another
+//!   (decision 45, bench/timing/inputs.zig).
+//! - Decoding: the gzip decoders of zlib, zlib-ng, libdeflate, Wuffs and stdx over each row's
+//!   streams, encoded by zlib at level 6, its default and the level HTTP servers commonly use.
+//!   Throughput counts decoded octets. Each decoder's output is compared with the input before any
+//!   is timed.
 //! - stdx's paths: its raw DEFLATE decoder with the fast path of decision 16 and on its checked
 //!   path alone, the A/B that admits the fast path, over the same streams without the container.
 //!   The checked path's decoder takes claims no other candidate takes (`checked_claims`).
@@ -43,6 +47,8 @@ const baselines = @import("baselines");
 const bench_options = @import("bench_options");
 const checksum = @import("checksum");
 const deflate_encode = @import("deflate_encode.zig");
+const inputs = timing.inputs;
+const Input = inputs.Input;
 
 /// The output each call of S10's A/B takes: a caller's buffer of a common size.
 const split_output_len = 64 * 1024;
@@ -50,43 +56,54 @@ const split_output_len = 64 * 1024;
 /// The zlib level whose streams the decoders are timed on.
 const decode_level: c_int = 6;
 
-/// A decode of one gzip stream by one oracle, into a buffer sized for its output.
+/// zlib's encoder at `decode_level`, which writes one stream a part for the decoders
+/// (`inputs.streams`).
+const Streams = struct {
+    container: oracle.Container,
+    strategy: oracle.Strategy = .default,
+
+    pub fn bound(self: Streams, part_len: usize) usize {
+        return oracle.zlib_bound(self.container, part_len);
+    }
+
+    pub fn encode(self: Streams, part: []const u8, room: []u8) ?usize {
+        const encoding: oracle.Encoding = .{ .container = self.container, .level = decode_level, .strategy = self.strategy };
+        const result = oracle.zlib_encode(encoding, part, room);
+        return if (result.verdict == .ok) result.written else null;
+    }
+};
+
+/// A decode of one gzip stream by one oracle, into a buffer sized for a part.
 const Decode = struct {
-    stream: []const u8,
     output: []u8,
     decode: *const fn (oracle.Container, []const u8, []u8) oracle.Result,
 
-    fn run_once(context: *const anyopaque) void {
-        const self: *const Decode = @ptrCast(@alignCast(context));
-        const result = self.decode(.gzip, self.stream, self.output);
-        std.debug.assert(result.verdict == .ok);
+    pub fn run(self: *const Decode, stream: []const u8) ?usize {
+        const result = self.decode(.gzip, stream, self.output);
+        return if (result.verdict == .ok) result.written else null;
     }
 };
 
 /// A decode of one gzip stream by a baseline that is not an oracle.
 const BaselineDecode = struct {
-    stream: []const u8,
     output: []u8,
     decode: *const fn ([]const u8, []u8) ?usize,
 
-    fn run_once(context: *const anyopaque) void {
-        const self: *const BaselineDecode = @ptrCast(@alignCast(context));
-        std.debug.assert(self.decode(self.stream, self.output) == self.output.len);
+    pub fn run(self: *const BaselineDecode, stream: []const u8) ?usize {
+        return self.decode(stream, self.output);
     }
 };
 
 /// A decode of one gzip stream by stdx's decoder, in one call.
 const StdxDecode = struct {
-    stream: []const u8,
     output: []u8,
     decoder: *gzip.Decoder,
     features: codec.Features,
 
-    fn run_once(context: *const anyopaque) void {
-        const self: *const StdxDecode = @ptrCast(@alignCast(context));
+    pub fn run(self: *const StdxDecode, stream: []const u8) ?usize {
         gzip.init(self.decoder, self.features);
-        const progress = gzip.decode(self.decoder, self.stream, self.output) catch unreachable;
-        std.debug.assert(progress.status == .done and progress.written == self.output.len);
+        const progress = gzip.decode(self.decoder, stream, self.output) catch return null;
+        return if (progress.status == .done) progress.written else null;
     }
 };
 
@@ -97,20 +114,18 @@ fn RawDecode(comptime options: deflate.Options) type {
     return struct {
         const Self = @This();
 
-        stream: []const u8,
         output: []u8,
         decoder: *deflate.Decoder,
         features: codec.Features,
 
-        fn run_once(context: *const anyopaque) void {
-            const self: *const Self = @ptrCast(@alignCast(context));
+        pub fn run(self: *const Self, stream: []const u8) ?usize {
             deflate.init(self.decoder, self.features);
             // Out of line, so every candidate's entry takes the same shape. LLVM inlines a function
             // by how many callers it has, and the gzip decoder and S10's decodes call all on's
             // entry through `deflate.decode`, so LLVM kept that one out of line and inlined each
             // other candidate's here.
-            const progress = @call(.never_inline, deflate.decode_with, .{ options, self.decoder, self.stream, self.output }) catch unreachable;
-            std.debug.assert(progress.status == .done and progress.written == self.output.len);
+            const progress = @call(.never_inline, deflate.decode_with, .{ options, self.decoder, stream, self.output }) catch return null;
+            return if (progress.status == .done) progress.written else null;
         }
     };
 }
@@ -137,53 +152,54 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
 
-    var files: std.ArrayList(File) = .empty;
+    var files: std.ArrayList(inputs.File) = .empty;
     for (args[1..]) |argument| {
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse return error.UsageNameEqualsPath;
-        const input = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
-        try files.append(arena, .{ .name = argument[0..split], .input = input });
+        const octets = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
+        try files.append(arena, .{ .name = argument[0..split], .octets = octets });
     }
+    const rows = try inputs.of(arena, files.items);
 
     if (bench_options.release_fast) {
         try out.print("\n## stdx built ReleaseFast: its fast path against its checked path (decision 17)\n\n", .{});
+        try inputs.note(out, rows);
         try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
-        for (files.items) |file| try report_paths(arena, io, out, file);
+        for (rows) |row| try report_paths(arena, io, out, row);
         try out.flush();
         return;
     }
     if (bench_options.x86_64_v3) {
         try out.print("\n## Decoding, gzip at zlib level {d}, stdx built for x86-64-v3\n\n", .{decode_level});
-        try report_decodes(arena, io, out, files.items);
+        try report_decodes(arena, io, out, rows);
         try out.flush();
         return;
     }
     try out.print("## Decoding, gzip at zlib level {d}\n\n", .{decode_level});
-    try report_decodes(arena, io, out, files.items);
+    try report_decodes(arena, io, out, rows);
     try out.print("\n## stdx's fast path against its checked path, raw DEFLATE at zlib level {d}\n\n", .{decode_level});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | Checked, MB/s | Fast, MB/s | Fast / checked |\n|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_paths(arena, io, out, file);
+    for (rows) |row| try report_paths(arena, io, out, row);
     try out.print("\n## Decision 14's claims, each off against the fast path with all on, raw DEFLATE at zlib level {d}\n\n", .{decode_level});
     try out.print("Each claim's column is its throughput with the claim off over the throughput with all on.\n\n", .{});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | All on, MB/s |", .{});
     for (deflate.claims.each_off_names) |name| try out.print(" {s} off |", .{name});
     try out.print("\n|---|---|---|---|", .{});
     for (deflate.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
-    for (files.items) |file| try report_claims(arena, io, out, file);
+    for (rows) |row| try report_claims(arena, io, out, row);
     try out.print("\n## S7 on fixed-code streams: zlib's fixed strategy at level {d}, raw DEFLATE\n\n", .{decode_level});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | All on, MB/s | S7 comptime fixed tables off, MB/s | Off / on |\n|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_fixed_tables(arena, io, out, file);
+    for (rows) |row| try report_fixed_tables(arena, io, out, row);
     try out.print("\n## S10: the checksum over each call's output against one pass after the stream, calls of {d} octets\n\n", .{split_output_len});
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | Per call, MB/s | After the stream, MB/s | After / per call |\n|---|---|---|---|---|---|\n", .{});
-    for (files.items) |file| try report_checksum_order(arena, io, out, file);
-    try deflate_encode.report(arena, io, out, files.items);
+    for (rows) |row| try report_checksum_order(arena, io, out, row);
+    try deflate_encode.report(arena, io, out, rows);
     try out.flush();
 }
-
-const File = struct {
-    name: []const u8,
-    input: []const u8,
-};
 
 /// The median rate of each candidate's runs over `len` octets, and its spread in percent.
 fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, len: usize) [2][count]f64 {
@@ -196,121 +212,71 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
     return result;
 }
 
-/// The decoding table: every gzip decoder over each file.
-fn report_decodes(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, files: []const File) !void {
+/// The decoding table: every gzip decoder over each row.
+fn report_decodes(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, rows: []const Input) !void {
+    try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
     try out.print("|---|---|---|---|---|---|---|---|---|\n", .{});
-    for (files) |file| try report_decode(arena, io, out, file);
+    for (rows) |row| try report_decode(arena, io, out, row);
 }
 
-fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const encoded = try arena.alloc(u8, oracle.zlib_bound(.gzip, file.input.len));
-    const encoding: oracle.Encoding = .{ .container = .gzip, .level = decode_level, .strategy = .default };
-    const stream = encoded[0..oracle.zlib_encode(encoding, file.input, encoded).written];
-    const zlib: Decode = .{ .stream = stream, .output = try arena.alloc(u8, file.input.len), .decode = oracle.zlib_decode };
-    const zlib_ng: BaselineDecode = .{ .stream = stream, .output = try arena.alloc(u8, file.input.len), .decode = baselines.zlib_ng_gzip_decode };
-    const libdeflate: BaselineDecode = .{ .stream = stream, .output = try arena.alloc(u8, file.input.len), .decode = baselines.libdeflate_gzip_decode };
-    const wuffs: Decode = .{ .stream = stream, .output = try arena.alloc(u8, file.input.len), .decode = oracle.wuffs_decode };
-    const stdx: StdxDecode = .{
-        .stream = stream,
-        .output = try arena.alloc(u8, file.input.len),
-        .decoder = try arena.create(gzip.Decoder),
-        .features = codec.Features.detect(),
-    };
-    const candidates = [_]timing.Operation{
-        .{ .context = &zlib, .run_once = Decode.run_once },
-        .{ .context = &zlib_ng, .run_once = BaselineDecode.run_once },
-        .{ .context = &libdeflate, .run_once = BaselineDecode.run_once },
-        .{ .context = &wuffs, .run_once = Decode.run_once },
-        .{ .context = &stdx, .run_once = StdxDecode.run_once },
-    };
-    // Every candidate decodes the input back before any is timed.
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    for ([_][]const u8{ zlib.output, zlib_ng.output, libdeflate.output, wuffs.output, stdx.output }) |output| {
-        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
+fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const coded = try inputs.streams(arena, input, Streams{ .container = .gzip });
+    const zlib: Decode = .{ .output = try arena.alloc(u8, input.part_len), .decode = oracle.zlib_decode };
+    const zlib_ng: BaselineDecode = .{ .output = try arena.alloc(u8, input.part_len), .decode = baselines.zlib_ng_gzip_decode };
+    const libdeflate: BaselineDecode = .{ .output = try arena.alloc(u8, input.part_len), .decode = baselines.libdeflate_gzip_decode };
+    const wuffs: Decode = .{ .output = try arena.alloc(u8, input.part_len), .decode = oracle.wuffs_decode };
+    const stdx: StdxDecode = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(gzip.Decoder), .features = codec.Features.detect() };
+    // Every candidate decodes every part back before any is timed.
+    var candidates: [5]timing.Operation = undefined;
+    inline for (.{ zlib, zlib_ng, libdeflate, wuffs, stdx }, 0..) |candidate, index| {
+        candidates[index] = try inputs.decoder_operation(arena, candidate, coded, input);
     }
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
-    const rates = rates_of(candidates.len, &runs, file.input.len);
+    const rates = rates_of(candidates.len, &runs, input.len());
     const fastest_other = @max(@max(rates[0][0], rates[0][1]), @max(rates[0][2], rates[0][3]));
-    try out.print("| {s} | {d} | {d:.1} |", .{ file.name, file.input.len, compressed_percent(stream, file.input) });
+    try out.print("| {s} | {d} | {d:.1} |", .{ input.name, input.len(), compressed_percent(coded, input) });
     for (rates[0], rates[1]) |rate, spread| try out.print(" {d:.0} ± {d:.1}% |", .{ rate, spread });
     try out.print(" {d:.2} |\n", .{rates[0][4] / fastest_other});
 }
 
-fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const encoded = try arena.alloc(u8, oracle.zlib_bound(.raw, file.input.len));
-    const encoding: oracle.Encoding = .{ .container = .raw, .level = decode_level, .strategy = .default };
-    const stream = encoded[0..oracle.zlib_encode(encoding, file.input, encoded).written];
-    const checked: RawDecode(.{ .fast_paths = false, .claims = checked_claims }) = .{
-        .stream = stream,
-        .output = try arena.alloc(u8, file.input.len),
-        .decoder = try arena.create(deflate.Decoder),
-        .features = codec.Features.detect(),
-    };
-    const fast: RawDecode(.{}) = .{
-        .stream = stream,
-        .output = try arena.alloc(u8, file.input.len),
-        .decoder = try arena.create(deflate.Decoder),
-        .features = codec.Features.detect(),
-    };
+fn report_paths(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const coded = try inputs.streams(arena, input, Streams{ .container = .raw });
     const candidates = [_]timing.Operation{
-        .{ .context = &checked, .run_once = @TypeOf(checked).run_once },
-        .{ .context = &fast, .run_once = @TypeOf(fast).run_once },
+        try raw_candidate(.{ .fast_paths = false, .claims = checked_claims }, arena, coded, input),
+        try raw_candidate(.{}, arena, coded, input),
     };
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    if (!std.mem.eql(u8, file.input, checked.output) or !std.mem.eql(u8, file.input, fast.output)) return error.CandidatesDisagree;
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
-    const rates = rates_of(candidates.len, &runs, file.input.len);
+    const rates = rates_of(candidates.len, &runs, input.len());
     try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, compressed_percent(stream, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+        input.name,                input.len(), compressed_percent(coded, input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }
 
-/// The stream's size as a percentage of the file's: the compression the decoders decode at.
-fn compressed_percent(stream: []const u8, input: []const u8) f64 {
-    return 100 * @as(f64, @floatFromInt(stream.len)) / @as(f64, @floatFromInt(input.len));
+/// The streams' size as a percentage of the row's octets: the compression the decoders decode at.
+fn compressed_percent(coded: []const []const u8, input: Input) f64 {
+    return inputs.compressed_percent(inputs.total_len(coded), input);
 }
 
-/// The raw DEFLATE stream zlib encodes from `input` at `decode_level`.
-fn raw_stream(arena: std.mem.Allocator, input: []const u8) ![]const u8 {
-    return raw_stream_with(arena, input, .default);
+/// A raw decode on `options`'s paths, checked over `coded` against `input` and placed for timing.
+fn raw_candidate(comptime options: deflate.Options, arena: std.mem.Allocator, coded: []const []const u8, input: Input) !timing.Operation {
+    const candidate: RawDecode(options) = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(deflate.Decoder), .features = codec.Features.detect() };
+    return inputs.decoder_operation(arena, candidate, coded, input);
 }
 
-/// The raw DEFLATE stream zlib encodes from `input` at `decode_level` with `strategy`.
-fn raw_stream_with(arena: std.mem.Allocator, input: []const u8, strategy: oracle.Strategy) ![]const u8 {
-    const encoded = try arena.alloc(u8, oracle.zlib_bound(.raw, input.len));
-    const encoding: oracle.Encoding = .{ .container = .raw, .level = decode_level, .strategy = strategy };
-    return encoded[0..oracle.zlib_encode(encoding, input, encoded).written];
-}
-
-/// A raw decode on `options`'s paths, placed for timing.
-fn raw_candidate(comptime options: deflate.Options, arena: std.mem.Allocator, stream: []const u8, len: usize) !struct { timing.Operation, []const u8 } {
-    const Candidate = RawDecode(options);
-    const candidate = try arena.create(Candidate);
-    candidate.* = .{ .stream = stream, .output = try arena.alloc(u8, len), .decoder = try arena.create(deflate.Decoder), .features = codec.Features.detect() };
-    return .{ .{ .context = candidate, .run_once = Candidate.run_once }, candidate.output };
-}
-
-fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const stream = try raw_stream(arena, file.input);
+fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const coded = try inputs.streams(arena, input, Streams{ .container = .raw });
     const claims = deflate.claims.each_off;
     var candidates: [1 + claims.len]timing.Operation = undefined;
-    var outputs: [1 + claims.len][]const u8 = undefined;
-    candidates[0], outputs[0] = try raw_candidate(.{}, arena, stream, file.input.len);
-    inline for (claims, 1..) |off, index| {
-        candidates[index], outputs[index] = try raw_candidate(.{ .claims = off }, arena, stream, file.input.len);
-    }
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    for (outputs) |output| {
-        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
-    }
+    candidates[0] = try raw_candidate(.{}, arena, coded, input);
+    inline for (claims, 1..) |off, index| candidates[index] = try raw_candidate(.{ .claims = off }, arena, coded, input);
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
-    const rates = rates_of(candidates.len, &runs, file.input.len);
-    try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% |", .{ file.name, file.input.len, compressed_percent(stream, file.input), rates[0][0], rates[1][0] });
+    const rates = rates_of(candidates.len, &runs, input.len());
+    try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% |", .{ input.name, input.len(), compressed_percent(coded, input), rates[0][0], rates[1][0] });
     for (rates[0][1..], rates[1][1..]) |rate, spread| try out.print(" {d:.2} ± {d:.1}% |", .{ rate / rates[0][0], spread });
     try out.print("\n", .{});
 }
@@ -318,24 +284,22 @@ fn report_claims(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file
 /// A decode in calls of `split_output_len` octets: gzip's, which checksums each call's output, or
 /// the raw decoder's with one CRC-32 pass over the whole output after the last call.
 const SplitDecode = struct {
-    stream: []const u8,
     output: []u8,
     gzip_decoder: *gzip.Decoder,
     raw_decoder: *deflate.Decoder,
     features: codec.Features,
     checksum_after: bool,
 
-    fn run_once(context: *const anyopaque) void {
-        const self: *const SplitDecode = @ptrCast(@alignCast(context));
+    pub fn run(self: *const SplitDecode, stream: []const u8) ?usize {
         if (self.checksum_after) {
             deflate.init(self.raw_decoder, self.features);
-            const written = split(deflate.Decoder, self.raw_decoder, deflate.decode, self.stream, self.output);
+            const written = split(deflate.Decoder, self.raw_decoder, deflate.decode, stream, self.output);
             const path = checksum.Crc32Path.fastest(checksum.Features.from(self.features));
             std.mem.doNotOptimizeAway(checksum.crc32(path, gzip.constants.crc32_initial, self.output[0..written]));
-        } else {
-            gzip.init(self.gzip_decoder, self.features);
-            _ = split(gzip.Decoder, self.gzip_decoder, gzip.decode, self.stream, self.output);
+            return written;
         }
+        gzip.init(self.gzip_decoder, self.features);
+        return split(gzip.Decoder, self.gzip_decoder, gzip.decode, stream, self.output);
     }
 
     /// Decodes the whole stream into `output`, `split_output_len` octets of room a call. Returns the
@@ -354,56 +318,43 @@ const SplitDecode = struct {
     }
 };
 
-fn report_checksum_order(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const encoded = try arena.alloc(u8, oracle.zlib_bound(.gzip, file.input.len));
-    const encoding: oracle.Encoding = .{ .container = .gzip, .level = decode_level, .strategy = .default };
-    const gzip_stream = encoded[0..oracle.zlib_encode(encoding, file.input, encoded).written];
+fn report_checksum_order(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const gzip_coded = try inputs.streams(arena, input, Streams{ .container = .gzip });
+    const raw_coded = try inputs.streams(arena, input, Streams{ .container = .raw });
     const per_call: SplitDecode = .{
-        .stream = gzip_stream,
-        .output = try arena.alloc(u8, file.input.len),
+        .output = try arena.alloc(u8, input.part_len),
         .gzip_decoder = try arena.create(gzip.Decoder),
         .raw_decoder = try arena.create(deflate.Decoder),
         .features = codec.Features.detect(),
         .checksum_after = false,
     };
-    const after: SplitDecode = .{
-        .stream = try raw_stream(arena, file.input),
-        .output = try arena.alloc(u8, file.input.len),
-        .gzip_decoder = per_call.gzip_decoder,
-        .raw_decoder = per_call.raw_decoder,
-        .features = per_call.features,
-        .checksum_after = true,
-    };
+    var after = per_call;
+    after.output = try arena.alloc(u8, input.part_len);
+    after.checksum_after = true;
     const candidates = [_]timing.Operation{
-        .{ .context = &per_call, .run_once = SplitDecode.run_once },
-        .{ .context = &after, .run_once = SplitDecode.run_once },
+        try inputs.decoder_operation(arena, per_call, gzip_coded, input),
+        try inputs.decoder_operation(arena, after, raw_coded, input),
     };
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    if (!std.mem.eql(u8, file.input, per_call.output) or !std.mem.eql(u8, file.input, after.output)) return error.CandidatesDisagree;
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
-    const rates = rates_of(candidates.len, &runs, file.input.len);
+    const rates = rates_of(candidates.len, &runs, input.len());
     try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, compressed_percent(gzip_stream, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+        input.name,                input.len(), compressed_percent(gzip_coded, input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }
 
-fn report_fixed_tables(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, file: File) !void {
-    const stream = try raw_stream_with(arena, file.input, .fixed);
-    var candidates: [2]timing.Operation = undefined;
-    var outputs: [2][]const u8 = undefined;
-    candidates[0], outputs[0] = try raw_candidate(.{}, arena, stream, file.input.len);
-    candidates[1], outputs[1] = try raw_candidate(.{ .claims = .{ .comptime_fixed_tables = false } }, arena, stream, file.input.len);
-    for (candidates) |candidate| candidate.run_once(candidate.context);
-    for (outputs) |output| {
-        if (!std.mem.eql(u8, file.input, output)) return error.CandidatesDisagree;
-    }
+fn report_fixed_tables(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, input: Input) !void {
+    const coded = try inputs.streams(arena, input, Streams{ .container = .raw, .strategy = .fixed });
+    const candidates = [_]timing.Operation{
+        try raw_candidate(.{}, arena, coded, input),
+        try raw_candidate(.{ .claims = .{ .comptime_fixed_tables = false } }, arena, coded, input),
+    };
     var runs: [candidates.len][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
-    const rates = rates_of(candidates.len, &runs, file.input.len);
+    const rates = rates_of(candidates.len, &runs, input.len());
     try out.print("| {s} | {d} | {d:.1} | {d:.0} ± {d:.1}% | {d:.0} ± {d:.1}% | {d:.2} |\n", .{
-        file.name,                 file.input.len, compressed_percent(stream, file.input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
+        input.name,                input.len(), compressed_percent(coded, input), rates[0][0], rates[1][0], rates[0][1], rates[1][1],
         rates[0][1] / rates[0][0],
     });
 }
