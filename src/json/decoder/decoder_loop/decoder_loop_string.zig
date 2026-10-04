@@ -21,6 +21,7 @@ const Claims = @import("../../claims.zig").Claims;
 const string_walk = @import("../../string_walk.zig");
 const Walk = string_walk.Walk;
 const hex_value = @import("../decoder_string.zig").hex_value;
+const looking = @import("decoder_loop_looks.zig");
 
 /// What a string's content took: its octets in the input, up to its closing quotation mark, and
 /// the octets written for them.
@@ -67,7 +68,9 @@ extern fn stdx_json_copy_rest_x86_64_avx2(rest: [*]const u8, rest_len: usize, ro
 /// in memory on every x86-64 CPU, whether or not it ran, and hex strings and tokens, which never
 /// reach it, ran 5% to 10% slower on an AMD EPYC 7763 (design §8 step 18).
 pub inline fn copy_rest_at(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
-    if (comptime !wide.has_kernels or !std.meta.eql(claims, Claims{})) return copy_rest(claims, level, rest, room);
+    // Never inline: with claim J13 `copy_rest` is short, and inlined into the token loop it cost
+    // each token of CLDR's texts 1.15 instructions on aarch64, with a string in 180 reaching it.
+    if (comptime !wide.has_kernels or !std.meta.eql(claims, Claims{})) return @call(.never_inline, copy_rest, .{ claims, level, rest, room });
     return copy_rest_kernel_or_here(level, rest, room);
 }
 
@@ -85,26 +88,93 @@ noinline fn copy_rest_kernel_or_here(level: wide.Level, rest: []const u8, room: 
 /// EPYC 7763 and an EPYC 9V74 (string_walk.zig, design §8 step 18).
 const two_loops = true;
 
+/// What the walk left of a stretch and of its room, and whether the string's closing quotation
+/// mark stopped it, which then starts what is left of the stretch. What else stops it starts
+/// what is left too: the stretch's end, or an octet the walk does not take.
+///
+/// It holds what is left, which the walk has in registers wherever it ends. Reporting what it
+/// took, the walk kept the stretch's and the room's lengths in two registers for its five ends,
+/// and on x86-64 the count of its passes then went to the stack around each run of blocks.
+/// `copied` subtracts, checked, in the caller. It is two words, which a call returns in registers.
+pub const Walked = packed struct {
+    input_left: usize,
+    output_left: OutputLeft,
+    closed: bool,
+
+    /// A count of a room's octets, in a word less the bit `closed` takes.
+    pub const OutputLeft = std.meta.Int(.unsigned, @bitSizeOf(usize) - 1);
+
+    /// What the walk took of `stretch` and wrote into `room`, the slices it was given.
+    pub inline fn copied(self: Walked, stretch: []const u8, room: []const u8) Copied {
+        return .{ .input_len = stretch.len - self.input_left, .output_len = room.len - self.output_left };
+    }
+};
+
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
 /// where the checked path must take the string.
 pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) ?Copied {
-    var walk: Walk = .{ .input = rest, .output = room };
+    if (comptime looking.has_blocks(claims)) {
+        var looks: looking.Looks = undefined;
+        return copy_rest_looking(claims, level, rest, room, &looks);
+    }
+    const walked = walk_out_of_line(claims, level, rest, room);
+    if (walked.closed) return walked.copied(rest, room);
+    return null;
+}
+
+/// `copy_rest` with claim J13: the walk takes the string a stretch at a time. The first is
+/// `constants.escape_look_len_first` octets, so a string the walk closes inside it pays the claim
+/// a comparison, and `looking.copy` takes a longer one on, with `looks`, which is set only then;
+/// the tests read it.
+pub inline fn copy_rest_looking(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8, looks: *looking.Looks) ?Copied {
+    const stretch = rest[0..@min(rest.len, constants.escape_look_len_first)];
+    const first = walk_out_of_line(claims, level, stretch, room);
+    if (first.closed) return first.copied(stretch, room);
+    looks.* = .{};
+    return looking.copy(claims, level, rest, room, first, looks);
+}
+
+/// Walks a stretch of a string from its start into `room`: copies each run the string carries as
+/// it is, takes the escape that stops the run, and scans again from the octet after it. It ends
+/// at the string's closing quotation mark, at the stretch's end, or at an octet it does not take.
+///
+/// It returns from inside its loop, once for each way it ends: with a pass of the loop in a
+/// function of its own that named how it ended, x86-64 took 3% to 6% more instructions an octet
+/// of text (design §8 step 18).
+pub fn walk_stretch(comptime claims: Claims, level: wide.Level, stretch: []const u8, room: []u8) align(constants.kernel_alignment) Walked {
+    var walk: Walk = .{ .input = stretch, .output = room };
     // Each pass takes at least one octet, or returns.
-    for (0..rest.len + 1) |_| {
+    for (0..stretch.len + 1) |_| {
         // An escape that follows an escape is taken at once, with no block walked to find it: a text
         // of lines that end in a carriage return and a line feed has two at each line's end.
         if (walk.input.len == 0 or walk.input[0] != constants.reverse_solidus) {
-            if (!walk.take_to_stop(claims, two_loops, level, rest, room)) return null;
-            if (walk.input.len == 0) return null;
+            if (!walk.take_to_stop(claims, two_loops, level, stretch, room)) return walked_of(&walk, false);
+            if (walk.input.len == 0) return walked_of(&walk, false);
         }
         switch (walk.input[0]) {
-            constants.quotation_mark => return .{ .input_len = rest.len - walk.input.len, .output_len = room.len - walk.output.len },
-            constants.reverse_solidus => if (!take_escape(claims, &walk)) return null,
-            else => return null,
+            constants.quotation_mark => return walked_of(&walk, true),
+            constants.reverse_solidus => if (!take_escape(claims, &walk)) return walked_of(&walk, false),
+            else => return walked_of(&walk, false),
         }
     }
     unreachable;
+}
+
+/// What `walk` left, and whether the string's closing quotation mark stopped it. A room holds
+/// fewer octets than the bit `closed` takes counts, so the cast drops none: checked here, at
+/// each way the walk ends, it took x86-64 four instructions a run of blocks.
+inline fn walked_of(walk: *const Walk, closed: bool) Walked {
+    return .{ .input_left = walk.input.len, .output_left = @truncate(walk.output.len), .closed = closed };
+}
+
+/// `walk_stretch` out of line: the one copy of the walk in a program, for a string's first
+/// stretch and for each after it, and for a whole string where claim J13 is off. With the first
+/// stretch walked inline and the later ones out of line, a long string ran a second copy of the
+/// walk, whose branches the N2 took worse: bible.txt decoded at 0.76 of main's speed there
+/// (design §8 step 18).
+pub inline fn walk_out_of_line(comptime claims: Claims, level: wide.Level, stretch: []const u8, room: []u8) Walked {
+    return @call(.never_inline, walk_stretch, .{ claims, level, stretch, room });
 }
 
 /// Takes the escape that starts the walk's input (RFC 8259 §7): writes the character it names,

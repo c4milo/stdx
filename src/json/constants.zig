@@ -139,6 +139,28 @@ pub const ascii_case_bit: u8 = 0x20;
 /// and punctuation between two escaped words, before it leaves a longer run to the walk's blocks.
 pub const escape_gap_len_max = 8;
 
+/// Where claim J13's blocks take a string over from the walk that stops at each escape, and where
+/// they hand it back (decoder_loop_escapes.zig). The walk takes a stretch of the string,
+/// `escape_look_len_first` octets at first, and `copy_rest` looks at what it took: where the
+/// escapes dropped an octet in every `escape_dense_octets_max`, the blocks take over. They hand
+/// back at an octet they do not take, and after `escape_quiet_blocks_max` blocks in a row with no
+/// reverse solidus. Where they took `escape_useful_len_min` octets or more, the walk's next
+/// stretch is `escape_look_len_min` octets; after fewer, and after a look that found the escapes
+/// far apart, it is twice the last, up to `escape_look_len_max`.
+///
+/// A stretch's end costs the walk about 170 instructions on aarch64: the octets short of a block
+/// that end it, the look, and the call for the next stretch. So a string shorter than the first
+/// stretch pays the claim nothing but the walk's call, and one just past it 2%; a first stretch
+/// of 512 octets cost a string of 600 octets with one escape a half more. On the N2 a block's
+/// shuffle costs about what the walk's stop at one escape costs, so the blocks gain only where
+/// a block holds more than one (design §8 step 18).
+pub const escape_look_len_first = 4096;
+pub const escape_look_len_min = 256;
+pub const escape_look_len_max = 65536;
+pub const escape_dense_octets_max = 12;
+pub const escape_quiet_blocks_max = 2;
+pub const escape_useful_len_min = 256;
+
 /// The bits of one hexadecimal digit, and the digits of one octet.
 pub const nibble_bits = 4;
 pub const nibble_mask: u8 = 0x0f;
@@ -247,6 +269,8 @@ comptime {
     assert(vector_len * @bitSizeOf(u8) == 128);
     if (builtin.cpu.arch == .x86_64 or builtin.cpu.arch == .aarch64) assert(vectors);
     assert(escape_letters.len == escaped_characters.len);
+    // A look comes no sooner than the shortest stretch and no later than the longest.
+    assert(escape_look_len_first >= escape_look_len_min and escape_look_len_max >= escape_look_len_first);
     assert(control_max + 1 == unescaped_min);
     assert(hex_digits_lower.len == 1 << nibble_bits);
     assert(literal_true.len <= literal_len_max and literal_null.len <= literal_len_max);

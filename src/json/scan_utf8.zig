@@ -244,7 +244,7 @@ fn pair_bits(before: u8, octet: u8) u8 {
 /// lanes: NEON's TBL at 16 lanes, or x86-64's VPSHUFB, which looks each 16 lanes up in their own 16
 /// entries, at 16 and 32 lanes with AVX2 and at 64 with AVX-512 (decision 39). Register operands
 /// only, as decision 16 admits.
-inline fn lookup(comptime width: usize, table: Block(width), indices: Block(width)) Block(width) {
+pub inline fn lookup(comptime width: usize, table: Block(width), indices: Block(width)) Block(width) {
     comptime assert(width % nibbles == 0);
     return switch (builtin.cpu.arch) {
         .aarch64 => asm ("tbl %[result].16b, {%[table].16b}, %[indices].16b"

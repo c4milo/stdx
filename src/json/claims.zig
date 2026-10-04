@@ -42,6 +42,11 @@ pub const Claims = struct {
     /// and `u`s checked in one word and their eight hexadecimal digits turned into two code units in
     /// another. Off, it takes each escape alone, a digit at a time.
     decoder_escape_words: bool = true,
+    /// J13: J10's loop takes a block of 16 whose stops are escapes of a letter at once, each letter
+    /// written as its character and the block's reverse solidi left out by one shuffle a half
+    /// (decoder_loop_escapes.zig). Off, the walk stops at each escape and scans again from the octet
+    /// after it. On x86-64 it runs where the caller's CPU has AVX2, as decision 37's lookup does.
+    decoder_escape_blocks: bool = constants.vectors,
     /// J9: the encoder writes a token in one straight line when the call's input holds all of it
     /// and the output has room for every octet it writes (decision 31). Off, every token takes the
     /// checked path.
@@ -91,6 +96,7 @@ pub const scalar: Claims = .{
     .encoder_fast_path = false,
     .encoder_token_loop = false,
     .decoder_escape_words = false,
+    .decoder_escape_blocks = false,
 };
 
 /// Every claim on, whatever the target: what the tests run beside `scalar`.
@@ -105,6 +111,7 @@ pub const vector: Claims = .{
     .encoder_fast_path = true,
     .encoder_token_loop = true,
     .decoder_escape_words = true,
+    .decoder_escape_blocks = true,
 };
 
 /// Each claim off in turn, the A/Bs the benchmark runs.
@@ -119,6 +126,7 @@ pub const each_off = [_]Claims{
     .{ .decoder_token_loop = false },
     .{ .encoder_token_loop = false },
     .{ .decoder_escape_words = false },
+    .{ .decoder_escape_blocks = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decisions 27, 30 and 31 number them.
@@ -133,4 +141,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "J10 decoder token loop",
     "J11 encoder token loop",
     "J12 decoder escape words",
+    "J13 decoder escape blocks",
 };

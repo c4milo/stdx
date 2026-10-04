@@ -246,6 +246,16 @@ inline fn lane_word(lanes: Lanes(constants.vector_len)) LaneWord {
     return word;
 }
 
+/// The word of the lanes of `masks`, each all ones or zero: the lanes that are all ones.
+pub inline fn masks_word(masks: Block(constants.vector_len)) LaneWord {
+    if (comptime has_nibbles(constants.vector_len)) {
+        const halves: @Vector(constants.vector_len / @sizeOf(u16), u16) = @bitCast(masks);
+        const narrowed: @Vector(constants.vector_len / @sizeOf(u16), u8) = @truncate(halves >> @splat(constants.nibble_bits));
+        return @bitCast(narrowed);
+    }
+    return lane_word(masks >= splat(constants.vector_len, constants.non_ascii_min));
+}
+
 /// The first lane a word holds, of a word that holds one.
 pub inline fn word_first(word: LaneWord) usize {
     assert(word != 0);
