@@ -4255,6 +4255,27 @@ to 12 are reordered and nothing else changes.
   onto e681627 and with two comments rewrapped: the six commits between the two bases touch no
   file of the json module or of its benchmark.
 
+  **The blocks in a build with no lookup, 2026-10-04.** Main's CI failed at bf6e773 and at
+  0162d08 (runs [37230366256](https://github.com/c4milo/stdx/actions/runs/37230366256) and
+  [37230585727](https://github.com/c4milo/stdx/actions/runs/37230585727)), on the macOS runner
+  and on the aarch64 Linux runner, in `zig build test-self-hosted`. There the step builds every
+  module's tests for the baseline x86-64 CPU with Zig's own backend, which refused the blocks'
+  lookup: "no encoding found for: none vpshufb xmm xmm xmm0 none". `Looks.look` named the
+  blocks' `take` in every build, and a test calls `look` in every build, so a build with no
+  lookup compiled the blocks. LLVM assembles VPSHUFB for a CPU without it, and Zig's own backend
+  does not: one VPSHUFB in a file of its own compiles for the baseline x86-64 CPU with LLVM and
+  fails with `-fno-llvm`. The x86-64 runner passed, since its step builds for its own CPU, which
+  has AVX2. The step was not run before the push: `zig build test` runs neither it nor `zig build
+  test-avx512`.
+
+  04b49c9 tests `escape_blocks.available` at compile time in `look`, so a build with no lookup
+  holds none of the blocks' code. No such build ran a block before it: `has_blocks` keeps the
+  walk from looking there, and the stretches of the test that calls `look` hold no escape. With
+  the test of `available` inverted, three tests fail (CAUGHT). On the commit, on an M1,
+  `zig build test-self-hosted`, `zig build test-avx512`, `zig build test-json`, `zig fmt --check`
+  and `zig build lint` passed, and CI passed on the three runners (run
+  [37232192699](https://github.com/c4milo/stdx/actions/runs/37232192699)).
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped

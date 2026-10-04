@@ -119,6 +119,7 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | each token 1.15 instructions slower after a function the token loop calls became short | LLVM inlined it into the loop | `@call(.never_inline, ...)` at the loop's call site; compare the loop's function with main's after each change to what it calls |
 | 9 instructions a call in a short function that only passes a result on | a stack guard: a Zig `inline` function that returns an optional struct from several places, or a local whose address a callee takes, leaves a copy on the stack | return two words in registers, and return once for each outcome |
 | every string of a long text sent down the path for long strings | the function is given the rest of the input, whose length is not the string's | tell a long string only once its first stretch has not closed it |
+| main's CI red in `zig build test-self-hosted` on two runners, after a change to vector code that `zig build test` passed | code every build compiles named a kernel that needs a lookup; LLVM assembles VPSHUFB for a CPU without it, and Zig's own x86-64 backend refuses | before a push of vector code run `zig build test-self-hosted` and `zig build test-avx512`, which `zig build test` leaves out; test a kernel's `available` at compile time wherever shared code names it (design §8 step 18) |
 
 ## Commands
 
