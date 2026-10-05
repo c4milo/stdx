@@ -543,6 +543,7 @@ small file.
     | S11. A length and its distance's code in one literal/length entry, when both fit the table, so one lookup decodes both | The distance's lookup, a second load each match waits on (L1 hit) | A/B with the entries of a length and its distance apart | — |
     | S12. A length's extra bits in its literal/length entry, when its code and the extra bits fit the table | Reading the extra bits of most matches: a shift and a mask each | A/B with every table built plain | — |
     | S13. A dynamic block's code lengths (RFC 1951 §3.2.7) read by a loop of their own: the bits from a 64-bit buffer refilled with one 8-octet load, and the code length code decoded by one lookup in a table of 7 bits, its longest code | For each code length symbol, 87 to 143 a block at the mean of entry 45's rows, the canonical code's branch a bit and the checked reader's branch an octet (branch mispredict), and 157 to 165 instructions where a lookup and a shift take a few | A/B with the loop off, on entry 45's rows of slices | — |
+    | S14. A dynamic block's two codes built from a tally its lengths' read keeps: the count of each length in each alphabet, and each length that is not zero with its place. A build places the symbols that have a code and reads no length | Two reads of every code length a build, 258 to 318 lengths a block whatever codes it has, about 20 instructions a length, and the branch on each length of zero (branch mispredict): on the N2 the literal/length code's build takes 5,267 to 6,037 instructions and 1,964 to 2,310 cycles of a member of entry 45's rows | A/B with the tally off, on entry 45's rows of slices | — |
     | S15. The tail loop, which decodes what the symbol loop's margins leave out, refills with one 8-octet load while 8 octets of input remain, and copies a match in chunks while the room holds what the copy stores (entry 16) | A branch an octet refilled and an octet copied over a call's last 274 octets of room (branch mispredict): with S13 a buffer of the slice's length costs a 1 KiB member 1,210 of its 11,152 cycles on the N2, and libdeflate 447 | A/B with the tail's refills and copies an octet at a time, on entry 45's rows of slices | — |
 
     Zstandard and brotli decoders:
@@ -659,6 +660,20 @@ small file.
       that never land: with S12 off, html-1m, js-1m and css-1m run at 0.83 to 0.87 of all on on
       both EPYCs, and no 16 KiB slice ever takes S12 or S11. Neither limit changes on main
       without the numbers and a ruling, and the rows of 1 KiB slices and the N2 must not lose.
+    - S14 is the owner's ruling of 2026-10-04 on the codes' builds, to be paired apart from S13.
+      With S13 the two builds are the largest part left of a 1 KiB member: 6,022 of its 26,721
+      instructions on the N2. A build reads every length twice, to count it and to place its
+      symbol, and few lengths have a code: at the mean of entry 45's rows, 55 to 71 of a 1 KiB
+      member's 275 literal/length lengths and 80 to 112 of a 16 KiB member's 282. The read of
+      the lengths now counts each one as it writes it and lists those that are not zero, with no
+      branch on the length, and the two builds place the listed symbols. Invariant 17's bound
+      stands: the tally of a length stands for a build's two reads of it. The alternatives
+      refused: both changes in one, whose loss could not be told from the loop's; and the
+      builds left as they are.
+    - S14's prediction, stated before its pairs. Counted on the owner's M1, a 1 KiB member of
+      html takes 23,060 instructions with the tally and 25,801 without, and a 16 KiB member
+      91,048 and 93,040. So the N2's rows of 1 KiB slices run about 8% faster and its rows of
+      16 KiB slices about 2%, and the files taken whole gain less than entry 20's floor.
     - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
       nothing into the window, which no call reads after `done`. Called apart on the N2, that
       copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
