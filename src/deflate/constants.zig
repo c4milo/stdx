@@ -318,7 +318,8 @@ pub const Level = struct {
     /// Whether a search moves from the chain it follows to the chain of its match's tail, the 4
     /// octets a longer match holds too, when fewer candidates remain there (`best_by_tail`,
     /// decision 46). Level 9 does: its chains run to thousands of candidates. Level 6, whose two
-    /// walks share a loop, does not.
+    /// walks share a loop, does not. Such a search counts the links it reads against
+    /// `candidates_max` and `cut_candidates_max`, the ones a move passes included.
     tail_chains: bool,
     /// In a block whose literals are cheap (`cheap_literal_cost_max`), the candidates a search
     /// tries at a position. Such data, DNA's four letters say, holds long chains of short matches

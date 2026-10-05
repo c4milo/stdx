@@ -1,6 +1,7 @@
 //! The chain walk of the encoder's lazy levels: the search for the longest match among the
 //! candidates a position's hash chain names, one walk at a time (`best`), or two in one loop after
-//! a taken match, so their loads overlap (`best_pair`).
+//! a taken match, so their loads overlap (`best_pair`). Level 9's walk also follows the chains of
+//! its matches' tails (`encoder_match_walk_tail.zig`).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -90,7 +91,9 @@ const Walk = struct {
 /// The longest match at `position` of at least `match_len_taken_min` octets, or none, among
 /// `candidates_max` earlier positions with its hash, the nearest first, up to `len_max` octets; a
 /// search ends early at `nice_len`. When the match waiting from the position before is
-/// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`.
+/// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`. At a level
+/// with `tail_chains` those two bound the links the search reads, and it may find its match
+/// among positions farther back than they would reach on the position's own chain.
 pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) align(constants.hot_function_alignment) Match {
     return best_inline(level, cheap, self, len_max, previous_len);
 }
