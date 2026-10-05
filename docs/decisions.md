@@ -1516,8 +1516,10 @@ small file.
     and Zig's std.json time beside stdx in `bench-json`, in the same interleaved run as the claims'
     candidates. Each reaches the benchmark through its documented API alone, and nobody working on
     stdx reads its source (entry 9).
-    - simdjson 4.6.11 and yyjson 0.13.0 are lazy packages pinned by hash, compiled in `bench/` for
+    - simdjson 5.0.2 and yyjson 0.13.0 are lazy packages pinned by hash, compiled in `bench/` for
       the host in ReleaseFast, as the codecs' baselines are. simdjson picks its kernel at run time.
+      simdjson was 4.6.11 until 2026-10-05, when the owner asked for 5.0.2; every number recorded
+      before that day is against 4.6.11.
     - std.json comes with Zig 0.16.0, so it adds no package; the benchmark builds it for the host in
       ReleaseFast.
     - Decoding visits every value of each text: names and strings unescaped, numbers checked, and

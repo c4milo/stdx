@@ -79,10 +79,10 @@
             .hash = "N-V-__8AAJudKgCQCuIiH6MJjAiIJHfg_tT_Ew-0vZwVkCo_",
             .lazy = true,
         },
-        // The JSON baselines of decision 27, from design §8 step 16: simdjson 4.6.11.
+        // The JSON baselines of decision 27, from design §8 step 16: simdjson 5.0.2.
         .simdjson = .{
-            .url = "https://github.com/simdjson/simdjson/archive/refs/tags/v4.6.11.tar.gz",
-            .hash = "N-V-__8AADRT0AFfVHpwf0renfnyGiCrvt0V_GgY4KB_aR1L",
+            .url = "https://github.com/simdjson/simdjson/archive/refs/tags/v5.0.2.tar.gz",
+            .hash = "N-V-__8AAN6YPgLWQS_BuLu95R7YtWGSe1nziGjntLC3g4pe",
             .lazy = true,
         },
         // The JSON baselines of decision 27, from design §8 step 16: yyjson 0.13.0.
