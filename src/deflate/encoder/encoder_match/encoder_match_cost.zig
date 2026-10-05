@@ -10,8 +10,8 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
-const block_module = @import("encoder_block.zig");
+const constants = @import("../../constants.zig");
+const block_module = @import("../encoder_block.zig");
 const Plan = block_module.Plan;
 const Block = block_module.Block;
 const codec = @import("codec");
