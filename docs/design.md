@@ -5480,6 +5480,77 @@ to 12 are reordered and nothing else changes.
   test and the mask: 37 cycles a pass where the loop ran 19. Both probes left with their
   branches.
 
+  **A long plain run copied as it is scanned in the decoder's loop, 2026-10-05.** The decoder's
+  loop takes a string's first 64 octets a block of 16 at a time, and took the run of plain ASCII
+  past them in two passes, as the encoder's loop took a long string before the entries above:
+  `wide.plain_len` scanned the run, and `@memcpy` copied it. A hex string is plain ASCII, so
+  each of bench-json's 39 hex strings decoded so. callgrind counted a megabyte of plain ASCII as
+  one string at 1,376,885 instructions a decode on aarch64, 80.9% of them the scan and 19.0% the
+  copy.
+
+  The blocks the encoder's loop copies a long string with moved to `plain_copy.zig`, for both
+  loops. Its `copy_from` takes how many octets its caller has copied, 16 for the encoder's loop
+  and 64 for the decoder's, and on x86-64 hands a run past 64 octets to the AVX2 kernel. The
+  encoder's loop keeps its entry in encoder_loop_plain.zig. callgrind on aarch64, against the
+  commit before it:
+
+  | Workload | Before | After |
+  |---|---|---|
+  | Decoding a megabyte of plain ASCII as one string, instructions an octet | 1.313 | 0.579 |
+  | Decoding css-1m as a string, instructions an octet | 3.244 | 3.244 |
+  | Decoding CLDR's texts, instructions a token | 75.67 | 75.05 |
+  | Decoding qlog's records, instructions a token | 90.95 | 90.40 |
+  | Encoding E.coli's first MiB as one string, instructions | 573,858 | 573,858 |
+  | Encoding CLDR's texts and qlog's records, instructions a token | 79.16 and 82.41 | 79.16 and 82.41 |
+
+  bench-json runs [37272841285](https://github.com/c4milo/stdx/actions/runs/37272841285) and
+  [37272843585](https://github.com/c4milo/stdx/actions/runs/37272843585) paired 6d4e0ee with the
+  commit before it, 8743d38. Each drew the N2 and an AMD EPYC 7763. stdx's decoding speed over
+  that commit's, the lowest and the highest row of each kind in the two jobs, and over the
+  baselines after:
+
+  | Decoding | N2 | EPYC 7763 |
+  |---|---|---|
+  | E.coli as a string | 2.102 and 2.101 | 2.125 and 1.874 |
+  | E.coli as a string, MB/s | 9,209 and 9,207, then 19,361 and 19,346 | 18,089 and 15,793, then 38,432 and 29,604 |
+  | 31 hex strings of whole files | 1.918 to 2.074 | 1.787 to 2.225 |
+  | 4 small bodies as hex strings, slices of 16 KiB | 1.972 to 2.012 | 2.006 to 2.044 |
+  | 4 small bodies as hex strings, slices of 1 KiB | 1.663 to 1.722 | 1.388 to 1.441 |
+  | The 39 hex strings, over simdjson | 3.59 to 5.41 | 2.54 to 5.42 |
+  | The 39 hex strings, over yyjson | 4.37 to 5.93 | 5.06 to 11.44 |
+
+  Rows past the larger of their spread and 1% in both jobs of a CPU:
+
+  - On the N2 42 rows decode faster and none slower; on the EPYC 7763 40 decode faster and none
+    slower.
+  - On the N2, encoding: xml, asyoulik.txt, world192.txt and css-1m as strings at 0.965 to
+    0.980, and json-1m at 0.933 and 0.934. They count as placement (decision 20, amended
+    2026-10-03). The bench program holds 799 of 810 function instances identical at both
+    commits, 149 of them at another offset in their 64-octet line; the eleven that differ are
+    the two loops' functions and the two functions the run's copy replaced. callgrind counts
+    css-1m as a string at 2,140,631 instructions an encode at both commits, and json-1m at
+    3,582,321 at both: over 99.98% of each in claim J14's `take` and in `copy_escaped`, which
+    are identical, and 219 in the function that holds the loop.
+  - On the EPYC 7763, encoding: eleven hex strings at 0.923 to 0.970. They count as placement:
+    1,663 of 1,677 function instances on x86-64 are identical, the digits' kernel among them,
+    0x40 octets lower in the change; the fourteen that differ are the two loops' functions and
+    the ones the run's copy replaced, and a hex string of 256 KiB takes the loop's function
+    once. The entry above read ten of the same eleven rows at 0.94 to 0.97 on this CPU for a
+    change to the decoder alone, and two of them 1.3% to 5.3% faster in another pair.
+
+  Mutations: 14 of 15 CAUGHT, 10 of 11 on aarch64 and 4 of 4 on x86-64 under Rosetta.
+
+  - Two were NOT CAUGHT at first: the decoder's run ended an octet short of its window, and
+    ended where its first blocks did. The walk then took the rest and wrote the same string.
+    The run's copy is now a function, `copy_long`, and a test requires where it ends.
+  - One is NOT CAUGHT, and its octets can give it no test: the loop passing a run's end on no
+    farther than its first blocks, which leaves the run to the walk. The pairs measure it, in
+    every hex string.
+
+  Main took the change as e02f012. The pair ran it as 6d4e0ee, which e02f012 differs from in
+  `copy_long`, a function of its own there, and in its test; the decoder's loop and the run's
+  copy are the same instructions on aarch64.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
