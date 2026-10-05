@@ -1,6 +1,7 @@
 //! The chain walk of the encoder's lazy levels: the search for the longest match among the
 //! candidates a position's hash chain names, one walk at a time (`best`), or two in one loop after
-//! a taken match, so their loads overlap (`best_pair`).
+//! a taken match, so their loads overlap (`best_pair`). Level 9's walk also follows the chains of
+//! its matches' tails (`encoder_match_walk_tail.zig`).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -12,6 +13,7 @@ const Match = match.Match;
 const slot = match.slot;
 const tail_octets = match.tail_octets;
 const match_len = match.match_len;
+const best_by_tail = @import("encoder_match_walk_tail.zig").best_by_tail;
 
 /// The two searches of `best_pair`.
 pub const Pair = struct {
@@ -89,7 +91,9 @@ const Walk = struct {
 /// The longest match at `position` of at least `match_len_taken_min` octets, or none, among
 /// `candidates_max` earlier positions with its hash, the nearest first, up to `len_max` octets; a
 /// search ends early at `nice_len`. When the match waiting from the position before is
-/// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`.
+/// `previous_len` octets, `cut_len` or more, the search tries `cut_candidates_max`. At a level
+/// with `tail_chains` those two bound the links the search reads, and it may find its match
+/// among positions farther back than they would reach on the position's own chain.
 pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) align(constants.hot_function_alignment) Match {
     return best_inline(level, cheap, self, len_max, previous_len);
 }
@@ -103,6 +107,9 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     // A block with cheap literals walks long chains of short matches its prices turn away
     // (decision 42).
     const budget = if (cheap) level.cheap_candidates_max else if (cut) level.cut_candidates_max else level.candidates_max;
+    // In a block with cheap literals every 4 octets recur about as often as any other: a move to
+    // the tail's chain reads a head for each longer match and finds no fewer candidates there.
+    if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget);
     var walk = Walk.init(level, self, self.position, len_max, budget);
     while (!walk.done) walk.step(level, self, false);
     return walk.found;
@@ -200,7 +207,7 @@ inline fn follow(comptime level: constants.Level, found: Match, second: *Walk) v
 
 /// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,
 /// less the 4, or the match's first octets while none is found.
-inline fn tail_of(found: Match) u8 {
+pub inline fn tail_of(found: Match) u8 {
     assert(found.len == 0 or found.len >= constants.match_len_taken_min);
     return @intCast(found.len -| (constants.match_len_taken_min - 1));
 }
