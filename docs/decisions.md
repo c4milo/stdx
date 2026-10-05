@@ -1103,6 +1103,24 @@ small file.
       alone, which gives up an AMD EPYC 9V45's encoding gains of 4% to 18% and leaves the N2's
       row as it is; and holding the stack for a form that loses no row on any CPU drawn, which
       no measurement found, since each change to these loops moved the predictor on some row.
+    - Amended by the owner on 2026-10-04, after design §8 step 9's read of short chains: a row
+      that moves past the larger of its spread and 1% in both jobs counts as placement when a
+      null build of the change moves that row as far on the same CPU model. A null build holds
+      the change's code behind a test that never holds, so every file runs the base's
+      instructions, and the code beside them sits where the change puts it. It is paired with
+      the base as the change is, on a branch that never lands. There, the read added 20
+      instructions on aarch64 to level 6's lazy loop, the one function that differs, and on the
+      N2 five rows ran 1.0% to 2.8% slower in both runs (37243295479 and 37243297116): css's
+      16 KiB slices at 0.982 and 0.989, fields.c at 0.974 and 0.981, grammar.lsp at 0.972 and
+      0.983, kennedy.xls at 0.985 and 0.980, and nci at 0.990 and 0.989. The null build ran
+      those rows at 0.994 and 0.982, 0.992 and 0.984, 1.009 and 0.981, 0.990 and 0.985, and
+      0.992 and 0.989 (runs 37242315624 and 37242317768), level 6 at 0.993 and 0.991 of main's
+      speed at the median, and five other rows more than 1% slower in both runs; at level 1,
+      whose code no build changed, bible.txt ran at 0.981 and 0.982. The owner ruled the five
+      rows placement on those numbers. The alternatives refused: landing the five rows as losses
+      the owner accepts, which leaves the next change to that function the same question; and
+      holding the read for a form that loses no row on the N2, when a build that changes no
+      instruction a file runs moves the rows about as far.
     - Entry 45, ruled by the owner on 2026-10-04, changes the rows the rule reads: a 1 KiB or
       16 KiB HTTP body is timed as the slices of its 1 MiB payload, in rotation, where a row
       repeated one file. A small-body row of a report published before it compares with none

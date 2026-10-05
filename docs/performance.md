@@ -23,12 +23,14 @@ CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 
   every job; a change stays when it wins somewhere and no file loses. Two paired runs a change,
   compared with each job's base report. A move is placement, neither a win nor a loss, when the
   bench program built at both commits runs that file on code identical apart from its addresses,
-  or when callgrind counts the functions that differ at under 1% of the file's instructions. A
-  move is the branch predictor's, neither a win nor a loss, when the runner's counters put it in
-  branch misses and the change altered no branch the file runs. A ratio's fall is the baseline's,
-  not the change's, when stdx's own speed on that file stays within its spread in every job while
-  the baseline's moved. A change whose code no corpus file runs wins on a probe's inputs, which a
-  branch that never lands adds beside the corpus. Decision 20 says how to prove each.
+  when callgrind counts the functions that differ at under 1% of the file's instructions, or
+  when a null build of the change, which holds its code behind a test that never holds, moves
+  the row as far on the same CPU model. A move is the branch predictor's, neither a win nor a
+  loss, when the runner's counters put it in branch misses and the change altered no branch the
+  file runs. A ratio's fall is the baseline's, not the change's, when stdx's own speed on that
+  file stays within its spread in every job while the baseline's moved. A change whose code no
+  corpus file runs wins on a probe's inputs, which a branch that never lands adds beside the
+  corpus. Decision 20 says how to prove each.
 - Every speed states the stream's compression beside it, as `bench-brotli`, `bench-deflate` and
   `bench-zstd` print it.
 - A row codes a corpus file whole, but for the 1 KiB and 16 KiB HTTP bodies: those it codes as
