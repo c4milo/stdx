@@ -365,6 +365,11 @@ comptime {
 /// tail's octets recur as often as the ones the search follows (`best_by_tail`, decision 46).
 pub const tail_skips_max = 4;
 
+/// A search tries a move to the tail's chain only where its own chain could still name this many
+/// candidates in reach, counted as the reach left over the gap to its next candidate: fewer cost
+/// less to read than the tail's head and the links a move passes (`best_by_tail`, decision 46).
+pub const tail_move_candidates_min = 4;
+
 /// The levels of decision 13.
 pub const encoder_levels = [_]u4{ 1, 6, 9 };
 

@@ -67,11 +67,21 @@ const TailWalk = struct {
         }
         walk.tail = tail_of(walk.found);
         walk.later_tail = tail_octets(later, walk.tail);
-        walk.move(level, self, passed);
+        if (walk.could_pay(lowest, candidate)) walk.move(level, self, passed);
         // A tail starts where a match ends, less 3 octets, so no tail starts before an earlier one.
         assert(walk.tail >= walk.offset);
         walk.floor = lowest + walk.offset;
         walk.shift = walk.tail - walk.offset;
+    }
+
+    /// Whether a move could pay after the longer match at `candidate`: the walk's own chain names
+    /// a next candidate in reach, near enough that `tail_move_candidates_min` could follow at
+    /// that gap before the reach's edge at `lowest`. A chain that has ended leaves nothing to
+    /// read, and a chain of few candidates costs less to read than a move.
+    inline fn could_pay(walk: *const TailWalk, lowest: usize, candidate: usize) bool {
+        if (walk.link < walk.floor) return false;
+        const gap = candidate - (walk.link - walk.offset);
+        return gap * constants.tail_move_candidates_min <= candidate - lowest;
     }
 
     /// Moves the walk to the tail's chain when that chain names its next candidate within
@@ -345,6 +355,26 @@ test "a walk passes the candidates as near as its match is long, and moves to th
         // Two links either way: the candidate a period back, then the far one.
         try testing.expectEqual(far_matched, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends).len);
         try testing.expectEqual(periodic_len, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends - 1).len);
+    }
+}
+
+test "a walk tries no move where fewer than tail_move_candidates_min candidates could follow on its own chain" {
+    const octets = position_octets();
+    var matcher: TailMatcher = undefined;
+    // The nearest candidate lies `left` octets before the reach's edge, and the far one in reach.
+    const left = 8000;
+    const near = constants.encoder_distance_max - left;
+    const gap_max = left / constants.tail_move_candidates_min;
+    inline for (.{ gap_max, gap_max + 1 }) |gap| {
+        const scene: Scene = .{ .near = near, .fillers = 1, .gap = gap, .far = near + left - 1 };
+        set_window(&matcher, &octets);
+        scene.plant(&matcher, &octets);
+        plant_tail(&matcher, &octets, near_len, &.{scene.far_on_tail()});
+        // At the widest gap the walk moves and reads the far candidate second; one octet wider
+        // it keeps its chain and reads the filler first.
+        const links: u16 = if (gap == gap_max) scene_ends else plain_links(scene);
+        try testing.expectEqual(far_len, best_by_tail(tail_level, &matcher, constants.match_len_max, links).len);
+        try testing.expectEqual(near_len, best_by_tail(tail_level, &matcher, constants.match_len_max, links - 1).len);
     }
 }
 
