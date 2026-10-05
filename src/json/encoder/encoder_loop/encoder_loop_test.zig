@@ -29,13 +29,21 @@ const split_seeds = 3;
 const Pair = struct { looped: claims.Claims, checked: claims.Claims };
 
 /// The pairs compared: J11 on and off with every other claim on, then with every other claim off,
-/// and J11's loop as a caller that turns its runtime safety checks off compiles it, which a test
-/// build runs with the checks on (decision 35).
+/// J11's loop as a caller that turns its runtime safety checks off compiles it, which a test
+/// build runs with the checks on (decision 35), and the loop with claim J14's blocks off, where
+/// the walk takes every escape the blocks take with them on.
 const pairs = [_]Pair{
     .{ .looped = claims.vector, .checked = with_loop(claims.vector, false) },
     .{ .looped = with_loop(claims.scalar, true), .checked = claims.scalar },
     .{ .looped = without_runtime_safety(claims.vector), .checked = with_loop(claims.vector, false) },
+    .{ .looped = without_blocks(claims.vector), .checked = with_loop(claims.vector, false) },
 };
+
+fn without_blocks(base: claims.Claims) claims.Claims {
+    var changed = base;
+    changed.encoder_escape_blocks = false;
+    return changed;
+}
 
 fn without_runtime_safety(base: claims.Claims) claims.Claims {
     var changed = base;
@@ -291,13 +299,57 @@ fn expect_short(source: []const u8, plain: bool) !void {
     try testing.expectEqual(guard, storage[source.len + 1]);
 }
 
+test "the loop writes long strings of close escapes as the checked path does" {
+    const lists = [_][]const encoder_test.Item{
+        // ASCII with a letter's escape in every block: claim J14's blocks take it past its first.
+        &.{with(.string, "{\"name\":\"value\",\n\t\"list\":[1,2,3],\r\n\t\"path\":\"C:\\\\dir\\\\file\"}" ** 6)},
+        // A control character with no letter and a character of two octets, inside the blocks'
+        // reach: the walk takes each, and the blocks the string past it.
+        &.{with(.string, "\"a\"\n" ** 9 ++ "\x01" ++ "\"b\"\n" ** 9 ++ "caf\xc3\xa9 \"c\"\n" ++ "\"d\"\n" ** 9)},
+        // A name, and a string of escapes alone, which doubles in length.
+        &.{ .{ .token = .begin_object }, with(.name, "\"quoted\" name\twith\ttabs and a tail of plain ASCII octets"), with(.string, "\n" ** 40), .{ .token = .end_object } },
+        // An octet UTF-8 rules out past blocks of escapes: the checked path names it.
+        &.{with(.string, "\"a\"\n" ** 9 ++ "\xff" ++ "\"b\"\n" ** 9)},
+    };
+    for (lists, 0..) |items, seed| try check(items, seed);
+}
+
+/// The seeded strings of close escapes, the longest one, and the octets each draws from: plain
+/// ASCII and the characters a letter escapes often, and seldom an octet claim J14's blocks leave
+/// to the walk.
+const dense_cases = 200;
+const dense_len_max = 400;
+const dense_taken = "abcdefghij 0123456789/\x7f" ++ "\"\"\\\\\n\n\r\t\x08\x0c";
+const dense_alphabet = dense_taken ++ "\x00\x1f\x0b";
+const dense_taken_len = dense_taken.len;
+
+test "seeded strings of close escapes encode alike with the loop on and off" {
+    for (0..dense_cases) |seed| {
+        var generator = codec.split.Generator.init(seed);
+        var octets: [dense_len_max + 2]u8 = undefined;
+        var len: usize = @intCast(generator.below(dense_len_max + 1));
+        // One string in four holds an octet the blocks leave, one octet in thirty-two, and one
+        // in four ends in a character of two octets.
+        const leaves = generator.below(4) == 0;
+        for (octets[0..len]) |*octet| {
+            const whole = leaves and generator.below(32) == 0;
+            octet.* = dense_alphabet[@intCast(generator.below(if (whole) dense_alphabet.len else dense_taken_len))];
+        }
+        if (generator.below(4) == 0) {
+            octets[len..][0..2].* = "\xc3\xa9".*;
+            len += 2;
+        }
+        try check(&.{with(.string, octets[0..len])}, generator.next());
+    }
+}
+
 /// How a function starts where decision 35 lets a caller turn its runtime safety checks off: with
 /// the caller's field, which a test build and a Debug build override.
 const runtime_safety_call = "@setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);";
 const runtime_safety_start = "@setRuntimeSafety(";
 
 test "the loop turns its runtime safety checks off only where the caller chose it, and the decoder never" {
-    for ([_][]const u8{ @embedFile("encoder_loop.zig"), @embedFile("encoder_loop_string.zig") }) |source| {
+    for ([_][]const u8{ @embedFile("encoder_loop.zig"), @embedFile("encoder_loop_string.zig"), @embedFile("encoder_loop_escapes.zig") }) |source| {
         var calls: usize = 0;
         var rest = source;
         for (0..source.len) |_| {

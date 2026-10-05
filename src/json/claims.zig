@@ -55,11 +55,18 @@ pub const Claims = struct {
     /// output slice (decision 33, encoder_loop.zig). Off, each takes the path one token a call
     /// takes.
     encoder_token_loop: bool = true,
+    /// J14: J11's loop writes a block of 16 whose octets to escape each take a letter's escape at
+    /// once, each character written as its letter and a reverse solidus put before it by one lookup
+    /// a half (encoder_loop_escapes.zig). Off, the walk stops at each octet to escape and scans
+    /// again from the octet after it. On x86-64 it runs where the caller's CPU has AVX2, as
+    /// decision 37's lookup does.
+    encoder_escape_blocks: bool = constants.vectors,
     /// Claim J11's loop keeps Zig's runtime safety checks, as the rest of a ReleaseSafe build does.
     /// A caller may set it false in the claims it passes `Encoder.encode_batch_with`: that call
-    /// site then runs every function of encoder_loop.zig and encoder_loop_string.zig with the
-    /// checks off, which encoded CLDR's texts and qlog's records 5% to 9% faster on the N2 and the
-    /// EPYC 9V45 (decision 35). A test build and a Debug build keep the checks whatever it says.
+    /// site then runs every function of encoder_loop.zig, encoder_loop_string.zig and
+    /// encoder_loop_escapes.zig with the checks off, which encoded CLDR's texts and qlog's records
+    /// 5% to 9% faster on the N2 and the EPYC 9V45 (decision 35). A test build and a Debug build
+    /// keep the checks whatever it says.
     /// The caller's choice, and not a claim: every A/B keeps it true.
     encoder_token_loop_runtime_safety: bool = true,
 };
@@ -97,6 +104,7 @@ pub const scalar: Claims = .{
     .encoder_token_loop = false,
     .decoder_escape_words = false,
     .decoder_escape_blocks = false,
+    .encoder_escape_blocks = false,
 };
 
 /// Every claim on, whatever the target: what the tests run beside `scalar`.
@@ -112,6 +120,7 @@ pub const vector: Claims = .{
     .encoder_token_loop = true,
     .decoder_escape_words = true,
     .decoder_escape_blocks = true,
+    .encoder_escape_blocks = true,
 };
 
 /// Each claim off in turn, the A/Bs the benchmark runs.
@@ -127,6 +136,7 @@ pub const each_off = [_]Claims{
     .{ .encoder_token_loop = false },
     .{ .decoder_escape_words = false },
     .{ .decoder_escape_blocks = false },
+    .{ .encoder_escape_blocks = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decisions 27, 30 and 31 number them.
@@ -142,4 +152,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "J11 encoder token loop",
     "J12 decoder escape words",
     "J13 decoder escape blocks",
+    "J14 encoder escape blocks",
 };
