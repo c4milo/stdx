@@ -142,6 +142,11 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | 14 instructions to assert that two slices share no octet | sums checked for overflow, and the output's bounds loaded from the stack at each | subtractions that wrap, each compared with the other slice's length |
 | a bound checked at each store around a string | each store indexed the output left, whose length LLVM could not relate to the room's test | sum the string's lengths once, take one slice of that length, and store at offsets inside it |
 | x86-64 builds alone failed with "evaluation exceeded 1000 backwards branches" | a loop whose steps are all inline passed comptime's default quota once more steps were added, on the target that instantiates most | `@setEvalBranchQuota` from a named constant in the loop's function; build for x86-64 before a push |
+| a block path 10% slower than the walk on a text with one escape a line, on fewer instructions, on the N2 alone | the path runs 28 vector instructions a block, and the N2 has two pipes for them | count a block's vector instructions, not its instructions; take one or two stops with stores of general registers and a second load of the octets after the stop (design §8 step 18, claim J14) |
+| a text at 0.45 of its speed with a block path added | the path was tried after every escape and took nothing: a run of an octet it does not take | after a try that takes nothing, wait until the slower path has taken a stretch |
+| a block path tried where the last run was not ASCII | the test read the walk's state after the first of two escapes had reset it | keep the verdict of the last run the walk took, which an escape that follows another leaves alone |
+| one loop at 2,692, 2,702, 3,082 and 3,191 MB/s in four builds on the N2 | where the build put it; its head's place in a 64-octet line did not say which build was fast | start the loop's function on a line, and state the range across builds beside the pair's ratio |
+| a mutation NOT CAUGHT because a second path writes the same octets | the walk wrote again what the blocks had written when it was not moved past them | put the move inside the function a test calls, and require the move there |
 
 ## Commands
 

@@ -345,7 +345,8 @@ Change this section when a step adds or renames a command.
   hosted runners, after allowing a process to count its own events.
 - JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder,
   many tokens a call (decision 33), with every claim on, each of claims J1, J2, J3, J5, J7, J8, J9,
-  J10, J11 and J12 off in turn, and every one off, one token a call with every claim on, and the
+  J10, J11, J12, J13 and J14 off in turn, and every one off, one token a call with every claim
+  on, and the
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
   CLDR's JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII
   text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's

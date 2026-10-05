@@ -1492,14 +1492,16 @@ small file.
     | J5. Inside J1's and J3's runs, UTF-8 is validated a vector at a time, so a run goes on past non-ASCII characters | A state machine step per non-ASCII octet | A/B on text of two- and three-octet characters |
     | J12. Inside claim J10's loop, two `\u` escapes that follow each other are read at once, their reverse solidi and `u`s checked in one word and their eight digits turned into two code units in another, and the plain ASCII and the letters' escapes between escaped words stay in the loop | Four table loads and a store by length an escape, and a return to the walk at each word's end | A/B on text of `\u` escapes |
     | J13. Inside claim J10's loop, a long string's stretches whose letters' escapes come close together are taken a block of 16 at a time: each escaped letter becomes its character where it stands, and one shuffle a half leaves the reverse solidi out | A stop at each escape and a scan from the octet after it, about 25 cycles an escape on the N2 | A/B on a text with an escape every 8 octets |
+    | J14. Inside claim J11's loop, past an escape that ends an ASCII run, a string is written a block of 16 at a time: a plain block as it is, a block with one or two characters a letter escapes with each escape written where it stands (aarch64), and a block with more by one lookup a half, each character written as its letter with a reverse solidus before it | A stop at each octet to escape and a scan from the octet after it, 57 to 62 instructions and a branch the predictor misses an escape | A/B on a text with an escape every 7 octets, and on the corpus's texts |
 
     A claim stays only where `bench-json` shows its vector path faster than the scalar path by more
     than the noise, on each runner of entry 20; design §8 step 16 records the runs. J12 joined on
     2026-09-30, when the owner chose the `\u` escapes, and design §8 step 18 records its runs. On
     2026-10-04 its loop took in a letter's escape between two `\u` escapes and went out of line
     on every target. J13 joined on 2026-10-04 by the owner's ruling, which reverses the rejection
-    of 2026-09-30 that design §8 step 18 records. Wider vectors behind entry 21's per-level
-    objects wait until a measurement asks for them.
+    of 2026-09-30 that design §8 step 18 records. J14 joined on 2026-10-05 by the owner's ruling;
+    design §8 step 18 records its forms, the two that lost on the N2, and its runs. Wider vectors
+    behind entry 21's per-level objects wait until a measurement asks for them.
 
     **The checks, with no oracle.** A conformance corpus such as JSONTestSuite and an oracle are
     each a dependency, which CLAUDE.md asks the owner about; neither is added. In their place:
@@ -1955,10 +1957,11 @@ small file.
     **The ruling.**
     - `Claims` gains `encoder_token_loop_runtime_safety`, true by default. A caller that sets it
       false in the claims it passes `Encoder.encode_batch_with` runs the loop at that call site with
-      Zig's runtime safety checks off in every function of `encoder_loop.zig` and
-      `encoder_loop_string.zig`. `encode_batch` and every other call keep them.
+      Zig's runtime safety checks off in every function of `encoder_loop.zig`,
+      `encoder_loop_string.zig` and, since claim J14, `encoder_loop_escapes.zig`. `encode_batch`
+      and every other call keep them.
     - A test build, the fuzzer's included, and a Debug build keep the checks whatever the field
-      says. A test of `encoder_loop_test.zig` requires every `@setRuntimeSafety` of the two files to
+      says. A test of `encoder_loop_test.zig` requires every `@setRuntimeSafety` of those files to
       take the field, and the decoder's loop and the string walk to hold none.
     - bench-json times the encoder with the field false beside every claim on, and puts both beside
       the baselines.
