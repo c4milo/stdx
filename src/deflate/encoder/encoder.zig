@@ -19,8 +19,8 @@ const constants = @import("../constants.zig");
 const block_module = @import("encoder_block.zig");
 const emit_module = @import("encoder_emit.zig");
 const split_module = @import("encoder_split.zig");
-const Matcher = @import("encoder_match.zig").Matcher;
-const cost = @import("encoder_match_cost.zig");
+const Matcher = @import("encoder_match/encoder_match.zig").Matcher;
+const cost = @import("encoder_match/encoder_match_cost.zig");
 
 pub const EncoderOptions = struct {
     /// 1, 6 or 9 (decision 13).

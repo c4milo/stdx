@@ -13,9 +13,9 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
-const Block = @import("encoder_block.zig").Block;
-const Appender = @import("encoder_block.zig").Appender;
+const constants = @import("../../constants.zig");
+const Block = @import("../encoder_block.zig").Block;
+const Appender = @import("../encoder_block.zig").Appender;
 const cost = @import("encoder_match_cost.zig");
 
 /// What the lazy steps read for decision 42: the prices in their priced copy, nothing in the other.

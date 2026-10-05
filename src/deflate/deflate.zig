@@ -39,6 +39,6 @@ test {
     _ = @import("test_stream.zig");
     _ = @import("encoder/encoder_code.zig");
     _ = @import("encoder/encoder_block.zig");
-    _ = @import("encoder/encoder_match_cost.zig");
+    _ = @import("encoder/encoder_match/encoder_match_cost.zig");
     _ = encoder;
 }

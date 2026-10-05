@@ -6,7 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
-const cost = @import("encoder_match_cost.zig");
+const cost = @import("encoder_match/encoder_match_cost.zig");
 
 /// log2 in eighths of a bit, the unit of decision 42's prices, and the table of its fractions.
 const log2_eighths = cost.log2_eighths;
