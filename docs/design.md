@@ -817,6 +817,44 @@ to 12 are reordered and nothing else changes.
     decision 32's rule, after the header, its amendment of decision 16 written first. And a call
     that ends the stream may copy nothing into the window.
 
+  **No copy into the window at a stream's end, 2026-10-04.** The first of those rulings to be
+  measured. A call that ended the stream copied its output into the window, which no call reads
+  after `done`: the next stream starts with `init` (decision 11). `decode` now makes that copy
+  for every status but `done` (6873728; S5 in decision 14).
+  - The pairs. `perf-deflate-done-window`, a branch that never lands (decision 20), held the
+    change at 6ecc20d, measured after main's 9f728fe in the same job. bench-deflate runs
+    [37242520768](https://github.com/c4milo/stdx/actions/runs/37242520768) and
+    [37242522030](https://github.com/c4milo/stdx/actions/runs/37242522030) drew a Neoverse N2 and
+    an EPYC 7763 in both, and bench-profile run
+    [37242523677](https://github.com/c4milo/stdx/actions/runs/37242523677) counted on the N2. The
+    reports are in `bench/results/`, dated 2026-10-04, "done-window".
+  - The baselines first: the same C in both programs, 156 cells a runner. On the N2 zlib-ng's
+    cp.html, fields.c and sum ran 1.5% to 5.9% faster in both jobs, and no other cell moved in
+    both. On the EPYC zlib-ng's json-16kx64 ran 2.8% and 3.1% slower, and no other cell moved
+    in both.
+  - stdx's gzip decoder, its own speed in the change's program over the base's. Over 16 KiB
+    slices it ran at 1.021 to 1.035 on the N2 in every cell of both jobs, and at 1.016 to 1.027
+    on the EPYC, with js's second job at 1.057 on a spread of 3.8%. cp.html, fields.c and sum ran
+    1.6% to 2.6% faster on both runners, and grammar.lsp and xargs.1 1.1% to 1.6% on the N2. Over
+    1 KiB slices it ran at 1.005 to 1.012 on both, and no such row passed the floor in both jobs.
+    No row ran slower in both jobs on either runner: 9 of the 39 rows rose on the N2 and 7 on
+    the EPYC.
+  - The N2's counters, an octet. Over 16 KiB slices stdx takes 0.956 to 0.971 of the base's
+    instructions and 0.964 to 0.980 of its cycles; over 1 KiB slices 0.988 to 0.993 and 0.990 to
+    0.997. libdeflate's cycles over 1 KiB slices read 0.963 to 0.970 between the two programs,
+    on identical instructions: a ratio to it moves by that much with no change of either
+    decoder, so the rule above reads each decoder's own speed.
+  - Where it leaves the rows: stdx over the fastest baseline went from 0.82 to 0.85 over 16 KiB
+    slices on the N2 to 0.84 to 0.87.
+  - A raw DEFLATE stream and a zlib stream gain nothing from it yet. Their last symbols go
+    through the checked path, which reads the window, so the copy is made before them.
+  - Mutations of the condition, 7, all CAUGHT: the copy made whatever the status; none at any
+    call's end; skipped for want of input; skipped for want of room; made only at the stream's
+    end; only for want of input; only for want of room. Two tests are new: one pins that a call
+    ending inside a block's header leaves its octets in the window and that the call ending the
+    stream adds none, and one that a call filling its output at a block's end leaves its octets
+    there.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.

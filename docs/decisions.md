@@ -644,6 +644,9 @@ small file.
     - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
       nothing into the window, which no call reads after `done`. Called apart on the N2, that
       copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
+      Measured the same day in two paired jobs a runner (design §8 step 7): over 16 KiB slices
+      stdx's gzip decoder ran at 1.021 to 1.035 of main's speed on the N2 and at 1.016 to 1.027
+      on an EPYC 7763, and no row ran slower in both jobs.
 
 15. **The checks.** Proposed on 2026-09-25, the fifth decision record the owner asked for. Ruled by
     the owner on 2026-09-25, after a review of the proposal. The owner chose to fail closed where an
