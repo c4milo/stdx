@@ -159,7 +159,7 @@ pub const combine_bits_min = 32768;
 /// The input octets a call must hold, at least, after a block's header, for the block's tables to
 /// combine before `combine_bits_min` bits: a call whose input holds this much is decoding a long
 /// stream. Once per call, which bounds its cost by a constant per call.
-pub const combine_input_min = 16384;
+pub const combine_input_min = 1024;
 
 /// The code lengths a dynamic block's header writes: the code length code's and the block's own.
 pub const code_lengths_len = literal_length_alphabet_len + distance_alphabet_len;
