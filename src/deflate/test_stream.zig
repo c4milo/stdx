@@ -3,6 +3,7 @@
 //! codes assigned by RFC 1951 §3.2.2's algorithm. The library never calls it.
 
 const std = @import("std");
+const codec = @import("codec");
 const constants = @import("constants.zig");
 
 /// The most octets a test stream takes.
@@ -100,3 +101,38 @@ pub fn assign_codes(comptime len: usize, lengths: [len]u8) [len]u16 {
 }
 
 const fixed_literal_codes = assign_codes(constants.literal_length_alphabet_len, constants.fixed_literal_length_lengths);
+
+/// The fewest codes a complete code holds: two of one bit (RFC 1951 §3.2.2).
+pub const complete_codes_min = 2;
+
+/// Gives `lengths` a complete code of `codes` codes, none longer than `len_max` bits, drawn from
+/// `generator`: a code of no bits, split in two a length longer until `codes` exist or none can
+/// split, and given to the symbols in an order the generator draws (RFC 1951 §3.2.2). A symbol
+/// without a code gets 0.
+pub fn draw_complete_code(generator: *codec.split.Generator, lengths: []u8, codes: usize, len_max: u8) void {
+    std.debug.assert(codes >= complete_codes_min and codes <= lengths.len);
+    var lens: [constants.literal_length_alphabet_len]u8 = @splat(0);
+    lens[0] = 1;
+    lens[1] = 1;
+    var count: usize = complete_codes_min;
+    // Each round splits a code or finds none to split.
+    for (0..lengths.len) |_| {
+        if (count == codes) break;
+        const from: usize = @intCast(generator.below(count));
+        const picked = for (0..count) |offset| {
+            const index = (from + offset) % count;
+            if (lens[index] < len_max) break index;
+        } else break;
+        lens[picked] += 1;
+        lens[count] = lens[picked];
+        count += 1;
+    }
+    @memset(lengths, 0);
+    var symbols: [constants.literal_length_alphabet_len]u16 = undefined;
+    for (symbols[0..lengths.len], 0..) |*symbol, index| symbol.* = @intCast(index);
+    for (0..count) |index| {
+        const other = index + @as(usize, @intCast(generator.below(lengths.len - index)));
+        std.mem.swap(u16, &symbols[index], &symbols[other]);
+        lengths[symbols[index]] = lens[index];
+    }
+}

@@ -31,6 +31,10 @@ pub const Claims = struct {
     /// one lookup in a table. Off, the checked steps read every length, a bit of its code at a
     /// time.
     code_lengths_loop: bool = true,
+    /// S14: a dynamic block's two codes built from what the read of its lengths counted and
+    /// listed, so a build passes over the symbols with a code alone. Off, each build passes
+    /// over every length twice.
+    tallied_codes: bool = true,
 };
 
 /// Each claim off in turn, the A/Bs design §8 step 7 runs.
@@ -43,6 +47,7 @@ pub const each_off = [_]Claims{
     .{ .combined_entries = false },
     .{ .resolved_lengths = false },
     .{ .code_lengths_loop = false },
+    .{ .tallied_codes = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
@@ -55,4 +60,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "S11 combined entries",
     "S12 resolved lengths",
     "S13 code lengths' loop",
+    "S14 tallied codes",
 };

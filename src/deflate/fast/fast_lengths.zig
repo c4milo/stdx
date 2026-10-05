@@ -185,63 +185,115 @@ comptime {
 /// A length in each octet of a word: a multiply by it copies an octet into all eight.
 const repeated_octet: u64 = 0x0101_0101_0101_0101;
 
+/// What the code lengths' loop writes into: the header's lengths, the count of those read so far,
+/// of the header's `total`, and the tally of them for the codes' builds (decision 14, S14), of
+/// which the literal/length alphabet takes the first `literal_length_count`.
+pub const Into = struct {
+    lengths: *Lengths,
+    index: *u16,
+    total: u16,
+    tally: *huffman.Tally,
+    literal_length_count: u16,
+};
+
+/// The loop's own copy of what it advances, which stays in registers.
+const Place = struct {
+    /// The lengths read so far.
+    at: u32,
+    /// The places the tally lists so far.
+    coded_count: u32,
+};
+
 /// Reads code length symbols while the buffer holds one or the input's margin lets it refill, and
-/// lengths are left to read, writing each symbol's lengths as the checked path writes them.
-/// `index` counts the lengths read so far, of the header's `total`. It stops, having used no bit
-/// of it, at a symbol the checked path refuses. Returns invariant 17's count for what it read: a
-/// decode a symbol, and an entry a length.
-pub fn read(table: *const Table, lengths: *Lengths, index: *u16, total: u16, bits: *codec.BitReader) usize {
-    assert(total <= constants.literal_length_used + constants.distance_alphabet_len);
-    assert(index.* <= total);
+/// lengths are left to read, writing each symbol's lengths as the checked path writes them, and
+/// tallying them as it does when the decode `tallies`. It stops, having used no bit of it, at a
+/// symbol the checked path refuses. Returns invariant 17's count for what it read: a decode a
+/// symbol, and an entry a length.
+pub fn read(comptime tallies: bool, table: *const Table, into: Into, bits: *codec.BitReader) usize {
+    assert(into.total <= constants.header_lengths_max and into.index.* <= into.total);
+    // A decode that tallies nothing leaves the tally as it found it, and reads none of it.
+    assert(!tallies or into.tally.coded_count <= into.index.*);
     var local = Bits.of(bits);
-    var at: u32 = index.*;
+    var place: Place = .{ .at = into.index.*, .coded_count = if (tallies) into.tally.coded_count else 0 };
     var symbols: usize = 0;
     // Each symbol gives a length at least, so the lengths bound the loop.
-    for (0..total) |_| {
-        if (at >= total or !local.has_bits(constants.code_length_symbol_bits)) break;
+    for (0..into.total) |_| {
+        if (place.at >= into.total or !local.has_bits(constants.code_length_symbol_bits)) break;
         const entry = table.look_up(local.buffer);
         if (entry.symbol < constants.repeat_previous) {
-            lengths[at] = entry.symbol;
-            at += 1;
+            into.lengths[place.at] = entry.symbol;
+            if (tallies) tally_length(into, &place, @truncate(entry.symbol));
+            place.at += 1;
             local.take(entry.code_bits);
-        } else {
-            at = repeat(lengths, at, total, &local, entry) orelse break;
+        } else if (!repeat(tallies, into, &place, &local, entry)) {
+            break;
         }
         symbols += 1;
     }
-    const written = at - index.*;
-    index.* = @intCast(at);
+    const written = place.at - into.index.*;
+    into.index.* = @intCast(place.at);
+    if (tallies) into.tally.coded_count = @intCast(place.coded_count);
     local.hand_back(bits);
     return symbols + written;
 }
 
+/// Tallies one length, `len`, at the loop's place: counted in its alphabet, and its place listed
+/// when it is not zero, with no branch on that.
+inline fn tally_length(into: Into, place: *Place, len: u4) void {
+    into.tally.counts[huffman.Tally.alphabet(place.at, into.literal_length_count)][len] +%= 1;
+    into.tally.coded[place.coded_count] = .{ .place = @intCast(place.at), .len = len };
+    place.coded_count += @intFromBool(len != 0);
+}
+
 /// Applies the repeat symbol `entry` decodes, 16, 17 or 18, with its extra bits after its code
-/// (RFC 1951 §3.2.7), to the lengths from `at`. Returns the index past its lengths, or null,
-/// having used no bit and written nothing, when the checked path must take the symbol.
-inline fn repeat(lengths: *Lengths, at: u32, total: u32, local: *Bits, entry: Entry) ?u32 {
+/// (RFC 1951 §3.2.7), to the lengths from the loop's place, and moves the place past them.
+/// Returns false, having used no bit and written nothing, when the checked path must take the
+/// symbol.
+inline fn repeat(comptime tallies: bool, into: Into, place: *Place, local: *Bits, entry: Entry) bool {
+    const at = place.at;
     const kind: u4 = @truncate(entry.symbol);
     const extra_bits: u32 = repeat_extra_bits[kind];
     const extra: u32 = @intCast((local.buffer >> entry.code_bits) & ((@as(u64, 1) << @intCast(extra_bits)) - 1));
     const count = repeat_count_min[kind] + extra;
     // RFC 1951 §3.2.7: the code lengths form one sequence, which a repeat may not pass. The
     // checked path refuses it.
-    if (at + count > total) return null;
+    if (at + count > into.total) return false;
     if (entry.symbol == constants.repeat_previous) {
         // RFC 1951 §3.2.7: 16 copies the previous code length, and the first has none. The checked
         // path refuses it.
-        if (at == 0) return null;
+        if (at == 0) return false;
         // One store writes the copies and zeros after them, where every length is still zero.
         // Near the array's end it has no room, and the checked path writes the copies.
-        if (at + @sizeOf(u64) > lengths.len) return null;
-        const copies = (lengths[at - 1] * repeated_octet) & ((@as(u64, 1) << @intCast(count * @bitSizeOf(u8))) - 1);
+        if (at + @sizeOf(u64) > into.lengths.len) return false;
+        const previous = into.lengths[at - 1];
+        if (tallies) tally_copies(into, place, @truncate(previous), count);
+        const copies = (previous * repeated_octet) & ((@as(u64, 1) << @intCast(count * @bitSizeOf(u8))) - 1);
         // The first copy goes to the lowest address: least significant octet first.
-        std.mem.writeInt(u64, lengths[at..][0..@sizeOf(u64)], copies, .little);
+        std.mem.writeInt(u64, into.lengths[at..][0..@sizeOf(u64)], copies, .little);
     }
-    // A run of zeros writes nothing: the lengths ahead of the loop are zero.
+    // A run of zeros writes nothing and tallies nothing: the lengths ahead of the loop are zero.
     local.take(entry.code_bits + extra_bits);
-    return at + count;
+    place.at = at + count;
+    return true;
+}
+
+/// Tallies `count` copies of the length `len` from the loop's place, with no branch: counted in
+/// their alphabets, since a repeat may run from the literal/length alphabet into the distance
+/// alphabet (RFC 1951 §3.2.7), and their places listed when the length is not zero. It writes the
+/// most places a repeat gives, and the list keeps as many as the copies.
+inline fn tally_copies(into: Into, place: *Place, len: u4, count: u32) void {
+    const at = place.at;
+    assert(count <= constants.repeat_previous_count_max);
+    const literal_length_copies = @min(count, into.literal_length_count -| at);
+    into.tally.counts[0][len] +%= @intCast(literal_length_copies);
+    into.tally.counts[1][len] +%= @intCast(count - literal_length_copies);
+    inline for (0..constants.repeat_previous_count_max) |copy| {
+        into.tally.coded[place.coded_count + copy] = .{ .place = @intCast(at + copy), .len = len };
+    }
+    place.coded_count += if (len != 0) count else 0;
 }
 
 test {
     _ = @import("fast_lengths_test.zig");
+    _ = @import("fast_lengths_tally_test.zig");
 }

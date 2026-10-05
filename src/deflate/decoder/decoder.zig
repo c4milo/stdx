@@ -92,6 +92,8 @@ pub const Decoder = struct {
     code_length_code: huffman.Code(constants.code_length_alphabet_len),
     /// The code length code as the lookup table the code lengths' loop reads (decision 14, S13).
     code_length_table: fast_lengths.Table,
+    /// What the read of the block's code lengths counts and lists for its codes' builds (S14).
+    tally: huffman.Tally,
     literal_length_code: huffman.Code(constants.literal_length_alphabet_len),
     distance_code: huffman.Code(constants.distance_alphabet_len),
     /// The dynamic block's codes as the fast path's lookup tables (decision 14, S2).
@@ -223,7 +225,7 @@ fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, wr
         .block_header => try read_block_header(options.claims, decoder, bits),
         .stored_header => try read_stored_header(decoder, bits),
         .stored_copy => copy_stored(options.claims, decoder, bits, writer),
-        .table_counts => try header.read_table_counts(decoder, bits),
+        .table_counts => try header.read_table_counts(options, decoder, bits),
         .code_length_code => try header.read_code_length_code(options, decoder, bits),
         .code_lengths => try header.read_code_lengths(options, decoder, bits),
         .symbols => if (options.fast_paths) try read_symbols_fast(options, decoder, bits, writer, lookups) else try read_symbol(options, decoder, bits, writer, lookups),
