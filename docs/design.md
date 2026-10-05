@@ -4931,6 +4931,41 @@ to 12 are reordered and nothing else changes.
   loop's steps are inline, and the added ones passed the default on x86-64 alone. The loop's
   `take` now sets `constants.token_loop_branch_quota`, as the decoder's does.
 
+  **simdjson 5.0.2 as the baseline, 2026-10-05.** The owner asked for the bump after simdjson's
+  version 5 (decision 27). bench-json run
+  [37250139376](https://github.com/c4milo/stdx/actions/runs/37250139376) timed main at 705a949
+  twice in each job, first beside simdjson 4.6.11 and then beside 5.0.2, on the N2 and on an AMD
+  EPYC 9V74. The binding of bench/json/baselines/ builds against 5.0.2 as it is. simdjson's
+  speed in the second program over its speed in the first:
+
+  | simdjson 5.0.2 over 4.6.11 | N2 | EPYC 9V74 |
+  |---|---|---|
+  | Decoding CLDR's texts | 1.031 | 1.065 |
+  | Decoding qlog's records | 1.066 | 1.023 |
+  | Decoding samba as a string | 1.830 | 1.688 |
+  | Decoding the text of `\u` escapes | 1.574 | 1.258 |
+  | Decoding hex strings | 1.126 to 1.132 | 0.992 to 1.024 |
+  | Encoding CLDR's texts | 1.144 | 1.439 |
+  | Encoding qlog's records | 1.104 | 1.268 |
+  | Encoding E.coli as a string | 1.153 | 2.120 |
+  | Encoding json-1m as a string | 1.226 | 1.065 |
+  | Encoding css-1m as a string | 0.736 | 0.466 |
+
+  stdx is the same code in both programs. Its own speed moved by up to 5% on the N2 and 10% on
+  the 9V74 on single rows (alice29.txt, plrabn12.txt and xml as strings), which is placement.
+  The rows the second program's report lists as below a baseline, with stdx's speed over
+  simdjson's before and after:
+
+  - On the N2: qlog's records encode at 0.941 of simdjson's speed, from 1.047, and json-1m as a
+    string at 0.844, from 1.034, and at 0.777 of yyjson's. E.coli as a string encodes at 0.952,
+    from 1.098, inside its noise floor. No row decodes below a baseline.
+  - On the EPYC 9V74: CLDR's texts encode at 0.863, from 1.238; qlog's records at 0.896, from
+    1.130; E.coli as a string at 0.803, from 1.697; and the text of `\u` escapes decodes at
+    0.948, from 1.193. CLDR's texts decode at 0.970, from 1.036, inside the noise floor.
+
+  One job a CPU, so each figure waits on a second job. Every number this step records before
+  this entry is against simdjson 4.6.11.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
