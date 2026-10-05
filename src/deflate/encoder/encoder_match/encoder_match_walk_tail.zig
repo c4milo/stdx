@@ -286,11 +286,13 @@ test "a walk reaches a far candidate through its match's tail in the links a pla
     try testing.expectEqual(near, best_by_tail(tail_level, &matcher, constants.match_len_max, plain_links(scene) - 1));
 }
 
-/// The tail's chain with `count` positions nearer than the nearest candidate's own, which hold its
-/// tail and name no candidate, then `last`.
+/// The tail's chain with `count` positions of candidates the walk has passed, then `last`: all
+/// but one are nearer than the nearest candidate's own, hold its tail and name no candidate, and
+/// one is the nearest candidate's own, which another string of the tail's hash would put there.
 fn plant_passed_tail(comptime scene: Scene, matcher: *TailMatcher, octets: []const u8, comptime count: usize, last: Planted) void {
     var planted: [count + 1]Planted = undefined;
-    for (planted[0..count], 1..) |*one, nth| one.* = .{ .distance = @intCast(nth * (scene.near / (count + 1))), .len = constants.match_len_taken_min, .from = near_tail };
+    for (planted[0 .. count - 1], 1..) |*one, nth| one.* = .{ .distance = @intCast(nth * (scene.near / count)), .len = constants.match_len_taken_min, .from = near_tail };
+    planted[count - 1] = .{ .distance = scene.near - near_tail };
     planted[count] = last;
     plant_tail(matcher, octets, near_len, &planted);
 }
@@ -342,24 +344,26 @@ const periodic_len = 60;
 
 test "a move is owed while the candidate lies nearer than the tail, and made at the first one far enough" {
     // The position's first octets repeat with a period, so the candidate a period back matches
-    // them all, and its tail lies past the position.
-    const scene: Scene = .{};
-    var octets = position_octets();
-    for (octets[period..periodic_len], period..) |*octet, index| octet.* = octets[index - period];
-    var matcher: TailMatcher = undefined;
-    set_window(&matcher, &octets);
-    const far_matched = periodic_len + far_len;
-    var planted: [scene.fillers + scene_ends]Planted = undefined;
-    planted[0] = .{ .distance = period, .len = period };
-    for (planted[1..][0..scene.fillers], 1..) |*one, nth| one.* = .{ .distance = @intCast(nth * scene.gap), .len = constants.match_len_taken_min };
-    planted[scene.fillers + 1] = .{ .distance = scene.far, .len = far_matched };
-    plant_candidates(&matcher, &octets, &planted);
-    const tail = tail_of(.{ .len = periodic_len });
-    plant_tail(&matcher, &octets, periodic_len, &.{.{ .distance = scene.far - tail, .len = far_matched - tail, .from = tail }});
-    // The candidate a period back, then the far one: the move is made at the first filler, which
-    // the tail's chain does not name, so the walk reads no filler.
-    try testing.expectEqual(far_matched, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends).len);
-    try testing.expectEqual(periodic_len, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends - 1).len);
+    // them all, and its tail lies past the position. With fillers the move is made at the first,
+    // which the tail's chain does not name, so the walk reads no filler; with none it is made at
+    // the far candidate, which both chains name next, and the walk keeps its chain.
+    inline for (.{ Scene{}, Scene{ .fillers = 0 } }) |scene| {
+        var octets = position_octets();
+        for (octets[period..periodic_len], period..) |*octet, index| octet.* = octets[index - period];
+        var matcher: TailMatcher = undefined;
+        set_window(&matcher, &octets);
+        const far_matched = periodic_len + far_len;
+        var planted: [scene.fillers + scene_ends]Planted = undefined;
+        planted[0] = .{ .distance = period, .len = period };
+        for (planted[1..][0..scene.fillers], 1..) |*one, nth| one.* = .{ .distance = @intCast(nth * scene.gap), .len = constants.match_len_taken_min };
+        planted[scene.fillers + 1] = .{ .distance = scene.far, .len = far_matched };
+        plant_candidates(&matcher, &octets, &planted);
+        const tail = tail_of(.{ .len = periodic_len });
+        plant_tail(&matcher, &octets, periodic_len, &.{.{ .distance = scene.far - tail, .len = far_matched - tail, .from = tail }});
+        // Two links either way: the candidate a period back, then the far one.
+        try testing.expectEqual(far_matched, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends).len);
+        try testing.expectEqual(periodic_len, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends - 1).len);
+    }
 }
 
 /// A scene whose fillers take a plain walk's whole budget at level 9, `long_gap` octets apart,
