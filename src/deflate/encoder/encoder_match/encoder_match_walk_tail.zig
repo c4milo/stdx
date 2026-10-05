@@ -60,6 +60,9 @@ const TailWalk = struct {
     /// position, among the positions the lazy loop has inserted: the tail's chain names it.
     /// Where none is left in reach, the walk reads no more.
     inline fn follow_longer(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), lowest: usize, later: []const u8, candidate: usize) void {
+        // The walk's own chain has ended: it names every candidate left, so none is, and the
+        // loop's next test ends the walk.
+        if (walk.link < walk.floor) return;
         const passed = @min(candidate, self.position -| walk.found.len);
         if (passed <= lowest) {
             walk.left = 0;
@@ -75,11 +78,11 @@ const TailWalk = struct {
     }
 
     /// Whether a move could pay after the longer match at `candidate`: the walk's own chain names
-    /// a next candidate in reach, near enough that `tail_move_candidates_min` could follow at
-    /// that gap before the reach's edge at `lowest`. A chain that has ended leaves nothing to
-    /// read, and a chain of few candidates costs less to read than a move.
+    /// its next candidate near enough that `tail_move_candidates_min` could follow at that gap
+    /// before the reach's edge at `lowest`. A chain of fewer candidates costs less to read than
+    /// a move.
     inline fn could_pay(walk: *const TailWalk, lowest: usize, candidate: usize) bool {
-        if (walk.link < walk.floor) return false;
+        assert(walk.link >= walk.floor);
         const gap = candidate - (walk.link - walk.offset);
         return gap * constants.tail_move_candidates_min <= candidate - lowest;
     }
