@@ -58,16 +58,13 @@ const TailWalk = struct {
     ///
     /// So each candidate left lies more than `n` octets back, and its tail lies before the
     /// position, among the positions the lazy loop has inserted: the tail's chain names it.
-    /// Where none is left in reach, the walk reads no more.
-    inline fn follow_longer(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), lowest: usize, later: []const u8, candidate: usize) void {
-        // The walk's own chain has ended: it names every candidate left, so none is, and the
-        // loop's next test ends the walk.
-        if (walk.link < walk.floor) return;
+    ///
+    /// Returns false where no candidate is left: the walk's own chain, which names every one,
+    /// has ended, or the walk has passed every candidate in reach.
+    inline fn follow_longer(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), lowest: usize, later: []const u8, candidate: usize) bool {
+        if (walk.link < walk.floor) return false;
         const passed = @min(candidate, self.position -| walk.found.len);
-        if (passed <= lowest) {
-            walk.left = 0;
-            return;
-        }
+        if (passed <= lowest) return false;
         walk.tail = tail_of(walk.found);
         walk.later_tail = tail_octets(later, walk.tail);
         if (walk.could_pay(lowest, candidate)) walk.move(level, self, passed);
@@ -75,6 +72,7 @@ const TailWalk = struct {
         assert(walk.tail >= walk.offset);
         walk.floor = lowest + walk.offset;
         walk.shift = walk.tail - walk.offset;
+        return true;
     }
 
     /// Whether a move could pay after the longer match at `candidate`: the walk's own chain names
@@ -144,7 +142,7 @@ pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher
         if (len == 0) continue;
         walk.found = .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
         if (len >= level.nice_len or len >= later.len) break;
-        walk.follow_longer(level, self, lowest, later, candidate);
+        if (!walk.follow_longer(level, self, lowest, later, candidate)) break;
     }
     return walk.found;
 }
