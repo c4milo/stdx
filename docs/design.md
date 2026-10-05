@@ -940,6 +940,10 @@ to 12 are reordered and nothing else changes.
     length left to the checked steps; and each of the two loops' calls left out, which leaves
     the checked steps to read every length. The claim's A/B in bench-deflate is what measures
     the last two.
+  - What the owner ruled on these numbers, on 2026-10-04, through three questions. The limit
+    rises and the loop lands. The tail's amendment of decision 16 stands as written, with claim
+    S15. And `combine_bits_min` and `combine_input_min` may be measured at other values on
+    branches that never land.
 
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
