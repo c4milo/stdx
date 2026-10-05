@@ -674,6 +674,23 @@ small file.
       html takes 23,060 instructions with the tally and 25,801 without, and a 16 KiB member
       91,048 and 93,040. So the N2's rows of 1 KiB slices run about 8% faster and its rows of
       16 KiB slices about 2%, and the files taken whole gain less than entry 20's floor.
+    - S14 measured, the same day; design §8 step 7 holds the pairs under "The codes built from a
+      tally of the lengths". After the loop in the same job, the N2's rows of 1 KiB slices run
+      1.18 to 1.25 times as fast in both jobs and its rows of 16 KiB slices 1.03 to 1.06, past
+      the prediction: over 1 KiB slices the N2 misses 16% to 19% fewer branches, which a count of
+      instructions on the M1 does not show. A Xeon 6973P-C runs the 1 KiB rows 1.17 to 1.27
+      times as fast, and an EPYC 9V45 1.28 to 1.33 where its baselines' same rows rose 1.03 to
+      1.08. No row fell on any of the three. The files taken whole gain nothing, as predicted:
+      five of them take 0.3% to 0.5% more instructions, since a long block gives a code to
+      nearly every length. stdx over the fastest baseline stands at 1.10 to 1.34 over 1 KiB
+      slices on the N2 and at 0.98 to 1.02 over 16 KiB slices.
+    - The thresholds measured, the same day; design §8 step 7 holds the runs under "The
+      thresholds of S11 and S12 on a short stream". S12 from a stream's first block runs three
+      of x86-64's four rows of 16 KiB slices 2.0% to 5.9% faster and its rows of 1 KiB slices
+      2.6% to 5.1% slower, and all eight rows 2.8% to 5.8% slower on the N2. S11 and S12 in a
+      call of 1,024 octets of input run x86-64's 16 KiB rows 1.0% to 14.3% slower. Neither is
+      kept, and both limits stand. What holds x86-64's 16 KiB rows at 0.76 to 0.93 of the
+      fastest baseline is still open.
     - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
       nothing into the window, which no call reads after `done`. Called apart on the N2, that
       copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
