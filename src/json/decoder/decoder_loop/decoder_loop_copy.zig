@@ -28,15 +28,22 @@ pub inline fn string(loop: *Loop, comptime claims: Claims, comptime kind: Kind) 
         loop.out = loop.out[copied.output_len..];
         return copied.output_len;
     }
-    if (content.len < constants.vector_len or loop.out.len < constants.vector_len) return leave_long(loop, kind, 0);
-    const block: @Vector(constants.vector_len, u8) = content[0..constants.vector_len].*;
+    // The input is counted from the string's opening quotation mark, in one slice: counted from
+    // its content, the content's start and length were two values more for the loop to keep, and
+    // x86-64 kept the input's address on the stack across every name (design §8 step 18).
+    const in = loop.in;
+    if (in.len <= constants.vector_len or loop.out.len < constants.vector_len) return leave_long(loop, kind, 0);
+    const block: @Vector(constants.vector_len, u8) = in[1..][0..constants.vector_len].*;
     loop.out[0..constants.vector_len].* = block;
     const lane = scan.plain_stop(block) orelse return second_block(loop, kind, content);
     if (!scan.is_quotation_mark(block, lane)) return leave_long(loop, kind, lane);
-    loop.in = content[lane + 1 ..];
+    loop.in = in[lane + quotation_marks ..];
     loop.out = loop.out[lane..];
     return lane;
 }
+
+/// The quotation marks around a string's content, which the loop moves past with it.
+const quotation_marks = 2;
 
 /// `string` on past its first block of plain ASCII, for the second block: qlog's records hold
 /// two strings of 16 to 31 octets each, and left to the out-of-line copy they and CLDR's took 3
