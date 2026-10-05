@@ -641,6 +641,15 @@ small file.
       34% of a 1 KiB member's time and 6% to 10% of a 16 KiB member's, and falls as far. No file
       taken whole moves past entry 20's floor: a block reads its header once in thousands of
       symbols.
+    - S13 measured, the same day; design §8 step 7 holds the pairs under "The code lengths'
+      loop". On the N2 a 1 KiB member of html takes 10.94 cycles an octet where it took 15.39,
+      past the prediction. The rows of 1 KiB slices run 1.41 to 1.46 times as fast in both of
+      the N2's jobs and the rows of 16 KiB slices 1.10 to 1.17; on an EPYC 9V74 and an EPYC 7763,
+      1.38 to 1.46 and 1.10 to 1.16. The prediction for the files taken whole was wrong: 23 of
+      26 rose on the N2, by 1.8% to 6.3%, on 2% to 12% fewer instructions. No row fell on any of
+      the three CPUs. stdx over the fastest baseline stands at 0.94 to 1.10 over 1 KiB slices on
+      the N2 and at 0.95 to 0.97 over 16 KiB slices, and on x86-64 at 0.90 to 1.06 and 0.67 to
+      0.89.
     - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
       nothing into the window, which no call reads after `done`. Called apart on the N2, that
       copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
@@ -845,7 +854,7 @@ small file.
     |---|---|---|---|---|
     | DEFLATE symbol loop (S1, S2) | 7 | 8 octets, one refill per iteration | 258 plus 16 | Throughput against the checked path on all three corpora: a median of 11.68 times on the N2 and 9.29 on the EPYC 7763 in step 7 |
     | DEFLATE and brotli match copy (S4) | 7, 12 | none | 258 plus 16 for DEFLATE; `chunk_len_max` plus 16 for brotli | As above |
-    | DEFLATE code lengths, in a dynamic block's header (S13) | 7 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput against the loop off over entry 45's rows of slices, two paired jobs a runner, each row ahead by more than its spread and no file behind by more than entry 20's floor; the numbers follow the measurement |
+    | DEFLATE code lengths, in a dynamic block's header (S13) | 7 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput with the loop over main's without it, the change after its base in one job (entry 20), at cbb1353 against 9f728fe (runs [37244993630](https://github.com/c4milo/stdx/actions/runs/37244993630) and [37244996296](https://github.com/c4milo/stdx/actions/runs/37244996296)): entry 45's rows of 1 KiB slices 1.41 to 1.46 on the N2 in both jobs, 1.38 to 1.44 on an EPYC 9V74 and 1.39 to 1.46 on an EPYC 7763; its rows of 16 KiB slices 1.10 to 1.17, 1.10 to 1.15 and 1.11 to 1.16; and none of the 39 rows slower on any of the three |
     | Zstandard literal decoding, four streams (Z1, Z2) | 11 | 8 octets before each stream's position, read backward | none: literals go to the state's literal buffer, whose size is fixed | As above |
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |

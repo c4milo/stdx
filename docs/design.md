@@ -855,6 +855,92 @@ to 12 are reordered and nothing else changes.
     stream adds none, and one that a call filling its output at a block's end leaves its octets
     there.
 
+  **The code lengths' loop, 2026-10-04.** The second of those rulings to be measured: claim S13 of
+  decision 14, with its row in decision 16's table. While 8 octets of input remain,
+  `fast_lengths.zig` refills a 64-bit buffer with one 8-octet load, takes each code of the code
+  length code by one lookup in a table of 7 bits, and writes symbol 16's copies of the previous
+  length as one store of 8 octets. A run of zeros writes nothing, since the lengths ahead of it
+  are zero. A loop of the same kind reads the code length code's own lengths. The checked steps
+  read what the margin leaves, and every symbol they refuse (3b2fa87).
+  - The pairs. `perf-deflate-lengths`, a branch that never lands (decision 20), held the change
+    at cbb1353, measured after main's 9f728fe in the same job. bench-deflate runs
+    [37244993630](https://github.com/c4milo/stdx/actions/runs/37244993630) and
+    [37244996296](https://github.com/c4milo/stdx/actions/runs/37244996296) drew a Neoverse N2 in
+    both, and an EPYC 9V74 in the first and an EPYC 7763 in the second, so each x86-64 job pairs
+    a CPU of its own. bench-profile run
+    [37244999318](https://github.com/c4milo/stdx/actions/runs/37244999318) counted on the N2. The
+    reports are in `bench/results/`, dated 2026-10-04, "lengths-loop".
+  - The baselines first: the same C in both programs, 156 cells a job. The N2's counters read
+    the same instructions an octet for every baseline in every row of the two programs, and
+    0.933 to 1.044 of the base's cycles. Timed on the N2, 27 cells moved in both jobs: 18 by 1.1%
+    to 2.1%, and 9 on cp.html, fields.c, sum and xargs.1 by 1.7% to 7.9%. On the EPYC 9V74 50
+    cells moved, by up to 5.5%, and on the EPYC 7763 50, by up to 6.2%. A row of these pairs
+    moves that far on code no commit changed.
+  - stdx's gzip decoder, its own speed in the change's program over the base's:
+
+    | Rows | Neoverse N2, both jobs | EPYC 9V74 | EPYC 7763 |
+    |---|---|---|---|
+    | 1 KiB slices, 4 rows | 1.409 to 1.459 | 1.380 to 1.441 | 1.391 to 1.460 |
+    | 16 KiB slices, 4 rows | 1.101 to 1.172 | 1.095 to 1.150 | 1.108 to 1.164 |
+    | cp.html, fields.c, grammar.lsp, sum, xargs.1 | 1.034 to 1.281 | 1.089 to 1.269 | 1.088 to 1.291 |
+    | The other 26 files, those that rose | 23, by 1.018 to 1.063 | 21, by 1.016 to 1.058 | 24, by 1.024 to 1.072 |
+    | Rows that rose, of 39 | 36 | 34 | 37 |
+    | Rows that fell | 0 | 0 | 0 |
+
+    A row rose when it passed the larger of its spread and 1%, on the N2 in both jobs. The rows
+    that stayed within their spreads: nci, webster and E.coli on the N2; nci, reymont, E.coli,
+    bible.txt and html-1m on the 9V74; xml and E.coli on the 7763.
+  - The N2's counters, an octet, as fractions of the base's. Over 1 KiB slices stdx takes 0.583
+    to 0.619 of the instructions, 0.689 to 0.716 of the cycles and 0.678 to 0.780 of the branch
+    misses. Over 16 KiB slices, 0.764 to 0.813, 0.853 to 0.899 and 0.848 to 0.945. Over the 26
+    files taken whole, 0.879 to 0.984 of the instructions, and of the cycles 0.944 to 1.000 on
+    all but nci, which read 1.041 on 0.969 of the instructions: its timed rows ran at 0.994 and
+    0.987 on spreads of 5.0% and 14.0%. So the files taken whole rise on fewer instructions,
+    which a move of their code alone would not give them.
+  - The probe on the loop, at 8a95c0f on the N2 (run
+    [37245299694](https://github.com/c4milo/stdx/actions/runs/37245299694), "split-lengths-loop"
+    in `bench/results/`). Its counters: one dynamic member of html's 1 KiB slices takes 26,874
+    instructions, 191.8 branch misses and 11,152 cycles, where it took 42,575, 256.5 and 15,083,
+    and libdeflate takes 20,537, 155.7 and 10,801. With room past the slice stdx takes 9,943
+    cycles and libdeflate 10,353: a buffer of the slice's length costs stdx 1,210 cycles and
+    libdeflate 447. One of html's 16 KiB members takes 44,590 cycles, and libdeflate 43,102.
+  - valgrind in the same run. One dynamic member of html's 1 KiB slices takes 26,721
+    instructions where it took 42,255, and one of its 16 KiB slices 99,410 where it took
+    120,387. The header's steps, the canonical decode and the
+    checked bit reader took 15,499 of the 1 KiB member's; with the loop and its table's build
+    they take 2,820. What is left of the 26,721: the codes' builds, 6,022; the fast path's Zig
+    outside the loops, 5,926, most of it the tail, whose copies an octet at a time are 2,273 and
+    whose refills 771; the assembly symbol loop, 4,998; the tables' builds, 3,756.
+  - Where it leaves the rows, stdx over the fastest baseline. Over 1 KiB slices: 0.66 to 0.78
+    before and 0.94 to 1.10 after on the N2, 0.66 to 0.72 and 0.90 to 1.02 on the 9V74, 0.66 to
+    0.74 and 0.94 to 1.06 on the 7763. Over 16 KiB slices: 0.82 to 0.85 and 0.95 to 0.97 on the
+    N2, 0.58 to 0.75 and 0.67 to 0.85 on the 9V74, 0.70 to 0.75 and 0.82 to 0.89 on the 7763.
+  - The prediction against the measurement (decision 14). The N2 was to take a 1 KiB member of
+    html from 15,083 cycles to about 12,300, and took it from 15.39 cycles an octet to 10.94,
+    15,759 to 11,203 a member of the row's mean. A 16 KiB member was to gain about 7% and gained
+    10% to 15%. No file taken whole was to pass decision 20's floor, and 23 of 26 did on the N2.
+    The prediction counted a header's read as nothing beside a block's symbols. The read took
+    21,000 instructions a block of html's 16 KiB slices, and the loop takes 2% to 12% off the
+    instructions of the files taken whole.
+  - x86-64's rows of 16 KiB slices stay behind, at 0.67 to 0.89 of the fastest baseline. A
+    lead, from the same reports' A/B of each claim. With S12 off, html-1m, js-1m and css-1m run
+    at 0.83 to 0.87 of all on on both EPYCs, and with S11 off css-1m at 0.82 on the 9V74; the
+    four rows of 16 KiB slices run at 1.00 to 1.01 with either off. A block's tables take S11
+    and S12 only once the fast path has decoded 32,768 bits, or in a call whose input holds
+    16,384 octets (`combine_bits_min`, `combine_input_min`), and a 16 KiB slice is 2 KiB to 4 KiB
+    of input. On the N2 the two claims off run the 1 MiB rows at 0.94 to 1.00. Both constants
+    are named limits, so nothing changes here.
+  - The checks. CI run [37245844569](https://github.com/c4milo/stdx/actions/runs/37245844569)
+    passed `tools/ci.sh` at cbb1353 on the three runners. Invariant 17's count for a dynamic
+    block's header, `block_table_work_max`, rises from 4,530 to 4,696: the table's build, 147,
+    and the 19 lengths cleared after the code length code is built. The bound an octet,
+    `table_work_per_octet_max`, rises from 1,133 to 1,174.
+  - Mutations, 40, of which 36 are CAUGHT. The 4 NOT CAUGHT change no octet a decode writes and
+    no verdict: a refill made before the buffer needs it; a repeat that ends at the header's last
+    length left to the checked steps; and each of the two loops' calls left out, which leaves
+    the checked steps to read every length. The claim's A/B in bench-deflate is what measures
+    the last two.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
