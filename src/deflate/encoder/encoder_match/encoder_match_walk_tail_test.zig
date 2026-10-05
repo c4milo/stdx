@@ -243,6 +243,31 @@ test "a walk tries no move where fewer than tail_move_candidates_min candidates 
     }
 }
 
+test "the gap to the next candidate of a tail's chain counts from the candidate, not from its place on the chain" {
+    const octets = position_octets();
+    var matcher: TailMatcher = undefined;
+    set_window(&matcher, &octets);
+    // The nearest candidate and a filler on the position's own chain, so the walk moves to the
+    // nearest one's tail's chain. That chain names a longer candidate `left` octets before the
+    // reach's edge, then a position that holds the tail alone, one octet past the widest gap
+    // that pays, then the far candidate, which the longer one's tail's chain names too.
+    const scene: Scene = .{};
+    const left = 8000;
+    const longer = constants.encoder_distance_max - left;
+    const filler = longer + left / constants.tail_move_candidates_min + 1;
+    const far = filler + scene.gap;
+    plant_candidates(&matcher, &octets, &.{ .{ .distance = scene.near, .len = near_len }, .{ .distance = scene.near + scene.gap, .len = constants.match_len_taken_min } });
+    @memcpy(matcher.window[test_position - longer ..][0..longer_len], octets[0..longer_len]);
+    @memcpy(matcher.window[test_position - far ..][0..far_len], octets[0..far_len]);
+    plant_tail(&matcher, &octets, near_len, &.{ .{ .distance = longer - near_tail }, .{ .distance = filler - near_tail, .len = constants.match_len_taken_min, .from = near_tail }, .{ .distance = far - near_tail } });
+    plant_tail(&matcher, &octets, longer_len, &.{.{ .distance = far - tail_of(.{ .len = longer_len }) }});
+    // No move after the longer candidate: the walk reads the position that holds the tail alone
+    // before the far candidate.
+    const links = scene_ends + 2;
+    try testing.expectEqual(far_len, best_by_tail(tail_level, &matcher, constants.match_len_max, links).len);
+    try testing.expectEqual(longer_len, best_by_tail(tail_level, &matcher, constants.match_len_max, links - 1).len);
+}
+
 /// The run test's run: how many times its letter repeats at the position.
 const run_len = 10;
 
