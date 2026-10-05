@@ -164,6 +164,13 @@ pub const combine_input_min = 16384;
 /// The code lengths a dynamic block's header writes: the code length code's and the block's own.
 pub const code_lengths_len = literal_length_alphabet_len + distance_alphabet_len;
 
+/// The most code lengths a dynamic block's header gives: HLIT + 257 is 286 at most, and HDIST + 1
+/// is 32 (RFC 1951 §3.2.7).
+pub const header_lengths_max = literal_length_used + distance_alphabet_len;
+
+/// The most copies of the previous length one repeat gives: symbol 16's (RFC 1951 §3.2.7).
+pub const repeat_previous_count_max = repeat_count_max[0];
+
 /// Invariant 17's count for one dynamic block's header, at most: every code length cleared, each
 /// of the code length code's written, each of the block's written, the three codes built, the code
 /// length code's table and its lengths cleared again for the code lengths' loop (S13), and the
@@ -460,6 +467,8 @@ comptime {
     // A block's checks fall between its first symbol and its last.
     assert(block_chunk_symbols < block_symbols_max and block_symbols_max % block_chunk_symbols == 0);
     assert(code_length_symbols_min == 2);
+    assert(header_lengths_max <= code_lengths_len);
+    assert(repeat_previous_count_max == 6);
     assert(dynamic_block_bits_min == 32);
     // A length of the code length code takes 3 bits, so its codes take 7 at most (RFC 1951 §3.2.7),
     // and a symbol with a repeat's 7 extra bits 14.

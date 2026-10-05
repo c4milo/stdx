@@ -22,8 +22,16 @@ fn loops_lengths(comptime options: decoder_module.Options) bool {
     return options.fast_paths and options.claims.code_lengths_loop;
 }
 
-/// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills.
-pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+/// Whether a decode on `options` tallies a header's lengths as it reads them, and builds the
+/// block's codes from the tally (decision 14, S14). The checked path alone passes over the
+/// lengths, as huffman.zig's `build` does.
+fn tallies_lengths(comptime options: decoder_module.Options) bool {
+    return options.fast_paths and options.claims.tallied_codes;
+}
+
+/// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills,
+/// and the tally of them when the decode tallies.
+pub fn read_table_counts(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     if (!bits.ensure(constants.hlit_bits + constants.hdist_bits + constants.hclen_bits)) return .needs_input;
     const literal_length_count = constants.hlit_base + @as(u16, @intCast(bits.read(constants.hlit_bits).?));
     decoder.distance_count = constants.hdist_base + @as(u16, @intCast(bits.read(constants.hdist_bits).?));
@@ -33,6 +41,7 @@ pub fn read_table_counts(decoder: *Decoder, bits: *codec.BitReader) Error!?codec
     decoder.literal_length_count = literal_length_count;
     decoder.lengths = @splat(0);
     count_work(decoder, decoder.lengths.len);
+    if (comptime tallies_lengths(options)) decoder.tally.reset();
     decoder.header_index = 0;
     decoder.phase = .code_length_code;
     return null;
@@ -71,11 +80,15 @@ fn prepare_lengths_loop(decoder: *Decoder) void {
 /// loop of fast_lengths.zig reads the symbols first, while the input's margin holds.
 pub fn read_code_lengths(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const total = decoder.literal_length_count + decoder.distance_count;
-    if (comptime loops_lengths(options)) count_work(decoder, fast_lengths.read(&decoder.code_length_table, &decoder.lengths, &decoder.header_index, total, bits));
+    const tallies = comptime tallies_lengths(options);
+    if (comptime loops_lengths(options)) {
+        const into: fast_lengths.Into = .{ .lengths = &decoder.lengths, .index = &decoder.header_index, .total = total, .tally = &decoder.tally, .literal_length_count = decoder.literal_length_count };
+        count_work(decoder, fast_lengths.read(tallies, &decoder.code_length_table, into, bits));
+    }
     // Each symbol writes at least one length.
     for (0..total - decoder.header_index) |_| {
         if (decoder.header_index == total) break;
-        if (try read_code_length(decoder, bits, total)) |status| return status;
+        if (try read_code_length(tallies, decoder, bits, total)) |status| return status;
     }
     assert(decoder.header_index == total);
     try build_block_codes(options, decoder, bits.reader.remaining_len());
@@ -83,8 +96,9 @@ pub fn read_code_lengths(comptime options: decoder_module.Options, decoder: *Dec
     return null;
 }
 
-/// Reads one code length symbol, with a repeat's extra bits.
-fn read_code_length(decoder: *Decoder, bits: *codec.BitReader, total: u16) Error!?codec.Status {
+/// Reads one code length symbol, with a repeat's extra bits, and tallies its lengths for the
+/// codes' builds when the decode `tallies`.
+fn read_code_length(comptime tallies: bool, decoder: *Decoder, bits: *codec.BitReader, total: u16) Error!?codec.Status {
     _ = bits.ensure(constants.code_length_symbol_bits_max);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);
@@ -101,6 +115,7 @@ fn read_code_length(decoder: *Decoder, bits: *codec.BitReader, total: u16) Error
     // repeat may cross but not pass.
     if (decoder.header_index + repeat.count > total) return error.RepeatPastEnd;
     fill_lengths(&decoder.lengths, decoder.header_index, repeat.count, repeat.len);
+    if (tallies) decoder.tally.add(decoder.header_index, repeat.count, repeat.len, decoder.literal_length_count);
     count_work(decoder, repeat.count);
     decoder.header_index += repeat.count;
     bits.consume(symbol.len + repeat.extra_bits);
@@ -140,9 +155,13 @@ fn build_block_codes(comptime options: decoder_module.Options, decoder: *Decoder
     const literal_lengths = decoder.lengths[0..decoder.literal_length_count];
     // RFC 1951 §3.2.7: every block ends with symbol 256, so its code must have a length.
     if (literal_lengths[constants.end_of_block] == 0) return error.MissingEndOfBlock;
-    try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
     const distance_lengths = decoder.lengths[decoder.literal_length_count..][0..decoder.distance_count];
-    try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
+    if (comptime tallies_lengths(options)) {
+        try build_tallied_codes(decoder, literal_lengths, distance_lengths);
+    } else {
+        try decoder.literal_length_code.build(literal_lengths, .complete, &decoder.work);
+        try decoder.distance_code.build(distance_lengths, .distance, &decoder.work);
+    }
     // S12 and S11: once the stream shows itself long, a block's lengths take their extra bits and
     // their distances' codes into its table; until then, the table builds plain, as it builds
     // fastest.
@@ -151,6 +170,14 @@ fn build_block_codes(comptime options: decoder_module.Options, decoder: *Decoder
     if (!resolves or !claims.combined_entries) return;
     count_work(decoder, lookup.combine(&decoder.literal_length_table, &decoder.literal_length_code, &decoder.distance_table, &decoder.distance_code));
     decoder.bits_since_combination = 0;
+}
+
+/// Builds the block's two codes from the tally of its lengths (decision 14, S14).
+fn build_tallied_codes(decoder: *Decoder, literal_lengths: []const u8, distance_lengths: []const u8) Error!void {
+    const tally = &decoder.tally;
+    const listed = tally.listed();
+    try decoder.literal_length_code.build_tallied(literal_lengths.len, &tally.counts[0], listed[0], 0, .complete, &decoder.work);
+    try decoder.distance_code.build_tallied(distance_lengths.len, &tally.counts[1], listed[1], decoder.literal_length_count, .distance, &decoder.work);
 }
 
 /// Whether a block's tables combine: after `combine_bits_min` bits since the last combination, or

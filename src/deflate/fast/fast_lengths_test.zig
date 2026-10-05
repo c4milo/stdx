@@ -13,9 +13,10 @@ const deflate = @import("../decoder/decoder.zig");
 const fast_lengths = @import("fast_lengths.zig");
 
 const Stream = test_stream.Stream;
-const Generator = codec.split.Generator;
-const alphabet_len = constants.code_length_alphabet_len;
-const CodeLengths = [alphabet_len]u8;
+pub const Generator = codec.split.Generator;
+pub const alphabet_len = constants.code_length_alphabet_len;
+pub const CodeLengths = [alphabet_len]u8;
+const codes_min = test_stream.complete_codes_min;
 
 /// The seeds the code length codes and the headers are drawn from.
 const code_seeds = 400;
@@ -24,47 +25,21 @@ const header_seeds = 600;
 /// The zero octets after a header, two margins, so the loops' margin holds to its end, and the
 /// room a decode writes into: a drawn header's codes may decode the padding to a few octets.
 const padding_margins = 2;
-const padding_len = padding_margins * fast_lengths.input_slack;
-const output_len = 4096;
-
-/// The fewest codes a complete code holds: two of one bit (RFC 1951 §3.2.2).
-const codes_min = 2;
+pub const padding_len = padding_margins * fast_lengths.input_slack;
+pub const output_len = 4096;
 
 /// What each path's state holds in every octet before `init`: a path that reads what it did not
 /// write gives what another path does not.
-const loop_fill = 0x5a;
-const loop_off_fill = 0xa5;
-const checked_fill = 0x33;
+pub const loop_fill = 0x5a;
+pub const loop_off_fill = 0xa5;
+pub const tally_off_fill = 0x96;
+pub const checked_fill = 0x33;
 
-/// A complete code of the code length alphabet, drawn from `generator`: a code of no bits, split
-/// in two a length longer until `codes` exist or none can split, and given to the symbols in an
-/// order the generator draws (RFC 1951 §3.2.2).
-fn draw_code(generator: *Generator, codes: usize) CodeLengths {
-    std.debug.assert(codes >= codes_min and codes <= alphabet_len);
-    var lens: [alphabet_len]u8 = @splat(0);
-    lens[0] = 1;
-    lens[1] = 1;
-    var count: usize = codes_min;
-    // Each round splits a code or finds none to split.
-    for (0..alphabet_len) |_| {
-        if (count == codes) break;
-        const from: usize = @intCast(generator.below(count));
-        const picked = for (0..count) |offset| {
-            const index = (from + offset) % count;
-            if (lens[index] < constants.code_length_code_len_max) break index;
-        } else break;
-        lens[picked] += 1;
-        lens[count] = lens[picked];
-        count += 1;
-    }
-    var lengths: CodeLengths = @splat(0);
-    var symbols: [alphabet_len]u8 = undefined;
-    for (&symbols, 0..) |*symbol, index| symbol.* = @intCast(index);
-    for (0..count) |index| {
-        const other = index + @as(usize, @intCast(generator.below(alphabet_len - index)));
-        std.mem.swap(u8, &symbols[index], &symbols[other]);
-        lengths[symbols[index]] = lens[index];
-    }
+/// A complete code of the code length alphabet with `codes` codes, drawn from `generator`
+/// (test_stream.zig).
+pub fn draw_code(generator: *Generator, codes: usize) CodeLengths {
+    var lengths: CodeLengths = undefined;
+    test_stream.draw_complete_code(generator, &lengths, codes, constants.code_length_code_len_max);
     return lengths;
 }
 
@@ -92,7 +67,7 @@ test "the table gives every index the symbol and the length the canonical code g
 
 /// A dynamic block's header, written a code length symbol at a time with a code length code of the
 /// test's own (RFC 1951 §3.2.7).
-const Header = struct {
+pub const Header = struct {
     stream: Stream = .{},
     lengths: CodeLengths,
     codes: [alphabet_len]u16,
@@ -101,7 +76,7 @@ const Header = struct {
 
     /// BFINAL, BTYPE and the counts, then the code length code's lengths through the last symbol
     /// of `code_length_order` that has one, and four at least.
-    fn init(lengths: CodeLengths, literal_length_count: u16, distance_count: u16) Header {
+    pub fn init(lengths: CodeLengths, literal_length_count: u16, distance_count: u16) Header {
         var header: Header = .{ .lengths = lengths, .codes = test_stream.assign_codes(alphabet_len, lengths), .total = literal_length_count + distance_count };
         var count: u16 = constants.hclen_base;
         for (constants.code_length_order, 0..) |symbol, index| {
@@ -116,7 +91,7 @@ const Header = struct {
     }
 
     /// One code length symbol, with a repeat's extra bits `extra`. Counts the lengths it gives.
-    fn give(self: *Header, value: u8, extra: u64) void {
+    pub fn give(self: *Header, value: u8, extra: u64) void {
         std.debug.assert(self.lengths[value] != 0);
         self.stream.code(self.codes[value], self.lengths[value]);
         if (value < constants.repeat_previous) {
@@ -129,12 +104,12 @@ const Header = struct {
     }
 
     /// The header's octets, with `padding_len` zero octets after them.
-    fn padded(self: *const Header, buffer: *[test_stream.stream_len_max + padding_len]u8) []const u8 {
+    pub fn padded(self: *const Header, buffer: *[test_stream.stream_len_max + padding_len]u8) []const u8 {
         return self.padded_with(0, buffer);
     }
 
     /// The header's octets, with `padding_len` octets of `fill` after them.
-    fn padded_with(self: *const Header, fill: u8, buffer: *[test_stream.stream_len_max + padding_len]u8) []const u8 {
+    pub fn padded_with(self: *const Header, fill: u8, buffer: *[test_stream.stream_len_max + padding_len]u8) []const u8 {
         const octets = self.stream.slice();
         @memcpy(buffer[0..octets.len], octets);
         @memset(buffer[octets.len..][0..padding_len], fill);
@@ -168,33 +143,53 @@ fn draw_header(seed: u64) Header {
     return header;
 }
 
-/// What a decode of a header left: how the call ended, and the code lengths it read.
-const Read = struct {
+/// A block's two codes, as a decode of its header built them.
+pub const Codes = struct {
+    literal_length: huffman.Code(constants.literal_length_alphabet_len),
+    distance: huffman.Code(constants.distance_alphabet_len),
+
+    pub fn expect_equal(self: *const Codes, other: *const Codes) !void {
+        inline for (.{ "literal_length", "distance" }) |name| {
+            const mine = &@field(self, name);
+            const theirs = &@field(other, name);
+            try testing.expectEqualSlices(u16, &mine.counts, &theirs.counts);
+            try testing.expectEqual(mine.code_count, theirs.code_count);
+            try testing.expectEqualSlices(u16, mine.symbols[0..mine.code_count], theirs.symbols[0..theirs.code_count]);
+        }
+    }
+};
+
+/// What a decode of a header left: how the call ended, the code lengths it read, and the codes it
+/// built from them, which a decode that ended in a refusal may not have.
+pub const Read = struct {
     result: deflate.Error!codec.Progress,
     read_len: u16,
     lengths: fast_lengths.Lengths,
+    codes: Codes,
     output: [output_len]u8,
 
-    fn expect_equal(self: *const Read, other: *const Read) !void {
+    pub fn expect_equal(self: *const Read, other: *const Read) !void {
         try testing.expectEqual(self.result, other.result);
         try testing.expectEqual(self.read_len, other.read_len);
         try testing.expectEqualSlices(u8, self.lengths[0..self.read_len], other.lengths[0..other.read_len]);
         const progress = self.result catch return;
+        try self.codes.expect_equal(&other.codes);
         try testing.expectEqualSlices(u8, self.output[0..progress.written], other.output[0..progress.written]);
     }
 };
 
 /// Decodes `input` in two calls cut at `cut`, or in one when `cut` is its length, on `options`.
 /// The state starts as `fill` in every octet, so a path that reads what it did not write shows.
-fn read_header(comptime options: deflate.Options, input: []const u8, cut: usize, fill: u8) Read {
+pub fn read_header(comptime options: deflate.Options, input: []const u8, cut: usize, fill: u8) Read {
     var decoder: deflate.Decoder = undefined;
     @memset(std.mem.asBytes(&decoder), fill);
     deflate.init(&decoder, codec.Features.detect());
-    var read: Read = .{ .result = undefined, .read_len = 0, .lengths = undefined, .output = undefined };
+    var read: Read = .{ .result = undefined, .read_len = 0, .lengths = undefined, .codes = undefined, .output = undefined };
     read.result = decode_cut(options, &decoder, input, cut, &read.output);
     // A decode that passed the header read every length; one refused inside it stopped at one.
     read.read_len = if (@intFromEnum(decoder.phase) == code_lengths_phase or read.result == error.RepeatPastEnd or read.result == error.RepeatWithoutLength) decoder.header_index else decoder.literal_length_count + decoder.distance_count;
     read.lengths = decoder.lengths;
+    read.codes = .{ .literal_length = decoder.literal_length_code, .distance = decoder.distance_code };
     return read;
 }
 
@@ -208,13 +203,16 @@ fn decode_cut(comptime options: deflate.Options, decoder: *deflate.Decoder, inpu
     return .{ .consumed = first.consumed + second.consumed, .written = first.written + second.written, .status = second.status };
 }
 
-const loop_off: deflate.Options = .{ .claims = .{ .code_lengths_loop = false } };
-const checked: deflate.Options = .{ .fast_paths = false };
+pub const loop_off: deflate.Options = .{ .claims = .{ .code_lengths_loop = false } };
+pub const tally_off: deflate.Options = .{ .claims = .{ .tallied_codes = false } };
+pub const checked: deflate.Options = .{ .fast_paths = false };
 
-/// Requires the loops, the checked steps under the fast path, and the checked path alone to leave
-/// the same lengths and end alike, over `input` whole.
-fn expect_paths_agree(input: []const u8) !Read {
+/// Requires the loops, the loops without the tally of the lengths (S14), the checked steps under
+/// the fast path, and the checked path alone to leave the same lengths, build the same codes and
+/// end alike, over `input` whole.
+pub fn expect_paths_agree(input: []const u8) !Read {
     const with_loop = read_header(.{}, input, input.len, loop_fill);
+    try with_loop.expect_equal(&read_header(tally_off, input, input.len, tally_off_fill));
     try with_loop.expect_equal(&read_header(loop_off, input, input.len, loop_off_fill));
     try with_loop.expect_equal(&read_header(checked, input, input.len, checked_fill));
     return with_loop;

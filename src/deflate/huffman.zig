@@ -48,7 +48,71 @@ pub const Decoded = union(enum) {
 };
 
 /// The number of codes of each length, 1 to 15; `counts[0]` is unused.
-const Counts = [constants.code_len_max + 1]u16;
+pub const Counts = [constants.code_len_max + 1]u16;
+
+/// What the read of a dynamic block's code lengths counts and lists for the builds of its two
+/// codes (decision 14, S14), so that neither build passes over the lengths again: the codes of
+/// each length in each alphabet, and the place of each length that is not zero.
+pub const Tally = struct {
+    /// The lengths of each value among the literal/length symbols, then among the distance
+    /// symbols. The slot of a length of zero counts nothing a build reads.
+    counts: [alphabets]Counts,
+    /// Each length that is not zero, with its place among the header's lengths, in the order
+    /// read: the literal/length symbols' first. A repeat lists its most places in one go, so the
+    /// list holds that many past the lengths' last.
+    coded: [constants.header_lengths_max + constants.repeat_previous_count_max]Listed,
+    coded_len: u16,
+
+    /// One length that is not zero, and its place among the header's lengths.
+    pub const Listed = packed struct(u16) {
+        place: Place,
+        len: Len,
+    };
+    pub const Place = u12;
+    pub const Len = u4;
+
+    comptime {
+        assert(constants.header_lengths_max + constants.repeat_previous_count_max <= std.math.maxInt(Place));
+        assert(constants.code_len_max <= std.math.maxInt(Len));
+    }
+
+    /// The literal/length alphabet and the distance alphabet.
+    pub const alphabets = 2;
+
+    /// Empties the tally, for a new block's header.
+    pub fn reset(self: *Tally) void {
+        self.counts = @splat(@splat(0));
+        self.coded_len = 0;
+    }
+
+    /// The alphabet a place belongs to, as an index into `counts`: the literal/length alphabet
+    /// takes the header's first `literal_length_count` lengths (RFC 1951 §3.2.7).
+    pub inline fn alphabet(place: usize, literal_length_count: usize) u1 {
+        return @intFromBool(place >= literal_length_count);
+    }
+
+    /// The lengths the tally lists, by alphabet: the literal/length alphabet's come first, as
+    /// many as its counts sum to.
+    pub fn listed(self: *const Tally) [alphabets][]const Listed {
+        var literal_length_codes: usize = 0;
+        for (self.counts[0][1..]) |count| literal_length_codes += count;
+        assert(literal_length_codes <= self.coded_len);
+        return .{ self.coded[0..literal_length_codes], self.coded[literal_length_codes..self.coded_len] };
+    }
+
+    /// Counts and lists `count` lengths of `len` from place `at`, a length at a time: the checked
+    /// steps' form.
+    pub fn add(self: *Tally, at: usize, count: usize, len: u8, literal_length_count: usize) void {
+        assert(len <= constants.code_len_max);
+        assert(at + count <= constants.header_lengths_max);
+        if (len == 0) return;
+        for (at..at + count) |place| {
+            self.counts[alphabet(place, literal_length_count)][len] += 1;
+            self.coded[self.coded_len] = .{ .place = @intCast(place), .len = @intCast(len) };
+            self.coded_len += 1;
+        }
+    }
+};
 
 pub fn Code(comptime alphabet_len: usize) type {
     return struct {
@@ -70,6 +134,21 @@ pub fn Code(comptime alphabet_len: usize) type {
             for (self.counts[1..]) |count| self.code_count += count;
         }
 
+        /// As `build` over `lengths_len` lengths, from what the read of them tallied: the `counts`
+        /// of each length, and the `coded` lengths that are not zero with their places,
+        /// ascending, where `base` is the place of the alphabet's first symbol. It passes over
+        /// the symbols with a code alone. Invariant 17 counts it as `build`: the tally of a
+        /// length stands for the build's two reads of it, and the tally's clear for the counts'.
+        pub fn build_tallied(self: *Self, lengths_len: usize, counts: *const Counts, coded: []const Tally.Listed, base: u16, completeness: Completeness, work: *Work) BuildError!void {
+            assert(lengths_len <= alphabet_len and coded.len <= lengths_len);
+            if (builtin.is_test) work.* += constants.build_work_max(lengths_len);
+            self.counts = counts.*;
+            self.counts[0] = 0;
+            try check_counts(&self.counts, completeness);
+            place_coded(&self.counts, &self.symbols, coded, base);
+            self.code_count = @intCast(coded.len);
+        }
+
         /// The symbol whose code starts `bits`, least significant bit first, of which `available`
         /// are present.
         pub fn decode(self: *const Self, bits: u64, available: u7) Decoded {
@@ -85,6 +164,12 @@ fn build_code(counts: *Counts, symbols: []u16, lengths: []const u8, completeness
         counts[len] += 1;
     }
     counts[0] = 0;
+    try check_counts(counts, completeness);
+    place_symbols(counts.*, symbols, lengths);
+}
+
+/// Whether the codes `counts` gives each length form a code the decoder accepts.
+fn check_counts(counts: *const Counts, completeness: Completeness) BuildError!void {
     // The values left unused after each length: one value of no bits, doubled per bit.
     var left: i32 = 1;
     for (counts[1..]) |count| {
@@ -95,7 +180,23 @@ fn build_code(counts: *Counts, symbols: []u16, lengths: []const u8, completeness
     }
     // RFC 1951 §3.2.7 describes the only incomplete codes decision 15 accepts.
     if (left > 0 and !accepts_incomplete(counts.*, completeness)) return error.IncompleteCode;
-    place_symbols(counts.*, symbols, lengths);
+}
+
+/// Lists the symbols in code order, as `place_symbols` does, from the `coded` lengths of those
+/// that have a code: `base` is the place of the alphabet's first symbol.
+fn place_coded(counts: *const Counts, symbols: []u16, coded: []const Tally.Listed, base: u16) void {
+    var offsets: Counts = undefined;
+    offsets[0] = 0;
+    offsets[1] = 0;
+    for (1..constants.code_len_max) |len| offsets[len + 1] = offsets[len] + counts[len];
+    for (coded) |listed| {
+        assert(listed.len != 0 and listed.place >= base);
+        // A length's type holds every index of `offsets` and no other. The sums stay within the
+        // alphabet, which the counts' check bounds, so neither wraps.
+        const slot = &offsets[listed.len];
+        symbols[slot.*] = listed.place - base;
+        slot.* +%= 1;
+    }
 }
 
 fn accepts_incomplete(counts: Counts, completeness: Completeness) bool {
@@ -160,6 +261,8 @@ const fixed_build_quota = 10_000;
 // Tests.
 
 const testing = std.testing;
+const codec = @import("codec");
+const test_stream = @import("test_stream.zig");
 
 /// The bits of `code`, `len` bits long, as a decoder reads them: first bit most significant, packed
 /// least significant bit first (RFC 1951 §3.1.1).
@@ -219,4 +322,94 @@ test "over-subscribed and incomplete codes are refused, but for RFC 1951 section
     try code.build(&.{ 0, 0, 0 }, .distance, &work);
     try code.build(&.{ 0, 1, 0 }, .distance, &work);
     try code.build(&.{ 1, 1 }, .complete, &work);
+}
+
+/// The seeds the tally's test draws its lengths from.
+const tally_seeds = 600;
+
+/// What the tally and each code hold in every octet before the test writes them: a build that
+/// reads what none wrote gives what the other does not.
+const tally_fill = 0xa5;
+const scanned_fill = 0x5a;
+const tallied_fill = 0x33;
+
+/// The kinds of lengths the tally's test draws for an alphabet, each as likely: no code or one;
+/// lengths at random; and, twice, a complete code.
+const length_kinds = 4;
+
+/// Of the draws of no code or one, how many there are of each: one.
+const none_or_one = 2;
+
+/// Lengths for an alphabet, drawn from `generator`: no code or one of one bit, lengths at random,
+/// which seldom form a code the decoder accepts, or a complete code.
+fn draw_lengths(generator: *codec.split.Generator, lengths: []u8) void {
+    @memset(lengths, 0);
+    switch (generator.below(length_kinds)) {
+        0 => if (generator.below(none_or_one) == 0) {
+            lengths[@intCast(generator.below(lengths.len))] = 1;
+        },
+        1 => for (lengths) |*len| {
+            len.* = @intCast(generator.below(constants.code_len_max + 1));
+        },
+        else => if (lengths.len >= test_stream.complete_codes_min) {
+            const codes: usize = @intCast(generator.between(test_stream.complete_codes_min, lengths.len));
+            test_stream.draw_complete_code(generator, lengths, codes, constants.code_len_max);
+        },
+    }
+}
+
+/// Requires a build from the tally's `counts` and `coded` to end as a build from `lengths` does,
+/// with the same count of work, and to leave the same code.
+fn expect_tallied(comptime alphabet_len: usize, lengths: []const u8, counts: *const Counts, coded: []const Tally.Listed, base: u16, completeness: Completeness) !void {
+    var scanned: Code(alphabet_len) = undefined;
+    var tallied: Code(alphabet_len) = undefined;
+    @memset(std.mem.asBytes(&scanned), scanned_fill);
+    @memset(std.mem.asBytes(&tallied), tallied_fill);
+    var scanned_work: Work = 0;
+    var tallied_work: Work = 0;
+    const scanned_result = scanned.build(lengths, completeness, &scanned_work);
+    try testing.expectEqual(scanned_result, tallied.build_tallied(lengths.len, counts, coded, base, completeness, &tallied_work));
+    try testing.expectEqual(scanned_work, tallied_work);
+    scanned_result catch return;
+    try testing.expectEqualSlices(u16, &scanned.counts, &tallied.counts);
+    try testing.expectEqual(scanned.code_count, tallied.code_count);
+    try testing.expectEqualSlices(u16, scanned.symbols[0..scanned.code_count], tallied.symbols[0..tallied.code_count]);
+}
+
+test "a code built from a tally of its lengths is the code built from the lengths (decision 14, S14)" {
+    var accepted: usize = 0;
+    for (0..tally_seeds) |seed| {
+        var generator = codec.split.Generator.init(seed);
+        const literal_length_count: u16 = @intCast(generator.between(constants.hlit_base, constants.literal_length_used));
+        const distance_count: u16 = @intCast(generator.between(constants.hdist_base, constants.distance_alphabet_len));
+        var lengths: [constants.header_lengths_max]u8 = undefined;
+        const literal_lengths = lengths[0..literal_length_count];
+        const distance_lengths = lengths[literal_length_count..][0..distance_count];
+        draw_lengths(&generator, literal_lengths);
+        draw_lengths(&generator, distance_lengths);
+        // The tally takes the lengths in runs of one value, as a header's symbols give them, which
+        // may run from one alphabet into the other (RFC 1951 §3.2.7).
+        var tally: Tally = undefined;
+        @memset(std.mem.asBytes(&tally), tally_fill);
+        tally.reset();
+        const total = literal_length_count + distance_count;
+        var at: usize = 0;
+        for (0..total) |_| {
+            if (at == total) break;
+            const same = std.mem.indexOfNone(u8, lengths[at..total], &.{lengths[at]}) orelse total - at;
+            const count: usize = @intCast(generator.between(1, @min(same, constants.repeat_previous_count_max)));
+            tally.add(at, count, lengths[at], literal_length_count);
+            at += count;
+        }
+        const listed = tally.listed();
+        try expect_tallied(constants.literal_length_alphabet_len, literal_lengths, &tally.counts[0], listed[0], 0, .complete);
+        try expect_tallied(constants.distance_alphabet_len, distance_lengths, &tally.counts[1], listed[1], literal_length_count, .distance);
+        var work: Work = 0;
+        var code: Code(constants.literal_length_alphabet_len) = undefined;
+        if (code.build(literal_lengths, .complete, &work)) |_| {
+            accepted += 1;
+        } else |_| {}
+    }
+    // The seeds draw both kinds of lengths: those that form a code, and those refused.
+    try testing.expect(accepted > tally_seeds / 4 and accepted < tally_seeds - tally_seeds / 4);
 }
