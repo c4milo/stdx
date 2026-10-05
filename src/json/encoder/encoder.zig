@@ -395,5 +395,6 @@ test {
     _ = @import("encoder_loop/encoder_loop.zig");
     _ = @import("encoder_loop/encoder_loop_test.zig");
     _ = @import("encoder_loop/encoder_loop_escapes_test.zig");
+    _ = @import("encoder_loop/encoder_loop_plain_test.zig");
     _ = @import("encoder_fast_test.zig");
 }

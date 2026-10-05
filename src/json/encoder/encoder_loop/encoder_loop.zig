@@ -33,6 +33,7 @@ const Kind = encoder_file.Kind;
 const Position = encoder_file.Position;
 const Piece = encoder_file.Piece;
 const Item = @import("../encoder_batch.zig").Item;
+const loop_plain = @import("encoder_loop_plain.zig");
 const loop_string = @import("encoder_loop_string.zig");
 
 /// Writes items from the first on into `output` from `written` on, moves `written` past them, and
@@ -256,15 +257,11 @@ const Loop = struct {
         return true;
     }
 
-    /// `string` for a string of more than 16 octets, and for every string with claim J1 off: its
-    /// plain run scanned, then copied.
+    /// `string` for a string of more than 16 octets, and for every string with claim J1 off.
     inline fn string_long(self: *Loop, comptime claims: Claims, comptime kind: Kind, frame: Frame, comptime closing: []const u8, start: usize, octets: []const u8) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
-        const run_len = if (claims.encoder_string_vectors) wide.plain_len(self.encoder.level.with(claims), octets) else scan.plain_len_scalar(octets);
         var content_len = octets.len;
-        if (run_len == octets.len) {
-            scan.copy(self.rest[start..][0..octets.len], octets);
-        } else {
+        if (!copy_plain_long(claims, self.encoder.level, self.rest[start..][0..octets.len], octets)) {
             content_len = self.escaped(claims, frame, closing.len, octets) orelse return false;
         }
         self.write_around(claims, kind, frame, closing, start, start + content_len + closing.len + @intFromBool(frame.line_feed));
@@ -387,6 +384,18 @@ pub inline fn overlap(octets: []const u8, output: []const u8) bool {
     const octets_inside = octets.len != 0 and octets_start -% output_start < output.len;
     const output_inside = output.len != 0 and output_start -% octets_start < octets.len;
     return octets_inside or output_inside;
+}
+
+/// Whether `octets`, more than 16 with claim J1 on, are all plain ASCII, which a string carries as
+/// they are (RFC 8259 §7), and then copied into `content`, of the same length: as they are
+/// scanned, each loaded once (encoder_loop_plain.zig); and with claim J1 off scanned an octet at a
+/// time, then copied.
+pub inline fn copy_plain_long(comptime claims: Claims, level: wide.Level, content: []u8, octets: []const u8) bool {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    if (claims.encoder_string_vectors) return loop_plain.copy_plain(level.with(claims), content, octets) == octets.len;
+    if (scan.plain_len_scalar(octets) != octets.len) return false;
+    scan.copy(content, octets);
+    return true;
 }
 
 /// One for each octet a string carries as it is that is ASCII (`scan.is_plain_ascii`), and zero

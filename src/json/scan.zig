@@ -97,19 +97,19 @@ pub fn hex_len_scalar(input: []const u8, output: []u8) usize {
     return len;
 }
 
-fn Block(comptime width: usize) type {
+pub fn Block(comptime width: usize) type {
     return @Vector(width, u8);
 }
 
-fn Lanes(comptime width: usize) type {
+pub fn Lanes(comptime width: usize) type {
     return @Vector(width, bool);
 }
 
-fn splat(comptime width: usize, octet: u8) Block(width) {
+pub fn splat(comptime width: usize, octet: u8) Block(width) {
     return @splat(octet);
 }
 
-fn load(comptime width: usize, octets: []const u8) Block(width) {
+pub fn load(comptime width: usize, octets: []const u8) Block(width) {
     return octets[0..width].*;
 }
 
@@ -134,13 +134,13 @@ inline fn nibbles_of(comptime width: usize, lanes: Lanes(width)) std.meta.Int(.u
 
 /// Whether any lane holds. At 16 octets on aarch64, the word `first_lane` counts in: a UMAXV
 /// across the lanes waited longer, and each block of a string's stop paid it (design §8 step 18).
-inline fn any(comptime width: usize, lanes: Lanes(width)) bool {
+pub inline fn any(comptime width: usize, lanes: Lanes(width)) bool {
     if (comptime has_nibbles(width)) return nibbles_of(width, lanes) != 0;
     return @reduce(.Or, lanes);
 }
 
 /// The first lane that holds, of lanes of which at least one does.
-inline fn first_lane(comptime width: usize, lanes: Lanes(width)) usize {
+pub inline fn first_lane(comptime width: usize, lanes: Lanes(width)) usize {
     assert(any(width, lanes));
     if (builtin.cpu.arch == .aarch64) return @ctz(nibbles_of(width, lanes)) / constants.nibble_bits;
     if (builtin.cpu.arch.endian() == .little) {

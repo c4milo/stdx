@@ -15,6 +15,7 @@ const encoder_test = @import("../encoder_test.zig");
 const encoder_fast_test = @import("../encoder_fast_test.zig");
 const with = encoder_test.with;
 const round_trip = @import("../../round_trip_test.zig");
+const wide = @import("../../wide.zig");
 const token_loop = @import("encoder_loop.zig");
 
 /// The most octets a list writes, and the most items it holds.
@@ -297,6 +298,44 @@ fn expect_short(source: []const u8, plain: bool) !void {
     try testing.expectEqualSlices(u8, source, destination);
     try testing.expectEqual(guard, storage[0]);
     try testing.expectEqual(guard, storage[source.len + 1]);
+}
+
+/// The claims the long copy runs under: claim J1 on, where it copies as it scans, and off.
+const long_copy_claims = [_]claims.Claims{ claims.vector, with_loop(claims.scalar, true) };
+
+test "the loop's long copy tells a plain string plain and copies it, and tells one with a stop not plain" {
+    const plain = "0123456789abcdef, a string longer than two blocks of sixteen octets";
+    const level = wide.Level.of(codec.Features.detect());
+    inline for (long_copy_claims) |taken| {
+        var content: [plain.len]u8 = undefined;
+        try testing.expect(token_loop.copy_plain_long(taken, level, &content, plain));
+        try testing.expectEqualStrings(plain, &content);
+        var stopped = plain.*;
+        stopped[plain.len - 1] = constants.line_feed;
+        try testing.expect(!token_loop.copy_plain_long(taken, level, &content, &stopped));
+    }
+}
+
+/// The longest of the long strings below, and the plain ASCII they hold.
+const long_len_max = 300;
+const long_plain = " !#$[]^~\x7fThe quick brown fox jumps over the lazy dog 0123456789";
+
+test "the loop writes a long name or string of plain ASCII, and one with an escape near an end, as the checked path does" {
+    // Each length is on a path of the loop's copy or at an edge of one (encoder_loop_plain.zig): 17
+    // to 32 octets as two blocks of 16, more past the first 16, x86-64's kernel from 97 on, and a
+    // pass of four blocks at 16 octets a block and at 32.
+    const long_lens = [_]usize{ 17, 31, 32, 33, 63, 64, 65, 79, 80, 81, 95, 96, 97, 127, 128, 129, 161, 225, long_len_max };
+    var octets: [long_len_max]u8 = undefined;
+    for (long_lens) |len| {
+        for (octets[0..len], 0..) |*octet, index| octet.* = long_plain[index % long_plain.len];
+        try check(&.{ .{ .token = .begin_object }, with(.name, octets[0..len]), with(.string, octets[0..len]), .{ .token = .end_object } }, len);
+        for ([_]usize{ 0, 15, 16, len - 17, len - 16, len - 1 }) |place| {
+            const kept = octets[place];
+            octets[place] = constants.quotation_mark;
+            try check(&.{with(.string, octets[0..len])}, len + place);
+            octets[place] = kept;
+        }
+    }
 }
 
 test "the loop writes long strings of close escapes as the checked path does" {

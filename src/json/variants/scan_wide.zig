@@ -1,9 +1,11 @@
-//! Claim J7 (decision 30): a name's or a string's run and a hex string's digits at AVX2's 32
-//! octets, compiled into that level's variant object. Each is exported under a name that carries
-//! the level, and wide.zig calls it only when the caller's features name the level.
+//! Claim J7 (decision 30): a name's or a string's run, a long string's copy as its run is
+//! scanned, and a hex string's digits at AVX2's 32 octets, compiled into that level's variant
+//! object. Each is exported under a name that carries the level, and the module calls it only
+//! when the caller's features name the level (wide.zig, encoder_loop_plain.zig).
 
 const constants = @import("../constants.zig");
 const scan = @import("../scan.zig");
+const encoder_plain = @import("../encoder/encoder_loop/encoder_loop_plain.zig");
 const level = @import("variant_level").level;
 
 /// The octets one vector holds at this level.
@@ -16,6 +18,10 @@ fn plain_len(octets: [*]const u8, len: usize) align(constants.kernel_alignment) 
     return scan.plain_len_vector(width, octets[0..len]);
 }
 
+fn copy_plain(destination: [*]u8, source: [*]const u8, len: usize, from: usize) align(constants.kernel_alignment) callconv(.c) usize {
+    return encoder_plain.copy_plain_vector(width, from, destination[0..len], source[0..len]);
+}
+
 fn hex_len(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usize) align(constants.kernel_alignment) callconv(.c) usize {
     return scan.hex_len_vector(width, input[0..input_len], output[0..output_len]);
 }
@@ -23,5 +29,6 @@ fn hex_len(input: [*]const u8, input_len: usize, output: [*]u8, output_len: usiz
 comptime {
     const suffix = @tagName(level);
     @export(&plain_len, .{ .name = "stdx_json_plain_len_" ++ suffix });
+    @export(&copy_plain, .{ .name = "stdx_json_copy_plain_" ++ suffix });
     @export(&hex_len, .{ .name = "stdx_json_hex_len_" ++ suffix });
 }
