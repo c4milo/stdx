@@ -20,12 +20,27 @@ pub const Window = struct {
     distance_max: usize,
 };
 
-/// Copies a match from anywhere in the history: from this call's output, in chunks when `chunked`
-/// (S4) and an octet at a time otherwise, or from the window. Returns false, having copied nothing,
-/// for a distance past the history or the container's window.
-pub inline fn copy_match(comptime chunked: bool, output: []u8, written: usize, history: Window, distance: usize, len: usize) bool {
+/// How a match inside this call's output is copied.
+pub const How = enum {
+    /// An octet at a time, writing nothing past the match.
+    octets,
+    /// In chunks (S4), with the wide loop's margin of room after the match's target.
+    chunks,
+    /// In chunks while the room after the target holds what they store, which the tail checks for
+    /// each match, and an octet at a time otherwise (decision 16; decision 14, S15).
+    chunks_in_room,
+};
+
+/// Copies a match from anywhere in the history: from this call's output, `how` the caller's room
+/// allows, or from the window. Returns false, having copied nothing, for a distance past the
+/// history or the container's window.
+pub inline fn copy_match(comptime how: How, output: []u8, written: usize, history: Window, distance: usize, len: usize) bool {
     if (distance <= written and distance <= history.distance_max) {
-        if (chunked) copy_within(output, written, distance, len) else copy_exact(output, written, distance, len);
+        switch (how) {
+            .octets => copy_exact(output, written, distance, len),
+            .chunks => copy_within(output, written, distance, len),
+            .chunks_in_room => copy_in_room(output, written, distance, len),
+        }
         return true;
     }
     return copy_from_window(output, written, history, distance, len);
@@ -106,6 +121,43 @@ pub inline fn copy_chunks(comptime chunk_len: usize, output: []u8, target: usize
     for (chunks_unconditional..chunks_max(chunk_len)) |chunk| {
         if (chunk * chunk_len >= len) return;
         into[chunk * chunk_len ..][0..chunk_len].* = span[chunk * chunk_len ..][0..chunk_len].*;
+    }
+}
+
+/// What a copy of `len` octets in chunks of `chunk_len` stores: the length rounded up to a whole
+/// chunk, and at least the chunks it writes whatever the length.
+fn stored_len(comptime chunk_len: usize, len: usize) usize {
+    return @max(chunks_unconditional * chunk_len, std.mem.alignForward(usize, len, chunk_len));
+}
+
+/// Copies `len` octets to `target` from `distance` before it, where the room after the target
+/// may be shorter than the wide loop's margin: in chunks of `copy_chunk_len` or `copy_word_len`
+/// octets when the distance leaves room for one and the output holds what the chunks store, and
+/// octet by octet otherwise.
+inline fn copy_in_room(output: []u8, target: usize, distance: usize, len: usize) void {
+    const room = output.len - target;
+    if (distance >= constants.copy_chunk_len and room >= stored_len(constants.copy_chunk_len, len)) {
+        copy_stored(constants.copy_chunk_len, output, target, distance, len);
+    } else if (distance >= constants.copy_word_len and room >= stored_len(constants.copy_word_len, len)) {
+        copy_stored(constants.copy_word_len, output, target, distance, len);
+    } else {
+        copy_exact(output, target, distance, len);
+    }
+}
+
+/// Copies `len` octets in chunks of `chunk_len`, as `copy_chunks`, into room that holds
+/// `stored_len` octets: one span holds every octet the copy reads and writes, from the source to
+/// the end of what it stores.
+inline fn copy_stored(comptime chunk_len: usize, output: []u8, target: usize, distance: usize, len: usize) void {
+    const stored = stored_len(chunk_len, len);
+    const span = output[target - distance ..][0 .. distance + stored];
+    inline for (0..chunks_unconditional) |chunk| {
+        span[distance + chunk * chunk_len ..][0..chunk_len].* = span[chunk * chunk_len ..][0..chunk_len].*;
+    }
+    if (len <= chunks_unconditional * chunk_len) return;
+    for (chunks_unconditional..chunks_max(chunk_len)) |chunk| {
+        if (chunk * chunk_len >= len) return;
+        span[distance + chunk * chunk_len ..][0..chunk_len].* = span[chunk * chunk_len ..][0..chunk_len].*;
     }
 }
 

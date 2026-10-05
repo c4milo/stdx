@@ -45,13 +45,25 @@ pub inline fn decode_tail(comptime options: Options, loop: *Loop, codes: fast.Co
     // Each iteration consumes at least a bit, or ends the loop.
     const iterations_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
     for (0..iterations_max) |_| {
-        loop.refill_exact();
+        refill_tail(options, loop);
         // Near the input's end, the checked path decodes what is left, and asks for more.
         if (loop.count < constants.pair_bits_max) return .checked;
         const next = step(.tail, options, loop, codes, history, loop.look_up());
         if (next != .go_on) return next.end();
     }
     unreachable;
+}
+
+/// Fills the tail's buffer when a whole octet fits it: with one 8-octet load while the input
+/// holds `fast.input_slack` octets, which this compare checks (decision 16; decision 14, S15),
+/// and with whole octets one at a time after that.
+pub inline fn refill_tail(comptime options: Options, loop: *Loop) void {
+    if (loop.count > fast.refill_bits) return;
+    if (options.claims.wide_tail and options.claims.word_refill and loop.rest.len >= fast.input_slack) {
+        loop.refill(loop.rest[0..fast.input_slack]);
+    } else {
+        loop.refill_exact();
+    }
 }
 
 /// A decoded length/distance pair, and the bit buffer past both.
@@ -104,8 +116,11 @@ inline fn copy_decoded(comptime mode: Mode, comptime options: Options, loop: *Lo
     // The tail copies a match whole or leaves it to the checked path, which copies what fits.
     if (mode == .tail and loop.room() < pair.len) return .margin;
     const window: fast_copy.Window = .{ .window = history.window, .synced = history.synced, .distance_max = history.distance_max };
-    const chunked = mode == .wide and options.claims.chunk_copies;
-    if (!fast_copy.copy_match(chunked, loop.output, loop.written, window, @intCast(pair.distance), @intCast(pair.len))) return .checked;
+    const how: fast_copy.How = switch (mode) {
+        .wide => if (options.claims.chunk_copies) .chunks else .octets,
+        .tail => if (options.claims.wide_tail and options.claims.chunk_copies) .chunks_in_room else .octets,
+    };
+    if (!fast_copy.copy_match(how, loop.output, loop.written, window, @intCast(pair.distance), @intCast(pair.len))) return .checked;
     loop.buffer = pair.after;
     loop.count -= pair.used_bits;
     loop.written += @intCast(pair.len);
@@ -115,4 +130,8 @@ inline fn copy_decoded(comptime mode: Mode, comptime options: Options, loop: *Lo
         fast.count_symbol(loop, pair.distance_how);
     }
     return .go_on;
+}
+
+test {
+    _ = @import("fast_tail_test.zig");
 }

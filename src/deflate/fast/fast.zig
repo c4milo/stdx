@@ -160,7 +160,7 @@ pub const Loop = struct {
     /// taking the whole octets that fit, with no branch: the bits above `count` repeat the input's
     /// next octets, which a later load writes again unchanged. The buffer holds at most 63 bits
     /// before it.
-    inline fn refill(self: *Loop, word: *const [@sizeOf(u64)]u8) void {
+    pub inline fn refill(self: *Loop, word: *const [@sizeOf(u64)]u8) void {
         // The count fits six bits here, and its complement is the room left: 63 less the count.
         const held: u6 = @truncate(self.count);
         self.buffer |= std.mem.readInt(u64, word, .little) << held;
