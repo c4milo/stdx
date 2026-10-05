@@ -1687,9 +1687,9 @@ to 12 are reordered and nothing else changes.
     - The runners repeat each file, so their 1 KiB rows time an input the branch predictor has
       learned, as the M1's rows in rotation do not.
 
-    A local fuzz pass of 40,000 runs over the module found nothing, and run
+    A local fuzz pass of 40,000 runs over the module found nothing, and neither did run
     [37227481936](https://github.com/c4milo/stdx/actions/runs/37227481936), 2M runs on each of the
-    three runners, was under way when the commits landed.
+    three runners, which ended after the commits landed.
 
     Mutations, on 67e08cf, all 39 CAUGHT.
     - fec790e: a put of items without an item's extra bits; an item's bits counted without
@@ -1880,6 +1880,209 @@ to 12 are reordered and nothing else changes.
       file alone; no space between the sentences; the limit left out.
     - Four were NOT CAUGHT at first, and each got a test: the gaps between the streams, the
       failed encode, the decoder checked on its first stream alone, and the missing space.
+  - Level 6's short chains, 2026-10-04, the lever the owner chose after a block's fixed cost:
+    each position's own work, on the files where stdx stood furthest behind libdeflate, x-ray at
+    0.72 to 0.78 of its speed and mozilla at 0.73 to 0.83.
+
+    The profile, with no code changed. Callgrind over the first MiB of each of the 39 files, built
+    for aarch64 Linux with the benchmarks' `memset`, counted stdx at 1.41 times libdeflate's
+    instructions at the median, from 0.95 on E.coli to 1.98 on reymont: dickens 151.8 an octet
+    against 87.3, json-1m 70.9 against 45.2, x-ray 104.8 against 81.2, mozilla 84.9 against 72.0.
+    stdx ran 2.1 times libdeflate's conditional branches at the median.
+
+    A cut of instructions that bought no time. 2eb50e7, on a branch, gave level 6's single search
+    a loop of its own and read a position's 4 octets once for its hash and its first compare.
+    Level 6 retired 5% to 12% fewer instructions on mozilla, x-ray, sao, osdb and ooffice, and the
+    M1, which publishes no number (decision 10), ran those files at 0.99 to 1.02 of its time. Runs
+    [37232329965](https://github.com/c4milo/stdx/actions/runs/37232329965) and
+    [37232332146](https://github.com/c4milo/stdx/actions/runs/37232332146) paired it with main
+    (e681627) on a Neoverse N2 in both, an EPYC 9V45 and an EPYC 7763. On the N2 ten rows ran
+    faster in both runs, x-ray at 1.04 and four files of 1 KiB at 1.02 to 1.11, and ten slower:
+    E.coli at 0.891 in both, and nine at 0.975 to 0.990. On x86-64 E.coli ran at 0.909 and 0.913.
+    LLVM had joined the new loop's two ends, its count of candidates and its test of the next
+    candidate's reach, into one branch, so the miss that ends a long walk waited on the chain's
+    load. Not kept.
+
+    Where the time was. Callgrind's branch model counted 1.42 mispredicted branches an octet for
+    stdx on x-ray against libdeflate's 0.95, 0.71 against 0.60 on mozilla and 1.49 against 0.82
+    on dickens. Scratch counters in the walk, on x-ray's first MiB: 0.56 single searches an octet,
+    88% of them after a literal; 37% of the chains held no candidate in reach, 30% one and 17%
+    two, as a hash of 15 bits over 32 KiB of octets that do not repeat gives. A walk tests each
+    candidate's reach in turn, so one of its branches mispredicts at about every other position,
+    and the miss waits on the chain's dependent loads. After a literal 83% of x-ray's searches
+    and 92% of mozilla's met at most two candidates and no match; after a match found, 4% and
+    13%.
+
+    The change, 473f35e. After a literal, level 6 reads the chain's first two candidates
+    whatever the chain holds (`short_chain_misses`, `encoder_match_walk.zig`). A candidate out of
+    reach is read where the one before it was read, and the first at the position itself, so
+    every load stays on octets and links a walk reads, and the link read there is the candidate
+    that fell out of reach. One test then starts the walk where a candidate read holds the
+    position's 4 octets or a third follows; where neither does, no walk starts. On aarch64 a
+    test before it starts the walk where the nearest candidate holds them, as most walks that
+    run in text do, and waits on one load. The walk itself is main's. A search after a match
+    found, whose chain mostly holds candidates, and every search of a block with cheap literals
+    (decision 42) run as before: the priced copy of the lazy loop is main's code. The output is
+    the same. `differential-encode`'s 819 checks hold with the recorded hashes untouched, and
+    the bench, cross-built for both targets at both commits, differs in level 6's unpriced lazy
+    loop alone.
+
+    Counted with callgrind on aarch64 over the first MiB of each file, level 6 retires 0.903 of
+    its instructions on mozilla (84.9 an octet to 76.7, libdeflate 72.0), 0.952 on x-ray (104.8
+    to 99.8, libdeflate 81.2), 0.964 on sao, 0.971 on shuffled dickens, 0.977 on samba, 0.984 on
+    osdb and 0.988 on ooffice; the other files stay between 0.990 and 1.000. Its branch model
+    counts 0.30 mispredicted branches an octet on mozilla where it counted 0.71, 1.12 on x-ray
+    where it counted 1.42, and 1.27 on sao where it counted 1.62; libdeflate stands at 0.60, 0.95
+    and 1.19. The model keeps one table by address, so a count can move with the code: E.coli's
+    rose from 2.62 to 3.21 on instructions that did not change.
+    On the M1 the change runs the first MiB of mozilla at 0.65 of main's time and the whole file
+    at 0.93, the first MiB of x-ray at 0.81, of sao at 0.86, of shuffled dickens at 0.87, and of
+    ooffice, samba and osdb at 0.91 to 0.92; dickens, webster, html-1m, json-1m, nci,
+    kennedy.xls and E.coli stay at 0.99 to 1.01.
+
+    The pairs. Each architecture runs the form two of its jobs measured: built for aarch64 the
+    bench at 473f35e differs from ff3cbb1's in no function, and built for x86-64 from
+    5dff3b2's in none.
+    - aarch64. Bench runs [37243295479](https://github.com/c4milo/stdx/actions/runs/37243295479)
+      and [37243297116](https://github.com/c4milo/stdx/actions/runs/37243297116) paired main
+      (9f728fe) and ff3cbb1 on a Neoverse N2 in each job. Level 6 ran at 0.995 of its speed at
+      the median in both runs, and eight files ran faster in both: x-ray at 1.22, sao at 1.11,
+      shuffled dickens at 1.10, osdb at 1.06, ooffice at 1.05, mozilla at 1.04, samba at 1.02
+      and mr at 1.01 to 1.02. stdx over libdeflate went from 0.93 to 0.94 at the median, x-ray
+      from 0.77 and 0.78 to 0.94, sao from 0.86 to 0.95 and osdb from 0.94 to 1.00, for output
+      of 0.999 of libdeflate's size at the median, 1.044 on x-ray and 1.016 on sao.
+    - Five rows ran slower in both runs on the N2: css's 16 KiB slices at 0.982 and 0.989,
+      fields.c at 0.974 and 0.981, grammar.lsp at 0.972 and 0.983, kennedy.xls at 0.985 and
+      0.980, and nci at 0.990 and 0.989. The owner ruled them placement on the null build's
+      numbers below (decision 20, amended 2026-10-04).
+    - x86-64. Bench runs [37240152854](https://github.com/c4milo/stdx/actions/runs/37240152854)
+      and [37240154168](https://github.com/c4milo/stdx/actions/runs/37240154168) paired main and
+      5dff3b2 on an EPYC 9V74 and an EPYC 7763. Level 6 ran at 1.007 and 1.000 at the median,
+      and nine files ran faster in both runs: x-ray at 1.34 and 1.30, sao at 1.15 and 1.13,
+      shuffled dickens at 1.14 and 1.12, osdb at 1.09 and 1.08, ooffice and mozilla at 1.05 to
+      1.06, mr and samba at 1.03 to 1.04, and sum at 1.12 and 1.01. stdx over libdeflate went
+      from 0.82 to 0.85 at the median, x-ray from 0.72 to 0.96 and sao from 0.77 to 0.88 and
+      0.89. One row read slower in both, html's 1 KiB slices at 0.987 and 0.942, which
+      unchanged zlib-ng ran at 0.958 and 0.988.
+    - Levels 1 and 9 run main's code. At level 1 on the N2 three rows of 1 KiB slices and
+      grammar.lsp read 0.96 to 0.985 in both runs; at level 9 none moved in both, on either
+      architecture.
+    - The 1 KiB slices' rows move between a job's two programs for every candidate. Over the
+      twelve N2 jobs of this entry that time them, unchanged zlib's rows at level 6 read 0.98
+      in six, 1.00 in two and 1.01 to 1.04 in four, and stdx's rows at level 6 read 0.88 to
+      0.90 in three jobs and 1.08 to 1.12 in two, the null build's among them.
+
+    The null build. 32d3bb7, on a branch that never lands, holds the read's code in level 6's
+    lazy loop behind a test that never holds, so every file runs main's instructions, and the
+    loop's code sits about 100 octets from where main has it. Runs
+    [37242315624](https://github.com/c4milo/stdx/actions/runs/37242315624) and
+    [37242317768](https://github.com/c4milo/stdx/actions/runs/37242317768) paired it with main
+    on a Neoverse N2 in both, an EPYC 7763 and an EPYC 9V74.
+    - On the N2 level 6 ran at 0.993 and 0.991 of main's speed at the median. Five rows ran more
+      than 1% slower in both runs: cp.html, css-1m, html-1m, js-1m and ptt5, at 0.979 to 0.989.
+      The five rows the change ran slower read 0.994 and 0.982, 0.992 and 0.984, 1.009 and
+      0.981, 0.990 and 0.985, and 0.992 and 0.989. At level 1, whose code no build changed,
+      bible.txt read 0.981 and 0.982.
+    - On x86-64 the same build ran level 6 at 1.027 and 1.004 at the median, and five files
+      faster in both runs, x-ray at 1.04 and 1.03: code that never runs moves x86-64's rows too.
+    - So main's layout of that loop is worth about 1% on the N2. 2eb50e7's pair lost css-1m,
+      html-1m and js-1m too.
+
+    Other forms of the read, each paired with main or with the form before it.
+    - Without the first test, and in the priced copy too (cde1107): runs
+      [37238295871](https://github.com/c4milo/stdx/actions/runs/37238295871) and
+      [37238297069](https://github.com/c4milo/stdx/actions/runs/37238297069). On the N2 seven
+      files ran faster in both runs and 26 rows slower, E.coli at 0.979 and 0.982 among them;
+      on an EPYC 7763 and an EPYC 9V74 nine files ran faster in both, and none slower. Leaving
+      the priced copy as main's took E.coli out of the list.
+    - Without the first test on the N2 (5dff3b2, in the N2 jobs of the x86-64 runs above): 22
+      rows ran at 0.96 to 0.99, the 14 text files at 0.987 at the median where the null build
+      read 0.992. The first test followed from one reading of that gap: a walk that runs after
+      a literal is found late when the one test waits on the chain's loads, which the N2 takes
+      from its level 2 cache, its level 1 holding 64 KiB of the encoder's 192. With the first
+      test the same files read 0.995 at the median in the aarch64 runs above.
+    - With the first test on x86-64 (ff3cbb1, in the x86-64 jobs of the aarch64 runs above, a
+      Xeon Platinum 8370C and an EPYC 9V45): x-ray ran at 1.10 and 1.14, shuffled dickens at
+      1.04 and 1.07, and no row slower in both. Callgrind counted mozilla there at 0.999 of
+      main's instructions and x-ray at 1.010, where the form without the test counts 0.887 and
+      0.942: LLVM built the test as two branches, the first on the nearest candidate's reach,
+      which is the branch the read removes, and moved seven registers round and back about the
+      load after it. So `tests_nearest_first` holds on aarch64 alone.
+    - Three candidates read in place of two (b215f3e against cde1107): runs
+      [37239096604](https://github.com/c4milo/stdx/actions/runs/37239096604) and
+      [37239098607](https://github.com/c4milo/stdx/actions/runs/37239098607). On the N2 x-ray
+      ran at 0.98, sao at 0.985, and mozilla and ooffice at 0.99 in both runs; on an EPYC 7763
+      in both, x-ray ran at 1.03 and sao, osdb and shuffled dickens at 1.01 to 1.02. The M1 ran
+      mozilla's first MiB at 0.95 and x-ray's at 0.97 with three, at 1.23 and 1.09 with one, and
+      with four at 1.06 and 1.02 of three. Two stay.
+    - The same read at the first position of a pair, which then starts no pair (965cac3 against
+      cde1107): runs [37239508990](https://github.com/c4milo/stdx/actions/runs/37239508990) and
+      [37239510586](https://github.com/c4milo/stdx/actions/runs/37239510586). On the N2
+      kennedy.xls ran at 1.03 and 1.02, and dickens, alice29.txt, asyoulik.txt and
+      plrabn12.txt at 0.97 to 0.98: a position after a taken match mostly has candidates, and
+      pays the reads for nothing. Not kept.
+
+    Forms measured on the M1 against main and not kept, each with the same output.
+    - The read at every single search, after a match found too: E.coli, whose searches all
+      follow a match found, retired 10 more instructions an octet and ran at 1.01 of its time.
+    - The read written with 16-bit values: E.coli and the text files ran 1% to 6% slower with
+      the walk's source untouched. A 16-bit value that shares the walk's first candidate joins
+      its values, and LLVM's type promotion on aarch64 then leaves the loop's candidate 16 bits
+      wide, extended at every link. Written in index-wide integers, the read leaves the walk's
+      loop as main built it.
+    - The walk's candidate as wide as an index: the loop took two taken branches a candidate,
+      E.coli ran at 1.04 of its time, and level 9's `best` changed.
+    - A hint that a 4-octet hit is unlikely: `match_len` left the hit's path for a call, and
+      dickens went from 153 instructions an octet to 183.
+    - One test that passes the search after a match shorter than `lazy_len`: E.coli retired 2%
+      more instructions.
+    - Padding the function so that its loops keep main's lines: an assembly statement of three
+      `nop` instructions made LLVM allocate the function's registers anew, 13 instructions
+      more, and moved every loop again.
+
+    On x86-64 the same source also builds the pair's loop, which LLVM inlines beside the read,
+    with four more register moves a candidate and its candidate no longer kept on the stack
+    between links: callgrind counts json-1m at 1.034 of main's instructions there and dickens at
+    1.035, and the x86-64 runs above read both level with main.
+
+    Mutations, on 473f35e: 25 CAUGHT, and 6 that change cost and no output NOT CAUGHT.
+    - Caught in the read: a candidate at the reach's edge read at the position instead; a third
+      candidate at the edge starting no walk; the position's own octets counted as a match with
+      no candidate in reach; a third candidate in reach starting no walk; a later candidate's
+      answer replacing the one before, which the tests at three and four candidates catch; no
+      candidate's octets compared; the link read at the candidate, in reach or not, and the
+      octets read there; the next position's octets compared; the reach a position short, and a
+      position long; position 0 taken for a candidate; the answer turned round; the first test
+      passing with the nearest candidate out of reach; the first test answering a miss.
+    - Caught in what skips a search: no search after a literal; a waiting match of `lazy_len`
+      still searched at level 6, and at level 9 and in a block of cheap literals; the read given
+      the position before; the read after a match found too; the read in a block of cheap
+      literals; a short chain that misses still walked; and in the lazy loop, no search
+      skipped, the read told that no match waits, and the read given the position before.
+    - Not caught: one candidate read, or three; no first test, or the first test after every
+      candidate read; the lazy loop telling the read that no block's literals are cheap, which
+      the cross-built bench holds, its priced loop being main's; and the last test counting a
+      later match only with the nearest candidate inside the reach's edge, where a nearest
+      candidate at the edge has none after it in reach.
+    - The read takes its count of candidates at comptime, and each test of it runs at one to
+      four. Built for baseline x86-64 Linux and run under emulation, the module's 113 tests
+      pass on the form without the first test.
+
+    A local fuzz pass of 40,000 runs over the module at 473f35e found nothing. Neither did
+    2M runs on each of the three runners over each form: run
+    [37240193442](https://github.com/c4milo/stdx/actions/runs/37240193442) at 5dff3b2, the form
+    x86-64 runs, and run [37246725894](https://github.com/c4milo/stdx/actions/runs/37246725894)
+    at ff3cbb1, the form aarch64 runs.
+
+    What is left of level 6's gap. On x-ray the walks that do run still end on a mispredicted
+    branch, 0.37 an octet in callgrind's model. Text runs 1.6 to 2.0 times libdeflate's
+    instructions, in the pair's loop and the walk a candidate, at 0.90 of its speed on the N2
+    and 0.76 to 0.82 on x86-64. Built ReleaseFast, level 6 retires 12% to 20% fewer instructions
+    and runs at 0.92 to 0.94 of its time on the M1, and decision 17 holds no measurement of the
+    safety checks for this encoder. Three candidates on x86-64 alone are worth 1% to 3% there.
+    The owner chose level 9's losing files next: at level 9 stdx leads at the median and trails
+    on 15 files, ptt5 at 0.31 to 0.37 of libdeflate's speed, sum at 0.39 to 0.51 and mozilla at
+    0.45 to 0.54.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
