@@ -5144,6 +5144,227 @@ to 12 are reordered and nothing else changes.
   and the blocks. The pair ran the blocks as 94d48e4, and main took them as d2d2ffb, which
   differs in one comment.
 
+  **A member's value behind a test of its place in the encoder's token loop, 2026-10-05.**
+  Beside simdjson 5.0.2 and with claim J14 on main, stdx encoded CLDR's texts at 0.92 of
+  simdjson's speed on an AMD EPYC 7763 and at 0.86 to 0.90 on an EPYC 9V74, and qlog's records
+  at 0.94 to 0.97 on the N2. The N2's counters put a token of CLDR's texts at 91.8 instructions
+  and 21.8 cycles, where simdjson runs 83.9 and 21.8 (run
+  [37254473982](https://github.com/c4milo/stdx/actions/runs/37254473982)).
+
+  Every value in the loop worked out the octets around it, `frame_of`: a record separator
+  where it starts a sequence's text, a value separator after an element, a line feed where it
+  ends a text. A member's value has none of them. `string`, `hex`, `number_text` and `text` now
+  call their path twice, the first behind `position == .member_value`, where the compiler
+  knows the frame holds nothing; a name's path stands once, as a name is never a member's
+  value. The loop grew, and LLVM no longer compiled `take` into `encode_batch_with`: a batch
+  then paid a call and the loop's entry, 50 instructions. The batch now calls it with
+  `@call(.always_inline, ...)`. callgrind, instructions a token:
+
+  | Workload | aarch64 | x86-64 baseline |
+  |---|---|---|
+  | CLDR's texts | 88.76, then 81.24 | 109.24, then 96.58 |
+  | qlog's records | 90.72, then 83.21 | 107.75, then 93.97 |
+  | A text of one hex string of 1 KiB | 1,988, then 1,990 | 2,482, then 2,474 |
+
+  bench-json runs [37259979547](https://github.com/c4milo/stdx/actions/runs/37259979547) and
+  [37259987688](https://github.com/c4milo/stdx/actions/runs/37259987688) paired 0b3fd4d with
+  main at d5ed422; each drew the N2 and an AMD EPYC 7763. An earlier form of the change,
+  3020bb7 on main at c33aab1, before claim J14, drew an EPYC 9V74 once (run
+  [37256136801](https://github.com/c4milo/stdx/actions/runs/37256136801)). stdx's encoding speed
+  over main's, and over simdjson's before and after:
+
+  | Encoding | N2, two jobs | EPYC 7763, two jobs | EPYC 9V74, one job |
+  |---|---|---|---|
+  | CLDR's texts, over main | 1.040 and 1.046 | 1.130 and 1.125 | 1.146 |
+  | CLDR's texts, over simdjson | 1.015 and 1.012, then 1.044 and 1.048 | 0.923 and 0.926, then 1.043 and 1.038 | 0.859, then 0.985 |
+  | qlog's records, over main | 1.073 and 1.072 | 1.116 and 1.112 | 1.148 |
+  | qlog's records, over simdjson | 0.974 and 0.966, then 1.049 and 1.042 | 1.082 and 1.056, then 1.192 and 1.178 | 0.892, then 1.022 |
+
+  Rows past the larger of their spread and 1% in both jobs of a CPU:
+
+  - On the N2, encoding: json-1m as a string at 0.962 and 0.963. It counts as placement
+    (decision 20, amended 2026-10-03). The bench program, cross-built for the runner at both
+    commits, holds 803 of 809 function instances identical apart from their addresses, 222 of
+    them at another offset in their 64-octet line; the six that differ are instances of the
+    benchmark's `encode`, which holds the loop. callgrind counts that row at 3,582,317
+    instructions an encode at main and 3,582,309 with the change: 93.69% of them in claim J14's
+    `take` and 6.29% in `copy_escaped`, both identical, and 256 and 207 in the function that
+    holds the loop, 0.007%. The entry above found the same row at four speeds in four builds.
+  - On the N2, decoding, which the change does not touch: two hex strings at 0.967 to 0.984,
+    on functions identical at both commits.
+  - On the EPYC 7763, encoding: one small body's hex strings, css in slices of 1 KiB, at 0.969
+    and 0.963. The other three small bodies read 0.959 to 0.991 in the same jobs, inside their
+    spreads in the first; the earlier form's job on a 7763 read all four at 0.956 to 0.976
+    (run [37256128037](https://github.com/c4milo/stdx/actions/runs/37256128037)), the EPYC
+    9V74 at 0.991 to 1.000, and the N2 at 0.987 to 1.006. The digits' kernel is the same code
+    at both commits and takes no branch on its input, and the four bodies' texts run the same
+    instructions:
+    2,474 a text for main's 2,482, of them 280 for 288 in the function that holds the loop,
+    and 64 for 67 that read or write the stack. That function grew from 2,454 instructions to
+    3,055 on x86-64, and it keeps the count of items written in memory where main kept it in
+    a register. The next entry's change, which touches no path of a hex string, moved the same
+    four rows back by 1.010 to 1.034 on the same CPU.
+
+  The change adds no check, so it has no mutations of its own: the two copies of a value's
+  path are one source, and the loop's lockstep tests run a member's value and every other
+  value through it. Main took it as 0b3fd4d together with the change below, and the two were
+  paired with main as one; that pair's EPYC 7763 read the four small bodies at 1.011 to 1.019
+  of main.
+
+  **A long plain string copied as its run is scanned, 2026-10-05.** Beside simdjson 5.0.2 one row
+  of strings encoded below a baseline on the N2 and on an AMD EPYC 7763 alike: E.coli's first MiB
+  as one string, at 0.95 of simdjson's speed and at 0.80 to 0.86. The token loop took a string of
+  more than 16 octets in two passes: `wide.plain_len` scanned it, and `scan.copy` then copied it.
+  On the N2 the scan runs nine vector instructions for 16 octets, the two that move the compare's
+  lanes into a word among them, against two pipes for vector instructions; on x86-64 a megabyte
+  came through the cache twice.
+
+  `encoder_loop_plain.zig` copies the string as it scans it, each octet loaded once:
+
+  - A string of 17 to 32 octets is its first and its last 16, which overlap, loaded, stored and
+    tested together where the loop stands, with no call. qlog's records hold one such string
+    each, an event's name.
+  - A longer string goes out of line past its first 16 octets, four blocks a pass under one test.
+    A block is stored as it is loaded. The blocks start up to a block before the octets left,
+    where the output's address is a multiple of the block's width, so that no store of a pass
+    spans two cache lines.
+  - On aarch64 a pass folds its four blocks before it compares them. Read as signed octets, a
+    control character and an octet from 0x80 up are both below U+0020, so the least of each
+    lane's four octets answers the four blocks in one compare. The quotation mark and the reverse
+    solidus stand equally far from the octet halfway between them, 0x3F, and no other octet does,
+    so one difference and one compare find both. A pass of 64 octets runs 18 vector instructions
+    and 35 in all; the scan it replaces ran 36 vector instructions for the same 64 octets, before
+    the copy.
+  - On x86-64 the AVX2 variant object takes the same loop at 32 octets a block, past the first 64
+    octets of a string of more than 96, as it takes a run's scan (claim J7).
+  - A string that holds a stop is left to encoder_loop_string.zig's walk, which writes it again
+    from its start. With claim J1 off the string is scanned an octet at a time and then copied,
+    as before.
+
+  The first build checked each block's bounds, 56 instructions a pass; a pass now takes its
+  octets as two arrays of its length, each checked once. callgrind on aarch64, against the commit
+  before it:
+
+  | Workload | Before | After |
+  |---|---|---|
+  | E.coli's first MiB as one string, instructions | 1,376,644 | 573,858 |
+  | CLDR's texts, instructions a token | 81.24 | 79.16 |
+  | qlog's records, instructions a token | 83.21 | 82.41 |
+
+  bench-json runs [37262501642](https://github.com/c4milo/stdx/actions/runs/37262501642) and
+  [37262512285](https://github.com/c4milo/stdx/actions/runs/37262512285) paired ac410c0 with the
+  commit before it, 0b3fd4d. Each drew the N2 and an AMD EPYC 7763. stdx's encoding speed over
+  that commit's, and over each baseline's before and after, in the two jobs:
+
+  | Encoding | N2 | AMD EPYC 7763 |
+  |---|---|---|
+  | E.coli as a string, over the commit before | 2.087 and 2.103 | 1.851 and 1.898 |
+  | E.coli as a string, MB/s | 9,228 and 9,187, then 19,258 and 19,324 | 15,562 and 15,683, then 28,811 and 29,760 |
+  | E.coli as a string, over simdjson | 0.950 and 0.951, then 2.013 and 1.990 | 0.810 and 0.804, then 1.496 and 1.516 |
+  | E.coli as a string, over yyjson | 2.424 and 2.419, then 5.069 and 5.096 | 4.595 and 4.626, then 8.490 and 8.782 |
+  | CLDR's texts, over the commit before | 1.065 and 1.067 | 1.044 and 1.055 |
+  | CLDR's texts, over simdjson | 1.044 and 1.046, then 1.119 and 1.115 | 1.057 and 1.046, then 1.095 and 1.096 |
+  | qlog's records, over the commit before | 1.038 and 1.041 | 1.083 and 1.065 |
+  | qlog's records, over simdjson | 1.046 and 1.048, then 1.080 and 1.076 | 1.191 and 1.210, then 1.277 and 1.277 |
+
+  On the EPYC 7763 the claims' columns of the same reports split the gain: with claim J7 off, the
+  loop at 16 octets a block, E.coli encodes at 0.855 and 0.833 of all on; with claim J11 off, the
+  scan and then the copy, at 0.546 and 0.534.
+
+  Rows past the larger of their spread and 1% in both jobs of a CPU:
+
+  - On the N2 four rows encode faster and none slower: the three above, and json-1m as a string
+    at 1.021 and 1.024, a row the entry above found to move with where the build puts claim J14's
+    loop.
+  - On the N2, decoding, which the change does not touch: css-1m as a string at 0.980 and 0.982,
+    and five hex strings at 0.969 to 0.989; three other hex strings decode faster, by 1.018 to
+    1.054. They count as placement (decision 20, amended 2026-09-29). The bench program,
+    cross-built for the runner at both commits, holds 803 of 809 function instances identical
+    apart from their addresses, 73 of them at another offset in their 64-octet line; the six that
+    differ are instances of the benchmark's `encode`, which holds the encoder's loop.
+  - On the EPYC 7763 three rows encode faster and none slower: qlog's records, E.coli, and one
+    small body's hex strings at 1.019 and 1.018.
+
+  **The two changes against main.** bench-json runs
+  [37265890926](https://github.com/c4milo/stdx/actions/runs/37265890926) and
+  [37265902144](https://github.com/c4milo/stdx/actions/runs/37265902144) paired ac410c0, which
+  holds this change and the one in the entry above, with main at d5ed422. Each drew the N2; the
+  first drew an AMD EPYC 9V45 and the second an EPYC 7763. stdx's encoding speed over main's, and
+  over simdjson's before and after:
+
+  | Encoding | N2, two jobs | EPYC 7763, one job | EPYC 9V45, one job |
+  |---|---|---|---|
+  | CLDR's texts, over main | 1.112 and 1.111 | 1.196 | 1.201 |
+  | CLDR's texts, over simdjson | 1.013 and 1.012, then 1.114 and 1.117 | 0.920, then 1.099 | 0.826, then 0.981 |
+  | qlog's records, over main | 1.132 and 1.114 | 1.188 | 1.200 |
+  | qlog's records, over simdjson | 0.959 and 0.971, then 1.077 and 1.078 | 1.064, then 1.264 | 0.843, then 1.025 |
+  | E.coli as a string, over main | 2.113 and 2.088 | 1.891 | 1.675 |
+  | E.coli as a string, over simdjson | 0.947 and 0.939, then 2.002 and 1.969 | 0.800, then 1.510 | 1.065, then 1.833 |
+
+  Rows past the larger of their spread and 1%:
+
+  - On the N2, in both jobs, encoding: json-1m as a string at 0.983 and 0.983. It counts as
+    placement, as in the entry above: the bench program at both commits holds 803 of 809 function
+    instances identical apart from their addresses, and the row runs 3,582,317 instructions an
+    encode at main and 3,582,321 with both changes, 256 and 219 of them in the function that
+    differs.
+  - On the N2, in both jobs, decoding, which neither change touches: css-1m as a string at 0.980
+    and 0.981 and three hex strings at 0.972 to 0.988, and four rows faster by 1.017 to 1.055, on
+    functions identical at both commits.
+  - On the EPYC 7763, in its one job, no row is slower. The four small bodies' hex strings, which
+    the entry above found at 0.956 to 0.991 with its change alone, read 1.011 to 1.019 of main.
+  - On the EPYC 9V45, in its one job, thirteen strings with escapes encode at 0.31 to 0.82 of
+    main: asyoulik.txt at 0.312, css-1m at 0.348, alice29.txt at 0.429, xml at 0.510, nci at
+    0.629, plrabn12.txt at 0.637, lcet10.txt at 0.642, html-1m at 0.661, world192.txt at 0.706,
+    dickens at 0.710, webster at 0.720, js-1m at 0.791 and reymont at 0.817. samba, bible.txt and
+    json-1m read 0.688, 0.838 and 0.934, inside spreads of 20% to 78%. They count as placement
+    (decision 20, amended 2026-09-29). The bench program, cross-built for x86-64 at both commits,
+    holds 1,667 of 1,674 function instances identical apart from their addresses; the seven that
+    differ are instances of the benchmark's `encode`. `copy_escaped` and claim J14's `take`,
+    which run these rows in the AVX2 variant object, are among the identical, the same 0x6380
+    octets apart, and both 0x440 octets lower in the change. In the same job json-1m as a string
+    decodes at 0.947, where simdjson and yyjson, the same code in both programs, read 0.959 and
+    0.930.
+
+  **What the EPYC 9V45 says of claim J14's kernel.** The same report times that kernel's twin,
+  compiled for a caller that turns the loop's checks off, which stands at another address of the
+  same object. In main's report the twin encodes those thirteen rows at 1.04 to 1.20 of the
+  checked kernel's speed. In the change's report it encodes them at 1.20 to 3.37, which is main's
+  speed again: asyoulik.txt at 18,024 MB/s where the checked kernel runs 5,355 and main's ran
+  17,168, css-1m at 14,146 where the checked runs 4,593 and main's ran 13,206. So the kernel's
+  instructions and its input are the same, and its speed on this CPU follows its address. On
+  css-1m the slow kernel takes 3.5 ns a block of 16 octets where the fast one takes 1.2. Its
+  x86-64 path branches on every block, a plain block or one with a stop, and each row repeats one
+  input; a misprediction at every second block would cost that difference, and a predictor that
+  learns the input at one address and not at another would explain it. The x86-64 runners expose
+  no counters to say so. An EPYC 9V74 moved the same way by less in two jobs of a probe that
+  changed the loop's function alone and left the variant object as it was (runs
+  [37263677537](https://github.com/c4milo/stdx/actions/runs/37263677537) and
+  [37263686005](https://github.com/c4milo/stdx/actions/runs/37263686005)): dickens at 0.892 and
+  0.902 of main, html-1m at 0.837 and 0.841, reymont at 0.938 and 0.935, alice29.txt at 0.965 and
+  0.961. Two things stand open from those reports. The fast speed may be one the CPU reaches only
+  on an input it has met: at the slow one, css-1m reads 0.94 of yyjson's speed. And bible.txt, a
+  line feed every 143 octets, encodes at 0.81 to 0.82 of simdjson's speed on the 9V74, and on the
+  9V45 at 1.16 to 1.39 of the kernel's speed on the module's own 16-octet walk, which the
+  candidates with claim J2, J7, J9 or J14 off take. A block path for x86-64 that takes no branch
+  on a block's octets, and that leaves text of few escapes to the walk, is not built.
+
+  Mutations: 51 of 51 CAUGHT, 40 on aarch64 and 11 on x86-64 under Rosetta, for what aarch64 does
+  not compile: the tests with no fold, and the kernel's call.
+
+  - One was NOT CAUGHT at first, a plain string refused by the copy: the walk then wrote the same
+    string. The loop's long copy is now a function, `copy_plain_long`, and a test requires it to
+    tell a plain string plain.
+  - Six were NOT CAUGHT at first on x86-64, all of the kernel's call. Rosetta runs AVX2 but names
+    it to a program only when `ROSETTA_ADVERTISE_AVX=1` is set, so `Features.detect()` named none
+    and no test reached the kernel. With it set, the six were CAUGHT. The hosted x86-64 runner
+    names AVX2 itself.
+  - Two left a name unused and did not compile; each was formed again to use it, and then CAUGHT.
+
+  Main took the two changes as 0b3fd4d and 151ec2e. The pairs ran the second as ac410c0; 151ec2e
+  differs from it in `copy_plain_long`, a function of its own there, and in that test, and the
+  loop's function and the kernel are the same instructions on aarch64 and x86-64.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
