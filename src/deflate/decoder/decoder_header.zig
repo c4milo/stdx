@@ -146,9 +146,10 @@ fn build_block_codes(comptime options: decoder_module.Options, decoder: *Decoder
     // S12 and S11: once the stream shows itself long, a block's lengths take their extra bits and
     // their distances' codes into its table; until then, the table builds plain, as it builds
     // fastest.
-    const resolves = claims.resolved_lengths and combination_due(options, decoder, input_left);
+    // Probe: S12 from a stream's first block, S11 as before.
+    const resolves = claims.resolved_lengths;
     build_tables(claims, decoder, &decoder.literal_length_code, &decoder.distance_code, resolves);
-    if (!resolves or !claims.combined_entries) return;
+    if (!resolves or !claims.combined_entries or !combination_due(options, decoder, input_left)) return;
     count_work(decoder, lookup.combine(&decoder.literal_length_table, &decoder.literal_length_code, &decoder.distance_table, &decoder.distance_code));
     decoder.bits_since_combination = 0;
 }
