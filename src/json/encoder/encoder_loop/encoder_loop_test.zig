@@ -6,15 +6,15 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("../constants.zig");
-const claims = @import("../claims.zig");
-const Framing = @import("../framing.zig").Framing;
-const encoder_file = @import("encoder.zig");
+const constants = @import("../../constants.zig");
+const claims = @import("../../claims.zig");
+const Framing = @import("../../framing.zig").Framing;
+const encoder_file = @import("../encoder.zig");
 const Encoder = encoder_file.Encoder;
-const encoder_test = @import("encoder_test.zig");
-const encoder_fast_test = @import("encoder_fast_test.zig");
+const encoder_test = @import("../encoder_test.zig");
+const encoder_fast_test = @import("../encoder_fast_test.zig");
 const with = encoder_test.with;
-const round_trip = @import("../round_trip_test.zig");
+const round_trip = @import("../../round_trip_test.zig");
 const token_loop = @import("encoder_loop.zig");
 
 /// The most octets a list writes, and the most items it holds.
@@ -310,9 +310,9 @@ test "the loop turns its runtime safety checks off only where the caller chose i
     }
     // The decoder's loop keeps every check (decision 35).
     const decoder_sources = [_][]const u8{
-        @embedFile("../decoder/decoder_loop/decoder_loop.zig"),       @embedFile("../decoder/decoder_loop/decoder_loop_string.zig"),
-        @embedFile("../decoder/decoder_loop/decoder_loop_looks.zig"), @embedFile("../decoder/decoder_loop/decoder_loop_escapes.zig"),
-        @embedFile("../string_walk.zig"),
+        @embedFile("../../decoder/decoder_loop/decoder_loop.zig"),       @embedFile("../../decoder/decoder_loop/decoder_loop_string.zig"),
+        @embedFile("../../decoder/decoder_loop/decoder_loop_looks.zig"), @embedFile("../../decoder/decoder_loop/decoder_loop_escapes.zig"),
+        @embedFile("../../string_walk.zig"),
     };
     for (decoder_sources) |source| {
         try testing.expect(std.mem.indexOf(u8, source, runtime_safety_start) == null);

@@ -392,7 +392,7 @@ test {
     _ = batch;
     _ = @import("encoder_test.zig");
     _ = @import("encoder_batch_test.zig");
-    _ = @import("encoder_loop.zig");
-    _ = @import("encoder_loop_test.zig");
+    _ = @import("encoder_loop/encoder_loop.zig");
+    _ = @import("encoder_loop/encoder_loop_test.zig");
     _ = @import("encoder_fast_test.zig");
 }

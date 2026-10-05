@@ -9,7 +9,7 @@ const level = @import("variant_level").level;
 const Claims = @import("../claims.zig").Claims;
 const constants = @import("../constants.zig");
 const decoder_string = @import("../decoder/decoder_loop/decoder_loop_string.zig");
-const encoder_string = @import("../encoder/encoder_loop_string.zig");
+const encoder_string = @import("../encoder/encoder_loop/encoder_loop_string.zig");
 
 comptime {
     if (level != .x86_64_avx2) @compileError("decision 37's string functions have no kernel at this level");

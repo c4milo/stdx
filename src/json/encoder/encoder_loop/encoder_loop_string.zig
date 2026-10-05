@@ -12,13 +12,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
-const scan = @import("../scan.zig");
-const wide = @import("../wide.zig");
-const claims_file = @import("../claims.zig");
+const constants = @import("../../constants.zig");
+const scan = @import("../../scan.zig");
+const wide = @import("../../wide.zig");
+const claims_file = @import("../../claims.zig");
 const Claims = claims_file.Claims;
 const runtime_safety_kept = claims_file.runtime_safety_kept;
-const string_walk = @import("../string_walk.zig");
+const string_walk = @import("../../string_walk.zig");
 const Walk = string_walk.Walk;
 
 /// The octets of the two-character escape of a quotation mark, a reverse solidus or a control

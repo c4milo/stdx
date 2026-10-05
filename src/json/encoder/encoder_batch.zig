@@ -12,7 +12,7 @@ const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
 const Error = encoder_file.Error;
 const Token = encoder_file.Token;
-const token_loop = @import("encoder_loop.zig");
+const token_loop = @import("encoder_loop/encoder_loop.zig");
 
 /// One token and its octets, as one call of `encode` takes them.
 pub const Item = struct {
