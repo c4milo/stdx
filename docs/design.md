@@ -945,6 +945,91 @@ to 12 are reordered and nothing else changes.
     S15. And `combine_bits_min` and `combine_input_min` may be measured at other values on
     branches that never land.
 
+  **The codes built from a tally of the lengths, 2026-10-04.** The third ruling measured: claim
+  S14 of decision 14. The read of a block's code lengths, the loop of `fast_lengths.zig` and the
+  checked steps alike, counts each length in its alphabet and lists each length that is not zero
+  with its place (`huffman.Tally`). `Code.build_tallied` then checks the counts and places the
+  listed symbols, and reads no length (1fb9d77). The checked path alone still builds from the
+  lengths.
+  - The pairs. `perf-deflate-codes`, a branch that never lands (decision 20), held the change at
+    45efabd on the loop's cbb1353, measured after it in the same job, so the loop's gain is in
+    both programs. bench-deflate runs
+    [37250183203](https://github.com/c4milo/stdx/actions/runs/37250183203) and
+    [37250184939](https://github.com/c4milo/stdx/actions/runs/37250184939) drew a Neoverse N2 in
+    both, and a Xeon 6973P-C in the first and an EPYC 9V45 in the second. bench-profile run
+    [37250186969](https://github.com/c4milo/stdx/actions/runs/37250186969) counted on the N2. The
+    reports are in `bench/results/`, dated 2026-10-04, "tallied-codes".
+  - The baselines first, 156 cells a job. The N2's counters read the same instructions an octet
+    for every baseline in every row of the two programs, and 0.978 to 1.036 of the base's
+    cycles. Timed on the N2, 5 cells moved in both jobs, all on cp.html, fields.c and sum, by
+    1.0% to 7.9%. On the Xeon 4 cells moved, by 2.4% to 9.8%. On the EPYC 9V45 the job's second
+    program ran faster for every decoder: 102 of the baselines' cells rose, by 1.7% to 13.6%, and
+    4 fell. So that job admits a row of stdx's only where it rose further than the baselines'
+    same rows.
+  - stdx's gzip decoder, its own speed in the change's program over the base's:
+
+    | Rows | Neoverse N2, both jobs | Xeon 6973P-C | EPYC 9V45, beside the baselines' same rows |
+    |---|---|---|---|
+    | 1 KiB slices, 4 rows | 1.178 to 1.245 | 1.174 to 1.267 | 1.279 to 1.333, beside 1.033 to 1.078 |
+    | 16 KiB slices, 4 rows | 1.033 to 1.058 | 1.026 to 1.074 on 3 | 1.090 to 1.124, beside 1.023 to 1.119 |
+    | cp.html, fields.c, grammar.lsp, sum, xargs.1 | 1.042 to 1.093 | 1.040 to 1.068 on 2 | 1.051 to 1.173, beside 1.052 to 1.074 |
+    | Rows that rose, of 39 | 14 | 10 | 25 |
+    | Rows that fell | 0 | 0 | 0 |
+
+    On the N2 the fourteenth row is kennedy.xls, at 1.019 and 1.010, and the other 25 files
+    stayed within their spreads.
+  - The N2's counters, an octet, as fractions of the base's. Over 1 KiB slices stdx takes 0.868
+    to 0.905 of the instructions, 0.803 to 0.841 of the cycles and 0.811 to 0.839 of the branch
+    misses. Over 16 KiB slices, 0.964 to 0.983, 0.943 to 0.981 and 0.969 to 0.997. One member of
+    html's 1 KiB slices takes 9.01 cycles an octet where it took 10.94, and libdeflate 10.54.
+  - What it costs a long block. Over the 26 files taken whole stdx takes 0.993 to 1.005 of the
+    instructions: mozilla, ooffice, osdb, sao and x-ray take 0.3% to 0.5% more. A block of theirs
+    gives a code to nearly every length, so the list saves the builds little, and the read pays
+    to keep it. No such row ran slower in both jobs on any CPU.
+  - Where it leaves the rows, stdx over the fastest baseline, on the loop without the window's
+    copy of the stream's end. Over 1 KiB slices: 0.94 to 1.10 before and 1.10 to 1.34 after on
+    the N2, 0.86 to 1.04 and 1.01 to 1.34 on the Xeon, 0.91 to 1.01 and 1.10 to 1.22 on the 9V45.
+    Over 16 KiB slices: 0.94 to 0.97 and 0.98 to 1.02 on the N2, 0.78 to 0.82 and 0.76 to 0.86 on
+    the Xeon, 0.72 to 0.86 and 0.77 to 0.93 on the 9V45.
+  - The prediction against the measurement (decision 14). The N2's rows of 1 KiB slices were to
+    run about 8% faster and ran 18% to 25% faster; its rows of 16 KiB slices about 2%, and ran
+    3% to 6%. The prediction counted instructions on the M1. The builds' branch on each length of
+    zero cost more than their instructions: over 1 KiB slices the N2 misses 16% to 19% fewer
+    branches.
+  - The checks. CI run [37250188774](https://github.com/c4milo/stdx/actions/runs/37250188774)
+    passed `tools/ci.sh` at 45efabd on the three runners. Invariant 17's bound stands: a build
+    from the tally counts as a build from the lengths.
+  - Mutations, 42, of which 41 are CAUGHT. The one NOT CAUGHT changes no octet and no verdict:
+    the codes built from the lengths though the decode tallied them. One test came from a
+    mutation first NOT CAUGHT: a literal/length code of one code, which a distance code may be
+    and it may not.
+
+  **The thresholds of S11 and S12 on a short stream, 2026-10-04.** The probes the owner allowed
+  for x86-64's rows of 16 KiB slices, on branches that never land, each measured in one job
+  after 0f5310d, which main holds as 44916e2. Neither is kept, and `combine_bits_min` and
+  `combine_input_min` stand.
+  - S12 from a stream's first block, S11 as before (`perf-deflate-resolve-first`, b5756a9; runs
+    [37249892069](https://github.com/c4milo/stdx/actions/runs/37249892069) and
+    [37249893752](https://github.com/c4milo/stdx/actions/runs/37249893752), a Neoverse N2 in
+    both, an EPYC 7763 and an EPYC 9V74). On both EPYCs the 16 KiB rows of html, js and css ran
+    2.0% to 5.9% faster and json's 1.7% to 2.8% slower, and the four rows of 1 KiB slices 2.6% to
+    5.1% slower, one of those eight cells inside its spread. On the N2 all eight rows ran 2.8%
+    to 5.8% slower in both jobs. Resolving costs a block about 1,100 instructions on the M1, and
+    the aarch64 loop takes more instructions with lengths resolved and none combined: 4.6% more
+    for one of html's 16 KiB members and 7.7% for one of css's.
+  - S11 and S12 in a call that holds 1,024 octets of input (`perf-deflate-combine-input`,
+    b43d597; run [37249895626](https://github.com/c4milo/stdx/actions/runs/37249895626), an EPYC
+    7763). The four 16 KiB rows ran 1.0% to 14.3% slower, css's the most, and the 1 KiB rows as
+    before. The combination costs a 16 KiB member 20% to 31% more instructions on the M1. The
+    run's N2 job lost its runner before it measured, and was not run again.
+  - So the thresholds are not what holds x86-64's 16 KiB rows back. valgrind on an EPYC 9V45
+    (run [37245299694](https://github.com/c4milo/stdx/actions/runs/37245299694)) counts 126,660
+    instructions for one of html's 16 KiB members: the assembly symbol loop, 83,424, where the
+    N2's takes 64,992; the CRC-32, 9,389; the tables' builds, 7,553; the codes' builds, 7,142.
+    The hosted x86-64 runners expose no counters, so the loop's cycles there are still to be
+    split. That is open.
+  - The reports are in `bench/results/`, dated 2026-10-04, "resolve-first" and "combine-input".
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
