@@ -5365,6 +5365,121 @@ to 12 are reordered and nothing else changes.
   differs from it in `copy_plain_long`, a function of its own there, and in that test, and the
   loop's function and the kernel are the same instructions on aarch64 and x86-64.
 
+  **A string's input counted from its opening quotation mark in the decoder's token loop,
+  2026-10-05.** Beside simdjson 5.0.2 an AMD EPYC 7763 decoded CLDR's texts at 0.96 to 0.98 of
+  simdjson's speed, where the N2 decoded them at 1.19. The texts bench-json decodes are the ones
+  stdx encodes from CLDR's files, so they hold no whitespace: a token every 8.5 octets.
+  callgrind counted a token at 90.05 instructions at the x86-64 baseline, 71.05 of them in the
+  loop's function, where aarch64 runs 75.66; of the loop's, 6.5 a token load from the stack, 3.8
+  store to it, and 0.3 add to a value in it. Between a member's separator and its name's block,
+  the function stored the input's address to the stack and loaded it again a dozen instructions
+  later, on the path every token's start waits for.
+
+  `copy.string` took the string's content as a slice of its own, one octet into the input, and
+  moved the input past the string from that slice: the content's start and its length were two
+  values more to keep across the block's compare. It now reads the block and moves the input
+  from the one slice, counted from the opening quotation mark. callgrind, instructions a token:
+
+  | Workload | x86-64 baseline | aarch64 |
+  |---|---|---|
+  | CLDR's texts | 90.05, then 88.62 | 75.66, then 75.67 |
+  | qlog's records | 103.41, then 100.22 | 91.01, then 90.95 |
+
+  On x86-64 the input's address then stays in a register from a token to the next. Two more
+  forms were counted and left: the string's second block counted the same way, 87.96 and 101.05,
+  0.83 a token more on qlog's records; and a string's start in the output found after its copy,
+  91.64 on CLDR's texts and 77.58 on aarch64.
+
+  bench-json runs [37265641743](https://github.com/c4milo/stdx/actions/runs/37265641743) and
+  [37265650390](https://github.com/c4milo/stdx/actions/runs/37265650390) paired 543946d with
+  main at d5ed422; each drew the N2 and an AMD EPYC 7763. stdx's decoding speed over main's, and
+  over simdjson's before and after:
+
+  | Decoding | N2, two jobs | EPYC 7763, two jobs |
+  |---|---|---|
+  | CLDR's texts, over main | 0.996 and 1.001 | 1.035 and 1.031 |
+  | CLDR's texts, MB/s | 1,128 and 1,124, then 1,123 and 1,125 | 989 and 992, then 1,023 and 1,023 |
+  | CLDR's texts, over simdjson | 1.190 and 1.186, then 1.211 and 1.185 | 0.961 and 1.030, then 1.014 and 1.019 |
+  | qlog's records, over main | 1.002 and 1.035 | 1.027 and 1.082 |
+  | qlog's records, over simdjson | 1.023 and 0.980, then 1.020 and 1.012 | 1.039 and 0.949, then 1.082 and 1.038 |
+
+  On the EPYC 7763 each of the two rows passed its spread in one job and stayed inside it in the
+  other, CLDR's texts inside 4.0% and qlog's records inside 11.1%, so neither counts as a win
+  by the rule; simdjson's own speed on CLDR's texts moved by 0.981 and 1.042 between the two
+  programs of a job. The counts above are what the change rests on.
+
+  Rows past the larger of their spread and 1% in both jobs of a CPU:
+
+  - On the N2, decoding: world192.txt, js-1m and css-1m as strings at 0.982 to 0.987, and four
+    hex strings at 0.972 to 0.981. They count as placement (decision 20, amended 2026-10-03).
+    The bench program, cross-built for the runner at both commits, holds 805 of 809 function
+    instances identical apart from their addresses, 75 of them at another offset in their
+    64-octet line; the four that differ are instances of the loop's `take`. callgrind counts
+    css-1m as a string at 3,561,392 instructions a decode at both commits, 99.97% of them in
+    `walk_stretch`, and a megabyte of plain ASCII as one string, the path a hex string takes,
+    at 1,376,885, 99.95% of them in the run's scan and its copy; `take` runs 226 of the first
+    and 404 to 432 of the second.
+  - On the N2, encoding, which the change does not touch: json-1m as a string at 0.985 and
+    0.986, the row the entries above found to move with where the build puts its loop.
+  - On the EPYC 7763 no row is slower. A hex string of 7 KiB decodes at 1.016 and 1.017, and
+    two hex strings encode faster, on code the change does not touch.
+
+  **The same change on main at 6e36507.** As 8743d38 it was paired again (runs
+  [37271064820](https://github.com/c4milo/stdx/actions/runs/37271064820) and
+  [37271075754](https://github.com/c4milo/stdx/actions/runs/37271075754)); each drew the N2, the
+  first an Intel Xeon Platinum 8573C and the second an EPYC 7763. CLDR's texts decode at 1.044
+  of main on the Xeon, 1,267 then 1,323 MB/s, and at 1.030 on the 7763; qlog's records at 1.024
+  and 1.011. Over simdjson the Xeon reads 0.856 then 0.887 on CLDR's texts and 0.891 then 0.915
+  on qlog's records, the widest gap a row of tokens has on a CPU drawn so far; the 7763 reads
+  0.970 then 0.990 on CLDR's texts.
+
+  - On the N2, in both jobs: xml and alice29.txt as strings decode at 0.989 to 0.990 and at
+    0.955 to 0.957, two hex strings at 0.979 to 0.990, and reymont as a string encodes at 0.957
+    and 0.961. They count as placement: the bench program holds 806 of 810 function instances
+    identical at both commits, the four that differ `take`'s, and alice29.txt as a string runs
+    401,704 instructions a decode at both, 226 of them in `take`.
+  - On the two x86-64 CPUs, one job each, eleven hex strings encode slower, at 0.85 to 0.89 on
+    the Xeon and at 0.94 to 0.97 on the 7763, on an encoder the change does not touch: 1,672 of
+    the 1,677 function instances on x86-64 are identical, the five that differ are `take`'s,
+    and the digits' kernel stands at the same address in both programs. The first pair's 7763
+    read two of the same rows 1.3% to 5.3% faster.
+
+  Mutations: 4 of 4 CAUGHT. Main took the change as 3805a96, the tree the second pair ran.
+
+  **The `\u` text's branches taken by a mask: two probes, measured and dropped, 2026-10-05.**
+  Beside simdjson 5.0.2 the text of `\u` escapes decodes at 0.98 of simdjson's speed on an AMD
+  EPYC 7763 and at 0.89 to 0.99 on the AVX-512 EPYCs, where the N2 decodes it at 1.36. The N2's
+  counters put an octet of it at 2.55 cycles, 8.39 instructions and 0.048 mispredictions (run
+  [37254473982](https://github.com/c4milo/stdx/actions/runs/37254473982)). Claim J12's loop
+  takes, for each 1,000 octets of that text, 69.6 pairs of escapes, 18.0 single escapes at the
+  end of a word of an odd count of letters, 7.1 letters' escapes and 42.2 plain octets between
+  words: a word's end is a branch the word's length decides, and a pair's test another.
+
+  Two probes took those branches away, each on a branch of its own:
+
+  - 769e5a1 sent the octet after the escapes out with them and counted it when it is plain
+    ASCII, with no branch. callgrind on aarch64 counted 8.78 instructions an octet for 8.39, and
+    its branch model 0.046 mispredictions for 0.077. Runs
+    [37267689487](https://github.com/c4milo/stdx/actions/runs/37267689487) and
+    [37267699192](https://github.com/c4milo/stdx/actions/runs/37267699192): the text decoded at
+    0.964 and 0.963 of main on the N2, at 0.940 on an EPYC 7763 and at 0.973 on an EPYC 9V45,
+    and samba as a string at 0.870 and 0.869 on the N2.
+  - e396036 also took the second escape of a pair by a mask of whether it is one, with the
+    first's unit standing in where it is none. callgrind counted 9.90 instructions an octet and
+    0.016 mispredictions. Runs
+    [37267671869](https://github.com/c4milo/stdx/actions/runs/37267671869) and
+    [37267680624](https://github.com/c4milo/stdx/actions/runs/37267680624): 0.685 and 0.686 of
+    main on the N2, 0.686 and 0.687 on an EPYC 7763. The N2's counters (run
+    [37267708800](https://github.com/c4milo/stdx/actions/runs/37267708800)) put a pass over the
+    text at 50,367 mispredictions for main's 244,695, at 50.3 million instructions for 42.6
+    million, and at 18.9 million cycles for 12.9 million.
+
+  With its branches, the loop moves the input by a constant on each path, and the predictor
+  picks the path: the next escapes' loads wait for nothing this pair computes, and passes
+  overlap. With the mask, a pass's start waits for the pass before it, its load, its digits'
+  test and the mask: 37 cycles a pass where the loop ran 19. Both probes left with their
+  branches.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
