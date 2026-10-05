@@ -26,6 +26,7 @@ const walk = @import("encoder_match_walk.zig");
 const best = walk.best;
 const best_inline = walk.best_inline;
 const best_pair = walk.best_pair;
+const skips_search = walk.skips_search;
 
 /// A match: its length, 0 for none, and its distance.
 pub const Match = struct {
@@ -245,10 +246,9 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
             state.position += 1;
             if (state.previous.len < level.lazy_len) current = pair.second;
         } else {
-            // A waiting match at least `lazy_len` long is taken without a search here.
             assert(state.waiting or state.previous.len == 0);
             self.position = state.position;
-            if (!(state.waiting and state.previous.len >= level.lazy_len)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
+            if (!skips_search(level, cheap, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
         }
         decide_lazy(level, cheap, self, costs, &symbols, &state, current);
     }
