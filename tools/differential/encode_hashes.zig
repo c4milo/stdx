@@ -17,7 +17,7 @@ pub const entries = [_]struct { []const u8, []const u8, u4, []const u8, []const 
     .{ "silesia/dickens", "gzip", 9, "prefix", "004b66ed45fe37dccfd1da4cb68934a93a98a5e90c8ec50cb68217a2a751ed69" },
     .{ "silesia/mozilla", "raw", 1, "whole", "230e954e30ae9d2e562e6a509060f6c17c350151991dd8090be9e109a92a6ab6" },
     .{ "silesia/mozilla", "raw", 6, "whole", "da2a6a30a92c49fb79270c7c92269ec4ae131af45175c3634e904f3fea79e0ae" },
-    .{ "silesia/mozilla", "raw", 9, "whole", "1d0b8a96b1a7a2893a3390aacd49990bfc4d0dab71c9f4cb714be062c0f3af9a" },
+    .{ "silesia/mozilla", "raw", 9, "whole", "f97d9dae7af6fd7a598181d5e49fbc4a45125aa13dce04be4b6e3192e3cd919b" },
     .{ "silesia/mozilla", "raw", 1, "prefix", "7de80eb93de809315e2c399b7b7e2600f18f2285d7e339a98c7f47ea73ecf908" },
     .{ "silesia/mozilla", "raw", 6, "prefix", "847a3c22d554cce8ed1dd13e10874f0442374df58d2d0266beefe12d819ece34" },
     .{ "silesia/mozilla", "raw", 9, "prefix", "a7eaece55e088b70a37e8309ea5353a3f543035d12904be4c41c4fef14243b5a" },
