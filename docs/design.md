@@ -4437,6 +4437,90 @@ to 12 are reordered and nothing else changes.
   and `zig build lint` passed, and CI passed on the three runners (run
   [37232192699](https://github.com/c4milo/stdx/actions/runs/37232192699)).
 
+  **A short string's octets loaded once in the encoder's token loop, 2026-10-04.** With claim
+  J13 on main, stdx encoded CLDR's texts at 0.91 to 0.92 of simdjson's speed on the N2 and
+  qlog's records at 0.90 to 0.91: the last rows of tokens below a baseline there. callgrind
+  counted a token of CLDR's texts at 116.6 instructions on aarch64, 109.6 of them in the loop:
+  16 at each item's dispatch, and about 111 at each name and 113 at each string, which are 37.5%
+  and 31% of the tokens. Of the names 37% hold fewer than 4 octets, 31% hold 4 to 7, 24% hold 8
+  to 16 and 8% hold more. A name spent its instructions so:
+
+  - 14 on the assertion that its octets and the output share none (`codec.overlap`): two sums
+    checked for overflow, and four loads from the stack.
+  - 20 to 45 on the scan for an octet a string does not carry as it is, chosen by the name's
+    length: one block of two halves from 4 octets on, and below 4 an octet at a time, 13
+    instructions each.
+  - 8 to 13 on the copy, chosen by the length a second time, of the octets the scan had loaded.
+  - About 55 on the grammar's assertion, its frame, its room and the octets around its content:
+    three sums checked for overflow, the room tested twice, and a bound checked at each store.
+
+  Three changes followed. callgrind counted each on aarch64, as instructions a token:
+
+  | Change | CLDR's texts | qlog's records |
+  |---|---|---|
+  | Main at 9f728fe | 116.64 | 111.82 |
+  | A string of at most 16 octets is copied where its content goes as it is scanned, each octet loaded once; below 4 octets a table of 256 entries answers each octet | 109.24 | 110.26 |
+  | The octets around the content go into one slice, checked once; a string of at most 16 octets keeps a tail of its own, which meets a longer string's at the loop's end alone; 4 to 7 octets are checked as a block of 8 lanes | 98.06 | 98.17 |
+  | Two subtractions that wrap tell the overlap, and the string's lengths are summed once | 88.74 | 90.58 |
+
+  The first change checked 4 to 7 octets as a block of 16 lanes, two halves and 8 constant
+  lanes, which LLVM built a lane at a time, in 35 instructions with its two stores; as a block
+  of 8 lanes it takes 16. The copy stores a string's octets before the scan has judged them: a
+  string with an octet to escape is then written again from the same place by
+  encoder_loop_string.zig, and one the loop leaves is written by the checked path, so no octet
+  the call reports holds them.
+
+  bench-json runs [37238773216](https://github.com/c4milo/stdx/actions/runs/37238773216) and
+  [37238780821](https://github.com/c4milo/stdx/actions/runs/37238780821) paired af708a4 with main
+  at 9f728fe. Each drew the N2 and an AMD EPYC 9V74. stdx's encoding speed over main's, and over
+  each baseline's before and after, in the two jobs:
+
+  | Encoding | N2 | EPYC 9V74 |
+  |---|---|---|
+  | CLDR's texts, over main | 1.271 and 1.260 | 1.147 and 1.149 |
+  | CLDR's texts, over simdjson | 0.914 and 0.917, then 1.165 and 1.160 | 1.099 and 1.096, then 1.263 and 1.279 |
+  | CLDR's texts, over yyjson | 1.006 and 1.005, then 1.273 and 1.270 | 1.229 and 1.213, then 1.397 and 1.395 |
+  | qlog's records, over main | 1.150 and 1.146 | 1.053 and 1.052 |
+  | qlog's records, over simdjson | 0.903 and 0.905, then 1.047 and 1.045 | 1.081 and 1.079, then 1.149 and 1.134 |
+  | qlog's records, over yyjson | 1.153 and 1.152, then 1.331 and 1.324 | 1.336 and 1.334, then 1.415 and 1.406 |
+
+  Rows past the larger of their spread and 1% in both jobs of a CPU:
+
+  - On the N2 no row encodes slower than main.
+  - On the N2, decoding, which the change does not touch: xml as a string at 0.987 and 0.983,
+    css-1m at 0.981 and 0.977, and five hex strings at 0.950 to 0.986. They count as placement
+    (decision 20, amended 2026-09-29). The bench program, cross-built for the runner at both
+    commits, holds 798 of 803 function instances identical apart from their addresses, 72 of
+    them at another offset in their 64-octet line; the five that differ are instances of the
+    benchmark's `encode`, which holds the loop.
+  - On the EPYC 9V74, encoding: six hex strings at 0.975 to 0.988. The kernel that writes their
+    digits is identical at both commits, as are 1,665 of the 1,672 function instances on
+    x86-64; the seven that differ are instances of `encode`, which holds the loop. Three of the
+    six are whole files of 256 KiB, xml, lcet10.txt and the shuffled dickens: the loop takes
+    their string once, about 290 instructions beside the kernel's 2,143 a KiB, under 0.1%, and
+    they count as placement (decision 20, amended 2026-10-03). The other three are small bodies
+    taken as slices of 1 KiB, html at 0.987 and 0.981, js at 0.985 and 0.982 and css at 0.987
+    and 0.988. There a text is one hex string, and callgrind counts it at 2,482 instructions at
+    the x86-64 baseline where main runs 2,475, the loop's function holding 288 where it held
+    281: the loop keeps the length of the output left in a register now, and saves it around
+    the kernel's call. On aarch64 the same text runs 1,988 instructions where main runs 1,996.
+    Two other forms of a hex string's path ran 6 to 13 instructions more on x86-64, not fewer.
+    In the same jobs simdjson, the same code in both programs, encoded one hex string at 0.952
+    and 0.976.
+
+  The owner ruled on 2026-10-04 that the change lands, with the three small bodies' rows on the
+  EPYC 9V74 recorded here as below main. The pairs ran it as af708a4. Main took it as 77d3420,
+  which also makes two of the loop's functions public for their tests and adds the tests.
+
+  Mutations: 48 of 48 CAUGHT. One was NOT CAUGHT at first, a string that fills the output
+  refused: no test ended a text with a string in an output of just its octets. One now does, for
+  six lengths in both framings. Two left a name unused and did not compile; each was formed
+  again to use the name, and then CAUGHT.
+
+  The x86-64 builds failed at first with "evaluation exceeded 1000 backwards branches": the
+  loop's steps are inline, and the added ones passed the default on x86-64 alone. The loop's
+  `take` now sets `constants.token_loop_branch_quota`, as the decoder's does.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped

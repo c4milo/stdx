@@ -128,6 +128,12 @@ dickens-1m for a command loop, the 1 KiB bodies for the header, the largest wind
 | 9 instructions a call in a short function that only passes a result on | a stack guard: a Zig `inline` function that returns an optional struct from several places, or a local whose address a callee takes, leaves a copy on the stack | return two words in registers, and return once for each outcome |
 | every string of a long text sent down the path for long strings | the function is given the rest of the input, whose length is not the string's | tell a long string only once its first stretch has not closed it |
 | main's CI red in `zig build test-self-hosted` on two runners, after a change to vector code that `zig build test` passed | code every build compiles named a kernel that needs a lookup; LLVM assembles VPSHUFB for a CPU without it, and Zig's own x86-64 backend refuses | before a push of vector code run `zig build test-self-hosted` and `zig build test-avx512`, which `zig build test` leaves out; test a kernel's `available` at compile time wherever shared code names it (design §8 step 18) |
+| a name of 1 to 3 octets took 14 to 39 instructions to scan | the scalar scan tests each octet against four bounds, with a branch each | a table of 256 entries, one load an octet, over the three loads that cover 1 to 3 octets (design §8 step 18) |
+| a string's octets loaded twice, and its length tested twice | the scan and the copy were two calls, each choosing its moves by the length | copy as the scan loads: store the halves the scan compares, and write again where the scan finds a stop |
+| 35 instructions to check 4 to 7 octets as one block | LLVM built a vector of two loaded halves and 8 constant lanes a lane at a time | compare the two halves as a block of 8 lanes |
+| 14 instructions to assert that two slices share no octet | sums checked for overflow, and the output's bounds loaded from the stack at each | subtractions that wrap, each compared with the other slice's length |
+| a bound checked at each store around a string | each store indexed the output left, whose length LLVM could not relate to the room's test | sum the string's lengths once, take one slice of that length, and store at offsets inside it |
+| x86-64 builds alone failed with "evaluation exceeded 1000 backwards branches" | a loop whose steps are all inline passed comptime's default quota once more steps were added, on the target that instantiates most | `@setEvalBranchQuota` from a named constant in the loop's function; build for x86-64 before a push |
 
 ## Commands
 
