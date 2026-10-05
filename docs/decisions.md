@@ -543,6 +543,7 @@ small file.
     | S11. A length and its distance's code in one literal/length entry, when both fit the table, so one lookup decodes both | The distance's lookup, a second load each match waits on (L1 hit) | A/B with the entries of a length and its distance apart | — |
     | S12. A length's extra bits in its literal/length entry, when its code and the extra bits fit the table | Reading the extra bits of most matches: a shift and a mask each | A/B with every table built plain | — |
     | S13. A dynamic block's code lengths (RFC 1951 §3.2.7) read by a loop of their own: the bits from a 64-bit buffer refilled with one 8-octet load, and the code length code decoded by one lookup in a table of 7 bits, its longest code | For each code length symbol, 87 to 143 a block at the mean of entry 45's rows, the canonical code's branch a bit and the checked reader's branch an octet (branch mispredict), and 157 to 165 instructions where a lookup and a shift take a few | A/B with the loop off, on entry 45's rows of slices | — |
+    | S15. The tail loop, which decodes what the symbol loop's margins leave out, refills with one 8-octet load while 8 octets of input remain, and copies a match in chunks while the room holds what the copy stores (entry 16) | A branch an octet refilled and an octet copied over a call's last 274 octets of room (branch mispredict): with S13 a buffer of the slice's length costs a 1 KiB member 1,210 of its 11,152 cycles on the N2, and libdeflate 447 | A/B with the tail's refills and copies an octet at a time, on entry 45's rows of slices | — |
 
     Zstandard and brotli decoders:
 
@@ -650,6 +651,14 @@ small file.
       the three CPUs. stdx over the fastest baseline stands at 0.94 to 1.10 over 1 KiB slices on
       the N2 and at 0.95 to 0.97 over 16 KiB slices, and on x86-64 at 0.90 to 1.06 and 0.67 to
       0.89.
+    - The owner ruled three things on those numbers, on 2026-10-04. Invariant 17's count for a
+      dynamic block's header, `block_table_work_max`, rises from 4,530 to 4,696 for S13's table,
+      and S13 lands. The tail takes entry 16's amendment as written, under S15, to be paired on
+      its own. And the two thresholds that keep S11 and S12 from a short stream,
+      `combine_bits_min` and `combine_input_min`, may be measured at other values on branches
+      that never land: with S12 off, html-1m, js-1m and css-1m run at 0.83 to 0.87 of all on on
+      both EPYCs, and no 16 KiB slice ever takes S12 or S11. Neither limit changes on main
+      without the numbers and a ruling, and the rows of 1 KiB slices and the N2 must not lose.
     - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
       nothing into the window, which no call reads after `done`. Called apart on the N2, that
       copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
@@ -845,6 +854,40 @@ small file.
       settings with the checked path.
     - Decision 24's measures, once ruled, cover this loop as they cover the assembly loops.
 
+    **DEFLATE's tail takes words and chunks while the input and the room hold them.** Proposed on
+    2026-10-04, after the split of design §8 step 7, and ruled by the owner the same day, who read
+    this text before any code and approved it as written. It amends this entry for one function,
+    the DEFLATE tail loop (`fast_step.decode_tail`), as decision 32 amended it for the brotli
+    command loop.
+    - The cost it removes. The symbol loop's output margin, 258 plus 16, leaves the last 274
+      octets of a call's room to the tail: 27% of a 1 KiB body decoded into a buffer of its own
+      length. The tail refills its bit buffer an octet at a time and copies each match an octet at
+      a time. With S13, on the N2, one dynamic member of html's 1 KiB slices takes 11,152 cycles
+      into a buffer of its own length and 9,943 into one with room past it, where libdeflate
+      takes 10,801 and 10,353. valgrind counts 2,273 of the member's 26,721 instructions in the
+      tail's copies and 771 in its refills.
+    - The rule, for the DEFLATE tail loop alone:
+      - A refill takes one 8-octet load while at least `input_slack` octets of input remain, which
+        one compare a refill checks, and whole octets one at a time after that, as now.
+      - A match copies in chunks (S4) while the room holds what the copy stores: its length
+        rounded up to a whole chunk, and at least the two chunks it writes first. One compare a
+        match checks that. With less room the match copies an octet at a time, as now, and a
+        match longer than the room goes to the checked path, as now.
+      - A literal stores one octet and checks the room for one, as now.
+      - Zig's safety checks stay on. Each wide access is a slice of the length it reads or stores,
+        taken after the compare that admits it.
+      - The symbol loop keeps its margins and its code, the assembly of decision 29 included.
+      - A claim of decision 14 holds it, S15, on by default. Off, the tail refills and copies an
+        octet at a time; the tests and the fuzzer compare both settings with the checked path.
+      - Each compare has a test that decodes a stream into every room up to its length, and from
+        every input length.
+    - The measurement that admits it: two paired bench-deflate jobs a runner. Entry 45's rows of
+      1 KiB slices run ahead by more than their spread in both jobs, and no file runs behind by
+      more than entry 20's floor.
+    - The alternatives refused: the tail as it is; a smaller output margin for the symbol loop,
+      which would put checks at each write into the loop every large file runs and into the
+      assembly; and slack the caller provides, which this entry refused.
+
     **The fast paths, with the measurement each must show.** The DEFLATE rows exist since design
     §8 step 7, which records their A/Bs. Each row's numbers are filled in by the step that writes
     it, and a row whose A/B does not beat the checked path by more than the noise is deleted with
@@ -855,6 +898,7 @@ small file.
     | DEFLATE symbol loop (S1, S2) | 7 | 8 octets, one refill per iteration | 258 plus 16 | Throughput against the checked path on all three corpora: a median of 11.68 times on the N2 and 9.29 on the EPYC 7763 in step 7 |
     | DEFLATE and brotli match copy (S4) | 7, 12 | none | 258 plus 16 for DEFLATE; `chunk_len_max` plus 16 for brotli | As above |
     | DEFLATE code lengths, in a dynamic block's header (S13) | 7 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput with the loop over main's without it, the change after its base in one job (entry 20), at cbb1353 against 9f728fe (runs [37244993630](https://github.com/c4milo/stdx/actions/runs/37244993630) and [37244996296](https://github.com/c4milo/stdx/actions/runs/37244996296)): entry 45's rows of 1 KiB slices 1.41 to 1.46 on the N2 in both jobs, 1.38 to 1.44 on an EPYC 9V74 and 1.39 to 1.46 on an EPYC 7763; its rows of 16 KiB slices 1.10 to 1.17, 1.10 to 1.15 and 1.11 to 1.16; and none of the 39 rows slower on any of the three |
+    | DEFLATE tail loop (S15) | 7 | none: a refill takes 8 octets while 8 remain, and one at a time after | none: each write checks the room it stores into | Throughput with it over without it, the change after its base in one job (entry 20), two jobs a runner: entry 45's rows of 1 KiB slices ahead by more than their spread in both, and no file behind by more than entry 20's floor; the numbers follow the measurement |
     | Zstandard literal decoding, four streams (Z1, Z2) | 11 | 8 octets before each stream's position, read backward | none: literals go to the state's literal buffer, whose size is fixed | As above |
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |
