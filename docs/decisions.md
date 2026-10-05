@@ -691,6 +691,18 @@ small file.
       call of 1,024 octets of input run x86-64's 16 KiB rows 1.0% to 14.3% slower. Neither is
       kept, and both limits stand. What holds x86-64's 16 KiB rows at 0.76 to 0.93 of the
       fastest baseline is still open.
+    - S15 measured; design §8 step 7 holds the pairs under "The tail's words and chunks". After
+      main in the same job, the rows of 1 KiB slices run 1.06 to 1.07 times as fast on the N2 in
+      three jobs, on an EPYC 9V74 and on an EPYC 7763, and the rows of 16 KiB slices 1.01 to
+      1.02. The N2 takes 5.6% to 6.4% fewer cycles an octet over 1 KiB slices. One file ran
+      slower in one job, E.coli at 0.952 on the 9V74, on functions the change leaves instruction
+      for instruction as they were: placement, by the comparison of the two programs' objects.
+    - Where the four leave entry 45's rows, by one pair of main with S14 and S15 against main.
+      stdx over the fastest baseline stands at 1.20 to 1.47 over 1 KiB slices on the N2 and at
+      1.02 to 1.07 over 16 KiB slices, where it stood at 0.67 to 0.78 and 0.82 to 0.85. On an
+      EPYC 9V45 it stands at 1.22 to 1.35 and 0.77 to 0.96. x86-64's rows of 16 KiB slices stay
+      open: the header takes 9% of such a member there, and what follows it takes longer than
+      libdeflate's whole decode.
     - S5 changed by the owner's ruling of the same day: the call that ends the stream copies
       nothing into the window, which no call reads after `done`. Called apart on the N2, that
       copy takes 2.3% to 3.6% of a 16 KiB member's cycles and under 1% of a 1 KiB member's.
@@ -930,7 +942,7 @@ small file.
     | DEFLATE symbol loop (S1, S2) | 7 | 8 octets, one refill per iteration | 258 plus 16 | Throughput against the checked path on all three corpora: a median of 11.68 times on the N2 and 9.29 on the EPYC 7763 in step 7 |
     | DEFLATE and brotli match copy (S4) | 7, 12 | none | 258 plus 16 for DEFLATE; `chunk_len_max` plus 16 for brotli | As above |
     | DEFLATE code lengths, in a dynamic block's header (S13) | 7 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput with the loop over main's without it, the change after its base in one job (entry 20), at cbb1353 against 9f728fe (runs [37244993630](https://github.com/c4milo/stdx/actions/runs/37244993630) and [37244996296](https://github.com/c4milo/stdx/actions/runs/37244996296)): entry 45's rows of 1 KiB slices 1.41 to 1.46 on the N2 in both jobs, 1.38 to 1.44 on an EPYC 9V74 and 1.39 to 1.46 on an EPYC 7763; its rows of 16 KiB slices 1.10 to 1.17, 1.10 to 1.15 and 1.11 to 1.16; and none of the 39 rows slower on any of the three |
-    | DEFLATE tail loop (S15) | 7 | none: a refill takes 8 octets while 8 remain, and one at a time after | none: each write checks the room it stores into | Throughput with it over without it, the change after its base in one job (entry 20), two jobs a runner: entry 45's rows of 1 KiB slices ahead by more than their spread in both, and no file behind by more than entry 20's floor; the numbers follow the measurement |
+    | DEFLATE tail loop (S15) | 7 | none: a refill takes 8 octets while 8 remain, and one at a time after | none: each write checks the room it stores into | Throughput with it over main's without it, the change after its base in one job (entry 20), at d8eb2e8 against c33aab1 (runs [37254086506](https://github.com/c4milo/stdx/actions/runs/37254086506), [37254088899](https://github.com/c4milo/stdx/actions/runs/37254088899) and [37257457811](https://github.com/c4milo/stdx/actions/runs/37257457811)): entry 45's rows of 1 KiB slices 1.06 to 1.07 on the N2 in three jobs, on an EPYC 9V74 and on an EPYC 7763; its rows of 16 KiB slices 1.01 to 1.02; and one file slower in one job, E.coli at 0.95 on the 9V74, which the objects' comparison of design §8 step 7 shows as placement |
     | Zstandard literal decoding, four streams (Z1, Z2) | 11 | 8 octets before each stream's position, read backward | none: literals go to the state's literal buffer, whose size is fixed | As above |
     | Zstandard sequence execution (Z4) | 11 | none | `chunk_len_max` plus 16 | As above |
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |

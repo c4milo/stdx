@@ -1030,6 +1030,98 @@ to 12 are reordered and nothing else changes.
     split. That is open.
   - The reports are in `bench/results/`, dated 2026-10-05, "resolve-first" and "combine-input".
 
+  **The tail's words and chunks, 2026-10-04.** The fourth ruling measured: claim S15 of decision
+  14, under decision 16's amendment for the DEFLATE tail loop. `refill_tail` loads 8 octets
+  while 8 remain and the buffer has room for a whole octet. `fast_copy.zig`'s `copy_in_room`
+  copies a match in chunks of 16 or 8 octets when the room holds what the chunks store, and
+  octet by octet otherwise (2808555). The symbol loop and its assembly are as they were.
+  - The pairs. `perf-deflate-tail`, a branch that never lands (decision 20), held the change at
+    d8eb2e8, measured after main's c33aab1 in the same job. bench-deflate runs
+    [37254086506](https://github.com/c4milo/stdx/actions/runs/37254086506),
+    [37254088899](https://github.com/c4milo/stdx/actions/runs/37254088899) and
+    [37257457811](https://github.com/c4milo/stdx/actions/runs/37257457811) drew a Neoverse N2 in
+    all three, and a Xeon 6973P-C, an EPYC 9V74 and an EPYC 7763. bench-profile run
+    [37254091339](https://github.com/c4milo/stdx/actions/runs/37254091339) counted on the N2. The
+    reports are in `bench/results/`, dated 2026-10-05, "tail".
+  - The baselines first, 156 cells a job. The N2's counters read the same instructions an octet
+    for every baseline in every row of the two programs, and 0.975 to 1.033 of the base's
+    cycles. Timed on the N2, 8 cells moved in all three jobs, by 1.0% to 5.4%. On the EPYC 9V74
+    57 cells moved, by 1.0% to 7.3%, and on the EPYC 7763 60, by 1.0% to 5.5%. The Xeon's job was
+    noisy: its spreads reach 50% of a cell, on the rows of slices most of all, and it admits one
+    row of stdx's, css's 1 KiB slices at 1.080.
+  - stdx's gzip decoder, its own speed in the change's program over the base's:
+
+    | Rows | Neoverse N2, three jobs | EPYC 9V74 | EPYC 7763 |
+    |---|---|---|---|
+    | 1 KiB slices, 4 rows | 1.056 to 1.070 | 1.055 to 1.066 | 1.057 to 1.062 |
+    | 16 KiB slices, 4 rows | 1.012 to 1.021 | 1.010 to 1.017 | 1.011 to 1.017 on 3 |
+    | Rows that rose, of 39 | 9: the eight and fields.c | 10: the eight, osdb and samba | 9: seven of the eight, fields.c and xargs.1 |
+    | Rows that fell | 0 | 1: E.coli, at 0.952 | 0 |
+
+  - E.coli's row on the 9V74 is placement. A file taken whole runs the tail once, over its last
+    274 octets. bench-deflate built as one object at c33aab1 and at d8eb2e8, for x86-64 and for
+    aarch64, has 669 of 671 functions and 661 of 663 the same instruction for instruction once
+    addresses are masked. The two that differ are the tail and the program's `main`, which
+    gains a claim's column. `decode_rare`, which takes the matches the assembly leaves, starts
+    48 octets into a 64-octet line in the base's x86-64 object and 0 and 16 in the change's. On
+    the EPYC 7763 E.coli ran at 1.002, and on the N2 inside its spread in all three jobs.
+  - The N2's counters, an octet, as fractions of the base's. Over 1 KiB slices stdx takes 0.884
+    to 0.921 of the instructions, 0.936 to 0.944 of the cycles and 0.865 to 0.940 of the branch
+    misses. Over 16 KiB slices, 0.972 to 0.979, 0.984 to 0.989 and 0.980 to 0.990. Over the 26
+    files taken whole it takes the base's instructions, 0.997 to 1.000.
+  - What is left of the tail. On the M1 a buffer of the slice's length costs one of html's 1 KiB
+    members 1,899 instructions over one with room past it, where it cost 3,918: the tail still
+    takes a symbol at a time through `step`, where the symbol loop takes runs of literals.
+  - The checks. CI run [37254093726](https://github.com/c4milo/stdx/actions/runs/37254093726)
+    passed `tools/ci.sh` at d8eb2e8 on the three runners. Five tests are new. The stream of
+    `fast_tail_test.zig`, matches of 11 lengths at 7 distances and the two longest, decodes into
+    every room up to its length and from every input length, with S15 on, with it off and on
+    the checked path. It decodes from every input length into rooms shorter than the margin,
+    which starts the tail from the bits a call cut short left. With S15 or S4 off, a call whose
+    input ends first writes nothing past its last octet. And a buffer of 57 bits or more takes
+    no word.
+  - Mutations, 21, of which 18 are CAUGHT. The 3 NOT CAUGHT change no octet a decode writes: a
+    word loaded though S1 is off, no word ever loaded, and no chunk of 8 octets ever used. Three
+    mutations were first NOT CAUGHT and each got its test: a word loaded into a buffer of 57
+    bits or more, which no stream reaches, since the tail meets 63 bits at most while 8 octets
+    of input remain; and chunks copied though S4 or S15 is off, which a call that ends for want
+    of room hides, because it has written all of its room.
+
+  **Where the four leave the rows, 2026-10-04.** main with S14 and S15, measured after main's
+  c33aab1 in one job: `perf-deflate-small-bodies-2`, a branch that never lands, at 5b2577b
+  (bench-deflate run [37254645168](https://github.com/c4milo/stdx/actions/runs/37254645168), a
+  Neoverse N2 and an EPYC 9V45; bench-profile run
+  [37254647085](https://github.com/c4milo/stdx/actions/runs/37254647085) on the N2; CI run
+  [37254643295](https://github.com/c4milo/stdx/actions/runs/37254643295), which passed
+  `tools/ci.sh` on the three runners). The reports are in `bench/results/`, dated 2026-10-05,
+  "small-bodies".
+  - On the N2 stdx's gzip decoder runs the rows of 1 KiB slices 1.267 to 1.348 times as fast as
+    main's and the rows of 16 KiB slices 1.050 to 1.080; 15 of 39 rows rose and none fell. Of the
+    baselines' 156 cells, 24 moved, by 1.0% to 4.9%. The counters read 0.742 to 0.789 of main's
+    cycles an octet over 1 KiB slices, on 0.768 to 0.825 of the instructions and 0.706 to 0.753
+    of the branch misses, and 0.930 to 0.962 of the cycles over 16 KiB slices.
+  - On the EPYC 9V45 the job's second program ran slower for every decoder: 86 of the baselines'
+    cells fell, by 2.5% to 9.2%. stdx's rows of 1 KiB slices rose all the same, 1.245 to 1.340.
+  - stdx over the fastest baseline, each in the program that holds the change:
+
+    | Rows | N2, at 9f728fe | N2, now | EPYC 7763, at 9f728fe | EPYC 9V45, now |
+    |---|---|---|---|---|
+    | 1 KiB slices | 0.67 to 0.78 | 1.20 to 1.47 | 0.68 to 0.75 | 1.22 to 1.35 |
+    | 16 KiB slices | 0.82 to 0.85 | 1.02 to 1.07 | 0.71 to 0.76 | 0.77 to 0.96 |
+
+    The first columns are decision 45's (design §8 step 9), before the window's copy, S13, S14
+    and S15. By the N2's counters one member of html's 1 KiB slices takes 8.39 cycles an octet
+    where it took 15.39, and libdeflate 10.90.
+  - What stays open: x86-64's rows of 16 KiB slices. On an EPYC 9V45, with S13, the block's
+    header takes 1,426 ns of the 15,640 one of html's 16 KiB members takes, and what follows it
+    13,935 ns with room past the slice, where libdeflate's whole decode takes 12,570
+    ("split-lengths-loop" in `bench/results/`). A row of 16 KiB slices holds 1.12 to 1.41 times
+    the symbols an octet of the file it cuts, since each slice starts with no history. On an
+    EPYC 9V74 stdx trails libdeflate on the 1 MiB files that are mostly literals and short
+    matches, html, json and js at 0.93 to 0.97, and leads it on css's long matches, at 1.20. So
+    the header does not hold those rows back. What does is still to be split, and the hosted
+    x86-64 runners expose no counters to split it with.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
