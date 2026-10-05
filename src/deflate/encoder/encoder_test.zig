@@ -242,7 +242,7 @@ test "each level's output for two seeded letters, whose chains run long, is the 
     const recorded = [_]struct { usize, u64 }{
         .{ 4690, 0x94914bcc05d2d58f },
         .{ 4009, 0xdeecdba3c0e4de88 },
-        .{ 4028, 0xb9232973fbbe9f2b },
+        .{ 4029, 0xc14003575ca02bbc },
     };
     var input: [letters_len]u8 = undefined;
     var generator = codec.split.Generator.init(17);

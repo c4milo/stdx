@@ -22,28 +22,17 @@ const TailWalk = struct {
     /// candidates themselves, 0 octets after.
     link: usize,
     offset: usize = 0,
-    /// The lowest candidate the walk reads: the reach's, or, while a move is owed, the nearest
-    /// one whose tail lies past the position.
-    low: usize,
     /// Where the 4 octets that decide a candidate against `found` start, and those 4 of the
     /// position's octets.
     tail: usize = 0,
     later_tail: u32,
     /// The links the walk may still read.
     left: u32,
-    /// What the loop needs at each link, set from the fields above by `aim`: the lowest position
-    /// of the chain followed whose candidate the walk reads, and how many octets after a position
-    /// of that chain its candidate's deciding 4 octets start.
+    /// What the loop needs at each link, kept by `follow_longer`: the lowest position of the
+    /// chain followed that names a candidate in reach, and how many octets after a position of
+    /// that chain its candidate's deciding 4 octets start.
     floor: usize,
     shift: usize = 0,
-
-    inline fn aim(walk: *TailWalk) void {
-        // A tail starts where the match before it ended, less 3 octets, so no tail starts before
-        // an earlier one.
-        assert(walk.tail >= walk.offset);
-        walk.floor = walk.low + walk.offset;
-        walk.shift = walk.tail - walk.offset;
-    }
 
     /// How many of the position's octets `later` the octets at `candidate` equal, when that is
     /// more than `found` holds, else 0. A position of the tail's chain holds the tail, and mostly
@@ -55,33 +44,34 @@ const TailWalk = struct {
         return if (len > walk.found.len) len else 0;
     }
 
-    /// After a longer match at `candidate`: its tail decides the candidates left. The walk moves
-    /// to the tail's chain where that chain names every candidate left, and owes the move where
-    /// `candidate` lies too near for that.
+    /// After a longer match at `candidate`, whose tail decides the candidates left: moves the
+    /// walk to the tail's chain where fewer remain there (`move`).
+    ///
+    /// The walk has passed every candidate from `candidate` on, and with them every candidate as
+    /// near as the match is long, none of which holds a longer match. Say the match lies `d`
+    /// octets back and is `n` long, and a candidate `e` octets back, `e` over `d` and at most
+    /// `n`, held `n + 1` of the position's octets. The `n + d` octets from the match's candidate
+    /// to the match's end at the position would repeat every `d` octets and every `e`, so every
+    /// greatest common divisor of the two (Fine and Wilf's theorem). The octet after the match at
+    /// its candidate would then equal the octet after it at the position, and the match ended
+    /// because the two differ.
+    ///
+    /// So each candidate left lies more than `n` octets back, and its tail lies before the
+    /// position, among the positions the lazy loop has inserted: the tail's chain names it.
+    /// Where none is left in reach, the walk reads no more.
     inline fn follow_longer(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), lowest: usize, later: []const u8, candidate: usize) void {
+        const passed = @min(candidate, self.position -| walk.found.len);
+        if (passed <= lowest) {
+            walk.left = 0;
+            return;
+        }
         walk.tail = tail_of(walk.found);
         walk.later_tail = tail_octets(later, walk.tail);
-        // The nearest start whose tail lies past the position, where no position is inserted.
-        const unnamed = (self.position + 1) -| walk.tail;
-        if (candidate <= unnamed) {
-            walk.move(level, self, candidate);
-        } else if (unnamed > lowest) {
-            walk.low = unnamed;
-        }
-        walk.aim();
-    }
-
-    /// At a link below `floor`. Returns false where the walk ends: at the reach's edge or a
-    /// chain's end. Otherwise a move is owed and the link names the first candidate the tail's
-    /// chain names too: the walk has passed every nearer one, and reads the reach again.
-    inline fn settle(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), lowest: usize) bool {
-        if (walk.low == lowest) return false;
-        walk.low = lowest;
-        walk.aim();
-        if (walk.link < walk.floor) return false;
-        walk.move(level, self, walk.link - walk.offset + 1);
-        walk.aim();
-        return true;
+        walk.move(level, self, passed);
+        // A tail starts where a match ends, less 3 octets, so no tail starts before an earlier one.
+        assert(walk.tail >= walk.offset);
+        walk.floor = lowest + walk.offset;
+        walk.shift = walk.tail - walk.offset;
     }
 
     /// Moves the walk to the tail's chain when that chain names its next candidate within
@@ -91,7 +81,7 @@ const TailWalk = struct {
     inline fn move(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), passed: usize) void {
         // The position that names `passed` on the tail's chain.
         const passed_from = passed + walk.tail;
-        assert(passed_from <= self.position + 1);
+        assert(passed_from <= self.position);
         var link: usize = self.heads[hash_of_word(level, walk.later_tail)];
         assert(link <= self.position);
         var skips: u32 = 0;
@@ -120,10 +110,6 @@ const TailWalk = struct {
 /// whose positions lie closer than that recurs as often as the octets the walk follows. It moves
 /// there when that chain's next candidate lies farther back than its own chain's. A chain that
 /// ends, or leaves the reach, ends the walk: no candidate left is longer.
-///
-/// The lazy loop has inserted the positions up to the matcher's, and no later one. A candidate
-/// nearer than `tail` octets has its tail past that, so the tail's chain misses the candidates
-/// that near: the move is owed while the walk reads them, and made at the first one farther.
 pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, budget: u16) Match {
     comptime assert(level.tail_chains);
     const position = self.position;
@@ -132,15 +118,10 @@ pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher
     // Position 0 names no candidate, as a head or link of 0 ends a chain.
     const lowest = @max(1, position -| constants.encoder_distance_max);
     const later_head = tail_octets(later, 0);
-    var walk: TailWalk = .{ .link = self.chain[slot(position)], .low = lowest, .later_tail = later_head, .left = budget, .floor = lowest };
-    while (walk.left != 0) {
+    var walk: TailWalk = .{ .link = self.chain[slot(position)], .later_tail = later_head, .left = budget, .floor = lowest };
+    // One compare ends the walk at the reach's edge and at a chain's end.
+    while (walk.left != 0 and walk.link >= walk.floor) {
         const link = walk.link;
-        // One compare ends the reads at the lowest candidate and at a chain's end.
-        if (link < walk.floor) {
-            @branchHint(.unlikely);
-            if (!walk.settle(level, self, lowest)) break;
-            continue;
-        }
         walk.link = self.chain[slot(link)];
         walk.left -= 1;
         if (tail_octets(&self.window, link +% walk.shift) != walk.later_tail) continue;
@@ -342,11 +323,12 @@ test "a tail's chain names a candidate at the reach's edge, and none one octet p
 const period = 10;
 const periodic_len = 60;
 
-test "a move is owed while the candidate lies nearer than the tail, and made at the first one far enough" {
+test "a walk passes the candidates as near as its match is long, and moves to the tail's chain past them" {
     // The position's first octets repeat with a period, so the candidate a period back matches
-    // them all, and its tail lies past the position. With fillers the move is made at the first,
-    // which the tail's chain does not name, so the walk reads no filler; with none it is made at
-    // the far candidate, which both chains name next, and the walk keeps its chain.
+    // them all, and its tail lies past the position: the tail's chain names the candidates
+    // farther back than the match is long, and no nearer one holds a longer match. With fillers
+    // the walk moves and reads none; with none both chains name the far candidate next, and the
+    // walk keeps its chain.
     inline for (.{ Scene{}, Scene{ .fillers = 0 } }) |scene| {
         var octets = position_octets();
         for (octets[period..periodic_len], period..) |*octet, index| octet.* = octets[index - period];
