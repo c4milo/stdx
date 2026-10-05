@@ -220,6 +220,21 @@ const Loop = struct {
     /// (RFC 8259 §7).
     inline fn string(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, piece: Piece) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        if (comptime kind != .name) {
+            if (self.member_value()) return self.string_at(claims, kind, octets, piece);
+        }
+        return self.string_at(claims, kind, octets, piece);
+    }
+
+    /// Whether the item at hand is a member's value: it has no separator before it and ends no
+    /// text, so the copy of a value's path compiled behind this test knows its frame, where the
+    /// one path worked it out for every value, a member's or not (design §8 step 18).
+    inline fn member_value(self: *const Loop) bool {
+        return self.position == .member_value;
+    }
+
+    inline fn string_at(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, piece: Piece) bool {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (piece == .more) return false;
         const closing = if (kind == .name) [_]u8{ constants.quotation_mark, constants.name_separator } else [_]u8{constants.quotation_mark};
         const frame = self.frame_of(claims, kind);
@@ -294,6 +309,12 @@ const Loop = struct {
 
     inline fn hex(self: *Loop, comptime claims: Claims, octets: []const u8, piece: Piece) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        if (self.member_value()) return self.hex_at(claims, octets, piece);
+        return self.hex_at(claims, octets, piece);
+    }
+
+    inline fn hex_at(self: *Loop, comptime claims: Claims, octets: []const u8, piece: Piece) bool {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (piece == .more) return false;
         const digits_len = constants.hex_digits_per_octet * octets.len;
         const frame = self.frame_of(claims, .hex);
@@ -310,6 +331,12 @@ const Loop = struct {
     /// Writes a number's text, when it is one whole number (RFC 8259 §6).
     inline fn number_text(self: *Loop, comptime claims: Claims, octets: []const u8, piece: Piece) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        if (self.member_value()) return self.number_text_at(claims, octets, piece);
+        return self.number_text_at(claims, octets, piece);
+    }
+
+    inline fn number_text_at(self: *Loop, comptime claims: Claims, octets: []const u8, piece: Piece) bool {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (piece == .more) return false;
         if (@call(.always_inline, number_grammar.whole_number, .{octets}) == null) return false;
         const frame = self.frame_of(claims, .number);
@@ -321,6 +348,12 @@ const Loop = struct {
 
     /// Writes a number the encoder formatted, or a literal name.
     inline fn text(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, entry: *const Item) bool {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        if (self.member_value()) return self.text_at(claims, kind, octets, entry);
+        return self.text_at(claims, kind, octets, entry);
+    }
+
+    inline fn text_at(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, entry: *const Item) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         self.check_item(claims, kind, entry);
         const frame = self.frame_of(claims, kind);

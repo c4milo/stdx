@@ -70,7 +70,9 @@ inline fn pass(
 ) Error!?codec.Status {
     if (claims.encoder_token_loop and encoder.part == .between_tokens) {
         var written = writer.position;
-        written_items.* += token_loop.take(encoder, claims, items[written_items.*..], output, &written);
+        // Inline, as it was before a member's values took a path of their own: out of line, the
+        // loop's call and its frame cost a batch of one item 50 instructions (design §8 step 18).
+        written_items.* += @call(.always_inline, token_loop.take, .{ encoder, claims, items[written_items.*..], output, &written });
         writer.position = written;
         if (encoder.part == .done) return .done;
         if (written_items.* == items.len) return .needs_input;
