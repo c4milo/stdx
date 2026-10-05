@@ -135,8 +135,9 @@ const tests_nearest_first = builtin.cpu.arch.isAARCH64();
 /// the candidate that fell out of reach, so every candidate after one out of reach is out of
 /// reach too.
 inline fn short_chain_misses(comptime level: constants.Level, comptime count: usize, self: *const Matcher(level), position: usize) bool {
-    // The window's padding keeps a load at any 16-bit position inside the array.
-    comptime assert(level.pair_walks and count >= 1);
+    // Level 6's padding keeps a load at any 16-bit position inside its window, so its loads carry
+    // no check; level 9's window has none, and its loads keep theirs.
+    comptime assert(level.chains and count >= 1);
     const word = tail_octets(self.window[position..], 0);
     const lowest = @max(1, position -| constants.encoder_distance_max);
     // Each value is as wide as an index. A 16-bit value here would join the walk's own candidate,
@@ -158,13 +159,13 @@ inline fn short_chain_misses(comptime level: constants.Level, comptime count: us
 }
 
 /// Whether the lazy loop's position starts no search. A waiting match at least `lazy_len` long is
-/// taken without one. At a level whose walks run inline, a position after a literal starts none
-/// when its chain is short and holds none of its 4 octets. A position after a match found mostly
-/// has candidates, and so do the positions of a block with cheap literals, whose octets take few
-/// values (decision 42): both would pay the chain's reads for nothing, and search as before.
+/// taken without one. A position after a literal starts none when its chain is short and holds
+/// none of its 4 octets. A position after a match found mostly has candidates, and so do the
+/// positions of a block with cheap literals, whose octets take few values (decision 42): both
+/// would pay the chain's reads for nothing, and search as before.
 pub inline fn skips_search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), position: usize, previous_len: u16, waiting: bool) bool {
     const taken = waiting and previous_len >= level.lazy_len;
-    if (!level.pair_walks or cheap) return taken;
+    if (cheap) return taken;
     return taken or (previous_len == 0 and short_chain_misses(level, short_chain_len, self, position));
 }
 
@@ -217,10 +218,12 @@ inline fn longer_match(comptime level: constants.Level, self: *const Matcher(lev
 const testing = std.testing;
 const codec = @import("codec");
 
-/// Level 6, whose walks run inline: the level that reads short chains. Level 9's walks are calls.
+/// The lazy levels, which read short chains: level 6, whose window is padded and whose walks run
+/// inline, and level 9.
 const short_level_number = 6;
 const long_level_number = 9;
 const short_level = constants.level(short_level_number);
+const long_level = constants.level(long_level_number);
 
 /// The 4 octets a test's position holds, and 4 that differ from them.
 const position_octets = "ABCD";
@@ -231,7 +234,7 @@ const Link = struct { at: u16, holds: bool = false };
 
 /// Makes `matcher` a window of zeros that holds `position_octets` at `position`, whose chain names
 /// `links`, the nearest first: each link's own link is the next, and the last's none.
-fn set_chain(matcher: *Matcher(short_level), position: usize, links: []const Link) void {
+fn set_chain(comptime level: constants.Level, matcher: *Matcher(level), position: usize, links: []const Link) void {
     matcher.init();
     @memset(&matcher.window, 0);
     @memset(&matcher.chain, 0);
@@ -253,11 +256,18 @@ comptime {
 }
 
 /// `short_chain_misses` of `count` candidates at `position`, over the chain `set_chain` makes of
-/// `links`.
-fn misses(comptime count: usize, position: usize, links: []const Link) bool {
-    var matcher: Matcher(short_level) = undefined;
-    set_chain(&matcher, position, links);
-    return short_chain_misses(short_level, count, &matcher, position);
+/// `links`, at one level.
+fn misses_at(comptime level: constants.Level, comptime count: usize, position: usize, links: []const Link) bool {
+    var matcher: Matcher(level) = undefined;
+    set_chain(level, &matcher, position, links);
+    return short_chain_misses(level, count, &matcher, position);
+}
+
+/// `misses_at` at both lazy levels, which give one answer.
+fn misses(comptime count: usize, position: usize, links: []const Link) !bool {
+    const answer = misses_at(short_level, count, position, links);
+    try testing.expectEqual(answer, misses_at(long_level, count, position, links));
+    return answer;
 }
 
 /// The octets between a test chain's candidates.
@@ -274,7 +284,7 @@ test "a chain of up to the count of candidates read, none holding the position's
     const position = 40_000;
     inline for (1..count_max + 1) |count| {
         var buffer: [count]Link = undefined;
-        for (0..count + 1) |held| try testing.expect(misses(count, position, spaced(&buffer, position, held)));
+        for (0..count + 1) |held| try testing.expect(try misses(count, position, spaced(&buffer, position, held)));
     }
 }
 
@@ -286,9 +296,9 @@ test "a candidate read that holds the position's octets, or one after those read
             // The candidates before it and after it, as many as are read, hold other octets.
             const links = spaced(&buffer, position, count);
             links[index].holds = true;
-            try testing.expect(!misses(count, position, links));
+            try testing.expect(!try misses(count, position, links));
         }
-        try testing.expect(!misses(count, position, spaced(&buffer, position, count + 1)));
+        try testing.expect(!try misses(count, position, spaced(&buffer, position, count + 1)));
     }
 }
 
@@ -302,12 +312,12 @@ test "each candidate's reach ends at encoder_distance_max" {
             // At the farthest distance a candidate read counts by what it holds, and the one
             // after those read starts a walk whatever it holds.
             links[index] = .{ .at = farthest };
-            try testing.expectEqual(index < count, misses(count, position, links));
+            try testing.expectEqual(index < count, try misses(count, position, links));
             links[index] = .{ .at = farthest, .holds = true };
-            try testing.expect(!misses(count, position, links));
+            try testing.expect(!try misses(count, position, links));
             // One octet farther it is no candidate.
             links[index] = .{ .at = farthest - 1, .holds = true };
-            try testing.expect(misses(count, position, links));
+            try testing.expect(try misses(count, position, links));
         }
     }
 }
@@ -315,9 +325,9 @@ test "each candidate's reach ends at encoder_distance_max" {
 test "position 0 names no candidate, and position 1 is one" {
     const position = 100;
     inline for (1..count_max + 1) |count| {
-        try testing.expect(misses(count, position, &.{.{ .at = 0, .holds = true }}));
-        try testing.expect(!misses(count, position, &.{.{ .at = 1, .holds = true }}));
-        try testing.expect(misses(count, position, &.{.{ .at = 1 }}));
+        try testing.expect(try misses(count, position, &.{.{ .at = 0, .holds = true }}));
+        try testing.expect(!try misses(count, position, &.{.{ .at = 1, .holds = true }}));
+        try testing.expect(try misses(count, position, &.{.{ .at = 1 }}));
     }
 }
 
@@ -333,37 +343,37 @@ test "the link in a slot whose candidate fell out of reach is not followed" {
             const links = spaced(&buffer, position, index + 2);
             links[index] = .{ .at = stale, .holds = true };
             links[index + 1] = .{ .at = named, .holds = true };
-            try testing.expect(misses(count, position, links));
+            try testing.expect(try misses(count, position, links));
         }
     }
 }
 
-test "a search is skipped where a short chain misses after a literal, and where a long match waits" {
+/// What `skips_search` answers at one level, in each state the lazy loop tells apart.
+fn expect_skips(comptime level: constants.Level) !void {
     const position = 40_000;
-    var matcher: Matcher(short_level) = undefined;
-    set_chain(&matcher, position, &.{});
+    var matcher: Matcher(level) = undefined;
+    set_chain(level, &matcher, position, &.{});
     // After a literal, in a block whose literals are not cheap.
-    try testing.expect(skips_search(short_level, false, &matcher, position, 0, true));
-    try testing.expect(skips_search(short_level, false, &matcher, position, 0, false));
+    try testing.expect(skips_search(level, false, &matcher, position, 0, true));
+    try testing.expect(skips_search(level, false, &matcher, position, 0, false));
     // A position after a match found, and one in a block of cheap literals, search as before.
-    try testing.expect(!skips_search(short_level, false, &matcher, position, constants.match_len_taken_min, true));
-    try testing.expect(!skips_search(short_level, true, &matcher, position, 0, true));
+    try testing.expect(!skips_search(level, false, &matcher, position, constants.match_len_taken_min, true));
+    try testing.expect(!skips_search(level, true, &matcher, position, 0, true));
     // A chain that holds the position's octets starts its walk.
-    set_chain(&matcher, position, &.{.{ .at = position - link_gap, .holds = true }});
-    try testing.expect(!skips_search(short_level, false, &matcher, position, 0, true));
-    // A waiting match of `lazy_len` is taken with no search, at every level and in every block.
-    try testing.expect(skips_search(short_level, false, &matcher, position, short_level.lazy_len, true));
-    try testing.expect(skips_search(short_level, true, &matcher, position, short_level.lazy_len, true));
-    const long_level = comptime constants.level(long_level_number);
-    var long_matcher: Matcher(long_level) = undefined;
-    long_matcher.init();
-    try testing.expect(skips_search(long_level, false, &long_matcher, position, long_level.lazy_len, true));
-    // A level whose walks are calls reads no short chain.
-    try testing.expect(!skips_search(long_level, false, &long_matcher, position, 0, true));
+    set_chain(level, &matcher, position, &.{.{ .at = position - link_gap, .holds = true }});
+    try testing.expect(!skips_search(level, false, &matcher, position, 0, true));
+    // A waiting match of `lazy_len` is taken with no search, in every block.
+    try testing.expect(skips_search(level, false, &matcher, position, level.lazy_len, true));
+    try testing.expect(skips_search(level, true, &matcher, position, level.lazy_len, true));
+}
+
+test "a search is skipped where a short chain misses after a literal, and where a long match waits" {
+    try expect_skips(short_level);
+    try expect_skips(long_level);
 }
 
 /// `short_chain_misses`, by a walk that tests one candidate after another.
-fn misses_plainly(count: usize, matcher: *const Matcher(short_level), position: usize) bool {
+fn misses_plainly(comptime level: constants.Level, count: usize, matcher: *const Matcher(level), position: usize) bool {
     const lowest = @max(1, position -| constants.encoder_distance_max);
     const word = tail_octets(matcher.window[position..], 0);
     var candidate = matcher.chain[slot(position)];
@@ -379,16 +389,24 @@ fn misses_plainly(count: usize, matcher: *const Matcher(short_level), position: 
 /// positions with one hash hold other octets.
 const seeded_values = 16;
 
-test "over a seeded window the answer is a plain walk's, and where it misses a search finds none" {
-    var matcher: Matcher(short_level) = undefined;
+/// The seed of the seeded window.
+const seeded_seed = 29;
+
+/// Each answer is given at more than one position in this many of a seeded window's.
+const answer_share = 4;
+
+/// Over a seeded window at one level: the answer is a plain walk's at every count, and where it
+/// misses, the level's search finds no match.
+fn expect_seeded(comptime level: constants.Level) !void {
+    var matcher: Matcher(level) = undefined;
     matcher.init();
-    var generator = codec.split.Generator.init(29);
+    var generator = codec.split.Generator.init(seeded_seed);
     for (matcher.window[0..constants.encoder_window_len]) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(seeded_values)));
     matcher.filled = constants.encoder_window_len;
     // Every position joins its chain as the lazy loop's insert joins it, past a slide's worth of
     // positions, so later positions take the slots of earlier ones.
     const positions = constants.encoder_window_len - constants.lookahead_min;
-    const hash_shift = @bitSizeOf(u32) - @as(u6, short_level.hash_bits);
+    const hash_shift = @bitSizeOf(u32) - @as(u6, level.hash_bits);
     var missed: usize = 0;
     for (1..positions) |position| {
         const word = tail_octets(matcher.window[position..], 0);
@@ -396,12 +414,17 @@ test "over a seeded window the answer is a plain walk's, and where it misses a s
         matcher.chain[slot(position)] = head.*;
         head.* = @intCast(position);
         matcher.position = position;
-        inline for (1..count_max + 1) |count| try testing.expectEqual(misses_plainly(count, &matcher, position), short_chain_misses(short_level, count, &matcher, position));
-        const expected = misses_plainly(short_chain_len, &matcher, position);
+        inline for (1..count_max + 1) |count| try testing.expectEqual(misses_plainly(level, count, &matcher, position), short_chain_misses(level, count, &matcher, position));
+        const expected = misses_plainly(level, short_chain_len, &matcher, position);
         if (!expected) continue;
-        try testing.expectEqual(0, best_inline(short_level, false, &matcher, constants.match_len_max, 0).len);
+        try testing.expectEqual(0, best_inline(level, false, &matcher, constants.match_len_max, 0).len);
         missed += 1;
     }
     // Both answers occur often.
-    try testing.expect(missed > positions / 4 and missed < positions - positions / 4);
+    try testing.expect(missed > positions / answer_share and missed < positions - positions / answer_share);
+}
+
+test "over a seeded window the answer is a plain walk's, and where it misses a search finds none" {
+    try expect_seeded(short_level);
+    try expect_seeded(long_level);
 }
