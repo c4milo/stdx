@@ -51,6 +51,7 @@ test {
     _ = claims;
     _ = @import("utf8.zig");
     _ = @import("scan.zig");
+    _ = @import("plain_copy.zig");
     _ = wide;
     _ = @import("number.zig");
     _ = @import("containers.zig");

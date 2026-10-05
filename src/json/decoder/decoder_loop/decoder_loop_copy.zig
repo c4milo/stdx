@@ -12,6 +12,7 @@ const Claims = @import("../../claims.zig").Claims;
 const Kind = @import("../decoder.zig").Kind;
 const Loop = @import("decoder_loop.zig").Loop;
 const loop_string = @import("decoder_loop_string.zig");
+const plain_copy = @import("../../plain_copy.zig");
 const Copied = loop_string.Copied;
 
 /// Takes a name or a string whose content the loop copies, and its closing quotation mark, and
@@ -85,8 +86,10 @@ pub const LongString = struct { kind: Kind, head_len: usize };
 /// Copies a string's `content`, the input after its opening quotation mark, up to its closing
 /// one, into `room`, and returns what it took and wrote, or null where the checked path must take
 /// it. Its first `constants.wide_run_len_min` octets of plain ASCII go a block of 16 at a time, a
-/// run past them to `copy_long`, and one that fewer than 16 octets of input or room leave to
-/// `copy_short`. Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig. It
+/// run past them to `plain_copy.copy_from`, which copies it as it scans it at the widest vector
+/// the caller's features allow (claim J7), and one that fewer than 16 octets of input or room
+/// leave to `copy_short`. Scanned and then copied, a long hex string came through the cache
+/// twice (design §8 step 18). Past its plain ASCII, its escapes and UTF-8 go to decoder_loop_string.zig. It
 /// takes no `*Loop`, for the strings `Loop.string` leaves.
 pub fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const u8, room: []u8, head_len: usize) ?Copied {
     var len: usize = head_len;
@@ -104,8 +107,16 @@ pub fn copy_blocks(comptime claims: Claims, level: wide.Level, content: []const 
         }
         len += constants.vector_len;
     }
-    const run_len = copy_long(level.with(claims), content[len..], room[len..]);
-    return after_run(claims, level, content, room, len + run_len);
+    return after_run(claims, level, content, room, copy_long(level.with(claims), content, room, len));
+}
+
+/// Where the run of plain ASCII ends that `content` holds past its first `head_len` octets, which
+/// are plain and copied: at its first octet a string must escape or that is not ASCII, or at the
+/// end of `content` or of `room`, whichever is shorter. The run goes into `room` as it is scanned
+/// (plain_copy.zig).
+pub inline fn copy_long(level: wide.Level, content: []const u8, room: []u8, head_len: usize) usize {
+    const window_len = @min(content.len, room.len);
+    return plain_copy.copy_from(level, room[0..window_len], content[0..window_len], head_len);
 }
 
 /// The rest of a run past its first `head_len` octets, when fewer than 16 of input or of room
@@ -136,15 +147,21 @@ inline fn copy_rest(comptime claims: Claims, level: wide.Level, content: []const
     return .{ .input_len = head_len + rest.input_len, .output_len = head_len + rest.output_len };
 }
 
-/// The run of plain ASCII past the blocks `copy_blocks` took, from `rest`, its octets after them,
-/// into `room`, the output after them, as far as `room` holds: copied, and its length returned. It
-/// is scanned at the widest vector the caller's features allow (claim J7), in a function of its own
-/// as `wide.plain_len` scans it, and copied whole: 16 at a time, the loop ran long hex strings up to
-/// 10% slower than the checked path on an AMD EPYC 7763 (design §8 step 18). It takes no `*Loop`,
-/// which would keep the loop's fields in memory.
-fn copy_long(level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) usize {
-    const window = rest[0..@min(rest.len, room.len)];
-    const run_len = wide.plain_len(level, window);
-    @memcpy(room[0..run_len], window[0..run_len]);
-    return run_len;
+test "the long run's copy ends at a stop, at the input's end or at the room's, and copies up to there" {
+    const testing = @import("std").testing;
+    const level = wide.Level.of(@import("codec").Features.detect());
+    const head_len = constants.wide_run_len_min;
+    var content: [5 * constants.wide_run_len_min]u8 = @splat('a');
+    var room: [content.len]u8 = @splat(0);
+    try testing.expectEqual(content.len, copy_long(level, &content, &room, head_len));
+    try testing.expectEqualSlices(u8, content[head_len..], room[head_len..]);
+    // A room shorter than the input ends the run where the room ends.
+    const short_len = content.len - constants.vector_len - 1;
+    try testing.expectEqual(short_len, copy_long(level, &content, room[0..short_len], head_len));
+    // The closing quotation mark ends it, in the last block the room holds and in the first.
+    for ([_]usize{ short_len - 1, head_len }) |place| {
+        content[place] = constants.quotation_mark;
+        try testing.expectEqual(place, copy_long(level, &content, room[0..short_len], head_len));
+        content[place] = 'a';
+    }
 }

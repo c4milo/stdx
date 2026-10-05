@@ -481,6 +481,7 @@ test {
     _ = batch;
     _ = @import("decoder_batch_test.zig");
     _ = @import("decoder_loop/decoder_loop.zig");
+    _ = @import("decoder_loop/decoder_loop_copy.zig");
     _ = @import("decoder_loop/decoder_loop_string_test.zig");
     _ = @import("decoder_loop/decoder_loop_escapes_test.zig");
     _ = @import("decoder_loop/decoder_loop_looks_test.zig");
