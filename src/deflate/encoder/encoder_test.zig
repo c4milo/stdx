@@ -224,7 +224,7 @@ test "each level's output for a seeded input is the one recorded here" {
     const recorded = [_]struct { usize, u64 }{
         .{ 49100, 0x36c0bead5df53163 },
         .{ 46111, 0xec3d80ea7728eb57 },
-        .{ 45737, 0xefb8f9a9559edd8b },
+        .{ 45739, 0x731ae949b5d16e06 },
     };
     var input: [120 * 1024]u8 = undefined;
     fill(&input, .mixed, 11);
@@ -238,11 +238,11 @@ test "each level's output for a seeded input is the one recorded here" {
 
 test "each level's output for two seeded letters, whose chains run long, is the one recorded here" {
     // Two letters make 16 strings of 4 octets, so the chains run long: level 9's cut searches here
-    // try all `cut_candidates_max` candidates hundreds of times.
+    // read all `cut_candidates_max` links hundreds of times.
     const recorded = [_]struct { usize, u64 }{
         .{ 4690, 0x94914bcc05d2d58f },
         .{ 4009, 0xdeecdba3c0e4de88 },
-        .{ 4026, 0xf9a5378ae2891970 },
+        .{ 4028, 0xb9232973fbbe9f2b },
     };
     var input: [letters_len]u8 = undefined;
     var generator = codec.split.Generator.init(17);

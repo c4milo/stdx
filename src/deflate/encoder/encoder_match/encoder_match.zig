@@ -463,7 +463,7 @@ inline fn hash(comptime level: constants.Level, self: *const Matcher(level), at:
 
 /// `hash` of 4 octets already read least significant first: the product's top `hash_bits` bits,
 /// which the truncation keeps whole.
-inline fn hash_of_word(comptime level: constants.Level, octets: u32) Hash(level) {
+pub inline fn hash_of_word(comptime level: constants.Level, octets: u32) Hash(level) {
     return @truncate((octets *% constants.hash_multiplier) >> @intCast(@bitSizeOf(u32) - @as(u6, level.hash_bits)));
 }
 

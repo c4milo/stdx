@@ -12,6 +12,7 @@ const Match = match.Match;
 const slot = match.slot;
 const tail_octets = match.tail_octets;
 const match_len = match.match_len;
+const best_by_tail = @import("encoder_match_walk_tail.zig").best_by_tail;
 
 /// The two searches of `best_pair`.
 pub const Pair = struct {
@@ -103,6 +104,9 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     // A block with cheap literals walks long chains of short matches its prices turn away
     // (decision 42).
     const budget = if (cheap) level.cheap_candidates_max else if (cut) level.cut_candidates_max else level.candidates_max;
+    // In a block with cheap literals every 4 octets recur about as often as any other: a move to
+    // the tail's chain reads a head for each longer match and finds no fewer candidates there.
+    if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget);
     var walk = Walk.init(level, self, self.position, len_max, budget);
     while (!walk.done) walk.step(level, self, false);
     return walk.found;
@@ -200,7 +204,7 @@ inline fn follow(comptime level: constants.Level, found: Match, second: *Walk) v
 
 /// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,
 /// less the 4, or the match's first octets while none is found.
-inline fn tail_of(found: Match) u8 {
+pub inline fn tail_of(found: Match) u8 {
     assert(found.len == 0 or found.len >= constants.match_len_taken_min);
     return @intCast(found.len -| (constants.match_len_taken_min - 1));
 }

@@ -315,6 +315,11 @@ pub const Level = struct {
     /// walk's budget follows the first's too late and the two walks crowd the cache (design §8
     /// step 9, 2026-09-29).
     pair_walks: bool,
+    /// Whether a search moves from the chain it follows to the chain of its match's tail, the 4
+    /// octets a longer match holds too, when fewer candidates remain there (`best_by_tail`,
+    /// decision 46). Level 9 does: its chains run to thousands of candidates. Level 6, whose two
+    /// walks share a loop, does not.
+    tail_chains: bool,
     /// In a block whose literals are cheap (`cheap_literal_cost_max`), the candidates a search
     /// tries at a position. Such data, DNA's four letters say, holds long chains of short matches
     /// that the block's prices turn away, and a full budget walks them at every literal (decision
@@ -355,15 +360,20 @@ comptime {
     for (lazy_distance_penalty_bounds) |bound| assert(std.math.isPowerOfTwo(bound));
 }
 
+/// The links a search reads on the chain of its match's tail to pass the candidates it has tried
+/// already, before it keeps the chain it follows instead: positions that close together say the
+/// tail's octets recur as often as the ones the search follows (`best_by_tail`, decision 46).
+pub const tail_skips_max = 4;
+
 /// The levels of decision 13.
 pub const encoder_levels = [_]u4{ 1, 6, 9 };
 
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .cheap_candidates_max = 1, .block_checks = false, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .cheap_candidates_max = 16, .block_checks = true, .state_budget_len = 261 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .cheap_candidates_max = 32, .block_checks = true, .state_budget_len = 260 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .tail_chains = false, .cheap_candidates_max = 1, .block_checks = false, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .tail_chains = false, .cheap_candidates_max = 16, .block_checks = true, .state_budget_len = 261 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .tail_chains = true, .cheap_candidates_max = 32, .block_checks = true, .state_budget_len = 260 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
@@ -379,6 +389,8 @@ comptime {
         // A pair's second walk takes the cut budget once the first's match is `cut_len` long, which
         // in a block with cheap literals is the budget it already has.
         assert(!chosen.pair_walks or chosen.cheap_candidates_max == chosen.cut_candidates_max);
+        // A search that moves between chains runs alone, on a level that keeps chains.
+        assert(!chosen.tail_chains or (chosen.chains and !chosen.pair_walks));
     }
 }
 
