@@ -31,6 +31,10 @@ pub const Claims = struct {
     /// one lookup in a table. Off, the checked steps read every length, a bit of its code at a
     /// time.
     code_lengths_loop: bool = true,
+    /// S15: the tail loop refills with one 8-octet load while 8 octets of input remain, and copies
+    /// a match in chunks while the room holds what the copy stores (decision 16). Off, it takes
+    /// and copies an octet at a time. The refill needs S1, and the copy S4.
+    wide_tail: bool = true,
 };
 
 /// Each claim off in turn, the A/Bs design §8 step 7 runs.
@@ -43,6 +47,7 @@ pub const each_off = [_]Claims{
     .{ .combined_entries = false },
     .{ .resolved_lengths = false },
     .{ .code_lengths_loop = false },
+    .{ .wide_tail = false },
 };
 
 /// The claim each entry of `each_off` switches off, as decision 14 numbers it.
@@ -55,4 +60,5 @@ pub const each_off_names = [each_off.len][]const u8{
     "S11 combined entries",
     "S12 resolved lengths",
     "S13 code lengths' loop",
+    "S15 tail's words and chunks",
 };
