@@ -1500,8 +1500,10 @@ small file.
     2026-10-04 its loop took in a letter's escape between two `\u` escapes and went out of line
     on every target. J13 joined on 2026-10-04 by the owner's ruling, which reverses the rejection
     of 2026-09-30 that design §8 step 18 records. J14 joined on 2026-10-05 by the owner's ruling;
-    design §8 step 18 records its forms, the two that lost on the N2, and its runs. Wider vectors
-    behind entry 21's per-level objects wait until a measurement asks for them.
+    design §8 step 18 records its forms, the two that lost on the N2, and its runs. On
+    2026-10-09 the owner ruled that on x86-64 its blocks go two a pass, a pair of plain ASCII as
+    it is and any other pair through one lookup, where a pair with no branch on its octets lost.
+    Wider vectors behind entry 21's per-level objects wait until a measurement asks for them.
 
     **The checks, with no oracle.** A conformance corpus such as JSONTestSuite and an oracle are
     each a dependency, which CLAUDE.md asks the owner about; neither is added. In their place:

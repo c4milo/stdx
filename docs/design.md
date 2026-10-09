@@ -5551,6 +5551,111 @@ to 12 are reordered and nothing else changes.
   `copy_long`, a function of its own there, and in its test; the decoder's loop and the run's
   copy are the same instructions on aarch64.
 
+  **Claim J14's blocks two at a time on x86-64, 2026-10-08.** Beside simdjson 5.0.2, bible.txt as
+  a string encoded at 0.79 of simdjson's speed on an AMD EPYC 9V74, the one encoding row below a
+  baseline there. On Zen 4 the strings with escapes also encoded at speeds that followed where the
+  build put the kernel, as the entries above found: two jobs on the 9V74 read main's js-1m as a
+  string at 4,091 and 10,826 MB/s. On x86-64 `take` branched on each block of 16 octets: a plain
+  block was stored, 14 instructions, and a block with stops went through the lookup, 55.
+
+  `take` now takes two blocks a pass on x86-64, 32 octets in one register, and then blocks one at
+  a time from the pair that ends that loop. Two forms were paired with main at 6f88903. In each the
+  AVX2 variant object's `take` is the one function that differs on x86-64, 1,674 of 1,676 function
+  instances identical; aarch64's bench program is the same, function for function and address for
+  address, so the N2's jobs ran a null build.
+
+  - 3db001f sent every pair through the lookup, with no branch on its octets but the loop's end.
+    The classes of both blocks come from one register, and each block's two halves of 8 lanes from
+    two lookups of 32 lanes. A table of 256 entries of 32 octets holds each set of escapes' lanes
+    and its count, found from the word of escaped lanes by a shift and a mask: 58 instructions a
+    pass in the checked build, where the first build, with the lanes and the counts in two tables
+    and a check of each store's bounds, ran 67.
+  - 5f28d39 stored a pair of plain ASCII as it is behind one branch, 17 instructions where two
+    blocks ran 28, and sent any other pair through the same lookup, about 63, where two blocks with
+    stops ran 110.
+
+  bench-json runs [37874676280](https://github.com/c4milo/stdx/actions/runs/37874676280) and
+  [37874680663](https://github.com/c4milo/stdx/actions/runs/37874680663) paired the first form,
+  [37874685128](https://github.com/c4milo/stdx/actions/runs/37874685128) and
+  [37874689724](https://github.com/c4milo/stdx/actions/runs/37874689724) the second. Each form
+  drew an AMD EPYC 7763 once and an EPYC 9V74 once. Its encoding speed over main's in the same job:
+
+  | Encoding | EPYC 7763: first form, second form | EPYC 9V74: first form, second form |
+  |---|---|---|
+  | bible.txt as a string | 1.104, 1.090 | 1.108, 2.304 |
+  | html-1m | 1.013, 1.211 | 0.711, 1.576 |
+  | dickens | 0.933, 1.125 | 0.782, 1.130 |
+  | lcet10.txt | 0.961, 1.116 | 0.686, 0.980 |
+  | webster | 2.009, 1.350 | 1.551, 1.978 |
+  | reymont | 2.719, 1.407 | 2.735, 3.513 |
+  | js-1m | 2.736, 1.778 | 2.461, 1.073 |
+  | json-1m | 1.259, 1.139 | 1.260, 1.158 |
+  | asyoulik.txt | 0.843, 0.842 | 0.853, 0.941 |
+
+  The first form encoded every string with escapes but samba at 7.0 to 7.8 GB/s on the EPYC 7763
+  and at 9.2 to 10.1 on the 9V74, whatever its escapes: the lookup's speed. Where a CPU predicts
+  a block's branch, the branch is cheaper: the 9V74 read 10 rows 9% to 31% slower than main, and
+  html-1m at 0.947 and bible.txt at 0.880 of simdjson's speed. The second form encoded bible.txt
+  at 19,536 MB/s on the 9V74, 1.86 of simdjson's, and html-1m at 20,352. The owner chose the
+  second form on 2026-10-08, and the first was dropped.
+
+  Two more runs paired the second form,
+  [37878416483](https://github.com/c4milo/stdx/actions/runs/37878416483) and
+  [37878423197](https://github.com/c4milo/stdx/actions/runs/37878423197); they drew an Intel Xeon
+  Platinum 8573C and an AMD EPYC 9V45. Its encoding speed over main's in each job:
+
+  | Encoding, as a string | EPYC 7763 | EPYC 9V74 | EPYC 9V45 | Xeon 8573C |
+  |---|---|---|---|---|
+  | dickens | 1.125 | 1.130 | 1.533 | 1.187 |
+  | nci | 0.955 | 1.072 | 1.157 | 1.137 |
+  | reymont | 1.407 | 3.513 | 2.077 | 1.496 |
+  | samba | 0.976 | 0.995 | 1.020 | 1.026 |
+  | webster | 1.350 | 1.978 | 1.863 | 1.427 |
+  | xml | 1.338 | 1.160 | 1.408 | 1.601 |
+  | alice29.txt | 1.120 | 0.997 | 1.163 | 1.097 |
+  | asyoulik.txt | 0.842 | 0.941 | 1.041 | 1.078 |
+  | lcet10.txt | 1.116 | 0.980 | 1.671 | 1.333 |
+  | plrabn12.txt | 0.937 | 0.883 | 1.399 | 1.171 |
+  | bible.txt | 1.090 | 2.304 | 2.901 | 1.182 |
+  | world192.txt | 1.399 | 2.548 | 1.754 | 1.421 |
+  | html-1m | 1.211 | 1.576 | 1.677 | 1.182 |
+  | json-1m | 1.139 | 1.158 | 1.316 | 1.402 |
+  | js-1m | 1.778 | 1.073 | 2.742 | 1.813 |
+  | css-1m | 1.701 | 0.944 | 1.182 | 2.420 |
+
+  Runs [37881564475](https://github.com/c4milo/stdx/actions/runs/37881564475) and
+  [37881569654](https://github.com/c4milo/stdx/actions/runs/37881569654) paired f40e675, which
+  differs from 5f28d39 in its tests and comments, with the same instructions; they drew an EPYC
+  9V74 and a Xeon 8573C again. Rows past the larger of their spread and 1% in both jobs of a CPU:
+
+  - On the Xeon 8573C 15 rows encode faster and none slower: css-1m as a string at 2.420 and
+    2.387, js-1m at 1.813 and 1.831, xml at 1.601 and 1.586, asyoulik.txt at 1.078 and 1.065.
+  - On the EPYC 9V74 nine rows encode faster, bible.txt at 2.304 and 2.333, and one slower:
+    asyoulik.txt as a string at 0.941 and 0.913, 3.50 and 3.56 times simdjson's speed after.
+    plrabn12.txt read 0.883 and 0.867 and css-1m 0.944 and 0.935, each inside its spread in one
+    job.
+  - On the EPYC 9V74, decoding, which the change does not touch: xml as a string at 0.976 and
+    0.947. It counts as placement (decision 20, amended 2026-09-29): the two instances of `take`
+    are the functions that differ, and no decode calls them.
+  - The EPYC 7763 and the 9V45 drew one job each. The 7763 read asyoulik.txt at 0.842,
+    plrabn12.txt at 0.937, nci at 0.955 and samba at 0.976 of main; the 9V45 read no row slower.
+  - The N2's jobs, a null build, moved hex strings' decoding by up to 5% in both jobs of a pair.
+
+  With the change the reports list no row the change moves below a baseline on any of the four
+  CPUs. The 9V45 lists the non-ASCII text's encoding at 0.920 of simdjson's speed, which the
+  change leaves at 1.002 of main's, and decoding rows on code it does not touch. Where the build
+  puts the kernel still sets its speed on Zen 4: on the 9V74 main's checked kernel encoded
+  bible.txt at 6,899 and 8,479 MB/s and its unchecked twin, at another address, at 12,769 and
+  15,686; with the change the checked kernel runs 16,094 and 19,536 and the twin 11,298 and
+  13,206, the slower of the two still above simdjson's 8,882 and 10,517. The 9V45 runs the two at
+  32,773 and 33,396.
+
+  The owner ruled on 2026-10-09 that the second form lands, with asyoulik.txt on the EPYC 9V74
+  recorded below main.
+
+  Mutations: 31 of 31 CAUGHT, 28 of the pairs on x86-64 under Rosetta and 3 of the lookup's
+  shared steps on aarch64.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
