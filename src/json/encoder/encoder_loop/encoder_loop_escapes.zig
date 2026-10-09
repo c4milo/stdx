@@ -12,6 +12,12 @@
 //! block starts: a control character with no letter, and a non-ASCII octet, which the UTF-8 walk
 //! judges. The walk takes the string on from it.
 //!
+//! On x86-64 a string goes two blocks a pass, 32 octets in one register: a pair of plain ASCII is
+//! stored as it is, behind one branch, and any other pair goes through the lookup, both blocks
+//! at once. A block at a time, bible.txt encoded at 0.79 of simdjson's speed on an AMD EPYC 9V74;
+//! the lookup for every pair, with no branch on its octets, ran each text at one speed, below
+//! main's on most texts there (design §8 step 18).
+//!
 //! It needs 16 lanes looked up by 16 indices in one instruction: NEON's TBL, and on x86-64
 //! VPSHUFB, which the AVX2 variant object alone has (decision 37). It reads and writes the
 //! walk's slices, whose bounds Zig checks (ReleaseSafe) unless the caller turns the checks off
@@ -33,7 +39,7 @@ const loop_string = @import("encoder_loop_string.zig");
 pub const available = scan_utf8.has_lookup;
 
 pub const width = constants.vector_len;
-const Block = @Vector(width, u8);
+const Block = Lanes(width);
 
 /// The halves a block's lookup writes it in, and the lanes of one: a table of every set of lanes
 /// to escape out of 8 holds 256 entries, where one of 16 lanes would hold 65,536.
@@ -43,6 +49,26 @@ const half_sets = 1 << half_len;
 
 /// The octets of a letter's escape (RFC 8259 §7).
 const letter_escape_len = 2;
+
+/// Whether `take` takes a string two blocks a pass before it takes blocks one at a time: on
+/// x86-64, where it compiles with AVX2 alone (`available`), so that a pass is one register. A
+/// pair of plain ASCII runs 17 instructions where two blocks ran 28, and a pair with a stop
+/// about 63 where two blocks with stops ran 110.
+const pairs = builtin.cpu.arch == .x86_64;
+
+/// A pass of `pairs`, its blocks, and its halves of 8 lanes.
+const pair_len = constants.avx2_vector_len;
+const Pair = Lanes(pair_len);
+const pair_blocks = pair_len / width;
+const pair_halves = pair_blocks * halves;
+
+/// The room a pass's stores reach into: each half's store is a block wide, the last from where
+/// the three halves before it end, at most three blocks in.
+const pair_room_len = (pair_halves - 1) * half_len * letter_escape_len + width;
+
+comptime {
+    assert(pair_blocks * width == pair_len);
+}
 
 /// Whether a block with one or two stops takes each where it stands, an octet at a time, and
 /// only a block with more takes the lookup: on aarch64. The lookup runs 28 vector instructions a
@@ -75,8 +101,18 @@ const lanes_lowest_bits: scan.LaneWord = bits: {
 /// The lane of a half's lookup that holds a reverse solidus: the first past the half's own.
 const solidus_lane = half_len;
 
-fn splat(octet: u8) Block {
+fn Lanes(comptime lanes: usize) type {
+    return @Vector(lanes, u8);
+}
+
+fn splat(comptime lanes: usize, octet: u8) Lanes(lanes) {
     return @splat(octet);
+}
+
+/// `table`'s 16 entries once for each 16 lanes, as VPSHUFB looks each 16 lanes up in their own
+/// 16 entries (scan_utf8.zig's `lookup`).
+fn repeated(comptime lanes: usize, comptime table: [width]u8) [lanes]u8 {
+    return table ** (lanes / width);
 }
 
 /// An octet's slot in the tables of 16 entries: the octet plus its high four bits, the sum's low
@@ -86,8 +122,8 @@ pub fn slot_of(octet: u8) u8 {
     return (octet +% (octet >> constants.nibble_bits)) & constants.nibble_mask;
 }
 
-inline fn slots_of(block: Block) Block {
-    return (block +% (block >> @splat(constants.nibble_bits))) & splat(constants.nibble_mask);
+inline fn slots_of(comptime lanes: usize, block: Lanes(lanes)) Lanes(lanes) {
+    return (block +% (block >> @splat(constants.nibble_bits))) & splat(lanes, constants.nibble_mask);
 }
 
 /// Whether a string escapes `character` by a letter (RFC 8259 §7): a quotation mark, a reverse
@@ -156,15 +192,42 @@ pub const written_counts: [half_sets]u8 = table: {
     break :table counts;
 };
 
+/// For each set of lanes of a half to escape, `written_lanes`'s entry and then `written_counts`'s,
+/// in an entry whose length is a power of two, 32 octets: a pass finds both from the set's place
+/// in its word of lane bits, by a shift and a mask.
+const entry_len = std.math.ceilPowerOfTwoAssert(usize, width + 1);
+const entry_count_at = width;
+const entry_bits = std.math.log2_int(usize, entry_len);
+const written_entries: [half_sets * entry_len]u8 = table: {
+    var entries: [half_sets * entry_len]u8 = @splat(0);
+    for (0..half_sets) |set| {
+        entries[set * entry_len ..][0..width].* = written_lanes[set];
+        entries[set * entry_len + entry_count_at] = written_counts[set];
+    }
+    break :table entries;
+};
+
+comptime {
+    assert(entry_len == 1 << entry_bits);
+}
+
+/// Where `written_entries` holds the entry of the set of lanes `escaped_bits` gives the half
+/// `half` of a pass.
+inline fn entry_of(escaped_bits: usize, comptime half: usize) usize {
+    const place = half * half_len;
+    const moved = if (place >= entry_bits) escaped_bits >> (place - entry_bits) else escaped_bits << (entry_bits - place);
+    return moved & ((half_sets - 1) << entry_bits);
+}
+
 /// All ones in each lane that holds, and zero in the others.
-inline fn octets_of(lanes: @Vector(width, bool)) Block {
-    return @select(u8, lanes, splat(std.math.maxInt(u8)), splat(0));
+inline fn octets_of(comptime lanes: usize, holds: @Vector(lanes, bool)) Lanes(lanes) {
+    return @select(u8, holds, splat(lanes, std.math.maxInt(u8)), splat(lanes, 0));
 }
 
 /// One bit a lane, the first lane lowest, in a general register. The empty assembly statement
 /// hides the word from LLVM, as decoder_loop_escapes.zig's does.
-inline fn lane_bits(lanes: Block) usize {
-    const bits: std.meta.Int(.unsigned, width) = @bitCast(lanes != splat(0));
+inline fn lane_bits(comptime lanes: usize, octets: Lanes(lanes)) usize {
+    const bits: std.meta.Int(.unsigned, lanes) = @bitCast(octets != splat(lanes, 0));
     return asm (""
         : [ret] "=r" (-> usize),
         : [bits] "0" (@as(usize, bits)),
@@ -173,18 +236,20 @@ inline fn lane_bits(lanes: Block) usize {
 
 /// What a block with stops holds: its octets with each character a letter escapes as its letter,
 /// the lanes of those characters, and the lanes this path cannot take, all ones in each.
-const Parts = struct { text: Block, escaped: Block, bad: Block };
+fn Parts(comptime lanes: usize) type {
+    return struct { text: Lanes(lanes), escaped: Lanes(lanes), bad: Lanes(lanes) };
+}
 
-inline fn parts_of(block: Block) Parts {
-    const slots = slots_of(block);
-    const characters = scan_utf8.lookup(width, character_by_slot, slots);
-    const differences = scan_utf8.lookup(width, difference_by_slot, slots);
+inline fn parts_of(comptime lanes: usize, block: Lanes(lanes)) Parts(lanes) {
+    const slots = slots_of(lanes, block);
+    const characters = scan_utf8.lookup(lanes, comptime repeated(lanes, character_by_slot), slots);
+    const differences = scan_utf8.lookup(lanes, comptime repeated(lanes, difference_by_slot), slots);
     // A string escapes these characters by a letter (RFC 8259 §7).
-    const escaped = octets_of(characters == block);
+    const escaped = octets_of(lanes, characters == block);
     // A string must escape U+0000 through U+001F, by `\u` and four digits where no letter does
     // (RFC 8259 §7); an octet from 0x80 up is the UTF-8 walk's to judge (RFC 3629 §4).
-    const signed: @Vector(width, i8) = @bitCast(block);
-    const outside = octets_of(signed < @as(@Vector(width, i8), @splat(constants.unescaped_min)));
+    const signed: @Vector(lanes, i8) = @bitCast(block);
+    const outside = octets_of(lanes, signed < @as(@Vector(lanes, i8), @splat(constants.unescaped_min)));
     return .{
         .text = block ^ (differences & escaped),
         .escaped = escaped,
@@ -203,7 +268,7 @@ inline fn half_then_solidi(text: Block, comptime low: bool) Block {
         }
         break :lanes mask;
     };
-    return @shuffle(u8, text, splat(constants.reverse_solidus), lanes);
+    return @shuffle(u8, text, splat(width, constants.reverse_solidus), lanes);
 }
 
 /// Writes `text` with a reverse solidus before each lane of `escaped_bits`, one bit a lane, at
@@ -254,9 +319,64 @@ inline fn write_few(comptime claims: Claims, input: *const [input_len]u8, room: 
 /// not take.
 inline fn write_many(comptime claims: Claims, room: *[room_len]u8, block: Block) usize {
     @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
-    const parts = parts_of(block);
+    const parts = parts_of(width, block);
     if (scan.masks_word(parts.bad) != 0) return 0;
-    return write_escaped(claims, room[0 .. half_len * letter_escape_len + width], parts.text, lane_bits(parts.escaped));
+    return write_escaped(claims, room[0 .. half_len * letter_escape_len + width], parts.text, lane_bits(width, parts.escaped));
+}
+
+/// For a pair's two lookups: each block's first half, or with `first` false its second, in the
+/// low 8 lanes of the block's own 16, and reverse solidi in the high 8, as `half_then_solidi`
+/// puts one half.
+inline fn halves_then_solidi(text: Pair, comptime first: bool) Pair {
+    const lanes = comptime lanes: {
+        var mask: [pair_len]i32 = undefined;
+        for (0..pair_blocks) |block| {
+            for (0..half_len) |lane| {
+                const from: i32 = @intCast(block * width + lane + if (first) 0 else half_len);
+                mask[block * width + lane] = from;
+                mask[block * width + half_len + lane] = ~from;
+            }
+        }
+        break :lanes mask;
+    };
+    return @shuffle(u8, text, splat(pair_len, constants.reverse_solidus), lanes);
+}
+
+/// Two blocks' lanes as one pair's, the first block's in the low 16.
+inline fn joined(first: Block, second: Block) Pair {
+    const lanes = comptime lanes: {
+        var mask: [pair_len]i32 = undefined;
+        for (0..width) |lane| {
+            mask[lane] = lane;
+            mask[width + lane] = ~@as(i32, lane);
+        }
+        break :lanes mask;
+    };
+    return @shuffle(u8, first, second, lanes);
+}
+
+/// Writes a pair's `text` with a reverse solidus before each lane of `escaped_bits`, one bit a
+/// lane, at the start of `room`, and returns how many octets it wrote. One lookup writes the two
+/// blocks' first halves and another their second halves; each half is stored a block wide from
+/// where the halves before it end.
+inline fn write_pair(comptime claims: Claims, room: *[pair_room_len]u8, text: Pair, escaped_bits: usize) usize {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    var entries: [pair_halves]usize = undefined;
+    inline for (&entries, 0..) |*entry, half| entry.* = entry_of(escaped_bits, half);
+    const first_lanes = joined(written_entries[entries[0]..][0..width].*, written_entries[entries[halves]..][0..width].*);
+    const second_lanes = joined(written_entries[entries[1]..][0..width].*, written_entries[entries[halves + 1]..][0..width].*);
+    const firsts: [pair_blocks][width]u8 = @bitCast(scan_utf8.lookup(pair_len, halves_then_solidi(text, true), first_lanes));
+    const seconds: [pair_blocks][width]u8 = @bitCast(scan_utf8.lookup(pair_len, halves_then_solidi(text, false), second_lanes));
+    // Where each half starts, after the octets of the halves before it.
+    var starts: [pair_halves + 1]usize = undefined;
+    starts[0] = 0;
+    inline for (entries, 0..) |entry, half| starts[half + 1] = starts[half] + written_entries[entry + entry_count_at];
+    const reach = room[0 .. starts[pair_halves - 1] + width];
+    inline for (0..pair_blocks) |block| {
+        reach[starts[block * halves]..][0..width].* = firsts[block];
+        reach[starts[block * halves + 1]..][0..width].* = seconds[block];
+    }
+    return starts[pair_halves];
 }
 
 /// What `take` took of the input and wrote for it. Two words, so it returns in registers.
@@ -269,7 +389,53 @@ pub const Took = packed struct { input_len: usize, output_len: usize };
 /// its values, and from the start of a 64-octet line: with the function 20 octets further into
 /// its line, json-1m as a string encoded 13% slower on the N2 on the same instructions (design
 /// §8 step 18).
+///
+/// With `pairs`, the blocks go two a pass while the input holds a pair and the output a pair's
+/// room, and one at a time from the pair that ends that loop.
 pub noinline fn take(comptime claims: Claims, input: []const u8, output: []u8) align(constants.kernel_alignment) Took {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    if (comptime !pairs) return take_blocks(claims, input, output);
+    const paired = take_pairs(claims, input, output);
+    const blocks = take_blocks(claims, input[paired.input_len..], output[paired.output_len..]);
+    return .{ .input_len = paired.input_len + blocks.input_len, .output_len = paired.output_len + blocks.output_len };
+}
+
+/// The lanes of `pair` that end a run of plain ASCII, as scan.zig's `ascii_stops` finds a
+/// block's: one bit a lane.
+inline fn pair_stops(pair: Pair) u32 {
+    const signed: @Vector(pair_len, i8) = @bitCast(pair);
+    const outside = signed < @as(@Vector(pair_len, i8), @splat(constants.unescaped_min));
+    const quotation_mark = pair == splat(pair_len, constants.quotation_mark);
+    const reverse_solidus = pair == splat(pair_len, constants.reverse_solidus);
+    return @bitCast(outside | quotation_mark | reverse_solidus);
+}
+
+/// Takes pairs of blocks from the start of `input` while it holds a pair and `output` a pair's
+/// room: a pair of plain ASCII as it is, and any other through the lookup. It ends before a
+/// pair that holds an octet the blocks do not take.
+inline fn take_pairs(comptime claims: Claims, input: []const u8, output: []u8) Took {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    var input_left = input;
+    var output_left = output;
+    while (input_left.len >= pair_len and output_left.len >= pair_room_len) {
+        const pair: Pair = input_left[0..pair_len].*;
+        if (pair_stops(pair) == 0) {
+            output_left[0..pair_len].* = pair;
+            input_left = input_left[pair_len..];
+            output_left = output_left[pair_len..];
+            continue;
+        }
+        const parts = parts_of(pair_len, pair);
+        if (lane_bits(pair_len, parts.bad) != 0) break;
+        const written = write_pair(claims, output_left[0..pair_room_len], parts.text, lane_bits(pair_len, parts.escaped));
+        input_left = input_left[pair_len..];
+        output_left = output_left[written..];
+    }
+    return .{ .input_len = input.len - input_left.len, .output_len = output.len - output_left.len };
+}
+
+/// `take`'s blocks one at a time.
+inline fn take_blocks(comptime claims: Claims, input: []const u8, output: []u8) Took {
     @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
     var input_left = input;
     var output_left = output;

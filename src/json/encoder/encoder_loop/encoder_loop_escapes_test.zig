@@ -193,6 +193,74 @@ test "the blocks take nothing short of the input or the room a block reaches int
     }
 }
 
+/// Four blocks: two of x86-64's pairs, which the blocks take two at a time before they take one.
+/// The input holds what the last block's loads reach into past it, so that each build takes all
+/// four, and the room what the last block's stores reach into.
+const blocks_tested = 4;
+const four_blocks = blocks_tested * width;
+const four_blocks_input = four_blocks + input_len - width;
+const four_blocks_room = letter_escape_len * four_blocks + room_len;
+const plain_four_blocks = ("0123456789abcdef" ** (four_blocks_input / width)).*;
+
+/// The letters' characters in turn, for a test that escapes many lanes.
+fn nth_character(index: usize) u8 {
+    return letters[index % letters.len].character;
+}
+
+fn expect_as_model(comptime run: claims.Claims, input: []const u8, room: []u8, expected: []u8) !void {
+    const model = model_take(input, expected);
+    const took = escapes.take(run, input, room);
+    try testing.expectEqual(model, took);
+    try testing.expectEqualSlices(u8, expected[0..model.output_len], room[0..took.output_len]);
+}
+
+test "the blocks take any octet in any lane of four blocks as the model does" {
+    if (comptime !escapes.available) return error.SkipZigTest;
+    inline for (claims_run) |run| {
+        for (0..four_blocks) |lane| {
+            for (0..std.math.maxInt(u8) + 1) |value| {
+                var input: [four_blocks_input]u8 = plain_four_blocks;
+                input[lane] = @intCast(value);
+                var room: [four_blocks_room]u8 = undefined;
+                var expected: [four_blocks_room]u8 = undefined;
+                try expect_as_model(run, &input, &room, &expected);
+            }
+        }
+    }
+}
+
+test "the blocks take every set of escaped lanes in each half of four blocks as the model does" {
+    if (comptime !escapes.available) return error.SkipZigTest;
+    const half_len = width / 2;
+    for (0..four_blocks / half_len) |half| {
+        for (0..1 << half_len) |set| {
+            var input: [four_blocks_input]u8 = plain_four_blocks;
+            for (0..half_len) |lane| {
+                if (set >> @intCast(lane) & 1 != 0) input[half * half_len + lane] = nth_character(set + lane);
+            }
+            var room: [four_blocks_room]u8 = undefined;
+            var expected: [four_blocks_room]u8 = undefined;
+            try expect_as_model(claims.vector, &input, &room, &expected);
+            try testing.expectEqual(four_blocks, model_take(&input, &expected).input_len);
+        }
+    }
+}
+
+test "the blocks take four blocks of escapes in a room of every length, and write nothing past it" {
+    if (comptime !escapes.available) return error.SkipZigTest;
+    const guard = 0xa5;
+    var input: [four_blocks_input]u8 = undefined;
+    for (&input, 0..) |*octet, index| octet.* = if (index % 3 == 0) 'a' else nth_character(index);
+    for (0..four_blocks_room + 1) |room_given| {
+        var storage: [four_blocks_room + 2 * width]u8 = @splat(guard);
+        const room = storage[width..][0..room_given];
+        var expected: [four_blocks_room]u8 = undefined;
+        try expect_as_model(claims.vector, &input, room, expected[0..room_given]);
+        for (storage[0..width]) |octet| try testing.expectEqual(guard, octet);
+        for (storage[width + room_given ..]) |octet| try testing.expectEqual(guard, octet);
+    }
+}
+
 /// The seeded strings, and the longest one.
 const seeded_cases = 2000;
 const string_blocks_max = 12;
