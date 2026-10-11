@@ -5656,6 +5656,155 @@ to 12 are reordered and nothing else changes.
   Mutations: 31 of 31 CAUGHT, 28 of the pairs on x86-64 under Rosetta and 3 of the lookup's
   shared steps on aarch64.
 
+  **The decoder walk's UTF-8 blocks 32 octets at a time on AVX2, 2026-10-09.** At c5e619e the
+  rows below a baseline stood on an AMD EPYC 9V45 and an Intel Xeon Platinum 8573C, with reymont's
+  decoding on an EPYC 9V74 in some jobs. A workflow of 34 agents diagnosed each row and put each
+  proposed change to two skeptics; the owner then ruled, as decision 47 records, that the
+  decoder's walk may take its UTF-8 blocks 32 octets at a time in the AVX2 variant object. At 16,
+  "dickens as Cyrillic and CJK" decoded at 0.84 to 0.86 of simdjson's speed on the 9V45.
+
+  string_walk_wide.zig takes the blocks past a run's ASCII 32 octets at a time, judged by decision
+  37's lookup at 32 lanes, where the variant object's `copy_rest` names the width; every other
+  caller keeps 16. Main's loop runs 48 instructions a block of 16 octets, one of them reading a
+  constant from memory.
+
+  **The first form, inline.** 5f48603 took the blocks inside `walk_stretch`: 46 instructions a
+  block of 32, three of them reading a constant from memory, with eight constants of 32 lanes held
+  across the walk's other loops. bench-json runs
+  [37940981259](https://github.com/c4milo/stdx/actions/runs/37940981259),
+  [37940992478](https://github.com/c4milo/stdx/actions/runs/37940992478),
+  [37941002972](https://github.com/c4milo/stdx/actions/runs/37941002972) and
+  [37941014993](https://github.com/c4milo/stdx/actions/runs/37941014993) paired it with main at
+  c5e619e. The row decoded at 1.566 of main's speed on the 9V45, 0.84 then 1.26 of simdjson's, and
+  at 1.414 to 1.426 on three EPYC 7763 jobs, 1.19 to 1.20 then 1.68 to 1.70. Two things lost:
+
+  - On the 7763, eight ASCII texts with escapes decoded slower in all three jobs, at 0.906 to
+    0.987 of main's speed: plrabn12.txt at 0.906 to 0.913, dickens at 0.938 to 0.963, asyoulik.txt
+    at 0.945 to 0.949, nci at 0.946 to 0.951, lcet10.txt at 0.951 to 0.954, and reymont, samba and
+    json-1m at 0.981 to 0.987. Their octets never reach the new blocks.
+  - On the 9V45, in its one job, bible.txt decoded at 0.510 of main's speed, 1.361 then 0.715
+    of simdjson's; reymont at 0.827, 0.667 then 0.564; html-1m at 0.829; and css-1m at 0.865,
+    0.950 of yyjson's after. The 7763 read bible.txt and html-1m at 1.00 to 1.01.
+
+  **The form that landed, out of line.** 24e0fda moved the blocks into a function of their own,
+  `string_walk_wide.take_blocks`, from the start of a 64-octet line, on the reading that the
+  constants of 32 lanes had cost the walk's other loops their registers. Its loop keeps its eleven
+  constants in registers: 46 instructions a block of 32, none of them a load of a constant, and no
+  stack reference in the function. `walk_stretch` then holds no register of 32 lanes, and 679
+  instructions where main's holds 903. Runs
+  [37973532641](https://github.com/c4milo/stdx/actions/runs/37973532641),
+  [37973541357](https://github.com/c4milo/stdx/actions/runs/37973541357),
+  [37973550956](https://github.com/c4milo/stdx/actions/runs/37973550956) and
+  [37973559554](https://github.com/c4milo/stdx/actions/runs/37973559554) drew an Intel Xeon
+  Platinum 8370C twice, an EPYC 9V74 and an EPYC 7763. The row's decoding speed over main's, and
+  over simdjson's before and after:
+
+  | Decoding "dickens as Cyrillic and CJK" | Over main | Over simdjson |
+  |---|---|---|
+  | EPYC 7763, one job | 1.370 | 1.19, then 1.64 |
+  | EPYC 9V74, one job | 1.495 | 1.02, then 1.53 |
+  | Xeon 8370C, two jobs | 1.372 and 1.365 | 1.05 and 1.06, then 1.46 and 1.45 |
+
+  The reading was wrong. The 7763 read the ASCII texts with escapes as slow as in the first form:
+  plrabn12.txt at 0.919, nci at 0.952, lcet10.txt at 0.954, dickens, webster and world192.txt at
+  0.957, reymont at 0.972, and js-1m, at 1.00 in the first form, at 0.971. The row itself read
+  1.370 where the first form read 1.414 to 1.426: each run past its ASCII now pays a call, and the
+  load of the blocks' constants at it.
+
+  **The null build.** 66f5f90, on a branch that never lands, gives the out-of-line function
+  blocks of 16 and leaves `walk_stretch` as the change has it: of the AVX2 object's 440 functions,
+  439 are the change's, `walk_stretch` among them at the same address, and the one that differs
+  is `take_blocks`. A text with no octet from 0x80 up never calls that function, so it runs the
+  same instructions in the null build as in the change. Runs
+  [38005024858](https://github.com/c4milo/stdx/actions/runs/38005024858),
+  [38005031004](https://github.com/c4milo/stdx/actions/runs/38005031004) and
+  [38005044165](https://github.com/c4milo/stdx/actions/runs/38005044165) drew the 7763 and
+  [38005037588](https://github.com/c4milo/stdx/actions/runs/38005037588) the 9V45. Decoding speed
+  over main's:
+
+  | Decoding, EPYC 7763 | The change, one job | The null build, three jobs |
+  |---|---|---|
+  | plrabn12.txt | 0.919 | 0.906, 0.912 and 0.925 |
+  | dickens | 0.957 | 0.958, 0.955 and 0.964 |
+  | nci | 0.952 | 0.959, 0.964 and 0.965 |
+  | lcet10.txt | 0.954 | 0.955, 0.948 and 0.956 |
+  | webster | 0.957 | 0.952, 0.954 and 0.951 |
+  | world192.txt | 0.957 | 0.960, 0.957 and 0.962 |
+  | reymont | 0.972 | 0.971, 0.971 and 0.972 |
+  | js-1m | 0.971 | 0.981, 0.977 and 0.980 |
+  | "dickens as Cyrillic and CJK" | 1.370 | 0.986, 0.976 and 0.983 |
+
+  The null build moved those rows as far, so by decision 20's amendment of 2026-10-04 they count
+  as placement. What it shows is narrower than that word. The cost is in `walk_stretch` as the
+  change compiles it, with the walk's ASCII loop on other registers, or in where the function
+  stands; it is not in the blocks at 32, nor in any register of 32 lanes, of which the null build
+  holds none. The null build does not tell the function's new form from its new place. On the
+  9V45 it decoded bible.txt at 0.909, reymont at 0.962 and html-1m at 0.967.
+
+  Rows past the larger of their spread and 1% in both jobs of a CPU, for the form that landed:
+
+  - On the Xeon 8370C, decoding: js-1m as a string at 0.971 and 0.970, and world192.txt at 0.986
+    and 0.989, 1.47 and 1.73 of simdjson's speed after. Both run `walk_stretch`, and no null build
+    drew that CPU. A hex string, sao, decoded at 0.861 and 0.967, on functions identical at both
+    commits.
+  - On the Xeon 8370C, encoding, which the change does not touch: ten strings at 0.841 to 0.974,
+    css-1m at 0.846 and 0.841, each still more than twice simdjson's speed. They count as
+    placement (decision 20, amended 2026-09-29). The bench program, cross-built for x86-64 at
+    both commits, holds 1,675 of 1,676 function instances identical apart from their addresses,
+    each at the same offset in its 64-octet line; the one that differs is the AVX2 object's
+    `walk_stretch`. `copy_escaped` stands 0x140 octets lower in the change, and claim J14's two
+    instances of `take` 0x40 and 0x300 higher.
+  - The EPYC 7763 and the 9V74 drew one job each. On the 9V74 reymont as a string decoded at
+    0.853, 0.871 then 0.743 of simdjson's speed, and dickens at 0.936; reymont's first MiB holds
+    no octet from 0x80 up, so it too runs `walk_stretch` alone.
+  - The N2's jobs ran a null build: aarch64's bench program is the same at both commits, octet
+    for octet in `.text`.
+
+  The Xeon 8370C's reports list these rows below a baseline at main: qlog's records decoding at
+  0.78 and 0.80 of simdjson's speed and 0.82 of yyjson's, CLDR's texts at 0.90 in one job of two,
+  the `\u` text at 0.91 and 0.92, and samba at 0.985. The change moves none of them.
+
+  The owner ruled on 2026-10-09 that the change lands, with js-1m on the Xeon 8370C, and reymont
+  and bible.txt in the single jobs of the 9V74 and the 9V45, recorded below main. The question put
+  to the owner did not name world192.txt on the 8370C.
+
+  A review by three agents, each finding put to a skeptic, found no fault in the walk at 32 and
+  three in its tests and comments: a test of short strings closed none and so compared null with
+  null, decision 35's test did not read string_walk_wide.zig, and comments still gave the walk 16
+  octets everywhere. Each was fixed before the second pairs.
+
+  Mutations: 13 of 13 CAUGHT on aarch64, where the tests run the blocks at 32 by the compares, and
+  4 of them CAUGHT again on x86-64 under Rosetta, by the lookup.
+
+  - Five change no octet and are NOT CAUGHT, as expected: the variant object naming 16, the wide
+    branch taking blocks of 16, the compares on x86-64, the passes' bound one block short, and the
+    walk's state kept after the blocks went short. The pairs measure them.
+  - A sixth was NOT CAUGHT at first: the input's test dropped from the loop. The count of passes
+    had made that test dead, and it is gone.
+
+  Main took the change as 4fea8ed, the tree of 24e0fda with its comments corrected: the AVX2
+  object's 440 functions are the same instructions.
+
+  **Two probes, recorded and not landed, 2026-10-09.**
+
+  - The decoder token loop's long string out of line on x86-64 (d1d1b0e). Inline, the AVX2
+    kernel's call in `copy_blocks` kept the loop's input on the stack across each member: 562
+    stack references in the all-on build of `take`. The other builds of `take` that copy strings
+    by vectors make no such call and 490 to 492 references, and with claim J5, J8, J12 or J13 off
+    a Xeon 8573C decoded CLDR's texts 1.5% to 8.0% faster in two jobs. Out of line, the all-on
+    build of `take` is 2,757 instructions with 322, the same code as three of the others. Runs
+    [37942417467](https://github.com/c4milo/stdx/actions/runs/37942417467) and
+    [37942427031](https://github.com/c4milo/stdx/actions/runs/37942427031) drew the EPYC 7763
+    twice. CLDR's texts decoded at 1.063 and 1.062 of main's speed, and qlog's records at 0.969
+    and 0.969; three hex strings decoded slower in both jobs, json's 1 KiB slices at 0.928 and
+    0.936. No count says why qlog's records slowed, and no Xeon was drawn. Two forms that keep
+    the call inline left the 562: the kernel's call in a callee shaped as `copy_rest`, and the
+    choice of kernel inside `copy_rest`.
+  - simdjson built without its AVX-512 implementation (0a31dd7), paired with main to learn how
+    much of its lead on CLDR's texts and qlog's records on an EPYC 9V45 or a Xeon comes from
+    AVX-512. Run [37938290319](https://github.com/c4milo/stdx/actions/runs/37938290319) drew an
+    EPYC 7763, which has no AVX-512, and so answered nothing.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
