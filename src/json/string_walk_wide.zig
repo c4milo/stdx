@@ -1,10 +1,11 @@
-//! The walk's blocks past a run's ASCII 32 octets at a time, for the decoder's walk in the AVX2
-//! variant object, whose `copy_rest` names the width (variants/loop_string.zig). Decision 30 kept
-//! the walk's UTF-8 blocks at 16 octets after a check at 64 ran text of Cyrillic and CJK
-//! characters 37% slower; at 32, the check alone ran 1.8 times as fast as at 16 on the x86-64
-//! runners (decision 39), and the decoder's walk at 16 decoded that text at 0.84 to 0.86 of
-//! simdjson's speed on an AMD EPYC 9V45. The owner reopened the width for this path on
-//! 2026-10-09 (decision 47, design §8 step 18).
+//! The walk's blocks past a run's ASCII 32 octets at a time, for the walks of the AVX2 variant
+//! object, whose `copy_rest` and `copy_escaped` name the width (variants/loop_string.zig).
+//! Decision 30 kept the walk's UTF-8 blocks at 16 octets after a check at 64 ran text of Cyrillic
+//! and CJK characters 37% slower; at 32, the check alone ran 1.8 times as fast as at 16 on the
+//! x86-64 runners (decision 39). At 16 the decoder's walk decoded that text at 0.84 to 0.86 of
+//! simdjson's speed on an AMD EPYC 9V45, and the encoder's wrote it at 0.90 to 0.92. The owner
+//! reopened the width for the decoder's walk on 2026-10-09 and for the encoder's on 2026-10-10
+//! (decision 47, design §8 step 18).
 //!
 //! Every other caller of the walk, and every target but x86-64 with AVX2, keeps
 //! `Walk.take_blocks` at 16 octets. It reads and writes the walk's slices, whose bounds Zig checks
@@ -35,8 +36,8 @@ pub const Taken = struct { len: usize, stop: Stop };
 /// first octet that stops the run. Short of a block, it steps back to the start of a character the
 /// last block cut, which `Walk.take_run` then takes whole.
 ///
-/// The decoder's walk reaches it at a run's first octet from 0x80 up, past `Walk.take_ascii` or
-/// at the run's start, so no character crosses into the input: the block before the first is all
+/// A walk reaches it at a run's first octet from 0x80 up, past `Walk.take_ascii` or at the
+/// run's start, so no character crosses into the input: the block before the first is all
 /// zeros. Out of line, from the start of a 64-octet line: its loop keeps its eleven constants of
 /// 32 lanes in registers, 46 instructions a block, and the walk's function holds no register of
 /// 32 lanes. Inline, the walk held eight of the constants across its other loops and this loop

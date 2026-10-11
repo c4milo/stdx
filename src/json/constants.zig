@@ -26,7 +26,7 @@ pub const utf8_group_len: usize = utf8_group_blocks * vector_len;
 
 /// The octets claim J7's paths take at once on x86-64: AVX2's 32, in a variant object compiled for
 /// that level (decision 21), which the module calls when the caller's features name it (decision
-/// 30); and the octets of a block of the decoder's walk past a run's ASCII in that object
+/// 30); and the octets of a block of the walks past a run's ASCII in that object
 /// (string_walk_wide.zig).
 pub const avx2_vector_len: usize = 32;
 

@@ -1,7 +1,7 @@
 //! The walk over a string's octets that the token loops of claims J10 and J11 take past its plain
 //! ASCII: blocks of 16 copied as they are checked (claims J3 and J5), 32 past a run's ASCII in the
-//! decoder's walk in the AVX2 variant object (string_walk_wide.zig), and the runs of a string's
-//! scans where fewer octets of input or room than a block's are left. Each loop then takes the
+//! walks of the AVX2 variant object (string_walk_wide.zig), and the runs of a string's scans
+//! where fewer octets of input or room than a block's are left. Each loop then takes the
 //! octet that stopped the walk: the decoder a string's escape or its closing quotation mark, the
 //! encoder an octet a string must escape. Checked a run at a time, a text whose lines end in
 //! escapes restarted its run at each, and the UTF-8 check took under half of its time (design §8
@@ -28,7 +28,9 @@ pub const Stop = enum { octet, short, ruled_out };
 // ASCII text with escapes there. On x86-64, 16 registers of each kind, the two loops spilled the
 // encoder's state to the stack, and one loop, with `scan.string_stop` asking the ASCII question
 // inside it, encoded bible.txt at 1.56 times the speed; the decoder's walk decoded the text files 3%
-// to 12% faster with two loops on both x86-64 CPUs drawn (design §8 step 18).
+// to 12% faster with two loops on both x86-64 CPUs drawn (design §8 step 18). Where the blocks the
+// check judges are the wide ones, they run out of line and the walk holds one loop, the ASCII one,
+// so the encoder's walk takes that loop on x86-64 too (encoder_loop_string.zig's `ascii_loop`).
 
 pub const Walk = struct {
     input: []const u8,
