@@ -5805,6 +5805,72 @@ to 12 are reordered and nothing else changes.
     AVX-512. Run [37938290319](https://github.com/c4milo/stdx/actions/runs/37938290319) drew an
     EPYC 7763, which has no AVX-512, and so answered nothing.
 
+  **An EPYC 9V45 drawn four times: the walk's 32-octet blocks there, and simdjson without AVX-512,
+  2026-10-10.** The entry above landed the decoder walk's 32-octet blocks with no job of the form
+  that landed on an AMD EPYC 9V45, the CPU its row lost on. The owner approved one draw of that
+  CPU. A temporary workflow on a branch of its own (757a9f3, deleted after) ran sixteen jobs, each
+  of which named its CPU and stopped unless it was a 9V45; four were (run
+  [38099876887](https://github.com/c4milo/stdx/actions/runs/38099876887), jobs 3, 7, 10 and 12).
+  Each of the four measured three programs in turn on its machine: main before the blocks
+  (c5e619e), main (2222285), and main with simdjson and simdutf built without their AVX-512
+  implementations (`-DSIMDJSON_IMPLEMENTATION_ICELAKE=0` and simdutf's like), which leaves their
+  AVX2 ones to run.
+
+  **The blocks as they landed.** Main over main before them, in the four jobs:
+
+  | Decoding, EPYC 9V45 | Over c5e619e | Over simdjson, before and after |
+  |---|---|---|
+  | "dickens as Cyrillic and CJK" | 1.479, 1.416, 1.402 and 1.467 | 0.86 to 0.89, then 1.20 to 1.24 |
+  | reymont as a string | 1.039, 1.098, 1.032 and 1.053 | 0.67 to 0.70, then 0.67 to 0.73 |
+  | bible.txt as a string | 1.006, 0.954, 1.024 and 0.979 | |
+
+  One of stdx's rows moved past the larger of its spread and 1% in all four jobs, the first, and
+  none moved down in all four; simdjson's own speed on webster, the same code in both programs,
+  read 1.045 to 1.078. The first form's one job on this CPU had read bible.txt at 0.510 and reymont
+  at 0.827; four jobs of the form that landed read neither.
+
+  Main's reports on the 9V45 list these rows below a baseline, over the four jobs: CLDR's texts
+  decoding at 0.78 to 0.80 of simdjson's speed; qlog's records decoding at 0.89 to 0.91, and 0.82
+  to 0.83 of yyjson's; reymont decoding at 0.67 to 0.73; the `\u` text decoding at 0.88 to 0.93;
+  and "dickens as Cyrillic and CJK" encoding at 0.90 to 0.92.
+
+  **simdjson without its AVX-512 implementation.** Its speed over its own with it, and stdx's
+  over simdjson's with it and then without, in the four jobs:
+
+  | Row, EPYC 9V45 | simdjson without over with | stdx over simdjson, with then without |
+  |---|---|---|
+  | CLDR's texts, decoding | 0.90 to 0.93 | 0.78 to 0.80, then 0.84 to 0.85 |
+  | qlog's records, decoding | 0.90 to 0.96 | 0.89 to 0.91, then 0.84 to 0.95 |
+  | reymont as a string, decoding | 0.56 to 0.61 | 0.67 to 0.73, then 1.07 to 1.09 |
+  | The `\u` text, decoding | 0.97 to 1.00 | 0.88 to 0.93, then 0.88 to 0.92 |
+  | "dickens as Cyrillic and CJK", decoding | 0.87 to 0.92 | 1.20 to 1.24, then 1.31 to 1.32 |
+  | "dickens as Cyrillic and CJK", encoding | 0.90 to 0.95 | 0.90 to 0.92, then 0.96 to 0.98 |
+  | A hex string, dickens, decoding | 0.80 to 0.83 | 3.35 to 3.46, then 4.09 to 4.22 |
+
+  Without AVX-512 simdjson decodes 31 rows slower in all four jobs, the hex strings and E.coli at
+  0.68 to 0.87 of its speed with it. What that says of the rows stdx loses there:
+
+  - CLDR's texts and qlog's records: AVX-512 is under half of simdjson's lead. Its AVX2 code still
+    decodes CLDR's texts 1.18 to 1.19 times as fast as stdx, and yyjson, the same code in all
+    three programs, decodes qlog's records ahead of stdx too. Wider vectors in stdx do not close
+    these rows.
+  - reymont: the loss is simdjson's AVX-512 code alone, which gives it 1.6 to 1.8 times its AVX2
+    speed on this text. Decisions 30 and 39 keep stdx's walk from 64 octets a block.
+  - The `\u` text: AVX-512 plays no part.
+
+  **What a build with the same stdx code moves on this CPU.** stdx's source is the same in main
+  and in the third program; simdjson's and simdutf's objects differ, so stdx's functions may
+  stand elsewhere, and no local build links those two to say where. Two of stdx's rows moved past
+  the larger of their spread and 1% in all four jobs: reymont decoded at 0.869 to 0.914 of main's
+  speed, and webster encoded at 0.766 to 0.812. bible.txt read 0.791 to 0.843 decoding and 0.830
+  to 0.877 encoding in the four, inside its spread in one job or more; its runs spread up to 61%
+  there. yyjson, the same code too, encoded plrabn12.txt at 1.275 to 1.387. So on a 9V45 a pair
+  of jobs cannot tell a change's work from its place on a string row below about 20%, and the
+  rows above were read in four.
+
+  The rows still below a baseline, by CPU, and what is known of each are in
+  [issue 17](https://github.com/c4milo/stdx/issues/17).
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
