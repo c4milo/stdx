@@ -403,7 +403,7 @@ test "the loop turns its runtime safety checks off only where the caller chose i
     const decoder_sources = [_][]const u8{
         @embedFile("../../decoder/decoder_loop/decoder_loop.zig"),       @embedFile("../../decoder/decoder_loop/decoder_loop_string.zig"),
         @embedFile("../../decoder/decoder_loop/decoder_loop_looks.zig"), @embedFile("../../decoder/decoder_loop/decoder_loop_escapes.zig"),
-        @embedFile("../../string_walk.zig"),
+        @embedFile("../../string_walk.zig"),                             @embedFile("../../string_walk_wide.zig"),
     };
     for (decoder_sources) |source| {
         try testing.expect(std.mem.indexOf(u8, source, runtime_safety_start) == null);

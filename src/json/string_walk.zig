@@ -1,9 +1,11 @@
 //! The walk over a string's octets that the token loops of claims J10 and J11 take past its plain
-//! ASCII: blocks of 16 copied as they are checked (claims J3 and J5), and the runs of a string's
-//! scans where fewer than 16 octets of input or room are left. Each loop then takes the octet that
-//! stopped the walk: the decoder a string's escape or its closing quotation mark, the encoder an
-//! octet a string must escape. Checked a run at a time, a text whose lines end in escapes restarted
-//! its run at each, and the UTF-8 check took under half of its time (design §8 step 18).
+//! ASCII: blocks of 16 copied as they are checked (claims J3 and J5), 32 past a run's ASCII in the
+//! decoder's walk in the AVX2 variant object (string_walk_wide.zig), and the runs of a string's
+//! scans where fewer octets of input or room than a block's are left. Each loop then takes the
+//! octet that stopped the walk: the decoder a string's escape or its closing quotation mark, the
+//! encoder an octet a string must escape. Checked a run at a time, a text whose lines end in
+//! escapes restarted its run at each, and the UTF-8 check took under half of its time (design §8
+//! step 18).
 //!
 //! It keeps what is left of the input and the output as slices, and moves past what it takes, so
 //! the compiler knows their lengths: indices into them cost each access a check (decision 17).
@@ -13,6 +15,7 @@ const builtin = @import("builtin");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
 const wide = @import("wide.zig");
+const wide_walk = @import("string_walk_wide.zig");
 const Claims = @import("claims.zig").Claims;
 
 /// How `Walk.take_blocks` stopped: at an octet that stops the run, which starts the input; short of
@@ -99,11 +102,14 @@ pub const Walk = struct {
         return .short;
     }
 
-    /// Takes the octets a string carries as they are, up to the octet that stops them: in blocks of
-    /// 16 while the input and the output hold one (claim J5), and past them, or with J5 off, by the
+    /// Takes the octets a string carries as they are, up to the octet that stops them: in blocks
+    /// while the input and the output hold one (claim J5), and past them, or with J5 off, by the
     /// run's scans. Returns false at an octet UTF-8 rules out. `input` and `output` are the slices
-    /// the walk started with.
-    pub inline fn take_to_stop(self: *Walk, comptime claims: Claims, comptime two_loops: bool, level: wide.Level, input: []const u8, output: []u8) bool {
+    /// the walk started with. `block_len` is the octets of a block past a run's ASCII: 16, or
+    /// `wide_walk.block_len` in the AVX2 variant object, whose caller names it
+    /// (string_walk_wide.zig).
+    pub inline fn take_to_stop(self: *Walk, comptime claims: Claims, comptime two_loops: bool, comptime block_len: usize, level: wide.Level, input: []const u8, output: []u8) bool {
+        comptime std.debug.assert(block_len == constants.vector_len or block_len == wide_walk.block_len);
         // A run that starts with a non-ASCII octet goes straight to the UTF-8 walk.
         if (claims.utf8_vectors and self.ascii_so_far and self.input.len > 0 and self.input[0] >= constants.non_ascii_min) self.ascii_so_far = false;
         if (claims.utf8_vectors and self.ascii_so_far and two_loops) {
@@ -116,7 +122,7 @@ pub const Walk = struct {
                 .non_ascii => {},
             }
         }
-        const stop: Stop = if (claims.utf8_vectors) self.take_blocks(input, output) else .short;
+        const stop: Stop = if (!claims.utf8_vectors) .short else if (block_len == constants.vector_len) self.take_blocks(input, output) else self.take_wide_blocks();
         switch (stop) {
             .ruled_out => return false,
             .short => self.take_run(claims, level),
@@ -125,9 +131,18 @@ pub const Walk = struct {
         return true;
     }
 
-    /// Takes the run of octets a string carries as they are, where fewer than 16 octets of input
-    /// or of room are left: plain ASCII at `level`'s width (claim J7), and past a non-ASCII octet,
-    /// whole UTF-8 characters too (claim J5).
+    /// `wide_walk.take_blocks`, with the walk moved past what it took.
+    inline fn take_wide_blocks(self: *Walk) Stop {
+        std.debug.assert(!self.ascii_so_far);
+        const taken = wide_walk.take_blocks(self.input, self.output);
+        self.advance(taken.len);
+        if (taken.stop == .short) self.took_octet();
+        return taken.stop;
+    }
+
+    /// Takes the run of octets a string carries as they are, where fewer octets of input or of
+    /// room than a block's are left: plain ASCII at `level`'s width (claim J7), and past a
+    /// non-ASCII octet, whole UTF-8 characters too (claim J5).
     pub inline fn take_run(self: *Walk, comptime claims: Claims, level: wide.Level) void {
         const window = self.input[0..@min(self.input.len, self.output.len)];
         const run_len = run_of(claims, level, window);
@@ -144,7 +159,7 @@ pub const Walk = struct {
         self.took_octet();
     }
 
-    inline fn took_octet(self: *Walk) void {
+    pub inline fn took_octet(self: *Walk) void {
         self.previous = @splat(0);
         self.ascii_so_far = true;
     }

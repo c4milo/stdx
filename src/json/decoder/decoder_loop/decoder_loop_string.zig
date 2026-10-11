@@ -59,7 +59,8 @@ const not_hex_digit = std.math.maxInt(u8);
 const hex_digit_max = constants.nibble_mask;
 
 /// `copy_rest` compiled into the AVX2 variant object with every claim on (variants/loop_string.zig),
-/// where the UTF-8 check takes decision 37's lookup, VPSHUFB, which the baseline target lacks.
+/// where the UTF-8 check takes decision 37's lookup, VPSHUFB, which the baseline target lacks, and
+/// the walk's blocks past a run's ASCII are 32 octets (string_walk_wide.zig).
 extern fn stdx_json_copy_rest_x86_64_avx2(rest: [*]const u8, rest_len: usize, room: [*]u8, room_len: usize, copied: *Copied) callconv(.c) bool;
 
 /// `copy_rest`, in the variant object of `level` on x86-64 with every claim on, and here for every
@@ -70,7 +71,7 @@ extern fn stdx_json_copy_rest_x86_64_avx2(rest: [*]const u8, rest_len: usize, ro
 pub inline fn copy_rest_at(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) ?Copied {
     // Never inline: with claim J13 `copy_rest` is short, and inlined into the token loop it cost
     // each token of CLDR's texts 1.15 instructions on aarch64, with a string in 180 reaching it.
-    if (comptime !wide.has_kernels or !std.meta.eql(claims, Claims{})) return @call(.never_inline, copy_rest, .{ claims, level, rest, room });
+    if (comptime !wide.has_kernels or !std.meta.eql(claims, Claims{})) return @call(.never_inline, copy_rest, .{ claims, constants.vector_len, level, rest, room });
     return copy_rest_kernel_or_here(level, rest, room);
 }
 
@@ -80,7 +81,7 @@ noinline fn copy_rest_kernel_or_here(level: wide.Level, rest: []const u8, room: 
         if (!stdx_json_copy_rest_x86_64_avx2(rest.ptr, rest.len, room.ptr, room.len, &copied)) return null;
         return copied;
     }
-    return copy_rest(.{}, level, rest, room);
+    return copy_rest(.{}, constants.vector_len, level, rest, room);
 }
 
 /// The decoder's walk takes a run's ASCII blocks in a loop of their own on every architecture: on
@@ -112,13 +113,14 @@ pub const Walked = packed struct {
 
 /// The rest of a string's content, from `rest`, its input after the octets already copied, into
 /// `room`, the output after them, whose runs `level`'s scans take. Returns what it took, or null
-/// where the checked path must take the string.
-pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) ?Copied {
+/// where the checked path must take the string. `block_len` is the walk's block past a run's
+/// ASCII (string_walk.zig's `take_to_stop`).
+pub fn copy_rest(comptime claims: Claims, comptime block_len: usize, level: wide.Level, rest: []const u8, room: []u8) align(constants.kernel_alignment) ?Copied {
     if (comptime looking.has_blocks(claims)) {
         var looks: looking.Looks = undefined;
-        return copy_rest_looking(claims, level, rest, room, &looks);
+        return copy_rest_looking(claims, block_len, level, rest, room, &looks);
     }
-    const walked = walk_out_of_line(claims, level, rest, room);
+    const walked = walk_out_of_line(claims, block_len, level, rest, room);
     if (walked.closed) return walked.copied(rest, room);
     return null;
 }
@@ -127,12 +129,12 @@ pub fn copy_rest(comptime claims: Claims, level: wide.Level, rest: []const u8, r
 /// `constants.escape_look_len_first` octets, so a string the walk closes inside it pays the claim
 /// a comparison, and `looking.copy` takes a longer one on, with `looks`, which is set only then;
 /// the tests read it.
-pub inline fn copy_rest_looking(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8, looks: *looking.Looks) ?Copied {
+pub inline fn copy_rest_looking(comptime claims: Claims, comptime block_len: usize, level: wide.Level, rest: []const u8, room: []u8, looks: *looking.Looks) ?Copied {
     const stretch = rest[0..@min(rest.len, constants.escape_look_len_first)];
-    const first = walk_out_of_line(claims, level, stretch, room);
+    const first = walk_out_of_line(claims, block_len, level, stretch, room);
     if (first.closed) return first.copied(stretch, room);
     looks.* = .{};
-    return looking.copy(claims, level, rest, room, first, looks);
+    return looking.copy(claims, block_len, level, rest, room, first, looks);
 }
 
 /// Walks a stretch of a string from its start into `room`: copies each run the string carries as
@@ -142,14 +144,14 @@ pub inline fn copy_rest_looking(comptime claims: Claims, level: wide.Level, rest
 /// It returns from inside its loop, once for each way it ends: with a pass of the loop in a
 /// function of its own that named how it ended, x86-64 took 3% to 6% more instructions an octet
 /// of text (design §8 step 18).
-pub fn walk_stretch(comptime claims: Claims, level: wide.Level, stretch: []const u8, room: []u8) align(constants.kernel_alignment) Walked {
+pub fn walk_stretch(comptime claims: Claims, comptime block_len: usize, level: wide.Level, stretch: []const u8, room: []u8) align(constants.kernel_alignment) Walked {
     var walk: Walk = .{ .input = stretch, .output = room };
     // Each pass takes at least one octet, or returns.
     for (0..stretch.len + 1) |_| {
         // An escape that follows an escape is taken at once, with no block walked to find it: a text
         // of lines that end in a carriage return and a line feed has two at each line's end.
         if (walk.input.len == 0 or walk.input[0] != constants.reverse_solidus) {
-            if (!walk.take_to_stop(claims, two_loops, level, stretch, room)) return walked_of(&walk, false);
+            if (!walk.take_to_stop(claims, two_loops, block_len, level, stretch, room)) return walked_of(&walk, false);
             if (walk.input.len == 0) return walked_of(&walk, false);
         }
         switch (walk.input[0]) {
@@ -173,8 +175,8 @@ inline fn walked_of(walk: *const Walk, closed: bool) Walked {
 /// stretch walked inline and the later ones out of line, a long string ran a second copy of the
 /// walk, whose branches the N2 took worse: bible.txt decoded at 0.76 of main's speed there
 /// (design §8 step 18).
-pub inline fn walk_out_of_line(comptime claims: Claims, level: wide.Level, stretch: []const u8, room: []u8) Walked {
-    return @call(.never_inline, walk_stretch, .{ claims, level, stretch, room });
+pub inline fn walk_out_of_line(comptime claims: Claims, comptime block_len: usize, level: wide.Level, stretch: []const u8, room: []u8) Walked {
+    return @call(.never_inline, walk_stretch, .{ claims, block_len, level, stretch, room });
 }
 
 /// Takes the escape that starts the walk's input (RFC 8259 §7): writes the character it names,

@@ -52,6 +52,7 @@ test {
     _ = @import("utf8.zig");
     _ = @import("scan.zig");
     _ = @import("plain_copy.zig");
+    _ = @import("string_walk_wide_test.zig");
     _ = wide;
     _ = @import("number.zig");
     _ = @import("containers.zig");

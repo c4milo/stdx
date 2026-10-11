@@ -3,11 +3,13 @@
 //! name that carries the level, and the loops call it once a string, when the caller's features
 //! name the level. A call inside the walk's block loop instead kept the walk's state in memory
 //! across the loop on every x86-64 CPU, the kernel called or not: x86-64 saves no vector register
-//! across a call (design §8 step 18).
+//! across a call (design §8 step 18). The decoder's walk takes its blocks past a run's ASCII 32
+//! octets at a time here (string_walk_wide.zig).
 
 const level = @import("variant_level").level;
 const Claims = @import("../claims.zig").Claims;
 const constants = @import("../constants.zig");
+const wide_walk = @import("../string_walk_wide.zig");
 const decoder_string = @import("../decoder/decoder_loop/decoder_loop_string.zig");
 const encoder_string = @import("../encoder/encoder_loop/encoder_loop_string.zig");
 
@@ -18,7 +20,7 @@ comptime {
 /// `decoder_loop_string.copy_rest` with every claim on: `copied` gets what it took and wrote, and
 /// the return says whether it took the string.
 fn copy_rest(rest: [*]const u8, rest_len: usize, room: [*]u8, room_len: usize, copied: *decoder_string.Copied) align(constants.kernel_alignment) callconv(.c) bool {
-    copied.* = decoder_string.copy_rest(.{}, .avx2, rest[0..rest_len], room[0..room_len]) orelse return false;
+    copied.* = decoder_string.copy_rest(.{}, wide_walk.block_len, .avx2, rest[0..rest_len], room[0..room_len]) orelse return false;
     return true;
 }
 

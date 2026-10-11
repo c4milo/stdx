@@ -9,8 +9,9 @@
 //! token it did not.
 //!
 //! It reads and writes the slices directly, as decision 16's table lets it: a string's octets go
-//! out a block of 16 at a time, and the last store runs past the string's end into room the call
-//! does not report written, which only `output[0..written]` means anything in (decision 11). Zig's
+//! out a block of 16 at a time, or of 32 in the walk past a run's ASCII in the AVX2 variant
+//! object, and the last store runs past the string's end into room the call does not report
+//! written, which only `output[0..written]` means anything in (decision 11). Zig's
 //! bounds checks stay on (ReleaseSafe), and each access stays inside its slice by the checks before
 //! it; a token's slot is written through a pointer an assertion tests against the slots' end. The
 //! loop leaves the state `run` leaves, field for field, which decoder_loop_test.zig requires after

@@ -29,7 +29,8 @@ pub const Claims = struct {
     utf8_vectors: bool = constants.vectors,
     /// J7: the vector paths of J1, J2 and J3 take AVX2's 32 octets on x86-64 when the caller's CPU
     /// features allow it, in a variant object of their own (decision 30, wide.zig). Off, they take
-    /// 16 octets whatever the features. J5's stays at 16.
+    /// 16 octets whatever the features. J5's stays at 16, but in the decoder's walk past a run's
+    /// ASCII, which the AVX2 variant object takes 32 octets a block (string_walk_wide.zig).
     wide_vectors: bool = true,
     /// J8: the decoder takes the next token in one straight line when the input holds all of it and
     /// the output has room for its octets (decision 31). Off, every token takes the checked path.

@@ -79,7 +79,7 @@ pub const Looks = struct {
 /// A stretch ends where its length says, so it may cut an escape or a character, which the walk
 /// then stops at: the next stretch starts there. A stop further from the stretch's end than the
 /// longest escape reaches is one of the octet itself, and the checked path's to name.
-pub noinline fn copy(comptime claims: Claims, level: wide.Level, rest: []const u8, room: []u8, first: Walked, looks: *Looks) ?Copied {
+pub noinline fn copy(comptime claims: Claims, comptime block_len: usize, level: wide.Level, rest: []const u8, room: []u8, first: Walked, looks: *Looks) ?Copied {
     var left: Left = .{ .input = rest, .output = room };
     var stretch_len = @min(rest.len, looks.len);
     var walked = first;
@@ -94,7 +94,7 @@ pub noinline fn copy(comptime claims: Claims, level: wide.Level, rest: []const u
         if (last or stretch_len - took.input_len >= loop_string.pair_escape_len) return null;
         looks.look(&left, took.input_len, took.output_len);
         stretch_len = @min(left.input.len, looks.len);
-        walked = loop_string.walk_out_of_line(claims, level, left.input[0..stretch_len], left.output);
+        walked = loop_string.walk_out_of_line(claims, block_len, level, left.input[0..stretch_len], left.output);
     }
     unreachable;
 }

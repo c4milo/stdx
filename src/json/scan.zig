@@ -164,7 +164,7 @@ inline fn plain_stops(comptime width: usize, block: Block(width)) Lanes(width) {
 }
 
 /// The lanes whose octet a string must escape (RFC 8259 §7).
-inline fn escape_lanes(comptime width: usize, block: Block(width)) Lanes(width) {
+pub inline fn escape_lanes(comptime width: usize, block: Block(width)) Lanes(width) {
     const control = block < splat(width, constants.unescaped_min);
     const quotation_mark = block == splat(width, constants.quotation_mark);
     const reverse_solidus = block == splat(width, constants.reverse_solidus);
@@ -285,7 +285,7 @@ pub inline fn is_ascii(block: Block(constants.vector_len)) bool {
 }
 
 /// True when `lane` of `lanes` holds.
-inline fn lane_holds(comptime width: usize, lanes: Lanes(width), lane: usize) bool {
+pub inline fn lane_holds(comptime width: usize, lanes: Lanes(width), lane: usize) bool {
     assert(lane < width);
     if (comptime has_nibbles(width)) return nibbles_of(width, lanes) >> @intCast(lane * constants.nibble_bits) & 1 != 0;
     if (builtin.cpu.arch.endian() == .little) {

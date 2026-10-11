@@ -4,7 +4,8 @@
 //! without AVX2, the module's own 16-octet paths run. A CPU with AVX-512 takes AVX2's: its 64-octet
 //! kernels ran hex strings 14% slower on an Intel Xeon Platinum 8573C (design §8 step 18). The UTF-8
 //! scan of claim J5 stays at 16 octets: at 64 it ran text of Cyrillic and CJK characters 37% slower,
-//! rescanning the block each escape stopped it in (design §8 step 17).
+//! rescanning the block each escape stopped it in (design §8 step 17). The decoder's walk past a
+//! run's ASCII alone takes 32 in the AVX2 variant object (string_walk_wide.zig).
 //!
 //! A call costs what a short run saves, so a run no longer than the level's width stays on the
 //! 16-octet path, which compiles into its caller. A name's or a string's run starts there too, and

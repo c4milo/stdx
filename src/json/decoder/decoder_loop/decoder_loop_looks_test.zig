@@ -178,9 +178,9 @@ const unset_len = 0;
 fn looks_after(rest: []const u8) !looking.Looks {
     var room: [room_len_max]u8 = undefined;
     var looks: looking.Looks = .{ .len = unset_len };
-    const copied = loop_string.copy_rest_looking(.{}, level_here(), rest, &room, &looks);
+    const copied = loop_string.copy_rest_looking(.{}, constants.vector_len, level_here(), rest, &room, &looks);
     var walk_room: [room_len_max]u8 = undefined;
-    const by_walk = loop_string.copy_rest(.{ .decoder_escape_blocks = false }, level_here(), rest, &walk_room);
+    const by_walk = loop_string.copy_rest(.{ .decoder_escape_blocks = false }, constants.vector_len, level_here(), rest, &walk_room);
     try testing.expectEqual(by_walk, copied);
     if (by_walk) |walked| try testing.expectEqualSlices(u8, walk_room[0..walked.output_len], room[0..walked.output_len]);
     return looks;
