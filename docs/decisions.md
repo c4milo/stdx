@@ -1737,7 +1737,8 @@ small file.
       the runs of plain ASCII and the hex strings 1.3 to 1.45 times as fast.
     - J5's UTF-8 scan stays at 16 octets. At 64 it ran text of Cyrillic and CJK characters 37% slower,
       as each escape that stops a run sends the whole block to the scalar path. Entry 47 reopened
-      this for the decoder's walk in the AVX2 variant object, which takes 32 since 2026-10-09.
+      this for the walks in the AVX2 variant object: the decoder's takes 32 since 2026-10-10 and
+      the encoder's since 2026-10-11.
     - A run takes the 16-octet path for its first 64 octets (`constants.wide_run_len_min`) before a
       kernel takes the rest. English text encoded 5% to 8% slower with the kernels from the 17th
       octet, its lines ending before a call paid for itself.
@@ -2126,7 +2127,7 @@ small file.
       puts them.
     - The check at 32 or 64 octets a block. Refused by entry 30's measurement: at 64, each escape
       that stopped a run sent the whole block to the scalar path, 37% slower. Entry 47 takes 32 in
-      the decoder's walk in the AVX2 variant object.
+      the decoder's walk and the encoder's in the AVX2 variant object.
     - No check. RFC 8259 §8.1 requires UTF-8, and entry 27's decoder refuses a text that is not.
     - A lookup written in plain Zig from selects. Sixteen selects a lookup, more than the compares
       it replaces.
@@ -2294,7 +2295,7 @@ small file.
     - A 32-lane copy alone, for every x86-64 CPU with AVX2. Measured against the 64-lane copy in the
       same job on a CPU with AVX-512; the numbers decide.
     - The walk at the wider widths too. Refused by step 17's measurement above, and reopened by
-      entry 47 for the decoder's walk at 32 in the AVX2 variant object.
+      entry 47 for the decoder's walk and the encoder's at 32 in the AVX2 variant object.
 
 40. **`platform`: what the CPU offers, probed once when a program starts, and the one module that
     may make a syscall.** Ruled by the owner on 2026-09-29, in colibri's session, as [issue
@@ -2690,23 +2691,24 @@ small file.
       128 KiB measured 0.64 to 0.98; and the mark under 1 MiB, which names ten files, three of
       them where text measured 0.94 or more.
 
-47. **The decoder's walk takes its UTF-8 blocks 32 octets at a time in the AVX2 variant object.**
-    Ruled by the owner on 2026-10-09, as an experiment landed on its pairs, from an analysis of the
-    rows still below a baseline at c5e619e (design §8 step 18). It reopens three refusals for this
-    one path: entry 30's "J5's UTF-8 scan stays at 16 octets", entry 37's check at 32 or 64 octets
-    a block, and entry 39's walk at the wider widths. Each rested on one measurement at 64 octets,
-    where each escape that stopped a run sent the whole block to the scalar path, 37% slower on
-    text of Cyrillic and CJK characters; no walk at 32 had run on a runner. At 16 the decoder's
-    walk decoded that text at 0.84 to 0.86 of simdjson's speed on an AMD EPYC 9V45, the check
-    alone ran 1.8 times as fast at 32 as at 16 on an EPYC 7763 and, by entry 39's ratios, on the
-    9V45, and the analysis found no cheaper change that closed the row.
+47. **The decoder's walk and the encoder's take their UTF-8 blocks 32 octets at a time in the AVX2
+    variant object.** Ruled by the owner on 2026-10-09 for the decoder's walk, as an experiment
+    landed on its pairs, from an analysis of the rows still below a baseline at c5e619e
+    (design §8 step 18), and amended on 2026-10-11 for the encoder's. It reopens three refusals
+    for the walks in that object: entry 30's "J5's UTF-8 scan stays at 16 octets", entry 37's
+    check at 32 or 64 octets a block, and entry 39's walk at the wider widths. Each rested on one
+    measurement at 64 octets, where each escape that stopped a run sent the whole block to the
+    scalar path, 37% slower on text of Cyrillic and CJK characters; no walk at 32 had run on a
+    runner. At 16 the decoder's walk decoded that text at 0.84 to 0.86 of simdjson's speed on an
+    AMD EPYC 9V45, the check alone ran 1.8 times as fast at 32 as at 16 on an EPYC 7763 and, by
+    entry 39's ratios, on the 9V45, and the analysis found no cheaper change that closed the row.
 
     What changed:
     - Past a run's ASCII, the decoder's walk in the AVX2 variant object's `copy_rest` takes its
       blocks 32 octets at a time, judged by entry 37's lookup at 32 lanes (string_walk_wide.zig).
-      The variant object names the width as a comptime value. Every other caller, the encoder's
-      walk among them, and every other target keep 16: entry 30 refuses a width the build target
-      suggests.
+      The variant object names the width as a comptime value. Every other caller and every other
+      target keep 16: entry 30 refuses a width the build target suggests. The encoder's walk kept
+      16 until the amendment below.
     - The blocks run out of line, in `string_walk_wide.take_blocks`. Its loop keeps its eleven
       constants in registers, and the walk's function holds no register of 32 lanes.
 
@@ -2722,6 +2724,26 @@ small file.
       simdjson's. The first form's single job on a 9V45 decoded reymont at 0.83 and bible.txt at
       0.51, which are 0.56 and 0.72 of simdjson's.
 
+    Amended by the owner on 2026-10-11: the encoder's walk takes the same blocks, in the AVX2
+    variant object's `copy_escaped`. The owner allowed it on 2026-10-10 as an experiment, and it
+    landed on its pairs. The same text encoded at 0.905 to 0.920 of simdjson's speed on the EPYC
+    9V45, the one CPU drawn that the row still lost on.
+    - On x86-64 the encoder's walk was one loop, the ASCII question asked inside it. Two loops
+      inline spilled its state to the stack, and the loops out of line, once a run, read and
+      wrote it through memory (design §8 step 18, "The transfers"). The wide blocks run out of
+      line and take their slices by value, so the walk that calls them holds one loop, the ASCII
+      one. The variant object's walk takes that loop (`encoder_loop_string.ascii_loop`); the
+      baseline target's keeps one loop and 16.
+    - The row encoded at 1.377 to 1.544 of main's speed in five jobs on the EPYC 9V45, 1.385 to
+      1.408 of simdjson's speed after, and at 1.333 to 1.554 in one job each on an EPYC 9V74, an
+      EPYC 7763, a Xeon 6973P-C and a Xeon 8370C. No row moved down in all five; design §8 step
+      18 holds every row, and what the four single jobs read.
+    - The EPYC 9V74's one job decoded qlog's records at 0.916 of main's speed, 0.903 of yyjson's,
+      on functions the change leaves the same. The owner landed the change with that row recorded
+      as one job reads it, while a draw of that CPU was measuring.
+    - What it costs: `copy_escaped` grows from 602 instructions to 710, by a second copy of the
+      run's scan.
+
     The alternatives refused:
     - Keeping 16. The row stayed below simdjson on the EPYC 9V45 and near it on the 9V74, at
       1.02, and the analysis found no other change that closed it.
@@ -2731,5 +2753,9 @@ small file.
       of main's speed on the EPYC 7763, where the form that landed reads 1.37; it held eight
       constants of 32 lanes across the walk's other loops and read three more from memory on each
       pass, and no null build priced its rows.
-    - The encoder's walk at 32 too. It waits on this entry's result, by the owner's ruling of the
-      same day: the encoder's walk spilled the last time it took a second loop.
+    - The encoder's walk kept at 16, as this entry first ruled it, since that walk had spilled the
+      last time it took a second loop. Its row stayed below simdjson on the EPYC 9V45.
+    - The encoder's two loops inline, or its loops and its run out of line once a run: the two
+      forms design §8 step 18's "The transfers" measured on an EPYC 9V74. The first encoded
+      bible.txt at 0.705 of main's speed, and the second the text files at a median of 0.752 of
+      the first's.

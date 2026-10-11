@@ -5871,6 +5871,136 @@ to 12 are reordered and nothing else changes.
   The rows still below a baseline, by CPU, and what is known of each are in
   [issue 17](https://github.com/c4milo/stdx/issues/17).
 
+  **The encoder walk's UTF-8 blocks 32 octets at a time on AVX2, 2026-10-11.** The entry above
+  left "dickens as Cyrillic and CJK" encoding at 0.90 to 0.92 of simdjson's speed on an AMD EPYC
+  9V45, the one CPU drawn that the row lost on. On 2026-10-10 the owner allowed the decoder
+  walk's wide blocks for the encoder's walk too, as an experiment (decision 47).
+
+  The AVX2 variant object's `copy_escaped` names the walk's wide blocks, as its `copy_rest` does.
+  The encoder's walk was one loop on x86-64, with the ASCII question asked inside it. The entry
+  "The transfers" above set that after two forms lost on an EPYC 9V74. With the ASCII loop and
+  the UTF-8 loop both inline, the walk's state spilled to the stack, and bible.txt encoded at
+  0.705 of main's speed. With the loops and the run out of line, once a run, the walk's state
+  went through memory, and the text files encoded at a median of 0.752 of the first form's speed.
+  This form is neither. The wide blocks run out of line and take their slices by value, so the
+  walk that calls them holds one loop again, the ASCII one, `take_ascii`:
+
+  | The AVX2 object's `copy_escaped` | Main | The change |
+  |---|---|---|
+  | Instructions a block of 16 plain ASCII octets | 28 | 22 |
+  | Vector constants loaded again after a call | 7 or 10 | 3 |
+  | Instructions, and of them stack references | 602 and 39 | 710 and 53 |
+
+  The function grows by a second copy of the run's scan: one where the ASCII loop runs short of a
+  block, and one where the wide blocks do. Its twin with the loop's runtime safety off (decision
+  35) grows from 581 instructions to 706.
+
+  bench-json runs [38101101078](https://github.com/c4milo/stdx/actions/runs/38101101078),
+  [38101105659](https://github.com/c4milo/stdx/actions/runs/38101105659),
+  [38101110342](https://github.com/c4milo/stdx/actions/runs/38101110342),
+  [38101114888](https://github.com/c4milo/stdx/actions/runs/38101114888),
+  [38103396602](https://github.com/c4milo/stdx/actions/runs/38103396602),
+  [38103400587](https://github.com/c4milo/stdx/actions/runs/38103400587) and
+  [38103404986](https://github.com/c4milo/stdx/actions/runs/38103404986) paired 033b700 with main
+  at 2222285. The first four drew an Intel Xeon 6973P-C, an AMD EPYC 9V74, an Intel Xeon Platinum
+  8370C and an EPYC 7763; the last three each drew an EPYC 9V45. The owner then approved one more
+  draw of the 9V45. A temporary workflow on a branch of its own (f412c0a, which is 033b700 and
+  the workflow; deleted after) ran sixteen jobs, each of which named its CPU and stopped unless
+  it was a 9V45. Two were (run
+  [38139590047](https://github.com/c4milo/stdx/actions/runs/38139590047), jobs 12 and 14), and
+  each measured main and then the change. The row's encoding speed over main's, and over
+  simdjson's before and after:
+
+  | Encoding "dickens as Cyrillic and CJK" | Over main | Over simdjson |
+  |---|---|---|
+  | EPYC 9V45, five jobs | 1.543, 1.500, 1.377, 1.544 and 1.544 | 0.905 to 0.920, then 1.385 to 1.408 |
+  | EPYC 9V74, one job | 1.554 | 1.114, then 1.731 |
+  | EPYC 7763, one job | 1.455 | 1.150, then 1.683 |
+  | Xeon 6973P-C, one job | 1.453 | 1.070, then 1.549 |
+  | Xeon 8370C, one job | 1.333 | 1.085, then 1.449 |
+
+  The variant object holds the function twice, checked and with the loop's runtime safety off, at
+  two addresses. The second encoded the row at 1.545, 1.508, 1.387, 1.541 and 1.547 of main's on
+  the 9V45, and at 1.530, 1.407, 1.456 and 1.301 on the other four, so the gain does not rest on
+  where one copy stands.
+
+  Rows past the larger of their spread and 1%:
+
+  - On the EPYC 9V45, in all five jobs: one of stdx's rows up, the one above, and none down,
+    encoding or decoding. No row read down in more than two of the five. samba encoded at 1.041
+    to 1.064, past its spread in four: its string is 65,546 ASCII octets of which 7,714 take an
+    escape, so it runs the function's ASCII loop and its escapes alone. bible.txt, the row the
+    first form of "The transfers" lost, encoded at 0.971, 0.955, 0.936, 0.995 and 1.007 of main's
+    speed, inside its spread in each job.
+  - Two controls on that CPU. yyjson, the same code in both programs, encoded plrabn12.txt at
+    1.256 to 1.398 of its speed in main's program in all five jobs: main's program holds that
+    row at 3.8 to 4.5 GB/s there, and every other program measured on a 9V45 at 5.1 to 5.7. So
+    a row that moves in every job of that CPU is not by that alone a change's work. The row above
+    is not one that moves so: in the draw of the entry above, across three programs that left the
+    encoder's walk alone, it read 0.968 to 1.048 of the program before in four jobs.
+  - The N2's seven jobs ran a null build, aarch64's bench program being the same octet for octet
+    in `.text`: no row moved in all seven.
+  - The change touches two functions. The bench program, cross-built for x86-64 at both commits,
+    holds 1,675 of 1,677 function instances identical apart from their addresses, each at the
+    same offset in its 64-octet line; the two that differ are the AVX2 object's `copy_escaped`,
+    checked and unchecked.
+
+  The other four CPUs drew one job each, so the rule counts nothing there. What each job read,
+  with the row above left out:
+
+  | One job each | Encoding rows up | Encoding rows down | Decoding rows up | Decoding rows down |
+  |---|---|---|---|---|
+  | EPYC 9V74 | 9, to 1.023 | 10, to 0.977 | 5, to 1.070 | 7, to 0.907 |
+  | EPYC 7763 | 17, to 1.159 | 5, to 0.961 | 1, at 1.027 | 2, to 0.962 |
+  | Xeon 6973P-C | 2, to 1.093 | 1, at 0.938 | 1, at 1.044 | 1, at 0.972 |
+  | Xeon 8370C | 1, at 1.010 | 1, at 0.985 | 6, to 1.236 | 9, to 0.941 |
+
+  - No decoding row runs a function the change touches, so for those rows the change's program
+    is itself a null build, and no other ran on x86-64. What one job leaves open is whether a
+    row's move is where the program stands or that job's noise.
+  - The EPYC 7763's highest row is samba, encoding at 1.159. The Xeon 8370C's is a hex string of
+    html-1m, decoding at 1.236.
+  - The EPYC 9V74 is where both forms of "The transfers" lost. bible.txt encoded there at 0.983
+    of main's speed, inside its spread.
+  - On that 9V74 job qlog's records decoded at 0.916 of main's speed. The job's report lists the
+    row at 0.903 of yyjson's speed; main's program read 0.976 there, and did not list it. Each
+    of the six builds of the token loop that take strings by vectors read 0.904 to 0.924. The
+    four other builds read 1.001 to 1.006, and CLDR's texts 0.978 to 1.022 in every build. The
+    cross-built program holds each of the six instances of `take` 0x380 octets higher in the
+    change.
+  - Three hex strings of 524,290 octets decoded there at 0.907 to 0.934. The kernel that decodes
+    them does not read their values, and the hex strings of that length already range from 44.8
+    to 54.2 GB/s within main's program on that CPU.
+
+  Mutations: 5 of 5 CAUGHT on x86-64 under Rosetta, where the encoder's walk was one loop: the
+  wide walk with no loop for a run's ASCII, which the blocks' assertion catches, and four of the
+  blocks' own. Three change no octet and are NOT CAUGHT, as expected: the walk given 16 octets a
+  block, and each of the variant object's two functions naming 16. The pairs measure them. The
+  tests run the encoder at both widths over the inputs the decoder's take: a stop at every lane
+  of two blocks, characters across a block's edge, short strings and rooms, the hand-off from the
+  ASCII loop at every lane, and 2,000 seeded strings. Built by Zig's own x86-64 backend for a CPU
+  with AVX2, as the x86-64 runner's `test-self-hosted` builds them, they pass under emulation.
+
+  The owner ruled on 2026-10-11 that the change lands, with the 9V74's one job recorded as it
+  reads above. A draw of that CPU, which the owner had approved the same day, was still
+  measuring (run [38144286140](https://github.com/c4milo/stdx/actions/runs/38144286140)). No
+  second job drew the EPYC 7763, the Xeon 6973P-C or the Xeon 8370C. Main took the change as
+  c0889aa, the tree of 033b700 with its comments naming both walks: the AVX2 object's 440
+  functions are the same instructions.
+
+  The rows a report of the change lists below a baseline, by CPU, over the jobs above. Each cell
+  is stdx's speed over the baseline's, the lowest and the highest over that CPU's jobs, so a
+  cell of 1 or more is a CPU that does not lose the row. "dickens as Cyrillic and CJK" encoding
+  has left the list:
+
+  | Decoding | EPYC 9V45 (5) | EPYC 9V74 (1) | EPYC 7763 (1) | Xeon 6973P-C (1) | Xeon 8370C (1) | N2 (7) |
+  |---|---|---|---|---|---|---|
+  | CLDR's texts, over simdjson | 0.79 to 0.80 | 1.01 | 0.99 | 0.97 | 0.96 | 1.19 to 1.20 |
+  | qlog's records, over simdjson | 0.87 to 1.00 | 0.97 | 1.07 | 0.95 | 0.79 | 1.02 to 1.04 |
+  | qlog's records, over yyjson | 0.83 to 0.85 | 0.90 | 1.09 | 0.97 | 0.81 | 1.03 to 1.06 |
+  | reymont as a string, over simdjson | 0.67 to 0.68 | 0.74 | 1.26 | 0.86 | 0.99 | 1.61 to 1.63 |
+  | The `\u` text, over simdjson | 0.88 to 0.94 | 0.99 | 0.98 | 0.98 | 0.89 | 1.35 to 1.36 |
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
