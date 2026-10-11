@@ -5966,8 +5966,7 @@ to 12 are reordered and nothing else changes.
     row at 0.903 of yyjson's speed; main's program read 0.976 there, and did not list it. Each
     of the six builds of the token loop that take strings by vectors read 0.904 to 0.924. The
     four other builds read 1.001 to 1.006, and CLDR's texts 0.978 to 1.022 in every build. The
-    cross-built program holds each of the six instances of `take` 0x380 octets higher in the
-    change.
+    cross-built program holds six instances of `take`, each 0x380 octets higher in the change.
   - Three hex strings of 524,290 octets decoded there at 0.907 to 0.934. The kernel that decodes
     them does not read their values, and the hex strings of that length already range from 44.8
     to 54.2 GB/s within main's program on that CPU.
@@ -6000,6 +5999,55 @@ to 12 are reordered and nothing else changes.
   | qlog's records, over yyjson | 0.83 to 0.85 | 0.90 | 1.09 | 0.97 | 0.81 | 1.03 to 1.06 |
   | reymont as a string, over simdjson | 0.67 to 0.68 | 0.74 | 1.26 | 0.86 | 0.99 | 1.61 to 1.63 |
   | The `\u` text, over simdjson | 0.88 to 0.94 | 0.99 | 0.98 | 0.98 | 0.89 | 1.35 to 1.36 |
+
+  **An EPYC 9V74 drawn twice for the encoder walk's blocks, 2026-10-11.** The entry above landed
+  the blocks with one job on an AMD EPYC 9V74, which read qlog's records decoding at 0.916 of
+  main's speed on functions the change leaves the same. The owner had approved one draw of that
+  CPU. A temporary workflow on a branch of its own (d9e0329, which is 033b700 and the workflow;
+  deleted after) ran sixteen jobs, each of which named its CPU and stopped unless it was a 9V74.
+  Two were (run [38144286140](https://github.com/c4milo/stdx/actions/runs/38144286140), jobs 2
+  and 12), and each measured main at 2222285 and then the change. With the first job that makes
+  three on that CPU. The change's speed over main's in each:
+
+  | EPYC 9V74 | The first job | Job 2 | Job 12 |
+  |---|---|---|---|
+  | Encoding "dickens as Cyrillic and CJK" | 1.554 | 1.571 | 1.569 |
+  | Decoding qlog's records | 0.916 | 1.003 | 1.000 |
+  | Decoding a hex string of json-1m | 0.907 | 1.122 | 1.113 |
+  | Decoding bible.txt as a string | 0.966 | 0.955 | 0.986 |
+  | Encoding a hex string of json-1m | 0.983 | 0.979 | 0.978 |
+  | Encoding bible.txt as a string | 0.983 | 0.995 | 1.004 |
+
+  - The first job's reading of qlog's records did not repeat. Against yyjson the row read 0.976
+    and then 0.903 in the first job, 0.995 and then 0.985 in job 2, and 0.985 and then 0.979 in
+    job 12. The two drawn jobs' reports list one row below a baseline, reymont decoding at 0.747
+    and 0.755 of simdjson's speed; main's programs list the same row in the same jobs, at 0.762
+    and 0.769.
+  - Six builds had agreed in the first job. They share a process, so their agreeing said nothing
+    of the program.
+  - The hex strings' moves are a process's too. A hex string of json-1m decoded at 54.2 GB/s in
+    main's program and at 49.1 in the change's in the first job, and at 48.5 and at 54.5 in job
+    2: the same kernel, at one of two speeds from one process to the next in either program.
+  - Rows past the larger of their spread and 1% in all three jobs: the row above up, and two
+    down. bible.txt decoded at 0.966, 0.955 and 0.986 of main's speed, which is 0.957, 0.964 and
+    1.247 of simdjson's, from 0.994, 1.010 and 1.253. A hex string of json-1m encoded at 0.983,
+    0.979 and 0.978. Both run functions that are the same in both programs, so they count as
+    placement (decision 20), and no report lists either as a loss. In job 2 the builds of the
+    decoder's token loop read bible.txt at 0.951 to 0.955 and the two builds without that loop at
+    0.976 and 0.982, while simdjson and yyjson read it within 0.2% of their speed in main's
+    program.
+  - The controls moved as far. yyjson, the same code in both programs, encoded CLDR's texts at
+    1.039, 1.051 and 1.064 of its speed in main's program, and qlog's records at 1.018, 1.041
+    and 1.010.
+  - bible.txt, the row the first form of "The transfers" lost on this CPU, encoded inside its
+    spread in each job.
+  - Job 12's machine ran every candidate at about two thirds of job 2's speed, and simdjson's
+    decoding of bible.txt at 0.54 of it. A ratio inside that job stands; its ratios against a
+    baseline are not the other two jobs'.
+
+  Over the three jobs the change's reports read these rows on the 9V74, decoding: CLDR's texts at
+  0.97 to 1.01 of simdjson's speed, qlog's records at 0.97 to 1.07 and at 0.90 to 0.98 of
+  yyjson's, reymont at 0.74 to 0.76, and the `\u` text at 0.96 to 0.99.
 
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token

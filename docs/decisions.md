@@ -2740,7 +2740,10 @@ small file.
       18 holds every row, and what the four single jobs read.
     - The EPYC 9V74's one job decoded qlog's records at 0.916 of main's speed, 0.903 of yyjson's,
       on functions the change leaves the same. The owner landed the change with that row recorded
-      as one job reads it, while a draw of that CPU was measuring.
+      as one job reads it, while a draw of that CPU was measuring. Its two jobs then read the row
+      at 1.003 and 1.000. Over the three jobs bible.txt decoded at 0.955 to 0.986 of main's speed
+      and a hex string of json-1m encoded at 0.978 to 0.983, each on functions the change leaves
+      the same, which counts as placement (entry 20).
     - What it costs: `copy_escaped` grows from 602 instructions to 710, by a second copy of the
       run's scan.
 
