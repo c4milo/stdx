@@ -2083,6 +2083,262 @@ to 12 are reordered and nothing else changes.
     The owner chose level 9's losing files next: at level 9 stdx leads at the median and trails
     on 15 files, ptt5 at 0.31 to 0.37 of libdeflate's speed, sum at 0.39 to 0.51 and mozilla at
     0.45 to 0.54.
+  - Level 9's long chains, measured on 2026-10-05 and landed on 2026-10-11, the lever the owner
+    chose after level 6's short chains:
+
+    Where the time was, on main (c33aab1). Level 9 led libdeflate's at the median, at 1.12 of
+    its speed on a Neoverse N2, 1.09 on an EPYC 7763 and 1.01 on an EPYC 9V74, and trailed it
+    on 15 to 17 of the 39 files: ptt5 at 0.31 to 0.37, sum at 0.39 to 0.51, mozilla at 0.45 to
+    0.54, json-1m at 0.54 to 0.60, kennedy.xls at 0.59 to 0.80, x-ray at 0.68 to 0.71, nci at
+    0.68 to 0.74 and shuffled dickens at 0.75 to 0.78. callgrind, on aarch64 over each file's
+    first MiB, counted 1.18 to 4.67 times libdeflate's instructions on 38 files, E.coli alone
+    under it. Scratch counters in the walk told two groups apart.
+    - Files of few matches. x-ray started 0.82 walks an octet and shuffled dickens 0.75, each
+      of 1.2 and 1.5 candidates: the cost is each position's own, as it was at level 6.
+    - Files whose chains run long. A walk read 315 candidates on kennedy.xls, 223 on json-1m,
+      210 on ptt5, 114 on nci, 92 on mozilla and 77 on sum: 75 an octet on kennedy.xls, 34 on
+      mozilla, 23 to 27 on sum, json-1m and ptt5, and 9 on nci. The 4 octets that decide a
+      candidate turned all but about one a walk away, 4 on nci and 14 on ptt5, and 25.5% of
+      kennedy.xls's walks and 11.9% of ptt5's read their whole budget.
+
+    The read of short chains at level 9, a87e5db, measured as 52fce73 on its branch. Level 9
+    reads a short chain after a literal as level 6 does (`short_chain_misses`): its window has
+    no padding, so its loads keep their bounds checks, and its priced copy of the lazy loop
+    stays main's. The output is the same, and the bench built for both targets at both commits
+    differs in level 9's unpriced lazy loop alone, 466 instructions to 501 on aarch64 and 442
+    to 488 on x86-64.
+    - Runs [37255586006](https://github.com/c4milo/stdx/actions/runs/37255586006) and
+      [37255587776](https://github.com/c4milo/stdx/actions/runs/37255587776) paired it with
+      main on a Neoverse N2 in both, an EPYC 7763 and an EPYC 9V74; the first run's N2 job
+      stopped in its measurement and ran again.
+    - On the N2 15 rows ran faster in both jobs: x-ray at 1.22, shuffled dickens at 1.14, sao at
+      1.10, xargs.1 at 1.09, osdb at 1.06, ooffice at 1.04, and nine more at 1.01 to 1.04.
+      On x86-64 14 did: x-ray at 1.50 and 1.51, shuffled dickens at 1.28 and 1.29, sao at 1.21
+      and 1.20, osdb at 1.13 and 1.14, ooffice at 1.09 and 1.08, xargs.1 at 1.07 and 1.09.
+      x-ray went from 0.70 of libdeflate's speed to 0.86 on the N2, and from 0.71 and 0.68 to
+      1.06 and 1.03 on x86-64.
+    - One row ran slower in both jobs, on the N2: E.coli at 0.980 and 0.980. Its blocks run the
+      priced loop, which did not change: callgrind counts 3,496,811,938 instructions for the
+      whole file on main and 3,496,848,936 with the read, 0.13% of them in the function that
+      differs at both commits. Decision 20's amendment of 2026-10-03 counts the row as
+      placement.
+    - Levels 1 and 6 run main's functions, and on the N2 their rows of 1 KiB slices moved in
+      both jobs all the same: level 1's at 1.09 to 1.14, and level 6's at 0.94 to 0.98, with
+      grammar.lsp and xargs.1 beside them at 0.96 to 0.97. Decision 20's amendment of
+      2026-09-29 counts those as placement.
+    - Mutations, on 52fce73: the 25 CAUGHT and the 6 NOT CAUGHT of level 6's read, each now run
+      at both levels.
+
+    The walk by the match's tail, a6ef837 (decision 46). A candidate longer than the match
+    found holds the match's tail, the 4 octets that end one past it, and every inserted position
+    that holds those octets is on their hash's chain. So the candidates left are named by two
+    chains, and the walk follows the one with fewer positions (`best_by_tail`,
+    `encoder_match_walk_tail.zig`).
+    - After a longer match the walk reads the head of the tail's hash and at most
+      `tail_skips_max` links, 4, to pass the positions of candidates it has passed, and moves
+      there when that chain's next candidate lies farther back than its own chain's. A chain
+      that ends, or leaves the reach, ends the walk.
+    - No candidate as near as the match is long holds a longer one, by Fine and Wilf's theorem
+      on a string with two periods (decision 46 gives the argument), so the walk has passed
+      those, and the tail of each candidate left lies at a position already inserted. A
+      scratch check of 1.2 million cases over 30,000 seeded strings of 2 to 4 letters found no
+      longer match up to one octet past that bound, and 97,776 two octets past it.
+    - A move is tried only where the walk's own chain names its next candidate near enough that
+      `tail_move_candidates_min` more, 16, could follow before the reach's edge, and the walk
+      ends at once where that chain has ended or the walk has passed every candidate in reach.
+    - The loop reads a link, compares it with one bound and loads the candidate's deciding
+      octets at one sum, 13 instructions a link on both targets where main's walk takes 18 on
+      aarch64 and 19 on x86-64.
+      The bound and the sum are kept by hand where the tail or the chain changes
+      (`TailWalk.floor`, `TailWalk.shift`). A position of the tail's chain mostly holds the
+      tail and not the match before it, so the position's first 4 octets turn it away before
+      `match_len` is called.
+    - The walk is the match finder's fourth file, and the commit before it, 2604371, moves
+      the four into `src/deflate/encoder/encoder_match/` with no change of code.
+    - The matcher's state, level 9's limits and the walk of a block of cheap literals (decision
+      42) are main's. Levels 1 and 6 run main's instructions: the bench built for both targets
+      differs from a87e5db's in level 9's search alone, 132 instructions to 240 on aarch64
+      and 155 to 254 on x86-64.
+
+    What the walk reads now, counted over each whole file with scratch counters. Links an
+    octet: 75.4 to 1.6 on kennedy.xls, 34.3 to 1.9 on mozilla, 27.2 to 1.4 on sum, 26.9 to 1.4
+    on json-1m, 22.6 to 2.2 on ptt5, 9.3 to 1.3 on nci, 6.5 to 2.2 on dickens and 4.6 to 0.9
+    on html-1m; over the 38 files that run it, from as many, on html's first KiB, to 46 times
+    fewer, 4.1 at the median. A walk reads 8 links on kennedy.xls, 17 on json-1m, 44 on ptt5,
+    21 on nci, 12 on mozilla and 8 on sum. It tries 0.5 moves and makes 0.4 on kennedy.xls,
+    1.2 and 0.8 on json-1m, 0.6 and 0.5 on dickens, 5.3 and 0.6 on ptt5, whose tails are
+    mostly as common as its zeros, and 0.05 and 0.04 on x-ray. 0.02% of kennedy.xls's walks
+    read their whole budget, and 0.6% of ptt5's.
+
+    Counted with callgrind on aarch64 over the first MiB of each file, level 9 retires 0.075
+    to 0.994 of main's instructions, 0.65 at the median: 1,434 an octet to 107 on kennedy.xls,
+    where libdeflate retires 664; 533 to 69 on json-1m, against 205; 589 to 114 on sum,
+    against 182; 564 to 127 on ptt5, against 121; 248 to 73 on nci, against 114; and 216 to 91
+    on mozilla, against 102. It retires fewer than libdeflate on 25 files, 0.91 of its count
+    at the median, and more on 14: shuffled dickens and x-ray at 1.43 and 1.41, osdb and
+    xargs.1 at 1.36 and 1.33, the four 1 KiB files at 1.19 to 1.31, and grammar.lsp, ooffice,
+    asyoulik.txt, ptt5, mr and cp.html at 1.01 to 1.17. callgrind's branch model counts more
+    mispredicted branches an octet than main on text, 2.08 against 1.21 on dickens and 2.19
+    against 1.30 on plrabn12.txt: a move's tests go either way.
+
+    The output. 33 of the 468 recorded hashes change, all level 9's, in 12 files. ptt5 comes
+    out 0.39% smaller, nci 0.30%, sum 0.016%, and world192.txt, json-1m, mozilla, samba,
+    ooffice, lcet10.txt and xml 0.009% or less; mr 0.005% larger, and js-1m by one octet. The
+    39 files' geometric mean over libdeflate's level 9 goes from 1.0098 to 1.0097. The unit
+    tests' two recorded outputs change at level 9: 45,737 octets to 45,739 for the seeded
+    input, and 4,026 to 4,029 for two seeded letters, whose every tail is as common as its
+    start.
+
+    The pair. Runs [37270186280](https://github.com/c4milo/stdx/actions/runs/37270186280) and
+    [37270188195](https://github.com/c4milo/stdx/actions/runs/37270188195) ran the read
+    (52fce73) and then the walk at 319b0b3 on its branch, in each job, on a Neoverse N2 in
+    both, an EPYC 7763 and an EPYC 9V74. The bench built for both targets at 319b0b3 and at
+    a6ef837 differs in no function.
+    - On the N2 level 9 ran at 1.41 and 1.40 of the read's speed at the median, and 31 rows
+      ran faster in both jobs: kennedy.xls at 15.1 times its speed, json-1m at 7.6, mozilla
+      at 4.9, sum at 4.7, ptt5 at 3.9, json's 16 KiB slices at 3.5, nci at 3.0, samba at 2.7,
+      reymont at 2.5, css-1m at 2.3, world192.txt, bible.txt and xml at 1.9 to 2.0, html-1m
+      at 1.8, js-1m at 1.7, webster and ooffice at 1.6, alice29.txt at 1.5, dickens,
+      plrabn12.txt, lcet10.txt and mr at 1.4, and asyoulik.txt at 1.25. stdx over libdeflate
+      went from 1.14 to 1.73 at the median: kennedy.xls from 0.80 to 12.0, json-1m from 0.59
+      to 4.5, mozilla from 0.54 to 2.65, sum from 0.52 to 2.45, ptt5 from 0.37 to 1.47 and nci
+      from 0.75 to 2.2. 35 of the 39 files stand at or above libdeflate, where 25 did.
+    - On x86-64 it ran at 1.61 of the read's speed at the median on the EPYC 7763 and at 1.72
+      on the EPYC 9V74, and 32 rows ran faster in both jobs: kennedy.xls at 18.3 and 21.6,
+      json-1m at 7.4 and 8.3, mozilla at 5.4 and 6.0, sum at 5.1 and 6.5, ptt5 at 4.1 and 4.8,
+      nci at 2.9 and 3.2, dickens at 1.6 and 1.7. stdx over libdeflate went from 1.09 to 1.81
+      and from 1.05 to 1.93 at the median, and 38 and 37 files stand at or above it, where 27
+      and 26 did. No row ran slower in both jobs.
+    - Three rows ran slower than the read in both N2 jobs: osdb at 0.987 and 0.986, x-ray at
+      0.988 and 0.987, and shuffled dickens at 0.988 and 0.986. They are files of few matches:
+      a move cannot shorten a chain of one candidate or two, and after each longer match the
+      walk tests whether one could pay. Against main, with the read, they stand at 1.04, 1.21
+      and 1.12, the two pairs' ratios multiplied. The owner ruled on 2026-10-11 that what
+      improves main lands, which admits the three (decision 46).
+    - Against main, the two pairs' ratios multiplied, as no job ran main against the walk:
+      level 9 stands at 1.40 of main's speed at the median on the N2, at 1.63 on the EPYC 7763
+      and at 1.77 on the EPYC 9V74. One row stands under main in every pairing of the N2's
+      jobs, E.coli at 0.97 to 0.99, the read's placement row. On x86-64, where one job ran each
+      pair on each CPU, none does on the EPYC 7763, and two rows of 1 KiB slices do on the
+      EPYC 9V74, css at 0.990 and js at 0.998: the walk's pair read those two rows at 1.05 to
+      1.06 in its first run and at 0.96 to 0.97 in its second, on both architectures.
+    - Levels 1 and 6 run main's functions, and no row of theirs moved in both jobs on either
+      architecture. Of the unchanged candidates, zlib-ng's level 1 ran four files 1% to 5%
+      slower in both N2 jobs, and none ran a row of level 9 slower in both.
+
+    Mutations, on 61556a6, the work branch's commit whose sources a6ef837 holds: 41 CAUGHT, and
+    4 that change cost and no output NOT CAUGHT.
+    - Caught in what a walk returns: a candidate whose first 4 octets differ taken for one to
+      compare, and one whose deciding octets differ; the chain's position taken for its
+      candidate; the walk going on past a match of `nice_len` or of every octet, and ending at
+      its first match; the match's distance one short.
+    - Caught after a longer match: the walk passing its candidate alone and not those as near
+      as the match is long, passing candidates past that bound, and passing those as near as
+      the match where its candidate lies farther; the walk reading on with no candidate left
+      in reach, and ending with one left; the tail starting one octet early, inside the match,
+      and its octets taken from the match's start; the floor without the chain's offset; the
+      deciding octets read at the tail's place from the chain's position, and left where they
+      were; the walk going on where its own chain has ended, ending where it goes on, and
+      ending after every longer match.
+    - Caught in when a move is tried: whatever the gap to the chain's next candidate; not at
+      the widest gap that pays; at a gap one candidate wider; never; and with the gap counted
+      from the chain's position, not its candidate.
+    - Caught in the move: its links not counted; no position of a candidate passed being
+      passed, one more than `tail_skips_max`, and all but the one that names the candidate
+      passed; a move to a chain whose next candidate is as near as the walk's own, and to the
+      nearer one; no move at all; the old chain's offset kept; the tail's chain read at
+      another hash.
+    - Caught in a walk's bounds: the reach a position short, and a position long; position 0
+      taken for a candidate; a link more than the budget, a link not counted, and a link read
+      below the chain's floor.
+    - Caught in which search runs: level 9 keeping the plain walk, and a block of cheap
+      literals moving too.
+    - Not caught: a candidate's first 4 octets not compared before `match_len`, which then
+      compares them; a candidate as long as the match found replacing it, which the deciding
+      octets turn away first; the deciding octets not compared, which leaves `match_len` to
+      decide; and a move to a position of a candidate passed, where after `tail_skips_max`
+      links such a position lies nearer than the walk's own next candidate, and the test of
+      that turns it away.
+    - The tests set chains by hand around a position whose octets do not recur and give the
+      walk a budget one link short of what the path under test needs. Over a seeded window of
+      repeats, at 1,231 positions, the walk's match is the longest and nearest that a compare
+      at every position in reach finds.
+
+    A local fuzz pass of 40,000 runs over the module at 61556a6 found nothing. Neither did 2M
+    runs on each of the three runners at abfc110, the walk before its last changes of form (run
+    [37266131547](https://github.com/c4milo/stdx/actions/runs/37266131547)), at 0c974e7 (run
+    [37272385821](https://github.com/c4milo/stdx/actions/runs/37272385821)), and at 319b0b3,
+    the form that landed (run
+    [37275725732](https://github.com/c4milo/stdx/actions/runs/37275725732)).
+
+    Other forms, each measured before the one that landed.
+    - A walk's budget cut, with no other change: runs
+      [37255608067](https://github.com/c4milo/stdx/actions/runs/37255608067) and
+      [37255613952](https://github.com/c4milo/stdx/actions/runs/37255613952), one job each
+      against main on a Neoverse N2 and an EPYC. 1,024 candidates and a cut of 256 ran
+      kennedy.xls at 3.0 times main's speed, ptt5 at 2.7, mozilla at 2.0, sum at 1.7 to 1.8, nci
+      at 1.7 and json-1m at 1.5 to 1.7; 2,048 and 512 ran ptt5 and kennedy.xls at 1.7 and
+      mozilla at 1.4. On the M1 the first makes the 39 files' output 0.09% larger at the
+      geometric mean, ptt5 1.5% and nci 1.0%.
+    - The walk with a move owed while its candidate lay nearer than the tail, read on until
+      one lay far enough (37c19ee): run
+      [37261940242](https://github.com/c4milo/stdx/actions/runs/37261940242), one job each.
+      Level 9 ran at 1.35 of the read's speed at the median on the N2 and 1.51 on an EPYC 7763.
+      The theorem took the owed state out of the code.
+    - The walk with a move tried after every longer match (2e47dde): runs
+      [37263447159](https://github.com/c4milo/stdx/actions/runs/37263447159) and
+      [37263449372](https://github.com/c4milo/stdx/actions/runs/37263449372). Level 9 ran at
+      1.39 of the read's speed at the median on the N2 in both jobs, and at 1.72 and 1.54 on an
+      EPYC 9V74 and an EPYC 7763. Four files of few matches ran slower than the read in both
+      N2 jobs, shuffled dickens at 0.92, x-ray at 0.94, osdb and xargs.1 at 0.97 to 0.98, and
+      two on x86-64, shuffled dickens at 0.94 and x-ray at 0.95: after each longer match the
+      walk read a head and up to four links, where its own chain held one candidate more or
+      none. On x-ray 46% of the moves tried came with that chain ended, and 79% with fewer
+      than four candidates expected on it.
+    - The walk with `tail_move_candidates_min` at 4, in three forms of the same search. With
+      the test of its own chain's end inside the test of a move (0142611, runs
+      [37265707302](https://github.com/c4milo/stdx/actions/runs/37265707302) and
+      [37265709299](https://github.com/c4milo/stdx/actions/runs/37265709299)), the N2 ran
+      level 9 at 1.395 at the median, shuffled dickens at 0.96, x-ray at 0.965 and osdb at
+      0.97. With that test first (32cdc99, runs
+      [37266758936](https://github.com/c4milo/stdx/actions/runs/37266758936) and
+      [37266761992](https://github.com/c4milo/stdx/actions/runs/37266761992)), at 1.41, and
+      0.965, 0.97 and 0.98; an EPYC 9V45 and a Xeon 8370C ran it at 1.65 and 1.47, the Xeon
+      from 0.95 of libdeflate's speed at the median to 1.44. With the walk ended on that one
+      test (0c974e7, runs
+      [37269201602](https://github.com/c4milo/stdx/actions/runs/37269201602) and
+      [37269203304](https://github.com/c4milo/stdx/actions/runs/37269203304)), at 1.42, and
+      0.97, 0.98 and 0.98, and on an EPYC 7763 in both jobs at 1.61, x-ray at 0.985.
+    - The limit at 16 on that last form is what landed. Against the limit at 4 on the same
+      CPUs it ran x-ray 1.1% faster, shuffled dickens 1.9% on the N2 and 1.7% on the EPYC
+      7763, mr 1.5% and kennedy.xls 4.3% and 2.6%, and 24 files 0.6% to 2.8% slower on the N2
+      and 18 files 1.0% to 3.5% on the EPYC 7763, 1% at the median on both: the files of few
+      matches, the ones nearest libdeflate's speed, lose the least there.
+    - On the M1, which publishes no number: a move chosen by a select in place of a branch ran
+      at 0.96 of the branch's speed at the median of 21 files, kennedy.xls at 0.88, as the
+      select makes the walk's next read wait for the loads that decide the move;
+      `tail_skips_max` of 1, 2 and 8 stayed within 2% of 4 at the median; the chain of 4
+      octets inside the match, entered at the candidate with no head read, ran json-1m at
+      0.92 of libdeflate's speed and kennedy.xls at 0.86, where the tail's chain runs them at
+      4.0 and 12.0; and a move at every longer match, past however many positions of
+      candidates passed, ran ptt5 at 0.34 of libdeflate's speed, from main's 0.44.
+    - In the code built for x86-64, with the compare of a candidate's octets inlined into the
+      walk, the walk's link went through the stack at each candidate, a store and a load in
+      the chain's dependent reads: the compare's loops had taken the registers. It stays a
+      call, behind a compare of the candidate's first 4 octets.
+
+    What is left at level 9. The N2 runs four files under libdeflate's speed, files of few
+    matches where each position's own cost decides: x-ray at 0.84 to 0.85, shuffled dickens
+    at 0.88, xargs.1 at 0.94 to 0.96 and osdb at 0.96. On x86-64 xargs.1 and shuffled
+    dickens stand at 0.98 to 0.99 on the EPYC 9V74, and shuffled dickens at 0.98 on the EPYC
+    7763. callgrind counts 1.33 to 1.43 times libdeflate's instructions on the four. The
+    output stands at 1.0097 of libdeflate's at the geometric mean of the 39 files:
+    kennedy.xls 10.4% larger, x-ray 4.5%, ooffice 2.9%, css-1m 2.8%, and mozilla and sum
+    2.2%. A scratch count of the two streams' symbols (decision 9) finds that 22% of
+    libdeflate's matches on sum are 3 octets long, where stdx takes none, and that on
+    kennedy.xls, at the same matches and lengths, libdeflate pays 6.25 bits a distance where
+    stdx pays 9.39, in 5 blocks against 53. Level 6 keeps the plain walk: its two walks
+    share a loop, and the search by the tail has not been measured there.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
