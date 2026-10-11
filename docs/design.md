@@ -5920,14 +5920,15 @@ to 12 are reordered and nothing else changes.
   | Xeon 8370C, one job | 1.333 | 1.085, then 1.449 |
 
   The variant object holds the function twice, checked and with the loop's runtime safety off, at
-  two addresses. The second encoded the row at 1.545, 1.508, 1.387, 1.541 and 1.547 of main's on
-  the 9V45, and at 1.530, 1.407, 1.456 and 1.301 on the other four, so the gain does not rest on
+  two addresses. The second encoded the row at 1.545, 1.506, 1.387, 1.541 and 1.547 of main's on
+  the 9V45, and at 1.531, 1.406, 1.457 and 1.301 on the other four, so the gain does not rest on
   where one copy stands.
 
   Rows past the larger of their spread and 1%:
 
   - On the EPYC 9V45, in all five jobs: one of stdx's rows up, the one above, and none down,
-    encoding or decoding. No row read down in more than two of the five. samba encoded at 1.041
+    encoding or decoding; the table of the encoder with its loop's runtime safety off reads the
+    same. No row read down in more than two of the five. samba encoded at 1.041
     to 1.064, past its spread in four: its string is 65,546 ASCII octets of which 7,714 take an
     escape, so it runs the function's ASCII loop and its escapes alone. bible.txt, the row the
     first form of "The transfers" lost, encoded at 0.971, 0.955, 0.936, 0.995 and 1.007 of main's
@@ -6000,6 +6001,15 @@ to 12 are reordered and nothing else changes.
   | reymont as a string, over simdjson | 0.67 to 0.68 | 0.74 | 1.26 | 0.86 | 0.99 | 1.61 to 1.63 |
   | The `\u` text, over simdjson | 0.88 to 0.94 | 0.99 | 0.98 | 0.98 | 0.89 | 1.35 to 1.36 |
 
+  The table above leaves out the encoder with its loop's runtime safety off (decision 35), whose
+  losses a report lists apart. Three of the 9V45's five reports of the change list one row
+  there: CLDR's texts encoding, at 0.943 to 0.949 of simdjson's speed. The change did not move
+  it. Main's programs read that row at 0.952 to 0.963 in the same five jobs and listed it in
+  none; stdx's speed on it is 0.978 to 1.005 of main's, and simdjson's read 0.3% to 1.4% higher
+  in four of the five. With the checks on the row reads 0.973 to 0.988 of simdjson's speed, and
+  0.986 to 0.997 in main's programs, which no report lists. Main's five programs list "dickens
+  as Cyrillic and CJK" in that table at 0.895 to 0.910; the change's list it in neither table.
+
   **An EPYC 9V74 drawn twice for the encoder walk's blocks, 2026-10-11.** The entry above landed
   the blocks with one job on an AMD EPYC 9V74, which read qlog's records decoding at 0.916 of
   main's speed on functions the change leaves the same. The owner had approved one draw of that
@@ -6041,6 +6051,10 @@ to 12 are reordered and nothing else changes.
     and 1.010.
   - bible.txt, the row the first form of "The transfers" lost on this CPU, encoded inside its
     spread in each job.
+  - The table of the encoder with its loop's runtime safety off reads the row above at 1.531,
+    1.554 and 1.568, samba at 1.099, 1.092 and 1.095 and xml at 1.029, 1.026 and 1.022 of main's
+    speed, and a hex string of json-1m at 0.983, 0.979 and 0.971. bible.txt runs there at one of
+    two speeds in either program, its five runs spreading up to 65%.
   - Job 12's machine ran every candidate at about two thirds of job 2's speed, and simdjson's
     decoding of bible.txt at 0.54 of it. A ratio inside that job stands; its ratios against a
     baseline are not the other two jobs'.
