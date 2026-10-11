@@ -18,6 +18,7 @@ const claims_file = @import("../../claims.zig");
 const Claims = claims_file.Claims;
 const runtime_safety_kept = claims_file.runtime_safety_kept;
 const string_walk = @import("../../string_walk.zig");
+const wide_walk = @import("../../string_walk_wide.zig");
 const Walk = string_walk.Walk;
 const escape_blocks = @import("encoder_loop_escapes.zig");
 
@@ -68,12 +69,12 @@ extern fn stdx_json_copy_escaped_unchecked_x86_64_avx2(octets: [*]const u8, len:
 pub inline fn copy_escaped_at(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) ?usize {
     if (comptime wide.has_kernels and std.meta.eql(claims, Claims{})) return copy_escaped_kernel_or_here(true, level, octets, room);
     if (comptime wide.has_kernels and std.meta.eql(claims, Claims{ .encoder_token_loop_runtime_safety = false })) return copy_escaped_kernel_or_here(false, level, octets, room);
-    return copy_escaped(claims, level, octets, room);
+    return copy_escaped(claims, constants.vector_len, level, octets, room);
 }
 
 noinline fn copy_escaped_kernel_or_here(comptime checked: bool, level: wide.Level, octets: []const u8, room: []u8) ?usize {
     const claims: Claims = .{ .encoder_token_loop_runtime_safety = checked };
-    if (level != .avx2) return copy_escaped(claims, level, octets, room);
+    if (level != .avx2) return copy_escaped(claims, constants.vector_len, level, octets, room);
     const written = if (checked) stdx_json_copy_escaped_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len) else stdx_json_copy_escaped_unchecked_x86_64_avx2(octets.ptr, octets.len, room.ptr, room.len);
     return if (written == left) null else written;
 }
@@ -83,9 +84,18 @@ noinline fn copy_escaped_kernel_or_here(comptime checked: bool, level: wide.Leve
 /// speed (string_walk.zig, design §8 step 18).
 const two_loops = builtin.cpu.arch != .x86_64;
 
+/// Whether a walk whose blocks past a run's ASCII are `block_len` octets takes the run's ASCII in
+/// a loop of its own: where `two_loops` says, and where those blocks are the wide ones, which run
+/// out of line from a run's first octet from 0x80 up and leave the walk one loop to hold
+/// (string_walk_wide.zig).
+fn ascii_loop(comptime block_len: usize) bool {
+    return two_loops or block_len == wide_walk.block_len;
+}
+
 /// Writes the content of a string whose octets are `octets` into `room`, escaped as RFC 8259 §7
 /// requires, and returns how many octets it wrote; or null where the checked path must take it.
-pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const u8, room: []u8) align(constants.kernel_alignment) ?usize {
+/// `block_len` is the walk's block past a run's ASCII (string_walk.zig's `take_to_stop`).
+pub fn copy_escaped(comptime claims: Claims, comptime block_len: usize, level: wide.Level, octets: []const u8, room: []u8) align(constants.kernel_alignment) ?usize {
     @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
     var walk: Walk = .{ .input = octets, .output = room };
     var hand: Hand = .{};
@@ -95,7 +105,7 @@ pub fn copy_escaped(comptime claims: Claims, level: wide.Level, octets: []const 
         // find it: a text of lines that end in a carriage return and a line feed has two at each
         // line's end.
         if (walk.input.len == 0 or escape_letters[walk.input[0]] == 0) {
-            if (!walk.take_to_stop(claims, two_loops, constants.vector_len, level, octets, room)) return null;
+            if (!walk.take_to_stop(claims, comptime ascii_loop(block_len), block_len, level, octets, room)) return null;
             if (walk.input.len == 0) return room.len - walk.output.len;
             hand.ascii = walk.ascii_so_far;
         }

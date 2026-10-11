@@ -28,11 +28,11 @@ fn copy_rest(rest: [*]const u8, rest_len: usize, room: [*]u8, room_len: usize, c
 /// at the caller's choice (decision 35): the octets written, or `encoder_string.left` for a string
 /// left to the checked path.
 fn copy_escaped(octets: [*]const u8, len: usize, room: [*]u8, room_len: usize) align(constants.kernel_alignment) callconv(.c) usize {
-    return encoder_string.copy_escaped(.{}, .avx2, octets[0..len], room[0..room_len]) orelse encoder_string.left;
+    return encoder_string.copy_escaped(.{}, wide_walk.block_len, .avx2, octets[0..len], room[0..room_len]) orelse encoder_string.left;
 }
 
 fn copy_escaped_unchecked(octets: [*]const u8, len: usize, room: [*]u8, room_len: usize) align(constants.kernel_alignment) callconv(.c) usize {
-    return encoder_string.copy_escaped(Claims{ .encoder_token_loop_runtime_safety = false }, .avx2, octets[0..len], room[0..room_len]) orelse encoder_string.left;
+    return encoder_string.copy_escaped(Claims{ .encoder_token_loop_runtime_safety = false }, wide_walk.block_len, .avx2, octets[0..len], room[0..room_len]) orelse encoder_string.left;
 }
 
 comptime {
