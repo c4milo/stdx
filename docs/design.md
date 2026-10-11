@@ -6319,6 +6319,45 @@ to 12 are reordered and nothing else changes.
   0.97 to 1.01 of simdjson's speed, qlog's records at 0.97 to 1.07 and at 0.90 to 0.98 of
   yyjson's, reymont at 0.74 to 0.76, and the `\u` text at 0.96 to 0.99.
 
+  **Speed work on the `json` module stops here, 2026-10-11.** Ruled by the owner, on the reports
+  of the two entries above. The aim of this step's pairs was every bench-json row above simdjson
+  and yyjson on every CPU the hosted runners draw
+  ([issue 17](https://github.com/c4milo/stdx/issues/17)). It is not met. The reports of main's
+  code list no row below a baseline on the Neoverse N2, in seven jobs, nor on the EPYC 7763 and
+  the Xeon 6973P-C, in one job each. On the other CPUs drawn they list these, each cell stdx's
+  speed over the baseline's and the jobs that list the row:
+
+  | Row | EPYC 9V45, five jobs | EPYC 9V74, three jobs | Xeon 8370C, one job |
+  |---|---|---|---|
+  | Decoding reymont as a string, over simdjson | 0.665 to 0.684, in five | 0.743 to 0.755, in three | not listed |
+  | Decoding qlog's records, over yyjson | 0.827 to 0.854, in five | 0.903, in the one job that did not repeat | 0.807 |
+  | Decoding qlog's records, over simdjson | 0.872 to 0.892, in three | not listed | 0.788 |
+  | Decoding CLDR's texts, over simdjson | 0.787 to 0.801, in four | not listed | not listed |
+  | Decoding the `\u` text, over simdjson | 0.879 to 0.919, in three | not listed | 0.887 |
+  | Encoding CLDR's texts with the loop's runtime safety off, over simdjson | 0.943 to 0.949, in three | not listed | not listed |
+
+  No job has drawn an Intel Xeon Platinum 8573C since c5e619e. There it read CLDR's texts at 0.88
+  to 0.91 of simdjson's speed, qlog's records at 0.91 and at 0.93 to 0.97 of yyjson's, reymont at
+  0.86 to 0.90 and the `\u` text at 0.94, all decoding.
+
+  What the analysis of 2026-10-09 left unbuilt, with its own estimates, none of them measured:
+
+  - A pass on x86-64 that tests a `\u` pair's lengths once: 3% to 6% on a Xeon and 1% to 3% on the
+    9V45.
+  - Vector digits for the pair: 1.07 to 1.09 on a Xeon. It needs the owner's ruling before it is
+    built.
+  - 64 octets a branch from two AVX2 registers, for reymont. It needs a count of that row's
+    mispredictions and the owner's ruling (decisions 30 and 39), and its best case leaves the 9V45
+    just below simdjson.
+  - Advancing by the quotation mark's own lane: 0% to 7% on CLDR's texts and qlog's records on the
+    9V45.
+
+  The token loop's long string out of line (d1d1b0e) was probed and not landed, as the entry of
+  2026-10-09 above records. No candidate closes CLDR's texts or qlog's records on the 9V45.
+
+  The owner chose to stop over building the first of the four and over measuring for the third.
+  New speed work on the module waits for the owner to ask.
+
 - **Step 19: a structural index over a batch's input (claim J6, decision 30), an experiment.**
   Ruled by the owner on 2026-09-29, after step 18's profile put the cycles left on a decoded token
   in instructions and not in stalls, and an x86-64-v3 build moved none of them. Decision 30 dropped
