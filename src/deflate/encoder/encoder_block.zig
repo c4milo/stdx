@@ -204,6 +204,19 @@ pub fn Appender(comptime runtime_safety: bool) type {
             self.block.distance_counts[distance_index] +%= 1;
         }
 
+        /// `pair` with the distance's code, which the caller found: a copy, so that `pair`
+        /// compiles as it did before this one.
+        pub inline fn pair_coded(self: *Self, len: usize, distance: usize, distance_index: CodeIndex) void {
+            @setRuntimeSafety(runtime_safety);
+            const count = self.count;
+            assert(count < constants.block_symbols_max);
+            assert(distance >= 1 and distance <= constants.encoder_distance_max);
+            self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
+            self.count = count + 1;
+            self.block.literal_length_counts[constants.first_length_symbol + length_code(runtime_safety, len)] +%= 1;
+            self.block.distance_counts[distance_index] +%= 1;
+        }
+
         /// Writes the count back, and adds `input_len`, the octets the symbols cover.
         pub fn finish(self: *const Self, input_len: usize) void {
             @setRuntimeSafety(runtime_safety);

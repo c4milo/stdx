@@ -223,8 +223,8 @@ test "each level's output for a seeded input is the one recorded here" {
     // Any change to what the encoder decides changes these; a change meant to must record new ones.
     const recorded = [_]struct { usize, u64 }{
         .{ 49100, 0x36c0bead5df53163 },
-        .{ 45802, 0xc5ede2243bbfe3e4 },
-        .{ 45739, 0x731ae949b5d16e06 },
+        .{ 45810, 0xf51a5099dda473ad },
+        .{ 45743, 0xc053fe12a5b0c891 },
     };
     var input: [120 * 1024]u8 = undefined;
     fill(&input, .mixed, 11);

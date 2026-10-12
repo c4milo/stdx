@@ -55,6 +55,9 @@ pub const Level = struct {
     /// window (decision 44). The lazy levels do. The greedy level ends its blocks where it did: a
     /// check and the blocks it adds cost its speed more than they take off its output.
     block_checks: bool,
+    /// Whether the level takes matches of `match_len_min` octets, 3, in a block after one whose
+    /// literals are dear (decision 50, `encoder_match_three.zig`). The lazy levels do.
+    three: bool,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
     /// Whether the level's loops run with Zig's runtime safety checks (decision 49): `Encoder`
@@ -95,15 +98,43 @@ comptime {
 /// tail's octets recur as often as the ones the search follows (`best_by_tail`, decision 46).
 pub const tail_skips_max = 4;
 
+/// The bits of the hash of 3 octets that names the latest position with them, in a block that
+/// takes 3-octet matches (decision 50): a table of 32 KiB. With 13 bits x-ray's matches saved
+/// 2.4% of its output at level 6 where these save 2.9%, and with 12 bits 1.7%.
+pub const three_hash_bits = 14;
+
+/// The farthest distance of a 3-octet match. A distance past 8,192 carries 12 or 13 extra bits
+/// (RFC 1951 §3.2.5), which alone cost what a literal and a half do.
+pub const three_distance_max = 8191;
+
+/// A block after one that took no 3-octet matches takes them when that block's literals were
+/// dear: when their codes took at least `dear_literal_cost_min` a literal at the mean, six and a
+/// half bits, and at least `dear_symbol_cost_min` for each of the block's literal/length
+/// symbols, five bits, both in eighths of a bit. Each literal costs many bits, and the literals
+/// are most of what the block's symbols are.
+pub const dear_literal_cost_min = 6 * cost_eighths_per_bit + cost_eighths_per_bit / 2;
+pub const dear_symbol_cost_min = 5 * cost_eighths_per_bit;
+
+/// A block after one that took 3-octet matches takes them too when they saved that block at
+/// least 1 part in this many of what its symbols cost without them, by an estimate from the
+/// symbols' own frequencies (`Three.paid`).
+pub const three_saving_divisor = 100;
+
+/// The most block ends a level waits before it tries 3-octet matches again, after a block they
+/// did not pay in: it waits one, and `three_wait_growth` times as many after each such block in
+/// a row.
+pub const three_wait_max = 64;
+pub const three_wait_growth = 2;
+
 /// The levels of decision 13.
 pub const encoder_levels = [_]u4{ 1, 6, 9 };
 
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .state_budget_len = 261 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .state_budget_len = 260 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .state_budget_len = 294 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .state_budget_len = 293 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
@@ -119,5 +150,8 @@ comptime {
         // A search that moves between chains needs the level's chains and a count for its moves.
         assert(!chosen.tail_chains or chosen.chains);
         assert(chosen.tail_move_candidates_min >= 1);
+        // A 3-octet match comes where a lazy step's search found none, in a block the level's
+        // checks price.
+        assert(!chosen.three or (chosen.chains and chosen.block_checks));
     }
 }

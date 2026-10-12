@@ -21,6 +21,7 @@ const emit_module = @import("encoder_emit.zig");
 const split_module = @import("encoder_split.zig");
 const Matcher = @import("encoder_match/encoder_match.zig").Matcher;
 const cost = @import("encoder_match/encoder_match_cost.zig");
+const Three = @import("encoder_match/encoder_match_three.zig").Three;
 const safety = @import("encoder_safety.zig");
 
 pub const EncoderOptions = struct {
@@ -59,6 +60,9 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         /// The prices of decision 42, at a lazy level, outside the match finder, so the finder's
         /// fields stay where its loop reads them.
         prices: if (level.chains) cost.Prices else void,
+        /// The 3-octet matches of a block after one with dear literals, at a level that takes
+        /// them, outside the match finder too.
+        three: if (level.three) Three else void,
         block: block_module.Block,
         plan: block_module.Plan,
         emit: emit_module.Emit,
@@ -86,6 +90,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
             _ = features;
             self.matcher.init();
             if (level.chains) self.prices.start();
+            if (level.three) self.three.start();
             start_block(options, self, 0);
             self.emit = .{};
             self.bits = .{};
@@ -209,6 +214,9 @@ fn slide(comptime options: EncoderOptions, self: *Encoder(options), writer: *con
         split_module.commit(&self.block, &self.split);
     }
     self.matcher.slide();
+    if (comptime constants.level(options.level).three) {
+        if (self.three.live) self.three.slide();
+    }
     // The block's octets after the slide start where the window's next undecided octet does.
     if (kept) self.block.input_start = self.matcher.pending_start() else start_block(options, self, self.matcher.pending_start());
     return null;
@@ -278,10 +286,13 @@ fn carry(comptime options: EncoderOptions, self: *Encoder(options), writer: *con
 }
 
 /// Decides positions into the block, priced in a block after one with cheap literals (decision
-/// 42).
+/// 42), and with matches of 3 octets in one that takes them.
 inline fn advance(comptime options: EncoderOptions, self: *Encoder(options), ending: bool) void {
     if (comptime constants.level(options.level).chains) {
         if (self.prices.cheap) return self.matcher.advance_priced(&self.block, ending, &self.prices.costs);
+    }
+    if (comptime constants.level(options.level).three) {
+        if (self.three.live) return self.matcher.advance_dear(&self.block, ending, &self.three);
     }
     self.matcher.advance(&self.block, ending);
 }
@@ -309,6 +320,9 @@ fn end_block(comptime options: EncoderOptions, self: *Encoder(options), final: b
     // The next block's prices come from this one's codes; the last has no block after it.
     if (comptime constants.level(options.level).chains) {
         if (!last) self.prices.update(&self.plan, &self.block.literal_length_counts);
+    }
+    if (comptime constants.level(options.level).three) {
+        if (!last) self.three.end_block(&self.plan, self.prices.cheap, &self.block, &self.split);
     }
     self.emitting_final = last;
     self.emit.start();
@@ -380,4 +394,5 @@ test {
     _ = @import("encoder_split_test.zig");
     _ = @import("encoder_fuzz_test.zig");
     _ = @import("encoder_limits_test.zig");
+    _ = @import("encoder_three_test.zig");
 }

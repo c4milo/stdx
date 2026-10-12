@@ -50,6 +50,7 @@ test "the encoder's loops leave their runtime safety checks only by their level'
     const chosen = [_][]const u8{
         @embedFile("encoder_match/encoder_match.zig"),      @embedFile("encoder_match/encoder_match_greedy.zig"),
         @embedFile("encoder_match/encoder_match_walk.zig"), @embedFile("encoder_match/encoder_match_walk_tail.zig"),
+        @embedFile("encoder_match/encoder_match_dear.zig"), @embedFile("encoder_match/encoder_match_three.zig"),
         @embedFile("encoder_block.zig"),                    @embedFile("encoder_emit.zig"),
     };
     for (chosen) |source| try std.testing.expect(try count_statements(source) > 0);

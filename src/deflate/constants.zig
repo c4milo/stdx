@@ -307,6 +307,13 @@ pub const priced_len_max = levels.priced_len_max;
 pub const lazy_distance_penalty_bounds = levels.lazy_distance_penalty_bounds;
 pub const lazy_distance_penalty_octets = levels.lazy_distance_penalty_octets;
 pub const tail_skips_max = levels.tail_skips_max;
+pub const three_hash_bits = levels.three_hash_bits;
+pub const three_distance_max = levels.three_distance_max;
+pub const dear_literal_cost_min = levels.dear_literal_cost_min;
+pub const dear_symbol_cost_min = levels.dear_symbol_cost_min;
+pub const three_saving_divisor = levels.three_saving_divisor;
+pub const three_wait_max = levels.three_wait_max;
+pub const three_wait_growth = levels.three_wait_growth;
 pub const encoder_levels = levels.encoder_levels;
 pub const level = levels.level;
 

@@ -31,6 +31,8 @@ const best = walk.best;
 const best_inline = walk.best_inline;
 const skips_search = walk.skips_search;
 const greedy = @import("encoder_match_greedy.zig");
+const dear = @import("encoder_match_dear.zig");
+const Three = @import("encoder_match_three.zig").Three;
 const advance_greedy = greedy.advance_greedy;
 const step_greedy = greedy.step_greedy;
 
@@ -41,7 +43,7 @@ pub const Match = struct {
 
     /// The match's worth in the lazy step's comparison: its length less what its distance costs in
     /// octets of literals, `lazy_distance_penalty_octets`, so a farther match must be longer to win.
-    fn score(self: Match, comptime runtime_safety: bool) i32 {
+    pub fn score(self: Match, comptime runtime_safety: bool) i32 {
         @setRuntimeSafety(runtime_safety);
         return @as(i32, self.len) - penalty_by_bits[@bitSizeOf(u16) - @clz(self.distance)];
     }
@@ -147,6 +149,13 @@ pub fn Matcher(comptime level: constants.Level) type {
             if (level.block_checks) advance_rounds(level, true, self, block, ending, costs) else advance_positions(level, true, self, block, ending, costs);
         }
 
+        /// `advance` in a block after one with dear literals, which takes matches of 3 octets
+        /// from `three`'s table: a third copy of the steps (`encoder_match_dear.zig`).
+        pub fn advance_dear(self: *Self, block: *Block, ending: bool, three: *Three) void {
+            @setRuntimeSafety(level.runtime_safety);
+            dear.advance(level, self, block, ending, three);
+        }
+
         /// Adds the lazy step's waiting symbol when the stream flushes or ends. Returns false, and
         /// adds nothing, when the block is full.
         pub fn settle(self: *Self, block: *Block) bool {
@@ -178,7 +187,7 @@ const slide_vector_len = 16;
 
 /// Subtracts `half` from every position, saturating at 0, none, `slide_vector_len` positions at a
 /// time.
-fn slide_positions(comptime runtime_safety: bool, positions: []u16, half: u16) void {
+pub fn slide_positions(comptime runtime_safety: bool, positions: []u16, half: u16) void {
     @setRuntimeSafety(runtime_safety);
     comptime assert(constants.window_len % slide_vector_len == 0);
     assert(positions.len % slide_vector_len == 0);
@@ -270,7 +279,7 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
 
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
 /// and a call to `best` at level 9, whose walks run long.
-inline fn search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+pub inline fn search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
     return if (level.walks_inline) best_inline(level, cheap, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
 }
