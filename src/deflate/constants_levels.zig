@@ -57,6 +57,10 @@ pub const Level = struct {
     block_checks: bool,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
+    /// Whether the level's loops run with Zig's runtime safety checks (decision 49): `Encoder`
+    /// sets it from the caller's `EncoderOptions.runtime_safety`, and true whatever that says in
+    /// a build that keeps the checks. Every level `level` returns keeps them.
+    runtime_safety: bool = true,
 };
 
 /// The prices of a lazy level's block whose literals are cheap count eighths of a bit, fine enough

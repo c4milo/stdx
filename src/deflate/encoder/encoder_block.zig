@@ -68,7 +68,8 @@ fn distance_codes(comptime far: bool) [if (far) constants.window_len >> far_dist
 }
 
 /// The code of a length, as its index from 257.
-pub inline fn length_code(len: usize) CodeIndex {
+pub inline fn length_code(comptime runtime_safety: bool, len: usize) CodeIndex {
+    @setRuntimeSafety(runtime_safety);
     assert(len >= constants.match_len_min and len <= constants.match_len_max);
     return length_code_of(@intCast(len - constants.match_len_min));
 }
@@ -80,7 +81,8 @@ pub inline fn length_code_of(value: u8) CodeIndex {
 
 /// The code of a distance. Both tables are read, so the choice is a select and not a branch, which
 /// the distances of a block would mispredict. Each index is a u8, so neither read is checked.
-pub inline fn distance_code(distance: usize) CodeIndex {
+pub inline fn distance_code(comptime runtime_safety: bool, distance: usize) CodeIndex {
+    @setRuntimeSafety(runtime_safety);
     assert(distance >= 1 and distance <= constants.window_len);
     const near = near_codes[@as(u8, @truncate(@min(distance, near_distances) - 1))];
     const far = far_codes[@as(u8, @truncate((distance - 1) >> far_distance_shift))];
@@ -138,11 +140,12 @@ pub const Block = struct {
 
     /// Symbols added by one loop with the count in a local, which the loop's stores elsewhere do not
     /// make the compiler reload; `finish` writes it back with the octets the symbols cover.
-    pub fn appender(self: *Block) Appender {
+    pub fn appender(self: *Block, comptime runtime_safety: bool) Appender(runtime_safety) {
         return .{ .block = self, .count = self.symbol_count };
     }
 
-    pub inline fn add_literal(self: *Block, octet: u8) void {
+    pub inline fn add_literal(self: *Block, comptime runtime_safety: bool, octet: u8) void {
+        @setRuntimeSafety(runtime_safety);
         assert(!self.full());
         self.symbols[self.symbol_count] = .{ .value = octet, .distance = 0 };
         self.symbol_count += 1;
@@ -150,55 +153,65 @@ pub const Block = struct {
         self.input_len += 1;
     }
 
-    pub inline fn add_pair(self: *Block, len: usize, distance: usize) void {
+    pub inline fn add_pair(self: *Block, comptime runtime_safety: bool, len: usize, distance: usize) void {
+        @setRuntimeSafety(runtime_safety);
         assert(!self.full());
         assert(distance >= 1 and distance <= constants.encoder_distance_max);
-        const distance_index = distance_code(distance);
+        const distance_index = distance_code(runtime_safety, distance);
         self.symbols[self.symbol_count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
         self.symbol_count += 1;
-        self.literal_length_counts[constants.first_length_symbol + length_code(len)] += 1;
+        self.literal_length_counts[constants.first_length_symbol + length_code(runtime_safety, len)] += 1;
         self.distance_counts[distance_index] += 1;
         self.input_len += len;
     }
 };
 
 /// `Block.appender`'s state. A block holds at most `block_symbols_max` symbols, fewer than 2^16,
-/// so none of its counts wraps and they add without an overflow check.
-pub const Appender = struct {
-    block: *Block,
-    count: u16,
+/// so none of its counts wraps and they add without an overflow check. `runtime_safety` is the
+/// caller's choice of decision 49, which the matcher's loops pass with their level's.
+pub fn Appender(comptime runtime_safety: bool) type {
+    return struct {
+        const Self = @This();
 
-    /// `>=` rather than `==`: a loop that stops here leaves the count provably below the limit, so
-    /// the appends' bound costs nothing.
-    pub inline fn full(self: *const Appender) bool {
-        return self.count >= constants.block_symbols_max;
-    }
+        block: *Block,
+        count: u16,
 
-    pub inline fn literal(self: *Appender, octet: u8) void {
-        const count = self.count;
-        assert(count < constants.block_symbols_max);
-        self.block.symbols[count] = .{ .value = octet, .distance = 0 };
-        self.count = count + 1;
-        self.block.literal_length_counts[octet] +%= 1;
-    }
+        /// `>=` rather than `==`: a loop that stops here leaves the count provably below the
+        /// limit, so the appends' bound costs nothing.
+        pub inline fn full(self: *const Self) bool {
+            @setRuntimeSafety(runtime_safety);
+            return self.count >= constants.block_symbols_max;
+        }
 
-    pub inline fn pair(self: *Appender, len: usize, distance: usize) void {
-        const count = self.count;
-        assert(count < constants.block_symbols_max);
-        assert(distance >= 1 and distance <= constants.encoder_distance_max);
-        const distance_index = distance_code(distance);
-        self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
-        self.count = count + 1;
-        self.block.literal_length_counts[constants.first_length_symbol + length_code(len)] +%= 1;
-        self.block.distance_counts[distance_index] +%= 1;
-    }
+        pub inline fn literal(self: *Self, octet: u8) void {
+            @setRuntimeSafety(runtime_safety);
+            const count = self.count;
+            assert(count < constants.block_symbols_max);
+            self.block.symbols[count] = .{ .value = octet, .distance = 0 };
+            self.count = count + 1;
+            self.block.literal_length_counts[octet] +%= 1;
+        }
 
-    /// Writes the count back, and adds `input_len`, the octets the symbols cover.
-    pub fn finish(self: *const Appender, input_len: usize) void {
-        self.block.symbol_count = self.count;
-        self.block.input_len += input_len;
-    }
-};
+        pub inline fn pair(self: *Self, len: usize, distance: usize) void {
+            @setRuntimeSafety(runtime_safety);
+            const count = self.count;
+            assert(count < constants.block_symbols_max);
+            assert(distance >= 1 and distance <= constants.encoder_distance_max);
+            const distance_index = distance_code(runtime_safety, distance);
+            self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
+            self.count = count + 1;
+            self.block.literal_length_counts[constants.first_length_symbol + length_code(runtime_safety, len)] +%= 1;
+            self.block.distance_counts[distance_index] +%= 1;
+        }
+
+        /// Writes the count back, and adds `input_len`, the octets the symbols cover.
+        pub fn finish(self: *const Self, input_len: usize) void {
+            @setRuntimeSafety(runtime_safety);
+            self.block.symbol_count = self.count;
+            self.block.input_len += input_len;
+        }
+    };
+}
 
 comptime {
     // A count reaches at most `block_symbols_max`, end-of-block's one more: no count wraps.

@@ -10,6 +10,10 @@
 //! stream's flush or end, so how the caller splits its input changes nothing (invariant 5). The
 //! positions with the whole lookahead ahead go through a loop of their own, where every match may
 //! run to `match_len_max` and the step's state stays in locals; the general step takes the rest.
+//!
+//! Every function of the match finder says whether it keeps Zig's runtime safety checks, with its
+//! level's `runtime_safety` or the flag a caller copied from it: the caller's choice of decision
+//! 49 (`encoder_safety.zig`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -37,7 +41,8 @@ pub const Match = struct {
 
     /// The match's worth in the lazy step's comparison: its length less what its distance costs in
     /// octets of literals, `lazy_distance_penalty_octets`, so a farther match must be longer to win.
-    fn score(self: Match) i32 {
+    fn score(self: Match, comptime runtime_safety: bool) i32 {
+        @setRuntimeSafety(runtime_safety);
         return @as(i32, self.len) - penalty_by_bits[@bitSizeOf(u16) - @clz(self.distance)];
     }
 };
@@ -93,6 +98,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// candidate, and the output is a function of this stream's input alone (invariant 5).
         /// Decision 11 allows an encoder's `init` this clear, and no other.
         pub fn init(self: *Self) void {
+            @setRuntimeSafety(level.runtime_safety);
             @memset(&self.heads, 0);
             self.filled = 0;
             self.position = 0;
@@ -102,6 +108,7 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         /// Copies what fits of `input` into the window. Returns how many octets.
         pub fn fill(self: *Self, input: []const u8) usize {
+            @setRuntimeSafety(level.runtime_safety);
             const len = @min(input.len, constants.encoder_window_len - self.filled);
             @memcpy(self.window[self.filled..][0..len], input[0..len]);
             self.filled += len;
@@ -110,20 +117,24 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         /// Whether the window is full and too few octets lie ahead to go on, so it must slide.
         pub fn must_slide(self: *const Self) bool {
+            @setRuntimeSafety(level.runtime_safety);
             return self.filled == constants.encoder_window_len and self.position + constants.lookahead_min > self.filled;
         }
 
         pub fn slide(self: *Self) void {
+            @setRuntimeSafety(level.runtime_safety);
             slide_window(level, self);
         }
 
         /// The first position no symbol of the block covers yet: the lazy step's waiting one, or the
         /// next.
         pub fn pending_start(self: *const Self) usize {
+            @setRuntimeSafety(level.runtime_safety);
             return self.position - @intFromBool(self.waiting);
         }
 
         pub fn advance(self: *Self, block: *Block, ending: bool) void {
+            @setRuntimeSafety(level.runtime_safety);
             if (level.block_checks) advance_rounds(level, false, self, block, ending, {}) else advance_positions(level, false, self, block, ending, {});
         }
 
@@ -131,6 +142,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// (decision 42): a copy of the steps of its own, so every other block runs the steps it
         /// ran before.
         pub fn advance_priced(self: *Self, block: *Block, ending: bool, costs: *const cost.Costs) void {
+            @setRuntimeSafety(level.runtime_safety);
             comptime assert(level.chains);
             if (level.block_checks) advance_rounds(level, true, self, block, ending, costs) else advance_positions(level, true, self, block, ending, costs);
         }
@@ -138,6 +150,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// Adds the lazy step's waiting symbol when the stream flushes or ends. Returns false, and
         /// adds nothing, when the block is full.
         pub fn settle(self: *Self, block: *Block) bool {
+            @setRuntimeSafety(level.runtime_safety);
             assert(self.position == self.filled);
             if (!self.waiting) return true;
             if (block.full()) return false;
@@ -150,13 +163,14 @@ pub fn Matcher(comptime level: constants.Level) type {
 /// Moves the window's second half to its first, keeping 32 KiB of history, and moves every head
 /// and link with it; one that falls out of the window names none.
 fn slide_window(comptime level: constants.Level, self: *Matcher(level)) void {
+    @setRuntimeSafety(level.runtime_safety);
     assert(self.must_slide());
     const half: u16 = constants.window_len;
     @memcpy(self.window[0..half], self.window[half..constants.encoder_window_len]);
     self.filled -= constants.window_len;
     self.position -= constants.window_len;
-    slide_positions(&self.heads, half);
-    if (level.chains) slide_positions(&self.chain, half);
+    slide_positions(level.runtime_safety, &self.heads, half);
+    if (level.chains) slide_positions(level.runtime_safety, &self.chain, half);
 }
 
 /// The positions a vector op moves at once.
@@ -164,7 +178,8 @@ const slide_vector_len = 16;
 
 /// Subtracts `half` from every position, saturating at 0, none, `slide_vector_len` positions at a
 /// time.
-fn slide_positions(positions: []u16, half: u16) void {
+fn slide_positions(comptime runtime_safety: bool, positions: []u16, half: u16) void {
+    @setRuntimeSafety(runtime_safety);
     comptime assert(constants.window_len % slide_vector_len == 0);
     assert(positions.len % slide_vector_len == 0);
     const Vector = @Vector(slide_vector_len, u16);
@@ -182,6 +197,7 @@ fn slide_positions(positions: []u16, half: u16) void {
 /// the code they ran without a limit. The last positions before a flush or the stream's end, fewer
 /// than `lookahead_min`, are decided a step at a time and may pass the limit by as many symbols.
 fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) void {
+    @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.block_checks);
     const filled = self.filled;
     for (0..filled + 1) |_| {
@@ -202,6 +218,7 @@ fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, self: *
 /// more. `cheap` compiles in the prices of decision 42, `costs`. Never inline, so a round calls
 /// the code a call ran before the rounds.
 noinline fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
+    @setRuntimeSafety(level.runtime_safety);
     if (level.chains) advance_lazy(level, cheap, self, block, costs) else advance_greedy(level, self, block);
     for (0..self.filled + 1) |_| {
         if (block.full()) return;
@@ -216,6 +233,7 @@ noinline fn advance_positions(comptime level: constants.Level, comptime cheap: b
 /// `match_len_max` and every position it covers has `hash_len` octets: `end` is the first position
 /// without them, or none when the window holds too little.
 pub fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level)) ?usize {
+    @setRuntimeSafety(level.runtime_safety);
     if (self.filled < constants.lookahead_min) return null;
     return self.filled - constants.lookahead_min + 1;
 }
@@ -225,6 +243,7 @@ pub fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level
 /// and the waiting match, lives in locals through the loop. `cheap` compiles in the prices of
 /// decision 42.
 fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
+    @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.chains);
     const lookahead = lookahead_end(level, self) orelse return;
     // The end is bounded by the window too, so every position the loop inserts, a match's
@@ -234,7 +253,7 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
     // The symbols cover the octets from the first position no symbol covers yet, as they stand at
     // the loop's start and end, so the loop adds their count once.
     const covered_from = state.position - @intFromBool(state.waiting);
-    var symbols = block.appender();
+    var symbols = block.appender(level.runtime_safety);
     while (state.position < end and !symbols.full()) {
         insert(level, self, state.position);
         var current: Match = .{};
@@ -252,6 +271,7 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
 /// and a call to `best` at level 9, whose walks run long.
 inline fn search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+    @setRuntimeSafety(level.runtime_safety);
     return if (level.walks_inline) best_inline(level, cheap, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
 }
 
@@ -265,8 +285,9 @@ const LazyState = struct {
 
 /// Takes the waiting match when it is worth at least the `current` one, else adds the position
 /// before as a literal and lets `current` wait.
-fn decide_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), costs: CostsOf(cheap), symbols: *Appender, state: *LazyState, current: Match) void {
-    if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score() >= current.score() and accepted(level, cheap, self, costs, state.position, state.previous)) {
+fn decide_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), costs: CostsOf(cheap), symbols: *Appender(level.runtime_safety), state: *LazyState, current: Match) void {
+    @setRuntimeSafety(level.runtime_safety);
+    if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score(level.runtime_safety) >= current.score(level.runtime_safety) and accepted(level, cheap, self, costs, state.position, state.previous)) {
         state.position = take_waiting(level, self, symbols, state.position, state.previous);
         state.waiting = false;
         state.previous = .{};
@@ -282,13 +303,15 @@ fn decide_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Mat
 /// always, unless the block before had cheap literals, when the match must cost fewer bits than the
 /// literals it covers (decision 42).
 inline fn accepted(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), costs: CostsOf(cheap), position: usize, found: Match) bool {
+    @setRuntimeSafety(level.runtime_safety);
     return if (cheap) cost.saves_bits(costs, self.window[position - 1 ..][0..found.len], found.distance) else true;
 }
 
 /// Adds the match waiting from the position before `position`, every position it covers joining
 /// the chains, as a later match may start there. Returns the first position after it. Inline, as
 /// each copy of the lazy loop calls it once a match (decision 42).
-inline fn take_waiting(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender, position: usize, previous: Match) usize {
+inline fn take_waiting(comptime level: constants.Level, self: *Matcher(level), symbols: *Appender(level.runtime_safety), position: usize, previous: Match) usize {
+    @setRuntimeSafety(level.runtime_safety);
     assert(previous.len >= constants.match_len_taken_min);
     const match_end = position - 1 + previous.len;
     assert(match_end + constants.hash_len <= self.filled);
@@ -303,13 +326,14 @@ inline fn take_waiting(comptime level: constants.Level, self: *Matcher(level), s
 
 /// One lazy step at a position with `ahead` octets ahead, fewer than the lookahead.
 fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ahead: usize, costs: CostsOf(cheap)) void {
+    @setRuntimeSafety(level.runtime_safety);
     if (ahead >= constants.hash_len) insert(level, self, self.position);
     // A waiting match at least `lazy_len` long is taken without a search here.
     const skip = self.waiting and self.previous.len >= level.lazy_len;
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
     const current = if (skip) Match{} else search(level, cheap, self, @min(ahead, constants.match_len_max), self.previous.len);
-    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score() >= current.score() and accepted(level, cheap, self, costs, self.position, self.previous)) {
+    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score(level.runtime_safety) >= current.score(level.runtime_safety) and accepted(level, cheap, self, costs, self.position, self.previous)) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.
         for (self.position + 1..end) |covered| {
@@ -318,7 +342,7 @@ fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Match
         take_previous(level, self, block);
         return;
     }
-    if (self.waiting) block.add_literal(self.window[self.position - 1]);
+    if (self.waiting) block.add_literal(level.runtime_safety, self.window[self.position - 1]);
     self.previous = current;
     self.waiting = true;
     self.position += 1;
@@ -326,19 +350,21 @@ fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Match
 
 /// Adds the waiting position's symbol, and moves past what it covers.
 fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: *Block) align(constants.hot_function_alignment) void {
+    @setRuntimeSafety(level.runtime_safety);
     assert(self.waiting);
     self.waiting = false;
     if (self.previous.len >= constants.match_len_taken_min) {
-        block.add_pair(self.previous.len, self.previous.distance);
+        block.add_pair(level.runtime_safety, self.previous.len, self.previous.distance);
         self.position += self.previous.len - 1;
     } else {
-        block.add_literal(self.window[self.position - 1]);
+        block.add_literal(level.runtime_safety, self.window[self.position - 1]);
     }
     self.previous = .{};
 }
 
 /// The `match_len_taken_min` octets of `run` at `at`, least significant first.
-pub inline fn tail_octets(run: []const u8, at: usize) u32 {
+pub inline fn tail_octets(comptime runtime_safety: bool, run: []const u8, at: usize) u32 {
+    @setRuntimeSafety(runtime_safety);
     comptime assert(constants.match_len_taken_min == @sizeOf(u32));
     return std.mem.readInt(u32, run[at..][0..constants.match_len_taken_min], .little);
 }
@@ -350,6 +376,7 @@ pub inline fn slot(position: usize) Slot {
 
 /// Adds `at` to its hash's chain.
 inline fn insert(comptime level: constants.Level, self: *Matcher(level), at: usize) void {
+    @setRuntimeSafety(level.runtime_safety);
     const head = &self.heads[hash(level, self, at)];
     self.chain[slot(at)] = head.*;
     head.* = @intCast(at);
@@ -357,19 +384,22 @@ inline fn insert(comptime level: constants.Level, self: *Matcher(level), at: usi
 
 /// The hash of the 4 octets at `at`, least significant first (decision 14, E1).
 pub inline fn hash(comptime level: constants.Level, self: *const Matcher(level), at: usize) Hash(level) {
+    @setRuntimeSafety(level.runtime_safety);
     return hash_of_word(level, std.mem.readInt(u32, self.window[at..][0..constants.hash_len], .little));
 }
 
 /// `hash` of 4 octets already read least significant first: the product's top `hash_bits` bits,
 /// which the truncation keeps whole.
 pub inline fn hash_of_word(comptime level: constants.Level, octets: u32) Hash(level) {
+    @setRuntimeSafety(level.runtime_safety);
     return @truncate((octets *% constants.hash_multiplier) >> @intCast(@bitSizeOf(u32) - @as(u6, level.hash_bits)));
 }
 
 /// How many octets from the start of `earlier` equal those of `later`: 8 octets at a time, the
 /// first that differs found by the trailing zeros of their XOR (decision 14, E1). Both runs are
 /// walked as slices of words and then of octets, so no read checks its bounds on its own.
-pub fn match_len(earlier: []const u8, later: []const u8) align(constants.hot_function_alignment) usize {
+pub fn match_len(comptime runtime_safety: bool, earlier: []const u8, later: []const u8) align(constants.hot_function_alignment) usize {
+    @setRuntimeSafety(runtime_safety);
     assert(earlier.len == later.len and earlier.len <= constants.match_len_max);
     const word_len = @sizeOf(u64);
     const words_len = earlier.len - earlier.len % word_len;

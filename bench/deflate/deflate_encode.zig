@@ -1,5 +1,6 @@
 //! bench-deflate's encoding section: the gzip encoders of zlib, zlib-ng, libdeflate and stdx at
-//! levels 1, 6 and 9, the levels decision 13 gives stdx's encoder (design §8 step 9).
+//! levels 1, 6 and 9, the levels decision 13 gives stdx's encoder (design §8 step 9), and stdx's
+//! with its runtime safety checks off, as a caller may choose (decision 49).
 //!
 //! - Each operation encodes one whole member a part of the row's input from a fresh state, as a
 //!   caller encoding one response does: the baselines allocate and free their state inside it, and
@@ -10,7 +11,7 @@
 //! - Each library means its own search by a level, so a row compares what each calls level 1, 6 or
 //!   9.
 //! - Every candidate's member of every part decodes back to the part through zlib before any is
-//!   timed.
+//!   timed, and stdx's encoder without its checks writes the members it writes with them.
 
 const std = @import("std");
 const oracle = @import("oracle");
@@ -24,10 +25,13 @@ const Input = inputs.Input;
 /// The levels every encoder is timed at.
 const levels = [_]u4{ 1, 6, 9 };
 
-/// The candidates, in the tables' order; stdx is last.
-const candidate_names = [_][]const u8{ "zlib", "zlib-ng", "libdeflate", "stdx" };
+/// The candidates, in the speed table's order: stdx, then stdx with its encoder's runtime safety
+/// checks off, are last. The ratio table leaves the last out, as it writes stdx's octets.
+const candidate_names = [_][]const u8{ "zlib", "zlib-ng", "libdeflate", "stdx", "stdx unchecked" };
 const candidate_count = candidate_names.len;
-const stdx_index = candidate_count - 1;
+const unchecked_index = candidate_count - 1;
+const stdx_index = unchecked_index - 1;
+const ratio_count = unchecked_index;
 
 /// One row's input at one level: each candidate's median throughput, its spread in percent, and
 /// its ratio.
@@ -37,7 +41,7 @@ const Row = struct {
     level: u4,
     rates: [candidate_count]f64,
     spreads: [candidate_count]f64,
-    ratios: [candidate_count]f64,
+    ratios: [ratio_count]f64,
 };
 
 /// An encode of one gzip member by zlib, the oracle, at one level.
@@ -63,12 +67,13 @@ const BaselineEncode = struct {
     }
 };
 
-/// An encode of one gzip member by stdx's encoder at `level`, in one call. The state is placed
-/// once and reached through a pointer, and each encode starts it with `init`.
-fn StdxEncode(comptime level: u4) type {
+/// An encode of one gzip member by stdx's encoder at `level`, in one call, with its runtime safety
+/// checks or, as a caller may choose, without them (decision 49). The state is placed once and
+/// reached through a pointer, and each encode starts it with `init`.
+fn StdxEncode(comptime level: u4, comptime runtime_safety: bool) type {
     return struct {
         const Self = @This();
-        const Encoder = gzip.Encoder(.{ .level = level });
+        const Encoder = gzip.Encoder(.{ .level = level, .runtime_safety = runtime_safety });
 
         output: []u8,
         encoder: *Encoder,
@@ -90,7 +95,8 @@ pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []
     }
     try out.print("\n## Encoding speed, gzip\n\n", .{});
     try inputs.note(out, all);
-    try print_header(out, "MB/s", "stdx / zlib");
+    try out.print("`stdx unchecked` is stdx's encoder with its runtime safety checks off, as a caller may choose (decision 49); it writes the octets `stdx` writes.\n\n", .{});
+    try print_header(out, candidate_count, "MB/s", "stdx / zlib");
     for (rows.items) |row| {
         try out.print("| {s} | {d} | {d} |", .{ row.name, row.input_len, row.level });
         for (row.rates, row.spreads) |rate, spread| try out.print(" {d:.1} ± {d:.1}% |", .{ rate, spread });
@@ -98,7 +104,7 @@ pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []
     }
     try out.print("\n## Encoding ratio, gzip\n\n", .{});
     try inputs.note(out, all);
-    try print_header(out, "ratio", "stdx / zlib");
+    try print_header(out, ratio_count, "ratio", "stdx / zlib");
     for (rows.items) |row| {
         try out.print("| {s} | {d} | {d} |", .{ row.name, row.input_len, row.level });
         for (row.ratios) |ratio| try out.print(" {d:.3} |", .{ratio});
@@ -106,23 +112,26 @@ pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []
     }
 }
 
-fn print_header(out: *std.Io.Writer, unit: []const u8, last: []const u8) !void {
+/// A table's header: the first `count` candidates' columns, each in `unit`, then `last`.
+fn print_header(out: *std.Io.Writer, count: usize, unit: []const u8, last: []const u8) !void {
     try out.print("| File | Octets | Level |", .{});
-    for (candidate_names) |name| try out.print(" {s}, {s} |", .{ name, unit });
+    for (candidate_names[0..count]) |name| try out.print(" {s}, {s} |", .{ name, unit });
     try out.print(" {s} |\n|---|---|---|", .{last});
-    for (0..candidate_count + 1) |_| try out.print("---|", .{});
+    for (0..count + 1) |_| try out.print("---|", .{});
     try out.print("\n", .{});
 }
 
 /// One row: each candidate encodes every part of `input` and its members are decoded back, then
 /// all are timed interleaved.
 fn measure(comptime level: u4, arena: std.mem.Allocator, io: std.Io, input: Input) !Row {
-    const Stdx = StdxEncode(level);
+    const Stdx = StdxEncode(level, true);
+    const Unchecked = StdxEncode(level, false);
     const output_len = @max(oracle.zlib_bound(.gzip, input.part_len), baselines.libdeflate_gzip_bound(input.part_len), Stdx.Encoder.encoded_len_max(input.part_len));
     const zlib: ZlibEncode = .{ .output = try arena.alloc(u8, output_len), .level = level };
     const zlib_ng: BaselineEncode = .{ .output = try arena.alloc(u8, output_len), .level = level, .encode_with = baselines.zlib_ng_gzip_encode };
     const libdeflate: BaselineEncode = .{ .output = try arena.alloc(u8, output_len), .level = level, .encode_with = baselines.libdeflate_gzip_encode };
     const stdx: Stdx = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx.Encoder), .features = codec.Features.detect() };
+    const unchecked: Unchecked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Unchecked.Encoder), .features = stdx.features };
     var row: Row = .{ .name = input.name, .input_len = input.len(), .level = level, .rates = undefined, .spreads = undefined, .ratios = undefined };
     var candidates: [candidate_count]timing.Operation = undefined;
     const decoded = try arena.alloc(u8, input.part_len);
@@ -131,6 +140,8 @@ fn measure(comptime level: u4, arena: std.mem.Allocator, io: std.Io, input: Inpu
         row.ratios[index] = @as(f64, @floatFromInt(input.len())) / @as(f64, @floatFromInt(encoded_len));
         candidates[index] = try inputs.operation(arena, candidate, input.parts);
     }
+    try expect_same_members(stdx, unchecked, input);
+    candidates[unchecked_index] = try inputs.operation(arena, unchecked, input.parts);
     var runs: [candidate_count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     for (runs, &row.rates, &row.spreads) |candidate_runs, *rate, *spread| {
@@ -151,6 +162,16 @@ fn encoded_len_of(candidate: anytype, input: Input, decoded: []u8) !usize {
         encoded_len += member_len;
     }
     return encoded_len;
+}
+
+/// Requires stdx's encoder without its runtime safety checks to write, for every part of `input`,
+/// the member it writes with them.
+fn expect_same_members(checked: anytype, unchecked: anytype, input: Input) !void {
+    for (input.parts) |part| {
+        const checked_len = checked.run(part) orelse return error.CandidateFailed;
+        const unchecked_len = unchecked.run(part) orelse return error.CandidateFailed;
+        if (!std.mem.eql(u8, checked.output[0..checked_len], unchecked.output[0..unchecked_len])) return error.CandidatesDisagree;
+    }
 }
 
 /// Requires `member` to decode through zlib to `input`.

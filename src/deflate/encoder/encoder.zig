@@ -21,19 +21,39 @@ const emit_module = @import("encoder_emit.zig");
 const split_module = @import("encoder_split.zig");
 const Matcher = @import("encoder_match/encoder_match.zig").Matcher;
 const cost = @import("encoder_match/encoder_match_cost.zig");
+const safety = @import("encoder_safety.zig");
 
 pub const EncoderOptions = struct {
     /// 1, 6 or 9 (decision 13).
     level: u4 = 6,
+    /// Whether the encoder's loops keep Zig's runtime safety checks, as the rest of a ReleaseSafe
+    /// build does (decision 49). A caller may set it false: the match finder, the block's appender
+    /// and the block writer then run without them in that encoder's type, which encoded 4% to 8%
+    /// faster on the runners. A test build and a Debug build keep the checks whatever it
+    /// says (`encoder_safety.zig`), and so do the assertions.
+    runtime_safety: bool = true,
 };
+
+/// The level's parameters, with whether its loops run with runtime safety: the caller's choice,
+/// and always in a build that keeps the checks. The one place that decides it; every function the
+/// choice reaches reads the level's field, or the flag a caller copied from it.
+fn level_of(comptime options: EncoderOptions) constants.Level {
+    var chosen = constants.level(options.level);
+    chosen.runtime_safety = options.runtime_safety or safety.kept;
+    return chosen;
+}
 
 /// Where a stream stands after its blocks.
 const Stage = enum(u8) { encoding, final_padding, done };
 
 pub fn Encoder(comptime options: EncoderOptions) type {
-    const level = constants.level(options.level);
+    const level = level_of(options);
     return struct {
         const Self = @This();
+
+        /// Whether this encoder's loops run with Zig's runtime safety checks: the caller's
+        /// choice, and always in a build that keeps them (decision 49).
+        pub const runtime_safety = level.runtime_safety;
 
         matcher: Matcher(level),
         /// The prices of decision 42, at a lazy level, outside the match finder, so the finder's
@@ -122,7 +142,7 @@ fn run(comptime options: EncoderOptions, self: *Encoder(options), input: []const
     const steps_max = constants.encoder_steps_per_octet * (input.len + writer.writer.octets.len) + constants.encoder_steps_floor;
     for (0..steps_max) |_| {
         if (self.emit.active()) {
-            if (!emit_module.write(&self.emit, &self.plan, &self.block, self.matcher.window[0..constants.encoder_window_len], writer)) return .needs_room;
+            if (!emit_module.write(comptime level_of(options).runtime_safety, &self.emit, &self.plan, &self.block, self.matcher.window[0..constants.encoder_window_len], writer)) return .needs_room;
             written(options, self, writer);
             continue;
         }
@@ -343,7 +363,18 @@ fn encoded_len_bound(comptime checked: bool, input_len: usize) usize {
     return input_len + (blocks * header_bits + @bitSizeOf(u8) - 1) / @bitSizeOf(u8) + 1;
 }
 
+test "a level keeps its runtime safety checks by default, and in a test build whatever the caller chose" {
+    inline for (constants.encoder_levels) |number| {
+        try std.testing.expect(constants.level(number).runtime_safety);
+        try std.testing.expect(level_of(.{ .level = number }).runtime_safety);
+        // This build keeps the checks (`safety.kept`), so the caller's choice changes nothing here.
+        try std.testing.expect(level_of(.{ .level = number, .runtime_safety = false }).runtime_safety);
+    }
+    try std.testing.expect((EncoderOptions{}).runtime_safety);
+}
+
 test {
+    _ = @import("encoder_safety.zig");
     _ = @import("encoder_test.zig");
     _ = @import("encoder_split_price.zig");
     _ = @import("encoder_split_test.zig");

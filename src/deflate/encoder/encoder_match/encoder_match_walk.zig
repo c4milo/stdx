@@ -33,10 +33,11 @@ const Walk = struct {
     done: bool = false,
 
     inline fn init(comptime level: constants.Level, self: *const Matcher(level), position: usize, len_max: usize, budget: u16) Walk {
+        @setRuntimeSafety(level.runtime_safety);
         assert(len_max >= constants.match_len_taken_min and position + len_max <= self.filled);
         const later = self.window[position..][0..len_max];
         const lowest = @max(1, position -| constants.encoder_distance_max);
-        return .{ .position = position, .later = later, .candidate = self.chain[slot(position)], .lowest = lowest, .budget = budget, .later_tail = tail_octets(later, 0) };
+        return .{ .position = position, .later = later, .candidate = self.chain[slot(position)], .lowest = lowest, .budget = budget, .later_tail = tail_octets(level.runtime_safety, later, 0) };
     }
 
     /// Examines the next candidate, or ends the walk: at its budget, at the chain's end, at a
@@ -46,6 +47,7 @@ const Walk = struct {
     /// of those 4 turns away most candidates before `match_len` compares from the start, and a
     /// candidate rarely passes it by chance, so its branch stays predictable.
     inline fn step(walk: *Walk, comptime level: constants.Level, self: *const Matcher(level)) void {
+        @setRuntimeSafety(level.runtime_safety);
         if (walk.done) return;
         const candidate = walk.candidate;
         // The chain names earlier positions, each farther than the one before it.
@@ -57,13 +59,13 @@ const Walk = struct {
         walk.candidate = self.chain[slot(candidate)];
         // Below the budget, at most `candidates_max`, which fits 16 bits.
         walk.tried +%= 1;
-        if (tail_octets(self.window[candidate..], walk.tail) == walk.later_tail) {
+        if (tail_octets(level.runtime_safety, self.window[candidate..], walk.tail) == walk.later_tail) {
             walk.found = longer_match(level, self, walk.position, candidate, walk.later, walk.found);
             if (walk.found.len >= level.nice_len or walk.found.len >= walk.later.len) {
                 walk.done = true;
             } else {
-                walk.tail = tail_of(walk.found);
-                walk.later_tail = tail_octets(walk.later, walk.tail);
+                walk.tail = tail_of(level.runtime_safety, walk.found);
+                walk.later_tail = tail_octets(level.runtime_safety, walk.later, walk.tail);
             }
         }
     }
@@ -76,6 +78,7 @@ const Walk = struct {
 /// with `tail_chains` those two bound the links the search reads, and it may find its match
 /// among positions farther back than they would reach on the position's own chain.
 pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) align(constants.hot_function_alignment) Match {
+    @setRuntimeSafety(level.runtime_safety);
     return best_inline(level, cheap, self, len_max, previous_len);
 }
 
@@ -83,6 +86,7 @@ pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const 
 /// two, so a call's own cost is a large share of the walk there; level 9's walks run long, and it
 /// calls `best`.
 pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+    @setRuntimeSafety(level.runtime_safety);
     if (self.position + constants.hash_len > self.filled) return .{};
     const cut = previous_len >= level.cut_len;
     // A block with cheap literals walks long chains of short matches its prices turn away
@@ -123,10 +127,11 @@ const tests_nearest_first = builtin.cpu.arch.isAARCH64();
 /// the candidate that fell out of reach, so every candidate after one out of reach is out of
 /// reach too.
 inline fn short_chain_misses(comptime level: constants.Level, comptime count: usize, self: *const Matcher(level), position: usize) bool {
+    @setRuntimeSafety(level.runtime_safety);
     // Level 6's padding keeps a load at any 16-bit position inside its window, so its loads carry
     // no check; level 9's window has none, and its loads keep theirs.
     comptime assert(level.chains and count >= 1);
-    const word = tail_octets(self.window[position..], 0);
+    const word = tail_octets(level.runtime_safety, self.window[position..], 0);
     const lowest = @max(1, position -| constants.encoder_distance_max);
     // Each value is as wide as an index. A 16-bit value here would join the walk's own candidate,
     // which the compiler then keeps 16 bits wide and extends at every link.
@@ -136,7 +141,7 @@ inline fn short_chain_misses(comptime level: constants.Level, comptime count: us
     var matched: u32 = 0;
     inline for (0..count) |index| {
         at = if (read >= lowest) read else at;
-        matched |= @intFromBool(tail_octets(self.window[at..], 0) == word);
+        matched |= @intFromBool(tail_octets(level.runtime_safety, self.window[at..], 0) == word);
         // The 4 octets read at the position itself are its own, so a match counts only when the
         // nearest candidate is in reach.
         if (tests_nearest_first and index == 0 and (@intFromBool(nearest >= lowest) & matched) != 0) return false;
@@ -152,6 +157,7 @@ inline fn short_chain_misses(comptime level: constants.Level, comptime count: us
 /// positions of a block with cheap literals, whose octets take few values (decision 42): both
 /// would pay the chain's reads for nothing, and search as before.
 pub inline fn skips_search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), position: usize, previous_len: u16, waiting: bool) bool {
+    @setRuntimeSafety(level.runtime_safety);
     const taken = waiting and previous_len >= level.lazy_len;
     if (cheap) return taken;
     return taken or (previous_len == 0 and short_chain_misses(level, short_chain_len, self, position));
@@ -159,14 +165,16 @@ pub inline fn skips_search(comptime level: constants.Level, comptime cheap: bool
 
 /// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,
 /// less the 4, or the match's first octets while none is found.
-pub inline fn tail_of(found: Match) u8 {
+pub inline fn tail_of(comptime runtime_safety: bool, found: Match) u8 {
+    @setRuntimeSafety(runtime_safety);
     assert(found.len == 0 or found.len >= constants.match_len_taken_min);
     return @intCast(found.len -| (constants.match_len_taken_min - 1));
 }
 
 /// The match at `candidate` for `position` when it is longer than `found`, else `found`.
 inline fn longer_match(comptime level: constants.Level, self: *const Matcher(level), position: usize, candidate: u16, later: []const u8, found: Match) Match {
-    const len = match_len(self.window[candidate..][0..later.len], later);
+    @setRuntimeSafety(level.runtime_safety);
+    const len = match_len(level.runtime_safety, self.window[candidate..][0..later.len], later);
     if (len <= found.len) return found;
     return .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
 }
@@ -194,6 +202,7 @@ const Link = struct { at: u16, holds: bool = false };
 /// Makes `matcher` a window of zeros that holds `position_octets` at `position`, whose chain names
 /// `links`, the nearest first: each link's own link is the next, and the last's none.
 fn set_chain(comptime level: constants.Level, matcher: *Matcher(level), position: usize, links: []const Link) void {
+    @setRuntimeSafety(level.runtime_safety);
     matcher.init();
     @memset(&matcher.window, 0);
     @memset(&matcher.chain, 0);
@@ -217,6 +226,7 @@ comptime {
 /// `short_chain_misses` of `count` candidates at `position`, over the chain `set_chain` makes of
 /// `links`, at one level.
 fn misses_at(comptime level: constants.Level, comptime count: usize, position: usize, links: []const Link) bool {
+    @setRuntimeSafety(level.runtime_safety);
     var matcher: Matcher(level) = undefined;
     set_chain(level, &matcher, position, links);
     return short_chain_misses(level, count, &matcher, position);
@@ -309,6 +319,7 @@ test "the link in a slot whose candidate fell out of reach is not followed" {
 
 /// What `skips_search` answers at one level, in each state the lazy loop tells apart.
 fn expect_skips(comptime level: constants.Level) !void {
+    @setRuntimeSafety(level.runtime_safety);
     const position = 40_000;
     var matcher: Matcher(level) = undefined;
     set_chain(level, &matcher, position, &.{});
@@ -333,12 +344,13 @@ test "a search is skipped where a short chain misses after a literal, and where 
 
 /// `short_chain_misses`, by a walk that tests one candidate after another.
 fn misses_plainly(comptime level: constants.Level, count: usize, matcher: *const Matcher(level), position: usize) bool {
+    @setRuntimeSafety(level.runtime_safety);
     const lowest = @max(1, position -| constants.encoder_distance_max);
-    const word = tail_octets(matcher.window[position..], 0);
+    const word = tail_octets(true, matcher.window[position..], 0);
     var candidate = matcher.chain[slot(position)];
     for (0..count) |_| {
         if (candidate < lowest) return true;
-        if (tail_octets(matcher.window[candidate..], 0) == word) return false;
+        if (tail_octets(true, matcher.window[candidate..], 0) == word) return false;
         candidate = matcher.chain[slot(candidate)];
     }
     return candidate < lowest;
@@ -357,6 +369,7 @@ const answer_share = 4;
 /// Over a seeded window at one level: the answer is a plain walk's at every count, and where it
 /// misses, the level's search finds no match.
 fn expect_seeded(comptime level: constants.Level) !void {
+    @setRuntimeSafety(level.runtime_safety);
     var matcher: Matcher(level) = undefined;
     matcher.init();
     var generator = codec.split.Generator.init(seeded_seed);
@@ -368,7 +381,7 @@ fn expect_seeded(comptime level: constants.Level) !void {
     const hash_shift = @bitSizeOf(u32) - @as(u6, level.hash_bits);
     var missed: usize = 0;
     for (1..positions) |position| {
-        const word = tail_octets(matcher.window[position..], 0);
+        const word = tail_octets(true, matcher.window[position..], 0);
         const head = &matcher.heads[(word *% constants.hash_multiplier) >> hash_shift];
         matcher.chain[slot(position)] = head.*;
         head.* = @intCast(position);

@@ -87,7 +87,7 @@ fn fill(costs: *Costs, plan: *const Plan, counts: *const [constants.literal_leng
             cost.* = 0;
             continue;
         }
-        const code = block_module.length_code(len);
+        const code = block_module.length_code(true, len);
         const extra: u32 = constants.length_extra_bits[code];
         cost.* = @intCast(eighths(lengths[constants.first_length_symbol + code]) + extra * constants.cost_eighths_per_bit);
     }
@@ -112,7 +112,7 @@ pub noinline fn saves_bits(costs: *const Costs, octets: []const u8, distance: u1
     var literal_cost: u32 = 0;
     for (priced) |octet| literal_cost += costs.literal[octet];
     literal_cost += @as(u32, @intCast(octets.len - priced.len)) * costs.literal_average;
-    const match_cost = @as(u32, costs.length[octets.len]) + costs.distance[block_module.distance_code(distance)];
+    const match_cost = @as(u32, costs.length[octets.len]) + costs.distance[block_module.distance_code(true, distance)];
     return literal_cost > match_cost;
 }
 
@@ -158,8 +158,8 @@ test "four letters' literals are cheap and priced less their share; text's are n
     // Four letters a fifth of the symbols, pairs the rest: the letters code in 4 or 5 bits, about
     // 2 among the literals.
     block.reset(0);
-    for (0..dna_literals) |_| block.add_literal(dna_letters[generator.below(dna_letters.len)]);
-    for (0..dna_pairs) |_| block.add_pair(5 + generator.below(4), 1000 + generator.below(20_000));
+    for (0..dna_literals) |_| block.add_literal(true, dna_letters[generator.below(dna_letters.len)]);
+    for (0..dna_pairs) |_| block.add_pair(true, 5 + generator.below(4), 1000 + generator.below(20_000));
     block_module.plan(&block, false, 0, &plan);
     try testing.expect(update_costs(&costs, &plan, &block.literal_length_counts));
     for (dna_letters) |letter| {
@@ -168,7 +168,7 @@ test "four letters' literals are cheap and priced less their share; text's are n
     try testing.expect(costs.literal_average <= constants.cheap_literal_cost_max);
     // Forty letters as literals alone: over 5 bits each.
     block.reset(0);
-    for (0..text_literals) |_| block.add_literal(@intCast('A' + generator.below(text_letters)));
+    for (0..text_literals) |_| block.add_literal(true, @intCast('A' + generator.below(text_letters)));
     block_module.plan(&block, false, 0, &plan);
     try testing.expect(!update_costs(&costs, &plan, &block.literal_length_counts));
 }

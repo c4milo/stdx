@@ -74,8 +74,8 @@ fn plant_candidates(matcher: *TailMatcher, octets: []const u8, planted: []const 
 /// The chain of the tail of a match `len` octets long. Each of `planted` holds its candidate's
 /// octets from the tail on, so its distance is its candidate's less the tail's place.
 fn plant_tail(matcher: *TailMatcher, octets: []const u8, len: u16, planted: []const Planted) void {
-    const tail = tail_of(.{ .len = len });
-    plant_chain(matcher, octets, &matcher.heads[hash_of_word(tail_level, tail_octets(octets, tail))], planted);
+    const tail = tail_of(true, .{ .len = len });
+    plant_chain(matcher, octets, &matcher.heads[hash_of_word(tail_level, tail_octets(true, octets, tail))], planted);
 }
 
 /// The lengths of the hand-set tests' matches: the nearest candidate's, the tail it leaves, and
@@ -215,7 +215,7 @@ test "a walk passes the candidates as near as its match is long, and moves to th
         for (planted[1..][0..scene.fillers], 1..) |*one, nth| one.* = .{ .distance = @intCast(nth * scene.gap), .len = constants.match_len_taken_min };
         planted[scene.fillers + 1] = .{ .distance = scene.far, .len = far_matched };
         plant_candidates(&matcher, &octets, &planted);
-        const tail = tail_of(.{ .len = periodic_len });
+        const tail = tail_of(true, .{ .len = periodic_len });
         plant_tail(&matcher, &octets, periodic_len, &.{.{ .distance = scene.far - tail, .len = far_matched - tail, .from = tail }});
         // Two links either way: the candidate a period back, then the far one.
         try testing.expectEqual(far_matched, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends).len);
@@ -266,7 +266,7 @@ test "the gap to the next candidate of a tail's chain counts from the candidate,
     @memcpy(matcher.window[test_position - longer ..][0..longer_len], octets[0..longer_len]);
     @memcpy(matcher.window[test_position - far ..][0..far_len], octets[0..far_len]);
     plant_tail(&matcher, &octets, near_len, &.{ .{ .distance = longer - near_tail }, .{ .distance = filler - near_tail, .len = constants.match_len_taken_min, .from = near_tail }, .{ .distance = far - near_tail } });
-    plant_tail(&matcher, &octets, longer_len, &.{.{ .distance = far - tail_of(.{ .len = longer_len }) }});
+    plant_tail(&matcher, &octets, longer_len, &.{.{ .distance = far - tail_of(true, .{ .len = longer_len }) }});
     // No move after the longer candidate: the walk reads the position that holds the tail alone
     // before the far candidate.
     const links = scene_ends + 2;
@@ -315,7 +315,7 @@ test "a candidate two octets farther back than the match is long holds a longer 
     planted[0] = .{ .distance = 1 };
     for (planted[1..], 0..) |*one, nth| one.* = .{ .distance = @intCast(far - (planted.len - 2) + nth) };
     plant_candidates(&matcher, &octets, &planted);
-    plant_tail(&matcher, &octets, run_len, &.{.{ .distance = far - tail_of(.{ .len = run_len }) }});
+    plant_tail(&matcher, &octets, run_len, &.{.{ .distance = far - tail_of(true, .{ .len = run_len }) }});
     const expected: Match = .{ .len = run_len + 1, .distance = far };
     try testing.expectEqual(expected, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends));
     try testing.expectEqual(run_len, best_by_tail(tail_level, &matcher, constants.match_len_max, scene_ends - 1).len);
@@ -333,7 +333,7 @@ test "the candidate at the reach's edge is read after the one beside it" {
     plant_candidates(&matcher, &octets, &.{ .{ .distance = edge - 1 }, .{ .distance = edge } });
     // The tail of the nearer one's match is four of the letter again, whose chain the position
     // heads.
-    matcher.heads[hash_of_word(tail_level, tail_octets(&octets, 0))] = test_position;
+    matcher.heads[hash_of_word(tail_level, tail_octets(true, &octets, 0))] = test_position;
     const expected: Match = .{ .len = 6, .distance = edge };
     try testing.expectEqual(expected, best_by_tail(tail_level, &matcher, constants.match_len_max, tail_level.candidates_max));
 }
@@ -363,8 +363,8 @@ fn longest_plainly(matcher: *const TailMatcher, position: usize, len_max: usize)
     var candidate = position;
     while (candidate > lowest) {
         candidate -= 1;
-        if (tail_octets(matcher.window[candidate..], 0) != tail_octets(later, 0)) continue;
-        const len = match_len(matcher.window[candidate..][0..len_max], later);
+        if (tail_octets(true, matcher.window[candidate..], 0) != tail_octets(true, later, 0)) continue;
+        const len = match_len(true, matcher.window[candidate..][0..len_max], later);
         if (len > found.len) found = .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
     }
     return found;
@@ -408,7 +408,7 @@ test "over a seeded window of repeats a walk with links to spare finds the longe
     var searched: usize = 0;
     var matched: usize = 0;
     for (1..positions) |position| {
-        const head = &matcher.heads[hash_of_word(tail_level, tail_octets(matcher.window[position..], 0))];
+        const head = &matcher.heads[hash_of_word(tail_level, tail_octets(true, matcher.window[position..], 0))];
         matcher.chain[slot(position)] = head.*;
         head.* = @intCast(position);
         if (position % searched_stride != 0) continue;

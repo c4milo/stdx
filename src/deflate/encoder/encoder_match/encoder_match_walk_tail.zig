@@ -39,8 +39,9 @@ const TailWalk = struct {
     /// not the match before it: the position's first 4 octets, `later_head`, turn those away
     /// before `match_len` compares from the start.
     inline fn longer_len(walk: *const TailWalk, comptime level: constants.Level, self: *const Matcher(level), later: []const u8, later_head: u32, candidate: usize) usize {
-        if (tail_octets(&self.window, candidate) != later_head) return 0;
-        const len = match_len(self.window[candidate..][0..later.len], later);
+        @setRuntimeSafety(level.runtime_safety);
+        if (tail_octets(level.runtime_safety, &self.window, candidate) != later_head) return 0;
+        const len = match_len(level.runtime_safety, self.window[candidate..][0..later.len], later);
         return if (len > walk.found.len) len else 0;
     }
 
@@ -62,11 +63,12 @@ const TailWalk = struct {
     /// Returns false where no candidate is left: the walk's own chain, which names every one,
     /// has ended, or the walk has passed every candidate in reach.
     inline fn follow_longer(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), lowest: usize, later: []const u8, candidate: usize) bool {
+        @setRuntimeSafety(level.runtime_safety);
         if (walk.link < walk.floor) return false;
         const passed = @min(candidate, self.position -| walk.found.len);
         if (passed <= lowest) return false;
-        walk.tail = tail_of(walk.found);
-        walk.later_tail = tail_octets(later, walk.tail);
+        walk.tail = tail_of(level.runtime_safety, walk.found);
+        walk.later_tail = tail_octets(level.runtime_safety, later, walk.tail);
         if (walk.could_pay(level, lowest, candidate)) walk.move(level, self, passed);
         // A tail starts where a match ends, less 3 octets, so no tail starts before an earlier one.
         assert(walk.tail >= walk.offset);
@@ -80,6 +82,7 @@ const TailWalk = struct {
     /// before the reach's edge at `lowest`. A chain of fewer candidates costs less to read than
     /// a move.
     inline fn could_pay(walk: *const TailWalk, comptime level: constants.Level, lowest: usize, candidate: usize) bool {
+        @setRuntimeSafety(level.runtime_safety);
         assert(walk.link >= walk.floor);
         const gap = candidate - (walk.link - walk.offset);
         return gap * level.tail_move_candidates_min <= candidate - lowest;
@@ -90,6 +93,7 @@ const TailWalk = struct {
     /// has passed every candidate from `passed` on, and the tail of each one before lies at an
     /// inserted position. The links read come off the walk's.
     inline fn move(walk: *TailWalk, comptime level: constants.Level, self: *const Matcher(level), passed: usize) void {
+        @setRuntimeSafety(level.runtime_safety);
         // The position that names `passed` on the tail's chain.
         const passed_from = passed + walk.tail;
         assert(passed_from <= self.position);
@@ -122,20 +126,21 @@ const TailWalk = struct {
 /// there when that chain's next candidate lies farther back than its own chain's. A chain that
 /// ends, or leaves the reach, ends the walk: no candidate left is longer.
 pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, budget: u16) Match {
+    @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.tail_chains);
     const position = self.position;
     assert(len_max >= constants.match_len_taken_min and position + len_max <= self.filled);
     const later = self.window[position..][0..len_max];
     // Position 0 names no candidate, as a head or link of 0 ends a chain.
     const lowest = @max(1, position -| constants.encoder_distance_max);
-    const later_head = tail_octets(later, 0);
+    const later_head = tail_octets(level.runtime_safety, later, 0);
     var walk: TailWalk = .{ .link = self.chain[slot(position)], .later_tail = later_head, .left = budget, .floor = lowest };
     // One compare ends the walk at the reach's edge and at a chain's end.
     while (walk.left != 0 and walk.link >= walk.floor) {
         const link = walk.link;
         walk.link = self.chain[slot(link)];
         walk.left -= 1;
-        if (tail_octets(&self.window, link +% walk.shift) != walk.later_tail) continue;
+        if (tail_octets(level.runtime_safety, &self.window, link +% walk.shift) != walk.later_tail) continue;
         const candidate = link - walk.offset;
         assert(candidate < position);
         const len = walk.longer_len(level, self, later, later_head, candidate);

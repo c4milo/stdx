@@ -277,7 +277,8 @@ Change this section when a step adds or renames a command.
   first 256 KiB in all three containers, at levels 1, 6 and 9. Each output must fit
   `encoded_len_max`, decode to its input through stdx, zlib and Wuffs, and have the SHA-256
   recorded in `tools/differential/encode_hashes.zig` (invariant 5); seeded flush points and splits
-  must give the same octets. `-Dencode-optimize=Debug` builds stdx in another mode, to show the
+  must give the same octets, and so must the encoder with its runtime safety checks off (decision
+  49). `-Dencode-optimize=Debug` builds stdx in another mode, to show the
   hashes hold there. Passing `-- --record` prints a new list, for a change meant to alter output.
   `zig build differential-zstd -Doracles` has libzstd encode the first 256 KiB of every corpus
   file at levels 1, 3, 9 and 19, each with the level's own window log and with 10, 17 and 23, the
@@ -314,7 +315,8 @@ Change this section when a step adds or renames a command.
 - DEFLATE benchmark: `zig build bench-deflate -Doracles` times the gzip decoders of zlib, zlib-ng,
   libdeflate, Wuffs and stdx, stdx's raw DEFLATE decoder with and without its fast path, each claim
   of decision 14 off against all on, and the gzip encoders of zlib, zlib-ng, libdeflate and stdx
-  at levels 1, 6 and 9, over every row: every candidate interleaved in one run, the median of five runs with the spread. A second program then repeats the raw A/B with
+  at levels 1, 6 and 9, stdx's also with its runtime safety checks off as a caller may choose
+  (decision 49), over every row: every candidate interleaved in one run, the median of five runs with the spread. A second program then repeats the raw A/B with
   stdx built ReleaseFast, decision 17's measure of what the safety checks cost. On an x86-64 host
   with x86-64-v3's instructions, a third program then times the gzip decoders again with stdx built
   for x86-64-v3 (decision 34). `bench/run.sh <report.md> bench-deflate -Doracles`

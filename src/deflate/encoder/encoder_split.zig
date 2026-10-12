@@ -214,7 +214,7 @@ const Started = struct {
 /// Adds `count` literals to `block`, drawn from `letters` letters from `first` on.
 fn add_letters(block: *Block, count: usize, first: u8, letters: u8, seed: u64) void {
     var generator = codec.split.Generator.init(seed);
-    for (0..count) |_| block.add_literal(first + @as(u8, @intCast(generator.below(letters))));
+    for (0..count) |_| block.add_literal(true, first + @as(u8, @intCast(generator.below(letters))));
 }
 
 test "newest symbols split off when they share no literal with the rest, and stay when alike" {
@@ -241,8 +241,8 @@ const test_letters = 16;
 /// times, and pairs.
 fn add_newest(block: *Block) void {
     add_letters(block, newest_letters, 'A', test_letters, newest_seed);
-    for (0..newest_repeats) |_| block.add_literal('z');
-    for (0..newest_pairs) |index| block.add_pair(constants.match_len_min + index % newest_pair_lens, 1 + index % newest_pair_distances);
+    for (0..newest_repeats) |_| block.add_literal(true, 'z');
+    for (0..newest_pairs) |index| block.add_pair(true, constants.match_len_min + index % newest_pair_lens, 1 + index % newest_pair_distances);
 }
 
 const newest_letters = 1200;
@@ -258,8 +258,8 @@ test "a check prices the block and its newest symbols as their counts price alon
     const block = &state.block;
     const split = &state.split;
     add_letters(block, 3000, 'a', test_letters, 9);
-    for (0..1500) |_| block.add_literal('z');
-    for (0..800) |index| block.add_pair(3 + index % 250, 1 + index * 37 % 30_000);
+    for (0..1500) |_| block.add_literal(true, 'z');
+    for (0..800) |index| block.add_pair(true, 3 + index % 250, 1 + index * 37 % 30_000);
     try testing.expect(!splits(block, split));
     begin_chunk(block, split);
     try testing.expectEqual(@as(u64, 0), split.before_price);
@@ -277,7 +277,7 @@ test "a check prices the block and its newest symbols as their counts price alon
     try testing.expectEqual(split.together_price, joined.split.before_price);
     // A symbol more, and the last check's prices no longer hold.
     joined = state;
-    joined.block.add_literal('q');
+    joined.block.add_literal(true, 'q');
     begin_chunk(&joined.block, &joined.split);
     try testing.expectEqual(@as(u64, 0), joined.split.before_price);
     // With a split, the next block's rest is the newest symbols, at their price.
@@ -310,12 +310,12 @@ test "a cut keeps the symbols before it, uncut gives all back, and carry starts 
     const block = &state.block;
     const split = &state.split;
     add_letters(block, 3000, 'a', test_letters, 5);
-    for (0..1000) |index| block.add_pair(4 + index % 50, 1 + index % 30_000);
+    for (0..1000) |index| block.add_pair(true, 4 + index % 50, 1 + index % 30_000);
     begin_chunk(block, split);
     const before = block.symbol_count;
     const before_len = block.input_len;
     add_letters(block, 500, 'A', test_letters, 6);
-    for (0..700) |index| block.add_pair(3 + index % 200, 7 + index);
+    for (0..700) |index| block.add_pair(true, 3 + index % 200, 7 + index);
     // The check prices the symbols the cut holds back.
     _ = splits(block, split);
     const all = state;
@@ -344,7 +344,7 @@ test "a cut at the last slide counts the symbols before it again" {
     const block = &state.block;
     const split = &state.split;
     add_letters(block, 2000, 'a', test_letters, 7);
-    for (0..300) |index| block.add_pair(5 + index % 9, 1 + index % 4000);
+    for (0..300) |index| block.add_pair(true, 5 + index % 9, 1 + index % 4000);
     commit(block, split);
     const slid = block.symbol_count;
     const slid_len = block.input_len;

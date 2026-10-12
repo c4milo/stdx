@@ -10,11 +10,15 @@
 //! - The SHA-256 of every `encode_all` output, compared with the list in encode_hashes.zig, so the
 //!   octets match on every host and in every build mode (invariant 5). With `--record` it prints
 //!   the list instead, as Zig source.
+//! - The same `encode_all` with the encoder's runtime safety checks off, as a caller may choose
+//!   (decision 49): the same octets.
 //!
 //! The seeds come from the file's name, so a failure replays on every host.
 //!
-//! Usage: `differential_encode [--record] <name>=<path>...`. Exit status 0 when every check
-//! passes, 1 when any fails, 2 on a usage error.
+//! Usage: `differential_encode [--record] [--stdx-debug] <name>=<path>...`. The build passes
+//! `--stdx-debug` when it built stdx Debug, which keeps the encoder's runtime safety checks
+//! whatever a caller chose. Exit status 0 when every check passes, 1 when any fails, 2 on a usage
+//! error.
 
 const std = @import("std");
 const oracle = @import("oracle");
@@ -53,11 +57,28 @@ const Scope = enum { whole, prefix };
 
 /// The encoder of a container at a level.
 fn Encoder(comptime container: oracle.Container, comptime level: u4) type {
+    return EncoderWith(container, .{ .level = level });
+}
+
+/// The encoder of a container with `options`.
+fn EncoderWith(comptime container: oracle.Container, comptime options: deflate.EncoderOptions) type {
     return switch (container) {
-        .raw => deflate.Encoder(.{ .level = level }),
-        .zlib => zlib.Encoder(.{ .level = level }),
-        .gzip => gzip.Encoder(.{ .level = level }),
+        .raw => deflate.Encoder(options),
+        .zlib => zlib.Encoder(options),
+        .gzip => gzip.Encoder(options),
     };
+}
+
+/// Requires the caller's choice of decision 49 to reach the encoder: with the choice off its
+/// loops run without runtime safety, but where stdx was built Debug, which keeps the checks
+/// whatever a caller chose; and with the choice left alone they keep them.
+fn check_choice(run: *Run, stdx_debug: bool) void {
+    run.checks += 1;
+    const chosen_off = deflate.Encoder(.{ .runtime_safety = false }).runtime_safety;
+    if (chosen_off != stdx_debug or !deflate.Encoder(.{}).runtime_safety) {
+        run.failures += 1;
+        std.debug.print("differential-encode FAILED: the encoder's runtime_safety choice does not reach its loops as this build asks\n", .{});
+    }
 }
 
 /// stdx's decoder of a container.
@@ -80,9 +101,11 @@ const Run = struct {
     split: []u8,
 };
 
-/// The command line: whether to record, and the corpus files' names and paths.
+/// The command line: whether to record, whether stdx was built Debug, and the corpus files' names
+/// and paths.
 const Arguments = struct {
     record: bool = false,
+    stdx_debug: bool = false,
     names: std.ArrayList([]const u8) = .empty,
     paths: std.ArrayList([]const u8) = .empty,
 };
@@ -92,6 +115,10 @@ fn parse(arena: std.mem.Allocator, args: []const [:0]const u8) !Arguments {
     for (args) |argument| {
         if (std.mem.eql(u8, argument, "--record")) {
             parsed.record = true;
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--stdx-debug")) {
+            parsed.stdx_debug = true;
             continue;
         }
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse {
@@ -113,6 +140,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
     var run: Run = .{ .arena = arena, .record = parsed.record, .encoded = &.{}, .decoded = &.{}, .split = &.{} };
+    check_choice(&run, parsed.stdx_debug);
     var out: std.ArrayList(u8) = .empty;
     if (parsed.record) try out.appendSlice(arena, hashes_header);
     for (parsed.names.items, parsed.paths.items) |name, path| {
@@ -179,6 +207,19 @@ fn check_whole(comptime container: oracle.Container, comptime level: u4, run: *R
     }
     const expected = recorded(name, container, level, scope) orelse return fail(run, name, container, level, "no hash is recorded; run with --record");
     if (!std.mem.eql(u8, expected, &hex)) fail(run, name, container, level, "the output's SHA-256 is not the one recorded");
+    try check_unchecked(container, level, run, name, input, stream);
+}
+
+/// `encode_all` of `input` with the encoder's runtime safety checks off, as a caller may choose
+/// (decision 49): the octets of `stream`, which the checked encoder wrote.
+fn check_unchecked(comptime container: oracle.Container, comptime level: u4, run: *Run, name: []const u8, input: []const u8, stream: []const u8) !void {
+    run.checks += 1;
+    const E = EncoderWith(container, .{ .level = level, .runtime_safety = false });
+    const state = try run.arena.create(E);
+    defer run.arena.destroy(state);
+    state.init(codec.Features.detect());
+    const written = state.encode_all(input, run.split) catch return fail(run, name, container, level, "encode_all without runtime safety ran out of room");
+    if (!std.mem.eql(u8, run.split[0..written], stream)) fail(run, name, container, level, "the encoder without runtime safety wrote other octets");
 }
 
 /// The recorded hash of an encode, if any.

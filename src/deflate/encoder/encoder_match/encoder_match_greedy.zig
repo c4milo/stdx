@@ -18,6 +18,7 @@ const lookahead_end = match.lookahead_end;
 /// The greedy level's positions with the whole lookahead ahead, decided until the block fills or
 /// the lookahead runs out; `step_greedy` takes the positions after them.
 pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), block: *Block) void {
+    @setRuntimeSafety(level.runtime_safety);
     comptime assert(!level.chains);
     const lookahead = lookahead_end(level, self) orelse return;
     // The position lives in a local through the loop, so the stores to the heads and the block do
@@ -26,7 +27,7 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     const end = @min(lookahead, constants.encoder_window_len - constants.match_len_max + 1);
     const start = self.position;
     var position = start;
-    var symbols = block.appender();
+    var symbols = block.appender(level.runtime_safety);
     while (position < end and !symbols.full()) {
         const word = std.mem.readInt(u32, self.window[position..][0..constants.hash_len], .little);
         const head = &self.heads[hash_of_word(level, word)];
@@ -51,16 +52,18 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
 
 /// `greedy_match` at `position`, whose 4 octets `word` holds, with `match_len_max` octets ahead.
 fn greedy_match_word(comptime level: constants.Level, self: *const Matcher(level), position: usize, candidate: u16, word: u32) Match {
+    @setRuntimeSafety(level.runtime_safety);
     assert(position + constants.match_len_max <= constants.encoder_window_len);
     if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < position) return .{};
     assert(candidate < position);
-    if (tail_octets(self.window[candidate..], 0) != word) return .{};
-    const len = match_len(self.window[candidate..][0..constants.match_len_max], self.window[position..][0..constants.match_len_max]);
+    if (tail_octets(level.runtime_safety, self.window[candidate..], 0) != word) return .{};
+    const len = match_len(level.runtime_safety, self.window[candidate..][0..constants.match_len_max], self.window[position..][0..constants.match_len_max]);
     return .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
 }
 
 /// One greedy step at a position with `ahead` octets ahead, fewer than the lookahead.
 pub fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block: *Block, ahead: usize) void {
+    @setRuntimeSafety(level.runtime_safety);
     var found: Match = .{};
     if (ahead >= constants.hash_len) {
         const head = &self.heads[hash(level, self, self.position)];
@@ -69,12 +72,12 @@ pub fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block
         found = greedy_match(level, self, candidate, @min(ahead, constants.match_len_max));
     }
     if (found.len >= constants.match_len_taken_min) {
-        block.add_pair(found.len, found.distance);
+        block.add_pair(level.runtime_safety, found.len, found.distance);
         const match_end = self.position + found.len;
         if (found.len <= level.covered_insert_len_max) insert_covered(level, self, self.position, match_end);
         self.position = match_end;
     } else {
-        block.add_literal(self.window[self.position]);
+        block.add_literal(level.runtime_safety, self.window[self.position]);
         self.position += 1;
     }
 }
@@ -84,6 +87,7 @@ pub fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block
 /// `hash_len` octets in the window count. The 4 octets slide through a word: one octet loaded per
 /// position. Inline, as a call's setup cost level 1 more than the few inserts of a short match.
 inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level), position: usize, end: usize) void {
+    @setRuntimeSafety(level.runtime_safety);
     assert(position < end and end <= self.filled);
     const first = position + 1;
     const last = @min(end, self.filled - (constants.hash_len - 1));
@@ -98,11 +102,12 @@ inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level),
 /// The match at `candidate`, of at least `match_len_taken_min` octets, or none: the greedy level's
 /// one candidate, the head. Its first 4 octets decide before `match_len` compares.
 fn greedy_match(comptime level: constants.Level, self: *const Matcher(level), candidate: u16, len_max: usize) Match {
+    @setRuntimeSafety(level.runtime_safety);
     assert(len_max >= constants.match_len_taken_min and self.position + len_max <= self.filled);
     if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < self.position) return .{};
     assert(candidate < self.position);
     const later = self.window[self.position..][0..len_max];
-    if (tail_octets(self.window[candidate..], 0) != tail_octets(later, 0)) return .{};
-    const len = match_len(self.window[candidate..][0..len_max], later);
+    if (tail_octets(level.runtime_safety, self.window[candidate..], 0) != tail_octets(level.runtime_safety, later, 0)) return .{};
+    const len = match_len(level.runtime_safety, self.window[candidate..][0..len_max], later);
     return .{ .len = @intCast(len), .distance = @intCast(self.position - candidate) };
 }

@@ -53,17 +53,21 @@ const phases_max = @typeInfo(Phase).@"enum".fields.len;
 
 /// Writes as much of the planned block as the output takes. Returns true when all of it is in the
 /// bit writer, and false when the output filled first; the next call goes on from there.
-pub fn write(emit: *Emit, plan: *const Plan, block: *const Block, window: []const u8, writer: *codec.BitWriter) align(constants.hot_function_alignment) bool {
+/// `runtime_safety` is the caller's choice of decision 49: every function below takes it, so each
+/// choice has its own copy of them all, and the checked one is the code a program that never
+/// chooses holds.
+pub fn write(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, block: *const Block, window: []const u8, writer: *codec.BitWriter) align(constants.hot_function_alignment) bool {
+    @setRuntimeSafety(runtime_safety);
     for (0..phases_max) |_| {
         const whole = switch (emit.phase) {
-            .header => write_header(emit, plan, writer),
-            .counts => write_counts(emit, plan, writer),
-            .code_length_lengths => write_code_length_lengths(emit, plan, writer),
-            .items => write_items(emit, plan, writer),
-            .symbols => write_symbols(emit, plan, block, writer),
-            .end_of_block => write_code(emit, plan, constants.end_of_block, writer),
-            .stored_header => write_stored_header(emit, plan, block, writer),
-            .stored_octets => write_stored_octets(emit, plan, block, window, writer),
+            .header => write_header(runtime_safety, emit, plan, writer),
+            .counts => write_counts(runtime_safety, emit, plan, writer),
+            .code_length_lengths => write_code_length_lengths(runtime_safety, emit, plan, writer),
+            .items => write_items(runtime_safety, emit, plan, writer),
+            .symbols => write_symbols(runtime_safety, emit, plan, block, writer),
+            .end_of_block => write_code(runtime_safety, emit, plan, constants.end_of_block, writer),
+            .stored_header => write_stored_header(runtime_safety, emit, plan, block, writer),
+            .stored_octets => write_stored_octets(runtime_safety, emit, plan, block, window, writer),
             .done => {
                 // Decision 14, E3: the block cost what its plan priced it at, to the bit.
                 assert(emit.bits == plan.bits);
@@ -71,13 +75,14 @@ pub fn write(emit: *Emit, plan: *const Plan, block: *const Block, window: []cons
             },
         };
         if (!whole) return false;
-        emit.phase = next_phase(emit.phase, plan.kind);
+        emit.phase = next_phase(runtime_safety, emit.phase, plan.kind);
         emit.index = 0;
     }
     unreachable;
 }
 
-fn next_phase(phase: Phase, kind: constants.BlockType) Phase {
+fn next_phase(comptime runtime_safety: bool, phase: Phase, kind: constants.BlockType) Phase {
+    @setRuntimeSafety(runtime_safety);
     return switch (phase) {
         .header => switch (kind) {
             .stored => .stored_header,
@@ -96,29 +101,33 @@ fn next_phase(phase: Phase, kind: constants.BlockType) Phase {
 }
 
 /// Puts `count` bits, and counts them.
-inline fn put(emit: *Emit, writer: *codec.BitWriter, value: u64, count: u7) void {
+inline fn put(comptime runtime_safety: bool, emit: *Emit, writer: *codec.BitWriter, value: u64, count: u7) void {
+    @setRuntimeSafety(runtime_safety);
     writer.put(value, count);
     emit.bits += count;
 }
 
-fn write_header(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+fn write_header(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
     if (!writer.make_room(constants.final_bits + constants.type_bits)) return false;
     // RFC 1951 §3.2.3: BFINAL, then BTYPE.
-    put(emit, writer, @intFromBool(plan.final), constants.final_bits);
-    put(emit, writer, @intFromEnum(plan.kind), constants.type_bits);
+    put(runtime_safety, emit, writer, @intFromBool(plan.final), constants.final_bits);
+    put(runtime_safety, emit, writer, @intFromEnum(plan.kind), constants.type_bits);
     return true;
 }
 
-fn write_counts(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+fn write_counts(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
     if (!writer.make_room(constants.hlit_bits + constants.hdist_bits + constants.hclen_bits)) return false;
     // RFC 1951 §3.2.7: HLIT, HDIST and HCLEN, each less its base.
-    put(emit, writer, plan.literal_length_count - constants.hlit_base, constants.hlit_bits);
-    put(emit, writer, plan.distance_count - constants.hdist_base, constants.hdist_bits);
-    put(emit, writer, plan.code_length_count - constants.hclen_base, constants.hclen_bits);
+    put(runtime_safety, emit, writer, plan.literal_length_count - constants.hlit_base, constants.hlit_bits);
+    put(runtime_safety, emit, writer, plan.distance_count - constants.hdist_base, constants.hdist_bits);
+    put(runtime_safety, emit, writer, plan.code_length_count - constants.hclen_base, constants.hclen_bits);
     return true;
 }
 
-fn write_code_length_lengths(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+fn write_code_length_lengths(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
     if (emit.index == 0 and writer.has_store_room()) {
         // All of them in one put, on the bits a store leaves (decision 14, E5).
         writer.store();
@@ -126,12 +135,12 @@ fn write_code_length_lengths(emit: *Emit, plan: *const Plan, writer: *codec.BitW
         for (constants.code_length_order[0..plan.code_length_count], 0..) |symbol, index| {
             lengths |= @as(u64, plan.code_length_lengths[symbol]) << @intCast(index * constants.code_length_code_bits);
         }
-        put(emit, writer, lengths, @intCast(plan.code_length_count * constants.code_length_code_bits));
+        put(runtime_safety, emit, writer, lengths, @intCast(plan.code_length_count * constants.code_length_code_bits));
         return true;
     }
     for (emit.index..plan.code_length_count) |index| {
         if (!writer.make_room(constants.code_length_code_bits)) return false;
-        put(emit, writer, plan.code_length_lengths[constants.code_length_order[index]], constants.code_length_code_bits);
+        put(runtime_safety, emit, writer, plan.code_length_lengths[constants.code_length_order[index]], constants.code_length_code_bits);
         emit.index += 1;
     }
     return true;
@@ -163,7 +172,8 @@ const ItemEntry = struct {
 /// Writes items `items_per_put` at a time while the output has room for a store: their codes and
 /// extra bits go into the buffer in one put, on the bits a store leaves (decision 14, E5). The
 /// items left, and every item once the output is short, go one at a time in `write_items`.
-fn write_items_stored(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) void {
+fn write_items_stored(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) void {
+    @setRuntimeSafety(runtime_safety);
     var entries: [constants.code_length_alphabet_len]ItemEntry = undefined;
     for (&entries, plan.code_length_codes, plan.code_length_lengths, 0..) |*entry, code_of, len, symbol| {
         const extra_bits: u8 = if (symbol >= constants.repeat_previous) constants.repeat_extra_bits[symbol - constants.repeat_previous] else 0;
@@ -183,32 +193,34 @@ fn write_items_stored(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) 
             count += entry.bits;
         }
         assert(count <= items_per_put * item_bits_max);
-        put(emit, writer, bits, @intCast(count));
+        put(runtime_safety, emit, writer, bits, @intCast(count));
     }
     emit.index = @intCast(index);
 }
 
-fn write_items(emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
-    write_items_stored(emit, plan, writer);
+fn write_items(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
+    write_items_stored(runtime_safety, emit, plan, writer);
     for (plan.items[emit.index..plan.item_count]) |item| {
         const extra_bits: u7 = if (item.symbol >= constants.repeat_previous) constants.repeat_extra_bits[item.symbol - constants.repeat_previous] else 0;
         if (!writer.make_room(@as(u7, @intCast(plan.code_length_lengths[item.symbol])) + extra_bits)) return false;
-        put(emit, writer, plan.code_length_codes[item.symbol], @intCast(plan.code_length_lengths[item.symbol]));
-        put(emit, writer, item.extra, extra_bits);
+        put(runtime_safety, emit, writer, plan.code_length_codes[item.symbol], @intCast(plan.code_length_lengths[item.symbol]));
+        put(runtime_safety, emit, writer, item.extra, extra_bits);
         emit.index += 1;
     }
     return true;
 }
 
-fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {
-    write_symbols_stored(emit, plan, block, writer);
+fn write_symbols(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
+    write_symbols_stored(runtime_safety, emit, plan, block, writer);
     // The rest, an octet at a time, as the output fills.
     for (block.symbols[emit.index..block.symbol_count]) |symbol| {
         if (!writer.make_room(constants.pair_bits_max)) return false;
         if (symbol.distance == 0) {
-            put_code(emit, plan, symbol.value, writer);
+            put_code(runtime_safety, emit, plan, symbol.value, writer);
         } else {
-            emit.bits += put_pair(plan, symbol, writer);
+            emit.bits += put_pair(runtime_safety, plan, symbol, writer);
         }
         emit.index += 1;
     }
@@ -221,7 +233,8 @@ fn write_symbols(emit: *Emit, plan: *const Plan, block: *const Block, writer: *c
 /// through the loop, and the bits it wrote are counted once at the end. A function of its own:
 /// inline in `write`, the code tables' and the symbols' addresses went to the stack, and each
 /// literal loaded them back.
-noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) align(constants.hot_function_alignment) void {
+noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) align(constants.hot_function_alignment) void {
+    @setRuntimeSafety(runtime_safety);
     const store_len = codec.BitWriter.store_len;
     // The first store drops the whole octets a header left, a full buffer included, so the loop
     // starts with under 8 bits and every store in it moves under 8 octets.
@@ -245,17 +258,17 @@ noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const B
         const symbol = symbols[index];
         index += 1;
         if (symbol.distance == 0) {
-            put_literal(plan, symbol.value, &buffer, &count);
+            put_literal(runtime_safety, plan, symbol.value, &buffer, &count);
             if (index < symbols.len and symbols[index].distance == 0) {
-                put_literal(plan, symbols[index].value, &buffer, &count);
+                put_literal(runtime_safety, plan, symbols[index].value, &buffer, &count);
                 index += 1;
             }
         } else {
             const length = plan.length_entries[block_module.length_code_of(symbol.value)];
-            buffer |= entry_bits(length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
+            buffer |= entry_bits(runtime_safety, length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
             count += length.code_bits + length.extra_bits;
             const distance = plan.distance_entries[symbol.distance_code];
-            buffer |= entry_bits(distance, symbol.distance) << @intCast(count);
+            buffer |= entry_bits(runtime_safety, distance, symbol.distance) << @intCast(count);
             count += distance.code_bits + distance.extra_bits;
         }
         assert(count <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
@@ -273,7 +286,8 @@ noinline fn write_symbols_stored(emit: *Emit, plan: *const Plan, block: *const B
 }
 
 /// Puts the code of the literal `value` above the `count` bits of `buffer`.
-inline fn put_literal(plan: *const Plan, value: u8, buffer: *u64, count: *usize) void {
+inline fn put_literal(comptime runtime_safety: bool, plan: *const Plan, value: u8, buffer: *u64, count: *usize) void {
+    @setRuntimeSafety(runtime_safety);
     assert(count.* < @bitSizeOf(u64) - constants.code_len_max);
     buffer.* |= @as(u64, plan.literal_length_codes[value]) << @intCast(count.*);
     count.* += plan.literal_length_lengths[value];
@@ -286,55 +300,62 @@ comptime {
 
 /// The code of `entry` and, above it, `value` less the entry's base in its extra bits: the bits
 /// one put of the entry holds.
-inline fn entry_bits(entry: block_module.CodeEntry, value: usize) u64 {
+inline fn entry_bits(comptime runtime_safety: bool, entry: block_module.CodeEntry, value: usize) u64 {
+    @setRuntimeSafety(runtime_safety);
     assert(entry.code_bits != 0 and value >= entry.base);
     const extra = value - entry.base;
     assert(extra >> @intCast(entry.extra_bits) == 0);
     return entry.code | @as(u64, extra) << @intCast(entry.code_bits);
 }
 
-fn write_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) bool {
+fn write_code(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
     if (!writer.make_room(@intCast(plan.literal_length_lengths[symbol]))) return false;
-    put_code(emit, plan, symbol, writer);
+    put_code(runtime_safety, emit, plan, symbol, writer);
     return true;
 }
 
-inline fn put_code(emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) void {
+inline fn put_code(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) void {
+    @setRuntimeSafety(runtime_safety);
     assert(plan.literal_length_lengths[symbol] != 0);
-    put(emit, writer, plan.literal_length_codes[symbol], @intCast(plan.literal_length_lengths[symbol]));
+    put(runtime_safety, emit, writer, plan.literal_length_codes[symbol], @intCast(plan.literal_length_lengths[symbol]));
 }
 
 /// A length's code and extra bits, then its distance's (RFC 1951 §3.2.5), each in one put from its
 /// code's entry. Returns the bits put.
-inline fn put_pair(plan: *const Plan, symbol: block_module.Symbol, writer: *codec.BitWriter) u7 {
+inline fn put_pair(comptime runtime_safety: bool, plan: *const Plan, symbol: block_module.Symbol, writer: *codec.BitWriter) u7 {
+    @setRuntimeSafety(runtime_safety);
     const len = @as(usize, symbol.value) + constants.match_len_min;
-    const length_bits = put_entry(writer, plan.length_entries[block_module.length_code_of(symbol.value)], len);
-    const distance_bits = put_entry(writer, plan.distance_entries[symbol.distance_code], symbol.distance);
+    const length_bits = put_entry(runtime_safety, writer, plan.length_entries[block_module.length_code_of(symbol.value)], len);
+    const distance_bits = put_entry(runtime_safety, writer, plan.distance_entries[symbol.distance_code], symbol.distance);
     return length_bits + distance_bits;
 }
 
 /// One put of `entry_bits`. Returns the bits put.
-inline fn put_entry(writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) u7 {
+inline fn put_entry(comptime runtime_safety: bool, writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) u7 {
+    @setRuntimeSafety(runtime_safety);
     const count: u7 = @intCast(entry.code_bits + entry.extra_bits);
-    writer.put(entry_bits(entry, value), count);
+    writer.put(entry_bits(runtime_safety, entry, value), count);
     return count;
 }
 
-fn write_stored_header(emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {
-    const len = stored_len(plan, block);
+fn write_stored_header(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
+    const len = stored_len(runtime_safety, plan, block);
     const pad = writer.bits_to_octet();
     if (!writer.make_room(pad + constants.stored_header_bits)) return false;
     // RFC 1951 §3.2.4: the bits to the octet boundary, then LEN and NLEN, NLEN LEN's complement.
-    put(emit, writer, 0, pad);
-    put(emit, writer, len, constants.stored_len_bits);
-    put(emit, writer, ~len, constants.stored_len_bits);
+    put(runtime_safety, emit, writer, 0, pad);
+    put(runtime_safety, emit, writer, len, constants.stored_len_bits);
+    put(runtime_safety, emit, writer, ~len, constants.stored_len_bits);
     return true;
 }
 
-fn write_stored_octets(emit: *Emit, plan: *const Plan, block: *const Block, window: []const u8, writer: *codec.BitWriter) bool {
+fn write_stored_octets(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, block: *const Block, window: []const u8, writer: *codec.BitWriter) bool {
+    @setRuntimeSafety(runtime_safety);
     // The header ended on an octet boundary, so the buffer holds whole octets, which go first.
     if (!writer.drain() or writer.bits.count != 0) return false;
-    const octets = window[block.input_start..][0..stored_len(plan, block)];
+    const octets = window[block.input_start..][0..stored_len(runtime_safety, plan, block)];
     const written = writer.writer.write_partial(octets[emit.index..]);
     emit.index += @intCast(written);
     emit.bits += written * @bitSizeOf(u8);
@@ -344,7 +365,8 @@ fn write_stored_octets(emit: *Emit, plan: *const Plan, block: *const Block, wind
 /// A stored block's octets: the block's input, none for a flush's empty block (RFC 1951 §3.2.4).
 /// A block that crossed a slide of the window is never stored, so its input is all in the window
 /// and fits LEN's 16 bits (decision 44).
-fn stored_len(plan: *const Plan, block: *const Block) u16 {
+fn stored_len(comptime runtime_safety: bool, plan: *const Plan, block: *const Block) u16 {
+    @setRuntimeSafety(runtime_safety);
     assert(plan.kind == .stored);
     assert(block.input_len <= constants.stored_len_max);
     return @intCast(block.input_len);

@@ -225,6 +225,9 @@ pub fn add(b: *std.Build, options: Options) void {
     const encode_run = b.addRunArtifact(encode_check);
     encode_run.has_side_effects = true;
     if (b.args) |args| encode_run.addArgs(args);
+    // A Debug build of stdx keeps the encoder's runtime safety checks whatever a caller chose
+    // (decision 49), and the check is told so.
+    if (options.encode_optimize == .Debug) encode_run.addArg("--stdx-debug");
     oracle_corpus.add_args(b, encode_run, corpus);
     encode_step.dependOn(&encode_run.step);
 

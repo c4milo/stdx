@@ -11,13 +11,13 @@ const Plan = block_module.Plan;
 
 test "every length and distance gets the code whose range holds it (RFC 1951 section 3.2.5)" {
     for (constants.match_len_min..constants.match_len_max + 1) |len| {
-        const index = block_module.length_code(len);
+        const index = block_module.length_code(true, len);
         const base = constants.length_base[index];
         try testing.expect(len >= base and len < base + (@as(usize, 1) << @intCast(constants.length_extra_bits[index])));
     }
-    try testing.expectEqual(constants.last_length_symbol - constants.first_length_symbol, block_module.length_code(constants.match_len_max));
+    try testing.expectEqual(constants.last_length_symbol - constants.first_length_symbol, block_module.length_code(true, constants.match_len_max));
     for (1..constants.window_len + 1) |distance| {
-        const index = block_module.distance_code(distance);
+        const index = block_module.distance_code(true, distance);
         const base: usize = constants.distance_base[index];
         try testing.expect(distance >= base and distance < base + (@as(usize, 1) << @intCast(constants.distance_extra_bits[index])));
     }
@@ -29,18 +29,18 @@ test "the plan takes stored for random octets, fixed for a few, dynamic for a sk
     // 16,384 random literals code no shorter than 8 bits each, and stored adds 5 octets.
     var generator = codec.split.Generator.init(1);
     block.reset(0);
-    for (0..constants.block_symbols_max) |_| block.add_literal(@intCast(generator.below(256)));
+    for (0..constants.block_symbols_max) |_| block.add_literal(true, @intCast(generator.below(256)));
     block_module.plan(&block, true, 0, &result);
     try testing.expectEqual(constants.BlockType.stored, result.kind);
     // Three literals: fixed's 8 bits each beat a dynamic header and stored's 5 octets.
     block.reset(0);
-    for ("abc") |octet| block.add_literal(octet);
+    for ("abc") |octet| block.add_literal(true, octet);
     block_module.plan(&block, false, 3, &result);
     try testing.expectEqual(constants.BlockType.fixed, result.kind);
     // Thousands of one literal and a few pairs: a dynamic code gives the literal one bit.
     block.reset(0);
-    for (0..4000) |_| block.add_literal('a');
-    for (0..10) |_| block.add_pair(10, 1);
+    for (0..4000) |_| block.add_literal(true, 'a');
+    for (0..10) |_| block.add_pair(true, 10, 1);
     block_module.plan(&block, false, 0, &result);
     try testing.expectEqual(constants.BlockType.dynamic, result.kind);
     try testing.expectEqual(1, result.literal_length_lengths['a']);
@@ -67,9 +67,9 @@ test "the plan takes the least of the three prices, for every seeded block" {
             // A block's input fits one stored block, as the encoder's do.
             if (block.input_len + constants.match_len_max > constants.stored_len_max) break;
             if (generator.below(4) < pair_share) {
-                block.add_pair(constants.match_len_min + generator.below(40), 1 + generator.below(1000));
+                block.add_pair(true, constants.match_len_min + generator.below(40), 1 + generator.below(1000));
             } else {
-                block.add_literal(@intCast(generator.below(alphabet)));
+                block.add_literal(true, @intCast(generator.below(alphabet)));
             }
         }
         const bit_position: u3 = @intCast(generator.below(8));
