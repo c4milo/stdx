@@ -2719,6 +2719,128 @@ to 12 are reordered and nothing else changes.
       and level 9 at 1.114 and 1.055 (run
       [38170242086](https://github.com/c4milo/stdx/actions/runs/38170242086)). The owner ruled
       on 2026-10-11 that they become the caller's choice, as decision 35 made them for `json`.
+  - The encoder's runtime safety checks as the caller's choice, 2026-10-12 (decision 49), the
+    second of the owner's rulings of 2026-10-11.
+
+    What the checks cost, before the choice. Decision 17's measurement (run
+    [38170242086](https://github.com/c4milo/stdx/actions/runs/38170242086), main at 0b53229):
+    built ReleaseFast, the gzip encoder ran at 1.095, 1.052 and 1.114 of its ReleaseSafe speed
+    at levels 1, 6 and 9 at the median on a Neoverse N2, and at 1.077, 1.039 and 1.055 on an
+    EPYC 9V45. Decision 16's A/B (run
+    [38172161400](https://github.com/c4milo/stdx/actions/runs/38172161400)), every function of
+    the encoder's five inner files without the checks after the same code with them: 1.049,
+    1.044 and 1.067 on the N2, and 1.044, 1.037 and 1.050 on a Xeon 8573C.
+
+    The change, 7d5a80e, after two commits that move code and change none.
+    - a0808d0 gives the encoder's levels a file of their own, `constants_levels.zig`:
+      `constants.zig` stood at the file-length rule's 500 lines, and it gives each of the
+      levels' names as its own still. The magic-numbers rule names the piece beside it.
+    - f36f8f3 gives the greedy level's five functions `encoder_match_greedy.zig`:
+      `encoder_match.zig` stood 22 lines under the rule, and the choice adds a statement to each
+      of its functions. The bench built for both targets at main, at a0808d0 and at f36f8f3
+      differs in no function.
+    - `EncoderOptions.runtime_safety`, true by default, reaches gzip's and zlib's encoders, which
+      take the same options. `Encoder` joins it with the build's rule once, in its level's
+      `runtime_safety` (`level_of`): a test build and a Debug build keep the checks.
+    - Each function the choice reaches starts with `@setRuntimeSafety` of its level's field, or
+      of the flag a caller copied from it: the 44 of the match finder that take a level or are
+      the matcher's methods, its five helpers that take none (`tail_octets`, `match_len`,
+      `tail_of`, `slide_positions`, `Match.score`), the block's appender and code lookups, and
+      the 19 of the block writer under `write`.
+    - What it does not reach keeps every check: the encoder's entry and steps, the block's plans
+      and prices, the codes, the `codec` writer, and the decoder.
+
+    What it counts, on the M1 over whole rows, as instructions with the choice off over on:
+    0.87 to 0.93 at level 1, 0.88 to 0.96 at level 6 and 0.75 to 0.84 at level 9, over dickens,
+    mr, nci, x-ray, kennedy.xls, E.coli and json's 1 KiB slices.
+    - Against every function of the five files without the checks, as the A/B built them: the
+      same count within 0.3% on six of the seven rows, and 0.5% to 0.9% more on E.coli at levels
+      6 and 9, whose prices keep their checks.
+    - With the nine functions that take no level left checked, and the block writer's symbol
+      loop alone unchecked, level 9 kept 0.91 to 0.97 of its count: its walk calls `tail_octets`
+      at every link, and a function called, inline or not, keeps its own checks.
+
+    The default build is main's, function for function.
+    - A program that leaves the choice alone: the encode harness built for the M1 at main and
+      at 7d5a80e holds the same functions of the encoder, 42 of them, and retires the same
+      instructions on every row measured.
+    - A program that holds both choices, as bench-deflate does: of the 113 functions the library
+      gives it on aarch64 and the 112 on x86-64, each has its twin at 7d5a80e, unchanged, but the
+      decoder's `execute` on aarch64, which holds three instructions of padding more where it
+      stands now. The functions that take the flag became instances and changed their names
+      alone.
+    - The first form reached the block writer's symbol loop alone, and that broke the second
+      case. Two copies of `write` then called the header's phases, and the compiler stopped
+      holding them inline in either: 1,236 instructions to 358 on aarch64 and 1,252 to 369 on
+      x86-64, on the same count of instructions run, 94.66 an octet against 94.65 on json's 1
+      KiB slices at level 9 by callgrind. That form's pairs (runs
+      [38203627552](https://github.com/c4milo/stdx/actions/runs/38203627552) and
+      [38203629805](https://github.com/c4milo/stdx/actions/runs/38203629805)) ran level 9's
+      four rows of 1 KiB slices at 0.89 to 0.91 and at 0.95 to 0.96 of main's speed in the two
+      N2 jobs, rows where `write` and its phases hold 1.45% of the instructions, over decision
+      20's 1%. Every function of the block writer takes the flag now, so each choice holds its
+      own copy of them all.
+
+    The pairs. Runs [38207560113](https://github.com/c4milo/stdx/actions/runs/38207560113) and
+    [38207562220](https://github.com/c4milo/stdx/actions/runs/38207562220) ran main (ca90c9d)
+    and then 7d5a80e, in each job, on a Neoverse N2 in both, an EPYC 9V45 and an EPYC 7763.
+    - The checked encoder against main's, at the median at levels 1, 6 and 9: 1.000 and 0.998,
+      1.000 and 1.001, and 0.995 and 0.996 of main's speed on the N2, and 1.003 and 1.000, 0.993
+      and 1.000, and 0.996 in both on x86-64. No row ran slower in both jobs at any level on
+      either architecture.
+    - In single jobs the rows of 1 KiB slices moved as they do on code that has not changed:
+      level 1's at 0.88 to 0.92 in the N2's second job, level 9's at 0.93 to 0.94 in its first,
+      and level 6's at 1.08 to 1.10 on the EPYC 7763.
+    - With the choice off over on, both in each job's second program, at the median: 1.037 and
+      1.041 at level 1, 1.053 and 1.054 at level 6 and 1.080 and 1.081 at level 9 on the N2;
+      1.025, 1.036 and 1.054 on the EPYC 9V45; and 1.027, 1.024 and 1.042 on the EPYC 7763.
+    - What that does to stdx over libdeflate at the median. On the N2: 1.06 and 1.07 to 1.11 at
+      level 1; 1.06 and 1.08 to 1.14 at level 6, with 38 of the 39 rows at or above libdeflate
+      where 27 stand; and 1.73 and 1.74 to 1.85 and 1.86 at level 9, with all 39. At level 6 on
+      x86-64: 0.97 to 1.01 on the EPYC 9V45, 16 rows to 20, and 0.99 to 1.04 on the EPYC 7763,
+      19 rows to 25.
+    - Where the choice costs: level 6's four rows of 1 KiB slices ran slower with the checks off
+      than with them on the EPYC 7763, at 0.974 to 0.988, as in the first form's job on that
+      CPU, at 0.968 to 0.984, and in one of the N2's two jobs, at 0.961 to 0.980. They retire
+      fewer instructions there, 0.89 of the count on json's by the M1's; they are the rows a
+      build's placement moves.
+
+    The Mac. The encode harness built with the checked encoder alone, at main and at 7d5a80e, timed
+    in turn on a quiet laptop, 5 runs a row: 7d5a80e read 1.000 of main's speed at the median at
+    each level, with 1, 1 and 2 of the 39 rows slower past 1%, sum at 0.939 and 0.982 at levels
+    1 and 6 and fields.c and cp.html at 0.943 and 0.967 at level 9.
+    - A copy of main's binary against main's own read as much in the same minutes: 2 rows and 1
+      slower past 1% at levels 1 and 6, sum at 0.935 among them. The three are small files.
+    - An hour earlier, with other work loading the laptop, the same check read 13, 11 and 16
+      rows slower past 1%, and a copy against itself 18 and 7, from 0.80 to 1.15 of its own
+      speed: the instrument then told no build from its copy.
+    - With the choice off over on, both in one program: 1.036, 1.024 and 1.044 at the median at
+      levels 1, 6 and 9, and 38, 37 and 39 of the 39 rows faster past 1%.
+
+    Checks.
+    - differential-encode encodes each input with the choice off too and requires the checked
+      encoder's octets: 1,288 checks, none failed, with stdx built ReleaseSafe and built Debug.
+      One of them requires the choice to reach the encoder's loops as the build asks: off in a
+      ReleaseSafe build, kept in a Debug one, which the build tells it.
+    - bench-deflate requires `stdx unchecked` to write the members `stdx` writes before it
+      times either.
+    - Mutations, on 7d5a80e: 11 CAUGHT. By the module's tests: each of the two defaults turned
+      off; the encoder forgetting the build's rule; a test build, and a Debug build, not keeping
+      the checks; a ReleaseSafe build keeping them whatever the caller chose; a function of the
+      tail walk, and the writer's symbol loop, turning its checks off whatever its level says;
+      and a function of the encoder's codes, and one of the decoder, turning its checks off. By
+      differential-encode: the encoder ignoring the caller's choice, which no test build can
+      see, as a test build keeps the checks.
+    - The first form of that last check compared the two encoders' types, which differ by
+      their options whatever the encoder does with them, and the mutation was NOT CAUGHT. The
+      encoder's type says what its loops run with now (`Encoder(options).runtime_safety`), and
+      the check reads that.
+
+    The owner's rulings of 2026-10-12, on these numbers. The change lands. The encoder's bar
+    reads the checked column, `stdx`, which a caller gets without asking, and `stdx unchecked`
+    is reported beside it: level 6 stands at 1.06 to 1.08 of libdeflate's speed on the N2 and at
+    0.97 to 0.99 on the EPYCs, so its speed work goes on. And decision 17's sentence on wrapping
+    operators is amended to say what the encoder's loops hold.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
