@@ -85,7 +85,6 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
         insert_word(level, self, state.position, word);
         const nearest = three.insert(level.runtime_safety, word, state.position);
         assert(state.waiting or state.previous.len == 0);
-        self.position = state.position;
         const current = find(level, self, state.position, word, nearest, constants.match_len_max, state.previous.len);
         decide(level, self, three, &symbols, &state, current);
     }
@@ -103,19 +102,27 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
 /// all once the match is `lazy_len` long. Else it searches where its chain's nearest candidate
 /// or the table's holds its 4 octets, and a position after a literal that finds none takes the
 /// table's 3-octet match.
-inline fn find(comptime level: constants.Level, self: *const Matcher(level), position: usize, word: u32, nearest: u16, len_max: usize, previous_len: u16) Match {
+inline fn find(comptime level: constants.Level, self: *Matcher(level), position: usize, word: u32, nearest: u16, len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
     assert(len_max >= constants.hash_len);
     if (previous_len > constants.match_len_min) {
         if (previous_len >= level.lazy_len) return .{};
-        return match.search(level, false, self, len_max, previous_len);
+        return search_at(level, self, position, len_max, previous_len);
     }
     const probed = three_module.probe(level.runtime_safety, &self.window, position, word, nearest);
     const holds = @intFromBool(probed.four) | @intFromBool(nearest_holds(level, self, position, word));
     var found: Match = .{};
-    if (holds != 0) found = match.search(level, false, self, len_max, previous_len);
+    if (holds != 0) found = search_at(level, self, position, len_max, previous_len);
     if (found.len != 0 or previous_len != 0) return found;
     return probed.three;
+}
+
+/// `match.search` at `position`, which the matcher is told here: the loop keeps its position in
+/// a local, and most positions of such a block search nothing.
+inline fn search_at(comptime level: constants.Level, self: *Matcher(level), position: usize, len_max: usize, previous_len: u16) Match {
+    @setRuntimeSafety(level.runtime_safety);
+    self.position = position;
+    return match.search(level, false, self, len_max, previous_len);
 }
 
 /// Whether the nearest candidate of `position`'s chain lies in reach and holds `word`, its 4
