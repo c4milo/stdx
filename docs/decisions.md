@@ -2968,3 +2968,149 @@ small file.
       forms design §8 step 18's "The transfers" measured on an EPYC 9V74. The first encoded
       bible.txt at 0.705 of main's speed, and the second the text files at a median of 0.752 of
       the first's.
+
+48. **Level 6 searches by its match's tail, and reads 24 links a search.** Proposed on 2026-10-11,
+    the day the owner set the encoder's bar: no level writes more than libdeflate or runs slower
+    (design §8 step 9). Ruled by the owner the same day, twice. First: the search lands with
+    entry 46's limit of 16 on its moves, the three rows it ran slower than main on a Neoverse N2
+    ruled in. Then, when the check on the owner's M1 found that form slower than main on nine
+    rows: it lands with that limit at 48 for level 6, if its pairs show no row slower than main in
+    both jobs beyond those three. They showed two of the three. The entry extends entry 46's
+    search to level 6, takes level 6's pair walk out, and changes three of level 6's limits:
+    `candidates_max` from entry 36's 64 candidates to 24 links, `cut_candidates_max` from its 16
+    to 8, and `tail_move_candidates_min`, now a level's own, to 48 where level 9 keeps 16.
+
+    What level 6 was, on main (0b53229):
+    - It ran at 0.95 of libdeflate's speed at the median on a Neoverse N2, at 0.84 on an EPYC
+      7763 and an EPYC 9V74, at 0.81 on an EPYC 9V45 and at 0.79 on a Xeon 8573C, under it on 24
+      to 27 of the 39 rows on the N2 and on 32 to 34 on x86-64. It wrote 1.0015 of libdeflate's
+      octets at the rows' geometric mean, and more on 15 rows.
+    - callgrind, on aarch64 over dickens's first MiB, counted 151.6 instructions an octet where
+      libdeflate retires 87.3. 26 of them were the pair walk's: the two searches after a taken
+      match walked their chains in one loop (entry 14, E2's history), and one search at a time
+      retires 125.6.
+    - Text's time was not those instructions. One search at a time ran the nine text files at
+      0.84 of libdeflate's speed on the M1 at the median, where the pair walk ran them at 0.87.
+      callgrind's branch model counted 1.38 mispredicted branches an octet on dickens against
+      libdeflate's 0.82.
+
+    The rule:
+    - Outside a block of cheap literals, level 6's lazy step runs `best_by_tail` at each position
+      that searches, inline in its loop, one search at a time. `best_pair` is gone, and with it
+      the cut that followed the first walk's match into the second.
+    - A search reads at most 24 links, the ones a move passes included, and 8 once a match of
+      `cut_len` octets waits. The tail's chain names the candidates that can be longer, so 24
+      links find more than 64 candidates of the position's own chain found.
+    - A search tries a move where 48 more candidates could follow on its own chain before the
+      reach's edge (`Level.tail_move_candidates_min`). Level 9 keeps entry 46's 16.
+    - A block of cheap literals keeps the plain walk and its 16 candidates (entry 42), each
+      search alone. `cheap_candidates_max` no longer stays under `cut_candidates_max`: one counts
+      candidates and the other links.
+    - `Level.walks_inline` names what `pair_walks` also stood for, the padded window and the
+      search inline in the lazy loop. `tail_skips_max` stays what entry 46 made it, for both
+      levels.
+
+    What it gives:
+    - Output. 132 of the 156 recorded outputs of level 6 change, and none of levels 1 and 9. The
+      39 rows' geometric mean over libdeflate's goes from 1.0015 to 0.9998, and the rows that
+      write more than libdeflate from 15 to 11. 24 rows come out smaller than main's: ptt5 by
+      2.1%, json-1m by 1.0%, nci and xml by 0.8%, and reymont and json's 16 KiB slices by 0.5%.
+    - Instructions. callgrind counts 105.2 an octet over dickens's first MiB, from 151.6. On the
+      M1, over each whole row, level 6 retires 0.74 of main's instructions at the median, and
+      1.01 of libdeflate's, from 1.40.
+    - Speed. Runs [38186691384](https://github.com/c4milo/stdx/actions/runs/38186691384) and
+      [38186693796](https://github.com/c4milo/stdx/actions/runs/38186693796) paired the search
+      with main on a Neoverse N2 in both, an EPYC 7763 and an EPYC 9V74. Level 6 ran at 1.086 and
+      1.088 of main's speed at the median on the N2, and at 1.139 and 1.132 on x86-64: json-1m at
+      1.48 and at 1.51 and 1.55, kennedy.xls at 1.22 and at 1.38 and 1.37, reymont at 1.23 and at
+      1.31, and ptt5 at 1.20 and at 1.20 and 1.23. 29 rows ran faster in both N2 jobs and 31 in
+      both x86-64 jobs.
+    - stdx over libdeflate at level 6 went from 0.95 to 1.07 at the median on the N2, and from
+      0.84 to 0.98 and to 1.02 on x86-64. Of the 39 rows, 26 and 27 stand at or above libdeflate
+      on the N2 where 15 and 13 did, and 19 and 20 on x86-64 where 7 did. The nine text files
+      stand at 0.96 to 1.02 of libdeflate's speed on the N2, from 0.80 to 0.94, and at 0.87 to
+      0.94 on x86-64, from 0.70 to 0.84.
+
+    What it costs:
+    - Two rows ran slower than main in both N2 jobs: osdb at 0.959 and x-ray at 0.990, each the
+      same in both. The EPYC 9V74's job ran them at 0.976 and 0.978, and the EPYC 7763's at 1.007
+      and 1.003. The owner's first ruling admits both. osdb retires 6% fewer instructions than on
+      main, and callgrind's model counts no more mispredicted branches for it. Neither count
+      explains the row; what is left is the pair walk, which read two chains side by side.
+    - 13 rows come out larger than main's: css-1m by 0.84%, where it stands 0.4% under
+      libdeflate's, mr by 0.33%, sum by 0.13%, json's 1 KiB slices by 0.12%, E.coli by 0.11%, and
+      eight rows by 0.04% or less. E.coli's blocks that are not priced searched 64 candidates of
+      four letters; it stands at 1.0018 of libdeflate's, from 1.0008.
+    - callgrind's branch model counts more mispredicted branches an octet on text, 1.57 on
+      dickens from 1.38: after each longer match the search tests whether a move could pay, and
+      on text that test goes either way.
+    - On the M1, which publishes no number (entry 10), two rows ran slower than main past 1% in
+      both of two passes: mr at 0.976 and 0.981, and html's 1 KiB slices at 0.989 and 0.953. The
+      39 rows' median reads 1.044, and the nine text files 1.003 to 1.122.
+    - Three recorded test outputs change at level 6: the seeded input from 46,111 octets to
+      45,802, two seeded letters from 4,009 to 4,132, and seeded DNA from 26,296 to 26,876. Two
+      letters and four make every tail as common as its start, and 24 links reach less far there
+      than 64 candidates did.
+    - Levels 1 and 9 run main's functions, and on the N2 seven of their rows moved in both jobs
+      all the same: level 1's nci, osdb, fields.c, grammar.lsp and xargs.1 at 0.956 to 0.988, and
+      level 9's grammar.lsp and xargs.1 at 0.980 to 0.985. zlib-ng's level 1, whose code no
+      commit touched, ran seven rows 1% to 6% slower and four 1% to 5% faster in the same jobs.
+      Entry 20 counts such moves as placement; design §8 step 9 holds the proof.
+
+    The alternatives refused. On the runners, against main:
+    - The limit on a move at 16, level 9's, the form the owner first ruled in (runs
+      [38174634741](https://github.com/c4milo/stdx/actions/runs/38174634741) and
+      [38183329992](https://github.com/c4milo/stdx/actions/runs/38183329992)): 1.079 and 1.077 of
+      main's speed at the median on the N2, with mr slower than main in both jobs too, at 0.987
+      and 0.986; 1.148 on an EPYC 7763 and 1.084 on a Xeon 8573C; output 0.9993 of libdeflate's,
+      ten rows above its. On the M1 it ran nine rows slower than main past 1% in both passes: mr
+      at 0.93, osdb at 0.94 to 0.95, dickens, asyoulik.txt, alice29.txt and lcet10.txt at 0.95
+      to 0.97, x-ray at 0.97 to 0.98 and two rows of 1 KiB slices at 0.97 to 0.99, and the 39
+      rows' median read 1.015. callgrind's model counts 1.64 mispredicted branches an octet on
+      dickens there. The limit at 48 gives back 0.05% of output for those rows.
+    - The limit at 32, on the M1 alone: the median at 1.032, eight rows slower than main past 1%
+      in its one pass, and output 0.9996 of libdeflate's.
+    - The limit at 64 (run [38174636586](https://github.com/c4milo/stdx/actions/runs/38174636586),
+      one job a CPU): 1.087 on the N2 and 1.154 on an EPYC 7763, and 1.055 at the M1's median,
+      but the output at 1.0001 of libdeflate's. At 256 (run
+      [38174638329](https://github.com/c4milo/stdx/actions/runs/38174638329)): 1.086 on the N2,
+      1.116 on a Xeon 8573C, and the output at 1.0024. osdb ran at 0.95 to 0.96 of main's speed
+      on the N2 at every limit: its loss is not the moves'.
+    - The same search with level 6's old limits, 64 links and 16, and moves at 16 (run
+      [38166811149](https://github.com/c4milo/stdx/actions/runs/38166811149), one job a CPU):
+      1.046 of main's speed at the median on the N2 and 1.074 on an EPYC 7763, where 24 and 8,
+      with 8 candidates in a block of cheap literals too, gave 1.095 and 1.151 in the same hour
+      (run [38166813121](https://github.com/c4milo/stdx/actions/runs/38166813121)); output 0.9969
+      of libdeflate's, and mr at 0.81 and 0.85 of main's speed.
+    - The pair walk kept for blocks of cheap literals (runs
+      [38171566022](https://github.com/c4milo/stdx/actions/runs/38171566022) and
+      [38171568728](https://github.com/c4milo/stdx/actions/runs/38171568728)): every recorded
+      output the same, and E.coli at 0.986 of main's speed in both N2 jobs.
+    - 8 candidates in a block of cheap literals, where 16 stay: E.coli at 1.42 of main's speed on
+      the N2 for 0.02% more output, and seeded DNA 3.6% larger than main's against 2.2%.
+    - stdx built for x86-64-v3 (run
+      [38174701845](https://github.com/c4milo/stdx/actions/runs/38174701845), an EPYC 7763):
+      0.985, 0.991 and 1.022 of the baseline build's speed at levels 1, 6 and 9. What level 6
+      still gives libdeflate on x86-64 is not the baseline CPU's instructions.
+
+    And on the M1, each with moves at 16, as speed over libdeflate's at the median of the 39 rows
+    and of the nine text files, and output over its at the geometric mean, where main reads 0.92,
+    0.87 and 1.0015 and the search with 24 links and 8 reads 0.99, 0.87 and 0.9993:
+    - One search at a time on the position's own chain, 64 candidates and 16: 0.93, 0.84 and
+      1.0015. With 24 and 8: 1.11, 1.02 and 1.0077, the output a search by the tail takes back.
+    - The search with no move: 1.10, 0.99 and 1.0077. No form measured that writes no more than
+      libdeflate ran text faster than 0.87, and the four that ran text at 0.99 or above wrote
+      0.8% to 1.0% more.
+    - 16 links and 8: 1.01 and 1.0014. 32 and 8: 0.99 and 0.9984. `lazy_len` 16: 1.04, 0.88 and
+      1.0032, and 8: 1.12, 0.99 and 1.0076. `nice_len` 64: 0.97 and 1.0001. `cut_len` 4: 1.00 and
+      1.0005.
+    - One branch for a candidate's deciding octets and its first octets together: 0.98, with 0.23
+      more mispredicted branches an octet on dickens. A move chosen by selects: 0.83, text at
+      0.69. The search by the tail in the single searches and the pair walk at a fresh start:
+      1.02, 0.97 and 1.0062.
+    - A lazy check that starts on the chain of the waiting match's tail and looks only for a
+      longer match: 1.07, 0.95 and 1.0043; bounded by what the waiting match is worth in the lazy
+      step's comparison, so that the choice is an unbounded search's: 0.97, 0.85 and 1.0006.
+    - The next position's head read while a search runs, and its candidate's octets and link
+      prefetched: 11 rows at 0.97 to 1.08 of the search's speed, on 0.3% to 5.4% more
+      instructions.
