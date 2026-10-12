@@ -4,6 +4,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
+const codec = @import("codec");
 const constants = @import("../../constants.zig");
 const Plan = @import("../encoder_block.zig").Plan;
 const Block = @import("../encoder_block.zig").Block;
@@ -62,6 +63,19 @@ test "the table names the latest position with a hash of 3 octets, whatever the 
     try testing.expectEqual(@as(u16, 0), three.insert(true, word_of("aXcd"), 500));
     try testing.expectEqual(@as(u16, 0), three.insert(true, word_of("abXd"), 600));
     try testing.expectEqual(@as(u16, 300), three.insert(true, word_of("abcd"), 700));
+}
+
+test "the table's hash is the top bits of the product of the word less its fourth octet" {
+    var three: Three = undefined;
+    var generator = codec.split.Generator.init(43);
+    for (0..1000) |_| {
+        const word: u32 = @truncate(generator.next());
+        @memset(&three.heads, 0);
+        _ = three.insert(true, word, 9);
+        const product = (word << @bitSizeOf(u8)) *% constants.hash_multiplier;
+        const expected = product >> (@bitSizeOf(u32) - constants.three_hash_bits);
+        try testing.expectEqual(@as(u16, 9), three.heads[expected]);
+    }
 }
 
 /// What `probe` gives a position that holds "abcd" for a candidate `distance` before it that

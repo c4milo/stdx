@@ -29,6 +29,13 @@ const literal_count = constants.end_of_block;
 /// A hash of 3 octets: every index of the table and no other.
 const Hash = std.meta.Int(.unsigned, constants.three_hash_bits);
 
+/// Where the hash of a word's first 3 octets lies in the product of the whole word and
+/// `hash_multiplier`: above the product's low bits, as many as the word shifted by an octet
+/// would lose off the top. The product of `word << 8` is this product shifted by an octet, so
+/// its top `three_hash_bits` bits are this product's from here up, and depend on the first 3
+/// octets alone.
+const hash_shift = @bitSizeOf(u32) - @bitSizeOf(u8) - constants.three_hash_bits;
+
 comptime {
     // A block's 3-octet matches hold three octets each, and no count of them wraps.
     assert(constants.match_len_min * constants.block_symbols_max <= std.math.maxInt(u16));
@@ -85,8 +92,10 @@ pub const Three = struct {
     /// its first 3 octets' hash. Returns the position it takes the place of.
     pub inline fn insert(self: *Three, comptime runtime_safety: bool, word: u32, at: usize) u16 {
         @setRuntimeSafety(runtime_safety);
-        // The shift drops the fourth octet, and the product's top bits are the hash.
-        const index: Hash = @truncate(((word << @bitSizeOf(u8)) *% constants.hash_multiplier) >> @intCast(@bitSizeOf(u32) - @as(u6, constants.three_hash_bits)));
+        // The word's own product, which the chain's hash of 4 octets takes too (`hash_of_word`):
+        // one multiply gives both hashes.
+        const product = word *% constants.hash_multiplier;
+        const index: Hash = @truncate(product >> hash_shift);
         const head = &self.heads[index];
         const before = head.*;
         head.* = @intCast(at);
