@@ -3029,6 +3029,58 @@ to 12 are reordered and nothing else changes.
     - sum, 3.6% over libdeflate at level 6, is not a matter of these matches: taken in every
       block they took 0.19% off it.
     - Level 9's kennedy.xls, 10.4% over, and level 1's output, 5.9% over at the geometric mean.
+  - Two cuts to the steps of decision 50, 2026-10-12, the first of its speed work. Both write the
+    octets main writes: no recorded hash and no test's recorded output changes.
+    - fad7ed7. A position was hashed twice in a block that takes 3-octet matches: 4 octets for
+      its chain, 3 for the table. The product of a word shifted by an octet is the word's
+      product shifted by an octet, so bits 10 to 23 of the chain's product are the table's hash
+      (`hash_shift`), and one multiply gives both.
+    - f0ff50d. The copy's loop stored its position in the matcher at every position, for a
+      search most positions of such a block never run. The two places that search store it now
+      (`search_at`).
+    - callgrind, on aarch64 over x-ray's first 2 MiB: 113.21 instructions an octet, then 110.86
+      and 110.37 at level 6, and 134.28, then 129.92 and 129.43 at level 9.
+    - The bench built for both targets at main (1e300a2) and at f0ff50d differs in the four
+      instances of the copy's `advance_positions` alone, of 685 functions on aarch64 and 692 on
+      x86-64. On aarch64 they hold 634, 1,795, 749 and 1,947 instructions where they held 648,
+      1,853, 784 and 1,970, and on x86-64 599, 1,998, 759 and 1,960 where they held 596, 1,986,
+      767 and 1,957.
+    - The pairs. Runs [38298500583](https://github.com/c4milo/stdx/actions/runs/38298500583) and
+      [38298503481](https://github.com/c4milo/stdx/actions/runs/38298503481) ran main and then
+      f0ff50d in each job, on a Neoverse N2 in both, an EPYC 9V45 and an EPYC 7763. On the N2 no
+      row ran slower in either job at any level. At level 6 x-ray ran at 1.022 and 1.020 of
+      main's speed, ooffice at 1.015 and 1.011 and sao at 1.015 and 1.012. At level 9 x-ray ran
+      at 1.045 and 1.040, ooffice at 1.029 and 1.025, sao at 1.023 and 1.020, mozilla at 1.012
+      and 1.013 and sum at 1.013 and 1.014. x-ray stands at 0.86 of libdeflate's speed at level
+      6, from 0.84, and at 0.92 at level 9, from 0.88.
+    - On the EPYC 7763 the six rows that run the copy read 1.001 to 1.010 at level 6 and 0.995
+      to 1.002 at level 9, and no row ran slower past its spread at either level. The EPYC
+      9V45's job ran its second program faster, libdeflate at 1.10 of its own speed at the
+      median at levels 6 and 9 and stdx at 1.10 and 1.11: it tells the two builds apart on no
+      row.
+    - Rows that run main's functions moved in both N2 jobs all the same: at level 1 json's 1 KiB
+      slices at 1.125 and 1.134, html's at 1.100 and 1.107 and grammar.lsp at 1.057 and 1.055.
+      The four functions shrank, and every function after them moved; decision 20 counts such
+      moves as placement.
+    - The Mac, 5 runs a row with a copy of main's binary against main's own beside it: 1.001 of
+      main's speed at the median at level 6 and 0.999 at level 9. The four rows retire 0.978 to
+      0.986 of main's instructions at level 6 and 0.985 to 0.992 at level 9, and their cycles
+      stay within the copy's spread but x-ray's at level 6, 1.013. Two small files that never
+      trigger the matches read slower past 1% at level 9: fields.c at 0.940, which the copy's
+      pass read at 0.946, and xargs.1 at 0.983.
+    - Mutations, on f0ff50d: 5 CAUGHT. The table's hash from the product's top bits, which
+      cover 4 octets, and from one bit higher and one lower, by the encoder's recorded outputs;
+      a search run at the position the matcher last knew, and at the position after its own, by
+      a panic in the steps' tests. A test now pins the hash to its definition, the top bits of
+      the product of the word shifted by an octet, over 1,000 seeded words.
+    - Three forms set aside, counted the same way on x-ray after the two cuts, at level 6 and at
+      level 9. The chain's previous head handed to the hint, in place of a second read of the
+      chain that the compiler does not take from the store before it: 110.37 to 109.86, and
+      129.43 to 133.17. The 3-octet match built where a position takes it: 110.37 to 109.45, and
+      129.43 to 131.64. Level 9's copy of the loop calls its search, and both forms cost it
+      more than they save level 6. And a loop of its own for a run of literals: sao's first 2
+      MiB at 113.10 from 115.34 and at 138.03 from 141.13, but x-ray at 112.99 and 131.13, as
+      x-ray leaves the run at each of its 3-octet matches, 71% of its matches.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
