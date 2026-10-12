@@ -2841,6 +2841,194 @@ to 12 are reordered and nothing else changes.
     is reported beside it: level 6 stands at 1.06 to 1.08 of libdeflate's speed on the N2 and at
     0.97 to 0.99 on the EPYCs, so its speed work goes on. And decision 17's sentence on wrapping
     operators is amended to say what the encoder's loops hold.
+  - Matches of 3 octets after dear literals, 2026-10-12 (decision 50), the third of the owner's
+    rulings of 2026-10-11: such matches may be tried in blocks whose literals cost many bits,
+    measured first, and brought back before anything lands.
+
+    What libdeflate takes, read from its level 6 streams as symbols by a scratch tool (decision
+    9), with what each such match cost it against its three literals under its block's own code:
+    - x-ray: 67% of its matches are 3 octets long, at 14.3 bits against 21.4.
+    - mr 26%, ooffice 25%, sao 24%, sum 20% and mozilla 19%, at 11.0 to 15.5 bits against 20.6
+      to 22.8.
+    - osdb 12%, at 18.7 bits against 20.7, and dickens 0.2%.
+    - stdx took none on any file: its finder hashes 4 octets.
+
+    The trial in every block, decision 42's built again on today's encoder, a table of the
+    latest position with each hash of 3 octets beside the chains, counted on the M1 at level 6
+    as octets against main's:
+    - x-ray 3.47% smaller, ooffice 2.60%, sao 1.91% and mozilla 1.90%; mr 1.34% larger and
+      dickens 0.39%, and osdb at 1.16 of main's instructions an octet, mr at 1.09 and dickens at
+      1.07. The table kept and no match taken costs 1.13, 1.05 and 1.04.
+    - On mr each of its 3-octet matches cost 15.4 bits where its literals cost 20.5, and the
+      stream came out 1.34% larger. A parse that takes many short matches makes the literals
+      left rare, and so dear, and the next block's matches then look cheaper still: decision
+      42's finding on E.coli, here with the matches doing the harm. libdeflate's own mr is 1.2%
+      larger than main's. So no price of one match can admit them; a block's symbols must be
+      priced with them and without.
+
+    The gate, three rules in `encoder_match_three.zig` (decision 50 holds each limit).
+    - The trigger: a block's literals took 6.5 bits each at the mean and 5 bits for each of the
+      block's literal/length symbols. The second bound keeps out blocks whose literals are dear
+      and few: with the first alone, xml tried the matches and came out 0.06% larger.
+    - The verdict: the block's symbols priced by their own frequencies with the matches, and
+      with each turned back into three literals, must differ by 1%. `log2_eighths`, which the
+      block checks of decision 44 price with, reads 3 bits after a count's leading one and is up
+      to a sixth of a bit under; the verdict reads 8 (`log2_fine`), under by less than a 100th.
+    - The wait: one block end after a block they did not pay in, then 2, 4 and so on to 64.
+    - Where it fires, as the share of a row's octets decided with the matches on, at levels 6
+      and 9: x-ray 99.8% at both, ooffice 98.7% at both, sao 81.0% and 85.7%, mozilla 54.3% and
+      60.7%; sum 38.4% and 38.5%, osdb 4.8%, mr 2.0% and 2.2%, samba 1.6% and 0.8% and reymont
+      0.7% and 0.3%, where every try ended at its first verdict; and never on the other 30 rows.
+
+    The steps, `encoder_match_dear.zig`, a third copy of the lazy steps. What the copy's search
+    reads decided its speed, in three forms paired with main on the runners at level 6
+    (decision 50 lists each with its runs), as x-ray's speed over main's on a Neoverse N2:
+    - Short chains read whole, as in any other block: 0.69.
+    - The chain's nearest candidate alone, behind a branch on whether the chain names one in
+      reach: 0.79 to 0.80. Data that does not repeat answers that branch either way.
+    - That candidate and the table's, each read on no branch, and a search where either holds
+      the position's 4 octets: 0.89. Most positions of such a block find no match of 4, and
+      their walks of hash collisions are what the table's upkeep is paid with.
+
+    The change, 264ff57.
+    - `Three` lies in the encoder beside the match finder, as the prices of decision 42 do, so
+      the finder's fields stay where its loops read them. `Appender.pair_coded` is a copy of
+      `pair` that takes the distance's code from its caller: with `pair` made a call of it,
+      none of main's ten instances of the encoder's loops kept its instructions on aarch64,
+      each up to 4 off.
+    - The table and the counts take 33,344 octets: level 6's state is 299,760 octets and level
+      9's 299,504, under budgets of 294 and 293 KiB.
+    - The bench built for both targets at main (3cba95d) and at the change holds every function
+      of main's that has a loop of the encoder, unchanged: `advance_positions` in its 10
+      instances, the searches and the block writer, 27 functions on each target. Of main's 679
+      functions on aarch64, 662 have a twin in the change's object, and of its 686 on x86-64,
+      673. The ones without are the bench's own report or `main` and its four `run`s, the
+      encoder's `run` and `end_block`, which hold the new steps' calls, and the matcher's
+      `slide`, which the compiler now holds inline in the encoder's.
+
+    The output, in octets of raw DEFLATE counted on the M1. 60 of the 468 recorded hashes
+    change, all at levels 6 and 9, and 30 of the 39 rows write main's octets at both levels.
+    - Level 6: x-ray 2.86% smaller than main's, ooffice 2.11%, sao 1.40%, mozilla 1.24% and sum
+      0.06%; osdb 0.06% larger, mr 0.03%, reymont 0.008% and samba 0.001%.
+    - Level 9: x-ray 2.86% smaller, ooffice 2.08%, sao 1.43%, mozilla 1.37% and sum 0.07%; mr
+      0.09% larger, osdb 0.07%, samba 0.006% and reymont 0.003%.
+    - Over libdeflate's the four rows stand at 1.0133, 1.0062, 1.0027 and 1.0067 at level 6,
+      from 1.0431, 1.0279, 1.0170 and 1.0194, and at 1.0152, 1.0072, 1.0038 and 1.0084 at level
+      9, from 1.0452, 1.0285, 1.0183 and 1.0224. The 39 rows' geometric mean goes from 0.9998 to
+      0.9979 at level 6 and from 1.0100 to 1.0080 at level 9.
+    - The rows that write more than libdeflate at level 6 are the 11 they were: sum 3.6%, x-ray
+      1.3%, mozilla 0.7%, ooffice 0.6%, kennedy.xls 0.5%, shuffled dickens 0.4%, sao 0.3%, osdb
+      and E.coli 0.2%, asyoulik.txt 0.06% and nci 0.05%.
+    - The unit tests' recorded output for the seeded input grows by 8 octets at level 6 and by 4
+      at level 9. `encoder_three_test.zig` records each level's output for seeded strings of 3
+      octets: levels 6 and 9 write 96,537 octets where level 1 writes 121,220.
+
+    The pairs. Runs [38276705433](https://github.com/c4milo/stdx/actions/runs/38276705433) and
+    [38276710244](https://github.com/c4milo/stdx/actions/runs/38276710244) ran main (3cba95d) and
+    then the change at 264ff57, in each job, on a Neoverse N2 and an EPYC 7763 in both.
+    - Level 6 ran at 1.000 and 0.999 of main's speed at the median on the N2 and at 1.000 and
+      0.998 on the EPYC. Six rows ran slower in both N2 jobs: x-ray at 0.900 in both, ooffice at
+      0.926 and 0.925, mozilla at 0.936 in both, sao at 0.937 and 0.936, sum at 0.955 and 0.954,
+      and osdb at 0.988 in both. Four did in both EPYC jobs: x-ray at 0.896 and 0.888, sao at
+      0.956 and 0.960, mozilla at 0.958 and 0.957, and ooffice at 0.961 in both; sum read 0.968
+      and 0.971 there, past its spread in one job.
+    - Level 9 ran at 1.003 and 1.001 at the median on the N2 and at 1.003 and 1.002 on the
+      EPYC. On the N2 x-ray ran faster in both jobs, at 1.050, and sao at 1.038, and two rows
+      slower: sum at 0.978 and 0.976 and mozilla at 0.980 in both. On the EPYC four rows ran
+      slower in both: x-ray at 0.884 and 0.879, mozilla at 0.970 and 0.975, ooffice at 0.975
+      and 0.977 and sum at 0.984 in both; sao read 0.956 in both, past its spread in one job.
+    - Level 1 ran at 1.001 in both N2 jobs and at 1.002 and 1.000 on the EPYC, and no row of it
+      moved in both jobs on either CPU.
+    - stdx over libdeflate at level 6 on the N2, main then the change, in the first job and the
+      second: x-ray 0.943 to 0.847 in both, ooffice 0.977 to 0.905 and 0.907, sao 1.073 and
+      1.070 to 1.003 and 1.005, mozilla 1.027 and 1.025 to 0.960 and 0.961, sum 1.020 and 1.021
+      to 0.972 and 0.974, and osdb 0.998 and 0.995 to 0.983 and 0.985. The median reads 1.073
+      in both, from 1.066 and 1.075, with 24 and 25 rows at or above libdeflate where 27 and 26
+      stood.
+    - The same on the EPYC: x-ray 0.940 and 0.949 to 0.843 and 0.844, ooffice 0.921 and 0.930
+      to 0.888 in both, sao 1.030 and 1.042 to 0.996 and 0.992, mozilla 0.958 and 0.965 to 0.919
+      and 0.917, and sum 0.935 and 0.937 to 0.905 and 0.907. The median reads 0.987 in both,
+      from 0.991 and 0.999, with 18 rows where 19 stood.
+    - At level 9: on the N2 x-ray 0.844 and 0.843 to 0.886 and 0.887 and sao 1.219 and 1.216 to
+      1.265 and 1.268, with 35 rows at or above libdeflate as before; on the EPYC x-ray 1.046
+      and 1.054 to 0.923 and 0.932, the one row that falls under libdeflate there, 37 rows
+      where 38 stood.
+    - Two rows that never trigger the matches ran faster in both jobs at level 6 on both CPUs:
+      css's 1 KiB slices at 1.032 to 1.072 and js's at 1.015 to 1.055. On the N2 xargs.1 did at
+      level 9, at 1.026 and 1.013. They are the rows a build's placement moves (decision 49's
+      record above); no count was taken of them.
+    - The same rule over libdeflate, the same C in both programs: kennedy.xls ran at 0.989 and
+      0.986 at level 6 on the N2, and xargs.1 at 0.979 and 0.933 at level 1 on the EPYC. No
+      other row of its moved in both jobs.
+    - Earlier pairs of the same steps, before their tests and their last cleaning (fff46f5,
+      runs [38265646064](https://github.com/c4milo/stdx/actions/runs/38265646064) and
+      [38265650325](https://github.com/c4milo/stdx/actions/runs/38265650325), a Neoverse N2 and
+      an EPYC 7763 in both), read the same: x-ray at 0.896 and 0.902 at level 6 on the N2 and at
+      0.895 and 0.891 on the EPYC. The owner's first ruling of 2026-10-12 was on those.
+
+    The Mac. The encode harness ran main and the change in turn, 5 times a row over the 39
+    rows, and kept each one's run of fewest cycles, with a copy of main's binary against main's
+    own beside it. The laptop ran other work, at a load of 10 to 15.
+    - Level 6: 0.997 of main's speed at the median. Nine rows read slower past 1%: sao at
+      0.956, ooffice and mozilla at 0.958, sum at 0.962, x-ray at 0.975 and osdb at 0.980, and
+      three rows that never trigger the matches, fields.c at 0.952, json's 1 KiB slices at 0.984
+      and xml at 0.986. The copy read fields.c at 0.907, cp.html at 0.935 and world192.txt at
+      0.979.
+    - Level 9: 1.000 at the median, with cp.html at 0.965, mozilla at 0.984, and html-1m and
+      kennedy.xls at 0.988; x-ray read 1.018 and sao 1.001.
+    - Level 1, whose functions are main's: 0.999 at the median, five rows slower past 1%, and
+      five in the copy's pass.
+    - Instructions, which are exact: the four rows retire 1.16, 1.10, 1.09 and 1.06 of main's
+      at level 6, x-ray first, and 1.07, 1.04, 1.03 and 1.03 at level 9.
+
+    Mutations, on 264ff57: 72 CAUGHT, and 1 that changes cost and no output NOT CAUGHT.
+    - 31 by the unit tests of the table, the trigger, the verdict and the wait
+      (`encoder_match_three_test.zig`): each bound of the trigger one step off and each alone,
+      the saving one part off, the verdict without the distances' extra bits or without the
+      symbols a cut carries, and each rule of the wait.
+    - 24 by the encoder's recorded outputs and round trips (`encoder_test.zig`), 8 by the
+      recorded outputs for seeded strings of 3 octets (`encoder_three_test.zig`), 6 by the
+      steps' scenes (`encoder_match_dear_test.zig`), 2 by the fuzz test's seeded inputs and 1 by
+      the split test: the steps' rules, the table's hash, its clear and its slide, each named
+      limit, and each line that joins the encoder to the gate.
+    - Not caught: a waiting match that meets no match scored all the same, which writes the
+      same octets.
+    - Three gaps showed while the tests were written. The verdict with the matches left among
+      the distance codes passed: no scene held matches over more than one code, and one of 500
+      matches over ten codes now does. The gate deaf to the symbols a cut carries passed: the
+      encoder's `end_block` joined them, which no unit test calls with a cut in hand, so
+      `Three.end_block` joins them now and a test calls it. And tests that took a bound from
+      its constant passed with the constant one off: the longest wait, its growth, the reach
+      and the table's length are written out, 64, 2, 8,191 and 16,384.
+
+    Checks, on 264ff57.
+    - `zig build test`: 64 of 64 steps, 854 of 856 tests, 2 skipped. `zig build
+      test-self-hosted` and `zig build test-avx512` build.
+    - differential-encode: 39 files, 1,288 checks, none failed, with stdx built ReleaseSafe and
+      built Debug: every output fits `encoded_len_max`, decodes through stdx, zlib and Wuffs,
+      has its recorded hash, and is the same under seeded flush points and splits and with the
+      caller's choice of decision 49 off.
+    - Run [38276714959](https://github.com/c4milo/stdx/actions/runs/38276714959) ran 2M runs of
+      the module's fuzz tests on each of the three runners, and found nothing.
+
+    The owner's rulings of 2026-10-12. On the earlier pairs and these outputs: levels 6 and 9
+    take the matches, the four rows' speed ruled in, and the table holds 32 KiB, with the
+    budgets at 294 and 293 KiB. On the pairs above: the rows whose tries were turned off go in
+    too, sum's and osdb's speed and the octets osdb, mr, reymont and samba gain.
+
+    What is left.
+    - Speed in the blocks that take the matches. x-ray runs at 0.85 of libdeflate's speed at
+      level 6 on the N2 and at 0.84 on the EPYC, ooffice at 0.91 and 0.89, mozilla at 0.96 and
+      0.92. In the code built for x86-64 the copy's loop at level 6 holds 1,977 instructions,
+      402 of them reads and writes of its stack, where the plain loop's 1,078 hold 168; and
+      each 3-octet match is a branch that data of this kind takes either way.
+    - Output on the four rows: x-ray still writes 1.3% more than libdeflate at level 6, mozilla
+      0.7%, ooffice 0.6% and sao 0.3%. The short-chain read in these blocks takes x-ray to 0.7%,
+      at the speeds decision 50 refused.
+    - The tries that fail: osdb, mr, samba, reymont and sum pay for 8, 7, 9, 2 and 1 at level 6.
+    - sum, 3.6% over libdeflate at level 6, is not a matter of these matches: taken in every
+      block they took 0.19% off it.
+    - Level 9's kennedy.xls, 10.4% over, and level 1's output, 5.9% over at the geometric mean.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
