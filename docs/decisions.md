@@ -1042,6 +1042,30 @@ small file.
     came first there too: level 6's search (entry 48) took a quarter of its instructions with
     every check on. Entry 49 holds the A/B entry 16 asks for and the owner's ruling.
 
+    **Amended by the owner on 2026-10-12, on the wrapping operators.** The rule above kept them
+    for where the format itself wraps. The DEFLATE encoder holds others, which landed with its
+    steps (design §8 step 9), each where a bound shows the sum cannot overflow and a checked add
+    costs a branch that never fires. The rule now reads: a wrapping operator may stand where the
+    format wraps, or where a bound stated beside it shows the sum cannot overflow, asserted at
+    comptime where a constant gives the bound. The ones that stand so:
+    - The appender's three counts of a block's symbols (`Appender.literal`, `Appender.pair`): a
+      block holds at most `block_symbols_max` symbols, and a comptime assert requires that many
+      and end-of-block's one to fit a count's 16 bits.
+    - The chain walk's count of candidates (`Walk.step`): the walk stops at its budget, at most
+      `candidates_max`, which fits the count's 16 bits.
+    - The tail walk's sum of a link and its `shift` (`best_by_tail`): a link is a position of
+      the window, 16 bits, and the shift is less than a match's length.
+    - A block's coded bits (`coded_bits`): each count times its code's length and extra bits,
+      summed over a block's symbols, which a comptime assert requires to fit 32 bits.
+    - The block checks' vector sums (`encoder_split_price.zig`): a block's counts sum to
+      `total_max` at most, so no lane wraps, neither a count's 16 bits nor a product's 32, and
+      each difference is of counts that are part of the counts they are taken from.
+    - Made plain adds, the five of the first three cost the default build 1.2% to 4.9% of level
+      1's instructions on the M1 over seven rows, up to 2.5% of level 6's and up to 2.8% of
+      level 9's, x-ray the most at each. With entry 49's choice off they cost nothing.
+    - The alternative refused: the five as plain adds, which follows the rule as it was written
+      and pays those instructions in every default build.
+
     The alternatives refused:
     - Safety off in the hot functions only, with `@setRuntimeSafety(false)`. It turns every
       assertion there into an assumption the optimizer relies on, which is the opposite of a
