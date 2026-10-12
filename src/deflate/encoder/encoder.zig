@@ -348,4 +348,5 @@ test {
     _ = @import("encoder_split_price.zig");
     _ = @import("encoder_split_test.zig");
     _ = @import("encoder_fuzz_test.zig");
+    _ = @import("encoder_limits_test.zig");
 }

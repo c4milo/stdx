@@ -223,13 +223,20 @@ test "a walk passes the candidates as near as its match is long, and moves to th
     }
 }
 
+/// The reach left before its edge in the tests of when a move is tried, and the widest gap to a
+/// chain's next candidate at which level 9's walk tries one there: 8,000 octets hold its
+/// `tail_move_candidates_min`, 16 candidates, 500 octets apart. Written out, not derived from the
+/// limit, so that the tests hold the limit where it is.
+const move_left = 8000;
+const move_gap_max = 500;
+
 test "a walk tries no move where fewer than tail_move_candidates_min candidates could follow on its own chain" {
     const octets = position_octets();
     var matcher: TailMatcher = undefined;
     // The nearest candidate lies `left` octets before the reach's edge, and the far one in reach.
-    const left = 8000;
+    const left = move_left;
     const near = constants.encoder_distance_max - left;
-    const gap_max = left / constants.tail_move_candidates_min;
+    const gap_max = move_gap_max;
     inline for (.{ gap_max, gap_max + 1 }) |gap| {
         const scene: Scene = .{ .near = near, .fillers = 1, .gap = gap, .far = near + left - 1 };
         set_window(&matcher, &octets);
@@ -252,9 +259,8 @@ test "the gap to the next candidate of a tail's chain counts from the candidate,
     // reach's edge, then a position that holds the tail alone, one octet past the widest gap
     // that pays, then the far candidate, which the longer one's tail's chain names too.
     const scene: Scene = .{};
-    const left = 8000;
-    const longer = constants.encoder_distance_max - left;
-    const filler = longer + left / constants.tail_move_candidates_min + 1;
+    const longer = constants.encoder_distance_max - move_left;
+    const filler = longer + move_gap_max + 1;
     const far = filler + scene.gap;
     plant_candidates(&matcher, &octets, &.{ .{ .distance = scene.near, .len = near_len }, .{ .distance = scene.near + scene.gap, .len = constants.match_len_taken_min } });
     @memcpy(matcher.window[test_position - longer ..][0..longer_len], octets[0..longer_len]);

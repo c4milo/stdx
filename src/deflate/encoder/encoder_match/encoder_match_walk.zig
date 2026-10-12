@@ -1,7 +1,6 @@
 //! The chain walk of the encoder's lazy levels: the search for the longest match among the
-//! candidates a position's hash chain names, one walk at a time (`best`), or two in one loop after
-//! a taken match, so their loads overlap (`best_pair`). Level 9's walk also follows the chains of
-//! its matches' tails (`encoder_match_walk_tail.zig`).
+//! candidates a position's hash chain names (`best`). Outside a block of cheap literals the
+//! search also follows the chains of its matches' tails (`encoder_match_walk_tail.zig`).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -15,14 +14,7 @@ const tail_octets = match.tail_octets;
 const match_len = match.match_len;
 const best_by_tail = @import("encoder_match_walk_tail.zig").best_by_tail;
 
-/// The two searches of `best_pair`.
-pub const Pair = struct {
-    first: Match,
-    second: Match,
-};
-
-/// One chain walk in progress: what a search keeps between candidates, so two walks can take turns
-/// in one loop and their loads overlap (`best_pair`).
+/// One chain walk in progress: what a search keeps between candidates.
 const Walk = struct {
     position: usize,
     /// The `len_max` octets at `position`.
@@ -38,9 +30,6 @@ const Walk = struct {
     /// Where the 4 octets that decide a candidate against `found` start, and those 4 of `later`.
     tail: u8 = 0,
     later_tail: u32,
-    /// `found` after `cut_candidates_max` candidates: the result when a cut applies to a walk that
-    /// passed them.
-    found_at_cut: Match = .{},
     done: bool = false,
 
     inline fn init(comptime level: constants.Level, self: *const Matcher(level), position: usize, len_max: usize, budget: u16) Walk {
@@ -56,7 +45,7 @@ const Walk = struct {
     /// `match_len_taken_min` is taken, so while `found` is shorter the first 4 decide. One compare
     /// of those 4 turns away most candidates before `match_len` compares from the start, and a
     /// candidate rarely passes it by chance, so its branch stays predictable.
-    inline fn step(walk: *Walk, comptime level: constants.Level, self: *const Matcher(level), comptime keeps_cut: bool) void {
+    inline fn step(walk: *Walk, comptime level: constants.Level, self: *const Matcher(level)) void {
         if (walk.done) return;
         const candidate = walk.candidate;
         // The chain names earlier positions, each farther than the one before it.
@@ -70,9 +59,6 @@ const Walk = struct {
         walk.tried +%= 1;
         if (tail_octets(self.window[candidate..], walk.tail) == walk.later_tail) {
             walk.found = longer_match(level, self, walk.position, candidate, walk.later, walk.found);
-            // `found` changes only here, so the last value set within the first
-            // `cut_candidates_max` candidates is `found` after them.
-            if (keeps_cut and walk.tried <= level.cut_candidates_max) walk.found_at_cut = walk.found;
             if (walk.found.len >= level.nice_len or walk.found.len >= walk.later.len) {
                 walk.done = true;
             } else {
@@ -80,11 +66,6 @@ const Walk = struct {
                 walk.later_tail = tail_octets(walk.later, walk.tail);
             }
         }
-    }
-
-    /// The walk's result: under a budget of `cut_candidates_max` when `cut`, else its own.
-    inline fn result(walk: Walk, comptime level: constants.Level, cut: bool) Match {
-        return if (cut and walk.tried > level.cut_candidates_max) walk.found_at_cut else walk.found;
     }
 };
 
@@ -111,7 +92,7 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     // the tail's chain reads a head for each longer match and finds no fewer candidates there.
     if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget);
     var walk = Walk.init(level, self, self.position, len_max, budget);
-    while (!walk.done) walk.step(level, self, false);
+    while (!walk.done) walk.step(level, self);
     return walk.found;
 }
 
@@ -174,35 +155,6 @@ pub inline fn skips_search(comptime level: constants.Level, comptime cheap: bool
     const taken = waiting and previous_len >= level.lazy_len;
     if (cheap) return taken;
     return taken or (previous_len == 0 and short_chain_misses(level, short_chain_len, self, position));
-}
-
-/// The lazy step's two searches after a taken match, at `position` and the next, walked in one loop
-/// so their loads overlap: the first's match waits, and the second's is compared with it. The
-/// second walk follows the first's match as `best` would after it: cut to `cut_candidates_max`
-/// once the first is `cut_len` long, and ended once it is `lazy_len` long, when the step skips the
-/// second search. Both positions have `match_len_max` octets ahead.
-pub fn best_pair(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), position: usize) Pair {
-    const budget = if (cheap) level.cheap_candidates_max else level.candidates_max;
-    var first = Walk.init(level, self, position, constants.match_len_max, budget);
-    var second = Walk.init(level, self, position + 1, constants.match_len_max, budget);
-    // The first walk's nearest candidate often settles the second's budget, so it goes first.
-    first.step(level, self, false);
-    follow(level, first.found, &second);
-    while (!first.done or !second.done) {
-        second.step(level, self, true);
-        const found_len = first.found.len;
-        first.step(level, self, false);
-        // Only a longer match changes what the second walk does.
-        if (first.found.len != found_len) follow(level, first.found, &second);
-    }
-    return .{ .first = first.found, .second = second.result(level, first.found.len >= level.cut_len) };
-}
-
-/// Makes a pair's second walk follow the first's match `found`: ended once it is `lazy_len` long,
-/// and cut to `cut_candidates_max` once it is `cut_len` long.
-inline fn follow(comptime level: constants.Level, found: Match, second: *Walk) void {
-    if (found.len >= level.lazy_len) second.done = true;
-    if (found.len >= level.cut_len) second.budget = level.cut_candidates_max;
 }
 
 /// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,

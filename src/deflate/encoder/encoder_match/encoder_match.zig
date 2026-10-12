@@ -25,7 +25,6 @@ fn CostsOf(comptime cheap: bool) type {
 const walk = @import("encoder_match_walk.zig");
 const best = walk.best;
 const best_inline = walk.best_inline;
-const best_pair = walk.best_pair;
 const skips_search = walk.skips_search;
 
 /// A match: its length, 0 for none, and its distance.
@@ -74,7 +73,7 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         /// The input, in its first `encoder_window_len` octets, and at level 6, whose walks run
         /// inline (`search`), `encoder_window_padding_len` octets that no read reaches.
-        window: [constants.encoder_window_len + (if (level.pair_walks) constants.encoder_window_padding_len else 0)]u8,
+        window: [constants.encoder_window_len + (if (level.walks_inline) constants.encoder_window_padding_len else 0)]u8,
         /// The last position with each hash, and for each position the one before it with the same
         /// hash. A position of 0 names none, so the window's first octet is never a candidate.
         heads: [1 << level.hash_bits]u16,
@@ -236,20 +235,9 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
     while (state.position < end and !symbols.full()) {
         insert(level, self, state.position);
         var current: Match = .{};
-        if (level.pair_walks and !state.waiting and state.position + 1 < end) {
-            // A fresh start: this position's search waits, the next position's is compared with
-            // it, and the two walks share one loop.
-            insert(level, self, state.position + 1);
-            const pair = best_pair(level, cheap, self, state.position);
-            state.previous = pair.first;
-            state.waiting = true;
-            state.position += 1;
-            if (state.previous.len < level.lazy_len) current = pair.second;
-        } else {
-            assert(state.waiting or state.previous.len == 0);
-            self.position = state.position;
-            if (!skips_search(level, cheap, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
-        }
+        assert(state.waiting or state.previous.len == 0);
+        self.position = state.position;
+        if (!skips_search(level, cheap, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
         decide_lazy(level, cheap, self, costs, &symbols, &state, current);
     }
     symbols.finish(state.position - @intFromBool(state.waiting) - covered_from);
@@ -261,7 +249,7 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
 /// and a call to `best` at level 9, whose walks run long.
 inline fn search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
-    return if (level.pair_walks) best_inline(level, cheap, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
+    return if (level.walks_inline) best_inline(level, cheap, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
 }
 
 /// The lazy step's state through `advance_lazy`: the next position, and the match waiting from the

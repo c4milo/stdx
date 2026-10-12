@@ -1,6 +1,6 @@
-//! The chain walk of a level whose chains run long, level 9: a search that leaves the chain it
-//! follows for the chain of its match's tail when fewer candidates remain there (`best_by_tail`,
-//! decision 46).
+//! The chain walk of the lazy levels outside a block of cheap literals: a search that leaves the
+//! chain it follows for the chain of its match's tail when fewer candidates remain there
+//! (`best_by_tail`, decisions 46 and 48).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -67,7 +67,7 @@ const TailWalk = struct {
         if (passed <= lowest) return false;
         walk.tail = tail_of(walk.found);
         walk.later_tail = tail_octets(later, walk.tail);
-        if (walk.could_pay(lowest, candidate)) walk.move(level, self, passed);
+        if (walk.could_pay(level, lowest, candidate)) walk.move(level, self, passed);
         // A tail starts where a match ends, less 3 octets, so no tail starts before an earlier one.
         assert(walk.tail >= walk.offset);
         walk.floor = lowest + walk.offset;
@@ -79,10 +79,10 @@ const TailWalk = struct {
     /// its next candidate near enough that `tail_move_candidates_min` could follow at that gap
     /// before the reach's edge at `lowest`. A chain of fewer candidates costs less to read than
     /// a move.
-    inline fn could_pay(walk: *const TailWalk, lowest: usize, candidate: usize) bool {
+    inline fn could_pay(walk: *const TailWalk, comptime level: constants.Level, lowest: usize, candidate: usize) bool {
         assert(walk.link >= walk.floor);
         const gap = candidate - (walk.link - walk.offset);
-        return gap * constants.tail_move_candidates_min <= candidate - lowest;
+        return gap * level.tail_move_candidates_min <= candidate - lowest;
     }
 
     /// Moves the walk to the tail's chain when that chain names its next candidate within

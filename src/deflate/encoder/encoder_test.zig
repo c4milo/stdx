@@ -223,7 +223,7 @@ test "each level's output for a seeded input is the one recorded here" {
     // Any change to what the encoder decides changes these; a change meant to must record new ones.
     const recorded = [_]struct { usize, u64 }{
         .{ 49100, 0x36c0bead5df53163 },
-        .{ 46111, 0xec3d80ea7728eb57 },
+        .{ 45802, 0xc5ede2243bbfe3e4 },
         .{ 45739, 0x731ae949b5d16e06 },
     };
     var input: [120 * 1024]u8 = undefined;
@@ -241,7 +241,7 @@ test "each level's output for two seeded letters, whose chains run long, is the 
     // read all `cut_candidates_max` links hundreds of times.
     const recorded = [_]struct { usize, u64 }{
         .{ 4690, 0x94914bcc05d2d58f },
-        .{ 4009, 0xdeecdba3c0e4de88 },
+        .{ 4132, 0x85848da69fda2120 },
         .{ 4029, 0xc14003575ca02bbc },
     };
     var input: [letters_len]u8 = undefined;
@@ -290,7 +290,7 @@ test "each level's output for seeded DNA, whose literals cost two bits, is the o
     // price their matches and walk `cheap_candidates_max` candidates (decision 42).
     const recorded = [_]struct { usize, u64 }{
         .{ 30766, 0xde3d5a5c996f8b6a },
-        .{ 26296, 0x2352880cbd54c392 },
+        .{ 26876, 0xf2cf56e1e258b24f },
         .{ 24878, 0x29d7a43acf09079a },
     };
     var input: [dna_len]u8 = undefined;

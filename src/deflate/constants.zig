@@ -307,8 +307,8 @@ pub const Level = struct {
     candidates_max: u16,
     nice_len: u16,
     lazy_len: u16,
-    /// The lazy step's search tries at most `cut_candidates_max` candidates, a quarter of
-    /// `candidates_max`, when the match waiting from the position before is at least `cut_len`
+    /// The lazy step's search tries at most `cut_candidates_max` candidates, a quarter or a third
+    /// of `candidates_max`, when the match waiting from the position before is at least `cut_len`
     /// long, as a longer match then saves less. Design §8 step 9 records what the cut saves and
     /// what it costs.
     cut_len: u16,
@@ -317,17 +317,26 @@ pub const Level = struct {
     /// at most this long: a later match may start there, and the head then names the nearest
     /// position. A level with chains inserts every covered position and ignores this.
     covered_insert_len_max: u16,
-    /// Whether the lazy step's two searches after a taken match walk their chains in one loop, so
-    /// their loads overlap (`best_pair`). Level 6's budget pays; at level 9's depth the second
-    /// walk's budget follows the first's too late and the two walks crowd the cache (design §8
-    /// step 9, 2026-09-29).
-    pair_walks: bool,
+    /// Whether the lazy step's search runs inline in its loop, over a window padded so that the
+    /// search's loads carry no bounds check (`encoder_window_padding_len`). Level 6's does: most
+    /// of its searches read a link or two, and a call's own cost is a large share of those.
+    /// Level 9's searches run long, and it calls `best`.
+    walks_inline: bool,
     /// Whether a search moves from the chain it follows to the chain of its match's tail, the 4
     /// octets a longer match holds too, when fewer candidates remain there (`best_by_tail`,
-    /// decision 46). Level 9 does: its chains run to thousands of candidates. Level 6, whose two
-    /// walks share a loop, does not. Such a search counts the links it reads against
+    /// decisions 46 and 48). The lazy levels do, outside a block of cheap literals: level 9's
+    /// chains run to thousands of candidates, and level 6 finds in 24 links what 64 candidates
+    /// of the position's own chain gave it. Such a search counts the links it reads against
     /// `candidates_max` and `cut_candidates_max`, the ones a move passes included.
     tail_chains: bool,
+    /// Such a search tries a move to the tail's chain only where its own chain could still name
+    /// this many candidates in reach, counted as the reach left over the gap to its next
+    /// candidate: fewer cost less to read than a move costs to try, the tail's head, the links it
+    /// passes and a branch that goes either way. Level 9 has 16: with 4, x-ray and shuffled dickens
+    /// ran 1% to 2% slower on the runners and most other files 1% to 3% faster (decision 46).
+    /// Level 6 has 48: with 16 an M1 ran six of the nine text files 1% to 5% slower than main, and
+    /// with 64 level 6 wrote more than libdeflate at the mean of the 39 rows (decision 48).
+    tail_move_candidates_min: u16,
     /// In a block whose literals are cheap (`cheap_literal_cost_max`), the candidates a search
     /// tries at a position. Such data, DNA's four letters say, holds long chains of short matches
     /// that the block's prices turn away, and a full budget walks them at every literal (decision
@@ -373,22 +382,15 @@ comptime {
 /// tail's octets recur as often as the ones the search follows (`best_by_tail`, decision 46).
 pub const tail_skips_max = 4;
 
-/// A search tries a move to the tail's chain only where its own chain could still name this many
-/// candidates in reach, counted as the reach left over the gap to its next candidate: fewer cost
-/// less to read than a move costs to try, the tail's head, the links it passes and a branch
-/// that goes either way (`best_by_tail`, decision 46). At 4, x-ray and shuffled dickens encoded
-/// 1% to 2% slower on the runners, and most other files 1% to 3% faster.
-pub const tail_move_candidates_min = 16;
-
 /// The levels of decision 13.
 pub const encoder_levels = [_]u4{ 1, 6, 9 };
 
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .pair_walks = false, .tail_chains = false, .cheap_candidates_max = 1, .block_checks = false, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 64, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 16, .covered_insert_len_max = 0, .pair_walks = true, .tail_chains = false, .cheap_candidates_max = 16, .block_checks = true, .state_budget_len = 261 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .pair_walks = false, .tail_chains = true, .cheap_candidates_max = 32, .block_checks = true, .state_budget_len = 260 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .state_budget_len = 261 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .state_budget_len = 260 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
@@ -399,13 +401,11 @@ comptime {
         const chosen = level(number);
         assert(chosen.cut_candidates_max >= 1 and chosen.cut_candidates_max <= chosen.candidates_max);
         assert(chosen.cut_len >= match_len_taken_min);
-        // A block with cheap literals searches less than any other, and still tries a candidate.
-        assert(chosen.cheap_candidates_max >= 1 and chosen.cheap_candidates_max <= chosen.cut_candidates_max);
-        // A pair's second walk takes the cut budget once the first's match is `cut_len` long, which
-        // in a block with cheap literals is the budget it already has.
-        assert(!chosen.pair_walks or chosen.cheap_candidates_max == chosen.cut_candidates_max);
-        // A search that moves between chains runs alone, on a level that keeps chains.
-        assert(!chosen.tail_chains or (chosen.chains and !chosen.pair_walks));
+        // A block with cheap literals still tries a candidate, and no more than a search's budget.
+        assert(chosen.cheap_candidates_max >= 1 and chosen.cheap_candidates_max <= chosen.candidates_max);
+        // A search that moves between chains needs the level's chains and a count for its moves.
+        assert(!chosen.tail_chains or chosen.chains);
+        assert(chosen.tail_move_candidates_min >= 1);
     }
 }
 
