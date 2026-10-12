@@ -878,9 +878,10 @@ small file.
       or the CRC32 instructions, takes register operands only, loaded through checked slices, and
       never an address.
     - `@setRuntimeSafety(false)` appears in one place, the brotli command loop, ruled below on
-      2026-09-29. An exception needs an A/B of the same function with safety on and off on the
-      Linux runners, five runs each over all three corpora, a gain above the 5% noise floor, a new
-      row in this entry with the numbers, and the owner's ruling.
+      2026-09-29; entries 35 and 49 let a caller choose it for the json encoder's token loop and
+      for the DEFLATE encoder's loops. An exception needs an A/B of the same function with safety
+      on and off on the Linux runners, five runs each over all three corpora, a gain above the 5%
+      noise floor, a new row in this entry with the numbers, and the owner's ruling.
     - A lint rule, `input-index`, lands with the `codec` module (design §8 step 3). Outside the
       reader, the writer and the functions below, it refuses an index or a slice bound derived
       from a value the reader produced, as colibri's `peer-index` rule does for peer input.
@@ -955,6 +956,7 @@ small file.
     | Every encoder's bit writer (E5) | 9, 13, 14 | none | 8 octets | Encode throughput against the checked writer |
     | JSON encoder token loop (J11) | 18 | none: an item's octets are its own slice, read inside it | none: it checks the room an item takes before it writes the item | Throughput of batches against every item through `Encoder.run`, over bench-json's workloads |
     | JSON encoder token loop with runtime safety off, at the caller's choice (J11, decision 35) | 18 | as J11 | as J11 | Throughput with safety off over on in the loop's two files, run [36515654643](https://github.com/c4milo/stdx/actions/runs/36515654643): CLDR's texts 1.071 and qlog's records 1.053 on the N2, 1.057 and 1.089 on the EPYC 9V45 |
+    | DEFLATE encoder's match finder, appender and symbol writer with runtime safety off, at the caller's choice (decision 49) | 9 | none: the matcher reads its own window | none: the appender's block, and the writer's 8 octets (E5) | Throughput with safety off over on in the encoder's five inner files, the probe after its base in one job, run [38172161400](https://github.com/c4milo/stdx/actions/runs/38172161400): levels 1, 6 and 9 at 1.049, 1.044 and 1.067 at the median on the N2 and at 1.044, 1.037 and 1.050 on a Xeon 8573C; since then each bench-deflate report's `stdx unchecked` column beside `stdx` |
     | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time, or of 32 in the AVX2 variant object's walk (entry 47) | 16 octets, and 32 in that walk: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `Decoder.run`, over bench-json's workloads |
 
     The alternatives refused:
@@ -1031,6 +1033,14 @@ small file.
     and output cost each access a check (design §8 step 18). The owner ruled on 2026-09-28: once
     construction has taken what it can, propose an exception under decision 16 for the token loops
     of claims J10 and J11, with the A/B that entry asks for.
+
+    **The DEFLATE encoder's measurement, 2026-10-11**, at 0b53229 in run
+    [38170242086](https://github.com/c4milo/stdx/actions/runs/38170242086), both builds in one
+    job: built ReleaseFast, the gzip encoder runs at a median of 1.095, 1.052 and 1.114 of its
+    ReleaseSafe speed at levels 1, 6 and 9 on the N2, and of 1.077, 1.039 and 1.055 on an EPYC
+    9V45, past this entry's 5% at levels 1 and 9 on both and at level 6 on the N2. Construction
+    came first there too: level 6's search (entry 48) took a quarter of its instructions with
+    every check on. Entry 49 holds the A/B entry 16 asks for and the owner's ruling.
 
     The alternatives refused:
     - Safety off in the hot functions only, with `@setRuntimeSafety(false)`. It turns every
@@ -3114,3 +3124,82 @@ small file.
     - The next position's head read while a search runs, and its candidate's octets and link
       prefetched: 11 rows at 0.97 to 1.08 of the search's speed, on 0.3% to 5.4% more
       instructions.
+
+49. **Runtime safety off in the DEFLATE encoder's loops, at the caller's choice.** Proposed on
+    2026-10-11, as entry 17's measurement of the encoder asks, and ruled by the owner the same
+    day: the caller's choice, as entry 35 made it for `json`. It is a compile-time option, the
+    checks stay on unless the caller turns them off, a test build, the fuzzer's included, and a
+    Debug build keep them, and the benchmark prints both. It joins entry 16's exceptions, after
+    the brotli command loop and entry 35's.
+
+    **The measurement.**
+    - Entry 17's, the benchmark built ReleaseFast over ReleaseSafe in one job, at 0b53229 (run
+      [38170242086](https://github.com/c4milo/stdx/actions/runs/38170242086)): the gzip encoder
+      at levels 1, 6 and 9 ran at 1.095, 1.052 and 1.114 of its ReleaseSafe speed at the median
+      of the 39 rows on a Neoverse N2, and at 1.077, 1.039 and 1.055 on an EPYC 9V45.
+    - Entry 16's A/B, every function of the encoder's five inner files with
+      `@setRuntimeSafety(false)` after the same code with it on, in one job (run
+      [38172161400](https://github.com/c4milo/stdx/actions/runs/38172161400), on the form of
+      level 6's search entry 48 first ruled): 1.049, 1.044 and 1.067 at the median on the N2,
+      where 38, 39 and 39 of the 39 rows ran faster past their spread and none slower, and 1.044,
+      1.037 and 1.050 on a Xeon 8573C, where 11, 6 and 12 did and none ran slower.
+    - Level 9 passes entry 16's 5% floor on the N2 and stands at it on the Xeon. Levels 1 and 6
+      gain 3.7% to 4.9%, under it. The owner ruled the choice in for the encoder as a whole: a
+      caller sets it for an encoder's type, and measures its own level and input.
+    - On the M1, which publishes no number (entry 10), the encoder retires fewer instructions with
+      the checks off over seven rows: 0.87 to 0.93 of its count at level 1, 0.88 to 0.96 at level
+      6 and 0.75 to 0.84 at level 9.
+
+    **The ruling.**
+    - `EncoderOptions` gains `runtime_safety`, true by default. gzip's and zlib's encoders take the
+      same options, so the choice reaches them.
+    - With it false, in a build that is neither a test nor Debug, these run with Zig's runtime
+      safety checks off: every function of the match finder (`encoder_match.zig` and its pieces
+      for the greedy level and the two walks), the block's appender and its code lookups
+      (`Appender`, `Block.add_literal`, `Block.add_pair`, `length_code`, `distance_code`), and
+      every function of the block writer under `write` (`encoder_emit.zig`).
+    - Everything else keeps its checks: the encoder's entry and its steps, the block's plans and
+      prices, the codes, the `codec` writer, and the decoder.
+    - The block writer's functions all take the flag, the header's phases too, so that each
+      choice has its own copy of them. With the flag on the symbols' loop alone, a program that
+      held both choices called the phases from two copies of `write`, and the compiler stopped
+      holding them inline in either: 1,236 instructions to 358 on aarch64.
+    - `Encoder` joins the caller's choice with the build's in one place, its level's
+      `runtime_safety`, and each function the choice reaches starts with a `@setRuntimeSafety` of
+      that field, or of the flag a caller copied from it. A test of `encoder_safety.zig` requires
+      every `@setRuntimeSafety` of those files to take one of the two, and every other file of the
+      encoder and the decoder to hold none.
+    - differential-encode encodes each of its inputs with the choice off too and requires the
+      checked encoder's octets. bench-deflate times `stdx unchecked` beside `stdx`, once it has
+      written the same members.
+    - The default build is main's. bench-deflate, which holds both choices, holds every function
+      of the library it held before, unchanged, on both targets, but one on aarch64, the
+      decoder's `execute`, whose padding follows its address. The functions that take the flag
+      became instances and changed their names alone.
+    - Entry 16 gains a row. It amends entry 17's refusal of a switch that turns checks off for
+      callers, for these functions, as entry 35 amended it for json's loop: the switch is a
+      type's, and stdx's assertions stay on.
+    - Ruled by the owner on 2026-10-12, with the pairs of design §8 step 9 in hand: the change
+      lands, and the encoder's bar, no slower than libdeflate, reads `stdx`, the checked column,
+      which a caller gets without asking. `stdx unchecked` is reported beside it.
+
+    What stays checked in those functions: `std.debug.assert`, as its `unreachable` lies in its
+    own function, and every function they call that the choice does not reach, the `codec` writer
+    among them. An `unreachable` written in them becomes an assumption, as entry 17 warns.
+
+    What it risks: a wrong bound in the match finder reads or writes outside the encoder's state
+    instead of panicking. The octets an encoder is given may be a peer's, a server compressing
+    what a client sent, and their values steer the search: which chains it follows, how far a
+    match runs. The fuzzer runs that code with the checks on, and differential-encode and the
+    benchmark run it with them off over the corpora.
+
+    The alternatives refused:
+    - The checks off in every ReleaseSafe build, stdx's choice and not a caller's, and the
+      caller's choice with the checks off by default: entry 35 refused both.
+    - A switch at run time. It compiles the loops twice, and every binary carries both.
+    - The choice at level 9 alone, where the A/B passes entry 16's floor: a caller would meet an
+      option that works at one level of three, for a floor its own input may pass at the others.
+    - Every function of the five files, the block's plans and prices among them, as the A/B
+      built it: the flag would thread through every plan and price for the instructions of a
+      stream's one block.
+    - Neither. Every check stays, and the encoder gives up 4% to 7% on the N2.
