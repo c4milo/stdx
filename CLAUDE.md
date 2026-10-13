@@ -111,7 +111,10 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   can reach them.
 - Write all prose in active voice with plain words, following Google's Technical Writing One and
   Two: short sentences with one idea each, terms defined before use, lists for list-like content,
-  strong verbs, no rhetorical flourishes or metaphors.
+  strong verbs, no rhetorical flourishes or metaphors. Write it in ASD-STE100 Simplified Technical
+  English too: descriptive sentences of 25 words or fewer and procedural ones of 20 or fewer, one
+  topic in each sentence, simple tenses, one word for one meaning, no -ing form used as a noun or a
+  modifier, and no noun cluster of more than three words.
 - Name what literally happens. Before an abstract word, ask what literally happens and write that.
 - One name per thing, and it is the name in the code. Never invent prose shorthand for something
   a field or constant already names.
