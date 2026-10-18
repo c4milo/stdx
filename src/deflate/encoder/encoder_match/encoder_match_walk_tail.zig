@@ -111,7 +111,8 @@ const TailWalk = struct {
 
 /// The longest match at the matcher's position of at least `match_len_taken_min` octets, or none,
 /// up to `len_max` octets, the nearest of the longest, as `best_inline` finds it. `budget` bounds
-/// the links the walk reads, a move's included.
+/// the links the walk reads, a move's included. `lowest_passed` is `lowest_of` the position, or
+/// null where the walk computes it itself (`best`).
 ///
 /// A candidate longer than the match found holds the match's tail, the 4 octets that end one past
 /// it, `tail` octets after its own start. Every inserted position that holds those 4 octets is on
@@ -125,14 +126,14 @@ const TailWalk = struct {
 /// whose positions lie closer than that recurs as often as the octets the walk follows. It moves
 /// there when that chain's next candidate lies farther back than its own chain's. A chain that
 /// ends, or leaves the reach, ends the walk: no candidate left is longer.
-pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, budget: u16) Match {
+pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, budget: u16, lowest_passed: ?usize) Match {
     @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.tail_chains);
     const position = self.position;
     assert(len_max >= constants.match_len_taken_min and position + len_max <= self.filled);
     const later = self.window[position..][0..len_max];
     // Position 0 names no candidate, as a head or link of 0 ends a chain.
-    const lowest = @max(1, position -| constants.encoder_distance_max);
+    const lowest = lowest_passed orelse @max(1, position -| constants.encoder_distance_max);
     const later_head = tail_octets(level.runtime_safety, later, 0);
     var walk: TailWalk = .{ .link = self.chain[slot(position)], .later_tail = later_head, .left = budget, .floor = lowest };
     // One compare ends the walk at the reach's edge and at a chain's end.

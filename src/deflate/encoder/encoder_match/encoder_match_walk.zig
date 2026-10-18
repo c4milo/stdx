@@ -10,6 +10,7 @@ const match = @import("encoder_match.zig");
 const Matcher = match.Matcher;
 const Match = match.Match;
 const slot = match.slot;
+const lowest_of = match.lowest_of;
 const tail_octets = match.tail_octets;
 const match_len = match.match_len;
 const best_by_tail = @import("encoder_match_walk_tail.zig").best_by_tail;
@@ -79,17 +80,20 @@ const Walk = struct {
 /// among positions farther back than they would reach on the position's own chain.
 pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) align(constants.hot_function_alignment) Match {
     @setRuntimeSafety(level.runtime_safety);
-    return best_inline(level, cheap, true, self, len_max, previous_len);
+    return best_inline(level, cheap, true, self, len_max, previous_len, null);
 }
 
 /// `best`, inline in its caller: level 6's positions mostly start a walk that meets a candidate or
 /// two, so a call's own cost is a large share of the walk there; level 9's walks run long, and it
-/// calls `best`.
+/// calls `best`. `lowest` is `lowest_of` the matcher's position, or null. The tail's walk uses it,
+/// or computes it itself when it is null. The walk of a block with cheap literals always computes
+/// it itself. Level 6's lazy loop computes it once a position, for the tail's walk and the short
+/// chain's read.
 ///
 /// When `guarded`, a position with fewer than `hash_len` octets ahead finds no match. A caller
 /// that searches only positions with `len_max` octets ahead passes false, and the search does
 /// not test them: `Walk.init` and `best_by_tail` assert those octets.
-pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool, comptime guarded: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool, comptime guarded: bool, self: *const Matcher(level), len_max: usize, previous_len: u16, lowest: ?usize) Match {
     @setRuntimeSafety(level.runtime_safety);
     // The walks' assertions of `len_max` octets ahead, at least `match_len_taken_min`, cover the
     // `hash_len` that the guard tests.
@@ -101,7 +105,7 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     const budget = if (cheap) level.cheap_candidates_max else if (cut) level.cut_candidates_max else level.candidates_max;
     // In a block with cheap literals every 4 octets recur about as often as any other: a move to
     // the tail's chain reads a head for each longer match and finds no fewer candidates there.
-    if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget);
+    if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget, lowest);
     var walk = Walk.init(level, self, self.position, len_max, budget);
     while (!walk.done) walk.step(level, self);
     return walk.found;
@@ -119,7 +123,8 @@ const short_chain_len = 2;
 const tests_nearest_first = builtin.cpu.arch.isAARCH64();
 
 /// Whether the chain at `position` holds at most `count` candidates in reach and none of them
-/// starts with the position's 4 octets: a walk there finds no match.
+/// starts with the position's 4 octets: a walk there finds no match. `lowest_passed` is
+/// `lowest_of` the position, or null where the read computes it itself.
 ///
 /// In data that does not repeat, a chain holds no candidate, one or two about as often as each
 /// other. A walk tests each candidate's reach in turn, so one of its branches mispredicts at about
@@ -133,13 +138,13 @@ const tests_nearest_first = builtin.cpu.arch.isAARCH64();
 /// position itself, so every load stays on octets and links a walk reads. The link read there is
 /// the candidate that fell out of reach, so every candidate after one out of reach is out of
 /// reach too.
-inline fn short_chain_misses(comptime level: constants.Level, comptime count: usize, self: *const Matcher(level), position: usize) bool {
+inline fn short_chain_misses(comptime level: constants.Level, comptime count: usize, self: *const Matcher(level), position: usize, lowest_passed: ?usize) bool {
     @setRuntimeSafety(level.runtime_safety);
     // Level 6's padding keeps a load at any 16-bit position inside its window, so its loads carry
     // no check; level 9's window has none, and its loads keep theirs.
     comptime assert(level.chains and count >= 1);
     const word = tail_octets(level.runtime_safety, self.window[position..], 0);
-    const lowest = @max(1, position -| constants.encoder_distance_max);
+    const lowest = lowest_passed orelse @max(1, position -| constants.encoder_distance_max);
     // Each value is as wide as an index. A 16-bit value here would join the walk's own candidate,
     // which the compiler then keeps 16 bits wide and extends at every link.
     const nearest: usize = self.chain[slot(position)];
@@ -162,12 +167,13 @@ inline fn short_chain_misses(comptime level: constants.Level, comptime count: us
 /// taken without one. A position after a literal starts none when its chain is short and holds
 /// none of its 4 octets. A position after a match found mostly has candidates, and so do the
 /// positions of a block with cheap literals, whose octets take few values (decision 42): both
-/// would pay the chain's reads for nothing, and search as before.
-pub inline fn skips_search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), position: usize, previous_len: u16, waiting: bool) bool {
+/// would pay the chain's reads for nothing, and search as before. `lowest` is `lowest_of` the
+/// position, or null where the read computes it itself.
+pub inline fn skips_search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), position: usize, lowest: ?usize, previous_len: u16, waiting: bool) bool {
     @setRuntimeSafety(level.runtime_safety);
     const taken = waiting and previous_len >= level.lazy_len;
     if (cheap) return taken;
-    return taken or (previous_len == 0 and short_chain_misses(level, short_chain_len, self, position));
+    return taken or (previous_len == 0 and short_chain_misses(level, short_chain_len, self, position, lowest));
 }
 
 /// Where the 4 octets that decide a candidate against `found` start: the octet after `found` ends,
@@ -231,18 +237,20 @@ comptime {
 }
 
 /// `short_chain_misses` of `count` candidates at `position`, over the chain `set_chain` makes of
-/// `links`, at one level.
-fn misses_at(comptime level: constants.Level, comptime count: usize, position: usize, links: []const Link) bool {
+/// `links`, at one level, with `lowest` as the read's `lowest_passed`.
+fn misses_at(comptime level: constants.Level, comptime count: usize, position: usize, links: []const Link, lowest: ?usize) bool {
     @setRuntimeSafety(level.runtime_safety);
     var matcher: Matcher(level) = undefined;
     set_chain(level, &matcher, position, links);
-    return short_chain_misses(level, count, &matcher, position);
+    return short_chain_misses(level, count, &matcher, position, lowest);
 }
 
-/// `misses_at` at both lazy levels, which give one answer.
+/// `misses_at` at both lazy levels, with the edge passed and computed in the read, which give one
+/// answer.
 fn misses(comptime count: usize, position: usize, links: []const Link) !bool {
-    const answer = misses_at(short_level, count, position, links);
-    try testing.expectEqual(answer, misses_at(long_level, count, position, links));
+    const answer = misses_at(short_level, count, position, links, lowest_of(short_level.runtime_safety, position));
+    try testing.expectEqual(answer, misses_at(short_level, count, position, links, null));
+    try testing.expectEqual(answer, misses_at(long_level, count, position, links, null));
     return answer;
 }
 
@@ -309,10 +317,10 @@ test "a guarded search finds a match with hash_len octets ahead, and none with f
         @memset(&matcher.heads, 0);
         matcher.position = position;
         matcher.filled = position + constants.hash_len;
-        const found = best_inline(level, false, true, &matcher, constants.hash_len, 0);
+        const found = best_inline(level, false, true, &matcher, constants.hash_len, 0, null);
         try testing.expectEqual(Match{ .len = constants.hash_len, .distance = link_gap }, found);
         matcher.filled -= 1;
-        try testing.expectEqual(Match{}, best_inline(level, false, true, &matcher, constants.hash_len - 1, 0));
+        try testing.expectEqual(Match{}, best_inline(level, false, true, &matcher, constants.hash_len - 1, 0, null));
     }
 }
 
@@ -346,20 +354,21 @@ test "the link in a slot whose candidate fell out of reach is not followed" {
 fn expect_skips(comptime level: constants.Level) !void {
     @setRuntimeSafety(level.runtime_safety);
     const position = 40_000;
+    const lowest = lowest_of(level.runtime_safety, position);
     var matcher: Matcher(level) = undefined;
     set_chain(level, &matcher, position, &.{});
     // After a literal, in a block whose literals are not cheap.
-    try testing.expect(skips_search(level, false, &matcher, position, 0, true));
-    try testing.expect(skips_search(level, false, &matcher, position, 0, false));
+    try testing.expect(skips_search(level, false, &matcher, position, lowest, 0, true));
+    try testing.expect(skips_search(level, false, &matcher, position, lowest, 0, false));
     // A position after a match found, and one in a block of cheap literals, search as before.
-    try testing.expect(!skips_search(level, false, &matcher, position, constants.match_len_taken_min, true));
-    try testing.expect(!skips_search(level, true, &matcher, position, 0, true));
+    try testing.expect(!skips_search(level, false, &matcher, position, lowest, constants.match_len_taken_min, true));
+    try testing.expect(!skips_search(level, true, &matcher, position, lowest, 0, true));
     // A chain that holds the position's octets starts its walk.
     set_chain(level, &matcher, position, &.{.{ .at = position - link_gap, .holds = true }});
-    try testing.expect(!skips_search(level, false, &matcher, position, 0, true));
+    try testing.expect(!skips_search(level, false, &matcher, position, lowest, 0, true));
     // A waiting match of `lazy_len` is taken with no search, in every block.
-    try testing.expect(skips_search(level, false, &matcher, position, level.lazy_len, true));
-    try testing.expect(skips_search(level, true, &matcher, position, level.lazy_len, true));
+    try testing.expect(skips_search(level, false, &matcher, position, lowest, level.lazy_len, true));
+    try testing.expect(skips_search(level, true, &matcher, position, lowest, level.lazy_len, true));
 }
 
 test "a search is skipped where a short chain misses after a literal, and where a long match waits" {
@@ -411,11 +420,13 @@ fn expect_seeded(comptime level: constants.Level) !void {
         matcher.chain[slot(position)] = head.*;
         head.* = @intCast(position);
         matcher.position = position;
-        inline for (1..count_max + 1) |count| try testing.expectEqual(misses_plainly(level, count, &matcher, position), short_chain_misses(level, count, &matcher, position));
+        // The edge as the lazy loop passes it at the level.
+        const lowest: ?usize = if (level.walks_inline) lowest_of(level.runtime_safety, position) else null;
+        inline for (1..count_max + 1) |count| try testing.expectEqual(misses_plainly(level, count, &matcher, position), short_chain_misses(level, count, &matcher, position, lowest));
         const expected = misses_plainly(level, short_chain_len, &matcher, position);
         if (!expected) continue;
         // The lazy loop's search: every position here has `match_len_max` octets ahead.
-        try testing.expectEqual(0, best_inline(level, false, false, &matcher, constants.match_len_max, 0).len);
+        try testing.expectEqual(0, best_inline(level, false, false, &matcher, constants.match_len_max, 0, lowest).len);
         missed += 1;
     }
     // Both answers occur often.

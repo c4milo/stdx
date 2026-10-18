@@ -16,11 +16,18 @@ const match_len = match.match_len;
 const hash_of_word = match.hash_of_word;
 const tail_of = @import("encoder_match_walk.zig").tail_of;
 const best_inline = @import("encoder_match_walk.zig").best_inline;
-const best_by_tail = @import("encoder_match_walk_tail.zig").best_by_tail;
+const walk_tail = @import("encoder_match_walk_tail.zig");
 
 const tail_level_number = 9;
 const tail_level = constants.level(tail_level_number);
 const TailMatcher = Matcher(tail_level);
+
+/// The walk's `best_by_tail` at the matcher's position, with the edge of the reach passed as
+/// level 6's lazy loop passes it. Level 9's `best` passes null, and the walk computes the same
+/// edge.
+fn best_by_tail(comptime level: constants.Level, matcher: *const Matcher(level), len_max: usize, budget: u16) Match {
+    return walk_tail.best_by_tail(level, matcher, len_max, budget, match.lowest_of(level.runtime_safety, matcher.position));
+}
 
 /// A hand-set test's position, with every distance before it and `match_len_max` octets after.
 const test_position = 40_000;
@@ -350,8 +357,8 @@ test "level 9's search moves to the tail's chain, but not in a block of cheap li
     set_window(&matcher, &octets);
     long_scene.plant(&matcher, &octets);
     plant_tail(&matcher, &octets, near_len, &.{long_scene.far_on_tail()});
-    try testing.expectEqual(far_len, best_inline(tail_level, false, true, &matcher, constants.match_len_max, 0).len);
-    try testing.expectEqual(near_len, best_inline(tail_level, true, true, &matcher, constants.match_len_max, 0).len);
+    try testing.expectEqual(far_len, best_inline(tail_level, false, true, &matcher, constants.match_len_max, 0, match.lowest_of(tail_level.runtime_safety, matcher.position)).len);
+    try testing.expectEqual(near_len, best_inline(tail_level, true, true, &matcher, constants.match_len_max, 0, match.lowest_of(tail_level.runtime_safety, matcher.position)).len);
 }
 
 /// The longest match at `position`, the nearest of the longest, by a compare at every start in

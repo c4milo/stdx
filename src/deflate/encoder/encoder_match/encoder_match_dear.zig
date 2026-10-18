@@ -126,11 +126,13 @@ const searches_guarded = builtin.cpu.arch != .x86_64;
 
 /// `match.search` at `position`, which the matcher is told here: the loop keeps its position in
 /// a local, and most positions of such a block search nothing. Both callers of `find` give it
-/// `len_max` octets ahead of `position`, so the guard never holds.
+/// `len_max` octets ahead of `position`, so the guard never holds. The edge of the reach keeps the
+/// form `nearest_holds` uses, so this copy's code stays as it was.
 inline fn search_at(comptime level: constants.Level, self: *Matcher(level), position: usize, len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
     self.position = position;
-    return match.search(level, false, searches_guarded, self, len_max, previous_len);
+    const lowest = @max(1, position -| constants.encoder_distance_max);
+    return match.search(level, false, searches_guarded, self, len_max, previous_len, lowest);
 }
 
 /// Whether the nearest candidate of `position`'s chain lies in reach and holds `word`, its 4

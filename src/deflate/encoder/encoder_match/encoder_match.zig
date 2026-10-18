@@ -269,7 +269,12 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
         assert(state.waiting or state.previous.len == 0);
         self.position = state.position;
         // A position before `end` has `lookahead_min` octets ahead, so the search needs no guard.
-        if (!skips_search(level, cheap, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, false, self, constants.match_len_max, state.previous.len);
+        // At level 6 the short chain's read and the tail's walk test their candidates against
+        // one edge.
+        // Level 9 computes the edge in its read and in `best`, in its own form: with this form its
+        // code on aarch64 retired more instructions.
+        const lowest: ?usize = if (level.walks_inline) lowest_of(level.runtime_safety, state.position) else null;
+        if (!skips_search(level, cheap, self, state.position, lowest, state.previous.len, state.waiting)) current = search(level, cheap, false, self, constants.match_len_max, state.previous.len, lowest);
         decide_lazy(level, cheap, self, costs, &symbols, &state, current);
     }
     symbols.finish(state.position - @intFromBool(state.waiting) - covered_from);
@@ -280,10 +285,10 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
 
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
 /// and a call to `best` at level 9, whose walks run long. `guarded` is `best_inline`'s, and `best`
-/// always tests the guard.
-pub inline fn search(comptime level: constants.Level, comptime cheap: bool, comptime guarded: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+/// always tests the guard. `lowest` is `best_inline`'s, and `best` always computes it itself.
+pub inline fn search(comptime level: constants.Level, comptime cheap: bool, comptime guarded: bool, self: *const Matcher(level), len_max: usize, previous_len: u16, lowest: ?usize) Match {
     @setRuntimeSafety(level.runtime_safety);
-    return if (level.walks_inline) best_inline(level, cheap, guarded, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
+    return if (level.walks_inline) best_inline(level, cheap, guarded, self, len_max, previous_len, lowest) else best(level, cheap, self, len_max, previous_len);
 }
 
 /// The lazy step's state through `advance_lazy`: the next position, and the match waiting from the
@@ -344,7 +349,7 @@ fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Match
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
     // Fewer than `hash_len` octets may lie ahead here, so the search tests the guard.
-    const current = if (skip) Match{} else search(level, cheap, true, self, @min(ahead, constants.match_len_max), self.previous.len);
+    const current = if (skip) Match{} else search(level, cheap, true, self, @min(ahead, constants.match_len_max), self.previous.len, null);
     if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score(level.runtime_safety) >= current.score(level.runtime_safety) and accepted(level, cheap, self, costs, self.position, self.previous)) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.
@@ -384,6 +389,24 @@ pub inline fn tail_octets(comptime runtime_safety: bool, run: []const u8, at: us
 /// A position's slot in the chain.
 pub inline fn slot(position: usize) Slot {
     return @truncate(position);
+}
+
+/// The lowest position a candidate of `position` may lie at: `position` less
+/// `encoder_distance_max`, or 1, as a head or link of 0 ends a chain.
+///
+/// This equals `@max(1, position -| encoder_distance_max)` at every position. Above
+/// `encoder_distance_max` the difference is 1 or more, so both forms give it. At or below it the
+/// saturated difference is 0, so both forms give 1. This form needs one compare and one
+/// subtraction, and the subtraction cannot overflow after the compare.
+pub inline fn lowest_of(comptime runtime_safety: bool, position: usize) usize {
+    @setRuntimeSafety(runtime_safety);
+    return if (position > constants.encoder_distance_max) position - constants.encoder_distance_max else 1;
+}
+
+test "lowest_of equals the saturated difference with a floor of 1 at every window position" {
+    for (0..constants.encoder_window_len + 1) |position| {
+        try std.testing.expectEqual(@max(1, position -| constants.encoder_distance_max), lowest_of(true, position));
+    }
 }
 
 /// Adds `at` to its hash's chain.
