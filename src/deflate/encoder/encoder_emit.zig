@@ -77,8 +77,33 @@ pub fn write(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, bloc
         if (!whole) return false;
         emit.phase = next_phase(runtime_safety, emit.phase, plan.kind);
         emit.index = 0;
+        // The symbols of a coded block start here, once a block.
+        if (emit.phase == .symbols) check_entries(runtime_safety, plan, block);
     }
     unreachable;
+}
+
+/// Checks once a block what `write_symbols_stored` puts with no check at each pair (decision 17).
+/// Each length code and each distance code that the block counts has code bits. A test of
+/// `encoder_block.zig` proves that each length and distance lies in the range of its code's base
+/// and extra bits (RFC 1951 §3.2.5). This check does not add the 286 literal/length counts: that
+/// cost 1,400 to 1,700 instructions a block. The assertion of E3 at the block's end compares the bits
+/// of the symbols with the price of the counts.
+fn check_entries(comptime runtime_safety: bool, plan: *const Plan, block: *const Block) void {
+    @setRuntimeSafety(runtime_safety);
+    const length_counts = block.literal_length_counts[constants.first_length_symbol..];
+    var lengths: usize = 0;
+    for (length_counts, plan.length_entries[0..length_counts.len]) |count, entry| {
+        assert(count == 0 or entry.code_bits != 0);
+        lengths += count;
+    }
+    var distances: usize = 0;
+    for (&block.distance_counts, plan.distance_entries[0..block.distance_counts.len]) |count, entry| {
+        assert(count == 0 or entry.code_bits != 0);
+        distances += count;
+    }
+    // Each pair counts one length code and one distance code.
+    assert(lengths == distances);
 }
 
 fn next_phase(comptime runtime_safety: bool, phase: Phase, kind: constants.BlockType) Phase {
@@ -268,10 +293,12 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
         } else {
             const length = plan.length_entries[block_module.length_code_of(symbol.value)];
             buffer |= entry_bits(runtime_safety, length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
-            count += length.code_bits + length.extra_bits;
+            // Two u8 values cannot overflow a `usize`, so the sum has no overflow branch. It is
+            // 28 at most.
+            count += @as(usize, length.code_bits) + length.extra_bits;
             const distance = plan.distance_entries[symbol.distance_code];
             buffer |= entry_bits(runtime_safety, distance, symbol.distance) << @intCast(count);
-            count += distance.code_bits + distance.extra_bits;
+            count += @as(usize, distance.code_bits) + distance.extra_bits;
         }
         assert(count <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
         std.mem.writeInt(u64, room[0..store_len], buffer, .little);
@@ -302,12 +329,12 @@ comptime {
 }
 
 /// The code of `entry` and, above it, `value` less the entry's base in its extra bits: the bits
-/// one put of the entry holds.
+/// one put of the entry holds. It has no assertion, as decision 17 rules for a fast path:
+/// `check_entries` checks the entries once a block, and `put_entry` checks each value.
 inline fn entry_bits(comptime runtime_safety: bool, entry: block_module.CodeEntry, value: usize) u64 {
     @setRuntimeSafety(runtime_safety);
-    assert(entry.code_bits != 0 and value >= entry.base);
+    // With runtime safety on, the overflow check of the subtraction refuses a value under the base.
     const extra = value - entry.base;
-    assert(extra >> @intCast(entry.extra_bits) == 0);
     return entry.code | @as(u64, extra) << @intCast(entry.code_bits);
 }
 
@@ -334,9 +361,12 @@ inline fn put_pair(comptime runtime_safety: bool, plan: *const Plan, symbol: blo
     return length_bits + distance_bits;
 }
 
-/// One put of `entry_bits`. Returns the bits put.
+/// One put of `entry_bits`. Returns the bits put. The checked path runs only for the last pairs
+/// of a call, so it checks the entry and the value at each pair (decision 17).
 inline fn put_entry(comptime runtime_safety: bool, writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) u7 {
     @setRuntimeSafety(runtime_safety);
+    assert(entry.code_bits != 0 and value >= entry.base);
+    assert((value - entry.base) >> @intCast(entry.extra_bits) == 0);
     const count: u7 = @intCast(entry.code_bits + entry.extra_bits);
     writer.put(entry_bits(runtime_safety, entry, value), count);
     return count;
