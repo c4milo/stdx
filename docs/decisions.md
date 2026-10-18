@@ -1042,6 +1042,14 @@ small file.
     came first there too: level 6's search (entry 48) took a quarter of its instructions with
     every check on. Entry 49 holds the A/B entry 16 asks for and the owner's ruling.
 
+    **The DEFLATE encoder's writer, ruled by the owner on 2026-10-17.** The store loop of
+    `write_symbols_stored` asserted each pair's two code entries, against the rule above. The
+    checked path keeps those assertions. Once a coded block, `check_entries` requires code bits for
+    each length and distance code the block counts, and as many lengths as distances. The store
+    loop no longer checks that a value lies in its entry's range. A test of
+    `encoder_block.zig` proves that each value gets the code whose range holds it. Design §8
+    step 9 holds the pairs.
+
     **Amended by the owner on 2026-10-12, on the wrapping operators.** The rule above kept them
     for where the format itself wraps. The DEFLATE encoder holds others, which landed with its
     steps (design §8 step 9), each where a bound shows the sum cannot overflow and a checked add

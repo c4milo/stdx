@@ -3081,6 +3081,107 @@ to 12 are reordered and nothing else changes.
       more than they save level 6. And a loop of its own for a run of literals: sao's first 2
       MiB at 113.10 from 115.34 and at 138.03 from 141.13, but x-ray at 112.99 and 131.13, as
       x-ray leaves the run at each of its 3-octet matches, 71% of its matches.
+  - Level 6 on x86-64, 2026-10-17, the gap the owner chose that day. On the EPYC 7763, 20 of
+    the 39 rows ran slower than libdeflate at level 6, at 0.990 of its speed at the median. Five
+    changes cut the instructions x86-64 retires, and tests cover three cases no test covered.
+    All write the octets main writes: no recorded hash and no test's recorded output changes.
+    - Where x86-64's instructions went. callgrind counted level 6 over the first 2 MiB of six
+      files. stdx retired 1.20 to 1.30 times as many instructions on x86-64 as on aarch64, and
+      libdeflate 1.12 to 1.15 times. On dickens x86-64 retired 24.14 more an octet: 18.84 in
+      the lazy loop and 5.09 in the writer. In the tail's walk all 14 free registers held
+      values, and the loop loaded the matcher's address from the stack at each link. The
+      writer's assertions at each pair cost 20 instructions a pair on x86-64, and 10 on aarch64.
+    - 4cda0da. A test covers a 3-octet match that waits at the end of a block of 3-octet steps.
+      The next block runs the plain steps, which take no 3-octet match, so they write its octet
+      as a literal. A change that made the plain steps drop that literal passed every test.
+    - d30924d. `best_inline` tests its guard only where the guard can hold (`guarded`): in the
+      last positions' steps (`step_lazy`) and in level 9's `best`. The lazy loop and the block
+      of 3-octet steps search only positions with `len_max` octets ahead. On aarch64 the block
+      of 3-octet steps keeps the test, as LLVM built that loop with more instructions without
+      it (`searches_guarded`).
+    - 13eba42. Level 6's lazy loop computes the reach's edge once a position, for the short
+      chain's read and the tail's walk. `lowest_of` computes it with one compare and one
+      subtraction. Level 9 keeps its own form: this one gave its aarch64 code more instructions.
+    - 4303115. On x86-64 the block of 3-octet steps finds with one search and one exit
+      (`find_at_one_site`). LLVM wrote each exit's match to a stack slot of its own, and the
+      loop loaded the match through a pointer to it. A test requires the two forms to give one
+      match in three seeded inputs, at every position with more than `match_len_max` octets
+      ahead. So aarch64's tests check x86-64's form.
+    - da797a7. The writer's store loop keeps the room left as one slice (`room`), and one compare
+      of its length is the loop's test of the room.
+    - cf00305. The store loop asserted each pair's two code entries: each has code bits, and
+      each value lies in its entry's range. Decision 17 rules no assertion per symbol in a fast
+      path, and the owner approved this change on 2026-10-17. The checked path keeps the
+      assertions. Once a block, `check_entries` requires code bits for each length and distance
+      code the block counts, and as many lengths as distances.
+    - callgrind counted instructions an octet over the first 2 MiB, main then the series.
+      libdeflate retires 98.02 on dickens and 93.55 on x-ray at level 6 on x86-64.
+
+      | Level | File | x86-64 | aarch64 |
+      |---|---|---|---|
+      | 6 | dickens | 130.52 to 121.02 | 106.38 to 101.66 |
+      | 6 | x-ray | 143.75 to 132.06 | 110.37 to 106.98 |
+      | 6 | mr | 130.48 to 123.39 | 108.48 to 104.84 |
+      | 6 | webster | 90.23 to 83.87 | 74.17 to 70.99 |
+      | 6 | world192 | 85.09 to 79.13 | 69.85 to 66.84 |
+      | 6 | ooffice | 130.80 to 122.56 | 101.89 to 99.59 |
+      | 9 | dickens | 180.07 to 176.05 | 151.53 to 149.51 |
+      | 9 | x-ray | 161.94 to 151.05 | 129.43 to 126.05 |
+      | 1 | dickens | 50.58 to 45.42 | 40.48 to 37.89 |
+
+    - The pairs. Runs [39072169715](https://github.com/c4milo/stdx/actions/runs/39072169715)
+      and [39072171802](https://github.com/c4milo/stdx/actions/runs/39072171802) ran main
+      (2038eea) and then the series without cf00305, as 026c5ed. The x86-64 jobs ran on an EPYC
+      7763 and an EPYC 9V74, and the aarch64 jobs on a Neoverse N2. No row ran slower in both
+      jobs at any level. At level 6 the two EPYCs ran at 1.022 and 1.017 of main's speed at the
+      median, x-ray at 1.124 and 1.084.
+    - Runs [39076272318](https://github.com/c4milo/stdx/actions/runs/39076272318) and
+      [39076274440](https://github.com/c4milo/stdx/actions/runs/39076274440) ran main and then
+      the whole series, as bcf7cdd, on an EPYC 7763 and a Neoverse N2 in both. No row ran
+      slower in both jobs at any level. On the EPYC 7763, level 1 ran at 1.045 and 1.038 of
+      main's speed at the median, with 33 rows faster in both jobs. Level 6 ran at 1.034 and
+      1.027, with 29 rows faster in both, and x-ray at 1.14 and 1.12. Level 9 ran at 1.010 and
+      1.004.
+    - At level 6 on the EPYC 7763, stdx stands at 1.022 and 1.014 of libdeflate's speed, from
+      0.990 and 0.986. Of the 39 rows, 23 and 22 stand at or above it, from 19. On the N2,
+      level 1 ran at 1.032 and 1.025 of main's speed at the median, and level 6 at 1.012 and
+      1.008.
+    - In each pair the 1 KiB slices moved in both jobs of the first run. In the first run of
+      026c5ed they ran slower on both CPUs, json's at 0.888 on the N2 at level 1. In its second
+      run none ran slower. In the first run of bcf7cdd they ran faster on both CPUs, json's at
+      1.13 on the N2. In its second run's N2 job they ran slower, at 0.880. Decision 20 counts only
+      html's at level 6 on the EPYC 7763, faster in both jobs at 1.063 and 1.023, one of the 29.
+    - The Mac ran the whole series against main, 5 runs a row at a load near 6, beside a copy of
+      main's binary against main. The series ran at 1.024, 1.012 and 1.007 of main's speed at
+      the median at levels 1, 6 and 9. It retired 0.944, 0.960 and 0.988 of main's
+      instructions. No row ran slower past 1% at any level, and the slowest read 0.998, 1.000
+      and 0.991. The copy read 6, 5 and 1 rows slower past 1%, at 0.982 and up.
+    - Mutations, by `deflate_enc_mutate.py` on the series: 25 CAUGHT, and 4 that change what
+      the encoder spends alone. Two were NOT CAUGHT at first: the guard that holds one octet
+      early, and the lazy loop given the next position's edge. A test of the guard at `hash_len`
+      octets ahead now catches the first. The test of `encoder_distance_max` now runs again with
+      `lookahead_min` octets after the copy, where the lazy loop decides it, and catches the
+      second. Main's tests catch neither mutation of the plain steps that the new 3-octet test
+      catches. The 7 mutations of `find_at_one_site` each fail the test of the two forms on
+      aarch64, and the recorded outputs or the steps' tests under Rosetta.
+    - Rejected: the match packed into 32 bits on x86-64. Measured alone against main, it cut 3.1
+      to 7.2 instructions an octet at level 6. On top of the other changes it cut 0.1 to 3.9 on
+      five of the six files, and x-ray rose by 0.02. In all five EPYC 7763 jobs that ran a stack
+      with it, the compressible rows ran slower, on fewer instructions.
+    - There nci ran at 0.876 to 0.939 of main's speed, ptt5 at 0.899 to 0.915 and xml at 0.948
+      to 0.957. The 16 KiB slices of json ran at 0.895 to 0.959, and json-1m at 0.944 to 0.954.
+      css-1m ran at 0.951 to 0.960, and the 16 KiB slices of css at 0.973 to 0.983. Those are
+      runs 39063866904, 39063868685, 39063870409, 39063871971 and 39072175652. A Xeon 8370C ran
+      six of the rows at main's speed, and the 16 KiB slices of css at 1.023 of main's speed
+      (run 39072173491). On the EPYC 7763 the stacks without the packed match ran the seven rows
+      at 1.015 to 1.047 (runs 39072169715, 39076272318 and 39076274440).
+    - Pairs of one change each ran one x86-64 job a change, and none drew an EPYC 7763. The
+      pairs of d30924d, 13eba42 and da797a7 ran on EPYC 9V74s, and those of 4303115 and the
+      packed match on EPYC 9V45s. The runs are 39068453802, 39068455719, 39068457545,
+      39068459444 and 39068461046. Of the seven rows, only nci in the pair of 4303115 ran slower
+      past its spread, at 0.946. libdeflate's nci moved to 0.960 in the same job.
+    - Rejected: the window at offset 0 of the matcher on x86-64. It gave the plain rows 0.8 to
+      2.8 more instructions an octet.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
