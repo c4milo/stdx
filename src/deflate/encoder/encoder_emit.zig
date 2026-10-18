@@ -229,8 +229,8 @@ fn write_symbols(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, 
 
 /// Writes symbols while the output has room for a store: each symbol's codes go into the buffer
 /// and one store follows, a pair's 48 bits at most on the 7 a store leaves (decision 14, E5). The
-/// loop runs on a copy of the bit writer, so its buffer, count and position stay in registers
-/// through the loop, and the bits it wrote are counted once at the end. A function of its own:
+/// loop runs on a copy of the bit writer, so its buffer, count and room stay in registers through
+/// the loop. After the loop, one addition counts the bits the loop wrote. A function of its own:
 /// inline in `write`, the code tables' and the symbols' addresses went to the stack, and each
 /// literal loaded them back.
 noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, block: *const Block, writer: *codec.BitWriter) align(constants.hot_function_alignment) void {
@@ -241,11 +241,13 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
     if (!writer.has_store_room()) return;
     writer.store();
     const octets = writer.writer.octets;
-    var position = writer.writer.position;
+    const start_position = writer.writer.position;
+    // The room left in the output, as one slice that advances: one compare of its length is the
+    // loop's test of the room.
+    var room = octets[start_position..];
     var buffer = writer.bits.buffer;
     var count: usize = writer.bits.count;
     assert(count < @bitSizeOf(u8));
-    const start_position = position;
     const start_count = count;
     // In a `usize`, the index steps with no check of its own; a block holds fewer symbols.
     var index: usize = emit.index;
@@ -254,7 +256,7 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
     // stores the buffer whole, its whole octets counting as written (`BitWriter.store`). A second
     // literal saves a store and the shifts after it.
     while (index < symbols.len) {
-        if (position + store_len > octets.len) break;
+        if (room.len < store_len) break;
         const symbol = symbols[index];
         index += 1;
         if (symbol.distance == 0) {
@@ -272,12 +274,13 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
             count += distance.code_bits + distance.extra_bits;
         }
         assert(count <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
-        std.mem.writeInt(u64, octets[position..][0..store_len], buffer, .little);
+        std.mem.writeInt(u64, room[0..store_len], buffer, .little);
         const whole = count / @bitSizeOf(u8);
-        position += whole;
+        room = room[whole..];
         buffer >>= @intCast(whole * @bitSizeOf(u8));
         count %= @bitSizeOf(u8);
     }
+    const position = octets.len - room.len;
     writer.writer.position = position;
     writer.bits.buffer = buffer;
     writer.bits.count = @intCast(count);
