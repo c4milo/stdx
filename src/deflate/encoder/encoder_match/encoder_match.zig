@@ -268,7 +268,8 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
         var current: Match = .{};
         assert(state.waiting or state.previous.len == 0);
         self.position = state.position;
-        if (!skips_search(level, cheap, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, self, constants.match_len_max, state.previous.len);
+        // A position before `end` has `lookahead_min` octets ahead, so the search needs no guard.
+        if (!skips_search(level, cheap, self, state.position, state.previous.len, state.waiting)) current = search(level, cheap, false, self, constants.match_len_max, state.previous.len);
         decide_lazy(level, cheap, self, costs, &symbols, &state, current);
     }
     symbols.finish(state.position - @intFromBool(state.waiting) - covered_from);
@@ -278,10 +279,11 @@ fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Ma
 }
 
 /// The lazy step's search: `best_inline` at level 6, whose walks mostly meet a candidate or two,
-/// and a call to `best` at level 9, whose walks run long.
-pub inline fn search(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+/// and a call to `best` at level 9, whose walks run long. `guarded` is `best_inline`'s, and `best`
+/// always tests the guard.
+pub inline fn search(comptime level: constants.Level, comptime cheap: bool, comptime guarded: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
-    return if (level.walks_inline) best_inline(level, cheap, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
+    return if (level.walks_inline) best_inline(level, cheap, guarded, self, len_max, previous_len) else best(level, cheap, self, len_max, previous_len);
 }
 
 /// The lazy step's state through `advance_lazy`: the next position, and the match waiting from the
@@ -341,7 +343,8 @@ fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Match
     const skip = self.waiting and self.previous.len >= level.lazy_len;
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
-    const current = if (skip) Match{} else search(level, cheap, self, @min(ahead, constants.match_len_max), self.previous.len);
+    // Fewer than `hash_len` octets may lie ahead here, so the search tests the guard.
+    const current = if (skip) Match{} else search(level, cheap, true, self, @min(ahead, constants.match_len_max), self.previous.len);
     if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score(level.runtime_safety) >= current.score(level.runtime_safety) and accepted(level, cheap, self, costs, self.position, self.previous)) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.

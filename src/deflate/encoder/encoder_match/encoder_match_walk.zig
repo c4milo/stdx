@@ -79,15 +79,22 @@ const Walk = struct {
 /// among positions farther back than they would reach on the position's own chain.
 pub fn best(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) align(constants.hot_function_alignment) Match {
     @setRuntimeSafety(level.runtime_safety);
-    return best_inline(level, cheap, self, len_max, previous_len);
+    return best_inline(level, cheap, true, self, len_max, previous_len);
 }
 
 /// `best`, inline in its caller: level 6's positions mostly start a walk that meets a candidate or
 /// two, so a call's own cost is a large share of the walk there; level 9's walks run long, and it
 /// calls `best`.
-pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
+///
+/// When `guarded`, a position with fewer than `hash_len` octets ahead finds no match. A caller
+/// that searches only positions with `len_max` octets ahead passes false, and the search does
+/// not test them: `Walk.init` and `best_by_tail` assert those octets.
+pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool, comptime guarded: bool, self: *const Matcher(level), len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
-    if (self.position + constants.hash_len > self.filled) return .{};
+    // The walks' assertions of `len_max` octets ahead, at least `match_len_taken_min`, cover the
+    // `hash_len` that the guard tests.
+    comptime assert(constants.match_len_taken_min >= constants.hash_len);
+    if (guarded and self.position + constants.hash_len > self.filled) return .{};
     const cut = previous_len >= level.cut_len;
     // A block with cheap literals walks long chains of short matches its prices turn away
     // (decision 42).
@@ -291,6 +298,24 @@ test "each candidate's reach ends at encoder_distance_max" {
     }
 }
 
+test "a guarded search finds a match with hash_len octets ahead, and none with fewer" {
+    // The last positions' steps search with as many octets as lie ahead, and fewer than
+    // `hash_len` name no chain.
+    const position = 40_000;
+    const at = position - link_gap;
+    inline for (.{ short_level, long_level }) |level| {
+        var matcher: Matcher(level) = undefined;
+        set_chain(level, &matcher, position, &.{.{ .at = at, .holds = true }});
+        @memset(&matcher.heads, 0);
+        matcher.position = position;
+        matcher.filled = position + constants.hash_len;
+        const found = best_inline(level, false, true, &matcher, constants.hash_len, 0);
+        try testing.expectEqual(Match{ .len = constants.hash_len, .distance = link_gap }, found);
+        matcher.filled -= 1;
+        try testing.expectEqual(Match{}, best_inline(level, false, true, &matcher, constants.hash_len - 1, 0));
+    }
+}
+
 test "position 0 names no candidate, and position 1 is one" {
     const position = 100;
     inline for (1..count_max + 1) |count| {
@@ -389,7 +414,8 @@ fn expect_seeded(comptime level: constants.Level) !void {
         inline for (1..count_max + 1) |count| try testing.expectEqual(misses_plainly(level, count, &matcher, position), short_chain_misses(level, count, &matcher, position));
         const expected = misses_plainly(level, short_chain_len, &matcher, position);
         if (!expected) continue;
-        try testing.expectEqual(0, best_inline(level, false, &matcher, constants.match_len_max, 0).len);
+        // The lazy loop's search: every position here has `match_len_max` octets ahead.
+        try testing.expectEqual(0, best_inline(level, false, false, &matcher, constants.match_len_max, 0).len);
         missed += 1;
     }
     // Both answers occur often.

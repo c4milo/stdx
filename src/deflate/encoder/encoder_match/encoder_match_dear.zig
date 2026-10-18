@@ -17,6 +17,7 @@
 //! position that holds even 3 of the octets.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
 const block_module = @import("../encoder_block.zig");
@@ -117,12 +118,19 @@ inline fn find(comptime level: constants.Level, self: *Matcher(level), position:
     return probed.three;
 }
 
+/// Whether this block's search at level 6 tests the guard of `best_inline`, which its callers
+/// make dead. Level 9's search calls `best`, which always tests it. On x86-64 the test costs 5
+/// instructions a search. On aarch64 LLVM builds the loop without it with more instructions a
+/// position: x-ray 0.68 and ooffice 0.16 more an octet under callgrind.
+const searches_guarded = builtin.cpu.arch != .x86_64;
+
 /// `match.search` at `position`, which the matcher is told here: the loop keeps its position in
-/// a local, and most positions of such a block search nothing.
+/// a local, and most positions of such a block search nothing. Both callers of `find` give it
+/// `len_max` octets ahead of `position`, so the guard never holds.
 inline fn search_at(comptime level: constants.Level, self: *Matcher(level), position: usize, len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
     self.position = position;
-    return match.search(level, false, self, len_max, previous_len);
+    return match.search(level, false, searches_guarded, self, len_max, previous_len);
 }
 
 /// Whether the nearest candidate of `position`'s chain lies in reach and holds `word`, its 4

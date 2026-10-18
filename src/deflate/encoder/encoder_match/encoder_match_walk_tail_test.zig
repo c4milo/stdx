@@ -350,8 +350,8 @@ test "level 9's search moves to the tail's chain, but not in a block of cheap li
     set_window(&matcher, &octets);
     long_scene.plant(&matcher, &octets);
     plant_tail(&matcher, &octets, near_len, &.{long_scene.far_on_tail()});
-    try testing.expectEqual(far_len, best_inline(tail_level, false, &matcher, constants.match_len_max, 0).len);
-    try testing.expectEqual(near_len, best_inline(tail_level, true, &matcher, constants.match_len_max, 0).len);
+    try testing.expectEqual(far_len, best_inline(tail_level, false, true, &matcher, constants.match_len_max, 0).len);
+    try testing.expectEqual(near_len, best_inline(tail_level, true, true, &matcher, constants.match_len_max, 0).len);
 }
 
 /// The longest match at `position`, the nearest of the longest, by a compare at every start in
