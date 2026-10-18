@@ -19,6 +19,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const codec = @import("codec");
 const constants = @import("../../constants.zig");
 const block_module = @import("../encoder_block.zig");
 const Block = block_module.Block;
@@ -106,6 +107,7 @@ fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *
 inline fn find(comptime level: constants.Level, self: *Matcher(level), position: usize, word: u32, nearest: u16, len_max: usize, previous_len: u16) Match {
     @setRuntimeSafety(level.runtime_safety);
     assert(len_max >= constants.hash_len);
+    if (finds_at_one_site) return find_at_one_site(level, self, position, word, nearest, len_max, previous_len);
     if (previous_len > constants.match_len_min) {
         if (previous_len >= level.lazy_len) return .{};
         return search_at(level, self, position, len_max, previous_len);
@@ -123,6 +125,30 @@ inline fn find(comptime level: constants.Level, self: *Matcher(level), position:
 /// instructions a search. On aarch64 LLVM builds the loop without it with more instructions a
 /// position: x-ray 0.68 and ooffice 0.16 more an octet under callgrind.
 const searches_guarded = builtin.cpu.arch != .x86_64;
+
+/// Whether `find` searches at one site and returns at one exit. On x86-64 LLVM writes each exit's
+/// match to a stack slot of its own. The loop then loads the match through a pointer to the slot.
+/// One exit lets LLVM keep the match in registers. aarch64 keeps the form with four exits.
+const finds_at_one_site = builtin.cpu.arch == .x86_64;
+
+/// `find` with one search and one exit, for `finds_at_one_site`. A position searches after a
+/// match of 4 octets or more and shorter than `lazy_len`. After no match or a match of 3, it
+/// searches where a candidate holds its 4 octets. A position after a literal that finds no match
+/// takes the table's match of 3.
+inline fn find_at_one_site(comptime level: constants.Level, self: *Matcher(level), position: usize, word: u32, nearest: u16, len_max: usize, previous_len: u16) Match {
+    @setRuntimeSafety(level.runtime_safety);
+    var three: Match = .{};
+    var searches = previous_len > constants.match_len_min and previous_len < level.lazy_len;
+    if (previous_len <= constants.match_len_min) {
+        const probed = three_module.probe(level.runtime_safety, &self.window, position, word, nearest);
+        searches = (@intFromBool(probed.four) | @intFromBool(nearest_holds(level, self, position, word))) != 0;
+        if (previous_len == 0) three = probed.three;
+    }
+    var found: Match = .{};
+    if (searches) found = search_at(level, self, position, len_max, previous_len);
+    if (found.len == 0) found = three;
+    return found;
+}
 
 /// `match.search` at `position`, which the matcher is told here: the loop keeps its position in
 /// a local, and most positions of such a block search nothing. Both callers of `find` give it
@@ -243,6 +269,76 @@ inline fn insert_both(comptime level: constants.Level, self: *Matcher(level), th
     const word = match.tail_octets(level.runtime_safety, &self.window, at);
     insert_word(level, self, at, word);
     _ = three.insert(level.runtime_safety, word, at);
+}
+
+/// The seed of the octets of the test of `find`'s two forms.
+const forms_seed = 53;
+
+/// The octets of each input of that test, which runs `find` at every position with more than
+/// `match_len_max` octets ahead.
+const forms_input_len = 8_192;
+
+/// That test's inputs, and the letters their octets take: the fewest in the first, and
+/// `forms_letters_factor` times more in each next. Few letters repeat 4 octets at most
+/// positions, and more repeat 3 octets at many positions and 4 at a few.
+const forms_inputs = 3;
+const forms_letters_min = 4;
+const forms_letters_factor = 4;
+
+/// That test requires each kind of match it counts to occur at more than `forms_input_len`
+/// divided by this many positions, over all its inputs.
+const forms_kind_parts = 16;
+
+/// The positions of that test that find a match after a literal: the table's 3-octet match, or
+/// a longer one.
+const FormsCounts = struct { threes: usize = 0, longer: usize = 0 };
+
+/// Requires `find_at_one_site` to give `find`'s match at every position with more than
+/// `match_len_max` octets ahead in a seeded input of `letters` letters. It compares the two forms
+/// after no match and after four lengths a match may wait with. Adds the matches after a literal
+/// to `counts`.
+fn expect_forms_agree(comptime level: constants.Level, letters: u64, counts: *FormsCounts) !void {
+    @setRuntimeSafety(level.runtime_safety);
+    // No match, 3 octets, 4, one short of `lazy_len`, and `lazy_len`.
+    const previous_lens = [_]u16{ 0, constants.match_len_min, constants.match_len_min + 1, level.lazy_len - 1, level.lazy_len };
+    var input: [forms_input_len]u8 = undefined;
+    var generator = codec.split.Generator.init(forms_seed);
+    for (&input) |*octet| octet.* = @intCast(generator.below(letters));
+    var matcher: Matcher(level) = undefined;
+    matcher.init();
+    try std.testing.expectEqual(input.len, matcher.fill(&input));
+    var three: Three = undefined;
+    three.start();
+    three.live = true;
+    @memset(&three.heads, 0);
+    for (0..input.len - constants.match_len_max) |position| {
+        const word = match.tail_octets(level.runtime_safety, &matcher.window, position);
+        insert_word(level, &matcher, position, word);
+        const nearest = three.insert(level.runtime_safety, word, position);
+        for (previous_lens) |previous_len| {
+            const expected = find(level, &matcher, position, word, nearest, constants.match_len_max, previous_len);
+            try std.testing.expectEqual(expected, find_at_one_site(level, &matcher, position, word, nearest, constants.match_len_max, previous_len));
+            if (previous_len != 0) continue;
+            counts.threes += @intFromBool(expected.len == constants.match_len_min);
+            counts.longer += @intFromBool(expected.len > constants.match_len_min);
+        }
+    }
+}
+
+test "find with one search and one exit gives the match of the form with four exits" {
+    // x86-64 builds `find` as the form with one exit, which the test then compares with itself.
+    inline for (constants.encoder_levels) |level_number| {
+        const level = comptime constants.level(level_number);
+        if (!level.three) continue;
+        var counts: FormsCounts = .{};
+        var letters: u64 = forms_letters_min;
+        for (0..forms_inputs) |_| {
+            try expect_forms_agree(level, letters, &counts);
+            letters *= forms_letters_factor;
+        }
+        // Both kinds of match occur often.
+        try std.testing.expect(counts.threes > forms_input_len / forms_kind_parts and counts.longer > forms_input_len / forms_kind_parts);
+    }
 }
 
 test {
