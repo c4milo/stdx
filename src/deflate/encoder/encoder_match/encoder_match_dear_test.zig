@@ -398,3 +398,59 @@ test "the chain's nearest candidate holds a position's octets within a match's r
         try testing.expect(!nearest_at(level_number, 100, 100, "abcd"));
     }
 }
+
+/// Writes again the octets of `block`'s symbols into `output` after the octets already there,
+/// `written` of them, and returns how many it holds after.
+fn replay(block: *const Block, output: []u8, written: usize) usize {
+    var at = written;
+    for (block.symbols[0..block.symbol_count]) |symbol| {
+        if (symbol.distance == 0) {
+            output[at] = symbol.value;
+            at += 1;
+            continue;
+        }
+        const len = @as(usize, symbol.value) + constants.match_len_min;
+        for (0..len) |index| output[at + index] = output[at + index - symbol.distance];
+        at += len;
+    }
+    return at;
+}
+
+test "a 3-octet match that waits at a block's end reaches the plain steps of the next as a literal" {
+    // The block takes 3-octet matches and ends where its symbols reach its limit. The position
+    // that adds the last symbol finds a 3-octet match, which waits into the next block. That
+    // block runs the plain steps, which take no match of 3 octets, so its first symbol is the
+    // literal at the match's octet.
+    const at = 700;
+    const distance = 100;
+    inline for (lazy_levels) |level_number| {
+        const level = comptime constants.level(level_number);
+        var input: [input_len_max]u8 = undefined;
+        build(&input, &.{.{ .at = at, .text = "abc", .distance = distance }}, &.{});
+        var matcher: Matcher(level) = undefined;
+        matcher.init();
+        try testing.expectEqual(input.len, matcher.fill(&input));
+        var three: Three = undefined;
+        three.start();
+        three.live = true;
+        @memset(&three.heads, 0);
+        var first: Block = undefined;
+        first.reset(0);
+        first.limit = at;
+        matcher.advance_dear(&first, false, &three);
+        try testing.expectEqual(@as(u16, at), first.symbol_count);
+        try testing.expectEqual(@as(usize, at), first.input_len);
+        try testing.expect(matcher.waiting);
+        try testing.expectEqual(match.Match{ .len = constants.match_len_min, .distance = distance }, matcher.previous);
+        var second: Block = undefined;
+        second.reset(at);
+        matcher.advance(&second, true);
+        try testing.expect(matcher.settle(&second));
+        try testing.expectEqual(@as(u16, 0), second.symbols[0].distance);
+        try testing.expectEqual(input[at], second.symbols[0].value);
+        try testing.expectEqual(input.len - at, second.input_len);
+        var output: [input_len_max]u8 = undefined;
+        const written = replay(&second, &output, replay(&first, &output, 0));
+        try testing.expectEqualSlices(u8, &input, output[0..written]);
+    }
+}
