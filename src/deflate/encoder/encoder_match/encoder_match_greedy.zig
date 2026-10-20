@@ -14,6 +14,7 @@ const match_len = match.match_len;
 const hash = match.hash;
 const hash_of_word = match.hash_of_word;
 const lookahead_end = match.lookahead_end;
+const probe = @import("encoder_match_probe.zig");
 
 /// The greedy level's positions with the whole lookahead ahead, decided until the block fills or
 /// the lookahead runs out; `step_greedy` takes the positions after them.
@@ -28,9 +29,12 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     const start = self.position;
     var position = start;
     var symbols = block.appender(level.runtime_safety);
+    // PROBE: the next position's octets come through a pointer that one of the delays carries.
+    const window: [*]const u8 = &self.window;
+    var lookup: [*]const u8 = window + start;
     while (position < end and !symbols.full()) {
         // The position's first 8 octets, least significant first; the low 4 are its hash's word.
-        const later = std.mem.readInt(u64, self.window[position..][0..@sizeOf(u64)], .little);
+        const later = std.mem.readInt(u64, lookup[0..@sizeOf(u64)], .little);
         const word: u32 = @truncate(later);
         const head = &self.heads[hash_of_word(level, word)];
         const pair = head.*;
@@ -49,10 +53,12 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
             const match_end = position + found.len;
             if (found.len <= level.covered_insert_len_max) insert_match(level, self, match_end, found.len, found.distance);
             position = match_end;
+            lookup = probe.delay(probe.live == .match, window + position);
         } else {
             // The word's first octet is the position's.
             symbols.literal(@truncate(word));
             position += 1;
+            lookup = probe.delay(probe.live == .literal, window + position);
         }
     }
     // The symbols cover every octet from `start` to `position`.
