@@ -132,7 +132,7 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .state_budget_len = 163 * 1024 },
+        1 => .{ .hash_bits = 13, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 258, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .state_budget_len = 163 * 1024 },
         6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .state_budget_len = 294 * 1024 },
         9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .state_budget_len = 293 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),

@@ -64,6 +64,12 @@ const penalty_by_bits: [@bitSizeOf(u16) + 1]u8 = table: {
     break :table by_bits;
 };
 
+/// A hash's entry: the last position with the hash at a level with chains; at the greedy level the
+/// last two, the later in the low half, so one load reads both and one store shifts a new one in.
+pub fn Head(comptime level: constants.Level) type {
+    return if (level.chains) u16 else u32;
+}
+
 /// A hash of `hash_bits` bits: every index of the heads and no other, so a head read by it needs no
 /// bounds check.
 fn Hash(comptime level: constants.Level) type {
@@ -86,7 +92,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         window: [constants.encoder_window_len + (if (level.walks_inline) constants.encoder_window_padding_len else 0)]u8,
         /// The last position with each hash, and for each position the one before it with the same
         /// hash. A position of 0 names none, so the window's first octet is never a candidate.
-        heads: [1 << level.hash_bits]u16,
+        heads: [1 << level.hash_bits]Head(level),
         chain: if (level.chains) [constants.window_len]u16 else void,
         /// The window's octets that hold input, and the next position to decide.
         filled: usize,
@@ -178,7 +184,7 @@ fn slide_window(comptime level: constants.Level, self: *Matcher(level)) void {
     @memcpy(self.window[0..half], self.window[half..constants.encoder_window_len]);
     self.filled -= constants.window_len;
     self.position -= constants.window_len;
-    slide_positions(level.runtime_safety, &self.heads, half);
+    slide_positions(level.runtime_safety, std.mem.bytesAsSlice(u16, std.mem.sliceAsBytes(&self.heads)), half);
     if (level.chains) slide_positions(level.runtime_safety, &self.chain, half);
 }
 
