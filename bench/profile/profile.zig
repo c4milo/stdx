@@ -262,13 +262,16 @@ fn probe_print(out: *std.Io.Writer, input: Input, label: []const u8, written: us
     const cycles: f64 = @floatFromInt(counts[timing.counters.cycles]);
     const instructions: f64 = @floatFromInt(counts[timing.counters.instructions]);
     const misses: f64 = @floatFromInt(counts[timing.counters.branch_misses]);
-    try out.print("| {s} | {d} | {s} | {d} | {d:.2} | {d:.2} | {d:.2} | {d:.3} |\n", .{ input.name, input.len(), label, written, cycles / octets, instructions / octets, instructions / @max(1, cycles), misses / octets * 1024 });
+    const frontend: f64 = @floatFromInt(counts[timing.counters.stalled_frontend]);
+    const backend: f64 = @floatFromInt(counts[timing.counters.stalled_backend]);
+    const l1d: f64 = @floatFromInt(counts[timing.counters.l1d_read_misses]);
+    try out.print("| {s} | {d} | {s} | {d} | {d:.2} | {d:.2} | {d:.2} | {d:.3} | {d:.2} | {d:.2} | {d:.3} |\n", .{ input.name, input.len(), label, written, cycles / octets, instructions / octets, instructions / @max(1, cycles), misses / octets * 1024, frontend / octets, backend / octets, l1d / octets });
 }
 
 fn report_probe(arena: std.mem.Allocator, out: *std.Io.Writer, counters: *const Counters, features: codec.Features, rows: []const Input) !void {
     try out.print("\n## PROBE: level {d} encoders per input octet, gzip, each file's first MiB\n\n", .{probe_level});
-    try out.print("| File | Octets | Encoder | Written | Cycles per octet | Instructions per octet | Instructions per cycle | Branch misses per KiB |\n", .{});
-    try out.print("|---|---|---|---|---|---|---|---|\n", .{});
+    try out.print("| File | Octets | Encoder | Written | Cycles per octet | Instructions per octet | Instructions per cycle | Branch misses per KiB | Frontend stall cycles per octet | Backend stall cycles per octet | L1D read misses per octet |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|---|---|---|---|\n", .{});
     const encoder = try arena.create(ProbeEncoder);
     for (rows) |row| {
         const input = try limited(arena, row, 1024 * 1024);
