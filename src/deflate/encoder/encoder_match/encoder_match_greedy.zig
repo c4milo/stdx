@@ -76,7 +76,19 @@ inline fn insert_match(comptime level: constants.Level, self: *Matcher(level), m
     // position, the padded window holds a u8 of octets and 3 more, so neither slice is checked.
     const first: u16 = @truncate(match_end - tail_len - head_len);
     const head = self.window[first..][0 .. @as(usize, head_len) + tail_len];
-    for (0..head_len) |offset| insert_word(level, self, head[offset..][0..constants.hash_len], first +% @as(u16, @truncate(offset)));
+    // The head's first positions, with no branch: past the head's end, an entry gets its own value
+    // back, and the tail inserts that position after.
+    const fixed = self.window[first..][0 .. constants.head_fixed_len + tail_len];
+    inline for (0..constants.head_fixed_len) |offset| {
+        const entry = &self.heads[hash_of_word(level, std.mem.readInt(u32, fixed[offset..][0..constants.hash_len], .little))];
+        const old = entry.*;
+        entry.* = if (offset < head_len) (old << @bitSizeOf(u16)) | (first +% @as(u16, offset)) else old;
+    }
+    if (head_len > constants.head_fixed_len) {
+        const rest = head[constants.head_fixed_len..];
+        const rest_at = first +% constants.head_fixed_len;
+        for (0..head_len - constants.head_fixed_len) |offset| insert_word(level, self, rest[offset..][0..constants.hash_len], rest_at +% @as(u16, @truncate(offset)));
+    }
     const tail_at = first +% head_len;
     const tail = self.window[tail_at..][0 .. 2 * tail_len];
     inline for (0..tail_len) |offset| insert_word(level, self, tail[offset..][0..constants.hash_len], tail_at +% @as(u16, offset));

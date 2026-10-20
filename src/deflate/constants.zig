@@ -230,6 +230,10 @@ pub const encoder_window_len = 2 * window_len;
 /// kept the walk's candidate on the stack across the call inside it (design §8 step 9).
 pub const encoder_window_padding_len = std.math.maxInt(u8) + match_len_taken_min - 1;
 
+/// The positions at the start of a level 1 match's head that it inserts with no branch. Past a
+/// shorter head's end, an entry gets its own value back; a longer head inserts the rest in a loop.
+pub const head_fixed_len = 2;
+
 comptime {
     const array_len = encoder_window_len + encoder_window_padding_len;
     assert(std.math.maxInt(u16) + std.math.maxInt(u8) + match_len_taken_min <= array_len);
