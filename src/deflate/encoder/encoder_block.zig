@@ -41,32 +41,6 @@ const length_codes: [constants.match_len_max - constants.match_len_min + 1]CodeI
     break :codes codes_of;
 };
 
-/// The distances of `near_codes` and above, one entry per `far_distance_step`: each distance code
-/// from 16 on covers whole steps (RFC 1951 §3.2.5).
-const near_distances = 256;
-const far_distance_shift = 7;
-const near_codes: [near_distances]CodeIndex = distance_codes(false);
-/// The comptime branches building the far table takes: one per distance.
-const distance_codes_quota = 100_000;
-const far_codes: [constants.window_len >> far_distance_shift]CodeIndex = distance_codes(true);
-
-comptime {
-    // Both tables are indexed by a u8 without a bounds check.
-    assert(near_distances == 1 << @bitSizeOf(u8) and constants.window_len >> far_distance_shift == 1 << @bitSizeOf(u8));
-}
-
-fn distance_codes(comptime far: bool) [if (far) constants.window_len >> far_distance_shift else near_distances]CodeIndex {
-    @setEvalBranchQuota(distance_codes_quota);
-    var codes_of: [if (far) constants.window_len >> far_distance_shift else near_distances]CodeIndex = @splat(0);
-    for (constants.distance_base, constants.distance_extra_bits, 0..) |base, extra, index| {
-        for (base..@as(usize, base) + (1 << extra)) |distance| {
-            const slot = if (far) (distance - 1) >> far_distance_shift else distance - 1;
-            if (slot < codes_of.len and (far or distance <= near_distances)) codes_of[slot] = index;
-        }
-    }
-    return codes_of;
-}
-
 /// The code of a length, as its index from 257.
 pub inline fn length_code(comptime runtime_safety: bool, len: usize) CodeIndex {
     @setRuntimeSafety(runtime_safety);
@@ -79,14 +53,20 @@ pub inline fn length_code_of(value: u8) CodeIndex {
     return length_codes[value];
 }
 
-/// The code of a distance. Both tables are read, so the choice is a select and not a branch, which
-/// the distances of a block would mispredict. Each index is a u8, so neither read is checked.
+/// The code of a distance, from its bits and not a table. Codes 0 to 3 hold the distances 1 to 4,
+/// and from there each pair of codes holds twice the distances of the pair before it (RFC 1951
+/// §3.2.5). So with `offset` the distance less 1, the code is twice the place of the offset's
+/// highest set bit, plus the bit below that one. An offset of 0 or 1 is its own code.
 pub inline fn distance_code(comptime runtime_safety: bool, distance: usize) CodeIndex {
     @setRuntimeSafety(runtime_safety);
     assert(distance >= 1 and distance <= constants.window_len);
-    const near = near_codes[@as(u8, @truncate(@min(distance, near_distances) - 1))];
-    const far = far_codes[@as(u8, @truncate((distance - 1) >> far_distance_shift))];
-    return if (distance <= near_distances) near else far;
+    const offset: u16 = @truncate(distance -% 1);
+    const top: u4 = @truncate(@bitSizeOf(u16) - 1 -% @as(u5, @clz(offset | 1)));
+    // Bit k of `doubled` is bit k - 1 of the offset, and bit 0 is the offset's own bit 0, which
+    // stands below a top of 0.
+    const doubled = (offset << 1) | (offset & 1);
+    const below: u1 = @truncate(doubled >> top);
+    return (@as(CodeIndex, top) << 1) | below;
 }
 
 /// A length or distance code as the symbol writer puts it: its code, the code's bits, the base of
