@@ -31,13 +31,13 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     while (position < end and !symbols.full()) {
         const word = std.mem.readInt(u32, self.window[position..][0..constants.hash_len], .little);
         const head = &self.heads[hash_of_word(level, word)];
-        const candidate = head.*;
-        head.* = @intCast(position);
-        const found = greedy_match_word(level, self, position, candidate, word);
+        const pair = head.*;
+        head.* = (pair << @bitSizeOf(u16)) | @as(u16, @intCast(position));
+        const found = pair_match(level, self, position, pair, word);
         if (found.len >= constants.match_len_taken_min) {
             symbols.pair(found.len, found.distance);
             const match_end = position + found.len;
-            if (found.len <= level.covered_insert_len_max) insert_covered(level, self, position, match_end);
+            if (found.len <= level.covered_insert_len_max) insert_covered(level, self, position, match_end, found.distance);
             position = match_end;
         } else {
             // The word's first octet is the position's.
@@ -48,6 +48,35 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     // The symbols cover every octet from `start` to `position`.
     symbols.finish(position - start);
     self.position = position;
+}
+
+/// The longer of the matches at the two positions `pair` holds, the later on a tie, at `position`,
+/// whose 4 octets `word` holds, with `match_len_max` octets ahead. A candidate goes on to
+/// `match_len` only when its first 4 octets equal `word`.
+inline fn pair_match(comptime level: constants.Level, self: *const Matcher(level), position: usize, pair: u32, word: u32) Match {
+    @setRuntimeSafety(level.runtime_safety);
+    assert(position + constants.match_len_max <= constants.encoder_window_len);
+    const near: usize = @as(u16, @truncate(pair));
+    const far: usize = pair >> @bitSizeOf(u16);
+    // Position 0 names no candidate, and a candidate before the reach's edge is none. Each test
+    // reads its candidate's octets whatever it is, a position of the window as any other, and
+    // the tests join with `&`, so only one branch asks whether either candidate holds the word.
+    const lowest = @max(1, position -| constants.encoder_distance_max);
+    const near_holds = @intFromBool(near >= lowest) & @intFromBool(tail_octets(level.runtime_safety, self.window[near..], 0) == word);
+    const far_holds = @intFromBool(far >= lowest) & @intFromBool(tail_octets(level.runtime_safety, self.window[far..], 0) == word);
+    if (near_holds | far_holds == 0) return .{};
+    // Both lengths, then a select: a candidate that does not hold the word ends its compare at
+    // its first word, and its length counts for none.
+    const later = self.window[position..][0..constants.match_len_max];
+    const near_full = match_len(level.runtime_safety, self.window[near..][0..constants.match_len_max], later);
+    const far_full = match_len(level.runtime_safety, self.window[far..][0..constants.match_len_max], later);
+    const near_len = if (near_holds == 1) near_full else 0;
+    const far_len = if (far_holds == 1) far_full else 0;
+    const take_far = far_len > near_len;
+    const len = if (take_far) far_len else near_len;
+    const source = if (take_far) far else near;
+    assert(source < position);
+    return .{ .len = @intCast(len), .distance = @intCast(position - source) };
 }
 
 /// `greedy_match` at `position`, whose 4 octets `word` holds, with `match_len_max` octets ahead.
@@ -67,14 +96,17 @@ pub fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block
     var found: Match = .{};
     if (ahead >= constants.hash_len) {
         const head = &self.heads[hash(level, self, self.position)];
-        const candidate = head.*;
-        head.* = @intCast(self.position);
-        found = greedy_match(level, self, candidate, @min(ahead, constants.match_len_max));
+        const pair = head.*;
+        head.* = (pair << @bitSizeOf(u16)) | @as(u16, @intCast(self.position));
+        const len_max = @min(ahead, constants.match_len_max);
+        found = greedy_match(level, self, @truncate(pair), len_max);
+        const other = greedy_match(level, self, @truncate(pair >> @bitSizeOf(u16)), len_max);
+        if (other.len > found.len) found = other;
     }
     if (found.len >= constants.match_len_taken_min) {
         block.add_pair(level.runtime_safety, found.len, found.distance);
         const match_end = self.position + found.len;
-        if (found.len <= level.covered_insert_len_max) insert_covered(level, self, self.position, match_end);
+        if (found.len <= level.covered_insert_len_max) insert_covered(level, self, self.position, match_end, found.distance);
         self.position = match_end;
     } else {
         block.add_literal(level.runtime_safety, self.window[self.position]);
@@ -86,16 +118,22 @@ pub fn step_greedy(comptime level: constants.Level, self: *Matcher(level), block
 /// later match may start there and the head names the nearest position. Only positions with
 /// `hash_len` octets in the window count. The 4 octets slide through a word: one octet loaded per
 /// position. Inline, as a call's setup cost level 1 more than the few inserts of a short match.
-inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level), position: usize, end: usize) void {
+inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level), position: usize, end: usize, distance: usize) void {
     @setRuntimeSafety(level.runtime_safety);
     assert(position < end and end <= self.filled);
-    const first = position + 1;
+    assert(distance >= 1);
     const last = @min(end, self.filled - (constants.hash_len - 1));
-    if (last <= first) return;
-    var word = std.mem.readInt(u32, self.window[position..][0..constants.hash_len], .little);
-    for (self.window[first + constants.hash_len - 1 .. last + constants.hash_len - 1], first..) |octet, covered| {
-        word = (word >> @bitSizeOf(u8)) | (@as(u32, octet) << (@bitSizeOf(u32) - @bitSizeOf(u8)));
-        self.heads[hash_of_word(level, word)] = @truncate(covered);
+    // A covered position whose 4 octets the match repeats `distance` and twice `distance` later
+    // leaves its entry before the match ends: both later positions join the same entry after it,
+    // and an entry keeps its last two. Its insert changes no entry, so the inserts start where the
+    // match's last word less twice the distance does.
+    const repeats_end = @min(last, end - (constants.hash_len - 1));
+    const first = @max(position + 1, repeats_end -| 2 * distance);
+    var covered = first;
+    while (covered < last) : (covered += 1) {
+        const word = std.mem.readInt(u32, self.window[covered..][0..constants.hash_len], .little);
+        const head = &self.heads[hash_of_word(level, word)];
+        head.* = (head.* << @bitSizeOf(u16)) | @as(u16, @truncate(covered));
     }
 }
 
