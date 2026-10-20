@@ -83,6 +83,9 @@ pub fn write(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, bloc
     unreachable;
 }
 
+/// The most extra bits a length or distance code has (RFC 1951 §3.2.5).
+const extra_bits_max = 13;
+
 /// Checks once a block what `write_symbols_stored` puts with no check at each pair (decision 17).
 /// Each length code and each distance code that the block counts has code bits. A test of
 /// `encoder_block.zig` proves that each length and distance lies in the range of its code's base
@@ -95,11 +98,13 @@ fn check_entries(comptime runtime_safety: bool, plan: *const Plan, block: *const
     var lengths: usize = 0;
     for (length_counts, plan.length_entries[0..length_counts.len]) |count, entry| {
         assert(count == 0 or entry.code_bits != 0);
+        assert(entry.code_bits <= constants.code_len_max and entry.extra_bits <= extra_bits_max);
         lengths += count;
     }
     var distances: usize = 0;
     for (&block.distance_counts, plan.distance_entries[0..block.distance_counts.len]) |count, entry| {
         assert(count == 0 or entry.code_bits != 0);
+        assert(entry.code_bits <= constants.code_len_max and entry.extra_bits <= extra_bits_max);
         distances += count;
     }
     // Each pair counts one length code and one distance code.
@@ -292,12 +297,14 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
             }
         } else {
             const length = plan.length_entries[block_module.length_code_of(symbol.value)];
-            buffer |= entry_bits(runtime_safety, length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
+            // The count is under 8 here and under 8 + 28 at the second put (`check_entries`), so
+            // neither shift is checked.
+            buffer |= entry_bits(runtime_safety, length, @as(usize, symbol.value) + constants.match_len_min) << @as(u6, @truncate(count));
             // Two u8 values cannot overflow a `usize`, so the sum has no overflow branch. It is
             // 28 at most.
             count += @as(usize, length.code_bits) + length.extra_bits;
             const distance = plan.distance_entries[symbol.distance_code];
-            buffer |= entry_bits(runtime_safety, distance, symbol.distance) << @intCast(count);
+            buffer |= entry_bits(runtime_safety, distance, symbol.distance) << @as(u6, @truncate(count));
             count += @as(usize, distance.code_bits) + distance.extra_bits;
         }
         assert(count <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
@@ -335,7 +342,8 @@ inline fn entry_bits(comptime runtime_safety: bool, entry: block_module.CodeEntr
     @setRuntimeSafety(runtime_safety);
     // With runtime safety on, the overflow check of the subtraction refuses a value under the base.
     const extra = value - entry.base;
-    return entry.code | @as(u64, extra) << @intCast(entry.code_bits);
+    // `check_entries` bounds the code's bits, so the shift is below 64 with no check.
+    return entry.code | @as(u64, extra) << @as(u6, @truncate(entry.code_bits));
 }
 
 fn write_code(comptime runtime_safety: bool, emit: *Emit, plan: *const Plan, symbol: u16, writer: *codec.BitWriter) bool {
