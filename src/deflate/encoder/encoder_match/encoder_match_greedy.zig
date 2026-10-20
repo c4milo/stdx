@@ -20,6 +20,12 @@ const lookahead_end = match.lookahead_end;
 pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), block: *Block) void {
     @setRuntimeSafety(level.runtime_safety);
     comptime assert(!level.chains);
+    // PROBE: 32 octets of no-ops, so the loop below starts 32 octets later in its line.
+    switch (@import("builtin").cpu.arch) {
+        .aarch64 => asm volatile (".rept 8\nnop\n.endr"),
+        .x86_64 => asm volatile (".rept 32\nnop\n.endr"),
+        else => {},
+    }
     const lookahead = lookahead_end(level, self) orelse return;
     // The position lives in a local through the loop, so the stores to the heads and the block do
     // not make the compiler reload it; the end is bounded by the window too, so a match's octets
