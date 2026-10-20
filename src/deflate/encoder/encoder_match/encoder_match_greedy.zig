@@ -70,15 +70,15 @@ inline fn insert_match(comptime level: constants.Level, self: *Matcher(level), m
     assert(distance >= 1);
     assert(match_end + constants.hash_len - 1 <= self.filled);
     const tail_len = constants.hash_len - 1;
-    const head_len = @min(len - constants.match_len_taken_min, 2 * distance);
-    const first = match_end - tail_len - head_len;
-    // The octets of every inserted word: the head's, then the tail's 3 words.
-    const octets = self.window[first..][0 .. head_len + 2 * tail_len];
-    // Window positions fit 16 bits, so no sum of the first and an offset wraps.
-    const first_at: u16 = @truncate(first);
-    for (0..head_len) |offset| insert_word(level, self, octets[offset..][0..constants.hash_len], first_at +% @as(u16, @truncate(offset)));
-    const tail = octets[head_len..][0 .. 2 * tail_len];
-    const tail_at = first_at +% @as(u16, @truncate(head_len));
+    // At most `match_len_max` less 4, so it fits a u8.
+    const head_len: u8 = @intCast(@min(len - constants.match_len_taken_min, 2 * distance));
+    // Window positions fit 16 bits, so no sum of the first and an offset wraps. From a u16
+    // position, the padded window holds a u8 of octets and 3 more, so neither slice is checked.
+    const first: u16 = @truncate(match_end - tail_len - head_len);
+    const head = self.window[first..][0 .. @as(usize, head_len) + tail_len];
+    for (0..head_len) |offset| insert_word(level, self, head[offset..][0..constants.hash_len], first +% @as(u16, @truncate(offset)));
+    const tail_at = first +% head_len;
+    const tail = self.window[tail_at..][0 .. 2 * tail_len];
     inline for (0..tail_len) |offset| insert_word(level, self, tail[offset..][0..constants.hash_len], tail_at +% @as(u16, offset));
 }
 
