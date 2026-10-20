@@ -271,6 +271,7 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
     // loop's test of the room.
     var room = octets[start_position..];
     var buffer = writer.bits.buffer;
+    // The bits in the buffer at each pass's start: under 8, as each pass stores its whole octets.
     var count: usize = writer.bits.count;
     assert(count < @bitSizeOf(u8));
     const start_count = count;
@@ -284,28 +285,23 @@ noinline fn write_symbols_stored(comptime runtime_safety: bool, emit: *Emit, pla
         if (room.len < store_len) break;
         const symbol = symbols[index];
         index += 1;
+        // The bits in the buffer once this pass's symbols are in.
+        var filled: usize = count;
         if (symbol.distance == 0) {
-            put_literal(runtime_safety, plan, symbol.value, &buffer, &count);
+            put_literal(runtime_safety, plan, symbol.value, &buffer, &filled);
             if (index < symbols.len and symbols[index].distance == 0) {
-                put_literal(runtime_safety, plan, symbols[index].value, &buffer, &count);
+                put_literal(runtime_safety, plan, symbols[index].value, &buffer, &filled);
                 index += 1;
             }
         } else {
-            const length = plan.length_entries[block_module.length_code_of(symbol.value)];
-            buffer |= entry_bits(runtime_safety, length, @as(usize, symbol.value) + constants.match_len_min) << @intCast(count);
-            // Two u8 values cannot overflow a `usize`, so the sum has no overflow branch. It is
-            // 28 at most.
-            count += @as(usize, length.code_bits) + length.extra_bits;
-            const distance = plan.distance_entries[symbol.distance_code];
-            buffer |= entry_bits(runtime_safety, distance, symbol.distance) << @intCast(count);
-            count += @as(usize, distance.code_bits) + distance.extra_bits;
+            put_pair_stored(runtime_safety, plan, symbol, &buffer, &filled);
         }
-        assert(count <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
+        assert(filled <= constants.pair_bits_max + @bitSizeOf(u8) - 1);
         std.mem.writeInt(u64, room[0..store_len], buffer, .little);
-        const whole = count / @bitSizeOf(u8);
+        const whole = filled / @bitSizeOf(u8);
         room = room[whole..];
         buffer >>= @intCast(whole * @bitSizeOf(u8));
-        count %= @bitSizeOf(u8);
+        count = filled % @bitSizeOf(u8);
     }
     const position = octets.len - room.len;
     writer.writer.position = position;
@@ -331,6 +327,25 @@ comptime {
 /// The code of `entry` and, above it, `value` less the entry's base in its extra bits: the bits
 /// one put of the entry holds. It has no assertion, as decision 17 rules for a fast path:
 /// `check_entries` checks the entries once a block, and `put_entry` checks each value.
+/// Puts a pair's length and distance codes with their extra bits, the length's first, on the
+/// `filled` bits of `buffer`, under 8 at a store loop pass's start. Each value's extra bits come
+/// from its low bits through the entry's mask (`CodeEntry`), so no subtraction checks its
+/// operands, and each shift is by a width of 6 bits or fewer, which needs no check.
+inline fn put_pair_stored(comptime runtime_safety: bool, plan: *const Plan, symbol: block_module.Symbol, buffer: *u64, filled: *usize) void {
+    @setRuntimeSafety(runtime_safety);
+    const length = plan.length_entries[block_module.length_code_of(symbol.value)];
+    const distance = plan.distance_entries[symbol.distance_code];
+    // The distance less 1, modulo the code's span: adding the mask adds the span less 1, and two
+    // 16-bit values cannot overflow 32 bits.
+    const distance_low = (@as(u32, symbol.distance) + distance.mask) & distance.mask;
+    const length_value = length.code | @as(u64, symbol.value & length.mask) << length.code_bits;
+    const distance_value = distance.code | @as(u64, distance_low) << distance.code_bits;
+    // The low 3 bits are all of `filled`, under 8 at a pass's start.
+    const at: u3 = @truncate(filled.*);
+    buffer.* |= (length_value | distance_value << length.bits) << at;
+    filled.* += @as(usize, length.bits) + distance.bits;
+}
+
 inline fn entry_bits(comptime runtime_safety: bool, entry: block_module.CodeEntry, value: usize) u64 {
     @setRuntimeSafety(runtime_safety);
     // With runtime safety on, the overflow check of the subtraction refuses a value under the base.
@@ -366,8 +381,8 @@ inline fn put_pair(comptime runtime_safety: bool, plan: *const Plan, symbol: blo
 inline fn put_entry(comptime runtime_safety: bool, writer: *codec.BitWriter, entry: block_module.CodeEntry, value: usize) u7 {
     @setRuntimeSafety(runtime_safety);
     assert(entry.code_bits != 0 and value >= entry.base);
-    assert((value - entry.base) >> @intCast(entry.extra_bits) == 0);
-    const count: u7 = @intCast(entry.code_bits + entry.extra_bits);
+    assert((value - entry.base) & ~@as(usize, entry.mask) == 0);
+    const count: u7 = entry.bits;
     writer.put(entry_bits(runtime_safety, entry, value), count);
     return count;
 }

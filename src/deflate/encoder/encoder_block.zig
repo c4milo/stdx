@@ -89,15 +89,56 @@ pub inline fn distance_code(comptime runtime_safety: bool, distance: usize) Code
     return if (distance <= near_distances) near else far;
 }
 
-/// A length or distance code as the symbol writer puts it: its code, the code's bits, the base of
-/// the values it covers, and the extra bits after it that hold a value less the base (RFC 1951
-/// §3.2.5), so a pair's length or distance goes into the bit buffer with one put.
+/// A length or distance code as the symbol writer puts it: its code, the base of the values it
+/// covers, the mask of the extra bits after the code that hold a value less the base (RFC 1951
+/// §3.2.5), the code's bits, and the code's and the extra bits together, so a pair's length or
+/// distance goes into the bit buffer with one put. The widths are 6 bits, a shift's operand.
+///
+/// Each base less its alphabet's first base, `match_len_min` or 1, is a multiple of its code's
+/// span, so a value less the first base holds its extra bits in its low bits: the mask takes them
+/// with no subtraction of the base (`entries_masked`).
 pub const CodeEntry = struct {
     code: u16,
     base: u16,
-    code_bits: u8,
-    extra_bits: u8,
+    mask: u16,
+    code_bits: u4,
+    bits: u6,
 };
+
+/// The extra bits of each length code and distance code as 4-bit widths, and their masks, for
+/// `fill_entries`: a sum of two 4-bit widths fits 6 bits with no check.
+const length_extra_widths: [constants.length_base.len]u4 = narrowed(&constants.length_extra_bits);
+const distance_extra_widths: [constants.distance_used]u4 = narrowed(&constants.distance_extra_bits);
+const length_masks: [constants.length_base.len]u16 = masks_of(&constants.length_extra_bits);
+const distance_masks: [constants.distance_used]u16 = masks_of(&constants.distance_extra_bits);
+
+fn narrowed(comptime extra_bits: anytype) [extra_bits.len]u4 {
+    var widths: [extra_bits.len]u4 = undefined;
+    for (&widths, extra_bits) |*width, extra| width.* = extra;
+    return widths;
+}
+
+fn masks_of(comptime extra_bits: anytype) [extra_bits.len]u16 {
+    var masks: [extra_bits.len]u16 = undefined;
+    for (&masks, extra_bits) |*mask, extra| mask.* = (1 << extra) - 1;
+    return masks;
+}
+
+/// Whether every code of an alphabet starts its values at a multiple of its span past the
+/// alphabet's first base, so `CodeEntry.mask` takes a value's extra bits.
+fn entries_masked(bases: []const u16, extra_bits: []const u7, first: u16) bool {
+    for (bases, extra_bits) |base, extra| {
+        if ((base - first) & ((@as(u16, 1) << @intCast(extra)) - 1) != 0) return false;
+    }
+    return true;
+}
+
+comptime {
+    // A code's width and an extra width each fit a `u4`, and their sum a `u6`, a shift's operand.
+    assert(constants.code_len_max <= std.math.maxInt(u4));
+    assert(entries_masked(&constants.length_base, &constants.length_extra_bits, constants.match_len_min));
+    assert(entries_masked(&constants.distance_base, &constants.distance_extra_bits, 1));
+}
 
 pub const Block = struct {
     symbols: [constants.block_symbols_max]Symbol,
@@ -257,17 +298,25 @@ pub const Plan = struct {
 
     /// Fills `length_entries` and `distance_entries` from the plan's codes.
     pub fn fill_entries(self: *Plan) void {
-        self.length_entries = @splat(std.mem.zeroes(CodeEntry));
-        self.distance_entries = @splat(std.mem.zeroes(CodeEntry));
-        for (self.length_entries[0..constants.length_base.len], constants.length_base, constants.length_extra_bits, 0..) |*entry, base, extra_bits, index| {
-            const symbol = constants.first_length_symbol + index;
-            entry.* = .{ .code = self.literal_length_codes[symbol], .base = base, .code_bits = self.literal_length_lengths[symbol], .extra_bits = extra_bits };
+        const length_codes_of = self.literal_length_codes[constants.first_length_symbol..];
+        const length_lengths = self.literal_length_lengths[constants.first_length_symbol..];
+        for (self.length_entries[0..constants.length_base.len], length_codes_of, length_lengths, constants.length_base, length_masks, length_extra_widths) |*entry, code_of, code_bits, base, mask, extra| {
+            entry.* = code_entry(code_of, code_bits, base, mask, extra);
         }
-        for (self.distance_entries[0..constants.distance_used], constants.distance_base[0..constants.distance_used], constants.distance_extra_bits[0..constants.distance_used], 0..) |*entry, base, extra_bits, index| {
-            entry.* = .{ .code = self.distance_codes[index], .base = base, .code_bits = self.distance_lengths[index], .extra_bits = extra_bits };
+        for (self.distance_entries[0..constants.distance_used], self.distance_codes, self.distance_lengths, constants.distance_base, distance_masks, distance_extra_widths) |*entry, code_of, code_bits, base, mask, extra| {
+            entry.* = code_entry(code_of, code_bits, base, mask, extra);
         }
+        @memset(self.length_entries[constants.length_base.len..], std.mem.zeroes(CodeEntry));
+        @memset(self.distance_entries[constants.distance_used..], std.mem.zeroes(CodeEntry));
     }
 };
+
+/// The entry of the code `code_of` of `code_bits` bits, at most `code_len_max`, whose values
+/// start at `base` and take `extra` bits under `mask`.
+inline fn code_entry(code_of: u16, code_bits: u8, base: u16, mask: u16, extra: u4) CodeEntry {
+    const width: u4 = @intCast(code_bits);
+    return .{ .code = code_of, .base = base, .mask = mask, .code_bits = width, .bits = @as(u6, width) + extra };
+}
 
 /// The fixed codes (RFC 1951 §3.2.6), reversed for the stream, built once at comptime. Each is
 /// built over its whole alphabet, 288 and 32 symbols, since symbols 286, 287, 30 and 31 take codes
