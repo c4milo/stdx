@@ -56,26 +56,27 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
 inline fn pair_match(comptime level: constants.Level, self: *const Matcher(level), position: usize, pair: u32, word: u32) Match {
     @setRuntimeSafety(level.runtime_safety);
     assert(position + constants.match_len_max <= constants.encoder_window_len);
-    const near: u16 = @truncate(pair);
-    const far: u16 = @truncate(pair >> @bitSizeOf(u16));
-    const near_ok = starts_alike(level, self, position, near, word);
-    const far_ok = starts_alike(level, self, position, far, word);
-    if (!near_ok and !far_ok) return .{};
+    const near: usize = @as(u16, @truncate(pair));
+    const far: usize = pair >> @bitSizeOf(u16);
+    // Position 0 names no candidate, and a candidate before the reach's edge is none. Each test
+    // reads its candidate's octets whatever it is, a position of the window as any other, and
+    // the tests join with `&`, so only one branch asks whether either candidate holds the word.
+    const lowest = @max(1, position -| constants.encoder_distance_max);
+    const near_holds = @intFromBool(near >= lowest) & @intFromBool(tail_octets(level.runtime_safety, self.window[near..], 0) == word);
+    const far_holds = @intFromBool(far >= lowest) & @intFromBool(tail_octets(level.runtime_safety, self.window[far..], 0) == word);
+    if (near_holds | far_holds == 0) return .{};
+    // Both lengths, then a select: a candidate that does not hold the word ends its compare at
+    // its first word, and its length counts for none.
     const later = self.window[position..][0..constants.match_len_max];
-    const near_len = if (near_ok) match_len(level.runtime_safety, self.window[near..][0..constants.match_len_max], later) else 0;
-    const far_len = if (far_ok) match_len(level.runtime_safety, self.window[far..][0..constants.match_len_max], later) else 0;
+    const near_full = match_len(level.runtime_safety, self.window[near..][0..constants.match_len_max], later);
+    const far_full = match_len(level.runtime_safety, self.window[far..][0..constants.match_len_max], later);
+    const near_len = if (near_holds == 1) near_full else 0;
+    const far_len = if (far_holds == 1) far_full else 0;
     const take_far = far_len > near_len;
     const len = if (take_far) far_len else near_len;
-    const source: usize = if (take_far) far else near;
+    const source = if (take_far) far else near;
+    assert(source < position);
     return .{ .len = @intCast(len), .distance = @intCast(position - source) };
-}
-
-/// Whether `candidate` is a position within reach of `position` whose first 4 octets equal `word`.
-inline fn starts_alike(comptime level: constants.Level, self: *const Matcher(level), position: usize, candidate: u16, word: u32) bool {
-    @setRuntimeSafety(level.runtime_safety);
-    if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < position) return false;
-    assert(candidate < position);
-    return tail_octets(level.runtime_safety, self.window[candidate..], 0) == word;
 }
 
 /// `greedy_match` at `position`, whose 4 octets `word` holds, with `match_len_max` octets ahead.
