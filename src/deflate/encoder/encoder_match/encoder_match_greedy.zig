@@ -29,11 +29,21 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     var position = start;
     var symbols = block.appender(level.runtime_safety);
     while (position < end and !symbols.full()) {
-        const word = std.mem.readInt(u32, self.window[position..][0..constants.hash_len], .little);
+        // The position's first 8 octets, least significant first; the low 4 are its hash's word.
+        const later = std.mem.readInt(u64, self.window[position..][0..@sizeOf(u64)], .little);
+        const word: u32 = @truncate(later);
         const head = &self.heads[hash_of_word(level, word)];
         const pair = head.*;
         head.* = (pair << @bitSizeOf(u16)) | @as(u16, @intCast(position));
-        const found = pair_match(level, self, position, pair, word);
+        const near: u16 = @truncate(pair);
+        const far: u16 = @truncate(pair >> @bitSizeOf(u16));
+        const near_octets = candidate_octets(level, self, near);
+        const far_octets = candidate_octets(level, self, far);
+        // One branch asks whether either candidate's first 4 octets equal the position's; the
+        // reach and candidate 0 are tested on the candidate a match takes.
+        const near_differs = @intFromBool(@as(u32, @truncate(near_octets)) != word);
+        const far_differs = @intFromBool(@as(u32, @truncate(far_octets)) != word);
+        const found: Match = if (near_differs & far_differs == 1) .{} else pair_match(level, self, position, near, far, near_octets ^ later, far_octets ^ later);
         if (found.len >= constants.match_len_taken_min) {
             symbols.pair(found.len, found.distance);
             const match_end = position + found.len;
@@ -50,33 +60,62 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     self.position = position;
 }
 
-/// The longer of the matches at the two positions `pair` holds, the later on a tie, at `position`,
-/// whose 4 octets `word` holds, with `match_len_max` octets ahead. A candidate goes on to
-/// `match_len` only when its first 4 octets equal `word`.
-inline fn pair_match(comptime level: constants.Level, self: *const Matcher(level), position: usize, pair: u32, word: u32) Match {
+/// The 8 octets at `candidate`, least significant first. A candidate lies before the position, so
+/// the octets are input.
+inline fn candidate_octets(comptime level: constants.Level, self: *const Matcher(level), candidate: u16) u64 {
+    @setRuntimeSafety(level.runtime_safety);
+    return std.mem.readInt(u64, self.window[candidate..][0..@sizeOf(u64)], .little);
+}
+
+/// The match at `position` from the bucket's `near` and `far` positions, when the first 4 octets of
+/// one or both equal the position's: the longer, the near one on a tie, of those that name a
+/// position in reach (`greedy_match`). Each difference is a candidate's first 8 octets XOR the
+/// position's, so below 8 a length is the count of its low zero octets. A candidate whose first 4
+/// octets differ is shorter than one whose octets equal. Only the candidate taken is tested
+/// against the reach and position 0; when it fails, `fallback_match` decides.
+inline fn pair_match(comptime level: constants.Level, self: *const Matcher(level), position: usize, near: u16, far: u16, near_difference: u64, far_difference: u64) Match {
     @setRuntimeSafety(level.runtime_safety);
     assert(position + constants.match_len_max <= constants.encoder_window_len);
-    const near: usize = @as(u16, @truncate(pair));
-    const far: usize = pair >> @bitSizeOf(u16);
-    // Position 0 names no candidate, and a candidate before the reach's edge is none. Each test
-    // reads its candidate's octets whatever it is, a position of the window as any other, and
-    // the tests join with `&`, so only one branch asks whether either candidate holds the word.
-    const lowest = @max(1, position -| constants.encoder_distance_max);
-    const near_holds = @intFromBool(near >= lowest) & @intFromBool(tail_octets(level.runtime_safety, self.window[near..], 0) == word);
-    const far_holds = @intFromBool(far >= lowest) & @intFromBool(tail_octets(level.runtime_safety, self.window[far..], 0) == word);
-    if (near_holds | far_holds == 0) return .{};
-    // Both lengths, then a select: a candidate that does not hold the word ends its compare at
-    // its first word, and its length counts for none.
-    const later = self.window[position..][0..constants.match_len_max];
-    const near_full = match_len(level.runtime_safety, self.window[near..][0..constants.match_len_max], later);
-    const far_full = match_len(level.runtime_safety, self.window[far..][0..constants.match_len_max], later);
-    const near_len = if (near_holds == 1) near_full else 0;
-    const far_len = if (far_holds == 1) far_full else 0;
+    // A zero difference counts 8 until its compare goes on from octet 8.
+    var near_len: usize = @ctz(near_difference) / @bitSizeOf(u8);
+    var far_len: usize = @ctz(far_difference) / @bitSizeOf(u8);
+    if (@intFromBool(near_difference == 0) | @intFromBool(far_difference == 0) == 1) {
+        if (near_difference == 0) near_len = long_len(level, self, position, near);
+        // A near match of `match_len_max` octets leaves the far one nothing to win.
+        if (far_difference == 0 and near_len < constants.match_len_max) far_len = long_len(level, self, position, far);
+    }
     const take_far = far_len > near_len;
-    const len = if (take_far) far_len else near_len;
-    const source = if (take_far) far else near;
-    assert(source < position);
-    return .{ .len = @intCast(len), .distance = @intCast(position - source) };
+    const source: usize = if (take_far) far else near;
+    if (!in_reach(position, source)) return fallback_match(position, near, far, near_len, take_far);
+    return .{ .len = @intCast(if (take_far) far_len else near_len), .distance = @intCast(position - source) };
+}
+
+/// Whether `candidate` names a position the match at `position` may reach: not 0, and no farther
+/// back than `encoder_distance_max`.
+inline fn in_reach(position: usize, candidate: usize) bool {
+    if (candidate == 0) return false;
+    assert(candidate < position);
+    return position - candidate <= constants.encoder_distance_max;
+}
+
+/// The match when the candidate `pair_match` took fails `in_reach`. A bucket's near position is
+/// never below its far one: inserts come in rising order, and a slide lowers both alike. So when
+/// the near one failed, the far one fails too; when the far one failed, the near one is the match
+/// if its first 4 octets equal the position's and it lies in reach.
+fn fallback_match(position: usize, near: u16, far: u16, near_len: usize, took_far: bool) Match {
+    assert(near >= far);
+    if (!took_far or near_len < constants.match_len_taken_min or !in_reach(position, near)) return .{};
+    return .{ .len = @intCast(near_len), .distance = @intCast(position - near) };
+}
+
+/// A candidate's length when its first 8 octets equal the position's: 8, and the compare from
+/// octet 8 on.
+inline fn long_len(comptime level: constants.Level, self: *const Matcher(level), position: usize, candidate: u16) usize {
+    @setRuntimeSafety(level.runtime_safety);
+    const equal_len = @sizeOf(u64);
+    const later = self.window[position + equal_len ..][0 .. constants.match_len_max - equal_len];
+    const earlier = self.window[@as(usize, candidate) + equal_len ..][0 .. constants.match_len_max - equal_len];
+    return equal_len + match_len(level.runtime_safety, earlier, later);
 }
 
 /// `greedy_match` at `position`, whose 4 octets `word` holds, with `match_len_max` octets ahead.
