@@ -87,9 +87,9 @@ pub fn Matcher(comptime level: constants.Level) type {
     return struct {
         const Self = @This();
 
-        /// The input, in its first `encoder_window_len` octets, and at level 6, whose walks run
-        /// inline (`search`), `encoder_window_padding_len` octets that no read reaches.
-        window: [constants.encoder_window_len + (if (level.walks_inline) constants.encoder_window_padding_len else 0)]u8,
+        /// The input, in its first `encoder_window_len` octets, and at levels 1 and 6
+        /// `encoder_window_padding_len` octets that no read reaches.
+        window: [constants.encoder_window_len + (if (level.walks_inline or !level.chains) constants.encoder_window_padding_len else 0)]u8,
         /// The last position with each hash, and for each position the one before it with the same
         /// hash. A position of 0 names none, so the window's first octet is never a candidate.
         heads: [1 << level.hash_bits]Head(level),

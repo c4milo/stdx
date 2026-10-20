@@ -221,13 +221,13 @@ pub const work_per_call_max = 2 * block_table_work_max + 2 * combination_work_ma
 /// position it encodes (decision 12).
 pub const encoder_window_len = 2 * window_len;
 
-/// The octets level 6's window array holds past `encoder_window_len`, which no read reaches. A
-/// chain walk loads 4 octets at a candidate, a `u16` position, plus an offset into the match, a
-/// `u8`, and compares up to `match_len_max` octets from the candidate. With these octets every such
-/// load lies inside the array whatever those values are, so the compiler drops its bounds check.
-/// Level 6's walks run inline in its lazy loop. Level 9's walk is a call, and without the check
-/// x86-64 kept the walk's candidate on the stack across the call inside it (design §8 step 9);
-/// level 1 walks no chain.
+/// The octets the window array of levels 1 and 6 holds past `encoder_window_len`, which no read
+/// reaches. A chain walk loads 4 octets at a candidate, a `u16` position, plus an offset into the
+/// match, a `u8`, and compares up to `match_len_max` octets from the candidate. Level 1 loads 8
+/// octets at each of its two candidates and compares from there. With these octets every such load
+/// lies inside the array whatever those values are, so the compiler drops its bounds check. Level
+/// 6's walks run inline in its lazy loop. Level 9's walk is a call, and without the check x86-64
+/// kept the walk's candidate on the stack across the call inside it (design §8 step 9).
 pub const encoder_window_padding_len = std.math.maxInt(u8) + match_len_taken_min - 1;
 
 comptime {
