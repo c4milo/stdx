@@ -47,7 +47,7 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
         if (found.len >= constants.match_len_taken_min) {
             symbols.pair(found.len, found.distance);
             const match_end = position + found.len;
-            if (found.len <= level.covered_insert_len_max) insert_covered(level, self, position, match_end, found.distance);
+            if (found.len <= level.covered_insert_len_max) insert_match(level, self, match_end, found.len, found.distance);
             position = match_end;
         } else {
             // The word's first octet is the position's.
@@ -58,6 +58,35 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
     // The symbols cover every octet from `start` to `position`.
     symbols.finish(position - start);
     self.position = position;
+}
+
+/// `insert_covered` for a match the loop of positions with the whole lookahead ahead takes: the
+/// lookahead holds the 4 octets of each covered position, so every one counts. The match's last 3
+/// positions always join their entries, as their words reach past it, and before them a head of
+/// at most twice the distance: the positions the cut keeps (`insert_covered`).
+inline fn insert_match(comptime level: constants.Level, self: *Matcher(level), match_end: usize, len: usize, distance: usize) void {
+    @setRuntimeSafety(level.runtime_safety);
+    assert(len >= constants.match_len_taken_min and len <= constants.match_len_max);
+    assert(distance >= 1);
+    assert(match_end + constants.hash_len - 1 <= self.filled);
+    const tail_len = constants.hash_len - 1;
+    const head_len = @min(len - constants.match_len_taken_min, 2 * distance);
+    const first = match_end - tail_len - head_len;
+    // The octets of every inserted word: the head's, then the tail's 3 words.
+    const octets = self.window[first..][0 .. head_len + 2 * tail_len];
+    // Window positions fit 16 bits, so no sum of the first and an offset wraps.
+    const first_at: u16 = @truncate(first);
+    for (0..head_len) |offset| insert_word(level, self, octets[offset..][0..constants.hash_len], first_at +% @as(u16, @truncate(offset)));
+    const tail = octets[head_len..][0 .. 2 * tail_len];
+    const tail_at = first_at +% @as(u16, @truncate(head_len));
+    inline for (0..tail_len) |offset| insert_word(level, self, tail[offset..][0..constants.hash_len], tail_at +% @as(u16, offset));
+}
+
+/// Makes `at`, whose 4 octets `octets` holds, the later position of its hash's entry.
+inline fn insert_word(comptime level: constants.Level, self: *Matcher(level), octets: *const [constants.hash_len]u8, at: u16) void {
+    @setRuntimeSafety(level.runtime_safety);
+    const head = &self.heads[hash_of_word(level, std.mem.readInt(u32, octets, .little))];
+    head.* = (head.* << @bitSizeOf(u16)) | at;
 }
 
 /// The 8 octets at `candidate`, least significant first. A candidate lies before the position, so
