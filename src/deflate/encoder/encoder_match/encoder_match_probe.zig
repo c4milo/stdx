@@ -6,7 +6,7 @@
 const builtin = @import("builtin");
 
 pub const Site = enum { none, match, literal };
-pub const live: Site = .none;
+pub const live: Site = .match;
 
 fn template(comptime on: bool) []const u8 {
     return switch (builtin.cpu.arch) {
