@@ -232,6 +232,62 @@ fn report_counters(arena: std.mem.Allocator, out: *std.Io.Writer, counters: *con
     }
 }
 
+// PROBE, never lands: level 1's encoders counted per input octet, stdx's and libdeflate's, for the
+// work on level 1's output (2026-10-20). It replaces the decoders' sections and S2's count.
+
+/// The level the probe encodes at.
+const probe_level = 1;
+const ProbeEncoder = gzip.Encoder(.{ .level = probe_level });
+
+/// The octets each encoder reads per row, at least, over as many encodes as that takes.
+const probe_input_len_min = 32 * 1024 * 1024;
+
+fn probe_stdx(encoder: *ProbeEncoder, features: codec.Features, parts: []const []const u8, output: []u8) usize {
+    var total: usize = 0;
+    for (parts) |part| {
+        encoder.init(features);
+        total += encoder.encode_all(part, output) catch return 0;
+    }
+    return total;
+}
+
+fn probe_libdeflate(parts: []const []const u8, output: []u8) usize {
+    var total: usize = 0;
+    for (parts) |part| total += baselines.libdeflate_gzip_encode(probe_level, part, output) orelse return 0;
+    return total;
+}
+
+fn probe_print(out: *std.Io.Writer, input: Input, label: []const u8, written: usize, counts: anytype, rounds: usize) !void {
+    const octets: f64 = @floatFromInt(rounds * input.len());
+    const cycles: f64 = @floatFromInt(counts[timing.counters.cycles]);
+    const instructions: f64 = @floatFromInt(counts[timing.counters.instructions]);
+    const misses: f64 = @floatFromInt(counts[timing.counters.branch_misses]);
+    try out.print("| {s} | {d} | {s} | {d} | {d:.2} | {d:.2} | {d:.2} | {d:.3} |\n", .{ input.name, input.len(), label, written, cycles / octets, instructions / octets, instructions / @max(1, cycles), misses / octets * 1024 });
+}
+
+fn report_probe(arena: std.mem.Allocator, out: *std.Io.Writer, counters: *const Counters, features: codec.Features, rows: []const Input) !void {
+    try out.print("\n## PROBE: level {d} encoders per input octet, gzip, each file's first MiB\n\n", .{probe_level});
+    try out.print("| File | Octets | Encoder | Written | Cycles per octet | Instructions per octet | Instructions per cycle | Branch misses per KiB |\n", .{});
+    try out.print("|---|---|---|---|---|---|---|---|\n", .{});
+    const encoder = try arena.create(ProbeEncoder);
+    for (rows) |row| {
+        const input = try limited(arena, row, 1024 * 1024);
+        const output = try arena.alloc(u8, @max(ProbeEncoder.encoded_len_max(input.part_len), baselines.libdeflate_gzip_bound(input.part_len)));
+        const rounds = @max(1, probe_input_len_min / @max(1, input.len()));
+        const stdx_written = probe_stdx(encoder, features, input.parts, output);
+        if (stdx_written == 0) return error.CandidateDisagrees;
+        counters.start();
+        for (0..rounds) |_| std.mem.doNotOptimizeAway(probe_stdx(encoder, features, input.parts, output));
+        try probe_print(out, input, "stdx", stdx_written, counters.stop(), rounds);
+        const lib_written = probe_libdeflate(input.parts, output);
+        if (lib_written == 0) return error.CandidateDisagrees;
+        counters.start();
+        for (0..rounds) |_| std.mem.doNotOptimizeAway(probe_libdeflate(input.parts, output));
+        try probe_print(out, input, "libdeflate", lib_written, counters.stop(), rounds);
+        try out.flush();
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
@@ -246,11 +302,6 @@ pub fn main(init: std.process.Init) !void {
         try files.append(arena, .{ .name = argument[0..split], .octets = octets });
     }
     const rows = try inputs.of(arena, files.items);
-    try out.print("## S2: how stdx's decoder took each symbol, raw DEFLATE at zlib level {d}\n\n", .{encode_level});
-    try inputs.note(out, rows);
-    try out.print("| File | Symbols | One lookup | Canonical code | Checked path | One lookup, share |\n", .{});
-    try out.print("|---|---|---|---|---|---|\n", .{});
-    for (rows) |row| try report_lookups(arena, out, row);
     if (comptime !timing.counters.available) {
         try out.print("\n## Hardware counters per decoded octet\n\nHardware counters are read through Linux's perf_event_open; this host is not Linux.\n", .{});
         try out.flush();
@@ -261,6 +312,11 @@ pub fn main(init: std.process.Init) !void {
         try out.flush();
         return;
     };
+    if (true) {
+        try report_probe(arena, out, &counters, codec.Features.detect(), rows);
+        try out.flush();
+        return;
+    }
     const libzstd = oracle.zstd_context_create() orelse return error.OutOfMemory;
     const context: Context = .{
         .decoder = try arena.create(gzip.Decoder),
