@@ -433,7 +433,7 @@ pub inline fn hash(comptime level: constants.Level, self: *const Matcher(level),
 /// which the truncation keeps whole.
 pub inline fn hash_of_word(comptime level: constants.Level, octets: u32) Hash(level) {
     @setRuntimeSafety(level.runtime_safety);
-    return @truncate((octets *% constants.hash_multiplier) >> @intCast(@bitSizeOf(u32) - @as(u6, level.hash_bits)));
+    return @truncate((octets *% level.hash_multiplier) >> @intCast(@bitSizeOf(u32) - @as(u6, level.hash_bits)));
 }
 
 /// How many octets from the start of `earlier` equal those of `later`: 8 octets at a time, the

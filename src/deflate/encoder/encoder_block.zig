@@ -136,7 +136,7 @@ pub const Block = struct {
     pub inline fn add_pair(self: *Block, comptime runtime_safety: bool, len: usize, distance: usize) void {
         @setRuntimeSafety(runtime_safety);
         assert(!self.full());
-        assert(distance >= 1 and distance <= constants.encoder_distance_max);
+        assert(distance >= 1 and distance <= constants.window_len - 1);
         const distance_index = distance_code(runtime_safety, distance);
         self.symbols[self.symbol_count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
         self.symbol_count += 1;
@@ -176,7 +176,7 @@ pub fn Appender(comptime runtime_safety: bool) type {
             @setRuntimeSafety(runtime_safety);
             const count = self.count;
             assert(count < constants.block_symbols_max);
-            assert(distance >= 1 and distance <= constants.encoder_distance_max);
+            assert(distance >= 1 and distance <= constants.window_len - 1);
             const distance_index = distance_code(runtime_safety, distance);
             self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
             self.count = count + 1;
@@ -190,7 +190,7 @@ pub fn Appender(comptime runtime_safety: bool) type {
             @setRuntimeSafety(runtime_safety);
             const count = self.count;
             assert(count < constants.block_symbols_max);
-            assert(distance >= 1 and distance <= constants.encoder_distance_max);
+            assert(distance >= 1 and distance <= constants.window_len - 1);
             self.block.symbols[count] = .{ .value = @intCast(len - constants.match_len_min), .distance = @intCast(distance), .distance_code = distance_index };
             self.count = count + 1;
             self.block.literal_length_counts[constants.first_length_symbol + length_code(runtime_safety, len)] +%= 1;

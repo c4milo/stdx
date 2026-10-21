@@ -127,25 +127,25 @@ inline fn pair_match(comptime level: constants.Level, self: *const Matcher(level
     }
     const take_far = far_len > near_len;
     const source: usize = if (take_far) far else near;
-    if (!in_reach(position, source)) return fallback_match(position, near, far, near_len, take_far);
+    if (!in_reach(level, position, source)) return fallback_match(level, position, near, far, near_len, take_far);
     return .{ .len = @intCast(if (take_far) far_len else near_len), .distance = @intCast(position - source) };
 }
 
 /// Whether `candidate` names a position the match at `position` may reach: not 0, and no farther
 /// back than `encoder_distance_max`.
-inline fn in_reach(position: usize, candidate: usize) bool {
+inline fn in_reach(comptime level: constants.Level, position: usize, candidate: usize) bool {
     if (candidate == 0) return false;
     assert(candidate < position);
-    return position - candidate <= constants.encoder_distance_max;
+    return position - candidate <= level.distance_max;
 }
 
 /// The match when the candidate `pair_match` took fails `in_reach`. A bucket's near position is
 /// never below its far one: inserts come in rising order, and a slide lowers both alike. So when
 /// the near one failed, the far one fails too; when the far one failed, the near one is the match
 /// if its first 4 octets equal the position's and it lies in reach.
-fn fallback_match(position: usize, near: u16, far: u16, near_len: usize, took_far: bool) Match {
+fn fallback_match(comptime level: constants.Level, position: usize, near: u16, far: u16, near_len: usize, took_far: bool) Match {
     assert(near >= far);
-    if (!took_far or near_len < constants.match_len_taken_min or !in_reach(position, near)) return .{};
+    if (!took_far or near_len < constants.match_len_taken_min or !in_reach(level, position, near)) return .{};
     return .{ .len = @intCast(near_len), .distance = @intCast(position - near) };
 }
 
@@ -163,7 +163,7 @@ inline fn long_len(comptime level: constants.Level, self: *const Matcher(level),
 fn greedy_match_word(comptime level: constants.Level, self: *const Matcher(level), position: usize, candidate: u16, word: u32) Match {
     @setRuntimeSafety(level.runtime_safety);
     assert(position + constants.match_len_max <= constants.encoder_window_len);
-    if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < position) return .{};
+    if (candidate == 0 or @as(usize, candidate) + level.distance_max < position) return .{};
     assert(candidate < position);
     if (tail_octets(level.runtime_safety, self.window[candidate..], 0) != word) return .{};
     const len = match_len(level.runtime_safety, self.window[candidate..][0..constants.match_len_max], self.window[position..][0..constants.match_len_max]);
@@ -222,7 +222,7 @@ inline fn insert_covered(comptime level: constants.Level, self: *Matcher(level),
 fn greedy_match(comptime level: constants.Level, self: *const Matcher(level), candidate: u16, len_max: usize) Match {
     @setRuntimeSafety(level.runtime_safety);
     assert(len_max >= constants.match_len_taken_min and self.position + len_max <= self.filled);
-    if (candidate == 0 or @as(usize, candidate) + constants.encoder_distance_max < self.position) return .{};
+    if (candidate == 0 or @as(usize, candidate) + level.distance_max < self.position) return .{};
     assert(candidate < self.position);
     const later = self.window[self.position..][0..len_max];
     if (tail_octets(level.runtime_safety, self.window[candidate..], 0) != tail_octets(level.runtime_safety, later, 0)) return .{};
