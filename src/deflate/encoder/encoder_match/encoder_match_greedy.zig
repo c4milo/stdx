@@ -45,11 +45,23 @@ pub fn advance_greedy(comptime level: constants.Level, self: *Matcher(level), bl
         const far_differs = @intFromBool(@as(u32, @truncate(far_octets)) != word);
         const found: Match = if (near_differs & far_differs == 1) .{} else pair_match(level, self, position, near, far, near_octets ^ later, far_octets ^ later);
         if (found.len >= constants.match_len_taken_min) {
-            symbols.pair(found.len, found.distance);
             const match_end = position + found.len;
+            // The next position's bucket, asked for before the record and the inserts, so that
+            // its load overlaps them. A match under 8 octets ends inside the 8 octets 4 past its
+            // start, so its successor's word needs no load that waits for the length. A position
+            // the loop goes on to lies below `end`, so it fits 16 bits, and from a u16 the padded
+            // window holds 12 octets.
+            const next_word: u32 = if (found.len < @sizeOf(u64)) word: {
+                const ahead = std.mem.readInt(u64, self.window[@as(u16, @truncate(position))..][constants.hash_len..][0..@sizeOf(u64)], .little);
+                break :word @truncate(ahead >> @as(u6, @truncate((found.len - constants.match_len_taken_min) * @bitSizeOf(u8))));
+            } else std.mem.readInt(u32, self.window[@as(u16, @truncate(match_end))..][0..constants.hash_len], .little);
+            @prefetch(&self.heads[hash_of_word(level, next_word)], .{});
+            symbols.pair(found.len, found.distance);
             if (found.len <= level.covered_insert_len_max) insert_match(level, self, match_end, found.len, found.distance);
             position = match_end;
         } else {
+            // The next position's bucket, from octets 1 to 4 of these 8.
+            @prefetch(&self.heads[hash_of_word(level, @truncate(later >> @bitSizeOf(u8)))], .{});
             // The word's first octet is the position's.
             symbols.literal(@truncate(word));
             position += 1;
