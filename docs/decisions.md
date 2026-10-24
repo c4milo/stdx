@@ -2451,7 +2451,7 @@ small file.
 
     ```zig
     pub const Answer = enum { yes, no, not_known };
-    pub const Cpu = struct { aes_clmul: Answer, dit: Answer };
+    pub const Cpu = struct { aes_clmul: Answer, dit: Answer, sha256: Answer, sha512: Answer, sha3: Answer };
     pub fn probe() Cpu;
     ```
 
@@ -2528,6 +2528,25 @@ small file.
       print, and it needs none of them.
     - `sysctlbyname` added to the io rule's shared exceptions. Every module could then call it.
     - The comparison as a unit test of the module, above.
+
+    **Amended on 2026-10-24: three SHA answers.** colibri asked for them in [issue
+    19](https://github.com/c4milo/stdx/issues/19), and the owner approved the request. colibri
+    states chapulin's SHA bits from them; chapulin measured one TLS 1.3 handshake on the N2 at
+    1.36 times OpenSSL's instructions without them and 0.97 with them.
+    - `Cpu` gains `sha256`, `sha512` and `sha3`, each an `Answer`, read with the others.
+    - aarch64 Linux: AT_HWCAP bits 6 (`HWCAP_SHA2`), 21 (`HWCAP_SHA512`) and 17 (`HWCAP_SHA3`),
+      as the kernel's `arch/arm64/include/uapi/asm/hwcap.h` numbers them.
+    - aarch64 macOS: `hw.optional.arm.FEAT_SHA256`, `FEAT_SHA512` and `FEAT_SHA3`.
+    - x86-64: `sha256` from CPUID leaf 7, EBX bit 29 (SHA, the SHA-1 and SHA-256 instructions).
+      `sha512` from leaf 7's subleaf 1, EAX bit 0 (SHA512), and `yes` only when leaf 1 reports
+      AVX and OSXSAVE and XCR0 holds the SSE and AVX state: the instructions take YMM registers. A
+      leaf or subleaf past the CPU's last reads as 0. `sha3` is `no`: x86-64 has no SHA-3
+      instructions.
+    - From the target, on any other aarch64 system and where a source gives nothing: Zig's `sha2`
+      guarantees `sha256`, and its `sha3` both `sha512` and `sha3`.
+    - The check compares them with /proc/cpuinfo (`sha2`, `sha512` and `sha3` on aarch64,
+      `sha_ni` and `sha512` on x86-64) and with macOS's sysctl values (`leaf7_features`' `SHA` on
+      x86-64, where no Intel Mac has the SHA-512 instructions).
 
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.

@@ -1,9 +1,11 @@
 //! The check of decision 40: on this host, `platform.probe()` gives the answers the host reports
 //! through a source the probe does not read.
-//! - Linux: /proc/cpuinfo, its `flags` line on x86-64 (`aes`, `pclmulqdq`) and its `Features`
-//!   line on aarch64 (`aes`, `pmull`, `dit`).
-//! - macOS on aarch64: `sysctl hw.optional.arm`, its `FEAT_AES`, `FEAT_PMULL` and `FEAT_DIT`.
-//! - macOS on x86-64: `sysctl -n machdep.cpu.features`, its `AES` and `PCLMULQDQ`.
+//! - Linux: /proc/cpuinfo, its `flags` line on x86-64 (`aes`, `pclmulqdq`, `sha_ni`, `sha512`)
+//!   and its `Features` line on aarch64 (`aes`, `pmull`, `dit`, `sha2`, `sha512`, `sha3`).
+//! - macOS on aarch64: `sysctl hw.optional.arm`, its `FEAT_AES`, `FEAT_PMULL`, `FEAT_DIT`,
+//!   `FEAT_SHA256`, `FEAT_SHA512` and `FEAT_SHA3`.
+//! - macOS on x86-64: `sysctl -n machdep.cpu.features machdep.cpu.leaf7_features`, its `AES`,
+//!   `PCLMULQDQ` and `SHA`. No Intel Mac has the SHA-512 instructions, so its `sha512` is `no`.
 //!
 //! The answers must be equal, `not_known` included: x86-64 reports no DIT, and a macOS release
 //! older than a sysctl name reports nothing for it. The build compiles `platform` for the generic
@@ -45,8 +47,8 @@ pub fn main(init: std.process.Init) !void {
     };
     const probed = platform.probe();
     std.debug.print(
-        "platform-check, {s}, libc {}: the probe says aes_clmul {t}, dit {t}; {s} says {t}, {t}\n",
-        .{ system, builtin.link_libc, probed.aes_clmul, probed.dit, reference.source, reference.cpu.aes_clmul, reference.cpu.dit },
+        "platform-check, {s}, libc {}: the probe says {any}; {s} says {any}\n",
+        .{ system, builtin.link_libc, probed, reference.source, reference.cpu },
     );
     if (std.meta.eql(probed, reference.cpu)) return;
     std.debug.print("platform-check FAILED: the probe and {s} disagree\n", .{reference.source});
@@ -56,8 +58,8 @@ pub fn main(init: std.process.Init) !void {
 /// True when the build target guarantees a feature the probe answers about.
 fn guarantees_a_feature(cpu: std.Target.Cpu) bool {
     return switch (cpu.arch) {
-        .x86_64 => std.Target.x86.featureSetHasAny(cpu.features, .{ .aes, .pclmul }),
-        .aarch64 => std.Target.aarch64.featureSetHasAny(cpu.features, .{ .aes, .dit }),
+        .x86_64 => std.Target.x86.featureSetHasAny(cpu.features, .{ .aes, .pclmul, .sha, .sha512 }),
+        .aarch64 => std.Target.aarch64.featureSetHasAny(cpu.features, .{ .aes, .dit, .sha2, .sha3 }),
         else => false,
     };
 }
@@ -76,7 +78,7 @@ fn read_reference(arena: std.mem.Allocator, io: std.Io) !?Reference {
             },
             .x86_64 => .{
                 .source = "sysctl machdep.cpu.features",
-                .cpu = from_machdep(try run_sysctl(arena, io, &.{ sysctl_path, "-n", "machdep.cpu.features" })),
+                .cpu = from_machdep(try run_sysctl(arena, io, &.{ sysctl_path, "-n", "machdep.cpu.features", "machdep.cpu.leaf7_features" })),
             },
             else => null,
         },
@@ -109,12 +111,23 @@ fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8) ?Cpu {
     switch (arch) {
         .x86_64 => {
             const words = value_of(text, "flags") orelse return null;
-            return .{ .aes_clmul = both(has_word(words, "aes"), has_word(words, "pclmulqdq")), .dit = .not_known };
+            return .{
+                .aes_clmul = both(has_word(words, "aes"), has_word(words, "pclmulqdq")),
+                .dit = .not_known,
+                .sha256 = present(has_word(words, "sha_ni")),
+                .sha512 = present(has_word(words, "sha512")),
+                .sha3 = .no,
+            };
         },
         .aarch64 => {
             const words = value_of(text, "Features") orelse return null;
-            const dit: Answer = if (has_word(words, "dit")) .yes else .no;
-            return .{ .aes_clmul = both(has_word(words, "aes"), has_word(words, "pmull")), .dit = dit };
+            return .{
+                .aes_clmul = both(has_word(words, "aes"), has_word(words, "pmull")),
+                .dit = present(has_word(words, "dit")),
+                .sha256 = present(has_word(words, "sha2")),
+                .sha512 = present(has_word(words, "sha512")),
+                .sha3 = present(has_word(words, "sha3")),
+            };
         },
         else => return null,
     }
@@ -126,12 +139,18 @@ fn from_sysctl_arm(text: []const u8) Cpu {
     const aes = sysctl_answer(text, "hw.optional.arm.FEAT_AES");
     const pmull = sysctl_answer(text, "hw.optional.arm.FEAT_PMULL");
     const aes_clmul: Answer = if (aes == .no or pmull == .no) .no else if (aes == .yes and pmull == .yes) .yes else .not_known;
-    return .{ .aes_clmul = aes_clmul, .dit = sysctl_answer(text, "hw.optional.arm.FEAT_DIT") };
+    return .{
+        .aes_clmul = aes_clmul,
+        .dit = sysctl_answer(text, "hw.optional.arm.FEAT_DIT"),
+        .sha256 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA256"),
+        .sha512 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA512"),
+        .sha3 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA3"),
+    };
 }
 
-/// The answers of the words `sysctl -n machdep.cpu.features` prints.
+/// The answers of the words `sysctl -n machdep.cpu.features machdep.cpu.leaf7_features` prints.
 fn from_machdep(text: []const u8) Cpu {
-    return .{ .aes_clmul = both(has_word(text, "AES"), has_word(text, "PCLMULQDQ")), .dit = .not_known };
+    return .{ .aes_clmul = both(has_word(text, "AES"), has_word(text, "PCLMULQDQ")), .dit = .not_known, .sha256 = present(has_word(text, "SHA")), .sha512 = .no, .sha3 = .no };
 }
 
 fn sysctl_answer(text: []const u8, name: []const u8) Answer {
@@ -142,7 +161,11 @@ fn sysctl_answer(text: []const u8, name: []const u8) Answer {
 }
 
 fn both(first: bool, second: bool) Answer {
-    return if (first and second) .yes else .no;
+    return present(first and second);
+}
+
+fn present(has: bool) Answer {
+    return if (has) .yes else .no;
 }
 
 /// What follows the colon on the first line whose name, before the colon, is `name`.
@@ -178,21 +201,34 @@ const aarch64_cpuinfo = "processor\t: 0\n" ++
     "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics dit uscat sveaes svepmull\n" ++
     "CPU implementer\t: 0x41\n";
 
-test "the flags line of x86-64's cpuinfo answers from aes and pclmulqdq alone" {
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .not_known }, from_cpuinfo(.x86_64, x86_64_cpuinfo).?);
-    const no_aes = "flags\t\t: fpu pclmulqdq vaes vpclmulqdq\nvmx flags\t: aes\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known }, from_cpuinfo(.x86_64, no_aes).?);
-    const no_pclmulqdq = "flags\t\t: fpu aes vpclmulqdq\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known }, from_cpuinfo(.x86_64, no_pclmulqdq).?);
+/// A `Cpu` with every SHA answer `sha`.
+fn cpu_of(aes_clmul: Answer, dit: Answer, sha: Answer) Cpu {
+    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha };
+}
+
+test "the flags line of x86-64's cpuinfo answers from aes, pclmulqdq, sha_ni and sha512 alone" {
+    const x86 = struct {
+        fn of(aes_clmul: Answer, sha256: Answer, sha512: Answer) Cpu {
+            return .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha256, .sha512 = sha512, .sha3 = .no };
+        }
+    };
+    try testing.expectEqual(x86.of(.yes, .no, .no), from_cpuinfo(.x86_64, x86_64_cpuinfo).?);
+    const no_aes = "flags\t\t: fpu pclmulqdq vaes vpclmulqdq sha_ni\nvmx flags\t: aes\n";
+    try testing.expectEqual(x86.of(.no, .yes, .no), from_cpuinfo(.x86_64, no_aes).?);
+    const no_pclmulqdq = "flags\t\t: fpu aes vpclmulqdq sha512\n";
+    try testing.expectEqual(x86.of(.no, .no, .yes), from_cpuinfo(.x86_64, no_pclmulqdq).?);
     try testing.expectEqual(null, from_cpuinfo(.x86_64, "vmx flags\t: aes pclmulqdq\n"));
 }
 
-test "the Features line of aarch64's cpuinfo answers from aes, pmull and dit alone" {
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .yes }, from_cpuinfo(.aarch64, aarch64_cpuinfo).?);
-    const no_pmull = "Features\t: fp asimd aes svepmull dit\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .yes }, from_cpuinfo(.aarch64, no_pmull).?);
-    const no_aes_no_dit = "Features\t: fp asimd sveaes pmull uscat\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no }, from_cpuinfo(.aarch64, no_aes_no_dit).?);
+test "the Features line of aarch64's cpuinfo answers from aes, pmull, dit, sha2, sha512 and sha3 alone" {
+    const every = "Features\t: fp asimd aes pmull sha1 sha2 sha3 sha512 dit\n";
+    try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_cpuinfo(.aarch64, every).?);
+    const n2 = from_cpuinfo(.aarch64, aarch64_cpuinfo).?;
+    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .no }, n2);
+    const no_pmull = "Features\t: fp asimd aes svepmull dit svesha3\n";
+    try testing.expectEqual(cpu_of(.no, .yes, .no), from_cpuinfo(.aarch64, no_pmull).?);
+    const no_aes_no_dit = "Features\t: fp asimd sveaes pmull uscat sha1\n";
+    try testing.expectEqual(cpu_of(.no, .no, .no), from_cpuinfo(.aarch64, no_aes_no_dit).?);
     try testing.expectEqual(null, from_cpuinfo(.aarch64, x86_64_cpuinfo));
     try testing.expectEqual(null, from_cpuinfo(.riscv64, aarch64_cpuinfo));
 }
@@ -203,17 +239,20 @@ test "the generic CPU guarantees no feature the check reads, and a named model d
     try testing.expect(guarantees_a_feature(std.Target.aarch64.cpu.apple_m1.toCpu(.aarch64)));
     try testing.expect(guarantees_a_feature(std.Target.aarch64.cpu.neoverse_n2.toCpu(.aarch64)));
     try testing.expect(guarantees_a_feature(std.Target.x86.cpu.haswell.toCpu(.x86_64)));
-    // x86-64-v3, a psABI level, names neither AES-NI nor PCLMULQDQ.
+    // x86-64-v3, a psABI level, names none of AES-NI, PCLMULQDQ, SHA and SHA512.
     try testing.expect(!guarantees_a_feature(std.Target.x86.cpu.x86_64_v3.toCpu(.x86_64)));
 }
 
 test "sysctl's FEAT_ values answer 1 as yes, 0 as no, and a missing name as not_known" {
-    const every = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 1\nhw.optional.arm.FEAT_DIT: 1\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .yes }, from_sysctl_arm(every));
-    const no_pmull = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 0\nhw.optional.arm.FEAT_DIT: 0\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no }, from_sysctl_arm(no_pmull));
+    const every = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 1\nhw.optional.arm.FEAT_DIT: 1\n" ++
+        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 1\nhw.optional.arm.FEAT_SHA3: 1\n";
+    try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_sysctl_arm(every));
+    const no_pmull = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 0\nhw.optional.arm.FEAT_DIT: 0\n" ++
+        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 0\nhw.optional.arm.FEAT_SHA3: 0\n";
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no }, from_sysctl_arm(no_pmull));
     const older = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_SHA1: 1\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .not_known, .dit = .not_known }, from_sysctl_arm(older));
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .not_known }, from_machdep("FPU SSE AES PCLMULQDQ SSE4.1\n"));
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known }, from_machdep("FPU SSE AES VPCLMULQDQ\n"));
+    try testing.expectEqual(cpu_of(.not_known, .not_known, .not_known), from_sysctl_arm(older));
+    const machdep = "FPU SSE AES PCLMULQDQ SSE4.1\nRDWRFSGS TSC_THREAD_OFFSET SGX BMI1 AVX2 SHA\n";
+    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no }, from_machdep(machdep));
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no }, from_machdep("FPU SSE AES VPCLMULQDQ\nAVX2 SHA512X\n"));
 }
