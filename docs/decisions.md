@@ -3493,3 +3493,50 @@ small file.
       is only a backward branch and inlined loops overlap. A count of sites needs no such guess.
     - The DEFLATE encoder's and decoder's loops: they are generic functions inside the library
       module, with no object of their own, and decision 49 measures their checks' cost already.
+
+52. **Level 6 compares its lazy matches by bits, as libdeflate's level 6 does.** Proposed on
+    2026-10-25 and ruled the same day: the owner chose "Plain walk + lazy rule" for a prototype,
+    and "Prepare it to land" for this part of it. It amends decision 36 at level 6 alone.
+
+    What a black-box study of libdeflate's level 6 streams found (2026-10-25, the owner's "Study
+    libdeflate's parse"). It read the 31 corpus files' streams alone, and never the source.
+    - One model gives libdeflate's level 6 symbols exactly on all 31 files, 10,076,646 symbols.
+      Its lazy step drops a waiting match (L1, d1) for the next position's (L2, d2) when L2 is
+      at least L1 and `4*L2 - bsr(d2)` passes `4*L1 - bsr(d1)` by more than 2.
+    - stdx's distance penalty of decision 36 drops a waiting match for an equal one a penalty
+      step nearer, and for one an octet shorter three steps nearer. Priced by substitution, those
+      choices cost stdx 0.19% of dickens's output and 0.14% of mr's.
+    - libdeflate reads 1.12 to 1.20 times stdx's links an octet on text. It does not search less.
+
+    The rule: at level 6 (`lazy_by_bits`), `keeps_waiting` keeps the waiting match unless the
+    next one is at least as long and its `bits_score`, `lazy_length_weight` (4) an octet less its
+    distance's bit length, passes the waiting one's by more than `lazy_bits_margin` (2). Level 9,
+    and the dear blocks of decision 50 at level 6, keep decision 36's penalty.
+
+    What it gives, at 14fb929 against main (43256da) in runs
+    [40204845133](https://github.com/c4milo/stdx/actions/runs/40204845133) and
+    [40204847410](https://github.com/c4milo/stdx/actions/runs/40204847410), each job on one VM:
+    - Output, counted on the M1, which writes the runners' octets: 23 rows smaller than main's,
+      the text files by 0.08% to 0.34%. 9 rows larger: json-1m by 0.35%, ptt5 by 0.28%, json-16k
+      by 0.26%, nci by 0.15%, and 5 by 0.11% or less. Over libdeflate's at the geometric mean
+      0.9979 becomes 0.9976, and the same 10 rows stay larger.
+    - Neoverse N2, both jobs: the median 1.006 and 1.011 of main's speed. 10 rows faster, dickens
+      1.014/1.016, reymont 1.017/1.020, plrabn12 1.018/1.015, mr 1.013/1.014; E.coli 0.972/0.975.
+    - x86-64, a Xeon 8573C and an EPYC 7763: the median 1.021 and 1.040. 21 rows faster in both,
+      dickens 1.036/1.042, mr 1.039/1.047, plrabn12 1.048/1.042, json-1m 1.025/1.042; E.coli
+      0.932/0.986. On the EPYC 7763, level 6 over libdeflate goes from 1.022 to 1.072 at the
+      median, and 14 rows trail it, where 16 and 17 did on 2026-10-17.
+    - The M1, 5 runs a row and 9 for the rows that read slower: the median 1.002 of main's speed,
+      E.coli 0.966 and 0.969. E.coli's instructions an octet rise 3.0%, and the median row's 0.3%.
+    - Levels 1 and 9 do not move.
+
+    The alternatives refused:
+    - The rest of the prototype: a plain chain walk of 64 links and 32 on the lazy step in place
+      of the tail chains (decision 48), with and without a 16-bit hash. The study's model of the
+      branches ranked it first. Built, it wrote 0.06% to 0.3% more than this rule alone on text,
+      retired 13% to 18% more instructions and ran 5% to 8% slower on the M1.
+    - The rule in the dear blocks too (57a470c, runs 40193002779 and 40193005912): x-ray retired
+      4.3% more instructions and ran at 0.989 of main's speed on the M1, and ooffice wrote 0.08%
+      more. Both trail libdeflate.
+    - Decision 36's penalty in the blocks of cheap literals, to spare E.coli: its instructions
+      rose 2.2% in place of 2.8%, at the same output.

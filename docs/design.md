@@ -3182,6 +3182,24 @@ to 12 are reordered and nothing else changes.
       past its spread, at 0.946. libdeflate's nci moved to 0.960 in the same job.
     - Rejected: the window at offset 0 of the matcher on x86-64. It gave the plain rows 0.8 to
       2.8 more instructions an octet.
+  - Level 6's lazy compare by bits, 2026-10-25 (decision 52). A black-box study of libdeflate's
+    level 6 streams gave its parse exactly on all 31 corpus files. The study's scripts and reports
+    stay outside the tree, as decision 9's tools do.
+    - The pairs at 14fb929, runs 40204845133 and 40204847410, ran main (43256da) first. The
+      aarch64 runner was a Neoverse N2 in both, the x86-64 runner a Xeon 8573C and an EPYC 7763.
+      The N2 ran 10 rows faster in both jobs and E.coli slower; x86-64 ran 21 rows faster and
+      E.coli slower. Decision 52 holds the figures, and
+      `bench/results/2026-10-25-deflate-encoder-lazy-bits-*` the reports.
+    - differential-encode recorded 144 new hashes, every one at level 6, and passes in its
+      ReleaseSafe and Debug builds.
+    - The Mac ran 14fb929 against main, 5 runs a row at a load near 11, beside a copy of an earlier
+      form against itself, which read no row slower past 1%. The median was 1.002. E.coli, ptt5
+      and sum read slower; 9 runs again read E.coli at 0.969, and ptt5 and sum at 0.995 and
+      1.038.
+    - Mutations, by `deflate_mutate.py` on `keeps_waiting`, `bits_score` and the dear blocks'
+      compare: 8 of 8 CAUGHT. They move the margin by one either way, let a shorter match win,
+      keep every equal one, weigh an octet 5, drop the distance's bits, give level 6 decision
+      36's penalty back, and give the dear blocks the rule.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
