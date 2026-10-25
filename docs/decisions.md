@@ -958,6 +958,7 @@ small file.
     | JSON encoder token loop with runtime safety off, at the caller's choice (J11, decision 35) | 18 | as J11 | as J11 | Throughput with safety off over on in the loop's two files, run [36515654643](https://github.com/c4milo/stdx/actions/runs/36515654643): CLDR's texts 1.071 and qlog's records 1.053 on the N2, 1.057 and 1.089 on the EPYC 9V45 |
     | DEFLATE encoder's match finder, appender and symbol writer with runtime safety off, at the caller's choice (decision 49) | 9 | none: the matcher reads its own window | none: the appender's block, and the writer's 8 octets (E5) | Throughput with safety off over on in the encoder's five inner files, the probe after its base in one job, run [38172161400](https://github.com/c4milo/stdx/actions/runs/38172161400): levels 1, 6 and 9 at 1.049, 1.044 and 1.067 at the median on the N2 and at 1.044, 1.037 and 1.050 on a Xeon 8573C; since then each bench-deflate report's `stdx unchecked` column beside `stdx` |
     | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time, or of 32 in the AVX2 variant object's walk (entry 47) | 16 octets, and 32 in that walk: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `Decoder.run`, over bench-json's workloads |
+    | DEFLATE encoder's level 6 lazy loop in aarch64 assembly (decision 53) | 9 | none: every position lies below the window's end less the lookahead, and a match's compare reads inside the window | none: each symbol goes below the block's room, which the loop tests at each position | Throughput with the loop over main's without it, the change after its base in one job (entry 20), at be101d8 against 5fd03aa (runs [40261381739](https://github.com/c4milo/stdx/actions/runs/40261381739) and [40261383705](https://github.com/c4milo/stdx/actions/runs/40261383705)): level 6 at 1.064 and 1.068 at the median on the N2, 36 rows faster in both jobs and none slower |
 
     The alternatives refused:
     - The checked reader and writer everywhere, with no fast path. It is the simplest, and
@@ -3551,3 +3552,147 @@ small file.
       more. Both trail libdeflate.
     - Decision 36's penalty in the blocks of cheap literals, to spare E.coli: its instructions
       rose 2.2% in place of 2.8%, at the same output.
+
+53. **An assembly loop for the DEFLATE encoder's level 6.** Proposed on 2026-10-25, after the owner
+    chose "Draft the assembly entry" the same day, and ruled the same day: "Approve, aarch64
+    first". The owner's bar: no level may write more or run
+    slower than libdeflate, on any row (decision 48's entry). The owner asks for assembly once the
+    Zig compiler gives no more gains, as decision 29 records for the decoder. This entry gives the
+    evidence, the rule and its checks.
+
+    **Where level 6 stands, on main (5fd03aa).** Runs
+    [40204845133](https://github.com/c4milo/stdx/actions/runs/40204845133) and
+    [40204847410](https://github.com/c4milo/stdx/actions/runs/40204847410), decision 52's pairs:
+    - Neoverse N2: stdx at 1.103 of libdeflate's speed at the median, 11 rows slower in each job.
+      x-ray 0.870, mr 0.908, ooffice 0.924, and the slower text rows 0.986 to 0.995.
+    - Xeon 8573C: 0.928 at the median, 29 rows slower. mr 0.780, reymont 0.801, text 0.83 to 0.86.
+    - EPYC 7763: 1.072 at the median, 14 rows slower. mr 0.912, ooffice 0.935, text 0.95 to 0.99.
+    - Output: 0.9976 of libdeflate's at the geometric mean, 10 rows larger.
+
+    **Why Zig stops here.**
+    - Callgrind on aarch64, the first 2 MiB, instructions an octet: dickens 101.0 against
+      libdeflate's 87.5, mr 105.5 against 87.3, x-ray 107.1 against 81.2. On dickens the tail walk
+      takes 35.0, the lazy loop 31.9, the writer and the symbol appends 16.2, and Zig's assertions
+      6.6. On mr the tail walk's link loop alone takes about 21, 6 instructions a link.
+    - The tail walk reads a link at 13 instructions, where main's walk took 18 and 19 before
+      decision 46. The cheaper Zig form, a countdown of the links left (2026-09-30), ran text 2% to
+      3% slower on the N2 in both jobs of a pair, and was not landed.
+    - Three cuts on 2026-10-25 moved x-ray by 0.5% at most: the reach's edge once a position
+      (worse, 108.0), three literals in a writer pass (106.5, kept on a branch), and no room test in
+      the writer (no change).
+    - A plain walk in place of the tail chains cut the branch misses 23% to 33% on the N2, but added
+      16% to 42% instructions: 0.89 of main's speed on the N2 and 0.83 on two EPYCs (runs
+      40213997169 and 40213999245).
+    - With Zig's checks off (decision 49), level 6 runs at 1.05 of its checked speed on the N2, 1.02
+      on the Xeon and 0.99 on the EPYC 7763, in the same pairs. Unchecked, the N2 leaves 3 rows
+      below libdeflate (mr 0.951, x-ray 0.919); the Xeon still leaves 27, text at 0.81 to 0.87.
+
+    **What the counters say.** On the N2 (bench-profile's encoder section, fb53a7d), stdx takes
+    about libdeflate's cycles on text with 1.05 to 1.17 times its instructions and twice its branch
+    misses (dickens 1,351 a KiB against 697), at a higher count of instructions a cycle. mr, x-ray
+    and ooffice lose on instructions, 1.21 to 1.29 times libdeflate's. The x86-64 runners expose no
+    counters, so the Xeon's gap is measured in time alone.
+
+    **The rule.**
+    - It amends decision 16 for one loop: level 6's lazy loop over the positions with the whole
+      lookahead ahead, outside the blocks of decision 42's cheap literals and decision 50's dear
+      literals (`advance_lazy` in `encoder_match.zig` with its inline search, `best_by_tail` in
+      `encoder_match_walk_tail.zig`, and the short chain's read). That loop may run as hand-written
+      assembly, aarch64 first, then x86-64. The assembly reads and writes memory by address,
+      inside the bounds its Zig caller computes. The Zig loop stays as the reference and the
+      fallback.
+    - The loop does what the Zig loop does, in the same order of effect: at each position it
+      inserts the position, skips the search where the short chain misses, walks the chain and
+      the tails' chains under the same budgets and moves, decides by decision 52's compare, adds
+      the symbol and its counts to the block, and inserts the positions a taken match covers. It
+      calls no function.
+    - Its caller computes, once a call, the end of the positions and the block's room, as
+      `advance_lazy` and the rounds of decision 44 do. Before each position the loop returns when
+      the position has reached the end or the block is full, one compare each. The Zig code takes
+      the rest: the last positions (`step_lazy`), a full block, a slide, and the cheap and dear
+      blocks.
+    - Its loads read only the window below `filled` and its padding, the heads, the chain, and the
+      length code table. Its stores write only the heads, the chain, the block's symbols below its
+      room, and the two count arrays.
+    - `advance_lazy` calls it where a comptime test holds: an `aarch64` target, or `x86_64` once
+      that loop stays, a `builtin.zig_backend` of `stage2_llvm`, and level 6, as decision 29's loop
+      tests. Elsewhere, and at level 9, it runs the Zig loop. So `zig build test-self-hosted` runs
+      the Zig loop.
+    - Decision 17 holds: no assertion per position inside the assembly. Its caller asserts the
+      bounds at the call's entry, and at its exit that the position moved forward and lies below
+      the end plus `match_len_max`, and that the count is within the block's room.
+    - The template takes every limit, offset and code number from `constants.zig` and the types'
+      layouts, and comptime asserts pin each one: `Symbol`'s fields, `hash_bits`, the level's
+      budgets and `tail_move_candidates_min`, `tail_skips_max`, `nice_len`, `lazy_len`,
+      `lazy_length_weight`, `lazy_bits_margin`, `match_len_taken_min`, `match_len_max` and
+      `first_length_symbol`. Each loop stops at a named bound, and the text cites RFC 1951 §3.2.5
+      where it finds a code.
+
+    **The checks.**
+    - A test runs the Zig loop and the assembly on two copies of one matcher and one block and
+      requires every octet of the copies equal: the window, `filled`, `position`, the waiting
+      match, `heads`, `chain`, `symbols`, `symbol_count`, the counts and `input_len`. Its seeded
+      states reach each exit and branch: a full block, a match that ends past the end, a short
+      chain that misses and one that holds, a cut lazy search, a tail move taken and refused, a
+      skip run of `tail_skips_max`, a match at `nice_len` and at `lazy_len`, ties under decision
+      52's margin, candidates at the reach and one past it, and the covered inserts.
+    - A fuzz test runs both loops on states it draws and requires the same octets.
+    - differential-encode requires its recorded hashes, with decision 49's choice on and off, in
+      its ReleaseSafe and Debug builds.
+    - Mutations break each compare of the assembly. Each commit reports them `CAUGHT` or `NOT
+      CAUGHT`.
+    - Each commit runs `zig build test-self-hosted` and `zig build test-avx512`.
+
+    **The measurement that admits it.** Under decision 20, each pair runs the change after main in
+    one job.
+    - The aarch64 loop stays only if dickens and mr run faster on the N2 in both jobs of a pair,
+      past the larger of 2% and the row's spread, and no row at any level runs slower past the
+      larger of its spread and 1% in both jobs, unless decision 20's placement amendments exempt
+      it.
+    - The x86-64 loop stays only under the same rule on the x86-64 runners, with the Xeon 8573C's
+      rows reported apart.
+    - A loop that does not stay is deleted with its tests, and this entry records its pairs.
+    - Before the owner rules on a loop, the M1 times it against main row by row.
+
+    **What the aarch64 loop gave.** At be101d8 against main (5fd03aa), runs
+    [40261381739](https://github.com/c4milo/stdx/actions/runs/40261381739) and
+    [40261383705](https://github.com/c4milo/stdx/actions/runs/40261383705), each job on one VM:
+    - Neoverse N2, both jobs: level 6 at 1.064 and 1.068 of main's speed at the median; 36 rows
+      faster in both jobs, dickens 1.067/1.069, mr 1.067/1.067, osdb 1.069/1.066; none slower.
+      Over libdeflate, 1.091 and 1.076 become 1.161 and 1.158, and the rows below it go from 11
+      to 3: x-ray 0.871, ooffice 0.926 and mr 0.967.
+    - EPYC 7763, which runs the Zig loop: no row moved. Levels 1 and 9 did not move.
+    - Output: every row's octets are main's, on the M1 and in differential-encode.
+    - The M1, 5 runs a row at a load near 10, beside a copy of main against main that read 4 rows
+      slower past 1%: 1.052 at the median, no row slower past 1%, the slowest 0.995; 0.883 of
+      main's instructions at the median, dickens 0.834 and mr 0.865 in a pass of 9 runs.
+    - The first form, d8b15e2, read the short chain on four branches. On the N2 it ran at 1.075
+      and 1.073 (runs 40232666759 and 40232668288), but the M1 ran shuffled dickens at 0.973 and
+      0.969, osdb at 0.970 and 0.975 and sao at 0.981 and 0.985, at 0.79 to 0.97 of main's
+      instructions. Zig's aarch64 form, one branch for the nearest candidate and one after the
+      rest, ran those rows at 1.074, 1.049 and 1.011 of main's speed.
+    So the loop stays under the rule above.
+
+    **What it was to give.** The estimate before the loop, kept for the record.
+    - On the N2, Zig without its checks reaches 1.15 of libdeflate at the median and leaves 3 rows
+      below. Assembly that holds the loop's state in registers should reach at least that: mr and
+      x-ray from about 0.9 toward 1.0, text past 1.03.
+    - On the Xeon, the checks are not the gap: unchecked, text stays at 0.81 to 0.87. The x86-64
+      loop may not close it, and the kill rule decides.
+
+    **What it does not do.**
+    - It changes no output.
+    - It leaves the cheap and dear blocks in Zig: x-ray and ooffice run most of their positions in
+      the dear loop, which this entry does not cover.
+    - It leaves level 9, the writer and the block's plan in Zig.
+
+    **What it risks.** A wrong bound in the assembly reads or writes outside the encoder's state,
+    with no panic, in every build. The equality test, the fuzz test, differential-encode and the
+    mutations stand against it.
+
+    **The entries it touches.**
+    - Decision 16: a row in its table of fast paths for this loop.
+    - Decision 17: the assertions at the call's entry and exit only.
+    - Decision 29: a second assembly loop under the same guards, and level 1's unruled draft of
+      2026-10-21 a third, which this entry does not depend on.
+    - Decision 49: the assembly runs in both choices, as decision 29's loop does.

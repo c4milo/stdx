@@ -3200,6 +3200,28 @@ to 12 are reordered and nothing else changes.
       compare: 8 of 8 CAUGHT. They move the margin by one either way, let a shorter match win,
       keep every equal one, weigh an octet 5, drop the distance's bits, give level 6 decision
       36's penalty back, and give the dear blocks the rule.
+  - Level 6's lazy loop in aarch64 assembly, 2026-10-25 (decision 53).
+    `encoder_match_lazy_aarch64.zig` holds the loop's state and its call, and
+    `encoder_match_lazy_aarch64_template.zig` its text. `advance_lazy` calls it at level 6 outside
+    the cheap and dear blocks, on aarch64 built by LLVM, and runs `advance_lazy_zig` elsewhere.
+    - The pairs at be101d8, runs 40261381739 and 40261383705, ran main (5fd03aa) first, on a
+      Neoverse N2 in both; the x86-64 jobs ran the Zig loop. The commit that lands holds
+      be101d8's text and loop. Decision 53 holds the figures, the first form's among them, and
+      `bench/results/2026-10-25-deflate-encoder-level6-asm-*` the reports.
+    - `encoder_match_lazy_aarch64_test.zig` runs both loops on copies of one matcher and one
+      block and requires every field equal: seven kinds of seeded window from fresh streams, 280
+      streams the Zig loop stopped, 17 of them with a match waiting, nearly full blocks, and a
+      fuzz test of the window's octets.
+    - differential-encode passes in its ReleaseSafe and Debug builds with main's hashes, and
+      `zig build test-self-hosted` and `zig build test-avx512` pass.
+    - Mutations of the text, by `deflate_mutate.py`: 27 of 35 CAUGHT. The 8 others change what
+      the loop spends and not what it finds. In the short chain: the nearest candidate's early
+      branch, which the last test repeats; a second candidate at the reach's edge, and a nearest
+      candidate out of reach, after which the loop searches where it would skip, and finds
+      nothing. In the walk: the tail's octets and a candidate's first 4 turn
+      away only candidates the compare also refuses. A candidate as long as the match found fails
+      the tail, which ends one octet past it. A walk that passed the reach's edge meets the floor
+      at its next link. And distance 256 has the same code in either table.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
