@@ -191,7 +191,9 @@ fn decide(comptime level: constants.Level, self: *Matcher(level), three: *Three,
 
 /// Whether the lazy step keeps `previous`, a match that waits, over `current`: when it scores as
 /// much. Any match scores at least what none does, which is asked first, as most waiting
-/// matches of a block whose literals are dear meet none.
+/// matches of a block whose literals are dear meet none. These blocks keep decision 36's
+/// `score` at level 6 too (decision 52): compared by bits, x-ray retired 4.3% more instructions
+/// and ooffice wrote 0.08% more.
 inline fn outscores(comptime level: constants.Level, previous: Match, current: Match) bool {
     @setRuntimeSafety(level.runtime_safety);
     if (current.len == 0) return true;

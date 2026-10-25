@@ -47,7 +47,24 @@ pub const Match = struct {
         @setRuntimeSafety(runtime_safety);
         return @as(i32, self.len) - penalty_by_bits[@bitSizeOf(u16) - @clz(self.distance)];
     }
+
+    /// The match's worth where a level compares by bits (`lazy_by_bits`): `lazy_length_weight`
+    /// for each octet, less its distance's bit length.
+    pub fn bits_score(self: Match, comptime runtime_safety: bool) i32 {
+        @setRuntimeSafety(runtime_safety);
+        return @as(i32, self.len) * constants.lazy_length_weight - (@bitSizeOf(u16) - @clz(self.distance));
+    }
 };
+
+/// Whether the lazy step keeps `previous`, the match that waits, over `current`, the next
+/// position's. By `score`: when it scores as much. By bits: unless `current` is at least as long
+/// and its `bits_score` passes the waiting match's by more than `lazy_bits_margin`.
+pub inline fn keeps_waiting(comptime level: constants.Level, previous: Match, current: Match) bool {
+    @setRuntimeSafety(level.runtime_safety);
+    if (!level.lazy_by_bits) return previous.score(level.runtime_safety) >= current.score(level.runtime_safety);
+    if (current.len < previous.len) return true;
+    return current.bits_score(level.runtime_safety) <= previous.bits_score(level.runtime_safety) + constants.lazy_bits_margin;
+}
 
 /// `lazy_distance_penalty_octets` by a distance's bit length: every distance of one bit length lies
 /// between the same bounds, as each bound is a power of two. Bit length 0 is no distance.
@@ -303,7 +320,7 @@ const LazyState = struct {
 /// before as a literal and lets `current` wait.
 fn decide_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), costs: CostsOf(cheap), symbols: *Appender(level.runtime_safety), state: *LazyState, current: Match) void {
     @setRuntimeSafety(level.runtime_safety);
-    if (state.waiting and state.previous.len >= constants.match_len_taken_min and state.previous.score(level.runtime_safety) >= current.score(level.runtime_safety) and accepted(level, cheap, self, costs, state.position, state.previous)) {
+    if (state.waiting and state.previous.len >= constants.match_len_taken_min and keeps_waiting(level, state.previous, current) and accepted(level, cheap, self, costs, state.position, state.previous)) {
         state.position = take_waiting(level, self, symbols, state.position, state.previous);
         state.waiting = false;
         state.previous = .{};
@@ -350,7 +367,7 @@ fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Match
     assert(self.waiting or self.previous.len == 0);
     // Fewer than `hash_len` octets may lie ahead here, so the search tests the guard.
     const current = if (skip) Match{} else search(level, cheap, true, self, @min(ahead, constants.match_len_max), self.previous.len, null);
-    if (self.waiting and self.previous.len >= constants.match_len_taken_min and self.previous.score(level.runtime_safety) >= current.score(level.runtime_safety) and accepted(level, cheap, self, costs, self.position, self.previous)) {
+    if (self.waiting and self.previous.len >= constants.match_len_taken_min and keeps_waiting(level, self.previous, current) and accepted(level, cheap, self, costs, self.position, self.previous)) {
         const end = self.position - 1 + self.previous.len;
         // Every position the match covers joins the chains, as a later match may start there.
         for (self.position + 1..end) |covered| {

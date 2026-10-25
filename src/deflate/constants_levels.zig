@@ -58,6 +58,9 @@ pub const Level = struct {
     /// Whether the level takes matches of `match_len_min` octets, 3, in a block after one whose
     /// literals are dear (decision 50, `encoder_match_three.zig`). The lazy levels do.
     three: bool,
+    /// Whether the lazy step compares matches by bits (`keeps_waiting`) in place of the distance
+    /// penalty: `lazy_length_weight` an octet less the distance's bit length.
+    lazy_by_bits: bool,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
     /// Whether the level's loops run with Zig's runtime safety checks (decision 49): `Encoder`
@@ -92,6 +95,15 @@ comptime {
     assert(lazy_distance_penalty_octets.len == lazy_distance_penalty_bounds.len + 1);
     for (lazy_distance_penalty_bounds) |bound| assert(std.math.isPowerOfTwo(bound));
 }
+
+/// What one octet of a match's length weighs against one bit of its distance, where a level
+/// compares by bits (`lazy_by_bits`): a distance's extra bits grow by one each time it doubles
+/// (RFC 1951 §3.2.5), and an octet more saves a literal's code of several bits.
+pub const lazy_length_weight = 4;
+
+/// How far the next position's match must score past the waiting one's, by bits, for the lazy
+/// step to drop the waiting match.
+pub const lazy_bits_margin = 2;
 
 /// The links a search reads on the chain of its match's tail to pass the candidates it has tried
 /// already, before it keeps the chain it follows instead: positions that close together say the
@@ -132,9 +144,9 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .state_budget_len = 294 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .state_budget_len = 293 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .lazy_by_bits = false, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .lazy_by_bits = true, .state_budget_len = 294 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .lazy_by_bits = false, .state_budget_len = 293 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
