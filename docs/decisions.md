@@ -3457,3 +3457,39 @@ small file.
     - A table of 12 bits: x-ray 1.65% smaller, and of 13 bits 2.39%.
     - A wait that grows four or eight times: sao 0.78% and 0.76% smaller in place of 1.40%.
       With a longest wait of 255 block ends beside it: sao as on main.
+
+51. **A pinned count of the safety check sites in each SIMD kernel.** Proposed on 2026-10-24,
+    after the owner asked what stdx can learn from the Goose language, and ruled the same day:
+    "Build the zero-check guard". Goose finds that a scalar bounds check costs almost nothing,
+    but a check inside a vector loop can stop the loop from staying vector. Goose has a
+    "checkfree" contract: the build fails when a check survives in a function that names it.
+
+    What an audit of the ReleaseSafe objects found, on main (f4c20dd):
+    - No SIMD kernel of decision 21 is free of checks. The counts go from 1 site, XXH64 on AVX-512,
+      to 55, the decoder's `copy_rest` on AVX2.
+    - Decision 35's unchecked encoder loop still reaches 29 sites, against 36 for the checked
+      kernel: the choice turns off the checks of claim J11's loop alone.
+    - With Zig's checks off, DEFLATE's level 1 ran at 1.029 of its checked speed on the N2
+      (decision 49). The checks are not where the time goes, so the audit removes none.
+
+    The rule:
+    - `zig build checkfree-check` builds each variant object ReleaseSafe for Linux on x86-64 and
+      aarch64, as assembly. pepegrillo's `checkfree` engine (decision 7), which
+      `tools/checkfree.zig` configures, counts for each exported kernel the calls and branches to
+      a panic function in the functions the kernel reaches. A call to
+      `reachedUnreachable` is an assertion of decision 17, and the count leaves it out.
+    - Each count must equal the one `tools/checkfree_sites.zig` pins, and each pin must name a
+      kernel the objects export. So a change that adds a check to a kernel fails the build, and
+      so does a change that removes one, until the table follows it in the same commit.
+    - The count is a property of Zig's and LLVM's output for a fixed target, so every host gives
+      the same counts. A change of Zig's version may move them; the table follows it.
+    - `tools/ci.sh` runs the step. `zig build test` checks the configuration, and not the step,
+      which compiles nine objects. pepegrillo's tests cover the engine.
+
+    The alternatives refused:
+    - Zero sites in each kernel, as Goose asks: no kernel has zero today, and removing them is a
+      speed change that needs its own measurement.
+    - Checks inside a loop alone: the tool would have to find loops in the assembly, where a loop
+      is only a backward branch and inlined loops overlap. A count of sites needs no such guess.
+    - The DEFLATE encoder's and decoder's loops: they are generic functions inside the library
+      module, with no object of their own, and decision 49 measures their checks' cost already.

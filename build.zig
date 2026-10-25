@@ -26,6 +26,7 @@ const avx512 = @import("build/avx512.zig");
 const brotli_tables = @import("build/brotli_tables.zig");
 const lean = @import("build/lean.zig");
 const platform_check = @import("build/platform_check.zig");
+const checkfree = @import("build/checkfree.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -43,6 +44,7 @@ const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
     "tools/cognitive_complexity.zig",
     "tools/commit_lint.zig",
+    "tools/checkfree.zig",
 };
 
 /// Every tool that needs neither pepegrillo nor a package, whose own tests `zig build test` runs.
@@ -160,6 +162,7 @@ pub fn build(b: *std.Build) void {
     const host_graph = modules.add(b, .{ .target = b.graph.host, .optimize = .ReleaseFast, .visibility = .private });
     test_step.dependOn(brotli_tables.add_budget_check(b, host_graph.brotli));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
+    _ = checkfree.add(b, tool_module(b, pepegrillo, "tools/checkfree.zig"));
     add_commit_lint_step(b, pepegrillo, install_step);
     lean.add(b, tool_module(b, pepegrillo, "tools/lean.zig"));
     add_hooks_step(b);

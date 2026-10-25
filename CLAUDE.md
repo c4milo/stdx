@@ -252,6 +252,10 @@ Change this section when a step adds or renames a command.
   machines, with no Lean needed. The step needs lake, from elan or a Lean release;
   `tools/install_lean.sh` installs the pinned release on x86-64 Linux, and `tools/ci.sh` runs the
   step where lake is on the path.
+- Check sites: `zig build checkfree-check` builds the SIMD kernels' variant objects ReleaseSafe
+  for Linux on x86-64 and aarch64, as assembly, and requires the safety check sites each kernel
+  reaches to equal the counts `tools/checkfree_sites.zig` pins (decision 51); `-- --record` prints
+  the table the build gives.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec,
   `json`, `platform`, a package or the oracle bindings from inside `src/deflate/`, and requires
   each compile to fail.

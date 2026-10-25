@@ -10,8 +10,11 @@ const std = @import("std");
 /// The feature levels, as `src/<module>/variants.zig` names them.
 pub const Level = enum { x86_64_pclmul, x86_64_avx2, x86_64_vpclmul, x86_64_avx512, x86_64_avx512_vnni, aarch64_crc_pmull, aarch64_dotprod };
 
+/// The levels the json module builds: claim J7's AVX2, and AVX-512 for decision 39's check alone.
+pub const json_levels = [_]Level{ .x86_64_avx2, .x86_64_avx512 };
+
 /// The levels built for a target of this architecture.
-fn levels_of(arch: std.Target.Cpu.Arch) []const Level {
+pub fn levels_of(arch: std.Target.Cpu.Arch) []const Level {
     return switch (arch) {
         .x86_64 => &.{ .x86_64_pclmul, .x86_64_avx2, .x86_64_vpclmul, .x86_64_avx512, .x86_64_avx512_vnni },
         .aarch64 => &.{ .aarch64_crc_pmull, .aarch64_dotprod },
@@ -63,21 +66,31 @@ pub fn add_levels(
 ) void {
     for (levels_of(target.result.cpu.arch)) |level| {
         if (std.mem.indexOfScalar(Level, wanted, level) == null) continue;
-        const options = b.addOptions();
-        options.addOption(Level, "level", level);
-        const root = b.createModule(.{
-            .root_source_file = b.path("src/" ++ name ++ "/variants.zig"),
-            .target = level_target(b, target, level),
-            .optimize = optimize,
-        });
-        root.addOptions("variant_level", options);
-        // LLVM, in every mode: Zig's own x86-64 backend, which Debug builds use on Linux, cannot
-        // place a 512-bit operand of inline assembly.
-        const object = b.addObject(.{
-            .name = b.fmt("{s}_{t}", .{ name, level }),
-            .root_module = root,
-            .use_llvm = true,
-        });
-        module.addObject(object);
+        module.addObject(object(b, name, target, optimize, level));
     }
+}
+
+/// The object of one level: `src/<name>/variants.zig` compiled for the level's target.
+pub fn object(
+    b: *std.Build,
+    comptime name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    level: Level,
+) *std.Build.Step.Compile {
+    const options = b.addOptions();
+    options.addOption(Level, "level", level);
+    const root = b.createModule(.{
+        .root_source_file = b.path("src/" ++ name ++ "/variants.zig"),
+        .target = level_target(b, target, level),
+        .optimize = optimize,
+    });
+    root.addOptions("variant_level", options);
+    // LLVM, in every mode: Zig's own x86-64 backend, which Debug builds use on Linux, cannot
+    // place a 512-bit operand of inline assembly.
+    return b.addObject(.{
+        .name = b.fmt("{s}_{t}", .{ name, level }),
+        .root_module = root,
+        .use_llvm = true,
+    });
 }

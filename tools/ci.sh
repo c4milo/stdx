@@ -61,6 +61,8 @@ run_check "self-hosted backend" zig build test-self-hosted --summary all
 # The tests built by LLVM in Debug for an x86-64 CPU with AVX-512, which no runner is sure to have:
 # compiled on every runner, run on none.
 run_check "avx-512 build" zig build test-avx512
+# Decision 51: the safety check sites each SIMD kernel reaches equal the counts the table pins.
+run_check "checkfree" zig build checkfree-check
 # Decision 28: the Lean proofs of spec/lean/, and the check that the vectors the unit tests replay
 # are what the proved machines give, where lake is on the path. The workflow installs Lean on the
 # x86-64 Linux runner alone.
