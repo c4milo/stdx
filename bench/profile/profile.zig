@@ -1,7 +1,9 @@
 //! bench-profile: hardware counters for each gzip, Zstandard and brotli decoder over the corpora,
 //! where the host exposes them: cycles, instructions and branch misses per decoded octet, counted
-//! around the decoding alone through Linux's perf_event_open, in user space only. It shows where
-//! the fast paths of design §8 steps 7, 11 and 12 spend their cycles against the baselines, and it
+//! around the decoding alone through Linux's perf_event_open, in user space only. Then the same
+//! counters per input octet for libdeflate's and stdx's gzip encoders (`profile_encode.zig`). It
+//! shows where the fast paths of design §8 steps 7, 11 and 12 spend their cycles against the
+//! baselines, and it
 //! answers whether a hosted runner exposes the counters, which docs/costs.md leaves open (decision
 //! 20). A host without them gets a line that says so, and the program exits 0.
 //!
@@ -28,6 +30,7 @@ const zstd = @import("zstd");
 const brotli = @import("brotli");
 const baselines = @import("baselines");
 const timing = @import("timing");
+const profile_encode = @import("profile_encode.zig");
 const Counters = timing.counters.Counters;
 const inputs = timing.inputs;
 const Input = inputs.Input;
@@ -275,5 +278,6 @@ pub fn main(init: std.process.Init) !void {
     try report_counters(arena, out, &counters, context, &zstd_candidates, ZstdFrames{}, std.math.maxInt(usize), rows);
     try out.print("\n## Hardware counters per decoded octet, brotli at quality {d}, window {d}, first {d} KiB\n\n", .{ brotli_quality, brotli_window_bits, brotli_input_len_max / 1024 });
     try report_counters(arena, out, &counters, context, &brotli_candidates, BrotliStreams{}, brotli_input_len_max, rows);
+    try profile_encode.report(arena, out, &counters, rows);
     try out.flush();
 }
