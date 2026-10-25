@@ -13,6 +13,7 @@
 //!   enabled XSAVE. `dit` is `not_known`: x86-64's mode for data-independent timing, DOITM, is one
 //!   the operating system sets, and user code cannot read it. `sha3` is `no`: x86-64 has no SHA-3
 //!   instructions.
+//! - aarch64, on every system: `ssse3` and `sse4_1` are `no`, as they are x86-64 instructions.
 //! - aarch64 Linux: the AT_HWCAP word, through `getauxval`, which reads the auxiliary vector the
 //!   kernel wrote into the process's memory at start. No syscall.
 //! - aarch64 macOS: `sysctlbyname`, a syscall, one for each feature.
@@ -56,21 +57,37 @@ pub const Cpu = struct {
     sha512: Answer,
     /// The SHA-3 instructions: Arm's FEAT_SHA3 (EOR3, RAX1, XAR and BCAX). `no` on x86-64.
     sha3: Answer,
+    /// x86-64's SSSE3, the supplemental SSE3 instructions, which the x86-64 baseline does not
+    /// hold. Code for the SHA extensions uses them beside the SHA-256 instructions. `no` on
+    /// aarch64.
+    ssse3: Answer,
+    /// x86-64's SSE4.1, which the x86-64 baseline does not hold either. `no` on aarch64.
+    sse4_1: Answer,
 };
 
 /// The answers of a source that gives none.
-const unanswered: Cpu = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known };
+const unanswered: Cpu = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known };
 
 /// The answers about the CPU this runs on, read from the source its system offers.
 pub fn probe() Cpu {
     const cpu: Cpu = switch (builtin.cpu.arch) {
         .x86_64 => from_x86(read_x86()),
-        .aarch64 => probe_aarch64(),
+        .aarch64 => without_x86(probe_aarch64()),
         else => unanswered,
     };
     // x86-64 has no DIT bit a program can read, and no SHA-3 instructions.
     if (builtin.cpu.arch == .x86_64) assert(cpu.dit == .not_known and cpu.sha3 == .no);
+    if (builtin.cpu.arch == .aarch64) assert(cpu.ssse3 == .no and cpu.sse4_1 == .no);
     return cpu;
+}
+
+/// An aarch64 CPU's answers, with `no` for the x86-64 instructions, which no source of an aarch64
+/// system reports and no aarch64 CPU has.
+fn without_x86(cpu: Cpu) Cpu {
+    var answers = cpu;
+    answers.ssse3 = .no;
+    answers.sse4_1 = .no;
+    return answers;
 }
 
 /// `yes` when the source reports the feature, `no` when it reports its absence.
@@ -137,7 +154,8 @@ fn read_x86() X86 {
     return reading;
 }
 
-/// The answers of x86-64's CPUID and XCR0: leaf 1's ECX bits 25 and 1 for `aes_clmul`, leaf 7's
+/// The answers of x86-64's CPUID and XCR0: leaf 1's ECX bits 25 and 1 for `aes_clmul`, 9 for
+/// `ssse3` and 19 for `sse4_1`, leaf 7's
 /// EBX bit 29 for `sha256`, and its subleaf 1's EAX bit 0 for `sha512`, with leaf 1's AVX and
 /// OSXSAVE and XCR0's SSE and AVX state.
 fn from_x86(reading: X86) Cpu {
@@ -151,6 +169,8 @@ fn from_x86(reading: X86) Cpu {
         .sha256 = answer(reading.leaf_7_ebx & constants.leaf_7_ebx_sha != 0),
         .sha512 = answer(avx_saved and reading.leaf_7_1_eax & constants.leaf_7_1_eax_sha512 != 0),
         .sha3 = .no,
+        .ssse3 = answer(reading.leaf_1_ecx & constants.ecx_ssse3 != 0),
+        .sse4_1 = answer(reading.leaf_1_ecx & constants.ecx_sse4_1 != 0),
     };
 }
 
@@ -213,6 +233,8 @@ fn from_hwcap(word: usize) Cpu {
         .sha256 = answer(word & constants.hwcap_sha2 != 0),
         .sha512 = answer(word & constants.hwcap_sha512 != 0),
         .sha3 = answer(word & constants.hwcap_sha3 != 0),
+        .ssse3 = .not_known,
+        .sse4_1 = .not_known,
     };
 }
 
@@ -238,7 +260,7 @@ fn from_flag(value: i32) Answer {
 
 /// The answers of macOS's FEAT_AES, FEAT_PMULL, FEAT_DIT, FEAT_SHA256, FEAT_SHA512 and FEAT_SHA3.
 fn from_sysctl(values: Sysctl) Cpu {
-    return .{ .aes_clmul = both(values.aes, values.pmull), .dit = values.dit, .sha256 = values.sha256, .sha512 = values.sha512, .sha3 = values.sha3 };
+    return .{ .aes_clmul = both(values.aes, values.pmull), .dit = values.dit, .sha256 = values.sha256, .sha512 = values.sha512, .sha3 = values.sha3, .ssse3 = .not_known, .sse4_1 = .not_known };
 }
 
 /// What the build target guarantees on aarch64: `yes` for a feature its CPU model has, since a
@@ -257,6 +279,8 @@ fn from_target(cpu: std.Target.Cpu) Cpu {
         .sha256 = guarantee(has_sha2),
         .sha512 = guarantee(has_sha3),
         .sha3 = guarantee(has_sha3),
+        .ssse3 = .not_known,
+        .sse4_1 = .not_known,
     };
 }
 
@@ -284,23 +308,50 @@ const testing = std.testing;
 
 /// A `Cpu` with every SHA answer `sha`: the tests of `aes_clmul` and `dit` vary those alone.
 fn cpu_of(aes_clmul: Answer, dit: Answer, sha: Answer) Cpu {
-    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha };
+    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha, .ssse3 = .not_known, .sse4_1 = .not_known };
 }
 
 test "CPUID leaf 1's ECX answers aes_clmul from bits 25 and 1, and never dit" {
-    const yes: Cpu = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no };
-    const no: Cpu = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no };
     const at = struct {
-        fn ecx(value: u32) X86 {
-            return .{ .leaf_1_ecx = value, .leaf_7_ebx = 0, .leaf_7_1_eax = 0, .xcr0 = 0 };
+        fn ecx(value: u32) Cpu {
+            return from_x86(.{ .leaf_1_ecx = value, .leaf_7_ebx = 0, .leaf_7_1_eax = 0, .xcr0 = 0 });
         }
     };
-    try testing.expectEqual(yes, from_x86(at.ecx(1 << 25 | 1 << 1)));
-    try testing.expectEqual(yes, from_x86(at.ecx(0xffff_ffff)));
-    try testing.expectEqual(no, from_x86(at.ecx(1 << 25)));
-    try testing.expectEqual(no, from_x86(at.ecx(1 << 1)));
-    try testing.expectEqual(no, from_x86(at.ecx(~@as(u32, 1 << 25 | 1 << 1))));
-    try testing.expectEqual(no, from_x86(at.ecx(0)));
+    try testing.expectEqual(Answer.yes, at.ecx(1 << 25 | 1 << 1).aes_clmul);
+    try testing.expectEqual(Answer.yes, at.ecx(0xffff_ffff).aes_clmul);
+    try testing.expectEqual(Answer.no, at.ecx(1 << 25).aes_clmul);
+    try testing.expectEqual(Answer.no, at.ecx(1 << 1).aes_clmul);
+    try testing.expectEqual(Answer.no, at.ecx(~@as(u32, 1 << 25 | 1 << 1)).aes_clmul);
+    try testing.expectEqual(Answer.no, at.ecx(0).aes_clmul);
+    for ([_]u32{ 0, 0xffff_ffff, 1 << 25 | 1 << 1 }) |value| try testing.expectEqual(Answer.not_known, at.ecx(value).dit);
+}
+
+test "CPUID leaf 1's ECX answers ssse3 from bit 9 and sse4_1 from bit 19" {
+    const at = struct {
+        fn ecx(value: u32) Cpu {
+            return from_x86(.{ .leaf_1_ecx = value, .leaf_7_ebx = 0, .leaf_7_1_eax = 0, .xcr0 = 0 });
+        }
+    };
+    const every = at.ecx(1 << 9 | 1 << 19);
+    try testing.expectEqual(Answer.yes, every.ssse3);
+    try testing.expectEqual(Answer.yes, every.sse4_1);
+    try testing.expectEqual(Answer.no, every.aes_clmul);
+    const ssse3 = at.ecx(1 << 9);
+    try testing.expectEqual(Answer.yes, ssse3.ssse3);
+    try testing.expectEqual(Answer.no, ssse3.sse4_1);
+    const sse4_1 = at.ecx(1 << 19);
+    try testing.expectEqual(Answer.no, sse4_1.ssse3);
+    try testing.expectEqual(Answer.yes, sse4_1.sse4_1);
+    const neither = at.ecx(~@as(u32, 1 << 9 | 1 << 19));
+    try testing.expectEqual(Answer.no, neither.ssse3);
+    try testing.expectEqual(Answer.no, neither.sse4_1);
+}
+
+test "an aarch64 CPU answers no for the x86-64 instructions, whatever its source said" {
+    const answers = without_x86(unanswered);
+    try testing.expectEqual(Answer.no, answers.ssse3);
+    try testing.expectEqual(Answer.no, answers.sse4_1);
+    try testing.expectEqual(Answer.not_known, answers.sha256);
 }
 
 test "CPUID leaf 7 answers sha256 from EBX bit 29, sha512 from subleaf 1 EAX bit 0 with AVX saved, and sha3 no" {
@@ -308,7 +359,7 @@ test "CPUID leaf 7 answers sha256 from EBX bit 29, sha512 from subleaf 1 EAX bit
     const avx_ecx: u32 = 1 << 28 | 1 << 27;
     const avx_xcr0: u64 = 1 << 1 | 1 << 2;
     const sha = from_x86(.{ .leaf_1_ecx = avx_ecx, .leaf_7_ebx = 1 << 29, .leaf_7_1_eax = 1 << 0, .xcr0 = avx_xcr0 });
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .yes, .sha3 = .no }, sha);
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .yes, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no }, sha);
     const no_sha256 = from_x86(.{ .leaf_1_ecx = avx_ecx, .leaf_7_ebx = ~@as(u32, 1 << 29), .leaf_7_1_eax = 1 << 0, .xcr0 = avx_xcr0 });
     try testing.expectEqual(Answer.no, no_sha256.sha256);
     try testing.expectEqual(Answer.yes, no_sha256.sha512);
@@ -337,11 +388,11 @@ test "the AT_HWCAP word answers sha256 from bit 6, sha512 from bit 21 and sha3 f
     try testing.expectEqual(cpu_of(.no, .no, .yes), from_hwcap(shas));
     try testing.expectEqual(cpu_of(.yes, .yes, .no), from_hwcap(~shas));
     const sha256 = from_hwcap(1 << 6);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no }, sha256);
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .ssse3 = .not_known, .sse4_1 = .not_known }, sha256);
     const sha512 = from_hwcap(1 << 21);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .no, .sha512 = .yes, .sha3 = .no }, sha512);
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .no, .sha512 = .yes, .sha3 = .no, .ssse3 = .not_known, .sse4_1 = .not_known }, sha512);
     const sha3 = from_hwcap(1 << 17);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .no, .sha512 = .no, .sha3 = .yes }, sha3);
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .no, .sha512 = .no, .sha3 = .yes, .ssse3 = .not_known, .sse4_1 = .not_known }, sha3);
 }
 
 test "a sysctl value of 1 is yes, 0 is no, and anything else says nothing" {
@@ -350,7 +401,7 @@ test "a sysctl value of 1 is yes, 0 is no, and anything else says nothing" {
     try testing.expectEqual(Answer.not_known, from_flag(2));
     try testing.expectEqual(Answer.not_known, from_flag(-1));
     const values: Sysctl = .{ .aes = .yes, .pmull = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known };
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known }, from_sysctl(values));
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, from_sysctl(values));
     const older: Sysctl = .{ .aes = .not_known, .pmull = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known };
     try testing.expectEqual(cpu_of(.not_known, .yes, .not_known), from_sysctl(older));
 }
@@ -370,7 +421,7 @@ test "two features together are no when either is absent, and yes only when both
 test "the target guarantees each aarch64 feature its CPU model has, and nothing else" {
     const models = [_]struct { model: *const std.Target.Cpu.Model, want: Cpu }{
         .{ .model = &std.Target.aarch64.cpu.apple_m1, .want = cpu_of(.yes, .yes, .yes) },
-        .{ .model = &std.Target.aarch64.cpu.neoverse_n1, .want = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .not_known, .sha3 = .not_known } },
+        .{ .model = &std.Target.aarch64.cpu.neoverse_n1, .want = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known } },
         .{ .model = &std.Target.aarch64.cpu.neoverse_n2, .want = cpu_of(.not_known, .yes, .not_known) },
         .{ .model = &std.Target.aarch64.cpu.generic, .want = unanswered },
     };
@@ -411,11 +462,12 @@ test "the probe on this host answers from its system's source, and holds what th
             try testing.expect(cpu.aes_clmul != .not_known and cpu.sha256 != .not_known and cpu.sha512 != .not_known);
             try testing.expectEqual(Answer.not_known, cpu.dit);
             try testing.expectEqual(Answer.no, cpu.sha3);
+            try testing.expect(cpu.ssse3 != .not_known and cpu.sse4_1 != .not_known);
         },
         .aarch64 => switch (builtin.os.tag) {
             .linux => inline for (std.meta.fields(Cpu)) |field| try testing.expect(@field(cpu, field.name) != .not_known),
-            .macos => try testing.expect(cpu.aes_clmul != .not_known and cpu.dit != .not_known),
-            else => try testing.expectEqual(target, cpu),
+            .macos => try testing.expect(cpu.aes_clmul != .not_known and cpu.dit != .not_known and cpu.ssse3 == .no and cpu.sse4_1 == .no),
+            else => try testing.expectEqual(without_x86(target), cpu),
         },
         else => try testing.expectEqual(unanswered, cpu),
     }

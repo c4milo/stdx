@@ -2548,6 +2548,17 @@ small file.
       `sha_ni` and `sha512` on x86-64) and with macOS's sysctl values (`leaf7_features`' `SHA` on
       x86-64, where no Intel Mac has the SHA-512 instructions).
 
+    **Amended on 2026-10-25: SSSE3 and SSE4.1.** The owner filed [issue
+    20](https://github.com/c4milo/stdx/issues/20) for colibri. chapulin's SHA-256 code on x86-64
+    runs SSSE3 and SSE4.1 instructions beside the SHA ones. The x86-64 baseline holds neither, and
+    a hypervisor can hide them while it shows the SHA extensions.
+    - `Cpu` gains `ssse3` and `sse4_1`, Zig's names for the features, each an `Answer`.
+    - x86-64: CPUID leaf 1, ECX bit 9 (SSSE3) and bit 19 (SSE4.1).
+    - aarch64, on every system: `no`. No aarch64 source reports them, and a target never answers
+      `no`, so `probe` sets them after it reads the source.
+    - The check compares them with /proc/cpuinfo's `ssse3` and `sse4_1` on x86-64, and with
+      `machdep.cpu.features`' `SSSE3` and `SSE4.1` on an Intel Mac.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves

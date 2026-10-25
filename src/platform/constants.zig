@@ -11,6 +11,12 @@ pub const cpuid_leaf_extended: u32 = 7;
 /// CPUID leaf 1, ECX bit 1: PCLMULQDQ, the carry-less multiply of two 64-bit values.
 pub const ecx_pclmulqdq: u32 = 1 << 1;
 
+/// CPUID leaf 1, ECX bit 9: SSSE3, the supplemental SSE3 instructions.
+pub const ecx_ssse3: u32 = 1 << 9;
+
+/// CPUID leaf 1, ECX bit 19: SSE4.1.
+pub const ecx_sse4_1: u32 = 1 << 19;
+
 /// CPUID leaf 1, ECX bit 25: AES-NI, the AES round instructions.
 pub const ecx_aes: u32 = 1 << 25;
 
