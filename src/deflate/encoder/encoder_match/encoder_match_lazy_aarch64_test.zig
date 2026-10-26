@@ -1,4 +1,4 @@
-//! The tests of `encoder_match_lazy_aarch64.zig` (decision 53): the assembly and the Zig loop, run
+//! The tests of `encoder_match_lazy_aarch64.zig` and `encoder_match_lazy_x86_64.zig` (decision 53): the assembly and the Zig loop, run
 //! on two copies of one matcher and one block, leave every field of the copies equal. On a target
 //! the assembly does not take, the tests are skipped.
 
@@ -8,9 +8,12 @@ const codec = @import("codec");
 const constants = @import("../../constants.zig");
 const Block = @import("../encoder_block.zig").Block;
 const match = @import("encoder_match.zig");
-const lazy = @import("encoder_match_lazy_aarch64.zig");
+const builtin = @import("builtin");
+/// The assembly of this build's architecture.
+const lazy = if (builtin.cpu.arch == .x86_64) @import("encoder_match_lazy_x86_64.zig") else @import("encoder_match_lazy_aarch64.zig");
+const level_number = @import("encoder_match_lazy_aarch64.zig").level_number;
 
-const level = constants.level(lazy.level_number);
+const level = constants.level(level_number);
 const Matcher = match.Matcher(level);
 
 /// Whether this build runs the assembly.
@@ -181,4 +184,47 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
         start(&matcher, &block, input[0..len]);
         try expect_same(&matcher, &block);
     }
+}
+
+/// The windows of input the encoder test of decision 54 takes, so that the window slides.
+const encoder_windows = 3;
+
+test "level 6 writes the same octets with the x86-64 loop chosen and without it" {
+    // On x86-64 the two encoders run the assembly and the Zig loop; elsewhere the flag chooses
+    // nothing, and the two are the same encoder (decision 54).
+    const Encoder = @import("../encoder.zig").Encoder(.{ .level = level_number });
+    const stream_len = encoder_windows * constants.window_len;
+    var input: [stream_len]u8 = undefined;
+    var encoder: Encoder = undefined;
+    var chosen: [Encoder.encoded_len_max(stream_len)]u8 = undefined;
+    var plain: [chosen.len]u8 = undefined;
+    for ([_]Kind{ .{ .letters = letters_all }, .{ .copies = letters_english }, .{ .copies = letters_four } }) |kind| {
+        fill(&input, kind, 13);
+        encoder.init(.{ .lazy_loop_fast = true });
+        const chosen_len = try encoder.encode_all(&input, &chosen);
+        encoder.init(.{});
+        const plain_len = try encoder.encode_all(&input, &plain);
+        try testing.expectEqualSlices(u8, plain[0..plain_len], chosen[0..chosen_len]);
+    }
+}
+
+/// A pattern the test of the reach's edge copies, which seeded octets around it do not hold.
+const edge_pattern = "FARTHEST CANDIDATE 0123456789 QXZJ";
+
+test "the assembly finds a candidate at encoder_distance_max, and none one octet farther" {
+    if (comptime runs) {
+        var input: [input_len]u8 = undefined;
+        var matcher: Matcher = undefined;
+        var block: Block = undefined;
+        const first = 1;
+        for ([_]usize{ 0, 1 }) |farther| {
+            // Two letters code in few symbols, so the block holds every position to the copy.
+            fill(&input, .{ .letters = letters_two }, 17);
+            const copy = first + constants.encoder_distance_max + farther;
+            @memcpy(input[first..][0..edge_pattern.len], edge_pattern);
+            @memcpy(input[copy..][0..edge_pattern.len], edge_pattern);
+            start(&matcher, &block, &input);
+            try expect_same(&matcher, &block);
+        }
+    } else return error.SkipZigTest;
 }

@@ -34,6 +34,10 @@ pub const Features = struct {
     /// chooses a path rather than naming an instruction: an AMD CPU with AVX-512, Zen 4 or later,
     /// takes 3 cycles, and Intel's take about 15 (design §8 step 10, decision 21).
     vpmullq_fast: bool = false,
+    /// x86-64: an Intel CPU, on which the DEFLATE encoder's level 6 runs its assembly loop
+    /// (decision 54). It chooses a path rather than naming an instruction, as `vpmullq_fast` does:
+    /// the loop ran Intel's Xeons faster and AMD's EPYC 7763 slower. No build target sets it.
+    lazy_loop_fast: bool = false,
     /// aarch64: the CRC32 instructions, whose polynomial is gzip's (RFC 1952 §8).
     crc32: bool = false,
     /// aarch64: PMULL, polynomial multiplication of 64-bit lanes.
@@ -128,10 +132,14 @@ const amd_model_prefix = "znver";
 /// The bits of CPUID and XCR0 that detection reads, as the Intel and AMD manuals number them.
 const x86 = struct {
     const leaf_vendor = 0;
-    // Leaf 0's vendor string, "AuthenticAMD", four octets to EBX, EDX and ECX in that order.
+    // Leaf 0's vendor string, "AuthenticAMD" or "GenuineIntel", four octets to EBX, EDX and ECX in
+    // that order.
     const vendor_amd_ebx = 0x6874_7541;
     const vendor_amd_edx = 0x6974_6e65;
     const vendor_amd_ecx = 0x444d_4163;
+    const vendor_intel_ebx = 0x756e_6547;
+    const vendor_intel_edx = 0x4965_6e69;
+    const vendor_intel_ecx = 0x6c65_746e;
     const leaf_features = 1;
     const leaf_extended_features = 7;
     // Leaf 1, ECX: bits 1, 9, 19, 27 and 28.
@@ -196,6 +204,7 @@ fn detect_x86_64() Features {
     const extended = cpuid(x86.leaf_extended_features, 0);
     return from_x86(.{
         .vendor_amd = vendor.ebx == x86.vendor_amd_ebx and vendor.edx == x86.vendor_amd_edx and vendor.ecx == x86.vendor_amd_ecx,
+        .vendor_intel = vendor.ebx == x86.vendor_intel_ebx and vendor.edx == x86.vendor_intel_edx and vendor.ecx == x86.vendor_intel_ecx,
         .leaf_1_ecx = basic.ecx,
         .leaf_7_ebx = extended.ebx,
         .leaf_7_ecx = extended.ecx,
@@ -204,9 +213,9 @@ fn detect_x86_64() Features {
     });
 }
 
-/// The registers x86-64 detection reads: whether CPUID leaf 0 names AMD, leaf 1's ECX, leaf 7's
-/// EBX and ECX, and XCR0, which is 0 when the operating system saves no extended registers.
-const X86Registers = struct { vendor_amd: bool, leaf_1_ecx: u32, leaf_7_ebx: u32, leaf_7_ecx: u32, xcr0: u64 };
+/// The registers x86-64 detection reads: whether CPUID leaf 0 names AMD or Intel, leaf 1's ECX,
+/// leaf 7's EBX and ECX, and XCR0, which is 0 when the operating system saves no extended registers.
+const X86Registers = struct { vendor_amd: bool, vendor_intel: bool, leaf_1_ecx: u32, leaf_7_ebx: u32, leaf_7_ecx: u32, xcr0: u64 };
 
 /// The features the registers report. AVX2, AVX-512 and VPCLMULQDQ need the operating system to
 /// save the registers they use, which XCR0 reports.
@@ -221,6 +230,7 @@ fn from_x86(registers: X86Registers) Features {
         .bmi2 = all(registers.leaf_1_ecx, x86.ecx_ssse3) and all(registers.leaf_7_ebx, x86.ebx_bmi2),
         .avx512 = avx512,
         .vpmullq_fast = avx512 and registers.vendor_amd,
+        .lazy_loop_fast = registers.vendor_intel,
         .vpclmul = ymm and all(registers.leaf_7_ecx, x86.ecx_vpclmulqdq),
         .vnni = zmm and all(registers.leaf_7_ecx, x86.ecx_avx512_vnni),
     };
@@ -284,6 +294,7 @@ test "none holds nothing, and intersect and with combine field by field" {
 test "the x86-64 registers map each feature, and XCR0 gates the vector registers" {
     const every: X86Registers = .{
         .vendor_amd = true,
+        .vendor_intel = false,
         .leaf_1_ecx = 0x0000_0002 | 0x0008_0000,
         .leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x4000_0000 | 0x8000_0000,
         .leaf_7_ecx = 0x0000_0400 | 0x0000_0800,
@@ -294,11 +305,12 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     // The same features on an Intel CPU, whose VPMULLQ is slow.
     var intel = every;
     intel.vendor_amd = false;
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true }, from_x86(intel));
+    intel.vendor_intel = true;
+    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .lazy_loop_fast = true }, from_x86(intel));
     // VPCLMULQDQ without VNNI, as on the first CPUs with both AVX-512 and VPCLMULQDQ.
     var no_vnni = intel;
     no_vnni.leaf_7_ecx = 0x0000_0400;
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true }, from_x86(no_vnni));
+    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .lazy_loop_fast = true }, from_x86(no_vnni));
     // No YMM state saved: nothing that uses YMM or ZMM, whatever CPUID says.
     var no_ymm = every;
     no_ymm.xcr0 = 0b011;
@@ -320,7 +332,7 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
 }
 
 test "BMI2 counts only with SSSE3, and needs no register saved" {
-    const both: X86Registers = .{ .vendor_amd = false, .leaf_1_ecx = 0x0000_0200, .leaf_7_ebx = 0x0000_0100, .leaf_7_ecx = 0, .xcr0 = 0 };
+    const both: X86Registers = .{ .vendor_amd = false, .vendor_intel = false, .leaf_1_ecx = 0x0000_0200, .leaf_7_ebx = 0x0000_0100, .leaf_7_ecx = 0, .xcr0 = 0 };
     try testing.expectEqual(Features{ .bmi2 = true }, from_x86(both));
     var no_ssse3 = both;
     no_ssse3.leaf_1_ecx = 0;
@@ -355,4 +367,16 @@ test "detection on this host finds what its architecture's feature set should" {
         .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull and !detected.dotprod),
         else => try testing.expectEqual(Features.target(), detected),
     }
+}
+
+test "detection takes level 6's assembly loop on a CPU whose leaf 0 names Intel, and on no other" {
+    const vendors = [_]struct { amd: bool, intel: bool }{ .{ .amd = false, .intel = true }, .{ .amd = true, .intel = false }, .{ .amd = false, .intel = false } };
+    for (vendors) |vendor| {
+        const registers: X86Registers = .{ .vendor_amd = vendor.amd, .vendor_intel = vendor.intel, .leaf_1_ecx = 0, .leaf_7_ebx = 0, .leaf_7_ecx = 0, .xcr0 = 0 };
+        try testing.expectEqual(vendor.intel, from_x86(registers).lazy_loop_fast);
+    }
+    // Leaf 0's registers spell the vendor's name, 4 octets each, least significant first.
+    try testing.expectEqualStrings("GenuineIntel", std.mem.asBytes(&[_]u32{ x86.vendor_intel_ebx, x86.vendor_intel_edx, x86.vendor_intel_ecx }));
+    try testing.expectEqualStrings("AuthenticAMD", std.mem.asBytes(&[_]u32{ x86.vendor_amd_ebx, x86.vendor_amd_edx, x86.vendor_amd_ecx }));
+    try testing.expect(!Features.target().lazy_loop_fast);
 }

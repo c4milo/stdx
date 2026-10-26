@@ -22,6 +22,7 @@ const split_module = @import("encoder_split.zig");
 const Matcher = @import("encoder_match/encoder_match.zig").Matcher;
 const cost = @import("encoder_match/encoder_match_cost.zig");
 const Three = @import("encoder_match/encoder_match_three.zig").Three;
+const lazy_x86_64 = @import("encoder_match/encoder_match_lazy_x86_64.zig");
 const safety = @import("encoder_safety.zig");
 
 pub const EncoderOptions = struct {
@@ -57,6 +58,10 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         pub const runtime_safety = level.runtime_safety;
 
         matcher: Matcher(level),
+        /// Whether level 6 runs its x86-64 assembly loop: the caller's
+        /// `codec.Features.lazy_loop_fast`, an Intel CPU's (decision 54). A field only where the
+        /// assembly can run.
+        assembly: if (lazy_x86_64.takes(level, false)) bool else void,
         /// The prices of decision 42, at a lazy level, outside the match finder, so the finder's
         /// fields stay where its loop reads them.
         prices: if (level.chains) cost.Prices else void,
@@ -87,8 +92,8 @@ pub fn Encoder(comptime options: EncoderOptions) type {
 
         /// Starts a stream. `features` is the caller's, as for every codec (decision 21).
         pub fn init(self: *Self, features: codec.Features) void {
-            _ = features;
             self.matcher.init();
+            choose_loop(options, self, features);
             if (level.chains) self.prices.start();
             if (level.three) self.three.start();
             start_block(options, self, 0);
@@ -285,6 +290,12 @@ fn carry(comptime options: EncoderOptions, self: *Encoder(options), writer: *con
     if (self.marker_owed) _ = end_block(options, self, false, writer);
 }
 
+/// Keeps whether level 6 runs its x86-64 assembly loop: on an Intel CPU, as the caller's features
+/// say (decision 54).
+fn choose_loop(comptime options: EncoderOptions, self: *Encoder(options), features: codec.Features) void {
+    if (comptime lazy_x86_64.takes(constants.level(options.level), false)) self.assembly = features.lazy_loop_fast;
+}
+
 /// Decides positions into the block, priced in a block after one with cheap literals (decision
 /// 42), and with matches of 3 octets in one that takes them.
 inline fn advance(comptime options: EncoderOptions, self: *Encoder(options), ending: bool) void {
@@ -293,6 +304,9 @@ inline fn advance(comptime options: EncoderOptions, self: *Encoder(options), end
     }
     if (comptime constants.level(options.level).three) {
         if (self.three.live) return self.matcher.advance_dear(&self.block, ending, &self.three);
+    }
+    if (comptime lazy_x86_64.takes(constants.level(options.level), false)) {
+        if (self.assembly) return self.matcher.advance_assembly(&self.block, ending);
     }
     self.matcher.advance(&self.block, ending);
 }

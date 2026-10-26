@@ -35,6 +35,7 @@ const dear = @import("encoder_match_dear.zig");
 const Three = @import("encoder_match_three.zig").Three;
 const advance_greedy = greedy.advance_greedy;
 const lazy_aarch64 = @import("encoder_match_lazy_aarch64.zig");
+const lazy_x86_64 = @import("encoder_match_lazy_x86_64.zig");
 const step_greedy = greedy.step_greedy;
 
 /// A match: its length, 0 for none, and its distance.
@@ -155,7 +156,16 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         pub fn advance(self: *Self, block: *Block, ending: bool) void {
             @setRuntimeSafety(level.runtime_safety);
-            if (level.block_checks) advance_rounds(level, false, self, block, ending, {}) else advance_positions(level, false, self, block, ending, {});
+            if (level.block_checks) advance_rounds(level, false, false, self, block, ending, {}) else advance_positions(level, false, false, self, block, ending, {});
+        }
+
+        /// `advance` at level 6 on an Intel CPU, with its x86-64 assembly (decision 54): a copy of
+        /// the rounds of its own, so that every other CPU runs the Zig loop as it was compiled
+        /// before.
+        pub fn advance_assembly(self: *Self, block: *Block, ending: bool) void {
+            @setRuntimeSafety(level.runtime_safety);
+            comptime assert(lazy_x86_64.takes(level, false));
+            advance_rounds(level, false, true, self, block, ending, {});
         }
 
         /// `advance` in a block after one with cheap literals, its matches priced by `costs`
@@ -164,7 +174,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         pub fn advance_priced(self: *Self, block: *Block, ending: bool, costs: *const cost.Costs) void {
             @setRuntimeSafety(level.runtime_safety);
             comptime assert(level.chains);
-            if (level.block_checks) advance_rounds(level, true, self, block, ending, costs) else advance_positions(level, true, self, block, ending, costs);
+            if (level.block_checks) advance_rounds(level, true, false, self, block, ending, costs) else advance_positions(level, true, false, self, block, ending, costs);
         }
 
         /// `advance` in a block after one with dear literals, which takes matches of 3 octets
@@ -223,7 +233,7 @@ pub fn slide_positions(comptime runtime_safety: bool, positions: []u16, half: u1
 /// round is a call whose input ended there, which changes no decision (invariant 5), so they run
 /// the code they ran without a limit. The last positions before a flush or the stream's end, fewer
 /// than `lookahead_min`, are decided a step at a time and may pass the limit by as many symbols.
-fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) void {
+fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) void {
     @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.block_checks);
     const filled = self.filled;
@@ -233,7 +243,7 @@ fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, self: *
         assert(room > 0);
         self.filled = @min(filled, self.position + room + (constants.lookahead_min - 1));
         const whole = self.filled == filled;
-        advance_positions(level, cheap, self, block, ending and whole, costs);
+        advance_positions(level, cheap, assembly, self, block, ending and whole, costs);
         if (whole or block.at_limit()) break;
     } else unreachable;
     self.filled = filled;
@@ -244,14 +254,16 @@ fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, self: *
 /// then the rest a step at a time. Each step adds at most one symbol and moves on a position or
 /// more. `cheap` compiles in the prices of decision 42, `costs`. Never inline, so a round calls
 /// the code a call ran before the rounds.
-noinline fn advance_positions(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
+noinline fn advance_positions(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
     @setRuntimeSafety(level.runtime_safety);
-    if (level.chains) advance_lazy(level, cheap, self, block, costs) else advance_greedy(level, self, block);
+    if (level.chains) advance_lazy(level, cheap, assembly, self, block, costs) else advance_greedy(level, self, block);
     for (0..self.filled + 1) |_| {
         if (block.full()) return;
         const ahead = self.filled - self.position;
         if (ahead == 0 or (!ending and ahead < constants.lookahead_min)) return;
-        if (level.chains) step_lazy(level, cheap, self, block, ahead, costs) else step_greedy(level, self, block, ahead);
+        // The assembly's rounds call a copy of the step of their own (decision 54), so that the
+        // Zig loop's step keeps its callers, and LLVM builds it as before.
+        if (level.chains) step_lazy(level, cheap, assembly, self, block, ahead, costs) else step_greedy(level, self, block, ahead);
     }
     unreachable;
 }
@@ -269,9 +281,10 @@ pub fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level
 /// lookahead runs out; `step_lazy` takes the positions after them. The step's state, the position
 /// and the waiting match, lives in locals through the loop. `cheap` compiles in the prices of
 /// decision 42.
-fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
+fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
     @setRuntimeSafety(level.runtime_safety);
     if (comptime lazy_aarch64.takes(level, cheap)) return lazy_aarch64.advance(level, self, block);
+    if (assembly) return lazy_x86_64.advance(level, self, block);
     advance_lazy_zig(level, cheap, self, block, costs);
 }
 
@@ -366,9 +379,12 @@ inline fn take_waiting(comptime level: constants.Level, self: *Matcher(level), s
     return match_end;
 }
 
-/// One lazy step at a position with `ahead` octets ahead, fewer than the lookahead.
-fn step_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, ahead: usize, costs: CostsOf(cheap)) void {
+/// One lazy step at a position with `ahead` octets ahead, fewer than the lookahead. `copy` makes
+/// the assembly's rounds call an instance of their own (decision 54).
+fn step_lazy(comptime level: constants.Level, comptime cheap: bool, comptime copy: bool, self: *Matcher(level), block: *Block, ahead: usize, costs: CostsOf(cheap)) void {
     @setRuntimeSafety(level.runtime_safety);
+    // `copy` names the assembly's own copy of the step, and changes nothing it does.
+    _ = copy;
     if (ahead >= constants.hash_len) insert(level, self, self.position);
     // A waiting match at least `lazy_len` long is taken without a search here.
     const skip = self.waiting and self.previous.len >= level.lazy_len;
