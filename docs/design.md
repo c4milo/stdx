@@ -3222,6 +3222,27 @@ to 12 are reordered and nothing else changes.
       away only candidates the compare also refuses. A candidate as long as the match found fails
       the tail, which ends one octet past it. A walk that passed the reach's edge meets the floor
       at its next link. And distance 256 has the same code in either table.
+  - Level 6's lazy loop in x86-64 assembly on Intel CPUs, 2026-10-26 (decisions 53 and 54).
+    `encoder_match_lazy_x86_64.zig` holds the loop's state and its call, and
+    `encoder_match_lazy_x86_64_template.zig` its text. The encoder takes it where
+    `codec.Features.lazy_loop_fast` holds, and runs main's Zig loop elsewhere.
+    - The pairs at 7992b26 ran main (1c08360) first: two Xeon 8370C jobs of run 40359653754 and
+      four AMD jobs of runs 40356831116 and 40356838255. The commit that lands holds their library
+      code. Decision 54 holds the figures, and
+      `bench/results/2026-10-26-deflate-encoder-level6-asm-x86-*` the reports.
+    - Objects of bench-deflate at main and the change pair every `advance_positions` instance
+      with an identical body, on x86-64 and on aarch64.
+    - `encoder_match_lazy_aarch64_test.zig` runs its tests on either architecture. Two tests are
+      new: the encoder writes the same octets with the flag on and off, and the assembly finds a
+      candidate at `encoder_distance_max` and none one octet farther. `features.zig` tests the
+      flag for each vendor.
+    - Under Rosetta, which reports GenuineIntel, `zig build test-deflate` and differential-encode
+      in its ReleaseSafe and Debug builds pass with main's hashes. `zig build test`,
+      `test-avx512` and `test-self-hosted` pass.
+    - Mutations of the text, under Rosetta: 24 of 27 CAUGHT. The 3 others change no output. A
+      nearest candidate at the reach's edge taken as out of reach only adds a search. No waiting
+      match of 4 octets reaches the take after an empty search, as a match that waits makes the
+      position search. A mask of 15 bits keeps every length, which never passes 258.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its

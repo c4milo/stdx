@@ -1365,6 +1365,8 @@ small file.
       CPUID leaf 0's vendor string. `Xxh64Path.fastest` takes the AVX-512 path only with it, and
       only for 1 KiB of stripes or more. `runs_on` holds on Intel as well, so the differential
       check and the benchmark run the path there.
+    - `codec.Features.lazy_loop_fast` holds on an Intel CPU, from the same vendor string, and
+      chooses level 6's x86-64 assembly loop (decision 54).
     - `avx512` now requires DQ with F, BW and VL, as the AVX-512 level objects are compiled for it.
     - NEON has no multiply of 64-bit lanes, so XXH64 stays scalar on aarch64.
 
@@ -3616,7 +3618,8 @@ small file.
       room, and the two count arrays.
     - `advance_lazy` calls it where a comptime test holds: an `aarch64` target, or `x86_64` once
       that loop stays, a `builtin.zig_backend` of `stage2_llvm`, and level 6, as decision 29's loop
-      tests. Elsewhere, and at level 9, it runs the Zig loop. So `zig build test-self-hosted` runs
+      tests. On `x86_64` a runtime test of the CPU's vendor follows (decision 54). Elsewhere, and
+      at level 9, it runs the Zig loop. So `zig build test-self-hosted` runs
       the Zig loop.
     - Decision 17 holds: no assertion per position inside the assembly. Its caller asserts the
       bounds at the call's entry, and at its exit that the position moved forward and lies below
@@ -3650,7 +3653,8 @@ small file.
       larger of its spread and 1% in both jobs, unless decision 20's placement amendments exempt
       it.
     - The x86-64 loop stays only under the same rule on the x86-64 runners, with the Xeon 8573C's
-      rows reported apart.
+      rows reported apart. Decision 54 amends this: the loop ran AMD's EPYC 7763 slower, so it
+      runs on Intel CPUs alone.
     - A loop that does not stay is deleted with its tests, and this entry records its pairs.
     - Before the owner rules on a loop, the M1 times it against main row by row.
 
@@ -3696,3 +3700,89 @@ small file.
     - Decision 29: a second assembly loop under the same guards, and level 1's unruled draft of
       2026-10-21 a third, which this entry does not depend on.
     - Decision 49: the assembly runs in both choices, as decision 29's loop does.
+
+54. **Level 6 takes its x86-64 assembly loop on Intel CPUs alone.** Proposed on 2026-10-26, after
+    the owner chose "Draft vendor choice" the same day, and ruled the same day: "Approve". It
+    amends decision 53, whose x86-64 loop stays only where it runs no row slower, and decision 21,
+    whose `codec.Features` it extends.
+
+    **What the x86-64 loop gave.** Decision 53's x86-64 loop writes the Zig loop's symbols on
+    every input, and cuts about a fifth of level 6's instructions: dickens's first 2 MiB retires
+    94.8 an octet against main's 116.8, under callgrind's x86-64 count. Six forms were paired
+    against main, each job running main first (perf-deflate-169 to 175):
+    - Xeon 8573C, one job, the second form (run
+      [40245672510](https://github.com/c4milo/stdx/actions/runs/40245672510)): level 6 at 1.038 of
+      main's speed at the median, 35 rows faster past their spread, none slower; over libdeflate,
+      0.929 became 0.970.
+    - Xeon 6973P-C, one job, the sixth form (run
+      [40325450647](https://github.com/c4milo/stdx/actions/runs/40325450647), a VM whose control
+      spread from 0.86 to 1.13): 1.030 at the median, 7 rows faster past their spread, none slower.
+    - EPYC 7763, ten jobs over five forms: 0.981 to 0.992 at the median, 14 to 31 rows slower in
+      each job, shuffled dickens and cp.html at about 0.95 in most.
+    - EPYC 9V74 and 9V45, five jobs over four forms: 0.993 to 1.018 at the median, with fewer
+      rows slower than on the EPYC 7763.
+    - The forms held the symbol count in a register, then the waiting match, rolled the match's
+      compare, read the short chain without a branch and skipped the compare after an empty
+      search. None changed the EPYC 7763's loss by more than its spread.
+
+    **The rule.**
+    - `codec.Features` gains `lazy_loop_fast`: on x86-64, CPUID leaf 0 names the vendor
+      "GenuineIntel". It chooses a path rather than naming an instruction, as `vpmullq_fast` does.
+      `Features.target()` never sets it, since no build target names a vendor; `Features.none()`
+      leaves it false.
+    - The encoder keeps the flag from `init` in its field `assembly`, which exists only where
+      decision 53's x86-64 loop is built: level 6 on x86-64 by LLVM. `advance` tests it once a
+      call. Where it holds, `Matcher.advance_assembly` runs the rounds of decision 44 with the
+      assembly; elsewhere `advance` runs them as main does.
+    - The rounds with the assembly are their own comptime instance, and so is the `step_lazy` they
+      call. So the Zig loop that other CPUs run compiles to main's code: an object of
+      bench-deflate on x86-64 pairs each `advance_positions` instance of main's with an identical
+      body.
+    - Every other rule of decision 53 holds: the same octets, the Zig loop as the reference, the
+      equality tests and the fuzz test, which call the assembly directly whatever the flag, and
+      the mutations. A test of the encoder requires the same octets with the flag on and off.
+    - A test requires detection to set the flag from leaf 0's vendor registers alone: true for
+      "GenuineIntel", false for "AuthenticAMD" and any other.
+
+    **The measurement that admits it.** Under decision 20, on runners that draw Intel CPUs (the
+    `intel-pair` workflow of a perf branch, which never reaches main): dickens and mr faster past
+    the larger of 2% and the row's spread in both jobs of two Intel pairs, and no row slower in
+    both. On the AMD runners every row must run as main's does, since they run the Zig loop: no
+    row slower past its spread in both jobs of a pair.
+
+    **What it gave.** At 7992b26 against main (1c08360), each job running main first. The library
+    code is the code that lands.
+    - Intel, run [40359653754](https://github.com/c4milo/stdx/actions/runs/40359653754) of the
+      `intel-pair` workflow, which ran the same code: two Xeon 8370C jobs at 1.046 and 1.046 of
+      main's speed at level 6, 33 and 34 rows faster past their spread, none slower. dickens ran
+      at 1.06 and mr at 1.05 in both. Over libdeflate, 0.933 and 0.931 became 0.975 and 0.982.
+      Two Xeon 6973P-C jobs ran on VMs whose control spread from 0.82 to 1.16. There, levels 1
+      and 9, which run main's code, read 0.92 to 1.00; no row read slower in both jobs.
+    - Intel, the earlier forms with the same assembly (runs 40333267397 and 40344701178): 1.039
+      on a Xeon 8573C, 1.045, 1.045 and 1.046 on three Xeon 8370C jobs, 1.051 on a Xeon 6973P-C.
+    - AMD, runs [40356831116](https://github.com/c4milo/stdx/actions/runs/40356831116) and
+      [40356838255](https://github.com/c4milo/stdx/actions/runs/40356838255), each run twice:
+      two EPYC 7763 jobs, an EPYC 9V74 and an EPYC 9V45. Level 6 read 0.998 to 1.008 at the
+      median. No row read slower in all four jobs. x-ray read slower in both jobs of the first
+      pair, 0.927 and 0.989, and css-1kx1024 in both jobs of the second, 0.980 and 0.974.
+    - Those rows move on identical code. An object of bench-deflate built for x86-64 pairs every
+      `advance_positions` instance with main's body, and `Encoder`'s fields keep their offsets.
+      The setup in the encoder's `init` stores the flag once a stream. On the N2, whose code is
+      main's by the same proof, the second runs read the 1 KiB rows 0.89 to 0.97 at all three
+      levels. Decision 20's placement amendment exempts them.
+    - Output: every row's octets are main's, and differential-encode passes with main's hashes
+      in its ReleaseSafe and Debug builds for x86-64 under Rosetta, which reports GenuineIntel.
+    - The M1 runs code identical to main's by object, so it was not timed.
+
+    **What it risks.** A vendor is not a microarchitecture: an Intel core that runs the loop
+    slower would take it. The three Intel models drawn, Ice Lake, Emerald Rapids and Granite
+    Rapids, all gained; older Intel cores were not measured.
+
+    The alternatives refused:
+    - Dropping the loop: Intel's level 6 stays at 0.93 of libdeflate on the runners.
+    - Another form for Zen 3: six forms moved its median between 0.981 and 0.992, and no cause was
+      found.
+    - A flag per microarchitecture, from CPUID's family and model: a table to keep, for CPUs the
+      runners never draw.
+    - The flag in the matcher, tested in `advance_lazy`: the first form. It changed the compiled
+      Zig loop, and the EPYC 7763 ran cp.html and osdb 1% to 2% slower.
