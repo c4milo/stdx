@@ -3243,6 +3243,21 @@ to 12 are reordered and nothing else changes.
       nearest candidate at the reach's edge taken as out of reach only adds a search. No waiting
       match of 4 octets reaches the take after an empty search, as a match that waits makes the
       position search. A mask of 15 bits keeps every length, which never passes 258.
+  - Intel's level 6 after decision 54, a study of 2026-10-26, closed by the owner: "Stop Intel
+    level 6". Level 6 runs text at about 0.89 of libdeflate's speed on the Xeons, and mr at 0.82.
+    - The gap is branch mispredicts, not instructions. Callgrind's branch model on x86-64 counts,
+      an octet of the first 2 MiB: dickens 1.74 for stdx against libdeflate's 0.84, mr 1.46
+      against 0.67, reymont 1.68 against 0.69. On reymont stdx runs fewer instructions, 91.8
+      against 96.7, and still runs at 0.85 of libdeflate's speed. The N2's counters give the same
+      2 to 1 ratio on text.
+    - The tail moves of decisions 46 and 48 cause 0.3 to 0.45 of those mispredicts: after a
+      move, the head compare decides each candidate. They also hold main's output at a budget of
+      24 links. Without them, dickens grows 0.79% and reymont 2.9%; the plain walk of 64 and 32
+      links still grows dickens 0.21%, and it ran 11% to 17% slower on the N2 and the EPYCs.
+    - Two cuts that keep every octet traded mispredicts for instructions in the Intel loop: the
+      tail and head compares as one branch, and the lazy decision as one branch. On Intel they
+      ran level 6 at 0.996 to 0.998 and at 0.978 to 0.993 of main's speed (runs 40406407977 and
+      40406482366). The owner kept main's output size as the bar.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
