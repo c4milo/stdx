@@ -23,7 +23,7 @@ const Appender = @import("../encoder_block.zig").Appender;
 const cost = @import("encoder_match_cost.zig");
 
 /// What the lazy steps read for decision 42: the prices in their priced copy, nothing in the other.
-fn CostsOf(comptime cheap: bool) type {
+pub fn CostsOf(comptime cheap: bool) type {
     return if (cheap) *const cost.Costs else void;
 }
 const walk = @import("encoder_match_walk.zig");
@@ -34,6 +34,7 @@ const greedy = @import("encoder_match_greedy.zig");
 const dear = @import("encoder_match_dear.zig");
 const Three = @import("encoder_match_three.zig").Three;
 const advance_greedy = greedy.advance_greedy;
+const lazy_aarch64 = @import("encoder_match_lazy_aarch64.zig");
 const step_greedy = greedy.step_greedy;
 
 /// A match: its length, 0 for none, and its distance.
@@ -269,6 +270,14 @@ pub fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level
 /// and the waiting match, lives in locals through the loop. `cheap` compiles in the prices of
 /// decision 42.
 fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
+    @setRuntimeSafety(level.runtime_safety);
+    if (comptime lazy_aarch64.takes(level, cheap)) return lazy_aarch64.advance(level, self, block);
+    advance_lazy_zig(level, cheap, self, block, costs);
+}
+
+/// `advance_lazy` in Zig: every level, block and target the assembly does not take, and the
+/// reference the assembly must match (decision 53).
+pub fn advance_lazy_zig(comptime level: constants.Level, comptime cheap: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
     @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.chains);
     const lookahead = lookahead_end(level, self) orelse return;

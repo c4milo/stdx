@@ -31,7 +31,7 @@ comptime {
 
 /// Each length's code, 257 to 285 less 257, lengths 3 to 258 (RFC 1951 §3.2.5), indexed by the
 /// length less `match_len_min`, a `Symbol`'s value.
-const length_codes: [constants.match_len_max - constants.match_len_min + 1]CodeIndex = codes: {
+pub const length_codes: [constants.match_len_max - constants.match_len_min + 1]CodeIndex = codes: {
     var codes_of: [constants.match_len_max - constants.match_len_min + 1]CodeIndex = undefined;
     for (constants.length_base, constants.length_extra_bits, 0..) |base, extra, index| {
         for (base..base + (1 << extra)) |len| {
@@ -43,12 +43,12 @@ const length_codes: [constants.match_len_max - constants.match_len_min + 1]CodeI
 
 /// The distances of `near_codes` and above, one entry per `far_distance_step`: each distance code
 /// from 16 on covers whole steps (RFC 1951 §3.2.5).
-const near_distances = 256;
-const far_distance_shift = 7;
-const near_codes: [near_distances]CodeIndex = distance_codes(false);
+pub const near_distances = 256;
+pub const far_distance_shift = 7;
+pub const near_codes: [near_distances]CodeIndex = distance_codes(false);
 /// The comptime branches building the far table takes: one per distance.
 const distance_codes_quota = 100_000;
-const far_codes: [constants.window_len >> far_distance_shift]CodeIndex = distance_codes(true);
+pub const far_codes: [constants.window_len >> far_distance_shift]CodeIndex = distance_codes(true);
 
 comptime {
     // Both tables are indexed by a u8 without a bounds check.
