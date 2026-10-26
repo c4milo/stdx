@@ -229,3 +229,7 @@ const template_arguments = .{
     .code_at = @bitOffsetOf(block_module.Symbol, "distance_code"),
     .first_length_symbol = constants.first_length_symbol,
 };
+
+test {
+    _ = @import("encoder_match_lazy_aarch64_test.zig");
+}
