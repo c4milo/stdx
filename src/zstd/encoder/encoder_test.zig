@@ -134,7 +134,7 @@ fn expect_splits(generator: *codec.split.Generator, plain: []const u8) !void {
     // Flush points at seeded places, ascending, before the input's end.
     var points: [split_points]usize = undefined;
     var point_count: usize = 0;
-    if (plain.len > 2) {
+    if (plain.len > split_points_len_min) {
         for (&points) |*point| point.* = generator.between(1, plain.len - 1);
         std.sort.pdq(usize, &points, {}, std.sort.asc(usize));
         point_count = points.len;
@@ -153,6 +153,11 @@ fn expect_splits(generator: *codec.split.Generator, plain: []const u8) !void {
 const split_seeds = 4;
 const split_level = 3;
 const split_points = 3;
+/// An input this long or shorter takes no flush points.
+const split_points_len_min = 2;
+
+/// The flush test flushes after the first of this many parts.
+const flush_parts = 2;
 
 /// Text and runs compress to less than this share of their octets.
 const compressed_ratio_min = 2;
@@ -182,7 +187,7 @@ fn expect_flush_decodes() !void {
     var state: Step(1, false).Encoder = undefined;
     const plain = input_of(.long);
     state.init(.{});
-    const half = plain.len / 2;
+    const half = plain.len / flush_parts;
     const progress = state.encode(plain[0..half], &coded, .flush);
     try testing.expectEqual(.needs_input, progress.status);
     decoder.init(.{});
@@ -197,10 +202,6 @@ test "a raw block puts back the Repeated_Offsets its parse moved" {
     // for a sequence, so the block goes out raw, which RFC 8878 §3.1.1.5 says moves no offset. The
     // second block repeats at offset 28 after literals, which an encoder that kept the parse's
     // offsets would write as Offset_Value 1, naming the decoder's Repeated_Offset1 of 1.
-    try @call(.never_inline, expect_raw_block_repeats, .{});
-}
-
-fn expect_raw_block_repeats() !void {
     var state: Step(1, false).Encoder = undefined;
     var generator = codec.split.Generator.init(13);
     for (input[0..720]) |*octet| octet.* = @truncate(generator.next());
