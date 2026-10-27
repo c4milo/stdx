@@ -199,7 +199,7 @@ fn slide(self: anytype) void {
     assert(self.encoded_end > window_len);
     const shift = self.encoded_end - window_len;
     const kept = self.filled_end - shift;
-    std.mem.copyForwards(u8, self.window[0..kept], self.window[shift..self.filled_end]);
+    @memmove(self.window[0..kept], self.window[shift..self.filled_end]);
     self.encoded_end -= shift;
     self.filled_end -= shift;
     self.matcher.slide(@intCast(shift));
