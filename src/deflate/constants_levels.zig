@@ -115,6 +115,10 @@ pub const tail_skips_max = 4;
 
 /// The positions a run of decision 56's parse decides at once: 8 octets of state each.
 pub const path_run_len = 8192;
+/// The links a search of decision 56's parse reads, and the length of a match it takes whole,
+/// searching none of the positions inside it.
+pub const path_candidates_max = 16;
+pub const path_nice_len = 32;
 
 /// The bits of the hash of 3 octets that names the latest position with them, in a block that
 /// takes 3-octet matches (decision 50): a table of 32 KiB. With 13 bits x-ray's matches saved

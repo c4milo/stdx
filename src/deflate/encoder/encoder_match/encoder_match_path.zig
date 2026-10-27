@@ -32,6 +32,21 @@ pub const Step = packed struct(u32) {
     distance: u16 = 0,
 };
 
+/// The comptime branches `code_last`'s table takes: a few per length and code.
+const code_last_quota = 100_000;
+
+/// For each length, the longest with the same length code (RFC 1951 §3.2.5).
+const code_last: [constants.match_len_max + 1]u16 = table: {
+    @setEvalBranchQuota(code_last_quota);
+    var last: [constants.match_len_max + 1]u16 = @splat(0);
+    for (constants.match_len_min..constants.match_len_max + 1) |len| {
+        var end = len;
+        while (end < constants.match_len_max and block_module.length_code(true, end + 1) == block_module.length_code(true, len)) end += 1;
+        last[len] = end;
+    }
+    break :table last;
+};
+
 /// The bits a code gives a symbol the block has not used yet.
 const unused_bits = constants.code_len_max;
 
@@ -53,6 +68,8 @@ pub const Path = struct {
     /// The chain link each position of the run took the slot of: a position 32 KiB back, still
     /// in reach of the run's first positions, which the second search must read again.
     chain_before: [span_max]u16,
+    /// The search's longer matches, kept here so no position fills a local's octets.
+    record: Record,
     /// The counts of the last block the prices came from, for the prices of a block with no
     /// symbols yet, and whether the stream has one.
     last_literal_length: [constants.literal_length_used]u16,
@@ -174,6 +191,8 @@ fn search_run(comptime level: constants.Level, self: *Matcher(level), prices: *c
     const span = span_end - start;
     @memset(path.price[0 .. span + 1], std.math.maxInt(u32));
     path.price[0] = 0;
+    // A match of `path_nice_len` or more is taken whole: the positions inside it search nothing.
+    var skip_to: usize = 0;
     for (0..span) |index| {
         const position = start + index;
         const here = path.price[index];
@@ -188,14 +207,27 @@ fn search_run(comptime level: constants.Level, self: *Matcher(level), prices: *c
         const len_max = @min(constants.match_len_max, span_end - position);
         if (len_max < constants.match_len_min) continue;
         relax_three(level, self, prices, index, position);
+        if (index < skip_to) continue;
         if (len_max < constants.match_len_taken_min) continue;
-        var record: Record = .{};
+        path.record.len = 0;
         self.position = position;
-        _ = walk_tail.best_by_tail(level, self, len_max, level.candidates_max, null, &record);
+        const best = walk_tail.best_by_tail(level, self, len_max, constants.path_candidates_max, null, &path.record);
+        if (best.len >= constants.path_nice_len) {
+            relax(path, index + best.len, here + prices.match_price(best.len, best.distance), .{ .len = best.len, .distance = best.distance });
+            skip_to = index + best.len;
+            continue;
+        }
+        // Each length code's lengths cost the same bits at one distance, so only the longest of
+        // each code a match reaches is relaxed.
         var from: usize = constants.match_len_taken_min;
-        for (record.found[0..record.len]) |found| {
+        for (path.record.found[0..path.record.len]) |found| {
+            const distance_price = prices.distance[block_module.distance_code(true, found.distance)];
             var len = from;
-            while (len <= found.len) : (len += 1) relax(path, index + len, here + prices.match_price(len, found.distance), .{ .len = @intCast(len), .distance = found.distance });
+            while (len <= found.len) {
+                const last = @min(code_last[len], found.len);
+                relax(path, index + last, here + prices.length[last] + distance_price, .{ .len = @intCast(last), .distance = found.distance });
+                len = last + 1;
+            }
             from = @as(usize, found.len) + 1;
         }
     }
