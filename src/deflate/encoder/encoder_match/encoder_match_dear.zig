@@ -29,6 +29,7 @@ const Matcher = match.Matcher;
 const Match = match.Match;
 const three_module = @import("encoder_match_three.zig");
 const Three = three_module.Three;
+const dear_aarch64 = @import("encoder_match_dear_aarch64.zig");
 
 /// `Matcher.advance_dear`: the positions, in rounds that stop at the block's limit as the rounds
 /// of every lazy block do (decision 44): a round shows the loops the window only as far as the
@@ -75,6 +76,14 @@ const State = struct {
 /// The positions with the whole lookahead ahead, decided until the block fills or the lookahead
 /// runs out, with the step's state in locals through the loop.
 fn advance_lazy(comptime level: constants.Level, self: *Matcher(level), block: *Block, three: *Three) void {
+    @setRuntimeSafety(level.runtime_safety);
+    if (comptime dear_aarch64.takes(level)) return dear_aarch64.advance(level, self, block, three);
+    advance_lazy_zig(level, self, block, three);
+}
+
+/// `advance_lazy` in Zig: every level and target the assembly does not take, and the reference
+/// the assembly must match (decision 59).
+pub fn advance_lazy_zig(comptime level: constants.Level, self: *Matcher(level), block: *Block, three: *Three) void {
     @setRuntimeSafety(level.runtime_safety);
     const lookahead = match.lookahead_end(level, self) orelse return;
     // The end is bounded by the window too, so every position the loop inserts fits 16 bits.
