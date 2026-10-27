@@ -299,6 +299,7 @@ fn choose_loop(comptime options: EncoderOptions, self: *Encoder(options), featur
 /// Decides positions into the block, priced in a block after one with cheap literals (decision
 /// 42), and with matches of 3 octets in one that takes them.
 inline fn advance(comptime options: EncoderOptions, self: *Encoder(options), ending: bool) void {
+    if (comptime constants.level(options.level).path) return self.matcher.advance_path(&self.block, ending);
     if (comptime constants.level(options.level).chains) {
         if (self.prices.cheap) return self.matcher.advance_priced(&self.block, ending, &self.prices.costs);
     }

@@ -36,6 +36,7 @@ const Three = @import("encoder_match_three.zig").Three;
 const advance_greedy = greedy.advance_greedy;
 const lazy_aarch64 = @import("encoder_match_lazy_aarch64.zig");
 const lazy_x86_64 = @import("encoder_match_lazy_x86_64.zig");
+const path_module = @import("encoder_match_path.zig");
 const step_greedy = greedy.step_greedy;
 
 /// A match: its length, 0 for none, and its distance.
@@ -107,6 +108,8 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// hash. A position of 0 names none, so the window's first octet is never a candidate.
         heads: [1 << level.hash_bits]u16,
         chain: if (level.chains) [constants.window_len]u16 else void,
+        /// Decision 56's parse at a level with `path`.
+        path: if (level.path) path_module.Path else void,
         /// The window's octets that hold input, and the next position to decide.
         filled: usize,
         position: usize,
@@ -125,6 +128,7 @@ pub fn Matcher(comptime level: constants.Level) type {
             self.position = 0;
             self.previous = .{};
             self.waiting = false;
+            if (level.path) self.path.start();
         }
 
         /// Copies what fits of `input` into the window. Returns how many octets.
@@ -184,6 +188,23 @@ pub fn Matcher(comptime level: constants.Level) type {
             dear.advance(level, self, block, ending, three);
         }
 
+        /// `advance` at a level with `path` (decision 56): the runs, then the stream's last
+        /// positions, fewer than `lookahead_min`, a step at a time when it flushes or ends.
+        pub fn advance_path(self: *Self, block: *Block, ending: bool) void {
+            @setRuntimeSafety(level.runtime_safety);
+            comptime assert(level.path);
+            // A symbol waits only from the steps of a stream's last positions, which no run reaches.
+            if (!self.waiting) path_module.advance_path(level, self, block, ending);
+            if (self.path.queue_next < self.path.queue_len or !ending) return;
+            for (0..self.filled + 1) |_| {
+                if (block.full()) return;
+                const ahead = self.filled - self.position;
+                if (ahead == 0 or ahead >= constants.lookahead_min) return;
+                step_lazy(level, false, false, self, block, ahead, {});
+            }
+            unreachable;
+        }
+
         /// Adds the lazy step's waiting symbol when the stream flushes or ends. Returns false, and
         /// adds nothing, when the block is full.
         pub fn settle(self: *Self, block: *Block) bool {
@@ -208,6 +229,7 @@ fn slide_window(comptime level: constants.Level, self: *Matcher(level)) void {
     self.position -= constants.window_len;
     slide_positions(level.runtime_safety, &self.heads, half);
     if (level.chains) slide_positions(level.runtime_safety, &self.chain, half);
+    if (level.path) self.path.slide();
 }
 
 /// The positions a vector op moves at once.

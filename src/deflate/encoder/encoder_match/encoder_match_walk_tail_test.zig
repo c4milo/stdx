@@ -26,7 +26,7 @@ const TailMatcher = Matcher(tail_level);
 /// level 6's lazy loop passes it. Level 9's `best` passes null, and the walk computes the same
 /// edge.
 fn best_by_tail(comptime level: constants.Level, matcher: *const Matcher(level), len_max: usize, budget: u16) Match {
-    return walk_tail.best_by_tail(level, matcher, len_max, budget, match.lowest_of(level.runtime_safety, matcher.position));
+    return walk_tail.best_by_tail(level, matcher, len_max, budget, match.lowest_of(level.runtime_safety, matcher.position), {});
 }
 
 /// A hand-set test's position, with every distance before it and `match_len_max` octets after.

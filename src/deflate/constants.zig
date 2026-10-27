@@ -309,6 +309,7 @@ pub const lazy_distance_penalty_octets = levels.lazy_distance_penalty_octets;
 pub const lazy_length_weight = levels.lazy_length_weight;
 pub const lazy_bits_margin = levels.lazy_bits_margin;
 pub const tail_skips_max = levels.tail_skips_max;
+pub const path_run_len = levels.path_run_len;
 pub const three_hash_bits = levels.three_hash_bits;
 pub const three_distance_max = levels.three_distance_max;
 pub const dear_literal_cost_min = levels.dear_literal_cost_min;

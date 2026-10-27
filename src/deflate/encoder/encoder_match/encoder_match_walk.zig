@@ -105,7 +105,7 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     const budget = if (cheap) level.cheap_candidates_max else if (cut) level.cut_candidates_max else level.candidates_max;
     // In a block with cheap literals every 4 octets recur about as often as any other: a move to
     // the tail's chain reads a head for each longer match and finds no fewer candidates there.
-    if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget, lowest);
+    if (level.tail_chains and !cheap) return best_by_tail(level, self, len_max, budget, lowest, {});
     var walk = Walk.init(level, self, self.position, len_max, budget);
     while (!walk.done) walk.step(level, self);
     return walk.found;

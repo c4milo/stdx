@@ -63,6 +63,9 @@ pub const Level = struct {
     lazy_by_bits: bool,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
+    /// Whether the level parses along the path of least price in bits (decision 56,
+    /// `encoder_match_path.zig`). Level 9 does.
+    path: bool = false,
     /// Whether the level's loops run with Zig's runtime safety checks (decision 49): `Encoder`
     /// sets it from the caller's `EncoderOptions.runtime_safety`, and true whatever that says in
     /// a build that keeps the checks. Every level `level` returns keeps them.
@@ -110,6 +113,9 @@ pub const lazy_bits_margin = 2;
 /// tail's octets recur as often as the ones the search follows (`best_by_tail`, decision 46).
 pub const tail_skips_max = 4;
 
+/// The positions a run of decision 56's parse decides at once: 8 octets of state each.
+pub const path_run_len = 8192;
+
 /// The bits of the hash of 3 octets that names the latest position with them, in a block that
 /// takes 3-octet matches (decision 50): a table of 32 KiB. With 13 bits x-ray's matches saved
 /// 2.4% of its output at level 6 where these save 2.9%, and with 12 bits 1.7%.
@@ -146,7 +152,7 @@ pub fn level(comptime number: u4) Level {
     return switch (number) {
         1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .lazy_by_bits = false, .state_budget_len = 163 * 1024 },
         6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .lazy_by_bits = true, .state_budget_len = 294 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .lazy_by_bits = false, .state_budget_len = 293 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .lazy_by_bits = false, .state_budget_len = 470 * 1024, .path = true },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }

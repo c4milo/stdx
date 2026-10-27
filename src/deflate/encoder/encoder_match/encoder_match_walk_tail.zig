@@ -126,7 +126,7 @@ const TailWalk = struct {
 /// whose positions lie closer than that recurs as often as the octets the walk follows. It moves
 /// there when that chain's next candidate lies farther back than its own chain's. A chain that
 /// ends, or leaves the reach, ends the walk: no candidate left is longer.
-pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, budget: u16, lowest_passed: ?usize) Match {
+pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, budget: u16, lowest_passed: ?usize, record: anytype) Match {
     @setRuntimeSafety(level.runtime_safety);
     comptime assert(level.tail_chains);
     const position = self.position;
@@ -147,6 +147,8 @@ pub inline fn best_by_tail(comptime level: constants.Level, self: *const Matcher
         const len = walk.longer_len(level, self, later, later_head, candidate);
         if (len == 0) continue;
         walk.found = .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
+        // Each longer match, nearest first, for a caller that keeps them (decision 56).
+        if (@TypeOf(record) != void) record.add(walk.found);
         if (len >= level.nice_len or len >= later.len) break;
         if (!walk.follow_longer(level, self, lowest, later, candidate)) break;
     }
