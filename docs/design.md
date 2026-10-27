@@ -4485,6 +4485,30 @@ to 12 are reordered and nothing else changes.
     - Ratio: 17 rows of 39 beat libzstd's at level 1, and 4 at level 3. nci (0.789, 0.866),
       kennedy.xls (0.827, 0.909) and css-1m lose most.
     - A first run at d2ed8d2 on an EPYC 9V45 gave the same picture: medians 0.31 and 0.37.
+  - The speed work after decision 60, 2026-10-27. bench-profile's Zstandard encoder section
+    (`bench/profile/profile_zstd_encode.zig`) showed on the N2 that stdx ran 3 to 8 times libzstd's
+    instructions an octet, at an equal or higher IPC. callgrind on aarch64 ranked where they went.
+    Two changes followed, the output unchanged:
+    - The window slide copies with `@memmove`. `std.mem.copyForwards` copied one octet a pass:
+      dickens at level 1 fell from 129.5 to 117.1 instructions an octet, x-ray at level 3 from 151.9
+      to 124.2.
+    - The sequences bitstream writes a sequence through two stores of the bit writer when the
+      output has 16 octets of room (decision 14, E5). dickens fell from 117.1 to 93.4.
+
+    Paired against main on the runners (run
+    [40578095901](https://github.com/c4milo/stdx/actions/runs/40578095901), reports
+    `bench/results/2026-10-27-zstd-encoder-store-*.md`):
+
+    | CPU | Level | Over main, median | Over main, range | Over libzstd, median | Over libzstd, range |
+    |---|---|---|---|---|---|
+    | Neoverse N2 | 1 | 1.24 | 1.05 to 1.61 | 0.37 | 0.15 to 0.45 |
+    | Neoverse N2 | 3 | 1.18 | 1.03 to 2.20 | 0.48 | 0.38 to 1.05 |
+    | Xeon 6973P-C | 1 | 1.19 | 0.91 to 1.42 | 0.36 | 0.15 to 0.46 |
+    | Xeon 6973P-C | 3 | 1.16 | 0.91 to 1.55 | 0.46 | 0.32 to 0.78 |
+
+    The Xeon's rows under 1, grammar.lsp, xargs.1 and kennedy.xls, are the runner's: libzstd's
+    own speed fell 13 to 17% on them between the halves of the job, and stdx over libzstd rose on
+    each.
 
 - **Step 14: the brotli encoder.** Levels 1 and 5, after a decision record of its own on levels and
   memory.
