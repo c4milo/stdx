@@ -19,7 +19,9 @@
 //! Two kinds of error are not RFC rules, and the rule does not read them:
 //!
 //! - `operational_errors`: input that ended before the stream did, or an output buffer with no room
-//!   left, which a whole-buffer helper reports and which no RFC states (decision 11).
+//!   left, which a whole-buffer helper reports and which no RFC states (decision 11). The three
+//!   errors of `std.Io` that `codec.IoReader` and `codec.IoWriter` pass on are the same two cases:
+//!   a source with no octets yet or at its end, and a destination with no room (decision 56).
 //! - a name starting `Test`, which a fuzz property function returns to fail its test.
 //!
 //! What the rule cannot see. It reads `return error.Name` only, so a validation that returns
@@ -46,7 +48,7 @@ pub const scope: Scope = .{
 
 /// Errors that report input that ended before the stream did, or an output buffer with no room
 /// left. CLAUDE.md calls these operational: no RFC states them, so they need no citation.
-const operational_errors = [_][]const u8{ "Truncated", "NoSpaceLeft" };
+const operational_errors = [_][]const u8{ "Truncated", "NoSpaceLeft", "ReadFailed", "EndOfStream", "WriteFailed" };
 
 /// The prefix of an error a fuzz property function returns to fail its test.
 const test_error_prefix = "Test";

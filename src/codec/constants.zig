@@ -11,6 +11,11 @@ pub const bit_buffer_bits: u7 = 64;
 /// that must still fit the buffer.
 pub const ensure_bits_max: u7 = bit_buffer_bits - @bitSizeOf(u8) + 1;
 
+/// `IoWriter` bounds the rounds of a flush or a finish by this many times the octets that the
+/// encoder's `encoded_len_max` allows for its held and buffered input. One stream's bound covers
+/// the octets those inputs code to, and the second covers a flush's empty block (decision 56).
+pub const io_flush_rounds_factor: usize = 2;
+
 /// The split driver's piece sizes (decision 15): an empty piece, one octet, a short piece of
 /// `short_piece_len_min` to `short_piece_len_max` octets, a long piece of up to
 /// `long_piece_len_max` octets, or everything left.

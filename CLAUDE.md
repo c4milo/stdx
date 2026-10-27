@@ -40,7 +40,9 @@ The architecture depends on every rule in this section.
    owns. It opens no file or socket, starts no thread, and makes no syscall. `tools/lint/io.zig`
    enforces it over `src/`. The one exception is `platform` (decision 40): its probe, which a
    program calls once when it starts, may make the one syscall it needs, macOS's `sysctlbyname`,
-   and no other module may import it.
+   and no other module may import it. A codec may name `std.Io.Reader`, `std.Io.Writer` and
+   `std.Io.Limit`, the interfaces its adapters implement (decision 56), and nothing else in
+   `std.Io`.
 2. **No heap.** No `Allocator` anywhere in `src/`, tests included. The caller owns every state,
    window, table and hash chain, and places it where it chooses. Each size is a comptime constant
    the codec exports, per codec and per encoder level. `tools/lint/heap.zig` enforces it.

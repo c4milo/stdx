@@ -58,6 +58,8 @@ pub const scope: Scope = .{
         "src/codec/reader.zig",
         "src/codec/writer.zig",
         "src/codec/bit_reader.zig",
+        // The source the adapters' tests read: its octets are the test's own (decision 56).
+        "src/codec/io_parts.zig",
         // Decision 16's fast paths.
         "src/deflate/fast/fast.zig",
         "src/deflate/fast/fast_lengths.zig",

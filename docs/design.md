@@ -111,6 +111,17 @@ The rules the loop relies on are invariants 7, 8 and 11: `needs_input` means all
 `needs_room` means the output is full, every call makes progress or says why not, and `done` comes
 after the checksum.
 
+A caller whose bodies are a `std.Io.Reader` and a `std.Io.Writer` takes the adapters of decision 56
+instead of this loop. `gzip.IoReader` decodes the octets of a source reader, and
+`gzip.IoWriter(.{ .level = 6 })` encodes into a destination writer. Each keeps the codec's state
+across a failure of its source or its destination:
+
+```zig
+var reader: gzip.IoReader = undefined;
+reader.init(body_reader, &.{}, features);
+_ = try reader.interface.streamRemaining(response_writer);
+```
+
 ## 5. What the caller places
 
 Every size is a comptime constant (decision 3), and decision 12 proposes each one. The caller
@@ -7402,6 +7413,39 @@ to 12 are reordered and nothing else changes.
     there reads `no`.
   - Linux on x86-64, the same kernel, without libc and with it: `aes_clmul yes, dit not_known`, as
     /proc/cpuinfo gives.
+
+- **Step 21: the `std.Io` adapters (decision 56).** [Issue
+  21](https://github.com/c4milo/stdx/issues/21). `codec.IoReader` puts a decoder behind
+  `std.Io.Reader`, and `codec.IoWriter` an encoder behind `std.Io.Writer`. `deflate`, `zlib`,
+  `gzip`, `zstd` and `brotli` export an `IoReader`; `deflate`, `zlib` and `gzip` export an
+  `IoWriter`. The `zstd` and `brotli` encoders get one at steps 13 and 14.
+  **Check:**
+  - The tests of `src/codec/` drive each adapter over a toy codec. Its source gives octets, and
+    its destination room, a part at a time, and fails until the test gives more.
+  - Each codec's `io_test.zig` round-trips a text, or decodes fixtures, with octets and room in
+    parts. Halfway, a flush must make the octets so far decode to the text so far.
+  - The io rule's tests allow `std.Io.Reader`, `std.Io.Writer` and `std.Io.Limit`, and refuse
+    every chain past them, `std.Io.File` and `std.Io.net`.
+  - Mutations.
+
+  **Check passed on the development Mac, 2026-10-27.** Zig 0.16.0, the owner's M1 Pro under macOS
+  26.6.2.
+  - `zig build test` exits 0.
+  - 32 mutations, each applied, run against one module's tests or the tools' tests, and reverted.
+    All 32 CAUGHT, each by a failed test, none by a compile error:
+    - `io_reader.zig`: the source read at `needs_room`; a restart without `init`; one stream
+      restarted, or its trailing octets read as the end; a cut stream read as the end; a failure
+      that does not stay; consumed octets not tossed; the limit ignored; the last status not kept;
+      a call for no octets that decodes; the path for a writer with no buffer dropped; the reader's
+      buffer written past its seek; trailing octets and a decoder's refusal named `Truncated`.
+    - `io_writer.zig`: a flush that passes `none`; a flush or a `finish` that does not flush the
+      destination; `finish` that encodes again after `done`; buffered octets not moved; buffered
+      octets left behind new ones; the repeated slice ignored; written octets not advanced; a
+      flush that ends at `needs_room`; `drain` that counts octets it did not take.
+    - The io rule: `std.Io` allowed by last segment; each of the three chains refused; the
+      `Reader` chain open past its name.
+    - `gzip` and `zstd` that stop after one member or frame; `deflate`, `zlib` and `brotli` that
+      decode octets after their stream.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

@@ -13,6 +13,9 @@
 //! - `split`: the seeded split driver every codec's tests run their streams under (decision 15).
 //! - `Features`: the CPU features a codec's SIMD paths may use, which the caller detects once and
 //!   passes to each codec's `init` (decision 21).
+//! - `IoReader` and `IoWriter`: a decoder behind Zig's `std.Io.Reader` interface, and an encoder
+//!   behind its `std.Io.Writer` (decision 56). `io_parts` holds the source and the destination
+//!   their tests give octets and room to in parts.
 //!
 //! The module imports nothing.
 
@@ -42,6 +45,12 @@ pub const Window = @import("window.zig").Window;
 pub const Field = @import("field.zig").Field;
 pub const split = @import("split.zig");
 pub const Features = @import("features.zig").Features;
+pub const IoReader = @import("io_reader.zig").IoReader;
+pub const DecoderCalls = @import("io_reader.zig").DecoderCalls;
+pub const AfterDone = @import("io_reader.zig").AfterDone;
+pub const Ended = @import("io_reader.zig").Ended;
+pub const IoWriter = @import("io_writer.zig").IoWriter;
+pub const io_parts = @import("io_parts.zig");
 
 test {
     _ = status;
@@ -55,4 +64,7 @@ test {
     _ = @import("window.zig");
     _ = @import("field.zig");
     _ = @import("features.zig");
+    _ = io_parts;
+    _ = @import("io_reader_test.zig");
+    _ = @import("io_writer_test.zig");
 }

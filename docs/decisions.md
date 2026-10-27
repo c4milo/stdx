@@ -3836,3 +3836,54 @@ small file.
     levels 6 and 9 the 49,152-symbol cap too, which changed their octets; a cap kept per block
     restores them.
 
+56. **Each codec offers its decoder as a `std.Io.Reader` and its encoder as a `std.Io.Writer`.**
+    Ruled by the owner on 2026-10-26, for
+    [issue 21](https://github.com/c4milo/stdx/issues/21). It amends decision 2, which refused the two
+    interfaces, and invariant 2.
+
+    A server that reads a body through a `std.Io.Reader` and writes one through a `std.Io.Writer`
+    asked for adapters, and the owner ruled that they belong in stdx. The streaming call of decision
+    11 stays the codecs' API. An adapter is a second door to the same call:
+    - `codec.IoReader` puts a decoder behind `std.Io.Reader`. `deflate`, `zlib`, `gzip`, `zstd`
+      and `brotli` each export an `IoReader`. `zstd` and `brotli` also export `HttpIoReader`, with
+      the window of decision 12.
+    - `codec.IoWriter` puts an encoder behind `std.Io.Writer`. `deflate`, `zlib` and `gzip` each
+      export an `IoWriter`. The `zstd` and `brotli` encoders get one when design §8 steps 13 and 14
+      write them.
+    - The caller places each adapter, with the decoder or the encoder inside it. The adapter's own
+      buffer is a slice the caller gives to `init`, and may be empty.
+
+    How an adapter behaves where its source or its destination fails:
+    - A source that fails with `error.ReadFailed` fails the read the same way, and the decoder keeps
+      its state. The next read goes on after the source holds more octets.
+    - A read fails with `error.EndOfStream` only after the source did and the decoder reported
+      `done`. A source that ends inside a stream stops the reader with `error.Truncated`.
+    - A refusal fails the read with `error.ReadFailed`, and the reader's `failure` field names it.
+      `Truncated`, `TrailingOctets` and every decoder error are such refusals.
+    - After `done`, the `gzip` and `zstd` readers decode the next member or frame (RFC 1952 §2.2,
+      RFC 8878 §3.1). The `deflate`, `zlib` and `brotli` readers refuse more octets as
+      `error.TrailingOctets`, because their coded octets hold one stream.
+    - A destination that fails with `error.WriteFailed` fails the write, the flush or `finish` the
+      same way, and the encoder keeps its state. The caller calls again when the destination has
+      room.
+    - `flush` passes `Flush.flush` to the encoder, and `finish` passes `Flush.finish`. Each then
+      flushes the destination.
+
+    What it costs. The adapter adds one vtable call for each call of the decoder or the encoder.
+    The decoder writes into the caller's writer's buffer, and the encoder into the destination's
+    buffer, so neither adds a copy. A small buffer adds calls: each call of the interface makes at
+    most one call of the codec, so its work stays bounded by the octets it takes and writes.
+
+    What the rules allow. `tools/lint/io.zig` allows three chains under `std.Io`, each only whole:
+    `std.Io.Reader`, `std.Io.Writer` and `std.Io.Limit`. They move octets between buffers through
+    vtables the caller supplies, and reach no host of their own. `std.Io.File`, `std.Io.net` and
+    every chain past the three names stay refused. `tools/lint/rfc_citation.zig` reads
+    `ReadFailed`, `EndOfStream` and `WriteFailed` as operational errors, as it reads `Truncated`
+    and `NoSpaceLeft`.
+
+    The alternatives refused:
+    - A module of its own for the adapters, which imports every codec, with the lint exception
+      limited to its directory. The owner chose the adapters in each codec's module.
+    - Adapters in the consumer: each consumer writes the same code again, and gets the failure
+      cases wrong in its own way.
+    - Keeping decision 2 as it stood, which leaves every consumer to write the loop of design §4.

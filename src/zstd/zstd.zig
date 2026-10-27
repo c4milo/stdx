@@ -16,7 +16,12 @@ pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
 pub const refusal = decoder.refusal;
 
+const io = @import("io.zig");
+pub const IoReader = io.IoReader;
+pub const HttpIoReader = io.HttpIoReader;
+
 test {
+    _ = io;
     _ = constants;
     _ = @import("fse.zig");
     _ = @import("huffman.zig");

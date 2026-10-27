@@ -27,10 +27,15 @@ const encoder = @import("encoder/encoder.zig");
 pub const Encoder = encoder.Encoder;
 pub const EncoderOptions = encoder.EncoderOptions;
 
+const io = @import("io.zig");
+pub const IoReader = io.IoReader;
+pub const IoWriter = io.IoWriter;
+
 /// A bit writer that builds DEFLATE streams for tests, this module's and its containers'.
 pub const TestStream = @import("test_stream.zig").Stream;
 
 test {
+    _ = io;
     _ = constants;
     _ = @import("huffman.zig");
     _ = @import("lookup.zig");

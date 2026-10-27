@@ -8,6 +8,12 @@
 //! process table, and the two ways to write to standard error, `std.log` and `std.debug.print`.
 //! `std.debug.assert` stays allowed: it is on the list of neither.
 //!
+//! Three names under `std.Io` are allowed, each only as the whole chain: `std.Io.Reader` and
+//! `std.Io.Writer`, the interfaces `codec.IoReader` and `codec.IoWriter` implement, and
+//! `std.Io.Limit`, the count their `stream` takes (decision 56). They move octets between the
+//! caller's buffers through the caller's vtables, and reach no host on their own. A chain past them,
+//! such as `std.Io.Reader.fixed`, stays forbidden, and so do `std.Io.File` and `std.Io.net`.
+//!
 //! `src/platform/` is the one exception (decision 40). A program calls its probe once, when it
 //! starts, and no codec path runs it, so it may make the one syscall it needs: macOS's
 //! `sysctlbyname`. The rule reads that directory under a configuration of its own, which allows
@@ -50,6 +56,15 @@ const forbidden_prefixes = [_][]const u8{
 const exceptions = [_]forbidden_references.Exception{
     .{ .prefix = "std.os.linux", .last_segment_prefixes = &.{"getauxval"} },
     .{ .prefix = "std.c", .last_segment_prefixes = &.{"getauxval"} },
+} ++ io_interfaces;
+
+/// The three chains under `std.Io` that reach no host (decision 56). Each exception's prefix is the
+/// whole chain, and its last segment is the chain's own, so it allows that chain and nothing past
+/// it.
+const io_interfaces = [_]forbidden_references.Exception{
+    .{ .prefix = "std.Io.Reader", .last_segment_prefixes = &.{"Reader"} },
+    .{ .prefix = "std.Io.Writer", .last_segment_prefixes = &.{"Writer"} },
+    .{ .prefix = "std.Io.Limit", .last_segment_prefixes = &.{"Limit"} },
 };
 
 /// The one directory under `src/` that may make a syscall: the `platform` module (decision 40).
@@ -160,7 +175,7 @@ test "io flags every prefix on its list, in a parameter type as well as a body" 
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/zstd/zstd.zig",
         \\fn send(socket: std.posix.socket_t, file: std.fs.File, count: u32) void {}
-        \\const reader = std.Io.Reader;
+        \\const reader = std.Io.File;
         \\const argv = std.process.args;
         \\const listener = std.net.Server;
         \\const worker = std.Thread;
@@ -171,7 +186,7 @@ test "io flags every prefix on its list, in a parameter type as well as a body" 
     try harness.expect_messages(findings, &.{
         "reference to std.posix.socket_t: " ++ reason,
         "reference to std.fs.File: " ++ reason,
-        "reference to std.Io.Reader: " ++ reason,
+        "reference to std.Io.File: " ++ reason,
         "reference to std.process.args: " ++ reason,
         "reference to std.net.Server: " ++ reason,
         "reference to std.Thread: " ++ reason,
@@ -193,6 +208,28 @@ test "io allows getauxval, which reads memory, and nothing else under std.os or 
     try harness.expect_messages(findings, &.{
         "reference to std.os.linux.getpid: " ++ reason,
         "reference to std.c.getpid: " ++ reason,
+    });
+}
+
+test "io allows std.Io.Reader, std.Io.Writer and std.Io.Limit, and nothing past them" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/gzip/io.zig",
+        \\const Reader = std.Io.Reader;
+        \\const Writer = std.Io.Writer;
+        \\const Limit = std.Io.Limit;
+        \\const fixed = std.Io.Reader.fixed;
+        \\const Discarding = std.Io.Writer.Discarding;
+        \\const file_reader = std.Io.File.Reader;
+        \\const stream_writer = std.Io.net.Stream.Writer;
+        \\const Readers = std.Io.Readers;
+    );
+    try harness.expect_messages(findings, &.{
+        "reference to std.Io.Reader.fixed: " ++ reason,
+        "reference to std.Io.Writer.Discarding: " ++ reason,
+        "reference to std.Io.File.Reader: " ++ reason,
+        "reference to std.Io.net.Stream.Writer: " ++ reason,
+        "reference to std.Io.Readers: " ++ reason,
     });
 }
 

@@ -42,7 +42,9 @@ check lands with its step.
 - **Mechanism.** No source names `std.posix`, `std.os`, `std.c`, `std.fs`, `std.net`,
   `std.Thread`, `std.Io`, `std.process`, `std.log` or `std.debug.print` (decision 2), but for
   `getauxval`, which reads memory (decision 21), and `sysctlbyname` in `src/platform/`. No module
-  imports `platform` (INV-14), so no codec path reaches the syscall.
+  imports `platform` (INV-14), so no codec path reaches the syscall. Three chains under `std.Io`
+  are allowed whole: `std.Io.Reader`, `std.Io.Writer` and `std.Io.Limit`. The adapters of
+  decision 56 implement them, and they reach the host only through a vtable the caller supplies.
 - **Check.** Lint rule `tools/lint/io.zig`, step 0. It reads `src/platform/` under a configuration
   of its own, and its tests require every other module's files to refuse `sysctlbyname` and
   `platform`'s to refuse every other chain on the list (step 20).

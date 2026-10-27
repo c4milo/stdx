@@ -19,7 +19,12 @@ pub const refusal = decoder.refusal;
 const encoder = @import("encoder.zig");
 pub const Encoder = encoder.Encoder;
 
+const io = @import("io.zig");
+pub const IoReader = io.IoReader;
+pub const IoWriter = io.IoWriter;
+
 test {
+    _ = io;
     _ = constants;
     _ = decoder;
     _ = encoder;
