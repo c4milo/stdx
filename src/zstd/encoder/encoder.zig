@@ -74,11 +74,25 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         last_written: bool,
         done: bool,
         digest: if (options.checksum) checksum.Xxh64 else void,
+        /// The caller's CPU features, which `start` passes on (decision 21).
+        features: codec.Features,
 
-        /// Starts a frame, with the caller's CPU features (decision 21). Writes no octet of the
-        /// window (decision 11).
+        /// Starts a frame, with the caller's CPU features (decision 21), and clears the match
+        /// finder's tables. Writes no octet of the window (decision 11).
         pub fn init(self: *Self, features: codec.Features) void {
+            self.features = features;
             self.matcher.init();
+            self.begin_frame();
+        }
+
+        /// Starts the next frame of an encoder `init` started, with the same features. It clears no
+        /// table, so it costs a constant where `init` costs the tables (decision 60).
+        pub fn start(self: *Self) void {
+            self.matcher.start();
+            self.begin_frame();
+        }
+
+        fn begin_frame(self: *Self) void {
             self.tables.init();
             self.out_start = 0;
             self.out_end = 0;
@@ -89,7 +103,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
             self.finishing = false;
             self.last_written = false;
             self.done = false;
-            if (options.checksum) self.digest = checksum.Xxh64.init(checksum.Xxh64Path.fastest(checksum.Features.from(features)), 0);
+            if (options.checksum) self.digest = checksum.Xxh64.init(checksum.Xxh64Path.fastest(checksum.Features.from(self.features)), 0);
         }
 
         /// Encodes as much of `input` into `output` as both allow (decision 11).

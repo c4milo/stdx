@@ -421,6 +421,10 @@ pub const literals_compressed_header_lens = [_]u8{ 3, 3, 4, 5 };
 pub const literals_raw_header_two = 2;
 pub const literals_raw_header_three = 3;
 
+/// The table entries one step of a slide moves: two 128-bit vectors of u32 on aarch64, one of
+/// 256 bits with AVX2. Every table holds a power of two of entries, at least this many.
+pub const slide_lanes = 8;
+
 /// The branches comptime may take to build the encoder's default tables and code tables.
 pub const default_encode_table_eval_quota = 200_000;
 

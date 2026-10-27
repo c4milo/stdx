@@ -218,3 +218,35 @@ test "a raw block puts back the Repeated_Offsets its parse moved" {
     try testing.expectEqual(.done, second.status);
     try expect_decodes(coded[0 .. first.written + second.written], input[0..720]);
 }
+
+test "a frame begun with start writes the octets of one begun with init, across the tags' wrap" {
+    try @call(.never_inline, expect_start_equals_init, .{});
+}
+
+fn expect_start_equals_init() !void {
+    const Encoder = Step(start_level, false).Encoder;
+    var started: Encoder = undefined;
+    started.init(.{});
+    for (start_frame_cases, 0..) |case, frame_index| {
+        // The first frame runs on the tag `init` sets; the later ones each begin with `start`,
+        // and one moves to the last tag but one, so the frame after it passes the clear that
+        // follows the last tag, and repeats the first frame's input.
+        if (frame_index == start_wrap_frame) started.matcher.tag = start_wrap_tag;
+        if (frame_index > 0) started.start();
+        const plain = input_of(case);
+        const written = try started.encode_all(plain, &coded);
+        var fresh: Encoder = undefined;
+        fresh.init(.{});
+        const fresh_written = try fresh.encode_all(plain, &reference);
+        try testing.expectEqualSlices(u8, reference[0..fresh_written], coded[0..written]);
+    }
+}
+
+/// The start test's level and inputs. Most come twice in a row, so a frame finds the last frame's
+/// entries for the same octets. The first frame's input comes again only after the wrap, so a
+/// wrap that did not clear would find its entries of tag 1. The frame whose tag the test moves to
+/// the last but one: the window of a block leaves 14 bits.
+const start_level = 3;
+const start_frame_cases = [_]Case{ .long, .whole, .whole, .medium, .medium, .run, .long, .long, .short };
+const start_wrap_frame = 5;
+const start_wrap_tag = 16_382;

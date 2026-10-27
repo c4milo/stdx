@@ -232,6 +232,9 @@ pub fn zstd_decode_with(context: *ZstdContext, input: []const u8, output: []u8) 
     return if (written == std.math.maxInt(usize)) null else written;
 }
 
+/// A libzstd compression context kept across encodes, for the encoders' benchmark.
+pub const zstd_encoder = @import("oracle_zstd_encoder.zig");
+
 /// libzstd's verdict on `input` through its streaming decoder, which refuses a window past
 /// 2^`window_log_max`: ok when the input ends where a frame does, incomplete when it ends inside
 /// one.

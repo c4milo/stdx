@@ -8,6 +8,7 @@
 //!   same round trip; an encode with seeded flush points, after each of which stdx's decoder gives
 //!   exactly the input so far; and seeded splits with those flush points, which give the same
 //!   octets (invariant 5).
+//! - The same file again from the same state, begun with `start`: the same octets (decision 60).
 //! - The SHA-256 of every `encode_all` output, compared with the list in zstd_encode_hashes.zig,
 //!   so the octets match on every host and in every build mode (invariant 5). With `--record` it
 //!   prints the list instead, as Zig source.
@@ -154,6 +155,11 @@ fn check_whole(comptime level: u4, comptime with_checksum: bool, run: *Run, name
     if (written > E.encoded_len_max(input.len)) return fail(run, name, level, "the output passed encoded_len_max");
     const frame = run.encoded[0..written];
     try check_decoders(level, run, name, input, frame);
+    // The next frame begun with `start`, the last one's entries in the tables, writes the same
+    // octets (decision 60).
+    state.start();
+    const again = state.encode_all(input, run.split) catch return fail(run, name, level, "encode_all after start ran out of room");
+    if (!std.mem.eql(u8, frame, run.split[0..again])) fail(run, name, level, "a frame begun with start wrote other octets");
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(frame, &digest, .{});
     const hex = std.fmt.bytesToHex(digest, .lower);

@@ -4,9 +4,14 @@
 //! long table finds, and tries the next position's long match before it takes a short one. Both
 //! try Repeated_Offset1 before the tables, and both step faster through octets that find nothing.
 //!
-//! A table holds window positions, 0 for none, so a frame's first octet never starts a match. Every
-//! choice reads only the window's octets from the frame's start to the block's end, so the
-//! sequences are a function of the input alone (invariant 5).
+//! A table entry holds a window position, and above it the tag of the frame that stored it: the
+//! frame's base, its tag shifted above every position, plus the position. Tags only grow between
+//! clears, so an entry of an earlier frame lies below the base, and one range check finds an entry
+//! of this frame that the window still reaches. An entry of position 0 names no candidate, so a
+//! frame's first octet never starts a match. `init` clears the tables once; `start` begins the next frame by moving to
+//! the next tag, and clears them again only when the tags run out (decision 60). So every choice
+//! reads only the window's octets from the frame's start to the block's end, and the sequences
+//! are a function of the input alone (invariant 5).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -59,35 +64,79 @@ pub fn Matcher(comptime level: Level) type {
 
         short: [@as(usize, 1) << level.short_hash_log]u32,
         long: if (level.long_hash_log > 0) [@as(usize, 1) << level.long_hash_log]u32 else void,
+        /// The frame's tag, from 1 up, and its base: the tag above every position.
+        tag: u32,
+        base: u32,
 
         /// Empties the tables, so no position of an earlier frame or of uninitialized memory names a
-        /// candidate (invariant 4).
+        /// candidate (invariant 4), and starts the first frame's tag.
         pub fn init(self: *Self) void {
-            @memset(&self.short, 0);
-            if (level.long_hash_log > 0) @memset(&self.long, 0);
+            clear(level, self);
         }
 
-        /// Moves every position `shift` octets down, after the window slid by that much. A position
-        /// that slid out becomes 0.
+        /// Begins the next frame of a matcher `init` started: the next tag, which no entry holds, or
+        /// a clear when the tags ran out.
+        pub fn start(self: *Self) void {
+            self.tag += 1;
+            if (self.tag == @as(u64, 1) << tag_bits(level)) return clear(level, self);
+            self.base = self.tag << position_bits(level);
+        }
+
+        /// Moves every position of this frame `shift` octets down, after the window slid by that
+        /// much. A position that slid out becomes 0.
         pub fn slide(self: *Self, shift: u32) void {
-            for (&self.short) |*entry| entry.* -|= shift;
-            if (level.long_hash_log > 0) slide_entries(&self.long, shift);
+            slide_entries(&self.short, self.base, shift);
+            if (level.long_hash_log > 0) slide_entries(&self.long, self.base, shift);
         }
 
-        /// Parses `window[start..end]`, whose history is `window[0..start]`, into `block`. A match
+        /// Parses `window[first..end]`, whose history is `window[0..first]`, into `block`. A match
         /// ends at `end` at the latest, and reaches back less than the window's length.
-        pub fn parse(self: *Self, window: []const u8, start: usize, end: usize, block: *Block) void {
-            parse_block(level, self, window, start, end, block);
+        pub fn parse(self: *Self, window: []const u8, first: usize, end: usize, block: *Block) void {
+            parse_block(level, self, window, first, end, block);
         }
     };
 }
 
-fn slide_entries(entries: []u32, shift: u32) void {
-    for (entries) |*entry| entry.* -|= shift;
+/// The bits a table entry's position takes: the window and a block are less than twice the
+/// window.
+fn position_bits(comptime level: Level) u5 {
+    return level.window_log + 1;
+}
+
+/// The bits above the position, which hold the frame's tag.
+fn tag_bits(comptime level: Level) u6 {
+    return @bitSizeOf(u32) - @as(u6, position_bits(level));
+}
+
+fn clear(comptime level: Level, self: *Matcher(level)) void {
+    @memset(&self.short, 0);
+    if (level.long_hash_log > 0) @memset(&self.long, 0);
+    self.tag = 1;
+    self.base = @as(u32, 1) << position_bits(level);
+}
+
+/// Moves this frame's entries `shift` positions down, and empties the ones that slid out and every
+/// earlier frame's, which lie below `base` and name no candidate anyway. A select on
+/// `constants.slide_lanes` entries at a time, not a branch: after `start` the tables mix both
+/// kinds, and a branch on them would mispredict. The subtraction wraps, as a checked one would
+/// branch on each entry; an entry above `kept_min` holds more than `shift`, so it never wraps.
+fn slide_entries(entries: []u32, base: u32, shift: u32) void {
+    const Lanes = @Vector(constants.slide_lanes, u32);
+    assert(entries.len % constants.slide_lanes == 0);
+    const kept_min: Lanes = @splat(base + shift);
+    const shifts: Lanes = @splat(shift);
+    const empty: Lanes = @splat(0);
+    for (0..entries.len / constants.slide_lanes) |index| {
+        const lanes = entries[index * constants.slide_lanes ..][0..constants.slide_lanes];
+        const held: Lanes = lanes.*;
+        lanes.* = @select(u32, held > kept_min, held -% shifts, empty);
+    }
 }
 
 fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8, start: usize, end: usize, block: *Block) void {
     assert(start <= end and end <= window.len and end - start <= constants.block_len_max);
+    // Every position, below `end`, fits below the base's tag.
+    assert(end <= @as(usize, 1) << position_bits(level));
     var position = start;
     var anchor = start;
     // A hash reads 8 octets, so a position searches only with 8 ahead; the last few octets go out
@@ -113,38 +162,76 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
 /// `position` either way.
 fn find(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, anchor: usize, end: usize, repeat_offset: u32) ?Found {
     const low = position -| ((@as(usize, 1) << level.window_log) - 1);
+    const bounds = Bounds.at(self.base, position, low);
     const word = read64(window, position);
-    const short_candidate = swap(&self.short[hash(word, level.short_hash_len, level.short_hash_log)], position);
-    const long_candidate = if (level.long_hash_log > 0) swap(&self.long[hash(word, constants.long_hash_len, level.long_hash_log)], position) else 0;
-    // Repeated_Offset1 after at least one literal, where Offset_Value 1 names it (RFC 8878
-    // §3.1.1.5).
-    if (position > anchor and repeat_offset <= position - low and position - repeat_offset > 0) {
-        const candidate = position - repeat_offset;
-        if (read32(window, candidate) == @as(u32, @truncate(word))) return extend(window, position, candidate, anchor, end);
+    const short_entry = swap(&self.short[hash(word, level.short_hash_len, level.short_hash_log)], bounds.entry);
+    const long_entry = if (level.long_hash_log > 0) swap(&self.long[hash(word, constants.long_hash_len, level.long_hash_log)], bounds.entry) else 0;
+    if (repeat_candidate(window, position, anchor, low, repeat_offset, word)) |candidate| return extend(window, position, candidate, anchor, end);
+    if (level.long_hash_log > 0) {
+        if (bounds.candidate(long_entry)) |candidate| {
+            if (read64(window, candidate) == word) return extend(window, position, candidate, anchor, end);
+        }
     }
-    if (level.long_hash_log > 0 and usable(long_candidate, position, low) and read64(window, long_candidate) == word) {
-        return extend(window, position, long_candidate, anchor, end);
-    }
-    if (!usable(short_candidate, position, low) or read32(window, short_candidate) != @as(u32, @truncate(word))) return null;
+    const short_candidate = bounds.candidate(short_entry) orelse return null;
+    if (read32(window, short_candidate) != @as(u32, @truncate(word))) return null;
     if (level.long_hash_log > 0 and position + 1 + constants.match_read_len <= end) {
-        if (long_next(level, self, window, position + 1, low)) |candidate| return extend(window, position + 1, candidate, anchor, end);
+        if (long_next(level, self, window, position + 1, bounds.next())) |candidate| return extend(window, position + 1, candidate, anchor, end);
     }
     return extend(window, position, short_candidate, anchor, end);
 }
 
-/// Stores `position` in `slot` and returns what it held.
-inline fn swap(slot: *u32, position: usize) u32 {
+/// Repeated_Offset1's candidate after at least one literal, where Offset_Value 1 names it (RFC 8878
+/// §3.1.1.5), when its first 4 octets agree with `word`'s.
+inline fn repeat_candidate(window: []const u8, position: usize, anchor: usize, low: usize, repeat_offset: u32, word: u64) ?usize {
+    if (position == anchor or repeat_offset > position - low or position == repeat_offset) return null;
+    const candidate = position - repeat_offset;
+    if (read32(window, candidate) != @as(u32, @truncate(word))) return null;
+    return candidate;
+}
+
+/// Stores `position`'s entry in `slot` and returns the entry it held.
+inline fn swap(slot: *u32, entry: u32) u32 {
     const held = slot.*;
-    slot.* = @intCast(position);
+    slot.* = entry;
     return held;
 }
 
+/// The entries one position reads and writes: its own, and the range of entries that name a
+/// candidate there. The range starts at the window's reach, never at position 0, and ends before
+/// the position; an earlier frame's entries lie below `base`. A position fits below the base's tag
+/// (`parse_block`), so the additions never wrap and the truncations lose no bit.
+const Bounds = struct {
+    base: u32,
+    lowest: u32,
+    entry: u32,
+
+    inline fn at(base: u32, position: usize, low: usize) Bounds {
+        return .{
+            .base = base,
+            .lowest = base +% @as(u32, @truncate(@max(low, 1))),
+            .entry = base +% @as(u32, @truncate(position)),
+        };
+    }
+
+    /// The bounds of the next position, whose window reaches as far.
+    inline fn next(self: Bounds) Bounds {
+        return .{ .base = self.base, .lowest = self.lowest, .entry = self.entry +% 1 };
+    }
+
+    /// The position `entry` names, when it lies in the range.
+    inline fn candidate(self: Bounds, entry: u32) ?u32 {
+        if (entry < self.lowest or entry >= self.entry) return null;
+        return entry -% self.base;
+    }
+};
+
 /// Level 3's long match at `position`, the octet after a short one, which it records in the long
 /// table.
-fn long_next(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, low: usize) ?u32 {
+fn long_next(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, bounds: Bounds) ?u32 {
     const word = read64(window, position);
-    const candidate = swap(&self.long[hash(word, constants.long_hash_len, level.long_hash_log)], position);
-    if (usable(candidate, position, low) and read64(window, candidate) == word) return candidate;
+    const entry = swap(&self.long[hash(word, constants.long_hash_len, level.long_hash_log)], bounds.entry);
+    const candidate = bounds.candidate(entry) orelse return null;
+    if (read64(window, candidate) == word) return candidate;
     return null;
 }
 
@@ -164,13 +251,9 @@ fn insert(comptime level: Level, self: *Matcher(level), window: []const u8, firs
 
 fn record(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize) void {
     const word = read64(window, position);
-    self.short[hash(word, level.short_hash_len, level.short_hash_log)] = @intCast(position);
-    if (level.long_hash_log > 0) self.long[hash(word, constants.long_hash_len, level.long_hash_log)] = @intCast(position);
-}
-
-/// Whether `candidate`, from a table, names an earlier position the window still reaches.
-fn usable(candidate: u32, position: usize, low: usize) bool {
-    return candidate != 0 and candidate >= low and candidate < position;
+    const entry = self.base +% @as(u32, @truncate(position));
+    self.short[hash(word, level.short_hash_len, level.short_hash_log)] = entry;
+    if (level.long_hash_log > 0) self.long[hash(word, constants.long_hash_len, level.long_hash_log)] = entry;
 }
 
 /// A match: where it starts, its length and its offset.

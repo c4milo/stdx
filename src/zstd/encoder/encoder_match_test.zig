@@ -19,9 +19,9 @@ const levels = [_]encoder_match.Level{
     .{ .window_log = window_log, .short_hash_log = short_hash_log, .short_hash_len = constants.short_hash_len, .long_hash_log = long_hash_log },
 };
 
-/// The test's window: three blocks, so history passes the levels' window.
-const blocks = 3;
-const window_len = blocks * constants.block_len_max;
+/// The test's window: the levels' window and a block, as the encoder holds it, positions below
+/// twice the window.
+const window_len = (1 << window_log) + constants.block_len_max;
 
 /// One octet in `noise_odds` is noise; the rest are words.
 const noise_odds = 10;
@@ -81,6 +81,7 @@ test "a block's sequences and literals execute back into the block, at both leve
         var decoder_repeats: encoder_repeat.Repeats = constants.repeated_offsets_initial;
         @memcpy(output[0..1], window[0..1]);
         var start: usize = 0;
+        var sequences_total: usize = 0;
         for (0..6) |_| {
             const len = generator.between(0, constants.block_len_max);
             const end = @min(start + len, window.len);
@@ -95,9 +96,41 @@ test "a block's sequences and literals execute back into the block, at both leve
                 _ = literals_len;
                 try testing.expect(value < (@as(u32, 1) << level.window_log) + constants.repeat_offset_values);
             }
+            sequences_total += sequences.count;
             start = end;
         }
         // Text repeats, so most octets go into matches.
-        try testing.expect(sequences.count > 0);
+        try testing.expect(sequences_total > 0);
     }
+}
+
+test "start moves to the next tag, and clears the tables once the tags run out" {
+    const level = levels[1];
+    const Matcher = encoder_match.Matcher(level);
+    var matcher: Matcher = undefined;
+    matcher.init();
+    var generator = codec.split.Generator.init(14);
+    fill(&generator, &window);
+    var repeats: encoder_repeat.Repeats = constants.repeated_offsets_initial;
+    sequences.count = 0;
+    var block: encoder_match.Block = .{ .sequences = &sequences, .literals = &literals, .literals_len = 0, .repeats = &repeats };
+    matcher.parse(&window, 0, constants.block_len_max, &block);
+    try testing.expectEqual(1, matcher.tag);
+    matcher.start();
+    try testing.expectEqual(2, matcher.tag);
+    // Every entry of the first frame lies below the second frame's base, so none names a
+    // candidate there.
+    var held: usize = 0;
+    for (matcher.short) |entry| {
+        held += @intFromBool(entry != 0);
+        try testing.expect(entry < matcher.base);
+    }
+    for (matcher.long) |entry| try testing.expect(entry < matcher.base);
+    try testing.expect(held > 0);
+    // The window of 2^17 leaves 14 bits of tag: the start after the last tag clears the tables.
+    matcher.tag = (1 << 14) - 1;
+    matcher.start();
+    try testing.expectEqual(1, matcher.tag);
+    for (matcher.short) |entry| try testing.expectEqual(0, entry);
+    for (matcher.long) |entry| try testing.expectEqual(0, entry);
 }

@@ -1,10 +1,11 @@
 //! bench-zstd's encoding section: libzstd's encoder and stdx's at levels 1 and 3, the levels
 //! decision 13 gives stdx's encoder (design §8 step 13).
 //!
-//! - Each operation encodes one whole frame of a part of the row's input from a fresh state, as a
-//!   caller encoding one response does: libzstd creates and frees its context inside it, and stdx
-//!   starts its state with `init`. A file taken whole is one part; a small HTTP body is the slices
-//!   of its payload (decision 45, bench/timing/inputs.zig).
+//! - Each operation encodes one whole frame of a part of the row's input, with a state kept across
+//!   frames, as a server keeps one per connection or thread: libzstd's context, set once to the
+//!   level, and stdx's state, started once with `init` and begun for each frame with `start`
+//!   (decision 60). A file taken whole is one part; a small HTTP body is the slices of its payload
+//!   (decision 45, bench/timing/inputs.zig).
 //! - Throughput counts input octets. The ratio is input octets over encoded octets.
 //! - Each library means its own search by a level, so a row compares what each calls level 1 or 3.
 //!   Neither writes a checksum.
@@ -37,18 +38,20 @@ const Row = struct {
     ratios: [candidate_count]f64,
 };
 
-/// An encode of one frame by libzstd at one level, with no checksum.
+/// An encode of one frame by libzstd at one level, with no checksum, through a context kept
+/// across frames.
 const LibzstdEncode = struct {
     output: []u8,
-    level: c_int,
+    context: *oracle.zstd_encoder.Context,
 
     pub fn run(self: *const LibzstdEncode, input: []const u8) ?usize {
-        return oracle.zstd_encode(.{ .level = self.level, .checksum = false }, input, self.output);
+        return oracle.zstd_encoder.encode(self.context, input, self.output);
     }
 };
 
-/// An encode of one frame by stdx's encoder at `level`, in one call. The state is placed once and
-/// reached through a pointer, and each encode starts it with `init`.
+/// An encode of one frame by stdx's encoder at `level`, in one call. The state is placed once,
+/// started once with `init`, and reached through a pointer; each encode begins its frame with
+/// `start`.
 fn StdxEncode(comptime level: u4) type {
     return struct {
         const Self = @This();
@@ -56,10 +59,9 @@ fn StdxEncode(comptime level: u4) type {
 
         output: []u8,
         encoder: *Encoder,
-        features: codec.Features,
 
         pub fn run(self: *const Self, input: []const u8) ?usize {
-            self.encoder.init(self.features);
+            self.encoder.start();
             return self.encoder.encode_all(input, self.output) catch null;
         }
     };
@@ -104,8 +106,11 @@ fn print_header(out: *std.Io.Writer, unit: []const u8) !void {
 fn measure(comptime level: u4, arena: std.mem.Allocator, io: std.Io, input: Input) !Row {
     const Stdx = StdxEncode(level);
     const output_len = @max(oracle.zstd_bound(input.part_len), Stdx.Encoder.encoded_len_max(input.part_len));
-    const libzstd: LibzstdEncode = .{ .output = try arena.alloc(u8, output_len), .level = level };
-    const stdx: Stdx = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx.Encoder), .features = codec.Features.detect() };
+    const context = oracle.zstd_encoder.create(level) orelse return error.OutOfMemory;
+    defer oracle.zstd_encoder.free(context);
+    const libzstd: LibzstdEncode = .{ .output = try arena.alloc(u8, output_len), .context = context };
+    const stdx: Stdx = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx.Encoder) };
+    stdx.encoder.init(codec.Features.detect());
     var row: Row = .{ .name = input.name, .input_len = input.len(), .level = level, .rates = undefined, .spreads = undefined, .ratios = undefined };
     var candidates: [candidate_count]timing.Operation = undefined;
     const decoded = try arena.alloc(u8, input.part_len);

@@ -345,7 +345,8 @@ Change this section when a step adds or renames a command.
   all on: every candidate interleaved in one run, the median of five runs with the spread. A
   second program then repeats the comparison with libzstd with stdx built ReleaseFast, decision
   17's measure of what the safety checks cost. Last, it times libzstd's encoder and stdx's at
-  levels 1 and 3 over every row, each frame from a fresh state, with each one's ratio
+  levels 1 and 3 over every row, each keeping its state across frames as a server does, libzstd's
+  context and stdx's state begun with `start` (decision 60), with each one's ratio
   (`bench/zstd/zstd_encode.zig`).
 - brotli benchmark: `zig build bench-brotli -Doracles` times Google's brotli decoder and stdx's
   HTTP decoder over every row, encoded once by Google's brotli at its default quality 11

@@ -166,3 +166,27 @@ size_t oracle_zstd_decode_with(ZSTD_DCtx* context, const uint8_t* input, size_t 
   size_t result = ZSTD_decompressDCtx(context, output, output_len, input, input_len);
   return ZSTD_isError(result) ? SIZE_MAX : result;
 }
+
+// A compression context kept across calls, as a server keeps one per connection or thread, set
+// once to `level` with no checksum, so a benchmark times encoding and not the context's set-up.
+ZSTD_CCtx* oracle_zstd_encoder_create(int level) {
+  ZSTD_CCtx* context = ZSTD_createCCtx();
+  if (context == NULL) return NULL;
+  size_t result = ZSTD_CCtx_setParameter(context, ZSTD_c_compressionLevel, level);
+  if (!ZSTD_isError(result)) result = ZSTD_CCtx_setParameter(context, ZSTD_c_checksumFlag, 0);
+  if (ZSTD_isError(result)) {
+    ZSTD_freeCCtx(context);
+    return NULL;
+  }
+  return context;
+}
+
+void oracle_zstd_encoder_free(ZSTD_CCtx* context) { ZSTD_freeCCtx(context); }
+
+// Encodes `input` as one frame into `output` with `context`. Returns the octets written, or
+// SIZE_MAX when libzstd failed or `output` had no room.
+size_t oracle_zstd_encode_with(ZSTD_CCtx* context, const uint8_t* input, size_t input_len,
+                               uint8_t* output, size_t output_len) {
+  size_t result = ZSTD_compress2(context, output, output_len, input, input_len);
+  return ZSTD_isError(result) ? SIZE_MAX : result;
+}

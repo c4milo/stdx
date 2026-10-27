@@ -4056,3 +4056,52 @@ small file.
     **What it risks.** As decision 53's: a wrong bound reads or writes outside the encoder's state
     with no panic. The equality test, the fuzz test, differential-encode and the mutations stand
     against it.
+
+60. **The Zstandard encoder begins a frame with `start`, its tables tagged by frame.** Ruled by
+    the owner on 2026-10-27, who chose it as the first of the encoder's speed work (decision 57).
+    Drafted as decisions 58 and 59, whose numbers decisions 58 and 59 now hold.
+
+    `init` clears the match finder's tables, 256 KiB at level 1 and 768 KiB at level 3, which
+    costs more than a small body's encoding. `start` begins the next frame of an encoder `init`
+    started, and clears nothing:
+    - A table entry holds a window position in its low window_log + 1 bits, as the window and a
+      block hold fewer octets than twice the window. The bits above it, 9 at the largest window,
+      hold the tag of the frame that stored it.
+    - `init` clears the tables and sets the tag to 1. `start` adds 1 to the tag, and clears the
+      tables again when the tag passes its bits: once in 512 frames at the largest window.
+    - An entry is the frame's base, its tag shifted above every position, plus the position. Tags
+      only grow between clears, so an earlier frame's entries lie below the base. One range check
+      then finds a candidate: an entry from base + max(low, 1) to below base + position. `find`
+      computes both ends once a position, and the entry it stores is the second end.
+    - An entry of an earlier frame names no candidate, as a cleared one does. So a frame begun
+      with `start` writes the octets of one begun with `init` (invariants 4 and 5).
+      `differential-zstd-encode` encodes every file again from the same state with `start`, and
+      requires the same octets.
+    - A slide moves this frame's positions down, and empties the ones that slid out and every
+      earlier frame's, eight entries a step with a vector select. Its subtraction wraps: a checked
+      one kept a branch on every entry, which mispredicts on tables that mix both kinds of entry.
+      That form ran nci 0.59 to 0.78 of main's speed at level 3.
+
+    Paired against main on the runners (run
+    [40535059200](https://github.com/c4milo/stdx/actions/runs/40535059200), reports
+    `bench/results/2026-10-27-zstd-encoder-start-*.md`), stdx's encoder over main's:
+
+    | CPU | Level | Median | 1 KiB bodies | Slowest row |
+    |---|---|---|---|---|
+    | Neoverse N2 | 1 | 1.01 | 1.65 to 1.88 | 0.979, ptt5 |
+    | Neoverse N2 | 3 | 1.03 | 2.97 to 3.71 | 0.961, shuffled dickens-1m |
+    | EPYC 9V74 | 1 | 0.99 | 1.54 to 1.77 | 0.967, sao |
+    | EPYC 9V74 | 3 | 1.01 | 2.62 to 3.28 | 0.974, html-1m |
+
+    About 15 rows per CPU read 0.96 to 0.99, past their spreads. The owner ruled on 2026-10-27
+    that it lands with them.
+
+    `start` is a programmer's promise that `init` ran on this state before; on memory `init` never
+    cleared, an entry's tag could be anything. The benchmark keeps each encoder across frames, as
+    a server keeps one per connection or thread: stdx's state with `start`, and libzstd's context.
+
+    The alternatives refused:
+    - Clearing only the part of each table a frame used: a frame of a few octets still touches
+      entries across the whole table, by its hash.
+    - Tables sized to the first block's length: the hash's width would depend on how the input
+      arrived, and a stream would need one table size for its whole frame.
