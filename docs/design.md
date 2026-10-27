@@ -4444,11 +4444,25 @@ to 12 are reordered and nothing else changes.
     compressed one that names its offsets. Two other checks were removed as redundant: the
     anchor and the window bound in a match's back extension, which the loop's count and the
     unchanged offset already give.
-  - The speed and the ratio against libzstd are not met. The runners' numbers are under
-    `bench/results/`, from the `bench` workflow's `zstd` benchmark, which now times the encoders.
-    On the M1, which publishes no number (decision 10), stdx encoded at 0.14 to 0.52 of libzstd's
-    speed on every row. Its ratio was 1.02 to 1.11 of libzstd's at level 1 on most files, and 0.97
-    to 1.0 at level 3 on text; on nci it was 0.79 at level 1 and 0.87 at level 3.
+  - The speed and the ratio against libzstd are not met. The `bench` workflow's `zstd` benchmark,
+    which now times the encoders, ran at c70e26e (run
+    [40495156507](https://github.com/c4milo/stdx/actions/runs/40495156507), reports
+    `bench/results/2026-10-27-zstd-encoder-aarch64.md` and `-x86_64.md`). Over the 39 rows, stdx
+    over libzstd:
+
+    | CPU | Level | Speed, median | Speed, range | Ratio, median | Ratio, range |
+    |---|---|---|---|---|---|
+    | Neoverse N2 | 1 | 0.27 | 0.13 to 0.41 | 0.995 | 0.789 to 1.114 |
+    | Neoverse N2 | 3 | 0.38 | 0.16 to 1.08 | 0.993 | 0.866 to 1.018 |
+    | EPYC 7763 | 1 | 0.29 | 0.12 to 0.41 | 0.995 | 0.789 to 1.114 |
+    | EPYC 7763 | 3 | 0.38 | 0.16 to 0.98 | 0.993 | 0.866 to 1.018 |
+
+    - Speed: of 78 rows, one reaches libzstd's on the N2, shuffled dickens-1m at level 3 (1.08),
+      and none on the EPYC 7763. The slowest are x-ray at level 1, and the 1 KiB bodies at level
+      3, whose frames each clear 768 KiB of tables.
+    - Ratio: 17 rows of 39 beat libzstd's at level 1, and 4 at level 3. nci (0.789, 0.866),
+      kennedy.xls (0.827, 0.909) and css-1m lose most.
+    - A first run at d2ed8d2 on an EPYC 9V45 gave the same picture: medians 0.31 and 0.37.
 
 - **Step 14: the brotli encoder.** Levels 1 and 5, after a decision record of its own on levels and
   memory.
