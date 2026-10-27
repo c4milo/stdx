@@ -3786,3 +3786,53 @@ small file.
       runners never draw.
     - The flag in the matcher, tested in `advance_lazy`: the first form. It changed the compiled
       Zig loop, and the EPYC 7763 ran cp.html and osdb 1% to 2% slower.
+
+55. **An assembly loop for the DEFLATE encoder's level 1, on libdeflate's parse.** Ruled by the
+    owner on 2026-10-26: "Approve, aarch64 first", after the owner chose level 1's output as the
+    next gap the same day. Drafted on 2026-10-21 as decision 51, whose number decision 51 now
+    holds; the draft is kept in the records of the work. The owner paused the work on 2026-10-26:
+    "Pause, record it".
+
+    **The form it runs on.** Main's level 1 writes 1.059 of libdeflate's output at the geometric
+    mean of the 39 rows. The parity form writes 0.9986, and no row larger. It takes libdeflate's
+    level 1 parse, as a black-box study of its streams found it: 2^15 heads of two positions, the
+    multiplier `0x1e35a7bd`, a reach of 32,767, and blocks that end at 8,192 pairs or 65,535 octets
+    of input. On 2026-10-20 the owner ruled that a smaller output lands only once level 1 is no
+    slower than libdeflate on each row. The parity form runs level 1 at 0.87 of libdeflate's speed
+    on the N2 and at 0.86 to 0.90 on x86-64, at the median.
+
+    **The rule.** It amends decision 16 for one loop, `advance_greedy`, which may run as
+    hand-written assembly, aarch64 first, then x86-64, under decision 53's rules: the Zig loop as
+    the reference and the fallback, the same symbols on every input, the bounds computed by the Zig
+    caller and asserted at the call's entry and exit, and every number from `constants.zig`. A loop
+    stays only if dickens and webster gain past the larger of 2% and their spread in both jobs of a
+    pair against the parity form, and no row slows in both at any level.
+
+    **What the loops gave.** Runs on the branch `perf-deflate-177` and on, each job running the
+    parity form first. Every stream equals the parity form's on all 39 corpus files.
+    - aarch64 (runs 40417841176 and 40417844204): level 1 at 1.086 and 1.085 of the parity form on
+      the N2, 34 rows faster in both jobs, none slower, dickens 1.11 and webster 1.10. Over
+      libdeflate, 0.874 became 0.965 at the median. Callgrind: dickens 40.75 instructions an octet
+      became 36.15, against libdeflate's 36.61. So the loop stays under the rule.
+    - Two further aarch64 forms each moved level 1 by 2% at most and slowed other rows in both
+      jobs: the next position's head loaded before a literal's branch (runs 40424597586 and
+      40424600187), and the match end's octets and head loaded at the pair (runs 40431279300 and
+      40431281902).
+    - x86-64 (runs 40439097352, 40439100187 and Intel run 40439232116): 1.030 and 1.018 on two
+      EPYCs, 1.007 to 1.041 on four Xeons. dickens gained 1.8% in one EPYC job, webster did not
+      gain in both, and x-ray ran slower in both EPYC jobs, 0.984 and 0.959. So the loop does not
+      stay. Callgrind: dickens 47.24 became 44.42, against libdeflate's 37.49; the block writer
+      takes 14.5 of them on x86-64 and 10.4 on aarch64.
+
+    **Why it waits.** With the aarch64 loop, level 1 runs at 0.94 to 0.96 of libdeflate on the N2,
+    with 25 to 30 rows below it: grammar.lsp 0.81, nci 0.83, json-1m and kennedy.xls 0.86. x86-64
+    stays at 0.87 to 0.92, with its worst rows near 0.70. The parity form meets the bar on no
+    runner, so neither it nor the loop lands. Main's level 1 stays.
+
+    **What the parity form needs to land, besides the bar.** It moved state and limits, each a
+    ruling of its own: level 1's state from 163 KiB to 400 KiB and levels 6 and 9's to 430 KiB, as
+    `Block` holds 49,152 symbols at every level; 15 hash bits and two positions a head at level 1;
+    every covered position inserted; and decision 44's checks at level 1. Its first form gave
+    levels 6 and 9 the 49,152-symbol cap too, which changed their octets; a cap kept per block
+    restores them.
+

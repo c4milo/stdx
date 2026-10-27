@@ -3258,6 +3258,18 @@ to 12 are reordered and nothing else changes.
       tail and head compares as one branch, and the lazy decision as one branch. On Intel they
       ran level 6 at 0.996 to 0.998 and at 0.978 to 0.993 of main's speed (runs 40406407977 and
       40406482366). The owner kept main's output size as the bar.
+  - Level 1's loop in assembly on the parity form, 2026-10-26 (decision 55), paused by the owner.
+    The work is on the branch `l1-form` of the records, at 23ccff1: the parity form's commits
+    replayed on main 2772871, a cap of symbols kept per block (d1d3ecf), and the aarch64 loop.
+    - `encoder_match_greedy_aarch64_test.zig` runs both loops on copies of one matcher and one
+      block: seeded windows of seven kinds through every block, 280 streams the Zig loop stopped,
+      each of the block's three caps nearly reached, and a fuzz test. A broken literal count fails
+      three of them.
+    - The parity form's streams, with and without each loop, equal ee4d7ac's on all 39 corpus
+      files at level 1. differential-encode passes at levels 6 and 9 with main's hashes; level 1
+      fails its recorded hashes, as its output is the parity form's.
+    - Decision 55 holds the pairs: the aarch64 loop stays under its rule, the x86-64 loop and two
+      further aarch64 forms do not.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
