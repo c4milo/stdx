@@ -4509,6 +4509,21 @@ to 12 are reordered and nothing else changes.
     The Xeon's rows under 1, grammar.lsp, xargs.1 and kennedy.xls, are the runner's: libzstd's
     own speed fell 13 to 17% on them between the halves of the job, and stdx over libzstd rose on
     each.
+  - The table work each block repeats, 2026-10-27, the owner's choice of the next cost. On
+    html-1kx1024 at level 1 it fell from 134.8 to 110.5 instructions an octet, the output
+    unchanged:
+    - The Huffman codes take one pass to count each length and one to assign, up to the last
+      literal that occurs, where they took a pass over the alphabet per length.
+    - The sums over the 256 literals run 8 lanes a step.
+    - A block's own FSE table builds its cells only when the block encodes through it. Its
+      description is written once, when the mode is priced.
+    - The Huffman stream joins five codes into one put.
+
+    Paired against main on the runners (run
+    [40590088368](https://github.com/c4milo/stdx/actions/runs/40590088368), reports
+    `bench/results/2026-10-27-zstd-encoder-tables-*.md`): no row below main on the N2 or an EPYC
+    7763. The 1 KiB bodies ran 1.16 to 1.20 of main's speed, and now run 0.41 to 0.50 of
+    libzstd's. The medians over main were 1.01 to 1.03.
 
 - **Step 14: the brotli encoder.** Levels 1 and 5, after a decision record of its own on levels and
   memory.
