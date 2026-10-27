@@ -17,8 +17,8 @@
 //! - `zig build bench-brotli -Doracles` times brotli decoding against Google's brotli over the
 //!   corpora (`bench/brotli/brotli.zig`).
 //! - `zig build bench-profile -Doracles` counts cycles, instructions and branch misses per gzip,
-//!   Zstandard and brotli decoder, where the host exposes the counters (`bench/profile/profile.zig`),
-//!   and then per JSON token (`bench/json/json_profile.zig`).
+//!   Zstandard and brotli decoder and per gzip and Zstandard encoder, where the host exposes the
+//!   counters (`bench/profile/profile.zig`), and then per JSON token (`bench/json/json_profile.zig`).
 //! - `zig build bench-json -Doracles` times the json module's vector paths against its scalar ones
 //!   and beside simdjson, yyjson and Zig's std.json, over CLDR's JSON texts and texts made from the
 //!   corpus (`bench/json/json.zig`, build/oracle_json.zig).
@@ -116,7 +116,7 @@ pub fn add(b: *std.Build, options: Options) void {
     const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
     const bench_brotli_step = b.step("bench-brotli", "Time brotli decoding against Google's brotli over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
-    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, and per json token (-Doracles)");
+    const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, per gzip and Zstandard encoder, and per json token (-Doracles)");
     const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
     const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step };
     if (!options.enabled) {

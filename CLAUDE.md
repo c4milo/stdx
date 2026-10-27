@@ -360,8 +360,9 @@ Change this section when a step adds or renames a command.
   decoders, and for Google's and stdx's brotli decoders over each file's first MiB, over every
   row, through Linux's perf_event_open, and says so where the host exposes no counters. It counts
   them per input octet for libdeflate's and stdx's gzip encoders at levels 1, 6 and 9 too
-  (`bench/profile/profile_encode.zig`). Last, `bench_json --profile` counts them per token and per octet for the
-  `json` module's decoder and encoder, with every claim on and every claim off, for the encoder
+  (`bench/profile/profile_encode.zig`), and for libzstd's and stdx's Zstandard encoders at
+  levels 1 and 3 (`bench/profile/profile_zstd_encode.zig`). Last, `bench_json --profile` counts
+  them per token and per octet for the `json` module's decoder and encoder, with every claim on and every claim off, for the encoder
   with J11's loop unchecked, and for simdjson, yyjson and Zig's std.json, over one workload of each
   shape (`bench/json/json_profile.zig`). The `bench` workflow's `profile` option runs it on both
   hosted runners, after allowing a process to count its own events.
