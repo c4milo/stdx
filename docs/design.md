@@ -3281,6 +3281,11 @@ to 12 are reordered and nothing else changes.
       fails its recorded hashes, as its output is the parity form's.
     - Decision 55 holds the pairs: the aarch64 loop stays under its rule, the x86-64 loop and two
       further aarch64 forms do not.
+  - Level 9's parse priced in bits, 2026-10-26 and 27 (decision 58), stopped by the owner. The
+    prototype is on the branch `perf-deflate-181`. Its tests: the round trips, the splits and the
+    flushes of `encoder_test.zig` and `encoder_split_test.zig` pass; the outputs recorded for level
+    9 change. differential-encode decodes every output through stdx, zlib and Wuffs, and fails only
+    level 9's recorded hashes. Decision 58 holds the sizes and the cost.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its

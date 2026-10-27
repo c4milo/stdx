@@ -3940,3 +3940,49 @@ small file.
     Left for the speed and ratio work, not refused: Treeless_Literals_Block, "less than 1"
     probabilities, a table sized to a small body, and a clear that costs less than the whole
     table.
+
+58. **Level 9 chooses its symbols by their price in bits.** Proposed on 2026-10-26, after the owner
+    chose level 9's output as the next gap the same day. Ruled the same day: "Approve, model first",
+    then "Two rounds, search twice". Stopped on 2026-10-27 by the owner: "Stop, record it". Main's
+    level 9 stays. The owner's bar: no level may write more or run slower than libdeflate, on any
+    row (decision 48's entry).
+
+    **Where level 9 stands, on main (b78cfbc).** It writes 1.008 of libdeflate's level 9 output at
+    the geometric mean of the 39 rows, 32 rows larger: kennedy.xls 1.104, css-1m 1.028, sum 1.021,
+    x-ray 1.015, the text rows 1.007 to 1.013. It runs at 1.44 to 1.96 times libdeflate's speed.
+
+    **What libdeflate's level 9 does, read from its streams alone** (decision 9). stdx's level 9
+    barely improves on its level 6: dickens writes 2.650 times smaller at both, and x-ray writes
+    the same octets at both. Against stdx's level 9, libdeflate's takes more literals and fewer
+    matches (dickens 1.036 million literals against 0.835 million), nearer distances at an equal
+    length (kennedy.xls 53,024 matches 5 to 16 octets back against 28,555), matches of 3 octets,
+    and far fewer blocks (5 against 53 on kennedy.xls). These are the marks of a parse priced in
+    bits.
+
+    **The model** (`pricedmodel.zig` in the records: real codes limited to 15 bits, real headers,
+    the cheapest of dynamic, fixed and stored blocks). A parse of least price over runs of 8,192
+    positions, priced by the block's codes so far, writes 0.9826 of libdeflate's output, 6 rows
+    larger. Prices from the fixed code at a stream's start trap DNA: E.coli takes 55,394 literals
+    and 585,000 short matches against libdeflate's 1.89 million literals. Prices of the first run's
+    literals from its own octets, and a second round priced by the first, give 0.9738 of
+    libdeflate and 0.9664 of main, with html-1k one octet over.
+
+    **The prototype** (branch `perf-deflate-181`, c94c00d and e9bf5eb). Level 9 parses each run
+    twice. Between the rounds it restores the heads, the chain links whose slots the run took, and
+    its 3-octet table, so the second search reads what the first read.
+    - Size: 0.9749 of libdeflate's level 9 output and 0.9675 of main's, two rows larger than
+      libdeflate (E.coli 1.0062, json-1k 1.0048). Levels 1 and 6 keep main's octets.
+    - Speed: 0.063 of main's level 9 speed on the N2 and the EPYC 7763, nci and xml at 0.02 (runs
+      40482273758 and 40482277265). After three cuts (16 links, a match of 32 taken whole, one
+      relax a length code), callgrind counts 1,063 instructions an octet on dickens against
+      main's 151, 514 on nci against 73, and 653 on xml against 70. About 260 on dickens would
+      run at libdeflate's speed. The cost spreads over the relaxes, the walk and each position's
+      upkeep, twice.
+
+    **Why it stops.** One round halves the cost, still about twice the budget, and leaves four rows
+    above libdeflate. A cache of the first round's matches costs about 256 KiB of state. Neither
+    reaches the bar on speed without a search far cheaper than level 9's walk.
+
+    What a later try needs: the model and the prototype hold the size; the open part is a search
+    of all lengths at every position at the cost of main's level 9 lazy search.
+
