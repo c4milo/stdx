@@ -57,6 +57,7 @@ threadlocal var codes: encoder_sequences.Codes = undefined;
 threadlocal var state: encoder_sequences.State = undefined;
 threadlocal var tables: sequences_module.Tables = undefined;
 threadlocal var octets: [section_len_max]u8 = undefined;
+threadlocal var expected: [section_len_max]u8 = undefined;
 
 test "a written section's sequences read back through the decoder, block after block" {
     var generator = codec.split.Generator.init(6);
@@ -89,6 +90,26 @@ test "a written section's sequences read back through the decoder, block after b
             try testing.expectEqual(sequences.match_lens[index], sequence.match_len);
             try testing.expectEqual(sequences.offset_values[index], sequence.offset_value);
         }
+    }
+}
+
+test "a section fits an output of exactly its length, and not one octet less" {
+    var generator = codec.split.Generator.init(7);
+    for (0..20) |_| {
+        draw(&generator, &sequences, generator.between(1, 3000));
+        state.init();
+        var writer = codec.Writer.init(&octets);
+        try encoder_sequences.write_section(&writer, &sequences, &codes, &state);
+        const section_len = writer.position;
+        @memcpy(expected[0..section_len], writer.written());
+        // The bitstream's last sequences go through the checked path, as the room runs short.
+        state.init();
+        writer = codec.Writer.init(octets[0..section_len]);
+        try encoder_sequences.write_section(&writer, &sequences, &codes, &state);
+        try testing.expectEqualSlices(u8, expected[0..section_len], writer.written());
+        state.init();
+        writer = codec.Writer.init(octets[0 .. section_len - 1]);
+        try testing.expectError(error.NoSpaceLeft, encoder_sequences.write_section(&writer, &sequences, &codes, &state));
     }
 }
 

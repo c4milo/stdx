@@ -315,6 +315,13 @@ fn Encoding(comptime Table: type) type {
             try put(writer, bits.value, bits.count);
         }
 
+        /// `step` after a store, which left room for it (`constants.sequence_stored_room_min`).
+        inline fn step_stored(self: *@This(), writer: *codec.BitWriter, symbol: u8) void {
+            const t = self.table orelse return;
+            const bits = t.step(&self.state, symbol);
+            writer.put(bits.value, bits.count);
+        }
+
         fn finish(self: *const @This(), writer: *codec.BitWriter) Error!void {
             const t = self.table orelse return;
             try put(writer, t.final_value(self.state), t.accuracy_log);
@@ -336,6 +343,14 @@ fn write_bitstream(writer: *codec.BitWriter, sequences: *const Sequences, codes:
     var index = last;
     for (0..last) |_| {
         index -= 1;
+        if (writer.writer.room_len() >= constants.sequence_stored_room_min) {
+            writer.store();
+            offset.step_stored(writer, codes.offset[index]);
+            match_length.step_stored(writer, codes.match_length[index]);
+            literals_length.step_stored(writer, codes.literals_length[index]);
+            write_extra_stored(writer, sequences, codes, index);
+            continue;
+        }
         try offset.step(writer, codes.offset[index]);
         try match_length.step(writer, codes.match_length[index]);
         try literals_length.step(writer, codes.literals_length[index]);
@@ -358,6 +373,19 @@ fn write_extra(writer: *codec.BitWriter, sequences: *const Sequences, codes: *co
     const offset = codes.offset[index];
     const offset_value = sequences.offset_values[index];
     try put(writer, offset_value - (@as(u32, 1) << @intCast(offset)), @intCast(offset));
+}
+
+/// One sequence's extra bits, as `write_extra` orders them, with a store between Literals_Length's
+/// and Match_Length's (decision 14, E5). The caller stored before the state updates, and had room
+/// for both stores (`constants.sequence_stored_room_min`).
+fn write_extra_stored(writer: *codec.BitWriter, sequences: *const Sequences, codes: *const Codes, index: usize) void {
+    const literals_length = codes.literals_length[index];
+    writer.put(sequences.literals_lens[index] - constants.literals_length_baselines[literals_length], constants.literals_length_extra_bits[literals_length]);
+    writer.store();
+    const match_length = codes.match_length[index];
+    writer.put(sequences.match_lens[index] - constants.match_length_baselines[match_length], constants.match_length_extra_bits[match_length]);
+    const offset = codes.offset[index];
+    writer.put(sequences.offset_values[index] - (@as(u32, 1) << @intCast(offset)), @intCast(offset));
 }
 
 fn put(writer: *codec.BitWriter, value: u64, count: u7) Error!void {

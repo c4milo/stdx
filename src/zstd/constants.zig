@@ -327,6 +327,13 @@ pub const huffman_direct_symbols_max = 128;
 /// above the 7 a store may leave.
 pub const huffman_codes_per_store = 5;
 
+/// The output room, in octets, for which the sequences bitstream writes one sequence through two
+/// stores of the bit writer (decision 14, E5): 8 octets each. The first store moves the output at
+/// most 7 octets, so the second still has its 8. After the first, at most 7 bits stay; the three
+/// state updates and the Literals_Length extra bits add at most 8 + 9 + 9 + 16. After the second,
+/// the Match_Length and offset extra bits add at most 16 + 31. Both stay within the 64-bit buffer.
+pub const sequence_stored_room_min = 2 * 8;
+
 /// The most sequences a block holds: each takes a match of at least 3 octets of the block's
 /// Block_Maximum_Size (RFC 8878 §3.1.1.2.4, §3.1.1.3.2.1.1).
 pub const block_sequences_max = block_len_max / 3 + 1;
@@ -442,6 +449,8 @@ comptime {
     assert(literals_length_baselines[literals_length_symbols - 1] + (1 << literals_length_extra_bits[literals_length_symbols - 1]) - 1 == 131071);
     assert(match_length_baselines[match_length_symbols - 1] + (1 << match_length_extra_bits[match_length_symbols - 1]) - 1 == 131074);
     assert(literals_length_accuracy_log_max <= accuracy_log_max and offset_accuracy_log_max <= accuracy_log_max);
+    assert(7 + offset_accuracy_log_max + match_length_accuracy_log_max + literals_length_accuracy_log_max + @as(u32, std.mem.max(u5, &literals_length_extra_bits)) <= 64);
+    assert(7 + @as(u32, std.mem.max(u5, &match_length_extra_bits)) + offset_code_max <= 64);
     assert((1 << offset_repeat_codes) - 1 == repeat_offset_values);
     assert(offset_selects_cells_min < 1 << offset_accuracy_log_max);
     for ([_][]const i16{ &literals_length_default, &match_length_default, &offset_default }, [_]u5{ literals_length_default_accuracy_log, match_length_default_accuracy_log, offset_default_accuracy_log }) |distribution, log| {
