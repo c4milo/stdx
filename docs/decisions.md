@@ -3687,7 +3687,7 @@ small file.
     **What it does not do.**
     - It changes no output.
     - It leaves the cheap and dear blocks in Zig: x-ray and ooffice run most of their positions in
-      the dear loop, which this entry does not cover.
+      the dear loop, which this entry does not cover. Decision 59 takes the dear loop on aarch64.
     - It leaves level 9, the writer and the block's plan in Zig.
 
     **What it risks.** A wrong bound in the assembly reads or writes outside the encoder's state,
@@ -3986,3 +3986,73 @@ small file.
     What a later try needs: the model and the prototype hold the size; the open part is a search
     of all lengths at every position at the cost of main's level 9 lazy search.
 
+59. **Level 6's dear blocks run their lazy loop in assembly too.** Proposed on 2026-10-27, after
+    the owner chose level 6's rows on the N2 and AMD as the next gap and "Draft the dear loop
+    entry" the same day, and ruled the same day: "Approve, aarch64 first". It amends decision 53, which named the dear blocks of decision 50 as
+    outside its loop. The owner's bar: no level may write more or run slower than libdeflate, on
+    any row (decision 48's entry).
+
+    **Where level 6 stands.** On the N2 at main 5a7ebcc's code, level 6 runs below libdeflate on 4
+    rows: x-ray 0.865, ooffice 0.919, mr 0.961 and mozilla 0.998 (runs 40356831116 and
+    40356838255, second attempts). x-ray and ooffice spend most of their positions in dear blocks.
+
+    **Where the instructions go.** Callgrind on aarch64, level 6, the first 2 MiB, instructions an
+    octet, at origin/main 5aa7845:
+
+    | Row | stdx | libdeflate | The dear loop | The writer |
+    |---|---|---|---|---|
+    | x-ray | 107.0 | 81.2 | about 81 | 16.8 |
+    | ooffice | 99.5 | 80.2 | about 78 | 11.9 |
+    | mr | 90.6 | 87.3 | under 4 | 8.0 |
+
+    mr runs decision 53's loop, at 72.6, and stands at libdeflate's count. Its gap is the
+    mispredicts of decision 58's study, not this loop. The dear loop holds x-ray's and ooffice's.
+
+    **What decision 53's loop gave the plain blocks.** 11% to 17% fewer instructions an octet, and
+    level 6 at 1.064 to 1.068 of main's speed on the N2.
+
+    **The rule.**
+    - Decision 53's rule, its checks and its measurement hold, for one more loop: `advance_lazy` in
+      `encoder_match_dear.zig`, with `find`, `decide`, `take_waiting`, the 3-octet table's insert,
+      probe and tally, and the tail walk inline. aarch64 first. The Zig loop stays the reference.
+    - The loop does what the Zig loop does, in the same order of effect: each position joins its
+      chain and the table; it searches where the chain's nearest candidate or the table's holds its
+      4 octets, after a match of 4 or more shorter than `lazy_len`, and not after one of `lazy_len`;
+      after a literal with no match it takes the table's 3-octet match; the lazy step keeps decision
+      36's score; a taken match's covered positions join both; a 3-octet match is counted for the
+      table's verdict.
+    - It reuses decision 53's text for the walk, the compare and the symbol's stores, and adds the
+      table's insert and probe, the score, and the tally. The template takes every limit from
+      `constants.zig`, comptime asserts pin each, and each loop stops at a named bound.
+    - `advance_lazy` in `encoder_match_dear.zig` calls it where decision 53's guard holds: level 6,
+      an aarch64 target built by LLVM. x86-64 waits for its own ruling, under decision 54's
+      vendor rule.
+
+    **The checks.** As decision 53's: an equality test of both loops on copies of one matcher, one
+    block and one table, over seeded windows and stopped streams, each exit and branch reached, the
+    table's every state; a fuzz test; differential-encode's hashes in ReleaseSafe and Debug; the
+    mutations of each compare; `test-self-hosted` and `test-avx512`.
+
+    **The measurement that admits it.** Under decision 20, pairs against main on the N2: x-ray and
+    ooffice faster past the larger of 2% and their spread in both jobs, and no row at any level
+    slower past the larger of its spread and 1% in both jobs, unless decision 20's placement
+    amendments exempt it. The M1 times it row by row before the owner rules on landing.
+
+    **What the aarch64 loop gave.** At 5bf1eae against main (5aa7845), runs
+    [40502111438](https://github.com/c4milo/stdx/actions/runs/40502111438) and
+    [40502114668](https://github.com/c4milo/stdx/actions/runs/40502114668), each job on one VM:
+    - Neoverse N2, both jobs: x-ray 1.122 and 1.133 of main's speed at level 6, ooffice 1.074
+      and 1.077, 15 rows faster in both jobs and none slower at any level. Over libdeflate, level
+      6 leaves 3 rows below it where 4 were: mr 0.969, x-ray 0.976 and ooffice 0.992.
+    - The x86-64 jobs, two on an EPYC 9V74, run the Zig loop: no row moved in both.
+    - Callgrind, instructions an octet: x-ray 107.0 became 97.05, ooffice 99.5 became 90.52.
+    - Output: every row's octets are main's; differential-encode passes with main's hashes.
+    - The M1, 5 runs a row at a load near 6, beside a copy of main against main whose rows read
+      0.976 to 1.028: 1.005 at the median, x-ray 1.101 and ooffice 1.075 at 0.91 and 0.90 of
+      main's instructions. One row read slower past 1%, cp.html at 0.976 at equal instructions,
+      within the copy's spread.
+    So the loop stays under the rule above.
+
+    **What it risks.** As decision 53's: a wrong bound reads or writes outside the encoder's state
+    with no panic. The equality test, the fuzz test, differential-encode and the mutations stand
+    against it.

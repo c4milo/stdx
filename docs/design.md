@@ -3286,6 +3286,23 @@ to 12 are reordered and nothing else changes.
     flushes of `encoder_test.zig` and `encoder_split_test.zig` pass; the outputs recorded for level
     9 change. differential-encode decodes every output through stdx, zlib and Wuffs, and fails only
     level 9's recorded hashes. Decision 58 holds the sizes and the cost.
+  - Level 6's dear-block loop in aarch64 assembly, 2026-10-27 (decision 59).
+    `encoder_match_dear_aarch64.zig` holds the loop's state and its call, and
+    `encoder_match_dear_aarch64_template.zig` the dear blocks' own pieces; the search, its links,
+    its compare and its moves are decision 53's text. `advance_lazy` in `encoder_match_dear.zig`
+    calls it where decision 53's loop runs, and runs `advance_lazy_zig` elsewhere.
+    - The pairs at 5bf1eae, runs 40502111438 and 40502114668, ran main (5aa7845) first, on a
+      Neoverse N2 in both; the x86-64 jobs ran the Zig loop. Decision 59 holds the figures, and
+      `bench/results/2026-10-27-deflate-encoder-level6-dear-asm-*` the reports.
+    - `encoder_match_dear_aarch64_test.zig` runs both loops on copies of one matcher, one block and
+      one 3-octet table and requires every field equal: seven kinds of seeded window, 280 streams
+      the Zig loop stopped, a match of 3 octets waiting at some, nearly full blocks, a candidate
+      at the reach's edge that only the chain's nearest holds, and a fuzz test.
+    - differential-encode passes in its ReleaseSafe build with main's hashes.
+    - Mutations of the dear pieces, by `deflate_mutate.py`: 16 of 18 CAUGHT, one of them after the
+      edge test was added. The 2 others change no output: a position whose table entry is empty,
+      or whose table candidate lies one octet past the reach, searches where it would not, and its
+      walk finds nothing, as no nearer position holds even 3 of its octets.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
