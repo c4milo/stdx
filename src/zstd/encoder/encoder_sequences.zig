@@ -65,6 +65,9 @@ fn CodeState(comptime log_max: u4, comptime symbol_limit: usize, comptime defaul
         mode: Mode,
         symbol: u8,
         distribution: fse.Distribution,
+        /// The description of `distribution`, written once when `choose` prices it.
+        description: [constants.fse_description_len_max]u8,
+        description_len: u8,
         scratch: fse.Table(log_max),
 
         pub fn init(self: *Self) void {
@@ -137,9 +140,14 @@ fn choose_mode(comptime log_max: u4, self: anytype, counts: []const u32, total: 
     }
     encoder_fse.normalize(counts, total, encoder_fse.accuracy_log_for(total, present, log_max), &self.distribution);
     const own = &self.tables[~self.last_slot];
-    own.build(&self.distribution, &self.scratch);
-    const description_bits = description_len(&self.distribution) * @bitSizeOf(u8) * constants.cost_fraction;
-    if (own.cost(counts).? + description_bits < best) best_mode = .compressed;
+    own.build_probabilities(&self.distribution);
+    self.description_len = write_description_once(&self.distribution, &self.description);
+    const description_bits = @as(u64, self.description_len) * @bitSizeOf(u8) * constants.cost_fraction;
+    if (own.cost(counts).? + description_bits < best) {
+        best_mode = .compressed;
+        // The cells only a table the block encodes through reads.
+        own.build_cells(&self.distribution, &self.scratch);
+    }
     self.mode = best_mode;
 }
 
@@ -163,12 +171,7 @@ fn commit_mode(self: anytype) void {
 fn write_mode_description(self: anytype, writer: *codec.Writer) Error!void {
     switch (self.mode) {
         .rle => try writer.write_octet(self.symbol),
-        .compressed => {
-            var bits = codec.BitWriter.init(writer.octets[writer.position..], .{});
-            try encoder_fse.write_distribution(&bits, &self.distribution);
-            if (!bits.drain()) return error.NoSpaceLeft;
-            writer.position += bits.writer.position;
-        },
+        .compressed => try writer.write_all(self.description[0..self.description_len]),
         .predefined, .repeat => {},
     }
 }
@@ -176,13 +179,12 @@ fn write_mode_description(self: anytype, writer: *codec.Writer) Error!void {
 /// A code type's tables: the last compressed block's, and the one a block builds.
 const table_slots = 2;
 
-/// The octets `distribution`'s description takes, written into a scratch buffer.
-fn description_len(distribution: *const fse.Distribution) usize {
-    var octets: [constants.fse_description_len_max]u8 = undefined;
-    var writer = codec.BitWriter.init(&octets, .{});
+/// Writes `distribution`'s description into `octets`. Returns the octets it takes.
+fn write_description_once(distribution: *const fse.Distribution, octets: *[constants.fse_description_len_max]u8) u8 {
+    var writer = codec.BitWriter.init(octets, .{});
     encoder_fse.write_distribution(&writer, distribution) catch unreachable;
     assert(writer.drain());
-    return writer.writer.position;
+    return @intCast(writer.writer.position);
 }
 
 pub const LiteralsLengthState = CodeState(constants.literals_length_accuracy_log_max, constants.literals_length_symbols, constants.literals_length_default_accuracy_log, &constants.literals_length_default);

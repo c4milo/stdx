@@ -25,8 +25,7 @@ pub fn write_section(writer: *codec.Writer, literals: []const u8, scratch: *Scra
     if (literals.len == 0) return write_raw(writer, literals);
     var counts: [constants.literal_symbols]u32 = @splat(0);
     for (literals) |literal| counts[literal] += 1;
-    var present: usize = 0;
-    for (counts) |count| present += @intFromBool(count > 0);
+    const present = present_count(&counts);
     if (present == 1) return write_rle(writer, literals[0], literals.len);
     if (literals.len < constants.literals_compressed_len_min) return write_raw(writer, literals);
     const start = writer.position;
@@ -44,6 +43,17 @@ pub fn write_section(writer: *codec.Writer, literals: []const u8, scratch: *Scra
         writer.position = start;
         return write_raw(writer, literals);
     }
+}
+
+/// The literals whose count is not zero, `literal_sum_lanes` counts a step.
+fn present_count(counts: *const [constants.literal_symbols]u32) u32 {
+    const Lanes = @Vector(constants.literal_sum_lanes, u32);
+    var present: Lanes = @splat(0);
+    for (0..constants.literal_symbols / constants.literal_sum_lanes) |step| {
+        const lanes: Lanes = counts[step * constants.literal_sum_lanes ..][0..constants.literal_sum_lanes].*;
+        present +%= @select(u32, lanes > @as(Lanes, @splat(0)), @as(Lanes, @splat(1)), @as(Lanes, @splat(0)));
+    }
+    return @reduce(.Add, present);
 }
 
 /// The octets of a raw or RLE section's header for `size` literals: 1 below 32, 2 below 4096,

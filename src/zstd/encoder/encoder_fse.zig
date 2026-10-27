@@ -148,7 +148,20 @@ pub fn EncodeTable(comptime log_max: u4, comptime symbol_limit: usize) type {
 
         /// Builds the states of `distribution` from the decoder's table of it.
         pub fn build(self: *Self, distribution: *const fse.Distribution, scratch: *fse.Table(log_max)) void {
-            build_table(log_max, self, distribution, scratch);
+            build_probabilities_of(self, distribution);
+            build_cells_of(log_max, self, distribution, scratch);
+        }
+
+        /// The first half of `build`: the accuracy log, probabilities and starts, all that
+        /// `cost` reads. `build_cells` completes the table.
+        pub fn build_probabilities(self: *Self, distribution: *const fse.Distribution) void {
+            build_probabilities_of(self, distribution);
+        }
+
+        /// The second half of `build`, after `build_probabilities` of the same distribution: the
+        /// cells that `first_state` and `step` read.
+        pub fn build_cells(self: *Self, distribution: *const fse.Distribution, scratch: *fse.Table(log_max)) void {
+            build_cells_of(log_max, self, distribution, scratch);
         }
 
         /// The state the last symbol encoded ends in: its cell of the lowest state, which reads at
@@ -180,11 +193,8 @@ pub fn EncodeTable(comptime log_max: u4, comptime symbol_limit: usize) type {
 /// The bits one encoded symbol writes: the low `count` bits of `value`.
 pub const Step = struct { value: u32, count: u5 };
 
-fn build_table(comptime log_max: u4, self: anytype, distribution: *const fse.Distribution, scratch: *fse.Table(log_max)) void {
-    const symbol_limit = self.probabilities.len;
-    assert(distribution.symbol_count <= symbol_limit);
-    assert(distribution.accuracy_log <= log_max);
-    fse.build(log_max, scratch, distribution) catch unreachable;
+fn build_probabilities_of(self: anytype, distribution: *const fse.Distribution) void {
+    assert(distribution.symbol_count <= self.probabilities.len);
     self.accuracy_log = distribution.accuracy_log;
     var start: u16 = 0;
     for (&self.probabilities, &self.starts, 0..) |*probability, *symbol_start, symbol| {
@@ -194,6 +204,12 @@ fn build_table(comptime log_max: u4, self: anytype, distribution: *const fse.Dis
         start += probability.*;
     }
     assert(start == @as(u32, 1) << self.accuracy_log);
+}
+
+fn build_cells_of(comptime log_max: u4, self: anytype, distribution: *const fse.Distribution, scratch: *fse.Table(log_max)) void {
+    assert(distribution.accuracy_log <= log_max);
+    assert(self.accuracy_log == distribution.accuracy_log);
+    fse.build(log_max, scratch, distribution) catch unreachable;
     var placed = self.starts;
     for (scratch.entries(), 0..) |entry, cell| {
         self.cells[placed[entry.symbol]] = @intCast(cell);

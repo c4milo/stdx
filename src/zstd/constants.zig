@@ -428,6 +428,10 @@ pub const literals_compressed_header_lens = [_]u8{ 3, 3, 4, 5 };
 pub const literals_raw_header_two = 2;
 pub const literals_raw_header_three = 3;
 
+/// The literal counts one step of a sum over the alphabet adds: two 128-bit vectors of u32 on
+/// aarch64, one of 256 bits with AVX2. The alphabet holds a whole number of steps.
+pub const literal_sum_lanes = 8;
+
 /// The table entries one step of a slide moves: two 128-bit vectors of u32 on aarch64, one of
 /// 256 bits with AVX2. Every table holds a power of two of entries, at least this many.
 pub const slide_lanes = 8;
@@ -451,6 +455,8 @@ comptime {
     assert(literals_length_accuracy_log_max <= accuracy_log_max and offset_accuracy_log_max <= accuracy_log_max);
     assert(7 + offset_accuracy_log_max + match_length_accuracy_log_max + literals_length_accuracy_log_max + @as(u32, std.mem.max(u5, &literals_length_extra_bits)) <= 64);
     assert(7 + @as(u32, std.mem.max(u5, &match_length_extra_bits)) + offset_code_max <= 64);
+    assert(literal_symbols % literal_sum_lanes == 0);
+    assert(block_len_max * huffman_bits_max <= std.math.maxInt(u32));
     assert((1 << offset_repeat_codes) - 1 == repeat_offset_values);
     assert(offset_selects_cells_min < 1 << offset_accuracy_log_max);
     for ([_][]const i16{ &literals_length_default, &match_length_default, &offset_default }, [_]u5{ literals_length_default_accuracy_log, match_length_default_accuracy_log, offset_default_accuracy_log }) |distribution, log| {

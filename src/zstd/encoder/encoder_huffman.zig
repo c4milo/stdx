@@ -54,7 +54,7 @@ pub fn build(counts: *const [symbols]u32, code: *Code) void {
     tree_depths(counts, order[0..used], &depths);
     for (order[0..used], depths[0..used]) |literal, depth| code.lengths[literal] = depth;
     limit_lengths(code, order[0..used]);
-    assign_codes(code);
+    assign_codes(code, @intCast(std.mem.max(u16, order[0..used])));
 }
 
 /// Lists the literals that occur in `order`, lightest first, ties by literal. Returns how many.
@@ -162,28 +162,32 @@ fn heaviest_fitting(code: *const Code, order: []const u16, room: u32) u16 {
 }
 
 /// The prefix codes of RFC 8878 §4.2.1.3: from the lowest weight up, literal order within a
-/// weight, each code the one after the last, halved at each step up a weight.
-fn assign_codes(code: *Code) void {
+/// weight, each code the one after the last, halved at each step up a weight. One pass counts the
+/// literals of each length, from which each length's first code follows; a second gives each
+/// literal the next code of its length. Both stop at `last`, the last literal that occurs.
+fn assign_codes(code: *Code, last: u8) void {
+    var length_counts: [bits_max + 1]u32 = @splat(0);
+    for (code.lengths[0 .. @as(usize, last) + 1]) |length| length_counts[length] += 1;
+    assert(code.lengths[last] != 0);
     var longest: u8 = 0;
-    var last: u8 = 0;
-    for (code.lengths, 0..) |length, literal| {
-        if (length == 0) continue;
-        longest = @max(longest, length);
-        last = @intCast(literal);
+    for (length_counts[1..], 1..) |count, length| {
+        if (count > 0) longest = @intCast(length);
     }
     code.bits_max = @intCast(longest);
     code.last = last;
+    var next_codes: [bits_max + 1]u32 = @splat(0);
     var next: u32 = 0;
     var length = longest;
     for (0..longest) |_| {
-        for (code.lengths, &code.codes) |literal_length, *prefix| {
-            if (literal_length != length) continue;
-            prefix.* = @intCast(next);
-            next += 1;
-        }
+        next_codes[length] = next;
+        next += length_counts[length];
         assert(next % tree_arity == 0 or length == 1);
         next /= tree_arity;
         length -= 1;
+    }
+    for (code.lengths[0 .. @as(usize, last) + 1], code.codes[0 .. @as(usize, last) + 1]) |literal_length, *prefix| {
+        prefix.* = @intCast(next_codes[literal_length]);
+        next_codes[literal_length] += 1;
     }
 }
 
@@ -194,10 +198,17 @@ fn weight_of(code: *const Code, length: u8) u8 {
 
 /// The octets the coded literals take: their codes' bits, and the final 1 bit, per stream.
 pub fn streams_len(code: *const Code, counts: *const [symbols]u32, stream_count: usize) usize {
-    var bits: usize = 0;
-    for (counts, code.lengths) |count, length| bits += count * length;
+    const lanes_len = constants.literal_sum_lanes;
+    const Lanes = @Vector(lanes_len, u32);
+    var bits: Lanes = @splat(0);
+    for (0..symbols / lanes_len) |step| {
+        const lane_counts: Lanes = counts[step * lanes_len ..][0..lanes_len].*;
+        const lane_lengths: @Vector(lanes_len, u8) = code.lengths[step * lanes_len ..][0..lanes_len].*;
+        // The counts sum to a block's literals at most, each of at most 11 bits: no lane wraps.
+        bits +%= lane_counts *% @as(Lanes, lane_lengths);
+    }
     // Each stream adds its final bit and rounds up to an octet.
-    return bits / @bitSizeOf(u8) + stream_count;
+    return @as(usize, @reduce(.Add, bits)) / @bitSizeOf(u8) + stream_count;
 }
 
 /// The scratch of a description's FSE-compressed weights.
@@ -285,11 +296,16 @@ pub fn write_stream(writer: *codec.BitWriter, code: *const Code, literals: []con
     const batch = constants.huffman_codes_per_store;
     for (0..literals.len / batch) |_| {
         if (!writer.has_store_room()) break;
+        // The batch's codes joined, the first in the low bits, go into the buffer in one put.
+        var value: u64 = 0;
+        var count: u7 = 0;
         inline for (0..batch) |_| {
             index -= 1;
             const literal = literals[index];
-            writer.put(code.codes[literal], @intCast(code.lengths[literal]));
+            value |= @as(u64, code.codes[literal]) << @intCast(count);
+            count += @intCast(code.lengths[literal]);
         }
+        writer.put(value, count);
         writer.store();
     }
     for (0..index) |_| {
