@@ -3887,3 +3887,56 @@ small file.
     - Adapters in the consumer: each consumer writes the same code again, and gets the failure
       cases wrong in its own way.
     - Keeping decision 2 as it stood, which leaves every consumer to write the loop of design §4.
+
+57. **The Zstandard encoder's frames, blocks and tables.** The owner ruled on 2026-10-27 that the
+    encoder of design §8 step 13 lands with its speed below libzstd's, recorded in the step's
+    entry, and that its speed work follows. The choices below are the step's own, and the owner
+    may review them.
+
+    **The frame.**
+    - A frame whose first block is its last is single-segment and states Frame_Content_Size (RFC
+      8878 §3.1.1.1.1.2). Its Window_Size is then its content's size, so a decoder of a small body
+      needs no larger window than the body.
+    - Any other frame states its window in Window_Descriptor: 2^19 octets at level 1 and 2^21 at
+      level 3 (decision 12). It leaves Frame_Content_Size out, as a streaming encoder does not know
+      it.
+    - Content_Checksum is the caller's choice, `EncoderOptions.checksum`, and off by default, as
+      libzstd's library leaves it off.
+    - Every offset is smaller than Window_Size, as RFC 8878 §3.1.1.4 asks, although stdx's decoder
+      accepts one equal to it (decision 22).
+
+    **The blocks.** The encoder ends a block of 128 KiB only once input past it arrives. A flush
+    ends a block at the input's end, and a finish ends the last block. So the place a block ends
+    depends on the input and its flush points alone, never on the way the caller split its calls
+    (invariant 5). A block of one octet repeated goes out as an RLE_Block. A block whose sections
+    do not fit one octet less than its own length goes out as a Raw_Block. A block that does not go
+    out compressed puts back the Repeated_Offsets and the sequence tables its parse moved, as RFC
+    8878 §3.1.1.5 and §3.1.1.3.2.1 read them only from compressed blocks.
+
+    **The tables.** `init` clears the match finder's tables: 256 KiB at level 1 and 768 KiB at
+    level 3. A table position of 0 names no candidate, so a frame's first octet never starts a
+    match. The clear keeps every candidate a function of the input alone (invariant 4). For a
+    small body, it costs more than the body's encoding.
+
+    **The entropy stages.**
+    - A literals section is raw, RLE or Huffman-coded, whichever is smallest. A Huffman-coded one
+      takes one stream below 256 literals and four from 256 on. The code is Huffman's tree, its
+      leaves brought up to 11 bits and its Kraft sum made whole again. Its weights go out
+      FSE-compressed or directly, whichever is shorter.
+    - Each sequence code takes RLE_Mode when one code occurs. Otherwise it takes the cheapest of
+      the default table, the last compressed block's table, and a table of its own counts with
+      its description.
+    - An FSE table gives every symbol that occurs a probability of 1 at least. It uses no "less
+      than 1" probability (RFC 8878 §4.1.1).
+
+    The alternatives refused:
+    - Frame_Content_Size in every frame: a streaming encoder learns the size only at the end.
+    - A table that the encoder clears only as far as a frame reaches: a table's old positions
+      would come from an earlier frame or from memory the caller never wrote, and the output would
+      depend on them.
+    - Content_Checksum on by default: 4 octets more in every frame, which a body under TLS does
+      not need.
+
+    Left for the speed and ratio work, not refused: Treeless_Literals_Block, "less than 1"
+    probabilities, a table sized to a small body, and a clear that costs less than the whole
+    table.

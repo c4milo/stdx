@@ -310,6 +310,123 @@ pub const work_per_written_max = 1;
 /// can decode one sequence it has no room to write.
 pub const work_per_call_max = block_table_work_max + block_len_max + 1;
 
+// The encoder's limits (design §8 step 13).
+
+/// An FSE table takes about 2^(log2(counts) - this) points: enough to price each symbol near its
+/// share, and few enough that its description stays short.
+pub const fse_counts_log_drop = 2;
+
+/// Costs are counted in 1/256ths of a bit, so a symbol's share of a table prices to that grain.
+pub const cost_fraction = 256;
+
+/// The most weights a direct Huffman description holds: its header byte of 255 less 127 (RFC 8878
+/// §4.2.1.1).
+pub const huffman_direct_symbols_max = 128;
+
+/// The Huffman codes one store of the bit writer takes: five of at most 11 bits fit the 57 bits
+/// above the 7 a store may leave.
+pub const huffman_codes_per_store = 5;
+
+/// The most sequences a block holds: each takes a match of at least 3 octets of the block's
+/// Block_Maximum_Size (RFC 8878 §3.1.1.2.4, §3.1.1.3.2.1.1).
+pub const block_sequences_max = block_len_max / 3 + 1;
+
+/// The most octets an FSE table description takes: Accuracy_Log's 4 bits, then 53 probabilities of
+/// at most 10 bits and their repeat flags (RFC 8878 §4.1.1).
+pub const fse_description_len_max = 128;
+
+/// Lengths from these on take the code of their highest bit plus an offset, as Tables 16 and 17
+/// give them; the codes of the lengths below come from a table (RFC 8878 §3.1.1.3.2.1.1). A match
+/// length counts from its first baseline, 3.
+pub const literals_length_log_code_min = 64;
+pub const literals_length_log_code_offset = 19;
+pub const match_length_log_code_min = 128;
+pub const match_length_log_code_offset = 36;
+
+/// The first octet of a three-octet Number_of_Sequences (RFC 8878 §3.1.1.3.2.1).
+pub const sequences_three_octet_mark = 255;
+
+/// Fewer literals than this go out raw: a tree description costs more than they could save.
+pub const literals_compressed_len_min = 64;
+
+/// This many literals or more take four Huffman-coded streams, which a decoder reads in parallel;
+/// fewer take one (RFC 8878 §3.1.1.3.1.6).
+pub const literals_four_streams_len_min = 256;
+
+/// The octets a tree description takes, as a guess before it is written: a code whose streams
+/// save less than this over the raw literals is not tried.
+pub const literals_description_len_guess = 16;
+
+/// A raw or RLE section's Regenerated_Size: up to 31 in the header's first octet, from bit 3; up
+/// to 4095 and 1048575 in two and three octets, from bit 4, with Size_Format 01 and 11 (RFC 8878
+/// §3.1.1.3.1.1).
+pub const literals_size_one_octet_max = 31;
+pub const literals_size_two_octet_max = 4095;
+pub const literals_size_one_octet_shift = 3;
+pub const literals_size_shift = 4;
+pub const literals_size_format_two = 1;
+pub const literals_size_format_three = 3;
+
+/// The octets a match finder's hash reads at a position: a position searches only with this many
+/// ahead in its block.
+pub const match_read_len = 8;
+
+/// The octets the long table of level 3 hashes.
+pub const long_hash_len = 8;
+
+/// The odd multiplier of the tables' hash: the top bits of a word times it name a slot.
+pub const match_hash_multiplier: u64 = 0x9E3779B185EBCA87;
+
+/// A search that finds nothing steps 1 + (literals since the last match >> this): through octets
+/// that do not repeat, the steps grow, so a block of them costs little.
+pub const match_skip_log = 6;
+
+/// After a match, the tables record its position plus `match_insert_skip`, then every
+/// `match_insert_step`th position, then the one `match_insert_tail` before its end.
+pub const match_insert_skip = 2;
+pub const match_insert_step = 8;
+pub const match_insert_tail = 2;
+
+/// A level's window and tables: the log2 of its window and of its two tables' entries, 0 for a
+/// level with no long table.
+pub const EncoderLevel = struct { number: u4, window_log: u5, short_hash_log: u5, long_hash_log: u5 };
+
+/// Each level's window and tables (decision 12): level 1 hashes 5 octets into 2^16 entries over
+/// a window of 2^19 octets; level 3 adds a table of 2^17 entries of 8 octets, over 2^21.
+pub const encoder_levels = [_]EncoderLevel{
+    .{ .number = 1, .window_log = 19, .short_hash_log = 16, .long_hash_log = 0 },
+    .{ .number = 3, .window_log = 21, .short_hash_log = 16, .long_hash_log = 17 },
+};
+pub const short_hash_len = 5;
+
+/// The windows a caller may choose: at least a block, as Block_Maximum_Size is the smaller of 128
+/// KiB and Window_Size (RFC 8878 §3.1.1.2.4); at most 2^22, below the 8,000,000 octets the encoder
+/// keeps every HTTP frame under (decision 12).
+pub const encoder_window_log_min = 17;
+pub const encoder_window_log_max = 22;
+
+/// A call's rounds: two per block of its input, a block and its drain, and beyond them the drain,
+/// the block a flush or a finish ends, and the drain after it.
+pub const encoder_rounds_per_block = 2;
+pub const encoder_rounds_extra = 4;
+
+/// Frame_Content_Size_Flag for a 4-octet Frame_Content_Size (RFC 8878 §3.1.1.1.1.1, Table 4).
+pub const content_size_flag_four = 2;
+
+/// The octets of a Huffman-coded section's header for each Size_Format: 3, 3, 4 and 5 (RFC 8878
+/// §3.1.1.3.1.1).
+pub const literals_compressed_header_lens = [_]u8{ 3, 3, 4, 5 };
+
+/// A raw or RLE section's header in two or three octets (RFC 8878 §3.1.1.3.1.1).
+pub const literals_raw_header_two = 2;
+pub const literals_raw_header_three = 3;
+
+/// The branches comptime may take to build the encoder's default tables and code tables.
+pub const default_encode_table_eval_quota = 200_000;
+
+/// The branches comptime may take to build the table of log2 costs.
+pub const cost_table_eval_quota = 20_000;
+
 comptime {
     assert(std.math.isPowerOfTwo(http_window_len));
     assert(match_length_baselines[0] >= 3 * work_per_written_max);

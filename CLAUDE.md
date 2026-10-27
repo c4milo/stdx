@@ -297,6 +297,12 @@ Change this section when a step adds or renames a command.
   It then corrupts frames of each file's first 4 KiB, the frame header's fields included, and
   requires stdx's verdict to equal that of libzstd's streaming decoder, limited to the same 2^23
   window, or to match an entry of `tools/oracle/verdicts.zig`.
+  `zig build differential-zstd-encode -Doracles` encodes every corpus file whole at levels 1 and 3,
+  and its first 256 KiB with and without a checksum. Each frame must fit `encoded_len_max`, decode
+  to its input through stdx and libzstd, ask for no window over 8,000,000 octets, and have the
+  SHA-256 recorded in `tools/differential/zstd_encode_hashes.zig`; seeded flush points and splits
+  must give the same octets. `-Dencode-optimize=Debug` builds stdx in another mode, and `--
+  --record` prints a new list.
   `zig build differential-brotli -Doracles` has Google's brotli encode the first 256 KiB of every
   corpus file at qualities 0, 1, 5 and 9 with WBITS 22, 10, 16 and 24, and at quality 11 with 22 and
   10, NPOSTFIX, NDIRECT and flush points seeded. stdx's HTTP decoder must decode each stream whole
@@ -338,7 +344,9 @@ Change this section when a step adds or renames a command.
   3; then stdx's fast paths against its checked path, and each claim of decision 14 off against
   all on: every candidate interleaved in one run, the median of five runs with the spread. A
   second program then repeats the comparison with libzstd with stdx built ReleaseFast, decision
-  17's measure of what the safety checks cost.
+  17's measure of what the safety checks cost. Last, it times libzstd's encoder and stdx's at
+  levels 1 and 3 over every row, each frame from a fresh state, with each one's ratio
+  (`bench/zstd/zstd_encode.zig`).
 - brotli benchmark: `zig build bench-brotli -Doracles` times Google's brotli decoder and stdx's
   HTTP decoder over every row, encoded once by Google's brotli at its default quality 11
   and window 22, each row stating its streams' size as a percentage of its octets; then stdx's fast path against its checked path, and each claim off against all

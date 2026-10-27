@@ -1,4 +1,5 @@
-//! The tests of the Zstandard IoReader, the octets given in parts, over frames written here.
+//! The tests of the Zstandard IoReader and IoWriter, the octets and the room given in parts, over
+//! frames written here and frames the encoder writes.
 
 const std = @import("std");
 const testing = std.testing;
@@ -34,4 +35,16 @@ test "a Zstandard IoReader refuses a frame its source ends inside, and octets th
     var output: [32]u8 = undefined;
     try io_parts.expect_failure(TestReader, frames[0 .. frames.len - 1], error.Truncated, &output);
     try io_parts.expect_failure(TestReader, frames ++ "\x00\x00\x00\x00", error.InvalidMagic, &output);
+}
+
+test "a Zstandard stream round-trips through the IoWriter and the IoReader at levels 1 and 3" {
+    var plain_buffer: [6000]u8 = undefined;
+    const plain = io_parts.fill_text(&plain_buffer);
+    var storage: [12_000]u8 = undefined;
+    var output: [6000]u8 = undefined;
+    inline for (.{ 1, 3 }) |level| {
+        // A window of a block, which the test's reader holds.
+        const coded = try io_parts.expect_round_trip(io.IoWriter(.{ .level = level, .window_log = 17 }), TestReader, plain, &storage, &output);
+        try testing.expect(coded.len < plain.len);
+    }
 }

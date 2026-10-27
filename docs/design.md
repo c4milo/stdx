@@ -4406,6 +4406,50 @@ to 12 are reordered and nothing else changes.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
   8,000,000 octets at the HTTP levels (decision 12).
 
+  **Check met in part, 2026-10-27.** The encoder is `src/zstd/encoder/`, its frames as decision 57
+  describes them, and `zstd.IoWriter` puts it behind `std.Io.Writer` (decision 56). Zig 0.16.0 on
+  the owner's M1 Pro under macOS 26.6.2:
+  - `zig build test` exits 0. The unit tests read every stage back through the decoder's own
+    code: FSE descriptions and states, Huffman trees and streams, literals sections, sequences
+    sections across blocks, and frames whole and under seeded splits with flush points.
+  - `zig build differential-zstd-encode -Doracles` prints `39 files, 390 checks, 0 failed`: every
+    corpus file whole at levels 1 and 3, and its first 256 KiB with and without a checksum, decode
+    through libzstd and stdx; no frame asks for more than 8,000,000 octets; after each seeded
+    flush, stdx decodes exactly the input so far; seeded splits give the same octets; and every
+    output's SHA-256 equals tools/differential/zstd_encode_hashes.zig. Built with
+    `-Dencode-optimize=Debug`, it prints the same.
+  - 42 mutations, each applied, run against `zig build test-zstd`, or against
+    `differential-zstd-encode` where only the octets change, and reverted. All 42 CAUGHT, each by
+    a test or a check that failed, none by a compile error:
+    - FSE: a shortfall or an excess left in the sum; short values never short; long values not
+      offset; zero flags one short; a description not padded; a state that never reads one bit
+      fewer; the first state a higher cell; cells out of table order.
+    - Huffman: lengths over 11 kept; room left in the Kraft sum; codes not halved; weights off by
+      one; direct weights swapped; the weight states in read order; no final bit.
+    - Literals: an RLE header written raw; a one-octet size at bit 2; the last stream short; a
+      Huffman-coded section kept larger than the raw one.
+    - Sequences: extras, updates and states in read order; a two-octet count without its base; a
+      commit that keeps its slot; RLE repeated for another symbol; a literals length code one
+      high.
+    - Repeated_Offsets: the second not rotated; the third value with no literals off by one.
+    - The match finder: the window bound off; a match one long; Repeated_Offset1 taken without
+      its check.
+    - The frame and the blocks: the window exponent one low; a two-octet size without its offset;
+      RLE for any block; a raw block that keeps its parse's offsets; compressed room past the
+      block; the checksum not updated.
+    - The encoder: a flush with nothing pending that writes a block; a block cut without input past
+      it; a slide one short and tables not slid, by the recorded hashes.
+    Three mutations first came back NOT CAUGHT, and their tests are now in: a repair of the Kraft
+    sum that adds length back, a section larger than its raw form, and a raw block before a
+    compressed one that names its offsets. Two other checks were removed as redundant: the
+    anchor and the window bound in a match's back extension, which the loop's count and the
+    unchanged offset already give.
+  - The speed and the ratio against libzstd are not met. The runners' numbers are under
+    `bench/results/`, from the `bench` workflow's `zstd` benchmark, which now times the encoders.
+    On the M1, which publishes no number (decision 10), stdx encoded at 0.14 to 0.52 of libzstd's
+    speed on every row. Its ratio was 1.02 to 1.11 of libzstd's at level 1 on most files, and 0.97
+    to 1.0 at level 3 on text; on nci it was 0.79 at level 1 and 0.87 at level 3.
+
 - **Step 14: the brotli encoder.** Levels 1 and 5, after a decision record of its own on levels and
   memory.
   **Check:** as step 9, through Google's brotli and stdx's decoder.

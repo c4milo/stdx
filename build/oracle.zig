@@ -39,6 +39,7 @@ const std = @import("std");
 const modules = @import("modules.zig");
 const baselines = @import("baselines.zig");
 const oracle_corpus = @import("oracle_corpus.zig");
+const oracle_zstd_encode = @import("oracle_zstd_encode.zig");
 const oracle_json = @import("oracle_json.zig");
 
 /// The zlib sources the oracle compiles: the library without its gz* file layer, which would need
@@ -96,8 +97,8 @@ const disabled_message = "pass -Doracles: the oracles and the corpora are lazy p
 pub const Options = struct {
     /// Whether the build was given `-Doracles`.
     enabled: bool,
-    /// The mode differential-encode builds stdx in: the encoders' output must be the same in every
-    /// mode (invariant 5).
+    /// The mode differential-encode and differential-zstd-encode build stdx in: the encoders'
+    /// output must be the same in every mode (invariant 5).
     encode_optimize: std.builtin.OptimizeMode,
 };
 
@@ -110,13 +111,14 @@ pub fn add(b: *std.Build, options: Options) void {
     const deflate_step = b.step("differential-deflate", "Require the DEFLATE decoder to agree with the oracles (-Doracles)");
     const encode_step = b.step("differential-encode", "Require the encoders' output to decode through the oracles (-Doracles)");
     const zstd_step = b.step("differential-zstd", "Require the Zstandard decoder to agree with libzstd (-Doracles)");
+    const zstd_encode_step = b.step("differential-zstd-encode", "Require the Zstandard encoder's output to decode through libzstd (-Doracles)");
     const brotli_step = b.step("differential-brotli", "Require the brotli decoder to agree with Google's brotli (-Doracles)");
     const bench_zstd_step = b.step("bench-zstd", "Time Zstandard decoding against libzstd over the corpora (-Doracles)");
     const bench_brotli_step = b.step("bench-brotli", "Time brotli decoding against Google's brotli over the corpora (-Doracles)");
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, and per json token (-Doracles)");
     const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step };
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -246,6 +248,8 @@ pub fn add(b: *std.Build, options: Options) void {
     zstd_run.has_side_effects = true;
     oracle_corpus.add_args(b, zstd_run, corpus);
     zstd_step.dependOn(&zstd_run.step);
+
+    oracle_zstd_encode.add(b, zstd_encode_step, .{ .oracle = oracle, .corpus_names = corpus_names, .corpus = corpus, .baseline = baseline, .graph = encode_graph });
 
     const brotli_module = b.createModule(.{
         .root_source_file = b.path("tools/differential/brotli.zig"),

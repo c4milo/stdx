@@ -16,11 +16,24 @@ pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
 pub const refusal = decoder.refusal;
 
+const encoder = @import("encoder/encoder.zig");
+pub const Encoder = encoder.Encoder;
+pub const EncoderOptions = encoder.EncoderOptions;
+
 const io = @import("io.zig");
 pub const IoReader = io.IoReader;
 pub const HttpIoReader = io.HttpIoReader;
+pub const IoWriter = io.IoWriter;
 
 test {
+    _ = @import("encoder/encoder_fse.zig");
+    _ = @import("encoder/encoder_huffman.zig");
+    _ = @import("encoder/encoder_repeat.zig");
+    _ = @import("encoder/encoder_sequences.zig");
+    _ = @import("encoder/encoder_literals.zig");
+    _ = @import("encoder/encoder_match.zig");
+    _ = @import("encoder/encoder_frame.zig");
+    _ = @import("encoder/encoder.zig");
     _ = io;
     _ = constants;
     _ = @import("fse.zig");

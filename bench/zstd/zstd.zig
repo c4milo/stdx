@@ -16,6 +16,9 @@
 //! - Decision 14's claims: stdx's decoder with each claim off in turn against the decoder with all
 //!   on (design §8 step 11), each claim's A/B, reported as the ratio of the two throughputs.
 //!
+//! - Encoding: libzstd's encoder and stdx's at levels 1 and 3, the levels decision 13 gives
+//!   stdx's encoder: zstd_encode.zig.
+//!
 //! - Decision 17's measurement: `bench_zstd_release_fast`, this program with stdx built
 //!   ReleaseFast, prints the comparison with libzstd after it. The difference bounds what the
 //!   safety checks cost; ReleaseFast is never offered to a caller.
@@ -36,6 +39,7 @@ const zstd = @import("zstd");
 const bench_options = @import("bench_options");
 const inputs = timing.inputs;
 const Input = inputs.Input;
+const zstd_encode = @import("zstd_encode.zig");
 
 /// The libzstd level whose frames the decoders are timed on: its default.
 const decode_level: c_int = 3;
@@ -133,6 +137,7 @@ pub fn main(init: std.process.Init) !void {
     for (zstd.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (rows) |row| try report_claims(arena, io, out, row);
+    try zstd_encode.report(arena, io, out, rows);
     try out.flush();
 }
 
