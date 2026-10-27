@@ -95,7 +95,9 @@ test "an IoWriter encodes a repeated slice" {
     var writer: CopyWriter = undefined;
     writer.init(&destination.interface, &.{}, .{});
     try writer.interface.splatByteAll('x', 4);
-    try writer.interface.writeSplatAll(@constCast(&[_][]const u8{ "", "ab" }), 2);
+    // `writeSplatAll` writes into the array it takes, so it gets one it may write.
+    var data = [_][]const u8{ "", "ab" };
+    try writer.interface.writeSplatAll(&data, 2);
     try writer.finish();
     try testing.expectEqualStrings("xxxxabab.", destination.written());
 }
