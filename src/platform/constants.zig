@@ -27,11 +27,20 @@ pub const ecx_osxsave: u32 = 1 << 27;
 pub const ecx_avx: u32 = 1 << 28;
 
 /// XCR0's bits 1 and 2: the system saves the SSE and AVX register state, so the YMM registers that
-/// the SHA-512 instructions take are usable.
+/// the SHA-512 instructions, AVX2, VAES and VPCLMULQDQ take are usable.
 pub const xcr0_sse_avx: u64 = 1 << 1 | 1 << 2;
+
+/// CPUID leaf 7, subleaf 0, EBX bit 5: AVX2.
+pub const leaf_7_ebx_avx2: u32 = 1 << 5;
 
 /// CPUID leaf 7, subleaf 0, EBX bit 29: SHA, the SHA-1 and SHA-256 instructions.
 pub const leaf_7_ebx_sha: u32 = 1 << 29;
+
+/// CPUID leaf 7, subleaf 0, ECX bit 9: VAES, the AES round instructions on YMM registers.
+pub const leaf_7_ecx_vaes: u32 = 1 << 9;
+
+/// CPUID leaf 7, subleaf 0, ECX bit 10: VPCLMULQDQ, the carry-less multiply on YMM registers.
+pub const leaf_7_ecx_vpclmulqdq: u32 = 1 << 10;
 
 /// CPUID leaf 7, subleaf 1, EAX bit 0: SHA512, the SHA-512 instructions.
 pub const leaf_7_1_eax_sha512: u32 = 1 << 0;

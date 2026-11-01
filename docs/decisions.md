@@ -2562,6 +2562,24 @@ small file.
     - The check compares them with /proc/cpuinfo's `ssse3` and `sse4_1` on x86-64, and with
       `machdep.cpu.features`' `SSSE3` and `SSE4.1` on an Intel Mac.
 
+    **Amended on 2026-11-01: AVX2 and VAES.** The owner filed [issue
+    16](https://github.com/c4milo/stdx/issues/16) for colibri, and approved the work on
+    2026-11-01. chapulin 0.2.0's `CH_CPU_AVX2` and `CH_CPU_VAES` bits pick its 256-bit kernels.
+    - `Cpu` gains `avx2` and `vaes`, each an `Answer`, under the definitions chapulin's
+      `cpu_cfg.h` gives the two bits.
+    - x86-64: `avx2` from CPUID leaf 7, EBX bit 5. `vaes` from leaf 7's ECX bits 9 (VAES) and 10
+      (VPCLMULQDQ), and `yes` only when the CPU has both and `avx2` is `yes`. chapulin's VAES bit
+      states both instructions on the 256-bit registers, as `aes_clmul` pairs AES with PCLMULQDQ.
+    - Each takes YMM registers, so each is `yes` only when leaf 1 reports AVX and OSXSAVE and XCR0
+      holds the SSE and AVX state, as for `sha512`.
+    - aarch64, on every system: `no`, as for `ssse3` and `sse4_1`.
+    - The x86-64 probe moves to `src/platform/platform_x86.zig`, to keep each file under 500
+      lines. Its read takes CPUID and XGETBV as a parameter, so a unit test gives it fixed
+      registers.
+    - The check compares them with /proc/cpuinfo's `avx2`, `vaes` and `vpclmulqdq` on x86-64, and
+      with `machdep.cpu.leaf7_features`' `AVX2`, `VAES` and `VPCLMULQDQ` on an Intel Mac.
+    - Not in this amendment: a call that sets PSTATE.DIT. `probe` still changes no CPU state.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
