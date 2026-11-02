@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   modules:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       modules: ${{ steps.list.outputs.modules }}
     steps:
@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
+        runner: [ubuntu-26.04, ubuntu-26.04-arm, macos-26]
         module: ${{ fromJSON(needs.modules.outputs.modules) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240

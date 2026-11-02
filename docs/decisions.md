@@ -1539,6 +1539,17 @@ small file.
     - macOS by hand alone: a check nobody runs between steps drifts (entry 19).
     - `macos-latest`: the macOS under the checks would change without a commit.
 
+    **Amended on 2026-11-02: Ubuntu 26.04.** The owner asked each repository to move its jobs to
+    the latest Ubuntu LTS.
+    - The checks and the fuzzer run on `ubuntu-26.04` and `ubuntu-26.04-arm`. The labels stay
+      pinned.
+    - The costs and the benchmarks stay on `ubuntu-24.04` and `ubuntu-24.04-arm`, the labels entry
+      20 pins. The published numbers came from those runners, and a move waits on the owner.
+    - Each fuzz job keeps its corpus under a key that names its runner. So the first night on the
+      new labels starts from an empty corpus.
+    - `tools/install_zig.sh` already creates the `tmp` directory of Zig's global cache, which a
+      fresh runner does not have.
+
 27. **A JSON module, `json`: RFC 8259's encoder and decoder, with RFC 7464's text sequences.**
     Ruled by the owner on 2026-09-28, who asked for it. colibri writes qlog
     (draft-ietf-quic-qlog-main-schema-14) as JSON text sequences, and today carries its own small
