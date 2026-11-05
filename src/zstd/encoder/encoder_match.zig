@@ -22,7 +22,7 @@ pub const Block = struct {
 
     /// Records a sequence of the literals from `anchor` to `position` and a match of `len` at
     /// `offset`, as RFC 8878 §3.1.1.4 executes it.
-    pub fn add(self: *Block, window: []const u8, anchor: usize, position: usize, len: usize, offset: usize) void {
+    pub fn add(self: *Block, window: []const u8, anchor: usize, position: usize, len: usize, offset: usize) align(constants.encoder_function_alignment) void {
         const literals_len = position - anchor;
         self.add_literals(window[anchor..position]);
         const sequences = self.sequences;
