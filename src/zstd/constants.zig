@@ -113,6 +113,19 @@ pub const fse_spread_half_shift = 1;
 pub const fse_spread_eighth_shift = 3;
 pub const fse_spread_add = 3;
 
+/// The shift of an FSE encoder's bit count: a symbol's `bits_delta` holds its larger count above
+/// this shift, so a state added to it carries the count in the bits above. A state lies below
+/// 2^(accuracy_log_max + 1), and so below 2^`fse_count_shift`.
+pub const fse_count_shift = 16;
+/// The count a symbol of no probability gives, above any Accuracy_Log, so a step on it fails its
+/// assertion.
+pub const fse_count_absent = 31;
+
+comptime {
+    assert(accuracy_log_max + 1 <= fse_count_shift);
+    assert(fse_count_absent > accuracy_log_max);
+}
+
 /// An FSE description's zero-probability repeat flag: 2 bits, a 3 saying another flag follows
 /// (RFC 8878 §4.1.1).
 pub const fse_repeat_flag_bits = 2;

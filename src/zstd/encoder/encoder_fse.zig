@@ -139,9 +139,12 @@ pub fn EncodeTable(comptime log_max: u4, comptime symbol_limit: usize) type {
         const Self = @This();
 
         accuracy_log: u4,
-        /// Every cell's index, its symbol's cells together in table order, symbol by symbol.
-        cells: [1 << log_max]u16,
-        /// Where each symbol's cells start in `cells`.
+        /// Every encoder state, 2^Accuracy_Log plus a cell's index, its symbol's cells together in
+        /// table order, symbol by symbol.
+        states: [1 << log_max]u16,
+        /// What each symbol's step adds to a state to find its bit count and its next state.
+        transforms: [symbol_limit]Transform,
+        /// Where each symbol's cells start in `states`.
         starts: [symbol_limit]u16,
         /// Each symbol's probability, a "less than 1" taken as 1, as the decoder's states take it.
         probabilities: [symbol_limit]u16,
@@ -159,7 +162,7 @@ pub fn EncodeTable(comptime log_max: u4, comptime symbol_limit: usize) type {
         }
 
         /// The second half of `build`, after `build_probabilities` of the same distribution: the
-        /// cells that `first_state` and `step` read.
+        /// states and transforms that `first_state` and `step` read.
         pub fn build_cells(self: *Self, distribution: *const fse.Distribution, scratch: *fse.Table(log_max)) void {
             build_cells_of(log_max, self, distribution, scratch);
         }
@@ -168,7 +171,7 @@ pub fn EncodeTable(comptime log_max: u4, comptime symbol_limit: usize) type {
         /// least one bit, as the end of a Huffman weight stream needs (RFC 8878 §4.2.1.2).
         pub fn first_state(self: *const Self, symbol: u8) u32 {
             assert(self.probabilities[symbol] > 0);
-            return (@as(u32, 1) << self.accuracy_log) + self.cells[self.starts[symbol]];
+            return self.states[self.starts[symbol]];
         }
 
         /// The bits that move `state` back to the state before it, and the cell of `symbol` that
@@ -193,6 +196,12 @@ pub fn EncodeTable(comptime log_max: u4, comptime symbol_limit: usize) type {
 /// The bits one encoded symbol writes: the low `count` bits of `value`.
 pub const Step = struct { value: u32, count: u5 };
 
+/// One symbol's step, computed once per table. A symbol of probability p reads m = Accuracy_Log -
+/// floor(log2 p) bits from a state of p << m or more, and m - 1 below it. So `bits_delta`, m above
+/// `constants.fse_count_shift` less p << m, gives the count in a state's top bits. `find_delta`,
+/// the symbol's start less p, takes the shifted state, from p to 2p - 1, to its cell's state.
+pub const Transform = struct { bits_delta: u32, find_delta: u32 };
+
 fn build_probabilities_of(self: anytype, distribution: *const fse.Distribution) void {
     assert(distribution.symbol_count <= self.probabilities.len);
     self.accuracy_log = distribution.accuracy_log;
@@ -211,22 +220,35 @@ fn build_cells_of(comptime log_max: u4, self: anytype, distribution: *const fse.
     assert(self.accuracy_log == distribution.accuracy_log);
     fse.build(log_max, scratch, distribution) catch unreachable;
     var placed = self.starts;
+    const first: u16 = @as(u16, 1) << self.accuracy_log;
     for (scratch.entries(), 0..) |entry, cell| {
-        self.cells[placed[entry.symbol]] = @intCast(cell);
+        self.states[placed[entry.symbol]] = first + @as(u16, @intCast(cell));
         placed[entry.symbol] += 1;
+    }
+    for (&self.transforms, self.probabilities, self.starts) |*transform, probability, start| {
+        transform.* = transform_of(self.accuracy_log, probability, start);
     }
 }
 
+fn transform_of(accuracy_log: u4, probability: u32, start: u16) Transform {
+    if (probability == 0) return .{ .bits_delta = constants.fse_count_absent << constants.fse_count_shift, .find_delta = 0 };
+    const count = @as(u32, accuracy_log) - std.math.log2_int(u32, probability);
+    return .{
+        .bits_delta = (count << constants.fse_count_shift) - (probability << @intCast(count)),
+        .find_delta = @as(u32, start) -% probability,
+    };
+}
+
+/// The additions wrap: a state lies from 2^Accuracy_Log to twice that, so `bits_delta` never
+/// takes it below 0, and the shifted state, from p to 2p - 1, never below `find_delta`'s -p.
 inline fn step_state(self: anytype, state: *u32, symbol: u8) Step {
-    const probability: u32 = self.probabilities[symbol];
-    assert(probability > 0);
-    const floor_log = std.math.log2_int(u32, probability);
-    var count: u5 = @intCast(@as(u32, self.accuracy_log) - floor_log);
-    if (state.* < probability << count) count -= 1;
-    const value = state.* & ((@as(u32, 1) << count) - 1);
-    const rank = (state.* >> count) - probability;
-    state.* = (@as(u32, 1) << self.accuracy_log) + self.cells[self.starts[symbol] + rank];
-    return .{ .value = value, .count = count };
+    const transform = self.transforms[symbol];
+    const count = (state.* +% transform.bits_delta) >> constants.fse_count_shift;
+    // A symbol of no probability counts `constants.fse_count_absent` bits.
+    assert(count <= self.accuracy_log);
+    const value = state.* & ((@as(u32, 1) << @intCast(count)) - 1);
+    state.* = self.states[(state.* >> @intCast(count)) +% transform.find_delta];
+    return .{ .value = value, .count = @intCast(count) };
 }
 
 fn cost_of(self: anytype, counts: []const u32) ?u64 {
