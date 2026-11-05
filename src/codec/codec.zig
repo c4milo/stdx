@@ -52,6 +52,7 @@ pub const Ended = @import("io_reader.zig").Ended;
 pub const IoWriter = @import("io_writer.zig").IoWriter;
 pub const testing = @import("testing.zig");
 pub const match_finder = @import("match_finder.zig");
+pub const prefix_code = @import("prefix_code.zig");
 
 test {
     _ = status;
@@ -66,6 +67,7 @@ test {
     _ = @import("field.zig");
     _ = @import("features.zig");
     _ = match_finder;
+    _ = prefix_code;
     _ = @import("io_reader_test.zig");
     _ = @import("io_writer_test.zig");
 }
