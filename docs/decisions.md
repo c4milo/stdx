@@ -4135,3 +4135,52 @@ small file.
       entries across the whole table, by its hash.
     - Tables sized to the first block's length: the hash's width would depend on how the input
       arrived, and a stream would need one table size for its whole frame.
+
+61. **The `json` module maps a Zig value to a text and a text to a Zig value.** Ruled by the owner
+    on 2026-11-05, on https://github.com/c4milo/stdx/issues/22. A server encodes a response body
+    from a value and decodes a request body into a type its route names. Each such caller needs
+    the same mapping, with the rules stdx already keeps. It amends entry 27, whose API held tokens
+    alone.
+    - The layer lies in `json` and imports nothing new, so the module graph does not change. It
+      drives the token `Encoder` and `Decoder`, so every check of entry 27 applies to its texts.
+    - The types are comptime-known: a struct, an optional, a bool, an unsigned or a signed integer
+      of at most 64 bits, `Decimal` for a fraction, an enum, `[]const u8` for a string, and an
+      array `[N]T` or a slice of these. An enum goes out as its tag's name. A float, a pointer
+      other than a slice, a union and a recursive type are compile errors, as entry 27 keeps
+      floating point out.
+
+    **Streaming, as the owner chose.** `ValueEncoder(T)` and `ValueDecoder(T)` are structs the
+    caller places, each started by `init(framing, features)`.
+    - `encode(value, output)` writes as much of the text as fits and returns `codec.Progress`.
+      After `needs_room`, the next call passes the same value at the same address with more room.
+    - `decode(input, storage, piece, result)` fills `result` from as much of the text as the input
+      holds. A string's octets go into `storage`, and the field holds a slice of it. The caller
+      passes the same storage and result to each call. A number's text waits at the storage's end
+      until the number ends.
+    - Each keeps a cursor: one frame a level, as many levels as the type's depth, which the type
+      fixes at comptime. No loop runs past the type's depth or the text's tokens.
+    - `encode_value` and `decode_value` are the whole-buffer helpers, built on the two calls. They
+      fail with `error.NoSpaceLeft` and `error.Truncated`.
+
+    **Decoding refuses, as the owner chose.** Each refusal is an error of its own, so a caller can
+    tell which rule a text broke:
+    - a member whose name no field has, as `error.UnknownField`;
+    - a member whose field an earlier member filled, as `error.DuplicateField`;
+    - an object that ends without a field that has no default and is not optional, as
+      `error.MissingField`. A missing optional field becomes null;
+    - a token the type does not take there, as `error.TypeMismatch`;
+    - an integer outside its type's range, or a number with an exponent or more fraction digits
+      than `Decimal` holds, as `error.NumberOutOfRange`;
+    - an array with more or fewer values than `[N]T` holds, as `error.ArrayLength`;
+    - a string that names no tag of an enum, as `error.UnknownEnumName`.
+
+    A text deeper than the type is a type mismatch, so the type's depth bounds the cursor.
+
+    **Containers, as the owner chose.** Decoding takes `[]const u8` as a slice of the storage and
+    `[N]T` filled whole. A slice of any other type is a compile error there: its elements would
+    need storage the caller sizes. Encoding takes slices of every type above.
+
+    The alternatives refused:
+    - Whole-buffer calls alone: a response larger than its buffer would need a larger buffer.
+    - Skipping a member the type does not name: a server would accept a text it does not read.
+    - Decoding through `std.json`: it takes an allocator, which entry 2 refuses.

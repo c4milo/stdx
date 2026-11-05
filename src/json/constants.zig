@@ -247,6 +247,14 @@ pub const unsigned_digits_max = 20;
 /// a 64-bit integer holds.
 pub const fraction_digits_max = 19;
 
+/// The positions a struct's member takes in the value walk (decision 61): its name and its value.
+pub const value_member_positions = 2;
+/// The decoder walk's position inside a struct's first field: after its begin and its members.
+pub const value_field_position_first = 2;
+/// The calls of the token decoder that a value decoder's call makes for each octet of input, at the
+/// most: one that takes the octet, and one that ends the token the octet closed.
+pub const value_decode_calls_per_octet = 2;
+
 /// The longest number the encoder formats: a minus sign, 20 digits, a decimal point and 19 more.
 pub const number_text_len_max = 1 + unsigned_digits_max + 1 + fraction_digits_max;
 
