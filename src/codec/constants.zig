@@ -84,6 +84,8 @@ pub const match_insert_tail = 2;
 /// The table entries one step of a slide moves: two 128-bit vectors of u32 on aarch64, one of
 /// 256 bits with AVX2. Every table holds a power of two of entries, at least this many.
 pub const match_slide_lanes = 8;
+/// The alignment of the finder's hot functions: a 64-octet line, as the encoders' own are.
+pub const match_function_alignment = 64;
 
 comptime {
     std.debug.assert(ensure_bits_max + @bitSizeOf(u8) - 1 <= bit_buffer_bits);
