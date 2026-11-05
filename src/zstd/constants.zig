@@ -445,6 +445,10 @@ pub const literals_raw_header_three = 3;
 /// aarch64, one of 256 bits with AVX2. The alphabet holds a whole number of steps.
 pub const literal_sum_lanes = 8;
 
+/// The tables a block's literal counts go into, the octets of each 8-octet read taking them in
+/// turn, so that a run of one literal does not wait on the count it last stored.
+pub const literal_count_tables = 4;
+
 /// The table entries one step of a slide moves: two 128-bit vectors of u32 on aarch64, one of
 /// 256 bits with AVX2. Every table holds a power of two of entries, at least this many.
 pub const slide_lanes = 8;

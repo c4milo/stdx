@@ -23,8 +23,8 @@ pub const Scratch = struct {
 pub fn write_section(writer: *codec.Writer, literals: []const u8, scratch: *Scratch) Error!void {
     assert(literals.len <= constants.block_len_max);
     if (literals.len == 0) return write_raw(writer, literals);
-    var counts: [constants.literal_symbols]u32 = @splat(0);
-    for (literals) |literal| counts[literal] += 1;
+    var counts: [constants.literal_symbols]u32 = undefined;
+    count_literals(literals, &counts);
     const present = present_count(&counts);
     if (present == 1) return write_rle(writer, literals[0], literals.len);
     if (literals.len < constants.literals_compressed_len_min) return write_raw(writer, literals);
@@ -42,6 +42,29 @@ pub fn write_section(writer: *codec.Writer, literals: []const u8, scratch: *Scra
     if (writer.position - start >= literals.len + raw_header_len(literals.len)) {
         writer.position = start;
         return write_raw(writer, literals);
+    }
+}
+
+/// Sets `counts` to each literal's count in `literals`. The counts stay below a block's length, so
+/// the additions never wrap.
+fn count_literals(literals: []const u8, counts: *[constants.literal_symbols]u32) void {
+    assert(literals.len <= constants.block_len_max);
+    var tables: [constants.literal_count_tables][constants.literal_symbols]u32 = @splat(@splat(0));
+    const word_len = @sizeOf(u64);
+    const words = literals.len / word_len;
+    for (0..words) |word_index| {
+        const word = std.mem.readInt(u64, literals[word_index * word_len ..][0..word_len], .little);
+        inline for (0..word_len) |octet| {
+            const literal: u8 = @truncate(word >> (octet * @bitSizeOf(u8)));
+            tables[octet % constants.literal_count_tables][literal] +%= 1;
+        }
+    }
+    for (literals[words * word_len ..]) |literal| tables[0][literal] +%= 1;
+    const Lanes = @Vector(constants.literal_sum_lanes, u32);
+    for (0..constants.literal_symbols / constants.literal_sum_lanes) |step| {
+        var sum: Lanes = @splat(0);
+        for (&tables) |*table| sum +%= table[step * constants.literal_sum_lanes ..][0..constants.literal_sum_lanes].*;
+        counts[step * constants.literal_sum_lanes ..][0..constants.literal_sum_lanes].* = sum;
     }
 }
 
