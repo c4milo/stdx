@@ -19,7 +19,7 @@ const encoder_sequences = @import("encoder_sequences.zig");
 /// Writes the block of the window's octets from `self.encoded_end` to `self.filled_end` into
 /// `self.out`, after the frame's header when the frame has none yet. `last` ends the frame, with
 /// its checksum when the options ask for one.
-pub fn write(self: anytype, last: bool) align(constants.encoder_function_alignment) void {
+pub fn write(self: anytype, last: bool) void {
     const start = self.encoded_end;
     const end = self.filled_end;
     const len = end - start;

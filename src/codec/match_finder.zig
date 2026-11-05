@@ -1,5 +1,7 @@
-//! The match finder of the encoders' fast levels (decisions 12 and 62): it turns one block of the
-//! window into matches and the literals between them, which a sink records in its codec's form.
+//! The match finder of the brotli encoder (decision 62), written from the Zstandard encoder's
+//! (decisions 57 and 60): it turns one block of the window into matches and the literals between
+//! them, which a sink records in its codec's form. The Zstandard encoder keeps its own copy, as the
+//! owner ruled once a pair showed the move cost it speed.
 //! Its tables hash each position's first `short_hash_len` octets into one table; a level with a
 //! long table also hashes the first 8 octets into a second, larger one, prefers a match the long
 //! table finds, and tries the next position's long match before it takes a short one. Both try the
