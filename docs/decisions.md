@@ -4225,10 +4225,18 @@ small file.
     22 at level 5, about 8 MiB. A smaller comptime window serves a caller with small messages, as
     the Zstandard encoder's does.
 
-    **The match finder,** as the owner chose: the Zstandard encoder's hash tables (entries 57 and
-    60) move into `codec`, and both encoders use them. `codec` is already an import of both, so the
-    module graph does not change. A pair against main proves the move costs the Zstandard encoder
-    nothing before brotli uses it.
+    **The match finder:** the Zstandard encoder's hash tables (entries 57 and 60), copied into
+    `codec` for brotli. The owner first chose to move them there for both encoders; `codec` is
+    already an import of both, so the module graph does not change. The move ran fewer instructions
+    on every row, but its pairs against main did not show it free:
+    - Four N2 rows ran about 1% slower in two runs (42063435348, 42070030703). Starting the hot
+      functions on 64-octet lines, as entry 44 does for DEFLATE, evened them (42084102835).
+    - Then an EPYC 7763 ran ten level-1 rows 3% to 9% slower (42088708457), at a median of 1.010.
+
+    The owner ruled on 2026-11-05 that the Zstandard encoder keeps its own finder, unchanged, and
+    that `codec`'s copy serves brotli alone. The owner ruled the same for DEFLATE's prefix code builder:
+    brotli's codes are canonical codes of at most 15 bits, as DEFLATE's are, so the builder moves
+    into `codec` too, and a DEFLATE pair proves that move.
 
     **Level 1,** as the owner chose: each meta-block holds one literal prefix code, one
     insert-and-copy code and one distance code (RFC 7932 §9.2), with no context modeling and no
