@@ -17,6 +17,8 @@
 //!   candidate takes (`checked_claims`).
 //! - The claims: stdx's decoder with each claim off in turn against the decoder with all on (design
 //!   §8 step 12), each claim's A/B, reported as the ratio of the two throughputs.
+//! - Encoding: Google's encoder at the qualities and windows stdx's levels rival, its speed and
+//!   ratio (brotli_encode.zig).
 //! - Decision 17's measurement: `bench_brotli_release_fast`, this program with stdx built
 //!   ReleaseFast, prints the comparison with Google's brotli after it. The difference bounds what
 //!   the safety checks cost; ReleaseFast is never offered to a caller.
@@ -38,6 +40,7 @@ const brotli = @import("brotli");
 const bench_options = @import("bench_options");
 const inputs = timing.inputs;
 const Input = inputs.Input;
+const brotli_encode = @import("brotli_encode.zig");
 
 /// Google's default quality and window, as its command-line tool takes them.
 const decode_quality: c_int = 11;
@@ -163,6 +166,7 @@ pub fn main(init: std.process.Init) !void {
     for (brotli.claims.each_off_names) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (rows) |row| try report_claims(arena, io, out, row);
+    try brotli_encode.report(arena, io, out, all);
     try out.flush();
 }
 
