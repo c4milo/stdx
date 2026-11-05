@@ -4202,6 +4202,55 @@ small file.
     - Skipping a member the type does not name: a server would accept a text it does not read.
     - Decoding through `std.json`: it takes an allocator, which entry 2 refuses.
 
+62. **The brotli encoder: levels 1 and 5, against Google's qualities 1 and 5.** Ruled by the owner
+    on 2026-11-05, starting design §8 step 14 (https://github.com/c4milo/stdx/issues/8), who asked
+    that it be faster than the alternatives. It amends entry 12's brotli rows, which this step was
+    to settle.
+
+    **The bar.** Level 1 rivals Google's quality 1, and level 5 its quality 5. On every corpus row,
+    on each runner of entry 20, a level must be at least as fast as its rival and write no more
+    octets. Both levels land together.
+
+    **The targets,** measured before any code (run
+    [42043602442](https://github.com/c4milo/stdx/actions/runs/42043602442), `bench-brotli`'s
+    encoding section). Google's speed in MB/s of input, and its ratio:
+
+    | Setting | N2, median | EPYC 7763, median | Ratio, median | 1 KiB bodies, N2 |
+    |---|---|---|---|---|
+    | Quality 1, WBITS 18 | 256 | 245 | 2.988 | 97 to 137 |
+    | Quality 1, WBITS 22 | 228 | 227 | 3.052 | 97 to 137 |
+    | Quality 5, WBITS 22 | 48 | 45 | 3.702 | 28 to 42 |
+
+    **The windows and the memory,** entry 12's rows: WBITS 18 at level 1, about 0.6 MiB, and WBITS
+    22 at level 5, about 8 MiB. A smaller comptime window serves a caller with small messages, as
+    the Zstandard encoder's does.
+
+    **The match finder,** as the owner chose: the Zstandard encoder's hash tables (entries 57 and
+    60) move into `codec`, and both encoders use them. `codec` is already an import of both, so the
+    module graph does not change. A pair against main proves the move costs the Zstandard encoder
+    nothing before brotli uses it.
+
+    **Level 1,** as the owner chose: each meta-block holds one literal prefix code, one
+    insert-and-copy code and one distance code (RFC 7932 §9.2), with no context modeling and no
+    block switches. Its distances try the last distance first, as RFC 7932 §4 codes it.
+
+    **Level 5:** hash chains with a lazy step, block switches, and literal context modeling (RFC
+    7932 §7), a context map that joins the contexts whose literals code alike. Its forms are measured
+    against quality 5 one at a time, and a form stays only where the pair shows it.
+
+    **The API,** as the other encoders': `brotli.Encoder(.{ .level = 1 })` with `init`, `start`,
+    `encode`, `encode_all` and `encoded_len_max`, and `brotli.IoWriter`, which
+    https://github.com/c4milo/stdx/issues/21 asks for.
+
+    **The checks,** as step 9's: every stream decodes to its input through Google's decoder and
+    stdx's; the same octets under every split and flush, and recorded hashes (invariant 5);
+    `encoded_len_max` holds; speed and ratio against Google on every row; mutations.
+
+    The alternatives refused:
+    - Level 1 at WBITS 22: quality 1 gains 2% of ratio there for 11% of its speed, on the N2.
+    - A second copy of the match finder in `brotli`: two copies to tune and test.
+    - Two literal trees at level 1: context modeling belongs to level 5's budget.
+
 64. **The public API follows TigerStyle first, then the idioms of Zig's standard library.** Ruled
     by the owner on 2026-11-07, on an audit of every Zig project's public API. A Zig programmer
     must not find stdx's API strange. Each change below is one the audit found, and the owner
