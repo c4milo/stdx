@@ -296,16 +296,18 @@ pub fn write_stream(writer: *codec.BitWriter, code: *const Code, literals: []con
     const batch = constants.huffman_codes_per_store;
     for (0..literals.len / batch) |_| {
         if (!writer.has_store_room()) break;
-        // The batch's codes joined, the first in the low bits, go into the buffer in one put.
+        // The batch's codes joined, the last literal's in the low bits, go into the buffer in one
+        // put. One slice of the batch bounds every read, and the count, under 64, needs no check.
+        index -= batch;
+        const chunk = literals[index..][0..batch];
         var value: u64 = 0;
-        var count: u7 = 0;
-        inline for (0..batch) |_| {
-            index -= 1;
-            const literal = literals[index];
-            value |= @as(u64, code.codes[literal]) << @intCast(count);
-            count += @intCast(code.lengths[literal]);
+        var count: u64 = 0;
+        inline for (0..batch) |offset| {
+            const literal = chunk[batch - 1 - offset];
+            value |= @as(u64, code.codes[literal]) << @truncate(count);
+            count += code.lengths[literal];
         }
-        writer.put(value, count);
+        writer.put(value, @intCast(count));
         writer.store();
     }
     for (0..index) |_| {
