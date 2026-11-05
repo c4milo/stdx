@@ -4546,6 +4546,18 @@ to 12 are reordered and nothing else changes.
     counts. It ran 0.894 to 1.000 of the three commits on the N2 and 0.922 to 1.019 on a Xeon
     6975P-C (run [41963210917](https://github.com/c4milo/stdx/actions/runs/41963210917)), so it
     was dropped.
+  - The sequence puts and the search's low bound, 2026-11-05. Two commits, the output unchanged:
+    - A sequence's state steps and Literals_Length extra bits join into one put before the
+      middle store, and its other extra bits into one after it, where it made six puts.
+    - Position 0 folds into the search's low bound, so the repeat check makes one range compare.
+
+    callgrind on aarch64 counts 0.937 to 0.990 of main's instructions on all 72 rows under 30 MB,
+    median 0.952. The M1 was not timed: other processes still held about six of its cores. Paired
+    against main on the runners (run
+    [41980417764](https://github.com/c4milo/stdx/actions/runs/41980417764), reports
+    `bench/results/2026-11-05-zstd-encoder-joined-*.md`), no row fell below main past the
+    spreads: 0.995 to 1.066 on the N2, median 1.028, and 0.995 to 1.167 on an EPYC 9V45, median
+    1.087.
 
 - **Step 14: the brotli encoder.** Levels 1 and 5, after a decision record of its own on levels and
   memory.
