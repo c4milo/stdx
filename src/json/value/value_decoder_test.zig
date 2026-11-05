@@ -56,8 +56,11 @@ test "a text decodes into a value of every shape, whole and under any split of t
         state.init(.text, codec.Features.none());
         var record: Record = undefined;
         var consumed: usize = 0;
-        for (0..text.len + 1) |_| {
-            const end = @min(consumed + @as(usize, @intCast(generator.between(0, 7))), text.len);
+        // A drawn piece may be empty, so the last call takes the rest whatever the draws were.
+        const calls = 4 * (text.len + 1);
+        for (0..calls) |call| {
+            const drawn = @min(consumed + @as(usize, @intCast(generator.between(0, 7))), text.len);
+            const end = if (call + 1 == calls) text.len else drawn;
             const piece: Piece = if (end == text.len) .last else .more;
             const progress = try state.decode(text[consumed..end], &storage, piece, &record);
             consumed += progress.consumed;

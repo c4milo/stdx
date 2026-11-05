@@ -52,8 +52,11 @@ test "a value of every shape encodes to its text, whole and under any split of t
         var state: value_encoder.ValueEncoder(Record) = undefined;
         state.init(.text, codec.Features.none());
         var written: usize = 0;
-        for (0..output.len) |_| {
-            const end = @min(written + @as(usize, @intCast(generator.between(0, 9))), output.len);
+        // A drawn piece may have no room, so the last call takes the rest whatever the draws were.
+        const calls = 4 * output.len;
+        for (0..calls) |call| {
+            const drawn = @min(written + @as(usize, @intCast(generator.between(0, 9))), output.len);
+            const end = if (call + 1 == calls) output.len else drawn;
             const progress = try state.encode(&record, output[written..end]);
             written += progress.written;
             if (progress.status == .done) break;

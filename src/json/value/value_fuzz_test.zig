@@ -35,6 +35,8 @@ const output_len = 512;
 const seeded_cases = 2000;
 const flips_max = 3;
 const split_len_max = 9;
+/// The calls a split may take an octet of input, so that the empty pieces leave room for the rest.
+const split_calls_per_octet = 4;
 
 /// Valid texts, whose flipped octets make most of the cases.
 const texts = [_][]const u8{
@@ -50,8 +52,11 @@ fn decode_split(input: []const u8, seed: u64, storage: []u8, record: *Record) va
     var state: value_decoder.ValueDecoder(Record) = undefined;
     state.init(.text, codec.Features.none());
     var consumed: usize = 0;
-    for (0..input.len + 1) |_| {
-        const end = @min(consumed + @as(usize, @intCast(generator.between(0, split_len_max))), input.len);
+    // A drawn piece may be empty, so the last call takes the rest whatever the draws were.
+    const calls = split_calls_per_octet * (input.len + 1);
+    for (0..calls) |call| {
+        const drawn = @min(consumed + @as(usize, @intCast(generator.between(0, split_len_max))), input.len);
+        const end = if (call + 1 == calls) input.len else drawn;
         const piece: Piece = if (end == input.len) .last else .more;
         const progress = try state.decode(input[consumed..end], storage, piece, record);
         consumed += progress.consumed;

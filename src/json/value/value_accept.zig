@@ -105,8 +105,19 @@ fn accept_optional(comptime U: type, target: *U, frames: anytype, level: usize, 
             target.* = null;
             return true;
         }
-        // Every field and value the child's walk holds is filled before the child ends.
-        target.* = @as(Child, undefined);
+        // A child of one token is read whole, then stored: an optional slice is null by its
+        // pointer, so a child stored before its value could read as null.
+        if (comptime value_type.depth_of(Child) == 0) {
+            var child: Child = undefined;
+            _ = try accept(Child, &child, frames, level, token);
+            target.* = child;
+            return true;
+        }
+        // A struct's or an array's optional keeps a tag of its own. Its child takes defined octets,
+        // and every field and value is written again before the child ends.
+        var child: Child = undefined;
+        @memset(std.mem.asBytes(&child), 0);
+        target.* = child;
     }
     return accept(Child, &target.*.?, frames, level, token);
 }
