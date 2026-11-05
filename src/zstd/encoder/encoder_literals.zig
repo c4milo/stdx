@@ -20,7 +20,7 @@ pub const Scratch = struct {
 };
 
 /// Writes the Literals_Section of `literals`.
-pub fn write_section(writer: *codec.Writer, literals: []const u8, scratch: *Scratch) align(constants.encoder_function_alignment) Error!void {
+pub fn write_section(writer: *codec.Writer, literals: []const u8, scratch: *Scratch) Error!void {
     assert(literals.len <= constants.block_len_max);
     if (literals.len == 0) return write_raw(writer, literals);
     var counts: [constants.literal_symbols]u32 = undefined;
