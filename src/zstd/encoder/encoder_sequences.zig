@@ -254,7 +254,7 @@ comptime {
 
 /// Writes the Sequences_Section of `sequences` (RFC 8878 §3.1.1.3.2): the header, the tables'
 /// descriptions, and the bitstream. Sets each code type's choice, for `State.commit`.
-pub fn write_section(writer: *codec.Writer, sequences: *const Sequences, codes: *Codes, state: *State) align(constants.encoder_function_alignment) Error!void {
+pub fn write_section(writer: *codec.Writer, sequences: *const Sequences, codes: *Codes, state: *State) Error!void {
     const count = sequences.count;
     try write_count(writer, count);
     if (count == 0) return;
