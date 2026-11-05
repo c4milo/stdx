@@ -161,7 +161,8 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
 /// literals that match too: Repeated_Offset1's first, then the tables'. The tables record
 /// `position` either way.
 fn find(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, anchor: usize, end: usize, repeat_offset: u32) ?Found {
-    const low = position -| ((@as(usize, 1) << level.window_log) - 1);
+    // The lowest position a candidate takes: the window's reach, and never position 0.
+    const low = @max(position -| ((@as(usize, 1) << level.window_log) - 1), 1);
     const bounds = Bounds.at(self.base, position, low);
     const word = read64(window, position);
     const short_entry = swap(&self.short[hash(word, level.short_hash_len, level.short_hash_log)], bounds.entry);
@@ -181,9 +182,10 @@ fn find(comptime level: Level, self: *Matcher(level), window: []const u8, positi
 }
 
 /// Repeated_Offset1's candidate after at least one literal, where Offset_Value 1 names it (RFC 8878
-/// §3.1.1.5), when its first 4 octets agree with `word`'s.
+/// §3.1.1.5), when it lies at `low` or above and its first 4 octets agree with `word`'s. A position
+/// after a literal lies above `low`, so the subtraction never wraps.
 inline fn repeat_candidate(window: []const u8, position: usize, anchor: usize, low: usize, repeat_offset: u32, word: u64) ?usize {
-    if (position == anchor or repeat_offset > position - low or position == repeat_offset) return null;
+    if (position == anchor or repeat_offset > position - low) return null;
     const candidate = position - repeat_offset;
     if (read32(window, candidate) != @as(u32, @truncate(word))) return null;
     return candidate;
@@ -208,7 +210,7 @@ const Bounds = struct {
     inline fn at(base: u32, position: usize, low: usize) Bounds {
         return .{
             .base = base,
-            .lowest = base +% @as(u32, @truncate(@max(low, 1))),
+            .lowest = base +% @as(u32, @truncate(low)),
             .entry = base +% @as(u32, @truncate(position)),
         };
     }
