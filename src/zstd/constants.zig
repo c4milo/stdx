@@ -387,26 +387,6 @@ pub const literals_size_shift = 4;
 pub const literals_size_format_two = 1;
 pub const literals_size_format_three = 3;
 
-/// The octets a match finder's hash reads at a position: a position searches only with this many
-/// ahead in its block.
-pub const match_read_len = 8;
-
-/// The octets the long table of level 3 hashes.
-pub const long_hash_len = 8;
-
-/// The odd multiplier of the tables' hash: the top bits of a word times it name a slot.
-pub const match_hash_multiplier: u64 = 0x9E3779B185EBCA87;
-
-/// A search that finds nothing steps 1 + (literals since the last match >> this): through octets
-/// that do not repeat, the steps grow, so a block of them costs little.
-pub const match_skip_log = 6;
-
-/// After a match, the tables record its position plus `match_insert_skip`, then every
-/// `match_insert_step`th position, then the one `match_insert_tail` before its end.
-pub const match_insert_skip = 2;
-pub const match_insert_step = 8;
-pub const match_insert_tail = 2;
-
 /// A level's window and tables: the log2 of its window and of its two tables' entries, 0 for a
 /// level with no long table.
 pub const EncoderLevel = struct { number: u4, window_log: u5, short_hash_log: u5, long_hash_log: u5 };
@@ -448,10 +428,6 @@ pub const literal_sum_lanes = 8;
 /// The tables a block's literal counts go into, the octets of each 8-octet read taking them in
 /// turn, so that a run of one literal does not wait on the count it last stored.
 pub const literal_count_tables = 4;
-
-/// The table entries one step of a slide moves: two 128-bit vectors of u32 on aarch64, one of
-/// 256 bits with AVX2. Every table holds a power of two of entries, at least this many.
-pub const slide_lanes = 8;
 
 /// The branches comptime may take to build the encoder's default tables and code tables.
 pub const default_encode_table_eval_quota = 200_000;

@@ -47,6 +47,31 @@ pub const moved_state_fill: u8 = 0xaa;
 pub const driver_calls_per_octet_max: usize = 4;
 pub const driver_calls_floor: usize = 64;
 
+/// The match finder of the encoders' fast levels (match_finder.zig).
+/// The octets a match finder's hash reads at a position: a position searches only with this many
+/// ahead in its block.
+pub const match_read_len = 8;
+
+/// The octets the long table of level 3 hashes.
+pub const long_hash_len = 8;
+
+/// The odd multiplier of the tables' hash: the top bits of a word times it name a slot.
+pub const match_hash_multiplier: u64 = 0x9E3779B185EBCA87;
+
+/// A search that finds nothing steps 1 + (literals since the last match >> this): through octets
+/// that do not repeat, the steps grow, so a block of them costs little.
+pub const match_skip_log = 6;
+
+/// After a match, the tables record its position plus `match_insert_skip`, then every
+/// `match_insert_step`th position, then the one `match_insert_tail` before its end.
+pub const match_insert_skip = 2;
+pub const match_insert_step = 8;
+pub const match_insert_tail = 2;
+
+/// The table entries one step of a slide moves: two 128-bit vectors of u32 on aarch64, one of
+/// 256 bits with AVX2. Every table holds a power of two of entries, at least this many.
+pub const match_slide_lanes = 8;
+
 comptime {
     std.debug.assert(ensure_bits_max + @bitSizeOf(u8) - 1 <= bit_buffer_bits);
     std.debug.assert(short_piece_len_max < long_piece_len_max);
