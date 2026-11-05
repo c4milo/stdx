@@ -4524,6 +4524,28 @@ to 12 are reordered and nothing else changes.
     `bench/results/2026-10-27-zstd-encoder-tables-*.md`): no row below main on the N2 or an EPYC
     7763. The 1 KiB bodies ran 1.16 to 1.20 of main's speed, and now run 0.41 to 0.50 of
     libzstd's. The medians over main were 1.01 to 1.03.
+  - The FSE step and the literals, 2026-11-05, the owner's choice of Zstandard encoder speed as
+    the next work. Three commits, the output unchanged (`differential-zstd-encode`, 390 checks):
+    - Each code type's FSE step reads two numbers per symbol, which the table build computes
+      once, where it computed a log2, a shift and a compare per symbol.
+    - One slice bounds each Huffman batch's five reads, where each literal paid a bounds check
+      and a checked narrowing of its code length.
+    - A block's literals are counted into four tables, the octets of each 8-octet read taking
+      them in turn, with wrapping additions.
+
+    callgrind on aarch64 counts 0.62 to 0.96 of main's instructions on all 72 rows under 30 MB,
+    median 0.93; x-ray at level 1 fell from 94.6 to 79.3 instructions an octet. The M1 was not
+    timed: other processes held about seven of its cores. Paired against main on the runners (run
+    [41962193660](https://github.com/c4milo/stdx/actions/runs/41962193660), reports
+    `bench/results/2026-11-05-zstd-encoder-literals-*.md`), every row ran faster than main:
+    1.045 to 1.547 on the N2, median 1.112, and 1.044 to 1.712 on an EPYC 7763, median 1.197.
+    Against libzstd, the median at level 1 rose from 0.38 to 0.43 on the N2 and from 0.37 to
+    0.45 on the EPYC, and at level 3 from 0.49 to 0.56 and to 0.58.
+
+    A fourth form wrote the four Huffman streams in one loop, each stream sized from its own
+    counts. It ran 0.894 to 1.000 of the three commits on the N2 and 0.922 to 1.019 on a Xeon
+    6975P-C (run [41963210917](https://github.com/c4milo/stdx/actions/runs/41963210917)), so it
+    was dropped.
 
 - **Step 14: the brotli encoder.** Levels 1 and 5, after a decision record of its own on levels and
   memory.
