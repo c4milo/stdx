@@ -241,7 +241,7 @@ const Found = struct { position: usize, len: usize, offset: usize };
 /// A match of `candidate` at `position`, extended back over the literals from `anchor` while the
 /// octets before both agree, and forward to `end`. The loop's count stops it at `anchor`, and the
 /// offset stays the one the window reached, as both move back together.
-fn extend(window: []const u8, position_first: usize, candidate_first: usize, anchor: usize, end: usize) Found {
+fn extend(window: []const u8, position_first: usize, candidate_first: usize, anchor: usize, end: usize) align(constants.match_function_alignment) Found {
     var position = position_first;
     var candidate = candidate_first;
     for (0..position_first - anchor) |_| {

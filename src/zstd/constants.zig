@@ -429,6 +429,12 @@ pub const literal_sum_lanes = 8;
 /// turn, so that a run of one literal does not wait on the count it last stored.
 pub const literal_count_tables = 4;
 
+/// The alignment of the encoder's hot functions: a 64-octet line, so that a function's loops sit
+/// where its own code puts them, and not where the functions before it end. Moving the match finder
+/// into codec started each hot function 4 octets later, and four N2 rows ran about 1% slower in two
+/// pairs (42063435348, 42070030703), as decision 44 found for the DEFLATE encoder.
+pub const encoder_function_alignment = 64;
+
 /// The branches comptime may take to build the encoder's default tables and code tables.
 pub const default_encode_table_eval_quota = 200_000;
 
