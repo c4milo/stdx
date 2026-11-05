@@ -51,6 +51,7 @@ pub const AfterDone = @import("io_reader.zig").AfterDone;
 pub const Ended = @import("io_reader.zig").Ended;
 pub const IoWriter = @import("io_writer.zig").IoWriter;
 pub const testing = @import("testing.zig");
+pub const match_finder = @import("match_finder.zig");
 
 test {
     _ = status;
@@ -64,6 +65,7 @@ test {
     _ = @import("window.zig");
     _ = @import("field.zig");
     _ = @import("features.zig");
+    _ = match_finder;
     _ = @import("io_reader_test.zig");
     _ = @import("io_writer_test.zig");
 }
