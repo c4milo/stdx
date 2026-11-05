@@ -47,6 +47,19 @@ pub const moved_state_fill: u8 = 0xaa;
 pub const driver_calls_per_octet_max: usize = 4;
 pub const driver_calls_floor: usize = 64;
 
+/// The encoders' prefix codes (prefix_code.zig): at most 15 bits a code, as both DEFLATE (RFC
+/// 1951 §3.2.2) and brotli (RFC 7932 §3.5) bound them.
+pub const prefix_code_len_max = 15;
+/// The most symbols a prefix code has: brotli's insert-and-copy alphabet (RFC 7932 §5).
+pub const prefix_code_symbols_max = 704;
+/// The largest alphabet the builder sorts by insertion rather than by counting passes: DEFLATE's
+/// 30 distance codes and both code length codes. Their few symbols cost fewer compares than a
+/// counting pass's buckets cost to clear.
+pub const prefix_code_insertion_sort_len_max = 30;
+/// The alignment of the builder's hot functions: a 64-octet line, as DEFLATE's
+/// `hot_function_alignment` explains.
+pub const prefix_code_function_alignment = 64;
+
 /// The match finder of the encoders' fast levels (match_finder.zig).
 /// The octets a match finder's hash reads at a position: a position searches only with this many
 /// ahead in its block.
