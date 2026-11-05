@@ -317,11 +317,12 @@ fn Encoding(comptime Table: type) type {
             try put(writer, bits.value, bits.count);
         }
 
-        /// `step` after a store, which left room for it (`constants.sequence_stored_room_min`).
-        inline fn step_stored(self: *@This(), writer: *codec.BitWriter, symbol: u8) void {
+        /// `step` after a store, which left room for it (`constants.sequence_stored_room_min`):
+        /// the bits join the sequence's other bits before one put.
+        inline fn step_stored(self: *@This(), joined: *Joined, symbol: u8) void {
             const t = self.table orelse return;
             const bits = t.step(&self.state, symbol);
-            writer.put(bits.value, bits.count);
+            joined.add(bits.value, bits.count);
         }
 
         fn finish(self: *const @This(), writer: *codec.BitWriter) Error!void {
@@ -347,10 +348,11 @@ fn write_bitstream(writer: *codec.BitWriter, sequences: *const Sequences, codes:
         index -= 1;
         if (writer.writer.room_len() >= constants.sequence_stored_room_min) {
             writer.store();
-            offset.step_stored(writer, codes.offset[index]);
-            match_length.step_stored(writer, codes.match_length[index]);
-            literals_length.step_stored(writer, codes.literals_length[index]);
-            write_extra_stored(writer, sequences, codes, index);
+            var joined: Joined = .{};
+            offset.step_stored(&joined, codes.offset[index]);
+            match_length.step_stored(&joined, codes.match_length[index]);
+            literals_length.step_stored(&joined, codes.literals_length[index]);
+            write_extra_stored(writer, &joined, sequences, codes, index);
             continue;
         }
         try offset.step(writer, codes.offset[index]);
@@ -378,17 +380,34 @@ fn write_extra(writer: *codec.BitWriter, sequences: *const Sequences, codes: *co
 }
 
 /// One sequence's extra bits, as `write_extra` orders them, with a store between Literals_Length's
-/// and Match_Length's (decision 14, E5). The caller stored before the state updates, and had room
-/// for both stores (`constants.sequence_stored_room_min`).
-fn write_extra_stored(writer: *codec.BitWriter, sequences: *const Sequences, codes: *const Codes, index: usize) void {
+/// and Match_Length's (decision 14, E5). The caller stored before the state updates, which
+/// `joined` holds, and had room for both stores (`constants.sequence_stored_room_min`). Each side
+/// of the second store goes into the buffer in one put.
+fn write_extra_stored(writer: *codec.BitWriter, joined: *Joined, sequences: *const Sequences, codes: *const Codes, index: usize) void {
     const literals_length = codes.literals_length[index];
-    writer.put(sequences.literals_lens[index] - constants.literals_length_baselines[literals_length], constants.literals_length_extra_bits[literals_length]);
+    joined.add(sequences.literals_lens[index] - constants.literals_length_baselines[literals_length], constants.literals_length_extra_bits[literals_length]);
+    writer.put(joined.value, @intCast(joined.count));
     writer.store();
+    var after: Joined = .{};
     const match_length = codes.match_length[index];
-    writer.put(sequences.match_lens[index] - constants.match_length_baselines[match_length], constants.match_length_extra_bits[match_length]);
+    after.add(sequences.match_lens[index] - constants.match_length_baselines[match_length], constants.match_length_extra_bits[match_length]);
     const offset = codes.offset[index];
-    writer.put(sequences.offset_values[index] - (@as(u32, 1) << @intCast(offset)), @intCast(offset));
+    after.add(sequences.offset_values[index] - (@as(u32, 1) << @intCast(offset)), @intCast(offset));
+    writer.put(after.value, @intCast(after.count));
 }
+
+/// Bits joined for one put, the first added in the low bits. Each value has no bit above its
+/// count, which `put` asserts of the whole. The counts stay within the 64-bit buffer
+/// (`constants.sequence_stored_room_min`), so the count needs no check until the put narrows it.
+const Joined = struct {
+    value: u64 = 0,
+    count: u64 = 0,
+
+    inline fn add(self: *Joined, value: u32, count: u5) void {
+        self.value |= @as(u64, value) << @truncate(self.count);
+        self.count +%= count;
+    }
+};
 
 fn put(writer: *codec.BitWriter, value: u64, count: u7) Error!void {
     if (!writer.make_room(count)) return error.NoSpaceLeft;
