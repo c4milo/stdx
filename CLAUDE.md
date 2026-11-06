@@ -303,6 +303,11 @@ Change this section when a step adds or renames a command.
   SHA-256 recorded in `tools/differential/zstd_encode_hashes.zig`; seeded flush points and splits
   must give the same octets. `-Dencode-optimize=Debug` builds stdx in another mode, and `--
   --record` prints a new list.
+  `zig build differential-brotli-encode -Doracles` encodes every corpus file whole at level 1, and
+  its first 256 KiB. Each stream must fit `encoded_len_max`, decode to its input through stdx and
+  Google's brotli, and have the SHA-256 recorded in `tools/differential/brotli_encode_hashes.zig`;
+  seeded flush points and splits must give the same octets, and so must a stream begun with
+  `start`. `-Dencode-optimize=Debug` and `-- --record` work as for Zstandard.
   `zig build differential-brotli -Doracles` has Google's brotli encode the first 256 KiB of every
   corpus file at qualities 0, 1, 5 and 9 with WBITS 22, 10, 16 and 24, and at quality 11 with 22 and
   10, NPOSTFIX, NDIRECT and flush points seeded. stdx's HTTP decoder must decode each stream whole
@@ -353,7 +358,10 @@ Change this section when a step adds or renames a command.
   and window 22, each row stating its streams' size as a percentage of its octets; then stdx's fast path against its checked path, and each claim off against all
   on: every candidate interleaved in one run, the median of five runs with the spread. A second
   program then repeats the comparison with Google's brotli with stdx built ReleaseFast, decision
-  17's measure of what the safety checks cost. The `bench` workflow offers it.
+  17's measure of what the safety checks cost. Last, it times stdx's level 1 and Google's quality 1
+  at WBITS 18 over every row, interleaved, stdx's state begun with `start` (decision 60), with each
+  one's ratio; then Google's quality 1 at WBITS 22 and quality 5 alone
+  (`bench/brotli/brotli_encode.zig`). The `bench` workflow offers it.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every row, on any host. It then counts cycles, instructions and
   branch misses per decoded octet for each gzip decoder, for libzstd's and stdx's Zstandard
