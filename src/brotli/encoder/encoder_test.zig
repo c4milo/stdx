@@ -201,8 +201,8 @@ test "no match reaches past the window's last distance" {
 }
 
 /// A repeat at a distance the window holds but RFC 7932 §9.1 gives to the dictionary: the window
-/// less `reach_probe_short` octets, past its largest backward distance.
-const reach_probe_short = 8;
+/// less `reach_probe_short` octets, one past its largest backward distance.
+const reach_probe_short = constants.window_len_gap - 1;
 const reach_probe_len = 256;
 const reach_probe_seed = 19;
 
@@ -218,6 +218,58 @@ fn expect_reach_kept() !void {
     state.init();
     const written = try state.encode_all(input[0..len], &coded);
     try expect_decodes(coded[0..written], input[0..len]);
+}
+
+test "no match reaches past the last distance in a block that starts before the reach" {
+    try @call(.never_inline, expect_reach_kept_straddled, .{});
+}
+
+/// A flush `reach_straddle_before` octets before the reach starts a meta-block there; it repeats
+/// the octets from `reach_straddle_from`, one past the largest backward distance.
+const reach_straddle_before = 8;
+const reach_straddle_from = 32;
+
+fn expect_reach_kept_straddled() !void {
+    var state: Encoder = undefined;
+    var generator = codec.split.Generator.init(reach_probe_seed);
+    const reach = (1 << test_window_bits) - constants.window_len_gap;
+    const len = reach + constants.encoder_meta_block_len_max;
+    for (input[0..len]) |*octet| octet.* = @truncate(generator.next());
+    const first = reach_straddle_from + reach + 1;
+    @memcpy(input[first..][0..reach_probe_len], input[reach_straddle_from..][0..reach_probe_len]);
+    const written = try encode_at_points(&state, input[0..len], &.{reach - reach_straddle_before});
+    try expect_decodes(reference[0..written], input[0..len]);
+}
+
+test "a block past the window's reach takes a match at the last distance" {
+    try @call(.never_inline, expect_reach_taken, .{});
+}
+
+/// A repeat of `reach_take_len` random octets at the window's largest backward distance, in the
+/// second meta-block, whose positions all lie past the reach.
+const reach_take_len = 4096;
+const reach_take_into = 100;
+const reach_take_seed = 23;
+const reach_take_blocks = 2;
+/// The match saves the repeat's 4096 octets, less its command and the code descriptions: at least
+/// half of them.
+const reach_take_saved_min = 2048;
+
+fn expect_reach_taken() !void {
+    var state: Encoder = undefined;
+    var generator = codec.split.Generator.init(reach_take_seed);
+    const distance = (1 << test_window_bits) - constants.window_len_gap;
+    const len = constants.encoder_meta_block_len_max * reach_take_blocks;
+    for (input[0..len]) |*octet| octet.* = @truncate(generator.next());
+    state.init();
+    const without = try state.encode_all(input[0..len], &reference);
+    const first = constants.encoder_meta_block_len_max + reach_take_into;
+    @memcpy(input[first..][0..reach_take_len], input[first - distance ..][0..reach_take_len]);
+    state.init();
+    const with = try state.encode_all(input[0..len], &coded);
+    try expect_decodes(coded[0..with], input[0..len]);
+    // Random octets code to no fewer octets, so only the match makes the stream shorter.
+    try testing.expect(with + reach_take_saved_min < without);
 }
 
 test "an uncompressed meta-block puts back the last distances its parse moved" {
