@@ -50,7 +50,10 @@ fn write_block(self: anytype, writer: *codec.BitWriter, block: []const u8, last:
     self.matcher.parse(&self.window, self.encoded_end, self.filled_end, &self.commands);
     self.commands.close();
     const raw_len = block.len + constants.encoder_uncompressed_overhead;
-    if (encoder_meta_block.write_compressed(writer, block, &self.commands, &self.codes, last)) {
+    const written = encoder_meta_block.write_compressed(writer, block, &self.commands, &self.codes, last);
+    // The next meta-block's parse weighs a match against this one's literal code.
+    self.commands.weigh_literals(&self.codes.literal.lengths);
+    if (written) {
         if (writer.writer.position - saved_position <= raw_len) return;
     } else |_| {}
     writer.bits = saved_bits;

@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const split = @import("split.zig");
 const constants = @import("constants.zig");
 const match_finder = @import("match_finder.zig");
@@ -31,6 +32,7 @@ const noise_odds = 10;
 threadlocal var window: [window_len]u8 = undefined;
 threadlocal var output: [window_len]u8 = undefined;
 threadlocal var sink: Sink = undefined;
+threadlocal var choosy: ChoosySink = undefined;
 
 /// A sink that keeps each match's literals, length and offset, and the last offset as its repeat,
 /// as brotli's last distance is.
@@ -83,6 +85,30 @@ const Sink = struct {
         const rest = self.literals_len - literal;
         @memcpy(output[at..][0..rest], self.literals[literal..][0..rest]);
         return at + rest;
+    }
+};
+
+/// A sink whose `takes` refuses every match shorter than `len_min`, as a codec refuses a match
+/// worth less than its literals.
+const ChoosySink = struct {
+    inner: Sink,
+    len_min: usize,
+
+    pub fn add(self: *ChoosySink, octets: []const u8, anchor: usize, position: usize, len: usize, offset: usize) void {
+        self.inner.add(octets, anchor, position, len, offset);
+    }
+
+    pub fn add_literals(self: *ChoosySink, octets: []const u8) void {
+        self.inner.add_literals(octets);
+    }
+
+    pub fn repeat_offset(self: *const ChoosySink) u32 {
+        return self.inner.repeat_offset();
+    }
+
+    pub fn takes(self: *const ChoosySink, len: usize, offset: usize) bool {
+        assert(offset > 0);
+        return len >= self.len_min;
     }
 };
 
@@ -158,4 +184,24 @@ test "start moves to the next tag, and clears the tables once the tags run out" 
     for (matcher.short) |entry| try testing.expectEqual(0, entry);
     for (matcher.long) |entry| try testing.expectEqual(0, entry);
     try testing.expect(constants.match_read_len <= @sizeOf(u64));
+}
+
+test "a sink's takes refuses the matches it judges worth less than their literals" {
+    var generator = split.Generator.init(5);
+    const Matcher = match_finder.Matcher(levels[0]);
+    var matcher: Matcher = undefined;
+    fill(&generator, window[0 .. 1 << window_log]);
+    // The plain sink takes matches shorter than 12 octets, and the choosy one none.
+    matcher.init();
+    sink.reset();
+    matcher.parse(&window, 0, 1 << window_log, &sink);
+    try testing.expect(std.mem.min(u32, sink.lens[0..sink.count]) < 12);
+    matcher.init();
+    choosy = .{ .inner = undefined, .len_min = 12 };
+    choosy.inner.reset();
+    matcher.parse(&window, 0, 1 << window_log, &choosy);
+    try testing.expect(choosy.inner.count > 0);
+    try testing.expect(std.mem.min(u32, choosy.inner.lens[0..choosy.inner.count]) >= 12);
+    try testing.expectEqual(1 << window_log, choosy.inner.execute(0));
+    try testing.expectEqualSlices(u8, window[0 .. 1 << window_log], output[0 .. 1 << window_log]);
 }

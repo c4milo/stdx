@@ -38,9 +38,14 @@ pub const encoder_length_nibbles = 4;
 pub const encoder_level1_window_bits = 18;
 /// The fewest WBITS the encoder takes: a window that holds a whole meta-block.
 pub const encoder_window_bits_min = constants.window_bits_short;
-/// Level 1's match finder: one table of 2^15 entries, hashing 5 octets (decision 62).
+/// Level 1's match finder: one table of 2^15 entries, hashing 6 octets (decision 62).
 pub const encoder_level1_hash_log = 15;
-pub const encoder_level1_hash_len = 5;
+pub const encoder_level1_hash_len = 6;
+/// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
+pub const encoder_literal_cost_initial = 64;
+/// A match's cost in eighths of a bit besides its distance's extra bits, which `takes` adds as
+/// the log2 of its offset: an insert-and-copy symbol and a distance code (RFC 7932 §4, §5).
+pub const encoder_match_cost_base = 12 * 8;
 /// The octets of the stream header: WBITS takes 7 bits at most (RFC 7932 §9.1).
 pub const encoder_stream_header_len_max = 1;
 /// The octets an uncompressed meta-block adds to its input: the bits a previous meta-block left,
