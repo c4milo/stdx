@@ -3,6 +3,19 @@
 const std = @import("std");
 const constants = @import("constants.zig");
 
+/// The most code length code lengths HSKIP leaves out (RFC 7932 §3.5).
+pub const code_length_skip_max = 3;
+/// The encoder's largest alphabet, the insert-and-copy code's: a complex code's lengths, and so its
+/// code length symbols, number this many at most (RFC 7932 §3.3, §3.5).
+pub const encoder_code_alphabet_len_max = constants.insert_copy_alphabet_len;
+/// The most repeat symbols one run of lengths takes: each adds two bits or more to a count, and a
+/// run is shorter than the largest alphabet (RFC 7932 §3.5).
+pub const repeat_digits_max = 6;
+
+comptime {
+    std.debug.assert(encoder_code_alphabet_len_max < (1 << (constants.repeat_previous_extra_bits * repeat_digits_max)));
+}
+
 /// The most octets of input a meta-block takes: the shared prefix code builder counts symbols in
 /// 16 bits, so a meta-block's counts stay below 65,536 (decision 62).
 pub const encoder_meta_block_len_max = 65535;
@@ -38,9 +51,11 @@ pub const encoder_length_nibbles = 4;
 pub const encoder_level1_window_bits = 18;
 /// The fewest WBITS the encoder takes: a window that holds a whole meta-block.
 pub const encoder_window_bits_min = constants.window_bits_short;
-/// Level 1's match finder: one table of 2^15 entries, hashing 6 octets (decision 62).
-pub const encoder_level1_hash_log = 15;
-pub const encoder_level1_hash_len = 6;
+/// Level 1's match finder: a table of 2^14 entries hashing 5 octets, and one of 2^14 hashing 8,
+/// whose longer matches it prefers (decision 62).
+pub const encoder_level1_hash_log = 14;
+pub const encoder_level1_hash_len = 5;
+pub const encoder_level1_long_hash_log = 14;
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
 /// A match's cost in eighths of a bit besides its distance's extra bits, which `takes` adds as
