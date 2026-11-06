@@ -25,8 +25,8 @@ pub const EncoderOptions = struct {
     window_bits: ?u5 = null,
 };
 
-/// The match finder of each level (decision 62): one table of 2^15 entries at level 1, whose
-/// reach ends where the window of RFC 7932 §9.1 does.
+/// The match finder of each level (decision 62): at level 1 a short table and a long one of 2^14
+/// entries each, whose reach ends where the window of RFC 7932 §9.1 does.
 fn level_of(comptime options: EncoderOptions) codec.match_finder.Level {
     if (options.level != 1) @compileError("the brotli encoder has level 1 (decision 62)");
     const window_bits = options.window_bits orelse constants.encoder_level1_window_bits;
@@ -35,7 +35,7 @@ fn level_of(comptime options: EncoderOptions) codec.match_finder.Level {
         .window_log = window_bits,
         .short_hash_log = constants.encoder_level1_hash_log,
         .short_hash_len = constants.encoder_level1_hash_len,
-        .long_hash_log = 0,
+        .long_hash_log = constants.encoder_level1_long_hash_log,
         .reach_max = (@as(u32, 1) << window_bits) - constants.window_len_gap,
     };
 }
