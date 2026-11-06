@@ -1,6 +1,7 @@
 //! A meta-block's commands (RFC 7932 §9.3), as codec's match finder finds them (decision 62): each
-//! command inserts literals and copies a match. The meta-block counts each symbol as a command
-//! arrives, for its prefix codes, and the writer works out the symbols again as it puts them.
+//! command inserts literals and copies a match. Each command is coded once, as it arrives: its
+//! insert-and-copy symbol and its distance's code and extra bits, which the meta-block counts for
+//! its prefix codes and the writer puts.
 //!
 //! A command's distance goes out as a short code where one of the four last distances names it
 //! (RFC 7932 §4), the last as code 0, and otherwise as a code of 16 or more with extra bits, with
@@ -20,16 +21,24 @@ comptime {
 /// The eighths of a bit `literal_cost` counts in.
 const eighths = 8;
 
-/// A command as the meta-block holds it, in 8 octets (decision 12's budget): its lengths, its
-/// distance, and the distance's code. The writer works out the symbols and extra bits again.
+/// A command as the meta-block holds it, coded, in 8 octets (decision 12's budget): its lengths,
+/// its insert-and-copy symbol, and its distance's code and extra bits. The lengths' extra bits
+/// follow from the symbol and the lengths.
 pub const Command = packed struct(u64) {
     insert_len: u16,
     copy_len: u16,
-    /// The distance, which a window of 2^24 octets or less holds in 24 bits (RFC 7932 §9.1).
-    distance: u24,
+    symbol: u10,
     /// The distance's code: a short code below 16, else a code with extra bits (RFC 7932 §4).
-    distance_code: u8,
+    distance_code: u6,
+    /// The distance's extra bits, 16 at most below level 1's WBITS of 18.
+    distance_extra: u16,
 };
+
+comptime {
+    // RFC 7932 §4: distance + 3 lies below 2^WBITS, and its extra bits number its top bit's place
+    // less one.
+    assert(constants.encoder_level1_window_bits - 2 <= @bitSizeOf(u16));
+}
 
 /// A command's symbols and extra bits, as the writer puts them.
 pub const Coded = struct {
@@ -87,9 +96,9 @@ pub const Commands = struct {
         const insert_len = position - anchor;
         self.add_literals(safety, window[anchor..position]);
         const code = self.distance_code(safety, @intCast(distance));
-        self.record(safety, .{ .insert_len = @intCast(insert_len), .copy_len = @intCast(len), .distance = @intCast(distance), .distance_code = code });
+        self.record(safety, @intCast(insert_len), @intCast(len), code.code, @intCast(code.extra));
         self.inserted += insert_len;
-        if (code != 0) self.push_distance(safety, @intCast(distance));
+        if (code.code != 0) self.push_distance(safety, @intCast(distance));
     }
 
     /// The finder's sink: literals, before a match or after the last one. The meta-block's last
@@ -131,29 +140,29 @@ pub const Commands = struct {
         assert(self.count < self.commands.len);
         // The copy never runs: the meta-block's length ends at the literals. Code 0 keeps the
         // distance out of the stream where the insert code allows it.
-        self.record(true, .{ .insert_len = @intCast(tail_len), .copy_len = constants.copy_length_codes[0].base, .distance = @intCast(self.last_distances[0]), .distance_code = 0 });
+        self.record(true, @intCast(tail_len), constants.copy_length_codes[0].base, 0, 0);
         self.inserted = self.literals_len;
     }
 
-    fn record(self: *Commands, comptime safety: bool, command: Command) void {
+    fn record(self: *Commands, comptime safety: bool, insert_len: u16, copy_len: u16, code: u6, extra: u16) void {
         @setRuntimeSafety(safety);
-        self.commands[self.count] = command;
+        const symbol = symbol_of(safety, insert_len, copy_len, code);
+        self.commands[self.count] = .{ .insert_len = insert_len, .copy_len = copy_len, .symbol = symbol, .distance_code = code, .distance_extra = extra };
         self.count += 1;
-        const symbol = symbol_of(safety, command);
         // Decision 17: a meta-block holds at most `encoder_commands_max` commands, which fit a
         // count's 16 bits.
         self.command_counts[symbol] +%= 1;
-        if (symbol >= constants.insert_copy_last_distance_symbols) self.distance_counts[command.distance_code] +%= 1;
+        if (symbol >= constants.insert_copy_last_distance_symbols) self.distance_counts[code] +%= 1;
     }
 
-    /// The short code of the last distances that names `distance` (RFC 7932 §4), else the code
-    /// with extra bits.
-    fn distance_code(self: *const Commands, comptime safety: bool, distance: u32) u8 {
+    /// The short code of the last distances that names `distance` (RFC 7932 §4), with no extra
+    /// bits, else the code with extra bits.
+    fn distance_code(self: *const Commands, comptime safety: bool, distance: u32) DistanceCode {
         @setRuntimeSafety(safety);
         for (self.last_distances, 0..) |last, code| {
-            if (last == distance) return @intCast(code);
+            if (last == distance) return .{ .code = @intCast(code), .extra = 0, .extra_bits = 0 };
         }
-        return distance_code_of(safety, distance).code;
+        return distance_code_of(safety, distance);
     }
 
     fn push_distance(self: *Commands, comptime safety: bool, distance: u32) void {
@@ -189,38 +198,51 @@ pub fn Sink(comptime safety: bool) type {
 }
 
 /// A command's insert-and-copy symbol (RFC 7932 §5).
-fn symbol_of(comptime safety: bool, command: Command) u16 {
+fn symbol_of(comptime safety: bool, insert_len: u16, copy_len: u16, code: u6) u10 {
     @setRuntimeSafety(safety);
-    return insert_copy_symbols[@intFromBool(command.distance_code == 0)][insert_code_of(safety, command.insert_len)][copy_code_of(safety, command.copy_len)];
+    return insert_copy_symbols[@intFromBool(code == 0)][insert_code_of(safety, insert_len)][copy_code_of(safety, copy_len)];
 }
 
-/// A command's symbols and extra bits (RFC 7932 §5).
+/// A command's extra bits (RFC 7932 §4, §5): the lengths' from the symbol's codes, and the
+/// distance's from its code.
 pub fn coded_of(comptime safety: bool, command: Command) Coded {
     @setRuntimeSafety(safety);
-    const insert_code = insert_code_of(safety, command.insert_len);
-    const copy_code = copy_code_of(safety, command.copy_len);
-    const insert = constants.insert_length_codes[insert_code];
-    const copy = constants.copy_length_codes[copy_code];
-    var coded: Coded = .{
-        .symbol = insert_copy_symbols[@intFromBool(command.distance_code == 0)][insert_code][copy_code],
-        .insert_extra = command.insert_len - insert.base,
-        .insert_extra_bits = insert.extra_bits,
-        .copy_extra = command.copy_len - copy.base,
-        .copy_extra_bits = copy.extra_bits,
-        .distance_extra = 0,
-        .distance_extra_bits = 0,
+    const lengths = symbol_lengths[command.symbol];
+    return .{
+        .symbol = command.symbol,
+        .insert_extra = command.insert_len - lengths.insert_base,
+        .insert_extra_bits = lengths.insert_extra_bits,
+        .copy_extra = command.copy_len - lengths.copy_base,
+        .copy_extra_bits = lengths.copy_extra_bits,
+        .distance_extra = command.distance_extra,
+        .distance_extra_bits = distance_extra_bits[command.distance_code],
     };
-    if (command.distance_code >= constants.distance_short_codes_count) {
-        // RFC 7932 §4, with NPOSTFIX and NDIRECT 0: the code gives ndistbits and the bit below
-        // distance + 3's top bit, and the extra bits are the rest below it.
-        const above = command.distance_code - constants.distance_short_codes_count;
-        const extra_bits: u5 = @intCast(above / constants.distance_codes_per_extra_bits + 1);
-        const half: u32 = above % constants.distance_codes_per_extra_bits;
-        coded.distance_extra = command.distance + constants.distance_offset - ((constants.distance_prefix_base + half) << extra_bits);
-        coded.distance_extra_bits = extra_bits;
-    }
-    return coded;
 }
+
+/// The first lengths and extra bits of each insert-and-copy symbol's two length codes, worked out
+/// from RFC 7932 §5's cells at compile time.
+const SymbolLengths = struct { insert_base: u16, insert_extra_bits: u5, copy_base: u16, copy_extra_bits: u5 };
+
+const symbol_lengths = lengths: {
+    var table: [constants.insert_copy_alphabet_len]SymbolLengths = undefined;
+    for (&table, 0..) |*entry, symbol| {
+        const cell = constants.insert_copy_cells[symbol >> constants.insert_copy_cell_bits];
+        const insert = constants.insert_length_codes[cell.insert + ((symbol >> constants.insert_copy_code_bits) & code_mask)];
+        const copy = constants.copy_length_codes[cell.copy + (symbol & code_mask)];
+        entry.* = .{ .insert_base = insert.base, .insert_extra_bits = insert.extra_bits, .copy_base = copy.base, .copy_extra_bits = copy.extra_bits };
+    }
+    break :lengths table;
+};
+
+/// The extra bits of each distance code (RFC 7932 §4, NPOSTFIX and NDIRECT 0): none for a short
+/// code, and for code 16 + 2(n - 1) + half, n.
+const distance_extra_bits = bits: {
+    var table: [constants.encoder_distance_alphabet_len]u5 = @splat(0);
+    for (constants.distance_short_codes_count..table.len) |code| {
+        table[code] = (code - constants.distance_short_codes_count) / constants.distance_codes_per_extra_bits + 1;
+    }
+    break :bits table;
+};
 
 /// The insert and copy length codes of the lengths below `constants.encoder_length_table_len`,
 /// worked out from RFC 7932 §5's tables at compile time; a longer length searches the table.
@@ -253,7 +275,7 @@ inline fn copy_code_of(comptime safety: bool, len: u32) u5 {
 const insert_copy_symbols = symbols: {
     @setEvalBranchQuota(constants.encoder_symbol_table_quota);
     const count = constants.insert_length_codes.len;
-    var symbols: [constants.encoder_distance_kinds][count][count]u16 = undefined;
+    var symbols: [constants.encoder_distance_kinds][count][count]u10 = undefined;
     for (&symbols, 0..) |*table, last| {
         for (0..count) |insert| {
             for (0..count) |copy| table[insert][copy] = insert_copy_symbol(insert, copy, last == 1);
@@ -275,7 +297,7 @@ fn length_code(table: []const constants.LengthCode, len: u32) u5 {
 
 /// The insert-and-copy symbol of two length codes: a symbol below 128 when the distance is the last
 /// one and both codes fit its cells, else the cell of RFC 7932 §5's table that holds both.
-fn insert_copy_symbol(insert_code: u5, copy_code: u5, last_distance: bool) u16 {
+fn insert_copy_symbol(insert_code: u5, copy_code: u5, last_distance: bool) u10 {
     const low = (@as(u16, insert_code & code_mask) << constants.insert_copy_code_bits) | (copy_code & code_mask);
     const first_explicit = constants.insert_copy_last_distance_symbols >> constants.insert_copy_cell_bits;
     const cells = constants.insert_copy_cells;
@@ -290,7 +312,7 @@ fn insert_copy_symbol(insert_code: u5, copy_code: u5, last_distance: bool) u16 {
 
 const code_mask: u5 = (1 << constants.insert_copy_code_bits) - 1;
 
-const DistanceCode = struct { code: u8, extra: u32, extra_bits: u5 };
+const DistanceCode = struct { code: u6, extra: u32, extra_bits: u5 };
 
 /// A distance's code of 16 or more and its extra bits, with NPOSTFIX and NDIRECT 0 (RFC 7932 §4):
 /// distance + 3 lies from 2 << ndistbits to 4 << ndistbits, and its bit below the top two picks
