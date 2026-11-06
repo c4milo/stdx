@@ -95,8 +95,13 @@ pub const encoder_command_bits_max = constants.code_len_max + extra_bits_last(&c
 fn extra_bits_last(comptime table: []const constants.LengthCode) u32 {
     return table[table.len - 1].extra_bits;
 }
-/// The literals the writer puts with one put: two codes of 15 bits fit the bit buffer after a store.
-pub const encoder_literals_per_put = 2;
+/// The literal code's longest code, short of RFC 7932's 15 bits, so that `encoder_literals_per_put`
+/// literals fit one put (decision 62).
+pub const encoder_literal_len_max = 14;
+/// The literals the writer puts with one put, and the most bits a put takes: a store follows each
+/// put, so the bit buffer holds fewer than 8 bits before it.
+pub const encoder_literals_per_put = 4;
+pub const encoder_put_bits_max = 56;
 /// The literals the writer puts between checks of its room.
 pub const encoder_literal_chunk_len = 64;
 
