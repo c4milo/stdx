@@ -134,7 +134,7 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
     const search_end = end -| constants.match_read_len;
     for (0..end - start) |_| {
         if (position >= search_end) break;
-        const found = find(level, self, window, position, anchor, end, sink.repeat_offset()) orelse {
+        const found = worth(sink, find(level, self, window, position, anchor, end, sink.repeat_offset())) orelse {
             position += 1 + ((position - anchor) >> constants.match_skip_log);
             continue;
         };
@@ -145,6 +145,15 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
         anchor = match_end;
     }
     sink.add_literals(window[anchor..end]);
+}
+
+/// `found`, unless the sink has a `takes` and it refuses the match: a codec may judge a match
+/// worth less than the literals it replaces.
+inline fn worth(sink: anytype, found: ?Found) ?Found {
+    const match = found orelse return null;
+    const Sink = @typeInfo(@TypeOf(sink)).pointer.child;
+    if (@hasDecl(Sink, "takes") and !sink.takes(match.len, match.offset)) return null;
+    return match;
 }
 
 /// The match at `position`, or at the octet after it for a long table, extended back over literals
