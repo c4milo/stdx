@@ -487,6 +487,7 @@ pub const encoder_symbol_table_quota = encoder.encoder_symbol_table_quota;
 pub const encoder_command_bits_max = encoder.encoder_command_bits_max;
 pub const encoder_literal_chunk_len = encoder.encoder_literal_chunk_len;
 pub const encoder_literals_per_put = encoder.encoder_literals_per_put;
+pub const encoder_scan_lanes = encoder.encoder_scan_lanes;
 pub const encoder_put_bits_max = encoder.encoder_put_bits_max;
 pub const encoder_distance_kinds = encoder.encoder_distance_kinds;
 pub const encoder_small_insert_len = encoder.encoder_small_insert_len;
