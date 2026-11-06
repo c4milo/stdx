@@ -877,8 +877,8 @@ small file.
     - SIMD uses `@Vector` through the same slices. Inline assembly, for carry-less multiplication
       or the CRC32 instructions, takes register operands only, loaded through checked slices, and
       never an address.
-    - `@setRuntimeSafety(false)` appears in one place, the brotli command loop, ruled below on
-      2026-09-29; entries 35 and 49 let a caller choose it for the json encoder's token loop and
+    - `@setRuntimeSafety(false)` appears in two places, the brotli command loop, ruled below on
+      2026-09-29, and the brotli encoder's parse and writer, ruled below on 2026-11-05; entries 35 and 49 let a caller choose it for the json encoder's token loop and
       for the DEFLATE encoder's loops. An exception needs an A/B of the same function with safety
       on and off on the Linux runners, five runs each over all three corpora, a gain above the 5%
       noise floor, a new row in this entry with the numbers, and the owner's ruling.
@@ -903,6 +903,24 @@ small file.
       return: bench-brotli prices them in each run, and the tests and the fuzzer compare both
       settings with the checked path.
     - Decision 24's measures, once ruled, cover this loop as they cover the assembly loops.
+
+    **The brotli encoder's parse and writer without Zig's checks.** Proposed on 2026-11-05, after
+    the owner asked for this entry the same day, and ruled by the owner the same day after the
+    measurement below: on by default. It names the functions of
+    level 1 (entry 62) that run with `@setRuntimeSafety(false)` when `EncoderOptions.unchecked_loops`
+    is on: the shared match finder's parse, through `Level.runtime_safety`; the `Commands` methods
+    that record a match and its literals; and the meta-block writer's loops over commands and
+    literals. Their room checks stay: `check_room` before each command and each chunk of
+    literals, and the bit writer's `put`, which keeps its assertions.
+    - The measurement. Run [42153595323](https://github.com/c4milo/stdx/actions/runs/42153595323),
+      at 71ab85b, times both settings beside Google's quality 1 in one job on each runner. The
+      N2 encodes 1.05 to 1.22 times as fast without the checks, 1.16 at the median; an EPYC 7763
+      1.04 to 1.29, 1.16 at the median. Under callgrind on the M1 the checks are 23% to 27% of
+      level 1's instructions.
+    - The checked path stays the reference. A test requires both settings to write the same
+      octets for every input it codes, and `differential-brotli-encode` holds the hashes.
+    - What it leaves. Unchecked, level 1 is 0.61 to 1.52 of Google's speed on the N2, 0.74 at
+      the median, and 0.45 to 1.35 on the EPYC 7763, 0.61 at the median.
 
     **DEFLATE's tail takes words and chunks while the input and the room hold them.** Proposed on
     2026-10-04, after the split of design §8 step 7, and ruled by the owner the same day, who read
