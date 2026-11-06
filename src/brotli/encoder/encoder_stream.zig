@@ -13,6 +13,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
+const encoder_parse = @import("encoder_parse.zig");
 
 /// What ends the meta-block: more input follows it, a flush brings the stream to an octet boundary
 /// after it, or it is the stream's last.
@@ -48,9 +49,14 @@ fn write_block(self: anytype, writer: *codec.BitWriter, block: []const u8, last:
     const saved_position = writer.writer.position;
     const saved_distances = self.commands.last_distances;
     self.commands.reset();
-    const safety = @TypeOf(self.*).runtime_safety;
-    var sink: encoder_commands.Sink(safety) = .{ .commands = &self.commands };
-    self.matcher.parse(&self.window, self.encoded_end, self.filled_end, &sink);
+    const Self = @TypeOf(self.*);
+    const safety = Self.runtime_safety;
+    if (Self.lean_parse) {
+        encoder_parse.parse(Self.finder_level, safety, &self.matcher, &self.window, self.encoded_end, self.filled_end, &self.commands);
+    } else {
+        var sink: encoder_commands.Sink(safety) = .{ .commands = &self.commands };
+        self.matcher.parse(&self.window, self.encoded_end, self.filled_end, &sink);
+    }
     self.commands.close();
     const raw_len = block.len + constants.encoder_uncompressed_overhead;
     const written = encoder_meta_block.write_compressed(safety, writer, block, &self.commands, &self.codes, last);

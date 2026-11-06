@@ -81,6 +81,10 @@ pub const encoder_rounds_extra = 4;
 /// The insert-and-copy symbols' tables: one for a distance the stream holds, one for the last
 /// distance, which a symbol below 128 leaves out (RFC 7932 §5).
 pub const encoder_distance_kinds = 2;
+/// The insert lengths below `encoder_small_insert_len` with the copy lengths below
+/// `encoder_small_copy_len` take their insert-and-copy symbol from one table.
+pub const encoder_small_insert_len = 16;
+pub const encoder_small_copy_len = 32;
 /// The lengths below this take their insert or copy length code from a table; a longer one searches
 /// RFC 7932 §5's table.
 pub const encoder_length_table_len = 128;
@@ -95,8 +99,10 @@ pub const encoder_command_bits_max = constants.code_len_max + extra_bits_last(&c
 fn extra_bits_last(comptime table: []const constants.LengthCode) u32 {
     return table[table.len - 1].extra_bits;
 }
-/// The literals the writer puts with one put: two codes of 15 bits fit the bit buffer after a store.
-pub const encoder_literals_per_put = 2;
+/// The literals the writer puts with one put, and the most bits a put takes: a store follows each
+/// put, so the bit buffer holds fewer than 8 bits before it (encoder_write.zig).
+pub const encoder_literals_per_put = 3;
+pub const encoder_put_bits_max = 56;
 /// The literals the writer puts between checks of its room.
 pub const encoder_literal_chunk_len = 64;
 
