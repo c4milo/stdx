@@ -21,7 +21,7 @@ pub const EncoderOptions = struct {
     /// 1 (decision 62).
     level: u4 = 1,
     /// WBITS; null takes the level's, 18 at level 1 (decision 62). A caller whose messages are
-    /// small may take less, down to a meta-block's 16.
+    /// small may take less, down to a meta-block's 16; level 1 takes 18 at most.
     window_bits: ?u5 = null,
     /// Decision 16, ruled on 2026-11-05: the parse, the commands' records and the meta-block's
     /// writer run without Zig's checks. Off, the checks return; the tests and the benchmark take
@@ -34,7 +34,8 @@ pub const EncoderOptions = struct {
 fn level_of(comptime options: EncoderOptions) codec.match_finder.Level {
     if (options.level != 1) @compileError("the brotli encoder has level 1 (decision 62)");
     const window_bits = options.window_bits orelse constants.encoder_level1_window_bits;
-    assert(window_bits >= constants.encoder_window_bits_min and window_bits <= constants.window_bits_max);
+    // Level 1's commands hold a distance's extra bits in 16 bits, which WBITS 18 bounds.
+    assert(window_bits >= constants.encoder_window_bits_min and window_bits <= constants.encoder_level1_window_bits);
     return .{
         .window_log = window_bits,
         .short_hash_log = constants.encoder_level1_hash_log,
