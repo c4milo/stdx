@@ -27,26 +27,37 @@ pub fn Code(comptime alphabet_len: usize) type {
         simple: [constants.simple_symbols_max]u16,
         simple_count: u3,
         tree_select: bool,
+        /// For a complex code: the symbols that take a length, in increasing order, and how many.
+        /// Its description covers them and the zeros between.
+        listed: [alphabet_len]u16,
+        listed_len: u16,
     };
 }
 
-/// Builds the code of `counts`, at least one of which is not zero.
+/// Builds the code of `counts`, at least one of which is not zero. The builder lists the symbols
+/// that occur, so the codes and the description's end come from them, not from the whole alphabet.
 pub fn build(comptime n: usize, counts: *const [n]u16, code: *Code(n)) void {
-    var listed: [constants.simple_symbols_max]u16 = undefined;
-    var used: usize = 0;
-    for (counts, 0..) |count, symbol| {
-        if (count == 0) continue;
-        if (used < listed.len) listed[used] = @intCast(symbol);
-        used += 1;
+    var listed: [n]codec.prefix_code.Key = undefined;
+    var length_counts: codec.prefix_code.LengthCounts = undefined;
+    const used = codec.prefix_code.build_lengths_listed(counts, constants.code_len_max, &code.lengths, &listed, &length_counts);
+    // The builder lists the symbols in increasing order, and two at least: with fewer occurring,
+    // symbols that do not occur stand in, which a simple code leaves out.
+    if (used <= constants.simple_symbols_max) {
+        var occurring: [constants.simple_symbols_max]u16 = undefined;
+        var occurring_len: usize = 0;
+        for (listed[0..used]) |key| {
+            const symbol: u16 = @truncate(key);
+            if (counts[symbol] == 0) continue;
+            occurring[occurring_len] = symbol;
+            occurring_len += 1;
+        }
+        assert(occurring_len > 0);
+        return build_simple(n, counts, occurring[0..occurring_len], code);
     }
-    assert(used > 0);
-    if (used > constants.simple_symbols_max) {
-        code.simple_count = 0;
-        codec.prefix_code.build_lengths(counts, constants.code_len_max, &code.lengths);
-        codec.prefix_code.build_codes(&code.lengths, &code.codes);
-        return;
-    }
-    build_simple(n, counts, listed[0..used], code);
+    code.simple_count = 0;
+    code.listed_len = @intCast(used);
+    for (listed[0..used], code.listed[0..used]) |key, *symbol| symbol.* = @truncate(key);
+    codec.prefix_code.build_codes_listed(&code.lengths, listed[0..used], &length_counts, &code.codes);
 }
 
 /// A simple code (RFC 7932 §3.4): its lengths are fixed by NSYM and the tree-select bit, given to
@@ -58,6 +69,7 @@ fn build_simple(comptime n: usize, counts: *const [n]u16, symbols: []u16, code: 
     @memset(&code.codes, 0);
     code.simple_count = @intCast(symbols.len);
     code.tree_select = false;
+    code.listed_len = 0;
     if (symbols.len == constants.simple_symbols_max) {
         // The tree-select bit's lengths when they code the symbols in fewer bits.
         const plain = constants.simple_code_lengths[constants.simple_symbols_max - constants.code_symbols_min];
@@ -98,7 +110,7 @@ pub inline fn put_symbol(comptime n: usize, writer: *codec.BitWriter, code: *con
 /// simple form.
 pub fn write(comptime n: usize, writer: *codec.BitWriter, code: *const Code(n), alphabet_bits: u4) Error!void {
     if (code.simple_count > 0) return write_simple(n, writer, code, alphabet_bits);
-    return write_complex(writer, &code.lengths);
+    return write_complex(writer, &code.lengths, code.listed[0..code.listed_len]);
 }
 
 fn write_simple(comptime n: usize, writer: *codec.BitWriter, code: *const Code(n), alphabet_bits: u4) Error!void {
@@ -124,19 +136,27 @@ const Runs = struct {
     }
 };
 
-fn write_complex(writer: *codec.BitWriter, lengths: []const u8) Error!void {
+fn write_complex(writer: *codec.BitWriter, lengths: []const u8, symbols: []const u16) Error!void {
     var runs: Runs = .{ .symbols = undefined, .extra = undefined, .len = 0, .counts = @splat(0) };
-    runs_of(lengths, &runs);
+    runs_of(lengths, symbols, &runs);
     var length_code: Code(constants.code_length_alphabet_len) = undefined;
     codec.prefix_code.build_lengths(&runs.counts, constants.code_length_code_len_max, &length_code.lengths);
     codec.prefix_code.build_codes(&length_code.lengths, &length_code.codes);
     try write_length_code(writer, &length_code.lengths);
+    // Each symbol's code and its extra bits in one put.
     for (runs.symbols[0..runs.len], runs.extra[0..runs.len]) |symbol, extra| {
-        try put_symbol(constants.code_length_alphabet_len, writer, &length_code, symbol);
-        if (symbol == constants.repeat_previous_symbol) try put(writer, extra, constants.repeat_previous_extra_bits);
-        if (symbol == constants.repeat_zero_symbol) try put(writer, extra, constants.repeat_zero_extra_bits);
+        const len = length_code.lengths[symbol];
+        try put(writer, length_code.codes[symbol] | @as(u64, extra) << @intCast(len), @as(u7, @intCast(len)) + extra_bits_of[symbol]);
     }
 }
+
+/// The extra bits after each code length symbol: those of 16 and 17, none for a length.
+const extra_bits_of = bits: {
+    var table: [constants.code_length_alphabet_len]u7 = @splat(0);
+    table[constants.repeat_previous_symbol] = constants.repeat_previous_extra_bits;
+    table[constants.repeat_zero_symbol] = constants.repeat_zero_extra_bits;
+    break :bits table;
+};
 
 /// HSKIP and the code length code's lengths in RFC 7932 §3.5's order, each through the fixed code,
 /// up to the last that is not zero. The builder gives two symbols a length at least.
@@ -161,24 +181,27 @@ fn write_length_code(writer: *codec.BitWriter, lengths: *const [constants.code_l
     }
 }
 
-/// The code length symbols of `lengths` up to the last nonzero one (RFC 7932 §3.5).
-fn runs_of(lengths: []const u8, runs: *Runs) void {
-    var end = lengths.len;
-    for (0..lengths.len) |_| {
-        if (end == 0 or lengths[end - 1] != 0) break;
-        end -= 1;
-    }
+/// The code length symbols of `lengths` up to the last nonzero one (RFC 7932 §3.5), from
+/// `symbols`, those that take a length, in increasing order: the gaps between them are the runs
+/// of zeros, and neighbours of one length a run of it.
+fn runs_of(lengths: []const u8, symbols: []const u16, runs: *Runs) void {
     var previous: u8 = constants.previous_len_initial;
     var at: usize = 0;
-    for (0..end) |_| {
-        if (at == end) break;
-        const len = lengths[at];
-        var run = run_len(lengths[at..end]);
-        at += run;
-        if (len == 0) {
-            push_repeats(runs, 0, run, constants.repeat_zero_symbol, constants.repeat_zero_extra_bits);
-            continue;
+    var next: usize = 0;
+    for (0..symbols.len) |_| {
+        if (at == symbols.len) break;
+        const symbol = symbols[at];
+        assert(symbol >= next);
+        if (symbol > next) push_repeats(runs, 0, symbol - next, constants.repeat_zero_symbol, constants.repeat_zero_extra_bits);
+        const len = lengths[symbol];
+        assert(len != 0);
+        var run: usize = 1;
+        for (symbols[at + 1 ..]) |neighbour| {
+            if (neighbour != symbol + run or lengths[neighbour] != len) break;
+            run += 1;
         }
+        at += run;
+        next = symbol + run;
         if (len != previous) {
             runs.push(len, 0);
             run -= 1;
@@ -186,14 +209,6 @@ fn runs_of(lengths: []const u8, runs: *Runs) void {
         }
         push_repeats(runs, len, run, constants.repeat_previous_symbol, constants.repeat_previous_extra_bits);
     }
-}
-
-/// The lengths at the front of `lengths` equal to its first.
-fn run_len(lengths: []const u8) usize {
-    for (lengths[1..], 1..) |len, index| {
-        if (len != lengths[0]) return index;
-    }
-    return lengths.len;
 }
 
 /// `count` lengths of `len`: each alone below a repeat's 3, else repeat symbols whose extra bits

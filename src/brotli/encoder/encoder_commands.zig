@@ -134,8 +134,18 @@ pub const Commands = struct {
     /// Sets `literal_cost` from the literal code a meta-block built for its own counts.
     pub fn weigh_literals(self: *Commands, lengths: *const [constants.literal_alphabet_len]u8) void {
         if (self.literals_len == 0) return;
-        var bits: usize = 0;
-        for (self.literal_counts, lengths) |count, len| bits += @as(usize, count) * len;
+        // A lane's sum stays below a meta-block's literals times the longest code, which fits 32
+        // bits, and so does the total.
+        const lanes = constants.encoder_scan_lanes;
+        const Lanes = @Vector(lanes, u32);
+        comptime assert(constants.literal_alphabet_len % lanes == 0);
+        var sums: Lanes = @splat(0);
+        for (0..constants.literal_alphabet_len / lanes) |index| {
+            const counts: @Vector(lanes, u16) = self.literal_counts[index * lanes ..][0..lanes].*;
+            const lens: @Vector(lanes, u8) = lengths[index * lanes ..][0..lanes].*;
+            sums += @as(Lanes, counts) * @as(Lanes, lens);
+        }
+        const bits: usize = @reduce(.Add, sums);
         self.literal_cost = @intCast(bits * eighths / self.literals_len);
     }
 
@@ -402,12 +412,14 @@ test "a literal's cost is the mean length of the code its meta-block built" {
     var commands: Commands = undefined;
     commands.init();
     try std.testing.expectEqual(constants.encoder_literal_cost_initial, commands.literal_cost);
-    const window = "aaab";
+    // The last octet value too, which the weighing's last group of lanes holds.
+    const window = "aaab\xff\xff\xff\xff";
     commands.add_literals(true, window);
     var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
     lengths['a'] = 1;
     lengths['b'] = 3;
+    lengths[0xff] = 5;
     commands.weigh_literals(&lengths);
-    // Three literals of 1 bit and one of 3: 6 bits over 4, 12 eighths.
-    try std.testing.expectEqual(12, commands.literal_cost);
+    // Three literals of 1 bit, one of 3 and four of 5: 26 bits over 8, 26 eighths.
+    try std.testing.expectEqual(26, commands.literal_cost);
 }
