@@ -21,6 +21,10 @@ pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
 pub const refusal = decoder.refusal;
 
+const encoder = @import("encoder/encoder.zig");
+pub const Encoder = encoder.Encoder;
+pub const EncoderOptions = encoder.EncoderOptions;
+
 const io = @import("io.zig");
 pub const IoReader = io.IoReader;
 pub const HttpIoReader = io.HttpIoReader;
@@ -34,4 +38,6 @@ test {
     _ = prefix;
     _ = claims;
     _ = decoder;
+    _ = @import("encoder/encoder_prefix.zig");
+    _ = encoder;
 }
