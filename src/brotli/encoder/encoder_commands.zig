@@ -155,7 +155,7 @@ pub const Commands = struct {
         self.inserted = self.literals_len;
     }
 
-    fn record(self: *Commands, comptime safety: bool, insert_len: u16, copy_len: u16, code: u6, extra: u16) void {
+    inline fn record(self: *Commands, comptime safety: bool, insert_len: u16, copy_len: u16, code: u6, extra: u16) void {
         @setRuntimeSafety(safety);
         const symbol = symbol_of(safety, insert_len, copy_len, code);
         self.commands[self.count] = .{ .insert_len = insert_len, .copy_len = copy_len, .symbol_and_code = symbol | @as(u16, code) << symbol_bits, .distance_extra = extra };
@@ -168,7 +168,7 @@ pub const Commands = struct {
 
     /// The short code of the last distances that names `distance` (RFC 7932 §4), with no extra
     /// bits, else the code with extra bits.
-    fn distance_code(self: *const Commands, comptime safety: bool, distance: u32) DistanceCode {
+    inline fn distance_code(self: *const Commands, comptime safety: bool, distance: u32) DistanceCode {
         @setRuntimeSafety(safety);
         for (self.last_distances, 0..) |last, code| {
             if (last == distance) return .{ .code = @intCast(code), .extra = 0, .extra_bits = 0 };
@@ -176,7 +176,7 @@ pub const Commands = struct {
         return distance_code_of(safety, distance);
     }
 
-    fn push_distance(self: *Commands, comptime safety: bool, distance: u32) void {
+    inline fn push_distance(self: *Commands, comptime safety: bool, distance: u32) void {
         @setRuntimeSafety(safety);
         std.mem.copyBackwards(u32, self.last_distances[1..], self.last_distances[0 .. self.last_distances.len - 1]);
         self.last_distances[0] = distance;
@@ -209,7 +209,7 @@ pub fn Sink(comptime safety: bool) type {
 }
 
 /// A command's insert-and-copy symbol (RFC 7932 §5).
-fn symbol_of(comptime safety: bool, insert_len: u16, copy_len: u16, code: u6) u10 {
+inline fn symbol_of(comptime safety: bool, insert_len: u16, copy_len: u16, code: u6) u10 {
     @setRuntimeSafety(safety);
     const last = @intFromBool(code == 0);
     if (insert_len < small_symbols[0].len and copy_len < small_symbols[0][0].len) return small_symbols[last][insert_len][copy_len];
@@ -346,7 +346,7 @@ const DistanceCode = struct { code: u6, extra: u32, extra_bits: u5 };
 /// A distance's code of 16 or more and its extra bits, with NPOSTFIX and NDIRECT 0 (RFC 7932 §4):
 /// distance + 3 lies from 2 << ndistbits to 4 << ndistbits, and its bit below the top two picks
 /// one of the two codes of each ndistbits.
-fn distance_code_of(comptime safety: bool, distance: u32) DistanceCode {
+inline fn distance_code_of(comptime safety: bool, distance: u32) DistanceCode {
     @setRuntimeSafety(safety);
     const shifted = distance + constants.distance_offset;
     const top: u5 = @intCast(std.math.log2_int(u32, shifted));
