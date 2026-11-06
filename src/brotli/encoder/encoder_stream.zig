@@ -13,7 +13,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
-const encoder_parse = @import("encoder_parse.zig");
+const encoder_parse = @import("encoder_parse/encoder_parse.zig");
 
 /// What ends the meta-block: more input follows it, a flush brings the stream to an octet boundary
 /// after it, or it is the stream's last.
