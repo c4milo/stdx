@@ -32,12 +32,6 @@ pub fn Code(comptime alphabet_len: usize) type {
 
 /// Builds the code of `counts`, at least one of which is not zero.
 pub fn build(comptime n: usize, counts: *const [n]u16, code: *Code(n)) void {
-    build_limited(n, counts, constants.code_len_max, code);
-}
-
-/// Builds the code of `counts` with no code longer than `len_max` bits.
-pub fn build_limited(comptime n: usize, counts: *const [n]u16, comptime len_max: u4, code: *Code(n)) void {
-    comptime assert(len_max <= constants.code_len_max);
     var listed: [constants.simple_symbols_max]u16 = undefined;
     var used: usize = 0;
     for (counts, 0..) |count, symbol| {
@@ -48,7 +42,7 @@ pub fn build_limited(comptime n: usize, counts: *const [n]u16, comptime len_max:
     assert(used > 0);
     if (used > constants.simple_symbols_max) {
         code.simple_count = 0;
-        codec.prefix_code.build_lengths(counts, len_max, &code.lengths);
+        codec.prefix_code.build_lengths(counts, constants.code_len_max, &code.lengths);
         codec.prefix_code.build_codes(&code.lengths, &code.codes);
         return;
     }
