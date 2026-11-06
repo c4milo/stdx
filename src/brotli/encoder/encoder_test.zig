@@ -300,11 +300,11 @@ test "the encoder without Zig's checks writes the octets of the checked encoder"
     try @call(.never_inline, expect_unchecked_equal, .{});
 }
 
-const UncheckedEncoder = encoder.Encoder(.{ .level = 1, .window_bits = test_window_bits, .unchecked_loops = true });
+const CheckedEncoder = encoder.Encoder(.{ .level = 1, .window_bits = test_window_bits, .unchecked_loops = false });
 
 fn expect_unchecked_equal() !void {
-    var checked: Encoder = undefined;
-    var unchecked: UncheckedEncoder = undefined;
+    var checked: CheckedEncoder = undefined;
+    var unchecked: Encoder = undefined;
     for (cases) |case| {
         const plain = input_of(case);
         checked.init();
