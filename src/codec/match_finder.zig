@@ -181,7 +181,9 @@ fn find(comptime level: Level, self: *Matcher(level), window: []const u8, positi
     const short_candidate = bounds.candidate(short_entry) orelse return null;
     if (read32(level.runtime_safety, window, short_candidate) != @as(u32, @truncate(word))) return null;
     if (level.long_hash_log > 0 and position + 1 + constants.match_read_len <= end) {
-        if (long_next(level, self, window, position + 1, bounds.next())) |candidate| return extend(level.runtime_safety, window, position + 1, candidate, anchor, end);
+        // The next position's own range: its window's reach starts an octet later.
+        const next = Bounds.at(self.base, position + 1, @max(position + 1 -| reach(level), 1));
+        if (long_next(level, self, window, position + 1, next)) |candidate| return extend(level.runtime_safety, window, position + 1, candidate, anchor, end);
     }
     return extend(level.runtime_safety, window, position, short_candidate, anchor, end);
 }
@@ -220,11 +222,6 @@ const Bounds = struct {
             .lowest = base +% @as(u32, @truncate(low)),
             .entry = base +% @as(u32, @truncate(position)),
         };
-    }
-
-    /// The bounds of the next position, whose window reaches as far.
-    inline fn next(self: Bounds) Bounds {
-        return .{ .base = self.base, .lowest = self.lowest, .entry = self.entry +% 1 };
     }
 
     /// The position `entry` names, when it lies in the range.
