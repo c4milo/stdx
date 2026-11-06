@@ -34,7 +34,18 @@ pub const Level = struct {
     short_hash_len: u4,
     /// Log2 of the long table's entries, which hash 8 octets; 0 for a level with one table.
     long_hash_log: u5,
+    /// The farthest a match reaches back; null for one octet less than the window. A format whose
+    /// longest distances name something other than the window names a shorter reach.
+    reach_max: ?u32 = null,
 };
+
+/// The farthest a match of `level` reaches back.
+fn reach(comptime level: Level) usize {
+    const window_reach = (@as(usize, 1) << level.window_log) - 1;
+    const level_reach = level.reach_max orelse return window_reach;
+    comptime std.debug.assert(level_reach > 0 and level_reach <= window_reach);
+    return level_reach;
+}
 
 /// The tables of `level`'s match finder.
 pub fn Matcher(comptime level: Level) type {
@@ -141,7 +152,7 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
 /// `position` either way.
 fn find(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, anchor: usize, end: usize, repeat_offset: u32) ?Found {
     // The lowest position a candidate takes: the window's reach, and never position 0.
-    const low = @max(position -| ((@as(usize, 1) << level.window_log) - 1), 1);
+    const low = @max(position -| reach(level), 1);
     const bounds = Bounds.at(self.base, position, low);
     const word = read64(window, position);
     const short_entry = swap(&self.short[hash(word, level.short_hash_len, level.short_hash_log)], bounds.entry);
