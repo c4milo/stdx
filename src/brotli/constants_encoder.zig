@@ -58,6 +58,28 @@ pub const encoder_out_len = encoder_stream_header_len_max + encoder_meta_block_l
 pub const encoder_rounds_per_block = 2;
 pub const encoder_rounds_extra = 4;
 
+/// The insert-and-copy symbols' tables: one for a distance the stream holds, one for the last
+/// distance, which a symbol below 128 leaves out (RFC 7932 §5).
+pub const encoder_distance_kinds = 2;
+/// The lengths below this take their insert or copy length code from a table; a longer one searches
+/// RFC 7932 §5's table.
+pub const encoder_length_table_len = 128;
+/// The branches the compiler may take to work out the table of insert-and-copy symbols.
+pub const encoder_symbol_table_quota = 100_000;
+/// The most bits one command puts besides its literals: a symbol of the longest code, insert and
+/// copy extra bits, and a distance's code and extra bits, below WBITS 24's (RFC 7932 §3.5, §4,
+/// §5).
+pub const encoder_command_bits_max = constants.code_len_max + extra_bits_last(&constants.insert_length_codes) +
+    extra_bits_last(&constants.copy_length_codes) + constants.code_len_max + constants.window_bits_max;
+
+fn extra_bits_last(comptime table: []const constants.LengthCode) u32 {
+    return table[table.len - 1].extra_bits;
+}
+/// The literals the writer puts with one put: two codes of 15 bits fit the bit buffer after a store.
+pub const encoder_literals_per_put = 2;
+/// The literals the writer puts between checks of its room.
+pub const encoder_literal_chunk_len = 64;
+
 comptime {
     std.debug.assert(encoder_meta_block_len_max < 1 << (encoder_length_nibbles * constants.nibble_bits));
     std.debug.assert(encoder_meta_block_len_max <= 1 << encoder_window_bits_min);
