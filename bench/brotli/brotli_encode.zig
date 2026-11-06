@@ -2,8 +2,9 @@
 //! level 1 rivals Google's quality 1 and level 5 its quality 5, with decision 12's windows: WBITS
 //! 18 at level 1 and 22 at level 5 (decision 62).
 //!
-//! - The first tables time stdx's level 1 and Google's quality 1 at WBITS 18, interleaved. The
-//!   last times Google alone: quality 1 at its default WBITS 22, and quality 5.
+//! - The first tables time stdx's level 1 and Google's quality 1 at WBITS 18, interleaved, and
+//!   stdx's level 1 with its hot loops unchecked, the A/B decision 16 asks for. The last times
+//!   Google alone: quality 1 at its default WBITS 22, and quality 5.
 //! - Each operation encodes one whole stream of a part of the row's input. Google's encoder takes a
 //!   new instance a stream, as its one-call API does. stdx's state is placed once, started once
 //!   with `init`, and begun for each stream with `start` (decision 60), as a server keeps one per
@@ -30,9 +31,10 @@ const settings = [_]Setting{
 /// The setting stdx's level 1 is timed against.
 const level1_rival: Setting = .{ .quality = 1, .window_bits = 18 };
 
-const candidate_names = [_][]const u8{ "Google q1", "stdx 1" };
+const candidate_names = [_][]const u8{ "Google q1", "stdx 1", "stdx 1 unchecked" };
 const candidate_count = candidate_names.len;
-const stdx_index = candidate_count - 1;
+/// The default encoder's column, which the bar reads.
+const stdx_index = 1;
 
 /// One row's input with both candidates: each one's median throughput, its spread in percent, and
 /// its ratio.
@@ -44,18 +46,22 @@ const PairRow = struct {
     ratios: [candidate_count]f64,
 };
 
-/// An encode of one stream by stdx's level 1, in one call, through a state kept across streams.
-const StdxEncode = struct {
-    const Encoder = brotli.Encoder(.{ .level = 1 });
+/// An encode of one stream by stdx's level 1, in one call, through a state kept across streams;
+/// with `unchecked`, the hot loops run without Zig's checks, as decision 16 proposes.
+fn StdxEncode(comptime unchecked: bool) type {
+    return struct {
+        const Self = @This();
+        const Encoder = brotli.Encoder(.{ .level = 1, .unchecked_loops = unchecked });
 
-    output: []u8,
-    encoder: *Encoder,
+        output: []u8,
+        encoder: *Encoder,
 
-    pub fn run(self: *const StdxEncode, input: []const u8) ?usize {
-        self.encoder.start();
-        return self.encoder.encode_all(input, self.output) catch null;
-    }
-};
+        pub fn run(self: *const Self, input: []const u8) ?usize {
+            self.encoder.start();
+            return self.encoder.encode_all(input, self.output) catch null;
+        }
+    };
+}
 
 /// One row's input at one setting: the median throughput, its spread in percent, and the ratio.
 const Row = struct {
@@ -127,14 +133,18 @@ fn print_header(out: *std.Io.Writer, unit: []const u8) !void {
 /// One row of the pair: each candidate encodes every part of `input` and its streams are decoded
 /// back, then both are timed interleaved.
 fn measure_pair(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow {
-    const output_len = @max(oracle.brotli_bound(input.part_len), StdxEncode.Encoder.encoded_len_max(input.part_len));
+    const Checked = StdxEncode(false);
+    const Unchecked = StdxEncode(true);
+    const output_len = @max(oracle.brotli_bound(input.part_len), Checked.Encoder.encoded_len_max(input.part_len));
     const google: GoogleEncode = .{ .output = try arena.alloc(u8, output_len), .setting = level1_rival };
-    const stdx: StdxEncode = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(StdxEncode.Encoder) };
+    const stdx: Checked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Checked.Encoder) };
     stdx.encoder.init();
+    const unchecked: Unchecked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Unchecked.Encoder) };
+    unchecked.encoder.init();
     var row: PairRow = .{ .name = input.name, .input_len = input.len(), .rates = undefined, .spreads = undefined, .ratios = undefined };
     var candidates: [candidate_count]timing.Operation = undefined;
     const decoded = try arena.alloc(u8, input.part_len);
-    inline for (.{ google, stdx }, 0..) |candidate, index| {
+    inline for (.{ google, stdx, unchecked }, 0..) |candidate, index| {
         const encoded_len = try encoded_len_of(candidate, input, decoded);
         row.ratios[index] = @as(f64, @floatFromInt(input.len())) / @as(f64, @floatFromInt(encoded_len));
         candidates[index] = try inputs.operation(arena, candidate, input.parts);
