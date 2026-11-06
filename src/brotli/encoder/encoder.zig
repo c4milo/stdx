@@ -27,6 +27,10 @@ pub const EncoderOptions = struct {
     /// writer run without Zig's checks. Off, the checks return; the tests and the benchmark take
     /// both settings, and the checked one is the reference.
     unchecked_loops: bool = true,
+    /// The owner's ruling of 2026-11-06: level 1 parses in one loop of its own
+    /// (encoder_parse.zig). Off, it parses through codec's match finder, the reference, which
+    /// writes the same octets; the tests take both.
+    lean_parse: bool = true,
 };
 
 /// The match finder of each level (decision 62): at level 1 a short table and a long one of 2^14
@@ -53,6 +57,9 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         pub const window_bits: u5 = level.window_log;
         /// Whether the parse and the meta-block's writer keep Zig's checks (decision 16).
         pub const runtime_safety = !options.unchecked_loops;
+        /// The match finder's level, and whether the parse runs in level 1's own loop.
+        pub const finder_level = level;
+        pub const lean_parse = options.lean_parse;
         /// The history a match reaches, and a meta-block not yet encoded.
         const window_capacity = (@as(usize, 1) << window_bits) + constants.encoder_meta_block_len_max;
 
