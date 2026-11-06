@@ -82,6 +82,7 @@ run_check "differential deflate" zig build differential-deflate -Doracles
 run_check "differential encode" zig build differential-encode -Doracles
 run_check "differential zstd" zig build differential-zstd -Doracles
 run_check "differential zstd encode" zig build differential-zstd-encode -Doracles
+run_check "differential brotli encode" zig build differential-brotli-encode -Doracles
 run_check "differential brotli" zig build differential-brotli -Doracles
 
 {
