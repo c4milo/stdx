@@ -12,6 +12,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
+/// The eighths of a bit `literal_cost` counts in.
+const eighths = 8;
+
 /// A command as the meta-block holds it, in 8 octets (decision 12's budget): its lengths, its
 /// distance, and the distance's code. The writer works out the symbols and extra bits again.
 pub const Command = packed struct(u64) {
@@ -50,10 +53,14 @@ pub const Commands = struct {
     inserted: usize,
     /// The last distance first.
     last_distances: [constants.last_distances_count]u32,
+    /// A literal's mean cost in eighths of a bit under the last meta-block's literal code, which
+    /// `takes` weighs a match against.
+    literal_cost: u32,
 
     pub fn init(self: *Commands) void {
         // RFC 7932 §4: the last distance 4, then 11, 15 and 16, at the stream's start.
         self.last_distances = constants.last_distances_initial;
+        self.literal_cost = constants.encoder_literal_cost_initial;
         self.reset();
     }
 
@@ -85,6 +92,21 @@ pub const Commands = struct {
     pub fn add_literals(self: *Commands, octets: []const u8) void {
         for (octets) |octet| self.literal_counts[octet] += 1;
         self.literals_len += octets.len;
+    }
+
+    /// Whether a match of `len` octets `offset` back saves more bits than it costs: the literals it
+    /// replaces, at `literal_cost`, against a command's cost and the distance's extra bits.
+    pub inline fn takes(self: *const Commands, len: usize, offset: usize) bool {
+        const cost = constants.encoder_match_cost_base + @as(usize, std.math.log2_int(usize, offset)) * eighths;
+        return len * self.literal_cost > cost;
+    }
+
+    /// Sets `literal_cost` from the literal code a meta-block built for its own counts.
+    pub fn weigh_literals(self: *Commands, lengths: *const [constants.literal_alphabet_len]u8) void {
+        if (self.literals_len == 0) return;
+        var bits: usize = 0;
+        for (self.literal_counts, lengths) |count, len| bits += @as(usize, count) * len;
+        self.literal_cost = @intCast(bits * eighths / self.literals_len);
     }
 
     /// The last distance, which the finder tries first.
@@ -265,4 +287,31 @@ test "a distance the ring holds takes its short code, and code 0 moves no distan
     const extra = coded_of(commands.commands[2]);
     try std.testing.expectEqual(5, extra.distance_extra_bits);
     try std.testing.expectEqual(103 - 96, extra.distance_extra);
+}
+
+test "a match is taken when the literals it replaces cost more than it" {
+    // At 2 bits a literal, a match 1000 back costs 12 bits and 9 of distance, 168 eighths: 10
+    // literals save 160 and 11 save 176.
+    var commands: Commands = undefined;
+    commands.init();
+    commands.literal_cost = 16;
+    try std.testing.expect(!commands.takes(10, 1000));
+    try std.testing.expect(commands.takes(11, 1000));
+    // Nearer, a shorter match pays: 1 back costs 96 eighths, which 7 literals pass.
+    try std.testing.expect(!commands.takes(6, 1));
+    try std.testing.expect(commands.takes(7, 1));
+}
+
+test "a literal's cost is the mean length of the code its meta-block built" {
+    var commands: Commands = undefined;
+    commands.init();
+    try std.testing.expectEqual(constants.encoder_literal_cost_initial, commands.literal_cost);
+    const window = "aaab";
+    commands.add_literals(window);
+    var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
+    lengths['a'] = 1;
+    lengths['b'] = 3;
+    commands.weigh_literals(&lengths);
+    // Three literals of 1 bit and one of 3: 6 bits over 4, 12 eighths.
+    try std.testing.expectEqual(12, commands.literal_cost);
 }
