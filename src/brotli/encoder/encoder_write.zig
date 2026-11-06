@@ -99,22 +99,29 @@ inline fn put_lengths(comptime safety: bool, bits: *Bits, code: anytype, coded: 
 /// none.
 inline fn put_literals(comptime safety: bool, bits: *Bits, literals: []const u8, code: anytype) Error!void {
     @setRuntimeSafety(safety);
+    const per_put = constants.encoder_literals_per_put;
     var rest = literals;
     for (0..std.math.divCeil(usize, literals.len, constants.encoder_literal_chunk_len) catch unreachable) |_| {
         const chunk = rest[0..@min(rest.len, constants.encoder_literal_chunk_len)];
         try bits.check(safety, chunk.len * constants.code_len_max + constants.encoder_command_bits_max);
-        var group = chunk;
-        for (0..std.math.divCeil(usize, chunk.len, constants.encoder_literals_per_put) catch unreachable) |_| {
-            const taken = group[0..@min(group.len, constants.encoder_literals_per_put)];
+        const whole = chunk.len / per_put;
+        for (0..whole) |index| {
+            const group = chunk[index * per_put ..][0..per_put];
             var value: u64 = 0;
             var count: usize = 0;
-            for (taken) |octet| {
+            inline for (group) |octet| {
                 value |= @as(u64, code.codes[octet]) << @intCast(count);
                 count += code.lengths[octet];
             }
             bits.put(safety, value, count);
-            group = group[taken.len..];
         }
+        var value: u64 = 0;
+        var count: usize = 0;
+        for (chunk[whole * per_put ..]) |octet| {
+            value |= @as(u64, code.codes[octet]) << @intCast(count);
+            count += code.lengths[octet];
+        }
+        if (count > 0) bits.put(safety, value, count);
         rest = rest[chunk.len..];
     }
 }
