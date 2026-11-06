@@ -171,6 +171,11 @@ test "codes of one to four symbols take the simple form, the most frequent first
     var counts: [256]u16 = @splat(0);
     counts['a'] = 9;
     try expect_round_trip(256, &counts, &.{ 'a', 'a' }, 8);
+    // One symbol alone: NSYM 1, which takes no bits, with no stand-in beside it.
+    var single: encoder_prefix.Code(256) = undefined;
+    encoder_prefix.build(256, &counts, &single);
+    try testing.expectEqual(1, single.simple_count);
+    try testing.expectEqual(0, single.lengths['a']);
     counts['b'] = 1;
     try expect_round_trip(256, &counts, &.{ 'a', 'b', 'a' }, 8);
     counts['c'] = 2;
