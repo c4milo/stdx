@@ -496,3 +496,5 @@ pub const encoder_command_bits_max = encoder.encoder_command_bits_max;
 pub const encoder_literal_chunk_len = encoder.encoder_literal_chunk_len;
 pub const encoder_literals_per_put = encoder.encoder_literals_per_put;
 pub const encoder_distance_kinds = encoder.encoder_distance_kinds;
+pub const encoder_literal_cost_initial = encoder.encoder_literal_cost_initial;
+pub const encoder_match_cost_base = encoder.encoder_match_cost_base;
