@@ -1078,6 +1078,10 @@ small file.
       entry 50): the table names a position before the one asked about, or 0, and that one is
       not 0, as a block that takes these matches follows a block with a literal and a slide
       leaves the position past `window_len` less the lookahead.
+    - The brotli encoder's counts of a meta-block's symbols (`Commands.add_literals`,
+      `Commands.record`, entry 62): a meta-block holds at most `encoder_meta_block_len_max`
+      literals and `encoder_commands_max` commands, and a comptime assert requires each to fit a
+      count's 16 bits. They cut 1% of level 1's instructions on alice29.txt.
     - Made plain adds, the five of the first three cost the default build 1.2% to 4.9% of level
       1's instructions on the M1 over seven rows, up to 2.5% of level 6's and up to 2.8% of
       level 9's, x-ray the most at each. With entry 49's choice off they cost nothing.
