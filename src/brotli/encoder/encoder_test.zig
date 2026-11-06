@@ -314,3 +314,22 @@ fn expect_unchecked_equal() !void {
         try testing.expectEqualSlices(u8, reference[0..checked_len], coded[0..unchecked_len]);
     }
 }
+
+test "level 1's own parse writes the octets of the parse through codec's finder" {
+    try @call(.never_inline, expect_lean_equal, .{});
+}
+
+const ReferenceEncoder = encoder.Encoder(.{ .level = 1, .window_bits = test_window_bits, .lean_parse = false });
+
+fn expect_lean_equal() !void {
+    var lean: Encoder = undefined;
+    var reference_state: ReferenceEncoder = undefined;
+    for (cases) |case| {
+        const plain = input_of(case);
+        reference_state.init();
+        const reference_len = try reference_state.encode_all(plain, &reference);
+        lean.init();
+        const lean_len = try lean.encode_all(plain, &coded);
+        try testing.expectEqualSlices(u8, reference[0..reference_len], coded[0..lean_len]);
+    }
+}
