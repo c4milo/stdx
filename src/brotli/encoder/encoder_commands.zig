@@ -101,7 +101,7 @@ pub const Commands = struct {
 
     /// The finder's sink: the literals from `anchor` to `position`, then a match of `len` octets
     /// `distance` back.
-    pub fn add(self: *Commands, comptime safety: bool, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
+    pub inline fn add(self: *Commands, comptime safety: bool, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
         @setRuntimeSafety(safety);
         assert(len >= constants.copy_length_codes[0].base and distance > 0 and self.count < self.commands.len);
         const insert_len = position - anchor;

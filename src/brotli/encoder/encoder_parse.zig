@@ -28,9 +28,10 @@ const Range = struct {
     entry: u32,
     limit: u32,
 
-    inline fn at(comptime safety: bool, base: u32, position: usize, reach_len: usize) Range {
+    /// `far` says the position is past `reach_len`, where the limit is `reach_len` alone.
+    inline fn at(comptime safety: bool, comptime far: bool, base: u32, position: usize, comptime reach_len: usize) Range {
         @setRuntimeSafety(safety);
-        const limit = if (position > reach_len) reach_len else position -| 1;
+        const limit = if (far) reach_len else if (position > reach_len) reach_len else position -| 1;
         return .{ .position = position, .entry = base +% @as(u32, @truncate(position)), .limit = @intCast(limit) };
     }
 
@@ -47,14 +48,23 @@ const Range = struct {
 
 /// Parses `window[start..end]`, whose history is `window[0..start]`, into `commands`.
 pub fn parse(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, start: usize, end: usize, commands: *encoder_commands.Commands) void {
-    @setRuntimeSafety(safety);
     assert(start <= end and end <= window.len and level.long_hash_log > 0);
+    // Past the window's reach, every position's range ends at the reach, a constant.
+    if (start > reach(level)) return parse_range(level, safety, true, matcher, window, start, end, commands);
+    parse_range(level, safety, false, matcher, window, start, end, commands);
+}
+
+/// The parse for positions all past the reach when `far`, else for any position.
+inline fn parse_range(comptime level: finder.Level, comptime safety: bool, comptime far: bool, matcher: *finder.Matcher(level), window: []const u8, start: usize, end: usize, commands: *encoder_commands.Commands) void {
+    @setRuntimeSafety(safety);
     const search_end = end -| read_len;
     var position = start;
     var anchor = start;
+    // The last distance stays in a register; only a match moves it.
+    var repeat_offset = commands.repeat_offset();
     for (0..end - start) |_| {
         if (position >= search_end) break;
-        const match = find(level, safety, matcher, window, position, anchor, end, commands.repeat_offset()) orelse {
+        const match = find(level, safety, far, matcher, window, position, anchor, end, repeat_offset) orelse {
             position += 1 + ((position - anchor) >> codec.constants.match_skip_log);
             continue;
         };
@@ -64,6 +74,9 @@ pub fn parse(comptime level: finder.Level, comptime safety: bool, matcher: *find
             continue;
         }
         commands.add(safety, window, anchor, found.position, found.len, found.offset);
+        repeat_offset = commands.repeat_offset();
+        // Every distance is at most the reach, so past it the last one always lies in range.
+        assert(repeat_offset > 0 and repeat_offset <= reach(level));
         const match_end = found.position + found.len;
         insert(level, safety, matcher, window, found.position + codec.constants.match_insert_skip, match_end, search_end);
         position = match_end;
@@ -74,10 +87,10 @@ pub fn parse(comptime level: finder.Level, comptime safety: bool, matcher: *find
 
 /// The candidate at `position`, or at the octet after it from the long table, as codec's finder
 /// tries them. Records `position` in both tables either way.
-inline fn find(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, position: usize, anchor: usize, end: usize, repeat_offset: u32) ?Match {
+inline fn find(comptime level: finder.Level, comptime safety: bool, comptime far: bool, matcher: *finder.Matcher(level), window: []const u8, position: usize, anchor: usize, end: usize, repeat_offset: u32) ?Match {
     @setRuntimeSafety(safety);
     const word = read64(safety, window, position);
-    const range = Range.at(safety, matcher.base, position, reach(level));
+    const range = Range.at(safety, far, matcher.base, position, reach(level));
     const short_slot = &matcher.short[hash(safety, word, level.short_hash_len, level.short_hash_log)];
     const long_slot = &matcher.long[hash(safety, word, codec.constants.long_hash_len, level.long_hash_log)];
     const short_held = short_slot.*;
@@ -85,7 +98,7 @@ inline fn find(comptime level: finder.Level, comptime safety: bool, matcher: *fi
     short_slot.* = range.entry;
     long_slot.* = range.entry;
     // The last distance, after at least one literal.
-    if (position != anchor and repeat_offset -% 1 < range.limit) {
+    if (position != anchor and (far or repeat_offset -% 1 < range.limit)) {
         if (read32(safety, window, position - repeat_offset) == @as(u32, @truncate(word))) return .{ .position = position, .candidate = position - repeat_offset };
     }
     if (range.candidate(safety, long_held)) |candidate| {
@@ -94,16 +107,16 @@ inline fn find(comptime level: finder.Level, comptime safety: bool, matcher: *fi
     const short_candidate = range.candidate(safety, short_held) orelse return null;
     if (read32(safety, window, short_candidate) != @as(u32, @truncate(word))) return null;
     if (position + 1 + read_len <= end) {
-        if (long_next(level, safety, matcher, window, position + 1, matcher.base)) |candidate| return .{ .position = position + 1, .candidate = candidate };
+        if (long_next(level, safety, far, matcher, window, position + 1, matcher.base)) |candidate| return .{ .position = position + 1, .candidate = candidate };
     }
     return .{ .position = position, .candidate = short_candidate };
 }
 
 /// The long table's candidate at `position`, the octet after a short match, which it records.
-inline fn long_next(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, position: usize, base: u32) ?usize {
+inline fn long_next(comptime level: finder.Level, comptime safety: bool, comptime far: bool, matcher: *finder.Matcher(level), window: []const u8, position: usize, base: u32) ?usize {
     @setRuntimeSafety(safety);
     const word = read64(safety, window, position);
-    const next = Range.at(safety, base, position, reach(level));
+    const next = Range.at(safety, far, base, position, reach(level));
     const slot = &matcher.long[hash(safety, word, codec.constants.long_hash_len, level.long_hash_log)];
     const held = slot.*;
     slot.* = next.entry;
