@@ -275,3 +275,23 @@ fn expect_start_equals_init() !void {
         try testing.expectEqualSlices(u8, reference[0..fresh_written], coded[0..written]);
     }
 }
+
+test "a meta-block's literal code sets the cost the next parse weighs matches by" {
+    try @call(.never_inline, expect_literal_cost, .{});
+}
+
+/// Octets of four values, as DNA's bases: 2 bits a literal.
+const bases = "ACGT";
+const bases_seed = 23;
+/// Four values equally often take 2 bits each: 16 eighths of a bit.
+const bases_literal_cost = 16;
+
+fn expect_literal_cost() !void {
+    var state: Encoder = undefined;
+    var generator = codec.testing.split.Generator.init(bases_seed);
+    for (input[0..constants.encoder_meta_block_len_max]) |*octet| octet.* = bases[generator.below(bases.len)];
+    state.init();
+    const progress = state.encode(input[0..constants.encoder_meta_block_len_max], &coded, .flush);
+    try testing.expectEqual(.needs_input, progress.status);
+    try testing.expectEqual(bases_literal_cost, state.commands.literal_cost);
+}
