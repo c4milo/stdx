@@ -12,7 +12,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const encoder_commands = @import("encoder_commands.zig");
+const encoder_commands = @import("../encoder_commands.zig");
+const aarch64 = @import("encoder_parse_aarch64.zig");
 
 const finder = codec.match_finder;
 const read_len = codec.constants.match_read_len;
@@ -46,8 +47,15 @@ const Range = struct {
     }
 };
 
-/// Parses `window[start..end]`, whose history is `window[0..start]`, into `commands`.
+/// Parses `window[start..end]`, whose history is `window[0..start]`, into `commands`: through the
+/// assembly of decision 63 where it takes the target, else through Zig.
 pub fn parse(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, start: usize, end: usize, commands: *encoder_commands.Commands) void {
+    if (comptime aarch64.takes(level)) return aarch64.parse(level, safety, matcher, window, start, end, commands);
+    parse_zig(level, safety, matcher, window, start, end, commands);
+}
+
+/// `parse` in Zig: the reference the assembly writes the commands of.
+pub fn parse_zig(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, start: usize, end: usize, commands: *encoder_commands.Commands) void {
     assert(start <= end and end <= window.len and level.long_hash_log > 0);
     // Past the window's reach, every position's range ends at the reach, a constant.
     if (start > reach(level)) return parse_range(level, safety, true, matcher, window, start, end, commands);
@@ -160,7 +168,7 @@ inline fn match_len(comptime safety: bool, window: []const u8, candidate: usize,
 
 /// Records positions inside a match in both tables, as codec's finder does: every
 /// `match_insert_step`th from `first`, and the one `match_insert_tail` before its end.
-inline fn insert(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, first: usize, match_end: usize, search_end: usize) void {
+pub inline fn insert(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, first: usize, match_end: usize, search_end: usize) void {
     @setRuntimeSafety(safety);
     const last = @min(match_end, search_end);
     if (last < first + codec.constants.match_insert_tail) return;
@@ -180,7 +188,7 @@ inline fn record(comptime level: finder.Level, comptime safety: bool, matcher: *
 }
 
 /// The farthest a match reaches back (codec's `Level.reach_max`).
-fn reach(comptime level: finder.Level) usize {
+pub fn reach(comptime level: finder.Level) usize {
     return level.reach_max orelse (@as(usize, 1) << level.window_log) - 1;
 }
 

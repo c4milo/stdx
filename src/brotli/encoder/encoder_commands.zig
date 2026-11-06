@@ -19,7 +19,7 @@ comptime {
 }
 
 /// The eighths of a bit `literal_cost` counts in.
-const eighths = 8;
+pub const eighths = 8;
 
 /// A command as the meta-block holds it, coded, in 8 octets (decision 12's budget): its lengths,
 /// its insert-and-copy symbol, and its distance's code and extra bits. The lengths' extra bits
@@ -43,7 +43,7 @@ pub const Command = extern struct {
 };
 
 /// The bits of an insert-and-copy symbol (RFC 7932 §5: 704 symbols).
-const symbol_bits = @bitSizeOf(u10);
+pub const symbol_bits = @bitSizeOf(u10);
 
 comptime {
     // RFC 7932 §4: distance + 3 lies below 2^WBITS, and its extra bits number its top bit's place
@@ -244,7 +244,7 @@ pub fn coded_of(comptime safety: bool, command: Command) Coded {
 
 /// The symbols of the short lengths most commands take, by whether the distance is the last one and
 /// by the two lengths, in one load (RFC 7932 §5).
-const small_symbols = symbols: {
+pub const small_symbols = symbols: {
     @setEvalBranchQuota(constants.encoder_symbol_table_quota);
     var table: [constants.encoder_distance_kinds][constants.encoder_small_insert_len][constants.encoder_small_copy_len]u10 = undefined;
     for (&table, 0..) |*by_insert, last| {
@@ -285,8 +285,8 @@ const distance_extra_bits = bits: {
 
 /// The insert and copy length codes of the lengths below `constants.encoder_length_table_len`,
 /// worked out from RFC 7932 §5's tables at compile time; a longer length searches the table.
-const insert_codes = length_codes_of(&constants.insert_length_codes);
-const copy_codes = length_codes_of(&constants.copy_length_codes);
+pub const insert_codes = length_codes_of(&constants.insert_length_codes);
+pub const copy_codes = length_codes_of(&constants.copy_length_codes);
 
 fn length_codes_of(comptime table: []const constants.LengthCode) [constants.encoder_length_table_len]u5 {
     @setEvalBranchQuota(constants.encoder_symbol_table_quota);
@@ -311,7 +311,7 @@ inline fn copy_code_of(comptime safety: bool, len: u32) u5 {
 
 /// Every insert-and-copy symbol, by whether the distance is the last one and by the two length
 /// codes, worked out from RFC 7932 §5's cells at compile time.
-const insert_copy_symbols = symbols: {
+pub const insert_copy_symbols = symbols: {
     @setEvalBranchQuota(constants.encoder_symbol_table_quota);
     const count = constants.insert_length_codes.len;
     var symbols: [constants.encoder_distance_kinds][count][count]u10 = undefined;
