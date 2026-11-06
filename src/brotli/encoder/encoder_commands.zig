@@ -12,6 +12,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
+comptime {
+    assert(constants.encoder_meta_block_len_max <= std.math.maxInt(u16));
+    assert(constants.encoder_commands_max < std.math.maxInt(u16));
+}
+
 /// The eighths of a bit `literal_cost` counts in.
 const eighths = 8;
 
@@ -90,7 +95,9 @@ pub const Commands = struct {
     /// command inserts those after the last match, and the stream ends before its copy (RFC 7932
     /// §9.3).
     pub fn add_literals(self: *Commands, octets: []const u8) void {
-        for (octets) |octet| self.literal_counts[octet] += 1;
+        // Decision 17: a meta-block holds at most `encoder_meta_block_len_max` literals, which fit
+        // a count's 16 bits.
+        for (octets) |octet| self.literal_counts[octet] +%= 1;
         self.literals_len += octets.len;
     }
 
@@ -129,8 +136,10 @@ pub const Commands = struct {
         self.commands[self.count] = command;
         self.count += 1;
         const symbol = symbol_of(command);
-        self.command_counts[symbol] += 1;
-        if (symbol >= constants.insert_copy_last_distance_symbols) self.distance_counts[command.distance_code] += 1;
+        // Decision 17: a meta-block holds at most `encoder_commands_max` commands, which fit a
+        // count's 16 bits.
+        self.command_counts[symbol] +%= 1;
+        if (symbol >= constants.insert_copy_last_distance_symbols) self.distance_counts[command.distance_code] +%= 1;
     }
 
     /// The short code of the last distances that names `distance` (RFC 7932 §4), else the code
