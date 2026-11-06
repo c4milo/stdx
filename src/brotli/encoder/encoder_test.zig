@@ -295,3 +295,22 @@ fn expect_literal_cost() !void {
     try testing.expectEqual(.needs_input, progress.status);
     try testing.expectEqual(bases_literal_cost, state.commands.literal_cost);
 }
+
+test "the encoder without Zig's checks writes the octets of the checked encoder" {
+    try @call(.never_inline, expect_unchecked_equal, .{});
+}
+
+const UncheckedEncoder = encoder.Encoder(.{ .level = 1, .window_bits = test_window_bits, .unchecked_loops = true });
+
+fn expect_unchecked_equal() !void {
+    var checked: Encoder = undefined;
+    var unchecked: UncheckedEncoder = undefined;
+    for (cases) |case| {
+        const plain = input_of(case);
+        checked.init();
+        const checked_len = try checked.encode_all(plain, &reference);
+        unchecked.init();
+        const unchecked_len = try unchecked.encode_all(plain, &coded);
+        try testing.expectEqualSlices(u8, reference[0..checked_len], coded[0..unchecked_len]);
+    }
+}

@@ -23,6 +23,9 @@ pub const EncoderOptions = struct {
     /// WBITS; null takes the level's, 18 at level 1 (decision 62). A caller whose messages are
     /// small may take less, down to a meta-block's 16.
     window_bits: ?u5 = null,
+    /// Proposed for decision 16: the parse, the commands' records and the meta-block's writer run
+    /// without Zig's checks. Off until the owner rules on the measurement.
+    unchecked_loops: bool = false,
 };
 
 /// The match finder of each level (decision 62): at level 1 a short table and a long one of 2^14
@@ -37,6 +40,7 @@ fn level_of(comptime options: EncoderOptions) codec.match_finder.Level {
         .short_hash_len = constants.encoder_level1_hash_len,
         .long_hash_log = constants.encoder_level1_long_hash_log,
         .reach_max = (@as(u32, 1) << window_bits) - constants.window_len_gap,
+        .runtime_safety = !options.unchecked_loops,
     };
 }
 
@@ -45,6 +49,8 @@ pub fn Encoder(comptime options: EncoderOptions) type {
     return struct {
         const Self = @This();
         pub const window_bits: u5 = level.window_log;
+        /// Whether the parse and the meta-block's writer keep Zig's checks (decision 16).
+        pub const runtime_safety = !options.unchecked_loops;
         /// The history a match reaches, and a meta-block not yet encoded.
         const window_capacity = (@as(usize, 1) << window_bits) + constants.encoder_meta_block_len_max;
 
