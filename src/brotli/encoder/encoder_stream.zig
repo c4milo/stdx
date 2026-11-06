@@ -11,6 +11,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
+const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
 
 /// What ends the meta-block: more input follows it, a flush brings the stream to an octet boundary
@@ -47,10 +48,12 @@ fn write_block(self: anytype, writer: *codec.BitWriter, block: []const u8, last:
     const saved_position = writer.writer.position;
     const saved_distances = self.commands.last_distances;
     self.commands.reset();
-    self.matcher.parse(&self.window, self.encoded_end, self.filled_end, &self.commands);
+    const safety = @TypeOf(self.*).runtime_safety;
+    var sink: encoder_commands.Sink(safety) = .{ .commands = &self.commands };
+    self.matcher.parse(&self.window, self.encoded_end, self.filled_end, &sink);
     self.commands.close();
     const raw_len = block.len + constants.encoder_uncompressed_overhead;
-    const written = encoder_meta_block.write_compressed(writer, block, &self.commands, &self.codes, last);
+    const written = encoder_meta_block.write_compressed(safety, writer, block, &self.commands, &self.codes, last);
     // The next meta-block's parse weighs a match against this one's literal code.
     self.commands.weigh_literals(&self.codes.literal.lengths);
     if (written) {
