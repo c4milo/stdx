@@ -106,7 +106,7 @@ pub const Commands = struct {
     fn record(self: *Commands, command: Command) void {
         self.commands[self.count] = command;
         self.count += 1;
-        const symbol = coded_of(command).symbol;
+        const symbol = symbol_of(command);
         self.command_counts[symbol] += 1;
         if (symbol >= constants.insert_copy_last_distance_symbols) self.distance_counts[command.distance_code] += 1;
     }
@@ -126,14 +126,19 @@ pub const Commands = struct {
     }
 };
 
+/// A command's insert-and-copy symbol (RFC 7932 §5).
+fn symbol_of(command: Command) u16 {
+    return insert_copy_symbols[@intFromBool(command.distance_code == 0)][insert_code_of(command.insert_len)][copy_code_of(command.copy_len)];
+}
+
 /// A command's symbols and extra bits (RFC 7932 §5).
 pub fn coded_of(command: Command) Coded {
-    const insert_code = length_code(&constants.insert_length_codes, command.insert_len);
-    const copy_code = length_code(&constants.copy_length_codes, command.copy_len);
+    const insert_code = insert_code_of(command.insert_len);
+    const copy_code = copy_code_of(command.copy_len);
     const insert = constants.insert_length_codes[insert_code];
     const copy = constants.copy_length_codes[copy_code];
     var coded: Coded = .{
-        .symbol = insert_copy_symbol(insert_code, copy_code, command.distance_code == 0),
+        .symbol = insert_copy_symbols[@intFromBool(command.distance_code == 0)][insert_code][copy_code],
         .insert_extra = command.insert_len - insert.base,
         .insert_extra_bits = insert.extra_bits,
         .copy_extra = command.copy_len - copy.base,
@@ -142,13 +147,54 @@ pub fn coded_of(command: Command) Coded {
         .distance_extra_bits = 0,
     };
     if (command.distance_code >= constants.distance_short_codes_count) {
-        const distance = distance_code_of(command.distance);
-        assert(distance.code == command.distance_code);
-        coded.distance_extra = distance.extra;
-        coded.distance_extra_bits = distance.extra_bits;
+        // RFC 7932 §4, with NPOSTFIX and NDIRECT 0: the code gives ndistbits and the bit below
+        // distance + 3's top bit, and the extra bits are the rest below it.
+        const above = command.distance_code - constants.distance_short_codes_count;
+        const extra_bits: u5 = @intCast(above / constants.distance_codes_per_extra_bits + 1);
+        const half: u32 = above % constants.distance_codes_per_extra_bits;
+        coded.distance_extra = command.distance + constants.distance_offset - ((constants.distance_prefix_base + half) << extra_bits);
+        coded.distance_extra_bits = extra_bits;
     }
     return coded;
 }
+
+/// The insert and copy length codes of the lengths below `constants.encoder_length_table_len`,
+/// worked out from RFC 7932 §5's tables at compile time; a longer length searches the table.
+const insert_codes = length_codes_of(&constants.insert_length_codes);
+const copy_codes = length_codes_of(&constants.copy_length_codes);
+
+fn length_codes_of(comptime table: []const constants.LengthCode) [constants.encoder_length_table_len]u5 {
+    @setEvalBranchQuota(constants.encoder_symbol_table_quota);
+    var codes: [constants.encoder_length_table_len]u5 = @splat(0);
+    for (&codes, 0..) |*code, len| {
+        if (len >= table[0].base) code.* = length_code(table, len);
+    }
+    return codes;
+}
+
+inline fn insert_code_of(len: u32) u5 {
+    if (len < insert_codes.len) return insert_codes[len];
+    return length_code(&constants.insert_length_codes, len);
+}
+
+inline fn copy_code_of(len: u32) u5 {
+    if (len < copy_codes.len) return copy_codes[len];
+    return length_code(&constants.copy_length_codes, len);
+}
+
+/// Every insert-and-copy symbol, by whether the distance is the last one and by the two length
+/// codes, worked out from RFC 7932 §5's cells at compile time.
+const insert_copy_symbols = symbols: {
+    @setEvalBranchQuota(constants.encoder_symbol_table_quota);
+    const count = constants.insert_length_codes.len;
+    var symbols: [constants.encoder_distance_kinds][count][count]u16 = undefined;
+    for (&symbols, 0..) |*table, last| {
+        for (0..count) |insert| {
+            for (0..count) |copy| table[insert][copy] = insert_copy_symbol(insert, copy, last == 1);
+        }
+    }
+    break :symbols symbols;
+};
 
 /// The code of `len` in a table of RFC 7932 §5: the last whose first length is `len` or less.
 fn length_code(table: []const constants.LengthCode, len: u32) u5 {
