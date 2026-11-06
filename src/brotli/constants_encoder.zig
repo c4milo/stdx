@@ -103,6 +103,10 @@ fn extra_bits_last(comptime table: []const constants.LengthCode) u32 {
 /// put, so the bit buffer holds fewer than 8 bits before it (encoder_write.zig).
 pub const encoder_literals_per_put = 3;
 pub const encoder_put_bits_max = 56;
+
+/// The counts one vector multiply takes, where the parse weighs the literal code
+/// (encoder_commands.zig).
+pub const encoder_scan_lanes = 16;
 /// The literals the writer puts between checks of its room.
 pub const encoder_literal_chunk_len = 64;
 
