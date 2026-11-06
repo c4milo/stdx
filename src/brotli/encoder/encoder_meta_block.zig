@@ -100,18 +100,31 @@ fn write_commands(writer: *codec.BitWriter, input: []const u8, commands: *const 
     for (commands.commands[0..commands.count]) |command| {
         const coded = encoder_commands.coded_of(command);
         try check_room(writer, constants.encoder_command_bits_max);
-        put_code(constants.insert_copy_alphabet_len, writer, &codes.command, coded.symbol);
-        put_bits(writer, coded.insert_extra, coded.insert_extra_bits);
-        put_bits(writer, coded.copy_extra, coded.copy_extra_bits);
+        put_lengths(writer, &codes.command, coded);
         try write_literals(writer, input[produced..][0..command.insert_len], &codes.literal);
         produced += command.insert_len;
         if (produced == input.len) break;
         produced += command.copy_len;
         if (coded.symbol < constants.insert_copy_last_distance_symbols) continue;
-        put_code(constants.encoder_distance_alphabet_len, writer, &codes.distance, command.distance_code);
-        put_bits(writer, coded.distance_extra, coded.distance_extra_bits);
+        // A distance's code and extra bits are 15 + 23 bits at most, which one put takes.
+        const distance_len: u7 = @intCast(codes.distance.lengths[command.distance_code]);
+        put_bits(writer, codes.distance.codes[command.distance_code] | @as(u64, coded.distance_extra) << @intCast(distance_len), distance_len + coded.distance_extra_bits);
     }
     assert(produced == input.len);
+}
+
+/// A command's symbol and its insert and copy extra bits: one put when they fit the bit buffer after
+/// a store, as they do for all but the longest lengths, else three.
+fn put_lengths(writer: *codec.BitWriter, code: *const CommandCode, coded: encoder_commands.Coded) void {
+    const symbol_len: u7 = @intCast(code.lengths[coded.symbol]);
+    const total = symbol_len + @as(u7, coded.insert_extra_bits) + coded.copy_extra_bits;
+    if (total <= codec.constants.ensure_bits_max) {
+        const value = code.codes[coded.symbol] | @as(u64, coded.insert_extra) << @intCast(symbol_len) | @as(u64, coded.copy_extra) << @intCast(symbol_len + coded.insert_extra_bits);
+        return put_bits(writer, value, total);
+    }
+    put_bits(writer, code.codes[coded.symbol], symbol_len);
+    put_bits(writer, coded.insert_extra, coded.insert_extra_bits);
+    put_bits(writer, coded.copy_extra, coded.copy_extra_bits);
 }
 
 /// The literals, a chunk at a time. Each check leaves room for a command's other codes after the
@@ -135,6 +148,8 @@ fn write_literals(writer: *codec.BitWriter, literals: []const u8, code: *const L
 
 comptime {
     assert(constants.encoder_literals_per_put * constants.code_len_max <= codec.constants.ensure_bits_max);
+    // A distance's code and its extra bits, below WBITS 24's, in one put.
+    assert(constants.code_len_max + constants.window_bits_max - 1 <= codec.constants.ensure_bits_max);
 }
 
 /// Fails when the output has no room for `bits` more bits beyond those the buffer holds, and for
