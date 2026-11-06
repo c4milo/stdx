@@ -9,7 +9,7 @@
 //!
 //! `constants.zig` is not read, because it is where the names live. Neither is a piece the
 //! file-length rule split from one, named file by file: `constants_levels.zig`, the DEFLATE
-//! encoder's levels. A table generated from an RFC joins the exclusions in the commit that adds its
+//! encoder's levels, and `constants_encoder.zig`, the brotli encoder's limits. A table generated from an RFC joins the exclusions in the commit that adds its
 //! generator, named the same way: `rfc_tables.zig`, which tools/brotli_tables.zig writes from RFC
 //! 7932's appendices.
 //!
@@ -30,7 +30,7 @@ pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_basenames = &.{ "constants.zig", "constants_levels.zig", "rfc_tables.zig" },
+        .exclude_basenames = &.{ "constants.zig", "constants_levels.zig", "constants_encoder.zig", "rfc_tables.zig" },
     },
 };
 

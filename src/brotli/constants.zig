@@ -286,6 +286,8 @@ pub const simple_symbols_max = 4;
 /// length must reach 32768. A repeat of the previous length takes 2 extra bits and starts from 3,
 /// and a repeat of zeros 3 and starts from 3; before any length, the previous length is 8.
 pub const code_length_code_order = [code_length_alphabet_len]u8{ 1, 2, 3, 4, 0, 5, 17, 6, 16, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+/// The most code length code lengths HSKIP leaves out (RFC 7932 §3.5).
+pub const code_length_skip_max = 3;
 pub const code_length_code_space = 32;
 pub const code_lengths_space = 32768;
 pub const repeat_previous_symbol = 16;
@@ -321,6 +323,16 @@ pub const code_symbols_min = 2;
 pub const simple_code_lengths = [_][]const u8{ &.{ 1, 1 }, &.{ 1, 2, 2 }, &.{ 2, 2, 2, 2 } };
 pub const simple_code_lengths_tree_select = [_]u8{ 1, 2, 3, 3 };
 
+/// The encoder's largest alphabet, the insert-and-copy code's: a complex code's lengths, and so its
+/// code length symbols, number this many at most (RFC 7932 §3.3, §3.5).
+pub const encoder_code_alphabet_len_max = insert_copy_alphabet_len;
+/// The most repeat symbols one run of lengths takes: each adds two bits or more to a count, and a
+/// run is shorter than the largest alphabet (RFC 7932 §3.5).
+pub const repeat_digits_max = 6;
+
+comptime {
+    std.debug.assert(encoder_code_alphabet_len_max < (1 << (repeat_previous_extra_bits * repeat_digits_max)));
+}
 /// A repeated code 16 or 17 makes the count factor * (count - 2) plus its own (RFC 7932 §3.5).
 pub const repeat_count_offset = 2;
 
@@ -449,3 +461,32 @@ comptime {
 /// world192.txt 1.7% and 1.3% slower (runs 36717723633 and 36717734822). The assembly loops start
 /// their own lines (`.p2align 6`).
 pub const hot_function_alignment = 64;
+
+// The encoder's limits and fields: constants_encoder.zig holds them, a piece of this file, and
+// each of their names is one of this file's.
+const encoder = @import("constants_encoder.zig");
+pub const encoder_meta_block_len_max = encoder.encoder_meta_block_len_max;
+pub const encoder_commands_max = encoder.encoder_commands_max;
+pub const distance_offset = encoder.distance_offset;
+pub const distance_prefix_base = encoder.distance_prefix_base;
+pub const distance_codes_per_extra_bits = encoder.distance_codes_per_extra_bits;
+pub const block_categories = encoder.block_categories;
+pub const literal_alphabet_bits = encoder.literal_alphabet_bits;
+pub const insert_copy_alphabet_bits = encoder.insert_copy_alphabet_bits;
+pub const encoder_distance_alphabet_len = encoder.encoder_distance_alphabet_len;
+pub const encoder_distance_alphabet_bits = encoder.encoder_distance_alphabet_bits;
+pub const encoder_count_one_bits = encoder.encoder_count_one_bits;
+pub const encoder_tree_counts = encoder.encoder_tree_counts;
+pub const encoder_last_empty_flags = encoder.encoder_last_empty_flags;
+pub const encoder_length_nibbles = encoder.encoder_length_nibbles;
+pub const encoder_level1_window_bits = encoder.encoder_level1_window_bits;
+pub const encoder_window_bits_min = encoder.encoder_window_bits_min;
+pub const encoder_level1_hash_log = encoder.encoder_level1_hash_log;
+pub const encoder_level1_hash_len = encoder.encoder_level1_hash_len;
+pub const encoder_stream_header_len_max = encoder.encoder_stream_header_len_max;
+pub const encoder_uncompressed_overhead = encoder.encoder_uncompressed_overhead;
+pub const encoder_last_len = encoder.encoder_last_len;
+pub const encoder_flush_len_max = encoder.encoder_flush_len_max;
+pub const encoder_out_len = encoder.encoder_out_len;
+pub const encoder_rounds_per_block = encoder.encoder_rounds_per_block;
+pub const encoder_rounds_extra = encoder.encoder_rounds_extra;
