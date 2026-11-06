@@ -23,9 +23,10 @@ pub const EncoderOptions = struct {
     /// WBITS; null takes the level's, 18 at level 1 (decision 62). A caller whose messages are
     /// small may take less, down to a meta-block's 16.
     window_bits: ?u5 = null,
-    /// Proposed for decision 16: the parse, the commands' records and the meta-block's writer run
-    /// without Zig's checks. Off until the owner rules on the measurement.
-    unchecked_loops: bool = false,
+    /// Decision 16, ruled on 2026-11-05: the parse, the commands' records and the meta-block's
+    /// writer run without Zig's checks. Off, the checks return; the tests and the benchmark take
+    /// both settings, and the checked one is the reference.
+    unchecked_loops: bool = true,
 };
 
 /// The match finder of each level (decision 62): at level 1 a short table and a long one of 2^14
