@@ -81,20 +81,22 @@ pub const Commands = struct {
 
     /// The finder's sink: the literals from `anchor` to `position`, then a match of `len` octets
     /// `distance` back.
-    pub fn add(self: *Commands, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
+    pub fn add(self: *Commands, comptime safety: bool, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
+        @setRuntimeSafety(safety);
         assert(len >= constants.copy_length_codes[0].base and distance > 0 and self.count < self.commands.len);
         const insert_len = position - anchor;
-        self.add_literals(window[anchor..position]);
-        const code = self.distance_code(@intCast(distance));
-        self.record(.{ .insert_len = @intCast(insert_len), .copy_len = @intCast(len), .distance = @intCast(distance), .distance_code = code });
+        self.add_literals(safety, window[anchor..position]);
+        const code = self.distance_code(safety, @intCast(distance));
+        self.record(safety, .{ .insert_len = @intCast(insert_len), .copy_len = @intCast(len), .distance = @intCast(distance), .distance_code = code });
         self.inserted += insert_len;
-        if (code != 0) self.push_distance(@intCast(distance));
+        if (code != 0) self.push_distance(safety, @intCast(distance));
     }
 
     /// The finder's sink: literals, before a match or after the last one. The meta-block's last
     /// command inserts those after the last match, and the stream ends before its copy (RFC 7932
     /// §9.3).
-    pub fn add_literals(self: *Commands, octets: []const u8) void {
+    pub fn add_literals(self: *Commands, comptime safety: bool, octets: []const u8) void {
+        @setRuntimeSafety(safety);
         // Decision 17: a meta-block holds at most `encoder_meta_block_len_max` literals, which fit
         // a count's 16 bits.
         for (octets) |octet| self.literal_counts[octet] +%= 1;
@@ -103,7 +105,8 @@ pub const Commands = struct {
 
     /// Whether a match of `len` octets `offset` back saves more bits than it costs: the literals it
     /// replaces, at `literal_cost`, against a command's cost and the distance's extra bits.
-    pub inline fn takes(self: *const Commands, len: usize, offset: usize) bool {
+    pub inline fn takes(self: *const Commands, comptime safety: bool, len: usize, offset: usize) bool {
+        @setRuntimeSafety(safety);
         const cost = constants.encoder_match_cost_base + @as(usize, std.math.log2_int(usize, offset)) * eighths;
         return len * self.literal_cost > cost;
     }
@@ -128,14 +131,15 @@ pub const Commands = struct {
         assert(self.count < self.commands.len);
         // The copy never runs: the meta-block's length ends at the literals. Code 0 keeps the
         // distance out of the stream where the insert code allows it.
-        self.record(.{ .insert_len = @intCast(tail_len), .copy_len = constants.copy_length_codes[0].base, .distance = @intCast(self.last_distances[0]), .distance_code = 0 });
+        self.record(true, .{ .insert_len = @intCast(tail_len), .copy_len = constants.copy_length_codes[0].base, .distance = @intCast(self.last_distances[0]), .distance_code = 0 });
         self.inserted = self.literals_len;
     }
 
-    fn record(self: *Commands, command: Command) void {
+    fn record(self: *Commands, comptime safety: bool, command: Command) void {
+        @setRuntimeSafety(safety);
         self.commands[self.count] = command;
         self.count += 1;
-        const symbol = symbol_of(command);
+        const symbol = symbol_of(safety, command);
         // Decision 17: a meta-block holds at most `encoder_commands_max` commands, which fit a
         // count's 16 bits.
         self.command_counts[symbol] +%= 1;
@@ -144,28 +148,57 @@ pub const Commands = struct {
 
     /// The short code of the last distances that names `distance` (RFC 7932 §4), else the code
     /// with extra bits.
-    fn distance_code(self: *const Commands, distance: u32) u8 {
+    fn distance_code(self: *const Commands, comptime safety: bool, distance: u32) u8 {
+        @setRuntimeSafety(safety);
         for (self.last_distances, 0..) |last, code| {
             if (last == distance) return @intCast(code);
         }
-        return distance_code_of(distance).code;
+        return distance_code_of(safety, distance).code;
     }
 
-    fn push_distance(self: *Commands, distance: u32) void {
+    fn push_distance(self: *Commands, comptime safety: bool, distance: u32) void {
+        @setRuntimeSafety(safety);
         std.mem.copyBackwards(u32, self.last_distances[1..], self.last_distances[0 .. self.last_distances.len - 1]);
         self.last_distances[0] = distance;
     }
 };
 
+/// The finder's sink over `commands`, with the safety decision 16 gives the encoder's parse: each
+/// call goes to the method of `Commands` it names.
+pub fn Sink(comptime safety: bool) type {
+    return struct {
+        const Self = @This();
+        commands: *Commands,
+
+        pub fn add(self: *Self, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
+            self.commands.add(safety, window, anchor, position, len, distance);
+        }
+
+        pub fn add_literals(self: *Self, octets: []const u8) void {
+            self.commands.add_literals(safety, octets);
+        }
+
+        pub inline fn takes(self: *const Self, len: usize, offset: usize) bool {
+            return self.commands.takes(safety, len, offset);
+        }
+
+        pub inline fn repeat_offset(self: *const Self) u32 {
+            return self.commands.repeat_offset();
+        }
+    };
+}
+
 /// A command's insert-and-copy symbol (RFC 7932 §5).
-fn symbol_of(command: Command) u16 {
-    return insert_copy_symbols[@intFromBool(command.distance_code == 0)][insert_code_of(command.insert_len)][copy_code_of(command.copy_len)];
+fn symbol_of(comptime safety: bool, command: Command) u16 {
+    @setRuntimeSafety(safety);
+    return insert_copy_symbols[@intFromBool(command.distance_code == 0)][insert_code_of(safety, command.insert_len)][copy_code_of(safety, command.copy_len)];
 }
 
 /// A command's symbols and extra bits (RFC 7932 §5).
-pub fn coded_of(command: Command) Coded {
-    const insert_code = insert_code_of(command.insert_len);
-    const copy_code = copy_code_of(command.copy_len);
+pub fn coded_of(comptime safety: bool, command: Command) Coded {
+    @setRuntimeSafety(safety);
+    const insert_code = insert_code_of(safety, command.insert_len);
+    const copy_code = copy_code_of(safety, command.copy_len);
     const insert = constants.insert_length_codes[insert_code];
     const copy = constants.copy_length_codes[copy_code];
     var coded: Coded = .{
@@ -203,12 +236,14 @@ fn length_codes_of(comptime table: []const constants.LengthCode) [constants.enco
     return codes;
 }
 
-inline fn insert_code_of(len: u32) u5 {
+inline fn insert_code_of(comptime safety: bool, len: u32) u5 {
+    @setRuntimeSafety(safety);
     if (len < insert_codes.len) return insert_codes[len];
     return length_code(&constants.insert_length_codes, len);
 }
 
-inline fn copy_code_of(len: u32) u5 {
+inline fn copy_code_of(comptime safety: bool, len: u32) u5 {
+    @setRuntimeSafety(safety);
     if (len < copy_codes.len) return copy_codes[len];
     return length_code(&constants.copy_length_codes, len);
 }
@@ -260,7 +295,8 @@ const DistanceCode = struct { code: u8, extra: u32, extra_bits: u5 };
 /// A distance's code of 16 or more and its extra bits, with NPOSTFIX and NDIRECT 0 (RFC 7932 §4):
 /// distance + 3 lies from 2 << ndistbits to 4 << ndistbits, and its bit below the top two picks
 /// one of the two codes of each ndistbits.
-fn distance_code_of(distance: u32) DistanceCode {
+fn distance_code_of(comptime safety: bool, distance: u32) DistanceCode {
+    @setRuntimeSafety(safety);
     const shifted = distance + constants.distance_offset;
     const top: u5 = @intCast(std.math.log2_int(u32, shifted));
     const extra_bits: u5 = top - 1;
@@ -278,22 +314,22 @@ test "a distance the ring holds takes its short code, and code 0 moves no distan
     var commands: Commands = undefined;
     commands.init();
     const window = [_]u8{0} ** 64;
-    commands.add(&window, 0, 0, 4, 4);
+    commands.add(true, &window, 0, 0, 4, 4);
     try std.testing.expectEqualSlices(u32, &constants.last_distances_initial, &commands.last_distances);
-    commands.add(&window, 4, 8, 4, 15);
-    commands.add(&window, 12, 12, 4, 100);
+    commands.add(true, &window, 4, 8, 4, 15);
+    commands.add(true, &window, 12, 12, 4, 100);
     try std.testing.expectEqualSlices(u32, &.{ 100, 15, 4, 11 }, &commands.last_distances);
     const codes = [_]u8{ commands.commands[0].distance_code, commands.commands[1].distance_code, commands.commands[2].distance_code };
     try std.testing.expectEqualSlices(u8, &.{ 0, 2, 25 }, &codes);
     // RFC 7932 §5: no insert and a copy of 4 with distance code 0 is symbol 2, of the cell that
     // leaves the distance out; 4 inserted and 4 copied with another code is 128 + 34.
-    try std.testing.expectEqual(2, coded_of(commands.commands[0]).symbol);
-    try std.testing.expectEqual(162, coded_of(commands.commands[1]).symbol);
+    try std.testing.expectEqual(2, coded_of(true, commands.commands[0]).symbol);
+    try std.testing.expectEqual(162, coded_of(true, commands.commands[1]).symbol);
     try std.testing.expectEqual(1, commands.command_counts[2]);
     try std.testing.expectEqual(0, commands.distance_counts[0]);
     try std.testing.expectEqual(1, commands.distance_counts[2]);
     try std.testing.expectEqual(1, commands.distance_counts[25]);
-    const extra = coded_of(commands.commands[2]);
+    const extra = coded_of(true, commands.commands[2]);
     try std.testing.expectEqual(5, extra.distance_extra_bits);
     try std.testing.expectEqual(103 - 96, extra.distance_extra);
 }
@@ -304,11 +340,11 @@ test "a match is taken when the literals it replaces cost more than it" {
     var commands: Commands = undefined;
     commands.init();
     commands.literal_cost = 16;
-    try std.testing.expect(!commands.takes(10, 1000));
-    try std.testing.expect(commands.takes(11, 1000));
+    try std.testing.expect(!commands.takes(true, 10, 1000));
+    try std.testing.expect(commands.takes(true, 11, 1000));
     // Nearer, a shorter match pays: 1 back costs 96 eighths, which 7 literals pass.
-    try std.testing.expect(!commands.takes(6, 1));
-    try std.testing.expect(commands.takes(7, 1));
+    try std.testing.expect(!commands.takes(true, 6, 1));
+    try std.testing.expect(commands.takes(true, 7, 1));
 }
 
 test "a literal's cost is the mean length of the code its meta-block built" {
@@ -316,7 +352,7 @@ test "a literal's cost is the mean length of the code its meta-block built" {
     commands.init();
     try std.testing.expectEqual(constants.encoder_literal_cost_initial, commands.literal_cost);
     const window = "aaab";
-    commands.add_literals(window);
+    commands.add_literals(true, window);
     var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
     lengths['a'] = 1;
     lengths['b'] = 3;

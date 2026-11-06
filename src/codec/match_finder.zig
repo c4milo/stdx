@@ -37,6 +37,9 @@ pub const Level = struct {
     /// The farthest a match reaches back; null for one octet less than the window. A format whose
     /// longest distances name something other than the window names a shorter reach.
     reach_max: ?u32 = null,
+    /// False runs the finder's functions without Zig's checks, for a codec whose entry in
+    /// decision 16 rules it; the default keeps them.
+    runtime_safety: bool = true,
 };
 
 /// The farthest a match of `level` reaches back.
@@ -124,6 +127,7 @@ fn slide_entries(entries: []u32, base: u32, shift: u32) void {
 }
 
 fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8, start: usize, end: usize, sink: anytype) void {
+    @setRuntimeSafety(level.runtime_safety);
     assert(start <= end and end <= window.len);
     // Every position, below `end`, fits below the base's tag.
     assert(end <= @as(usize, 1) << position_bits(level));
@@ -134,7 +138,7 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
     const search_end = end -| constants.match_read_len;
     for (0..end - start) |_| {
         if (position >= search_end) break;
-        const found = worth(sink, find(level, self, window, position, anchor, end, sink.repeat_offset())) orelse {
+        const found = worth(level.runtime_safety, sink, find(level, self, window, position, anchor, end, sink.repeat_offset())) orelse {
             position += 1 + ((position - anchor) >> constants.match_skip_log);
             continue;
         };
@@ -149,7 +153,8 @@ fn parse_block(comptime level: Level, self: *Matcher(level), window: []const u8,
 
 /// `found`, unless the sink has a `takes` and it refuses the match: a codec may judge a match
 /// worth less than the literals it replaces.
-inline fn worth(sink: anytype, found: ?Found) ?Found {
+inline fn worth(comptime safety: bool, sink: anytype, found: ?Found) ?Found {
+    @setRuntimeSafety(safety);
     const match = found orelse return null;
     const Sink = @typeInfo(@TypeOf(sink)).pointer.child;
     if (@hasDecl(Sink, "takes") and !sink.takes(match.len, match.offset)) return null;
@@ -160,38 +165,41 @@ inline fn worth(sink: anytype, found: ?Found) ?Found {
 /// that match too: the repeat offset's first, then the tables'. The tables record
 /// `position` either way.
 fn find(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, anchor: usize, end: usize, repeat_offset: u32) ?Found {
+    @setRuntimeSafety(level.runtime_safety);
     // The lowest position a candidate takes: the window's reach, and never position 0.
     const low = @max(position -| reach(level), 1);
     const bounds = Bounds.at(self.base, position, low);
-    const word = read64(window, position);
-    const short_entry = swap(&self.short[hash(word, level.short_hash_len, level.short_hash_log)], bounds.entry);
-    const long_entry = if (level.long_hash_log > 0) swap(&self.long[hash(word, constants.long_hash_len, level.long_hash_log)], bounds.entry) else 0;
-    if (repeat_candidate(window, position, anchor, low, repeat_offset, word)) |candidate| return extend(window, position, candidate, anchor, end);
+    const word = read64(level.runtime_safety, window, position);
+    const short_entry = swap(level.runtime_safety, &self.short[hash(level.runtime_safety, word, level.short_hash_len, level.short_hash_log)], bounds.entry);
+    const long_entry = if (level.long_hash_log > 0) swap(level.runtime_safety, &self.long[hash(level.runtime_safety, word, constants.long_hash_len, level.long_hash_log)], bounds.entry) else 0;
+    if (repeat_candidate(level.runtime_safety, window, position, anchor, low, repeat_offset, word)) |candidate| return extend(level.runtime_safety, window, position, candidate, anchor, end);
     if (level.long_hash_log > 0) {
         if (bounds.candidate(long_entry)) |candidate| {
-            if (read64(window, candidate) == word) return extend(window, position, candidate, anchor, end);
+            if (read64(level.runtime_safety, window, candidate) == word) return extend(level.runtime_safety, window, position, candidate, anchor, end);
         }
     }
     const short_candidate = bounds.candidate(short_entry) orelse return null;
-    if (read32(window, short_candidate) != @as(u32, @truncate(word))) return null;
+    if (read32(level.runtime_safety, window, short_candidate) != @as(u32, @truncate(word))) return null;
     if (level.long_hash_log > 0 and position + 1 + constants.match_read_len <= end) {
-        if (long_next(level, self, window, position + 1, bounds.next())) |candidate| return extend(window, position + 1, candidate, anchor, end);
+        if (long_next(level, self, window, position + 1, bounds.next())) |candidate| return extend(level.runtime_safety, window, position + 1, candidate, anchor, end);
     }
-    return extend(window, position, short_candidate, anchor, end);
+    return extend(level.runtime_safety, window, position, short_candidate, anchor, end);
 }
 
 /// The repeat offset's candidate after at least one literal, where the codecs name it the cheapest,
 /// when it lies at `low` or above and its first 4 octets agree with `word`'s. A position
 /// after a literal lies above `low`, so the subtraction never wraps.
-inline fn repeat_candidate(window: []const u8, position: usize, anchor: usize, low: usize, repeat_offset: u32, word: u64) ?usize {
+inline fn repeat_candidate(comptime safety: bool, window: []const u8, position: usize, anchor: usize, low: usize, repeat_offset: u32, word: u64) ?usize {
+    @setRuntimeSafety(safety);
     if (position == anchor or repeat_offset > position - low) return null;
     const candidate = position - repeat_offset;
-    if (read32(window, candidate) != @as(u32, @truncate(word))) return null;
+    if (read32(safety, window, candidate) != @as(u32, @truncate(word))) return null;
     return candidate;
 }
 
 /// Stores `position`'s entry in `slot` and returns the entry it held.
-inline fn swap(slot: *u32, entry: u32) u32 {
+inline fn swap(comptime safety: bool, slot: *u32, entry: u32) u32 {
+    @setRuntimeSafety(safety);
     const held = slot.*;
     slot.* = entry;
     return held;
@@ -229,10 +237,11 @@ const Bounds = struct {
 /// The long table's match at `position`, the octet after a short one, which it records in the long
 /// table.
 fn long_next(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize, bounds: Bounds) ?u32 {
-    const word = read64(window, position);
-    const entry = swap(&self.long[hash(word, constants.long_hash_len, level.long_hash_log)], bounds.entry);
+    @setRuntimeSafety(level.runtime_safety);
+    const word = read64(level.runtime_safety, window, position);
+    const entry = swap(level.runtime_safety, &self.long[hash(level.runtime_safety, word, constants.long_hash_len, level.long_hash_log)], bounds.entry);
     const candidate = bounds.candidate(entry) orelse return null;
-    if (read64(window, candidate) == word) return candidate;
+    if (read64(level.runtime_safety, window, candidate) == word) return candidate;
     return null;
 }
 
@@ -240,6 +249,7 @@ fn long_next(comptime level: Level, self: *Matcher(level), window: []const u8, p
 /// `first`, and the one `constants.match_insert_tail` before its end, which later matches often
 /// continue from.
 fn insert(comptime level: Level, self: *Matcher(level), window: []const u8, first: usize, match_end: usize, search_end: usize) void {
+    @setRuntimeSafety(level.runtime_safety);
     const last = @min(match_end, search_end);
     if (last < first + constants.match_insert_tail) return;
     // The positions from `first`, a step apart, that lie `match_insert_tail` or more before `last`.
@@ -251,10 +261,11 @@ fn insert(comptime level: Level, self: *Matcher(level), window: []const u8, firs
 }
 
 fn record(comptime level: Level, self: *Matcher(level), window: []const u8, position: usize) void {
-    const word = read64(window, position);
+    @setRuntimeSafety(level.runtime_safety);
+    const word = read64(level.runtime_safety, window, position);
     const entry = self.base +% @as(u32, @truncate(position));
-    self.short[hash(word, level.short_hash_len, level.short_hash_log)] = entry;
-    if (level.long_hash_log > 0) self.long[hash(word, constants.long_hash_len, level.long_hash_log)] = entry;
+    self.short[hash(level.runtime_safety, word, level.short_hash_len, level.short_hash_log)] = entry;
+    if (level.long_hash_log > 0) self.long[hash(level.runtime_safety, word, constants.long_hash_len, level.long_hash_log)] = entry;
 }
 
 /// A match: where it starts, its length and its offset.
@@ -263,7 +274,8 @@ const Found = struct { position: usize, len: usize, offset: usize };
 /// A match of `candidate` at `position`, extended back over the literals from `anchor` while the
 /// octets before both agree, and forward to `end`. The loop's count stops it at `anchor`, and the
 /// offset stays the one the window reached, as both move back together.
-fn extend(window: []const u8, position_first: usize, candidate_first: usize, anchor: usize, end: usize) align(constants.match_function_alignment) Found {
+fn extend(comptime safety: bool, window: []const u8, position_first: usize, candidate_first: usize, anchor: usize, end: usize) align(constants.match_function_alignment) Found {
+    @setRuntimeSafety(safety);
     var position = position_first;
     var candidate = candidate_first;
     for (0..position_first - anchor) |_| {
@@ -272,17 +284,18 @@ fn extend(window: []const u8, position_first: usize, candidate_first: usize, anc
         position -= 1;
         candidate -= 1;
     }
-    const len = match_len(window, candidate, position, end);
+    const len = match_len(safety, window, candidate, position, end);
     return .{ .position = position, .len = len, .offset = position - candidate };
 }
 
 /// The octets from `candidate` and from `position` that agree, up to `end`.
-pub fn match_len(window: []const u8, candidate: usize, position: usize, end: usize) usize {
+fn match_len(comptime safety: bool, window: []const u8, candidate: usize, position: usize, end: usize) usize {
+    @setRuntimeSafety(safety);
     assert(candidate < position and position <= end);
     const limit = end - position;
     var len: usize = 0;
     for (0..limit / @sizeOf(u64)) |_| {
-        const difference = read64(window, candidate + len) ^ read64(window, position + len);
+        const difference = read64(safety, window, candidate + len) ^ read64(safety, window, position + len);
         if (difference != 0) return len + @ctz(difference) / @bitSizeOf(u8);
         len += @sizeOf(u64);
     }
@@ -294,16 +307,19 @@ pub fn match_len(window: []const u8, candidate: usize, position: usize, end: usi
 }
 
 /// The hash of `word`'s first `len` octets, `log` bits wide.
-inline fn hash(word: u64, comptime len: u4, comptime log: u5) usize {
+inline fn hash(comptime safety: bool, word: u64, comptime len: u4, comptime log: u5) usize {
+    @setRuntimeSafety(safety);
     const kept = word << (@bitSizeOf(u64) - @as(u7, len) * @bitSizeOf(u8));
     return @intCast((kept *% constants.match_hash_multiplier) >> (@bitSizeOf(u64) - @as(u7, log)));
 }
 
-inline fn read64(window: []const u8, position: usize) u64 {
+inline fn read64(comptime safety: bool, window: []const u8, position: usize) u64 {
+    @setRuntimeSafety(safety);
     return std.mem.readInt(u64, window[position..][0..@sizeOf(u64)], .little);
 }
 
-inline fn read32(window: []const u8, position: usize) u32 {
+inline fn read32(comptime safety: bool, window: []const u8, position: usize) u32 {
+    @setRuntimeSafety(safety);
     return std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
 }
 
