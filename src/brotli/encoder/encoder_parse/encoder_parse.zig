@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const codec = @import("codec");
 const encoder_commands = @import("../encoder_commands.zig");
 const aarch64 = @import("encoder_parse_aarch64.zig");
+const x86_64 = @import("encoder_parse_x86_64.zig");
 
 const finder = codec.match_finder;
 const read_len = codec.constants.match_read_len;
@@ -51,6 +52,7 @@ const Range = struct {
 /// assembly of decision 63 where it takes the target, else through Zig.
 pub fn parse(comptime level: finder.Level, comptime safety: bool, matcher: *finder.Matcher(level), window: []const u8, start: usize, end: usize, commands: *encoder_commands.Commands) void {
     if (comptime aarch64.takes(level)) return aarch64.parse(level, safety, matcher, window, start, end, commands);
+    if (comptime x86_64.takes(level)) return x86_64.parse(level, safety, matcher, window, start, end, commands);
     parse_zig(level, safety, matcher, window, start, end, commands);
 }
 
@@ -207,4 +209,8 @@ inline fn read64(comptime safety: bool, window: []const u8, position: usize) u64
 inline fn read32(comptime safety: bool, window: []const u8, position: usize) u32 {
     @setRuntimeSafety(safety);
     return std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
+}
+
+test {
+    _ = @import("encoder_parse_assembly.zig");
 }
