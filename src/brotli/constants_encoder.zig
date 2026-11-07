@@ -69,6 +69,10 @@ pub const encoder_level5 = struct {
     pub const hash_len = 4;
     /// The positions after a miss the parse tries before it steps faster, as a log2: 2^8 literals.
     pub const skip_log = 8;
+    /// The window's room past its history: the window slides once this much input has gone into
+    /// meta-blocks, so it moves the history and the buckets 16 times less often than once a
+    /// meta-block, for 1 MiB more.
+    pub const slack_len = 1_048_576;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
