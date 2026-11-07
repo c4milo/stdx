@@ -11,9 +11,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("../constants.zig");
-const encoder_commands = @import("encoder_commands.zig");
-const encoder_prefix = @import("encoder_prefix.zig");
+const constants = @import("../../constants.zig");
+const encoder_commands = @import("../encoder_commands.zig");
+const encoder_prefix = @import("../encoder_prefix.zig");
+const aarch64 = @import("encoder_write_aarch64.zig");
 
 pub const Error = encoder_prefix.Error;
 
@@ -53,8 +54,15 @@ comptime {
     assert(@bitSizeOf(u8) - 1 + constants.encoder_put_bits_max <= codec.constants.bit_buffer_bits);
 }
 
-/// Writes the commands of `input`, a meta-block's octets, through `codes` into `writer`.
+/// Writes the commands of `input`, a meta-block's octets, through `codes` into `writer`: through
+/// the assembly of decision 63 where it takes the target, else through Zig.
 pub noinline fn write_commands(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: *const encoder_commands.Commands, codes: anytype) Error!void {
+    if (comptime aarch64.takes) return aarch64.write(writer, input, commands, codes);
+    return write_zig(safety, writer, input, commands, codes);
+}
+
+/// `write_commands` in Zig: the reference the assembly writes the octets of.
+pub fn write_zig(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: *const encoder_commands.Commands, codes: anytype) Error!void {
     @setRuntimeSafety(safety);
     // The first store drops the whole octets the header left, so the loop starts below 8 bits.
     if (!writer.has_store_room()) return error.NoSpaceLeft;
@@ -124,4 +132,8 @@ inline fn put_literals(comptime safety: bool, bits: *Bits, literals: []const u8,
         if (count > 0) bits.put(safety, value, count);
         rest = rest[chunk.len..];
     }
+}
+
+test {
+    _ = @import("encoder_write_assembly_test.zig");
 }
