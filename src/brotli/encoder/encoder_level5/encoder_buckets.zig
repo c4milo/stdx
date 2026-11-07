@@ -24,11 +24,21 @@ const tag_bits = @bitSizeOf(u32) - position_bits;
 
 comptime {
     assert(std.math.isPowerOfTwo(ways) and ways <= std.math.maxInt(u8) + 1);
+    // `hits` takes the bucket's checks as one mask of 16 bits.
+    assert(ways == @bitSizeOf(u16));
     assert((@as(usize, 1) << constants.encoder_level5.window_bits) + constants.encoder_level5.slack_len < @as(usize, 1) << position_bits);
 }
 
+/// A position's bucket, and its check: the 8 bits of its hash below the bucket's, which the bucket
+/// keeps beside each entry, so one compare of 16 lanes finds the entries worth reading.
+pub const Slot = struct { bucket: usize, check: u8 };
+
+/// The hash's bits below the bucket's that make a check.
+const check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
+
 pub const Buckets = struct {
     entries: [bucket_count][ways]u32,
+    checks: [bucket_count][ways]u8,
     /// Each bucket's next slot in its ring.
     next: [bucket_count]u8,
     /// The stream's tag, from 1 up, and its base: the tag above every position.
@@ -51,6 +61,7 @@ pub const Buckets = struct {
 
     fn clear(self: *Buckets) void {
         for (&self.entries) |*bucket| bucket.* = @splat(0);
+        for (&self.checks) |*bucket| bucket.* = @splat(0);
         self.next = @splat(0);
         self.tag = 1;
         self.base = @as(u32, 1) << position_bits;
@@ -65,20 +76,39 @@ pub const Buckets = struct {
         }
     }
 
-    /// The bucket of the 4 octets at `position`.
-    pub inline fn bucket_of(comptime safety: bool, window: []const u8, position: usize) usize {
+    /// The bucket and check of the 4 octets at `position`.
+    pub inline fn slot_of(comptime safety: bool, window: []const u8, position: usize) Slot {
         @setRuntimeSafety(safety);
         const word = std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
-        return @intCast((@as(u64, word) *% codec.constants.match_hash_multiplier) >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log));
+        const product = @as(u64, word) *% codec.constants.match_hash_multiplier;
+        return .{ .bucket = @intCast(product >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log)), .check = @truncate(product >> check_shift) };
+    }
+
+    /// The bucket of the 4 octets at `position`.
+    pub inline fn bucket_of(comptime safety: bool, window: []const u8, position: usize) usize {
+        return slot_of(safety, window, position).bucket;
+    }
+
+    /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each.
+    pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
+        const Lanes = @Vector(ways, u8);
+        const lanes: Lanes = self.checks[slot.bucket];
+        return @bitCast(lanes == @as(Lanes, @splat(slot.check)));
     }
 
     /// Records `position` in its bucket, over the oldest entry.
     pub inline fn insert(self: *Buckets, comptime safety: bool, window: []const u8, position: usize) void {
         @setRuntimeSafety(safety);
-        const bucket = bucket_of(safety, window, position);
-        const slot = self.next[bucket] % ways;
-        self.entries[bucket][slot] = self.base +% @as(u32, @truncate(position));
-        self.next[bucket] = @truncate(slot + 1);
+        self.insert_at(safety, slot_of(safety, window, position), position);
+    }
+
+    /// Records `position` in `slot`, its bucket and check, over the oldest entry.
+    pub inline fn insert_at(self: *Buckets, comptime safety: bool, slot: Slot, position: usize) void {
+        @setRuntimeSafety(safety);
+        const way = self.next[slot.bucket] % ways;
+        self.entries[slot.bucket][way] = self.base +% @as(u32, @truncate(position));
+        self.checks[slot.bucket][way] = slot.check;
+        self.next[slot.bucket] = @truncate(way + 1);
     }
 
     /// The position `entry` names when it lies in this stream from `low` up and before `position`.
