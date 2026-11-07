@@ -56,6 +56,20 @@ pub const encoder_window_bits_min = constants.window_bits_short;
 pub const encoder_level1_hash_log = 14;
 pub const encoder_level1_hash_len = 5;
 pub const encoder_level1_long_hash_log = 14;
+/// Level 5 (decision 62).
+pub const encoder_level5 = struct {
+    /// The level's number in `EncoderOptions`.
+    pub const number = 5;
+    /// WBITS (decision 12): a window of 2^22 octets.
+    pub const window_bits = 22;
+    /// The match finder, the owner's ruling of 2026-11-07: 2^14 buckets, each the last 16
+    /// positions whose first 4 octets hash to it, 1 MiB in all.
+    pub const bucket_log = 14;
+    pub const bucket_ways = 16;
+    pub const hash_len = 4;
+    /// The positions after a miss the parse tries before it steps faster, as a log2: 2^8 literals.
+    pub const skip_log = 8;
+};
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
 /// A match's cost in eighths of a bit besides its distance's extra bits, which `takes` adds as
