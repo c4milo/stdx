@@ -3,8 +3,9 @@
 //! 18 at level 1 and 22 at level 5 (decision 62).
 //!
 //! - The first tables time stdx's level 1 and Google's quality 1 at WBITS 18, interleaved, and
-//!   stdx's level 1 with its hot loops checked, decision 16's price of the checks. The last times
-//!   Google alone: quality 1 at its default WBITS 22, and quality 5.
+//!   stdx's level 1 with its hot loops checked, decision 16's price of the checks. The next time
+//!   stdx's level 5 and Google's quality 5 at WBITS 22, interleaved. The last times Google alone:
+//!   quality 1 at its default WBITS 22.
 //! - Each operation encodes one whole stream of a part of the row's input. Google's encoder takes a
 //!   new instance a stream, as its one-call API does. stdx's state is placed once, started once
 //!   with `init`, and begun for each stream with `start` (decision 60), as a server keeps one per
@@ -25,25 +26,40 @@ const Input = inputs.Input;
 const Setting = struct { quality: c_int, window_bits: c_int };
 const settings = [_]Setting{
     .{ .quality = 1, .window_bits = 22 },
-    .{ .quality = 5, .window_bits = 22 },
 };
 
-/// The setting stdx's level 1 is timed against.
+/// The setting each level is timed against.
 const level1_rival: Setting = .{ .quality = 1, .window_bits = 18 };
+const level5_rival: Setting = .{ .quality = 5, .window_bits = 22 };
 
-const candidate_names = [_][]const u8{ "Google q1", "stdx 1", "stdx 1 checked" };
-const candidate_count = candidate_names.len;
+const level1_names = [_][]const u8{ "Google q1", "stdx 1", "stdx 1 checked" };
+const level5_names = [_][]const u8{ "Google q5", "stdx 5" };
 /// The default encoder's column, which the bar reads.
 const stdx_index = 1;
 
-/// One row's input with both candidates: each one's median throughput, its spread in percent, and
-/// its ratio.
-const PairRow = struct {
-    name: []const u8,
-    input_len: usize,
-    rates: [candidate_count]f64,
-    spreads: [candidate_count]f64,
-    ratios: [candidate_count]f64,
+/// One row's input with `count` candidates: each one's median throughput, its spread in percent,
+/// and its ratio.
+fn PairRow(comptime count: usize) type {
+    return struct {
+        name: []const u8,
+        input_len: usize,
+        rates: [count]f64,
+        spreads: [count]f64,
+        ratios: [count]f64,
+    };
+}
+
+/// An encode of one stream by stdx's level 5, in one call, through a state kept across streams.
+const Level5Encode = struct {
+    const Encoder = brotli.Encoder(.{ .level = 5 });
+
+    output: []u8,
+    encoder: *Encoder,
+
+    pub fn run(self: *const Level5Encode, input: []const u8) ?usize {
+        self.encoder.start();
+        return self.encoder.encode_all(input, self.output) catch null;
+    }
 };
 
 /// An encode of one stream by stdx's level 1, in one call, through a state kept across streams;
@@ -86,9 +102,12 @@ const GoogleEncode = struct {
 /// Times stdx's level 1 against Google's quality 1 over every row's input, then Google alone at
 /// every other setting, then prints the tables.
 pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []const Input) !void {
-    var pairs: std.ArrayList(PairRow) = .empty;
+    var pairs: std.ArrayList(PairRow(level1_names.len)) = .empty;
     for (all) |input| try pairs.append(arena, try measure_pair(arena, io, input));
-    try print_pairs(out, all, pairs.items);
+    try print_pairs(&level1_names, "level 1 at WBITS 18", out, all, pairs.items);
+    var pairs5: std.ArrayList(PairRow(level5_names.len)) = .empty;
+    for (all) |input| try pairs5.append(arena, try measure_level5(arena, io, input));
+    try print_pairs(&level5_names, "level 5 at WBITS 22", out, all, pairs5.items);
     var rows: std.ArrayList(Row) = .empty;
     for (all) |input| {
         for (settings) |setting| try rows.append(arena, try measure(setting, arena, io, input));
@@ -101,19 +120,19 @@ pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []
     }
 }
 
-/// The speed table and the ratio table of stdx's level 1 against Google's quality 1.
-fn print_pairs(out: *std.Io.Writer, all: []const Input, pairs: []const PairRow) !void {
-    try out.print("\n## Encoding speed, level 1 at WBITS 18\n\n", .{});
+/// The speed table and the ratio table of a level against its rival, its candidates `names`.
+fn print_pairs(comptime names: []const []const u8, title: []const u8, out: *std.Io.Writer, all: []const Input, pairs: []const PairRow(names.len)) !void {
+    try out.print("\n## Encoding speed, {s}\n\n", .{title});
     try inputs.note(out, all);
-    try print_header(out, "MB/s");
+    try print_header(names, out, "MB/s");
     for (pairs) |row| {
         try out.print("| {s} | {d} |", .{ row.name, row.input_len });
         for (row.rates, row.spreads) |rate, spread| try out.print(" {d:.1} ± {d:.1}% |", .{ rate, spread });
         try out.print(" {d:.2} |\n", .{row.rates[stdx_index] / row.rates[0]});
     }
-    try out.print("\n## Encoding ratio, level 1 at WBITS 18\n\n", .{});
+    try out.print("\n## Encoding ratio, {s}\n\n", .{title});
     try inputs.note(out, all);
-    try print_header(out, "ratio");
+    try print_header(names, out, "ratio");
     for (pairs) |row| {
         try out.print("| {s} | {d} |", .{ row.name, row.input_len });
         for (row.ratios) |ratio| try out.print(" {d:.3} |", .{ratio});
@@ -122,17 +141,17 @@ fn print_pairs(out: *std.Io.Writer, all: []const Input, pairs: []const PairRow) 
 }
 
 /// A table's header: each candidate's column in `unit`, then stdx over Google.
-fn print_header(out: *std.Io.Writer, unit: []const u8) !void {
+fn print_header(names: []const []const u8, out: *std.Io.Writer, unit: []const u8) !void {
     try out.print("| File | Octets |", .{});
-    for (candidate_names) |name| try out.print(" {s}, {s} |", .{ name, unit });
+    for (names) |name| try out.print(" {s}, {s} |", .{ name, unit });
     try out.print(" stdx / Google |\n|---|---|", .{});
-    for (0..candidate_count + 1) |_| try out.print("---|", .{});
+    for (0..names.len + 1) |_| try out.print("---|", .{});
     try out.print("\n", .{});
 }
 
 /// One row of the pair: each candidate encodes every part of `input` and its streams are decoded
 /// back, then both are timed interleaved.
-fn measure_pair(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow {
+fn measure_pair(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow(level1_names.len) {
     const Checked = StdxEncode(false);
     const Unchecked = StdxEncode(true);
     const output_len = @max(oracle.brotli_bound(input.part_len), Unchecked.Encoder.encoded_len_max(input.part_len));
@@ -141,15 +160,30 @@ fn measure_pair(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow {
     stdx.encoder.init();
     const checked: Checked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Checked.Encoder) };
     checked.encoder.init();
-    var row: PairRow = .{ .name = input.name, .input_len = input.len(), .rates = undefined, .spreads = undefined, .ratios = undefined };
-    var candidates: [candidate_count]timing.Operation = undefined;
+    return time_pair(level1_names.len, arena, io, input, .{ google, stdx, checked });
+}
+
+/// One row of level 5's pair: Google's quality 5 and stdx's level 5, both at WBITS 22.
+fn measure_level5(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow(level5_names.len) {
+    const output_len = @max(oracle.brotli_bound(input.part_len), Level5Encode.Encoder.encoded_len_max(input.part_len));
+    const google: GoogleEncode = .{ .output = try arena.alloc(u8, output_len), .setting = level5_rival };
+    const stdx: Level5Encode = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Level5Encode.Encoder) };
+    stdx.encoder.init();
+    return time_pair(level5_names.len, arena, io, input, .{ google, stdx });
+}
+
+/// Each of `candidates` encodes every part of `input` and its streams are decoded back, then all
+/// are timed interleaved.
+fn time_pair(comptime count: usize, arena: std.mem.Allocator, io: std.Io, input: Input, candidates_list: anytype) !PairRow(count) {
+    var row: PairRow(count) = .{ .name = input.name, .input_len = input.len(), .rates = undefined, .spreads = undefined, .ratios = undefined };
+    var candidates: [count]timing.Operation = undefined;
     const decoded = try arena.alloc(u8, input.part_len);
-    inline for (.{ google, stdx, checked }, 0..) |candidate, index| {
+    inline for (candidates_list, 0..) |candidate, index| {
         const encoded_len = try encoded_len_of(candidate, input, decoded);
         row.ratios[index] = @as(f64, @floatFromInt(input.len())) / @as(f64, @floatFromInt(encoded_len));
         candidates[index] = try inputs.operation(arena, candidate, input.parts);
     }
-    var runs: [candidate_count][timing.run_count]f64 = undefined;
+    var runs: [count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &candidates, &runs);
     for (runs, &row.rates, &row.spreads) |candidate_runs, *rate, *spread| {
         const summary = timing.summarize(candidate_runs);
