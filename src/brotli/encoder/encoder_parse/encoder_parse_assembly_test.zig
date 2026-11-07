@@ -1,4 +1,4 @@
-//! The tests of `encoder_parse_aarch64.zig` (decision 63): the assembly and the Zig parse, on copies
+//! The tests of decision 63's loops, on the target's own: the assembly and the Zig parse, on copies
 //! of one matcher and one meta-block's commands, write the same commands, counts, last distances
 //! and table entries, over seeded windows whose blocks lie before the reach and past it. The inputs
 //! repeat earlier octets at distances the ring holds and at new ones, with literal runs and copies
@@ -12,6 +12,7 @@ const encoder = @import("../encoder.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const encoder_parse = @import("encoder_parse.zig");
 const aarch64 = @import("encoder_parse_aarch64.zig");
+const x86_64 = @import("encoder_parse_x86_64.zig");
 
 const test_window_bits = constants.encoder_window_bits_min;
 const level = encoder.Encoder(.{ .level = 1, .window_bits = test_window_bits }).finder_level;
@@ -40,11 +41,13 @@ const cheap_cost = 24;
 const dear_cost = 40;
 const literal_costs = [_]u32{ constants.encoder_literal_cost_initial, tie_cost, cheap_cost, dear_cost };
 
-/// State that outlives one test's stack frame. The octet before the window equals the one a match
-/// at its start would step back onto, were the step not stopped at the window's start.
-threadlocal var guarded: [1 + window_len]u8 = undefined;
+/// State that outlives one test's stack frame. The `guard_octets` before the window are readable,
+/// so a step back or a candidate before the window's start reads them, not another variable; the
+/// last of them equals the octet a match at the window's start would step back onto.
+const guard_octets = 16;
+threadlocal var guarded: [guard_octets + window_len]u8 = undefined;
 fn window() *[window_len]u8 {
-    return guarded[1..];
+    return guarded[guard_octets..];
 }
 /// The assembly's and the Zig parse's.
 const sides = 2;
@@ -52,7 +55,7 @@ threadlocal var matchers: [sides]Matcher = undefined;
 threadlocal var commands: [sides]encoder_commands.Commands = undefined;
 
 test "the assembly writes the commands, counts and entries of the Zig parse" {
-    if (comptime !aarch64.takes(level)) return error.SkipZigTest;
+    if (comptime !aarch64.takes(level) and !x86_64.takes(level)) return error.SkipZigTest;
     for (0..seeds) |seed| {
         for (literal_costs) |cost| try expect_equal(seed, cost);
     }
@@ -69,12 +72,34 @@ fn expect_equal(seed: u64, literal_cost: u32) !void {
             each.reset();
             each.literal_cost = literal_cost;
         }
-        aarch64.parse(level, true, &matchers[0], window(), start, start + block_len, &commands[0]);
+        encoder_parse.parse(level, true, &matchers[0], window(), start, start + block_len, &commands[0]);
         encoder_parse.parse_zig(level, true, &matchers[1], window(), start, start + block_len, &commands[1]);
         try expect_same(&commands[0], &commands[1]);
         try testing.expectEqualSlices(u8, std.mem.asBytes(&matchers[1]), std.mem.asBytes(&matchers[0]));
     }
 }
+
+test "no position names an octet before the window, where its range is empty" {
+    if (comptime !aarch64.takes(level) and !x86_64.takes(level)) return error.SkipZigTest;
+    // One octet throughout, before the window too, and every entry naming the octet just before
+    // it: a candidate before the window, or the ring's first distances at the stream's first
+    // positions, would find a match. The range of each position refuses them.
+    @memset(&guarded, constant_octet);
+    for (&matchers) |*matcher| {
+        matcher.init();
+        @memset(&matcher.short, matcher.base -% 1);
+        @memset(&matcher.long, matcher.base -% 1);
+    }
+    for (&commands) |*each| each.init();
+    for (&commands) |*each| each.reset();
+    encoder_parse.parse(level, true, &matchers[0], window(), 0, block_len, &commands[0]);
+    encoder_parse.parse_zig(level, true, &matchers[1], window(), 0, block_len, &commands[1]);
+    try expect_same(&commands[0], &commands[1]);
+    try testing.expectEqualSlices(u8, std.mem.asBytes(&matchers[1]), std.mem.asBytes(&matchers[0]));
+}
+
+/// The octet of the test above.
+const constant_octet = 'a';
 
 fn expect_same(got: *const encoder_commands.Commands, want: *const encoder_commands.Commands) !void {
     try testing.expectEqual(want.count, got.count);
@@ -104,7 +129,7 @@ fn fill(generator: *codec.testing.split.Generator) void {
     // The window's first octets again a little later, after a literal: the match there steps back
     // to the window's start, where the octet before it agrees too.
     @memcpy(window()[guard_at..][0..guard_len], window()[0..guard_len]);
-    guarded[0] = window()[guard_at - 1];
+    guarded[guard_octets - 1] = window()[guard_at - 1];
 }
 
 /// A copy's distance: one of the recent ones at `ring_odds`, else a new one, which joins them.
