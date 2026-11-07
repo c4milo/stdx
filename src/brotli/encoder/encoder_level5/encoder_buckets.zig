@@ -17,14 +17,14 @@ const constants = @import("../../constants.zig");
 const bucket_count = @as(usize, 1) << constants.encoder_level5.bucket_log;
 pub const ways = constants.encoder_level5.bucket_ways;
 
-/// The bits a position takes: a window of 2^22 and a meta-block are less than 2^23.
+/// The bits a position takes: a window of 2^22 and its slack are less than 2^23.
 const position_bits = constants.encoder_level5.window_bits + 1;
 /// The bits above the position, which hold the stream's tag.
 const tag_bits = @bitSizeOf(u32) - position_bits;
 
 comptime {
     assert(std.math.isPowerOfTwo(ways) and ways <= std.math.maxInt(u8) + 1);
-    assert((@as(usize, 1) << constants.encoder_level5.window_bits) + constants.encoder_meta_block_len_max < @as(usize, 1) << position_bits);
+    assert((@as(usize, 1) << constants.encoder_level5.window_bits) + constants.encoder_level5.slack_len < @as(usize, 1) << position_bits);
 }
 
 pub const Buckets = struct {
