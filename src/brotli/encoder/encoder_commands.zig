@@ -42,6 +42,25 @@ pub const Command = extern struct {
     }
 };
 
+/// A command as level 5 holds it, in 12 octets: `Command`'s fields, with the distance's extra
+/// bits in 32, as WBITS 22 gives a distance up to 21 of them (RFC 7932 §4).
+pub const WideCommand = extern struct {
+    insert_len: u16,
+    copy_len: u16,
+    symbol_and_code: u16,
+    /// Zero: it keeps `distance_extra` on 4 octets.
+    padding: u16 = 0,
+    distance_extra: u32,
+
+    pub inline fn symbol(self: WideCommand) u10 {
+        return @truncate(self.symbol_and_code);
+    }
+
+    pub inline fn distance_code(self: WideCommand) u6 {
+        return @intCast(self.symbol_and_code >> symbol_bits);
+    }
+};
+
 /// The bits of an insert-and-copy symbol (RFC 7932 §5: 704 symbols).
 pub const symbol_bits = @bitSizeOf(u10);
 
@@ -64,134 +83,158 @@ pub const Coded = struct {
     distance_extra_bits: u5,
 };
 
-/// A meta-block's commands, its symbols' counts, and the ring of last distances, which lives for
-/// the stream (RFC 7932 §4). The literals stay in the window, where the writer reads them.
-pub const Commands = struct {
-    commands: [constants.encoder_commands_max]Command,
-    count: usize,
-    literal_counts: [constants.literal_alphabet_len]u16,
-    command_counts: [constants.insert_copy_alphabet_len]u16,
-    distance_counts: [constants.encoder_distance_alphabet_len]u16,
-    /// The literals of the meta-block so far, and those the commands so far insert; the rest
-    /// follow the last match.
-    literals_len: usize,
-    inserted: usize,
-    /// The last distance first.
-    last_distances: [constants.last_distances_count]u32,
-    /// A literal's mean cost in eighths of a bit under the last meta-block's literal code, which
-    /// `takes` weighs a match against.
-    literal_cost: u32,
+/// A meta-block's commands of `Record`, its symbols' counts, and the ring of last distances, which
+/// lives for the stream (RFC 7932 §4). The literals stay in the window, where the writer reads them.
+pub fn CommandsOf(comptime Record: type) type {
+    return struct {
+        const Self = @This();
+        commands: [constants.encoder_commands_max]Record,
+        count: usize,
+        literal_counts: [constants.literal_alphabet_len]u16,
+        command_counts: [constants.insert_copy_alphabet_len]u16,
+        distance_counts: [constants.encoder_distance_alphabet_len]u16,
+        /// The literals of the meta-block so far, and those the commands so far insert; the rest
+        /// follow the last match.
+        literals_len: usize,
+        inserted: usize,
+        /// The last distance first.
+        last_distances: [constants.last_distances_count]u32,
+        /// A literal's mean cost in eighths of a bit under the last meta-block's literal code, which
+        /// `takes` weighs a match against.
+        literal_cost: u32,
 
-    pub fn init(self: *Commands) void {
-        // RFC 7932 §4: the last distance 4, then 11, 15 and 16, at the stream's start.
-        self.last_distances = constants.last_distances_initial;
-        self.literal_cost = constants.encoder_literal_cost_initial;
-        self.reset();
-    }
-
-    /// Empties the meta-block; the last distances stay, as the stream keeps them.
-    pub fn reset(self: *Commands) void {
-        self.count = 0;
-        self.literals_len = 0;
-        self.inserted = 0;
-        self.literal_counts = @splat(0);
-        self.command_counts = @splat(0);
-        self.distance_counts = @splat(0);
-    }
-
-    /// The finder's sink: the literals from `anchor` to `position`, then a match of `len` octets
-    /// `distance` back.
-    pub inline fn add(self: *Commands, comptime safety: bool, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
-        @setRuntimeSafety(safety);
-        assert(len >= constants.copy_length_codes[0].base and distance > 0 and self.count < self.commands.len);
-        const insert_len = position - anchor;
-        self.add_literals(safety, window[anchor..position]);
-        const code = self.distance_code(safety, @intCast(distance));
-        self.record(safety, @intCast(insert_len), @intCast(len), code.code, @intCast(code.extra));
-        self.inserted += insert_len;
-        if (code.code != 0) self.push_distance(safety, @intCast(distance));
-    }
-
-    /// The finder's sink: literals, before a match or after the last one. The meta-block's last
-    /// command inserts those after the last match, and the stream ends before its copy (RFC 7932
-    /// §9.3).
-    pub fn add_literals(self: *Commands, comptime safety: bool, octets: []const u8) void {
-        @setRuntimeSafety(safety);
-        // Decision 17: a meta-block holds at most `encoder_meta_block_len_max` literals, which fit
-        // a count's 16 bits.
-        for (octets) |octet| self.literal_counts[octet] +%= 1;
-        self.literals_len += octets.len;
-    }
-
-    /// Whether a match of `len` octets `offset` back saves more bits than it costs: the literals it
-    /// replaces, at `literal_cost`, against a command's cost and the distance's extra bits.
-    pub inline fn takes(self: *const Commands, comptime safety: bool, len: usize, offset: usize) bool {
-        @setRuntimeSafety(safety);
-        const cost = constants.encoder_match_cost_base + @as(usize, std.math.log2_int(usize, offset)) * eighths;
-        return len * self.literal_cost > cost;
-    }
-
-    /// Sets `literal_cost` from the literal code a meta-block built for its own counts.
-    pub fn weigh_literals(self: *Commands, lengths: *const [constants.literal_alphabet_len]u8) void {
-        if (self.literals_len == 0) return;
-        // A lane's sum stays below a meta-block's literals times the longest code, which fits 32
-        // bits, and so does the total.
-        const lanes = constants.encoder_scan_lanes;
-        const Lanes = @Vector(lanes, u32);
-        comptime assert(constants.literal_alphabet_len % lanes == 0);
-        var sums: Lanes = @splat(0);
-        for (0..constants.literal_alphabet_len / lanes) |index| {
-            const counts: @Vector(lanes, u16) = self.literal_counts[index * lanes ..][0..lanes].*;
-            const lens: @Vector(lanes, u8) = lengths[index * lanes ..][0..lanes].*;
-            sums += @as(Lanes, counts) * @as(Lanes, lens);
+        pub fn init(self: *Self) void {
+            // RFC 7932 §4: the last distance 4, then 11, 15 and 16, at the stream's start.
+            self.last_distances = constants.last_distances_initial;
+            self.literal_cost = constants.encoder_literal_cost_initial;
+            self.reset();
         }
-        const bits: usize = @reduce(.Add, sums);
-        self.literal_cost = @intCast(bits * eighths / self.literals_len);
-    }
 
-    /// The last distance, which the finder tries first.
-    pub inline fn repeat_offset(self: *const Commands) u32 {
-        return self.last_distances[0];
-    }
-
-    /// Records the literals after the last match, if any, as a command of their own.
-    pub fn close(self: *Commands) void {
-        const tail_len = self.literals_len - self.inserted;
-        if (tail_len == 0) return;
-        assert(self.count < self.commands.len);
-        // The copy never runs: the meta-block's length ends at the literals. Code 0 keeps the
-        // distance out of the stream where the insert code allows it.
-        self.record(true, @intCast(tail_len), constants.copy_length_codes[0].base, 0, 0);
-        self.inserted = self.literals_len;
-    }
-
-    inline fn record(self: *Commands, comptime safety: bool, insert_len: u16, copy_len: u16, code: u6, extra: u16) void {
-        @setRuntimeSafety(safety);
-        const symbol = symbol_of(safety, insert_len, copy_len, code);
-        self.commands[self.count] = .{ .insert_len = insert_len, .copy_len = copy_len, .symbol_and_code = symbol | @as(u16, code) << symbol_bits, .distance_extra = extra };
-        self.count += 1;
-        // Decision 17: a meta-block holds at most `encoder_commands_max` commands, which fit a
-        // count's 16 bits.
-        self.command_counts[symbol] +%= 1;
-        if (symbol >= constants.insert_copy_last_distance_symbols) self.distance_counts[code] +%= 1;
-    }
-
-    /// The short code of the last distances that names `distance` (RFC 7932 §4), with no extra
-    /// bits, else the code with extra bits.
-    inline fn distance_code(self: *const Commands, comptime safety: bool, distance: u32) DistanceCode {
-        @setRuntimeSafety(safety);
-        for (self.last_distances, 0..) |last, code| {
-            if (last == distance) return .{ .code = @intCast(code), .extra = 0, .extra_bits = 0 };
+        /// Empties the meta-block; the last distances stay, as the stream keeps them.
+        pub fn reset(self: *Self) void {
+            self.count = 0;
+            self.literals_len = 0;
+            self.inserted = 0;
+            self.literal_counts = @splat(0);
+            self.command_counts = @splat(0);
+            self.distance_counts = @splat(0);
         }
-        return distance_code_of(safety, distance);
-    }
 
-    inline fn push_distance(self: *Commands, comptime safety: bool, distance: u32) void {
-        @setRuntimeSafety(safety);
-        std.mem.copyBackwards(u32, self.last_distances[1..], self.last_distances[0 .. self.last_distances.len - 1]);
-        self.last_distances[0] = distance;
+        /// The finder's sink: the literals from `anchor` to `position`, then a match of `len` octets
+        /// `distance` back.
+        pub inline fn add(self: *Self, comptime safety: bool, window: []const u8, anchor: usize, position: usize, len: usize, distance: usize) void {
+            @setRuntimeSafety(safety);
+            assert(len >= constants.copy_length_codes[0].base and distance > 0 and self.count < self.commands.len);
+            const insert_len = position - anchor;
+            self.add_literals(safety, window[anchor..position]);
+            const code = self.distance_code(safety, @intCast(distance));
+            self.record(safety, @intCast(insert_len), @intCast(len), code.code, @intCast(code.extra));
+            self.inserted += insert_len;
+            if (code.code != 0) self.push_distance(safety, @intCast(distance));
+        }
+
+        /// The finder's sink: literals, before a match or after the last one. The meta-block's last
+        /// command inserts those after the last match, and the stream ends before its copy (RFC 7932
+        /// §9.3).
+        pub fn add_literals(self: *Self, comptime safety: bool, octets: []const u8) void {
+            @setRuntimeSafety(safety);
+            // Decision 17: a meta-block holds at most `encoder_meta_block_len_max` literals, which fit
+            // a count's 16 bits.
+            for (octets) |octet| self.literal_counts[octet] +%= 1;
+            self.literals_len += octets.len;
+        }
+
+        /// Whether a match of `len` octets `offset` back saves more bits than it costs: the literals it
+        /// replaces, at `literal_cost`, against a command's cost and the distance's extra bits.
+        pub inline fn takes(self: *const Self, comptime safety: bool, len: usize, offset: usize) bool {
+            @setRuntimeSafety(safety);
+            const cost = constants.encoder_match_cost_base + @as(usize, std.math.log2_int(usize, offset)) * eighths;
+            return len * self.literal_cost > cost;
+        }
+
+        /// Sets `literal_cost` from the literal code a meta-block built for its own counts.
+        pub fn weigh_literals(self: *Self, lengths: *const [constants.literal_alphabet_len]u8) void {
+            if (self.literals_len == 0) return;
+            self.literal_cost = mean_cost(&self.literal_counts, lengths, self.literals_len);
+        }
+
+        /// The last distance, which the finder tries first.
+        pub inline fn repeat_offset(self: *const Self) u32 {
+            return self.last_distances[0];
+        }
+
+        /// Records the literals after the last match, if any, as a command of their own.
+        pub fn close(self: *Self) void {
+            const tail_len = self.literals_len - self.inserted;
+            if (tail_len == 0) return;
+            assert(self.count < self.commands.len);
+            // The copy never runs: the meta-block's length ends at the literals. Code 0 keeps the
+            // distance out of the stream where the insert code allows it.
+            self.record(true, @intCast(tail_len), constants.copy_length_codes[0].base, 0, 0);
+            self.inserted = self.literals_len;
+        }
+
+        inline fn record(self: *Self, comptime safety: bool, insert_len: u16, copy_len: u16, code: u6, extra: u32) void {
+            record_into(self, safety, insert_len, copy_len, code, extra);
+        }
+
+        /// The short code of the last distances that names `distance` (RFC 7932 §4), with no extra
+        /// bits, else the code with extra bits.
+        inline fn distance_code(self: *const Self, comptime safety: bool, distance: u32) DistanceCode {
+            return ring_code(safety, &self.last_distances, distance);
+        }
+
+        inline fn push_distance(self: *Self, comptime safety: bool, distance: u32) void {
+            @setRuntimeSafety(safety);
+            std.mem.copyBackwards(u32, self.last_distances[1..], self.last_distances[0 .. self.last_distances.len - 1]);
+            self.last_distances[0] = distance;
+        }
+    };
+}
+
+/// The mean length of the literal code over `counts`, in eighths of a bit.
+fn mean_cost(counts: *const [constants.literal_alphabet_len]u16, lengths: *const [constants.literal_alphabet_len]u8, literals_len: usize) u32 {
+    // A lane's sum stays below a meta-block's literals times the longest code, which fits 32
+    // bits, and so does the total.
+    const lanes = constants.encoder_scan_lanes;
+    const Lanes = @Vector(lanes, u32);
+    comptime assert(constants.literal_alphabet_len % lanes == 0);
+    var sums: Lanes = @splat(0);
+    for (0..constants.literal_alphabet_len / lanes) |index| {
+        const lane_counts: @Vector(lanes, u16) = counts[index * lanes ..][0..lanes].*;
+        const lens: @Vector(lanes, u8) = lengths[index * lanes ..][0..lanes].*;
+        sums += @as(Lanes, lane_counts) * @as(Lanes, lens);
     }
-};
+    const bits: usize = @reduce(.Add, sums);
+    return @intCast(bits * eighths / literals_len);
+}
+
+/// A command's record and counts in `commands`, a `CommandsOf`.
+inline fn record_into(commands: anytype, comptime safety: bool, insert_len: u16, copy_len: u16, code: u6, extra: u32) void {
+    @setRuntimeSafety(safety);
+    const symbol = symbol_of(safety, insert_len, copy_len, code);
+    commands.commands[commands.count] = .{ .insert_len = insert_len, .copy_len = copy_len, .symbol_and_code = symbol | @as(u16, code) << symbol_bits, .distance_extra = @intCast(extra) };
+    commands.count += 1;
+    // Decision 17: a meta-block holds at most `encoder_commands_max` commands, which fit a count's
+    // 16 bits.
+    commands.command_counts[symbol] +%= 1;
+    if (symbol >= constants.insert_copy_last_distance_symbols) commands.distance_counts[code] +%= 1;
+}
+
+/// The short code of `ring` that names `distance` (RFC 7932 §4), else the code with extra bits.
+inline fn ring_code(comptime safety: bool, ring: *const [constants.last_distances_count]u32, distance: u32) DistanceCode {
+    @setRuntimeSafety(safety);
+    for (ring, 0..) |last, code| {
+        if (last == distance) return .{ .code = @intCast(code), .extra = 0, .extra_bits = 0 };
+    }
+    return distance_code_of(safety, distance);
+}
+
+/// Level 1's commands, whose records the assembly reads.
+pub const Commands = CommandsOf(Command);
+
+/// Level 5's commands, whose distances reach WBITS 22.
+pub const WideCommands = CommandsOf(WideCommand);
 
 /// The finder's sink over `commands`, with the safety decision 16 gives the encoder's parse: each
 /// call goes to the method of `Commands` it names.
@@ -228,7 +271,7 @@ inline fn symbol_of(comptime safety: bool, insert_len: u16, copy_len: u16, code:
 
 /// A command's extra bits (RFC 7932 §4, §5): the lengths' from the symbol's codes, and the
 /// distance's from its code.
-pub fn coded_of(comptime safety: bool, command: Command) Coded {
+pub fn coded_of(comptime safety: bool, command: anytype) Coded {
     @setRuntimeSafety(safety);
     const lengths = symbol_lengths[command.symbol()];
     return .{
