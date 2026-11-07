@@ -74,6 +74,17 @@ pub fn write(comptime execute: fn (*State) void, writer: *codec.BitWriter, input
     writer.bits = .{ .buffer = state.buffer, .count = @intCast(state.count) };
 }
 
+/// A chunk's length over 3 as a multiply and a shift (`literals_group`).
+const third_multiplier = 171;
+const third_shift = 9;
+
+comptime {
+    // third_check: the multiply and the shift give every chunk's groups of 3.
+    for (0..constants.encoder_literal_chunk_len + 1) |len| {
+        assert(len * third_multiplier >> third_shift == len / constants.encoder_literals_per_put);
+    }
+}
+
 /// The offsets and constants the texts name.
 pub const arguments = .{
     .commands = @offsetOf(State, "commands"),
@@ -104,6 +115,10 @@ pub const arguments = .{
     .code_at = @bitSizeOf(u32) + encoder_commands.symbol_bits,
     .code_bits = @bitSizeOf(u16) - encoder_commands.symbol_bits,
     .symbol_mask = std.math.maxInt(u10),
+    // A chunk's groups of 3: its length times 171, shifted down 9, is its length over 3, as
+    // `third_check` proves for every chunk.
+    .third_multiplier = third_multiplier,
+    .third_shift = third_shift,
     // A count below 64 less its bits below an octet: the bits of its whole octets.
     .whole_bits_mask = @bitSizeOf(u64) - @bitSizeOf(u8),
     .code_mask = std.math.maxInt(u6),
