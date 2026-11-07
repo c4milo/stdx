@@ -3303,6 +3303,16 @@ to 12 are reordered and nothing else changes.
       edge test was added. The 2 others change no output: a position whose table entry is empty,
       or whose table candidate lies one octet past the reach, searches where it would not, and its
       walk finds nothing, as no nearer position holds even 3 of its octets.
+  - The encoder's speed work, stopped by the owner on 2026-11-05 after decision 59: "Stop DEFLATE
+    speed work". These gaps against libdeflate stay open:
+    - Level 6 on the Neoverse N2, in decision 59's pairs: mr runs at 0.969 of libdeflate's speed,
+      x-ray at 0.976 and ooffice at 0.992.
+    - Level 6 on AMD runs the dear blocks in Zig. An x86-64 loop for them needs a ruling under
+      decision 54, which takes assembly by the CPU's vendor.
+    - The block writer runs 16.8 instructions an octet of x-ray, and libdeflate's about 11.
+    - Level 1 runs at 0.94 to 0.96 of libdeflate's speed on the N2 and 0.87 to 0.92 on x86-64
+      (decision 55, paused). Level 9's priced parse is stopped (decision 58), and so is Intel's
+      level 6.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
