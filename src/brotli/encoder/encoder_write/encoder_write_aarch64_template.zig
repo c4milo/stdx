@@ -13,7 +13,7 @@
 //! fields at bits 0, 16, 32 and 42, and 48.
 //!
 //! The numbered labels: 1 a command, 20 its lengths in two puts, 30 its literals, 31 a chunk, 32 a
-//! group of 3 literals, 34 the last 1 or 2, 36 the chunk's end, 40 its distance, 80 an output
+//! group of 3 literals, 33 the last 1 or 2, 36 the chunk's end, 40 its distance, 80 an output
 //! with no room, 90 the state stored back.
 
 /// One put (`Bits.put` in `encoder_write.zig`): the `count` bits of `value` above the buffer's
@@ -24,9 +24,8 @@ pub fn put(comptime value: []const u8, comptime count: []const u8) []const u8 {
         "    orr x6, x6, " ++ value ++ "\n" ++
         "    add x7, x7, " ++ count ++ "\n" ++
         "    str x6, [x8]\n" ++
-        "    lsr " ++ count ++ ", x7, #3\n" ++
-        "    add x8, x8, " ++ count ++ "\n" ++
-        "    lsl " ++ count ++ ", " ++ count ++ ", #3\n" ++
+        "    add x8, x8, x7, lsr #3\n" ++
+        "    and " ++ count ++ ", x7, #{[whole_bits_mask]}\n" ++
         "    lsr x6, x6, " ++ count ++ "\n" ++
         "    and x7, x7, #7\n";
 }
@@ -109,8 +108,8 @@ pub const literals_start =
 
 pub const literals_group =
     \\32:
-    \\    cmp x27, #3
-    \\    b.lo 34f
+    \\    subs x27, x27, #3
+    \\    b.lo 33f
     \\    ldrb w20, [x22], #1
     \\    ldrb w21, [x22], #1
     \\    ldrb w23, [x22], #1
@@ -129,9 +128,9 @@ pub const literals_group =
 ;
 
 pub const literals_rest =
-    \\    sub x27, x27, #3
     \\    b 32b
-    \\34:
+    \\33:
+    \\    add x27, x27, #3
     \\    cbz x27, 31b
     \\    ldrb w20, [x22], #1
     \\    ldrh w24, [x10, x20, lsl #1]
