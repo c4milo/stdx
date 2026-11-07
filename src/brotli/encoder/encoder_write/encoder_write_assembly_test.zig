@@ -13,6 +13,7 @@ const encoder_meta_block = @import("../encoder_meta_block.zig");
 const encoder_parse = @import("../encoder_parse/encoder_parse.zig");
 const encoder_write = @import("encoder_write.zig");
 const aarch64 = @import("encoder_write_aarch64.zig");
+const x86_64 = @import("encoder_write_x86_64.zig");
 
 const level = encoder.Encoder(.{ .level = 1, .window_bits = constants.encoder_window_bits_min }).finder_level;
 
@@ -49,7 +50,7 @@ threadlocal var codes: encoder_meta_block.Codes = undefined;
 threadlocal var outputs: [sides][constants.encoder_out_len]u8 = undefined;
 
 test "the assembly writes the octets, position and bits of the Zig writer, or runs out with it" {
-    if (comptime !aarch64.takes) return error.SkipZigTest;
+    if (comptime !aarch64.takes and !x86_64.takes) return error.SkipZigTest;
     // The first seed tries every output size, so a room test's place shows; the rest a few.
     for (0..seeds) |seed| {
         fill(seed);
@@ -93,7 +94,7 @@ fn expect_rooms(input: []const u8, start: u7, step: usize, room_max: usize) !voi
             writer.* = codec.BitWriter.init(output[0..room], .{});
             writer.put(0, start);
         }
-        const got = aarch64.write(&writers[0], input, &commands, &codes);
+        const got = encoder_write.write_commands(true, &writers[0], input, &commands, &codes);
         const want = encoder_write.write_zig(true, &writers[1], input, &commands, &codes);
         if (want) |_| {
             try got;
