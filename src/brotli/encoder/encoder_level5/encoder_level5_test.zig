@@ -1,7 +1,7 @@
 //! The tests of level 5 (decision 62): streams that decode to their input through stdx's decoder,
 //! within `encoded_len_max`, and the same octets under every split of the input and the output.
-//! A window of 2^16 makes the window slide inside the inputs; the level's own window of 2^22 codes
-//! a repeat from farther back than level 1 reaches.
+//! A window of 2^16 makes the window slide inside the inputs; a window of 2^19 codes a repeat from
+//! farther back than level 1 reaches.
 
 const std = @import("std");
 const testing = std.testing;
@@ -12,12 +12,16 @@ const encoder = @import("../encoder.zig");
 
 const small_window_bits = constants.encoder_window_bits_min;
 const Small = encoder.Encoder(.{ .level = constants.encoder_level5.number, .window_bits = small_window_bits });
-const Large = encoder.Encoder(.{ .level = constants.encoder_level5.number });
+/// A window past level 1's 2^18, small enough that the test's state fits aarch64's thread-local
+/// offsets: 2^22's window and decoder would not.
+const large_window_bits = 19;
+const Large = encoder.Encoder(.{ .level = constants.encoder_level5.number, .window_bits = large_window_bits });
 
 /// Several meta-blocks and more, so the window of 2^16 slides.
 const input_len_max = 300_000;
-/// A repeat 1.5 MiB back, past level 1's reach of 2^18, of 64 KiB.
-const far_distance = 1_572_864;
+/// A repeat 384 KiB back, past level 1's reach of 2^18, of 64 KiB: its distance takes 17 extra
+/// bits, past level 1's 16.
+const far_distance = 393_216;
 const far_len = 65_536;
 const far_input_len = far_distance + far_len;
 const coded_slack = 4096;
@@ -26,9 +30,7 @@ threadlocal var input: [far_input_len]u8 = undefined;
 threadlocal var coded: [far_input_len + coded_slack]u8 = undefined;
 threadlocal var reference: [far_input_len + coded_slack]u8 = undefined;
 threadlocal var decoded: [far_input_len]u8 = undefined;
-threadlocal var decoder: decoder_module.Decoder(.{ .window_bits_max = constants.encoder_level5.window_bits }) = undefined;
-threadlocal var small: [codec.testing.split.state_slots]Small = undefined;
-threadlocal var large: Large = undefined;
+threadlocal var decoder: decoder_module.Decoder(.{ .window_bits_max = large_window_bits }) = undefined;
 
 /// The inputs: text short and long, random octets, a run, and random octets then text.
 const Case = enum { empty, one, short, long, random, run, mixed };
@@ -87,6 +89,13 @@ fn expect_decodes(stream: []const u8, expected: []const u8) !void {
 const compressed_ratio_min = 2;
 
 test "level 5's streams decode to their input, within encoded_len_max" {
+    try @call(.never_inline, expect_streams, .{});
+}
+
+/// The encoders live on the stack of functions the compiler may not inline, as level 1's tests
+/// keep theirs: thread-local state this large would pass aarch64's offsets.
+fn expect_streams() !void {
+    var small: [1]Small = undefined;
     for (std.enums.values(Case)) |case| {
         const plain = input_of(case);
         small[0].init();
@@ -108,6 +117,11 @@ const split_points = 3;
 const split_seed = 29;
 
 test "level 5's octets are the same under every split of its input and output" {
+    try @call(.never_inline, expect_splits, .{});
+}
+
+fn expect_splits() !void {
+    var small: [codec.testing.split.state_slots]Small = undefined;
     var generator = codec.testing.split.Generator.init(split_seed);
     for (std.enums.values(Case)) |case| {
         const plain = input_of(case);
@@ -145,8 +159,13 @@ fn encode_at_points(state: *Small, plain: []const u8, points: []const usize) !us
 }
 
 test "level 5 copies from farther back than level 1's window" {
+    try @call(.never_inline, expect_far_copy, .{});
+}
+
+fn expect_far_copy() !void {
+    var large: Large = undefined;
     // A random block, a run of one octet, whose positions all join one bucket and leave the
-    // block's entries in theirs, and the block again: only a match 1.5 MiB back codes it short.
+    // block's entries in theirs, and the block again: only a match 384 KiB back codes it short.
     var generator = codec.testing.split.Generator.init(far_distance);
     for (input[0..far_len]) |*octet| octet.* = @truncate(generator.next());
     @memset(input[far_len..far_distance], run_octet);
@@ -157,8 +176,11 @@ test "level 5 copies from farther back than level 1's window" {
     large.init();
     const with = try large.encode_all(input[0..far_input_len], &coded);
     try expect_decodes(coded[0..with], input[0..far_input_len]);
-    try testing.expect(with + far_len / 2 < without);
+    try testing.expect(with + far_saved_min < without);
 }
+
+/// What the far repeat saves at least: half its octets.
+const far_saved_min = 32_768;
 
 /// The run between the far test's blocks.
 const run_octet = 'z';

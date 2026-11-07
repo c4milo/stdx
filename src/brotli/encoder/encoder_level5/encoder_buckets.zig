@@ -93,34 +93,53 @@ pub const Buckets = struct {
 const testing = std.testing;
 
 test "a bucket keeps its last positions, a stream's own, and slides them" {
-    const State = struct {
-        threadlocal var buckets: Buckets = undefined;
-        threadlocal var window: [4096]u8 = undefined;
-    };
-    const buckets = &State.buckets;
+    try @call(.never_inline, expect_bucket, .{});
+}
+
+/// The bucket test's window, the step between its repeats, and the positions it reads below and
+/// slides by: positions `before_slide` and `after_slide` stored, the window slid by `slide_by`,
+/// keeps only the second, at `kept_at`.
+const test_window_len = 4096;
+const repeat_step = 64;
+const test_end = 4000;
+const before_slide = 1024;
+const after_slide = 2048;
+const slide_by = 1536;
+const kept_at = after_slide - slide_by;
+/// The inserts into one bucket: its ways twice over, so the ring writes over the first half.
+const rounds = 2;
+
+/// The buckets live on the stack of a function the compiler may not inline: 1 MiB of thread-local
+/// state would add to every test's, past aarch64's offsets.
+fn expect_bucket() !void {
+    var buckets_state: Buckets = undefined;
+    var window_octets: [test_window_len]u8 = undefined;
+    const buckets = &buckets_state;
     buckets.init();
-    // The same 4 octets every 64: one bucket fills, its ring keeping the last `ways`.
-    for (&State.window, 0..) |*octet, index| octet.* = if (index % 64 < 4) 'a' else @truncate(index);
-    const bucket = Buckets.bucket_of(true, &State.window, 64);
-    for (1..2 * ways + 1) |index| buckets.insert(true, &State.window, index * 64);
+    // The same 4 octets every `repeat_step`: one bucket fills, its ring keeping the last `ways`.
+    for (&window_octets, 0..) |*octet, index| {
+        octet.* = if (index % repeat_step < constants.encoder_level5.hash_len) 'a' else @truncate(index);
+    }
+    const bucket = Buckets.bucket_of(true, &window_octets, repeat_step);
+    for (1..rounds * ways + 1) |index| buckets.insert(true, &window_octets, index * repeat_step);
     var named: usize = 0;
     for (buckets.entries[bucket]) |entry| {
-        const position = buckets.candidate(entry, 1, 4000) orelse continue;
-        try testing.expect(position > ways * 64 and position <= 2 * ways * 64);
+        const position = buckets.candidate(entry, 1, test_end) orelse continue;
+        try testing.expect(position > ways * repeat_step and position <= rounds * ways * repeat_step);
         named += 1;
     }
     try testing.expectEqual(ways, named);
     // A new stream's tag names none of them.
     buckets.start();
-    for (buckets.entries[bucket]) |entry| try testing.expectEqual(null, buckets.candidate(entry, 1, 4000));
+    for (buckets.entries[bucket]) |entry| try testing.expectEqual(null, buckets.candidate(entry, 1, test_end));
     // A slide moves this stream's entries down and empties those that slid out.
-    buckets.insert(true, &State.window, 1024);
-    buckets.insert(true, &State.window, 2048);
-    buckets.slide(1536);
+    buckets.insert(true, &window_octets, before_slide);
+    buckets.insert(true, &window_octets, after_slide);
+    buckets.slide(slide_by);
     var kept: usize = 0;
     for (buckets.entries[bucket]) |entry| {
-        if (buckets.candidate(entry, 1, 4000)) |position| {
-            try testing.expectEqual(512, position);
+        if (buckets.candidate(entry, 1, test_end)) |position| {
+            try testing.expectEqual(kept_at, position);
             kept += 1;
         }
     }
