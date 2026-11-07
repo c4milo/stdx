@@ -104,6 +104,8 @@ pub const arguments = .{
     .code_at = @bitSizeOf(u32) + encoder_commands.symbol_bits,
     .code_bits = @bitSizeOf(u16) - encoder_commands.symbol_bits,
     .symbol_mask = std.math.maxInt(u10),
+    // A count below 64 less its bits below an octet: the bits of its whole octets.
+    .whole_bits_mask = @bitSizeOf(u64) - @bitSizeOf(u8),
     .code_mask = std.math.maxInt(u6),
 };
 
