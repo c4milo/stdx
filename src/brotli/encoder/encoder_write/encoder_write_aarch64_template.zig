@@ -24,7 +24,8 @@ pub fn put(comptime value: []const u8, comptime count: []const u8) []const u8 {
         "    orr x6, x6, " ++ value ++ "\n" ++
         "    add x7, x7, " ++ count ++ "\n" ++
         "    str x6, [x8]\n" ++
-        "    add x8, x8, x7, lsr #3\n" ++
+        "    lsr " ++ count ++ ", x7, #3\n" ++
+        "    add x8, x8, " ++ count ++ "\n" ++
         "    and " ++ count ++ ", x7, #{[whole_bits_mask]}\n" ++
         "    lsr x6, x6, " ++ count ++ "\n" ++
         "    and x7, x7, #7\n";
@@ -117,16 +118,17 @@ pub const literals_group =
     \\    cbz x21, 33f
     \\    .p2align 4
     \\32:
-    \\    ldrb w20, [x22], #1
+    \\    ldrb w20, [x22]
     \\    ldrh w24, [x10, x20, lsl #1]
     \\    ldrb w20, [x11, x20]
-    \\    ldrb w23, [x22], #1
+    \\    ldrb w23, [x22, #1]
     \\    ldrh w25, [x10, x23, lsl #1]
     \\    ldrb w23, [x11, x23]
     \\    lsl x25, x25, x20
     \\    orr x24, x24, x25
     \\    add x20, x20, x23
-    \\    ldrb w23, [x22], #1
+    \\    ldrb w23, [x22, #2]
+    \\    add x22, x22, #3
     \\    ldrh w25, [x10, x23, lsl #1]
     \\    ldrb w23, [x11, x23]
     \\    lsl x25, x25, x20
