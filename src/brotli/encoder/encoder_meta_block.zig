@@ -12,7 +12,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const encoder_prefix = @import("encoder_prefix.zig");
 const encoder_commands = @import("encoder_commands.zig");
-const encoder_write = @import("encoder_write.zig");
+const encoder_write = @import("encoder_write/encoder_write.zig");
 
 pub const Error = encoder_prefix.Error;
 
@@ -81,7 +81,7 @@ fn write_header(writer: *codec.BitWriter, len: usize, last: bool, uncompressed: 
     if (!last) try put(writer, @intFromBool(uncompressed), 1);
 }
 
-fn build_codes(commands: *const encoder_commands.Commands, codes: *Codes) void {
+pub fn build_codes(commands: *const encoder_commands.Commands, codes: *Codes) void {
     // A code needs a symbol; a meta-block of no literals or no distances codes one it never uses.
     var literal_counts = commands.literal_counts;
     var distance_counts = commands.distance_counts;
