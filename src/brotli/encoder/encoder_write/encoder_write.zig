@@ -15,6 +15,7 @@ const constants = @import("../../constants.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const encoder_prefix = @import("../encoder_prefix.zig");
 const aarch64 = @import("encoder_write_aarch64.zig");
+const x86_64 = @import("encoder_write_x86_64.zig");
 
 pub const Error = encoder_prefix.Error;
 
@@ -58,6 +59,7 @@ comptime {
 /// the assembly of decision 63 where it takes the target, else through Zig.
 pub noinline fn write_commands(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: *const encoder_commands.Commands, codes: anytype) Error!void {
     if (comptime aarch64.takes) return aarch64.write(writer, input, commands, codes);
+    if (comptime x86_64.takes) return x86_64.write(writer, input, commands, codes);
     return write_zig(safety, writer, input, commands, codes);
 }
 
@@ -135,5 +137,5 @@ inline fn put_literals(comptime safety: bool, bits: *Bits, literals: []const u8,
 }
 
 test {
-    _ = @import("encoder_write_assembly_test.zig");
+    _ = @import("encoder_write_assembly.zig");
 }
