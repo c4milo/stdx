@@ -59,27 +59,48 @@ fn level5_window_bits(comptime options: EncoderOptions) u5 {
     return window_bits;
 }
 
-pub fn Encoder(comptime options: EncoderOptions) type {
+/// What each level takes (decision 62): level 1's tables, commands and window, or level 5's
+/// buckets, wide commands and window with its slack.
+fn Parts(comptime options: EncoderOptions) type {
     if (options.level != 1 and options.level != constants.encoder_level5.number) @compileError("the brotli encoder has levels 1 and 5 (decision 62)");
-    const five = options.level == constants.encoder_level5.number;
+    if (options.level == constants.encoder_level5.number) return struct {
+        const window_bits = level5_window_bits(options);
+        const finder_level = {};
+        const slack_len = constants.encoder_level5.slack_len;
+        const Matcher = encoder_buckets.Buckets;
+        const Commands = encoder_commands.WideCommands;
+    };
+    return struct {
+        const window_bits = level_of(options).window_log;
+        const finder_level = level_of(options);
+        const slack_len = constants.encoder_meta_block_len_max;
+        const Matcher = codec.match_finder.Matcher(level_of(options));
+        const Commands = encoder_commands.Commands;
+    };
+}
+
+pub fn Encoder(comptime options: EncoderOptions) type {
+    const parts = Parts(options);
     return struct {
         const Self = @This();
         /// Level 5: buckets, a lazy parse, and commands that reach WBITS 22 (decision 62).
-        pub const level_five = five;
-        pub const window_bits: u5 = if (five) level5_window_bits(options) else level_of(options).window_log;
+        pub const level_five = options.level == constants.encoder_level5.number;
+        pub const window_bits: u5 = parts.window_bits;
         /// The farthest a match reaches back: the window less RFC 7932 §9.1's gap.
         pub const reach_len = (@as(usize, 1) << window_bits) - constants.window_len_gap;
         /// Whether the parse and the meta-block's writer keep Zig's checks (decision 16).
         pub const runtime_safety = !options.unchecked_loops;
         /// The match finder's level, and whether the parse runs in level 1's own loop.
-        pub const finder_level = if (five) {} else level_of(options);
+        pub const finder_level = parts.finder_level;
         pub const lean_parse = options.lean_parse;
-        /// The history a match reaches, and a meta-block not yet encoded.
-        const window_capacity = (@as(usize, 1) << window_bits) + constants.encoder_meta_block_len_max;
+        /// The window's room past its history, for meta-blocks not yet encoded: a meta-block, or
+        /// level 5's slack.
+        pub const slack_len = parts.slack_len;
+        const window_capacity = (@as(usize, 1) << window_bits) + slack_len;
 
         window: [window_capacity]u8,
-        matcher: if (five) encoder_buckets.Buckets else codec.match_finder.Matcher(level_of(options)),
-        commands: if (five) encoder_commands.WideCommands else encoder_commands.Commands,
+        matcher: parts.Matcher,
+        commands: parts.Commands,
         codes: encoder_meta_block.Codes,
         /// The stream header and a meta-block, as they wait for the caller's room.
         out: [constants.encoder_out_len]u8,
@@ -225,7 +246,7 @@ fn take(self: anytype, input: []const u8) usize {
 
 /// Moves the window's last `window_len` octets of history to its start.
 fn slide(self: anytype) void {
-    const window_len = self.window.len - constants.encoder_meta_block_len_max;
+    const window_len = self.window.len - @TypeOf(self.*).slack_len;
     assert(self.encoded_end > window_len);
     const shift = self.encoded_end - window_len;
     const kept = self.filled_end - shift;

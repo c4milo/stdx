@@ -88,10 +88,12 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
 /// `found` replaced by the match of `candidate` at `position` where that saves more.
 inline fn consider(comptime safety: bool, window: []const u8, position: usize, candidate: usize, end: usize, commands: anytype, last: bool, found: *?Found) void {
     @setRuntimeSafety(safety);
-    // A candidate shorter than the best so far differs at the best's last octet.
+    // A candidate shorter than the best so far differs at the best's last octet; one whose first 4
+    // octets differ, a bucket's collision, is shorter than any match.
     if (found.*) |held| {
         if (window[candidate + held.len - 1] != window[position + held.len - 1]) return;
     }
+    if (read32(safety, window, candidate) != read32(safety, window, position)) return;
     const len = match_len(safety, window, candidate, position, end);
     if (len < constants.copy_length_codes[0].base) return;
     const offset = position - candidate;
@@ -141,6 +143,11 @@ fn match_len(comptime safety: bool, window: []const u8, candidate: usize, positi
         len += 1;
     }
     return len;
+}
+
+inline fn read32(comptime safety: bool, window: []const u8, position: usize) u32 {
+    @setRuntimeSafety(safety);
+    return std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
 }
 
 inline fn read64(comptime safety: bool, window: []const u8, position: usize) u64 {
