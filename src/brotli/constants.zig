@@ -475,6 +475,7 @@ pub const encoder_window_bits_min = encoder.encoder_window_bits_min;
 pub const encoder_level1_hash_log = encoder.encoder_level1_hash_log;
 pub const encoder_level1_hash_len = encoder.encoder_level1_hash_len;
 pub const encoder_level1_long_hash_log = encoder.encoder_level1_long_hash_log;
+pub const encoder_level5 = encoder.encoder_level5;
 pub const encoder_stream_header_len_max = encoder.encoder_stream_header_len_max;
 pub const encoder_uncompressed_overhead = encoder.encoder_uncompressed_overhead;
 pub const encoder_last_len = encoder.encoder_last_len;
