@@ -106,31 +106,40 @@ pub const literals_start =
     \\    add x20, x20, #{[command_bits_max]}
 ;
 
+/// A chunk's groups of 3 literals, counted first, each in one put: x21 counts them, x27 keeps the
+/// last 1 or 2.
 pub const literals_group =
+    \\    mov w21, #{[third_multiplier]}
+    \\    mul w21, w27, w21
+    \\    lsr w21, w21, #{[third_shift]}
+    \\    add x23, x21, x21, lsl #1
+    \\    sub x27, x27, x23
+    \\    cbz x21, 33f
+    \\    .p2align 4
     \\32:
-    \\    subs x27, x27, #3
-    \\    b.lo 33f
     \\    ldrb w20, [x22], #1
-    \\    ldrb w21, [x22], #1
-    \\    ldrb w23, [x22], #1
     \\    ldrh w24, [x10, x20, lsl #1]
     \\    ldrb w20, [x11, x20]
-    \\    ldrh w25, [x10, x21, lsl #1]
-    \\    ldrb w21, [x11, x21]
-    \\    ldrh w28, [x10, x23, lsl #1]
+    \\    ldrb w23, [x22], #1
+    \\    ldrh w25, [x10, x23, lsl #1]
     \\    ldrb w23, [x11, x23]
     \\    lsl x25, x25, x20
     \\    orr x24, x24, x25
-    \\    add x20, x20, x21
-    \\    lsl x28, x28, x20
-    \\    orr x24, x24, x28
+    \\    add x20, x20, x23
+    \\    ldrb w23, [x22], #1
+    \\    ldrh w25, [x10, x23, lsl #1]
+    \\    ldrb w23, [x11, x23]
+    \\    lsl x25, x25, x20
+    \\    orr x24, x24, x25
     \\    add x20, x20, x23
 ;
 
+/// The group loop's end, then the last 1 or 2 literals of a chunk in one put, where they take
+/// bits.
 pub const literals_rest =
-    \\    b 32b
+    \\    subs x21, x21, #1
+    \\    b.ne 32b
     \\33:
-    \\    add x27, x27, #3
     \\    cbz x27, 31b
     \\    ldrb w20, [x22], #1
     \\    ldrh w24, [x10, x20, lsl #1]
