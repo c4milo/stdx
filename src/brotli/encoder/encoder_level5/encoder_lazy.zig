@@ -76,12 +76,17 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         if (distance > position - low) continue;
         consider(safety, window, position, position - distance, end, commands, true, &found);
     }
-    const bucket = Buckets.bucket_of(safety, window, position);
-    for (buckets.entries[bucket]) |entry| {
-        const candidate = buckets.candidate(entry, low, position) orelse continue;
+    // The entries whose check matches the position's, the lowest way first.
+    const slot = Buckets.slot_of(safety, window, position);
+    var hits = buckets.hits(slot);
+    for (0..buckets_module.ways) |_| {
+        if (hits == 0) break;
+        const way = @ctz(hits);
+        hits &= hits - 1;
+        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
         consider(safety, window, position, candidate, end, commands, false, &found);
     }
-    buckets.insert(safety, window, position);
+    buckets.insert_at(safety, slot, position);
     return found;
 }
 
