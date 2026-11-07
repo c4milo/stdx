@@ -234,11 +234,11 @@ pub fn coded_of(comptime safety: bool, command: Command) Coded {
     return .{
         .symbol = command.symbol(),
         .insert_extra = command.insert_len - lengths.insert_base,
-        .insert_extra_bits = lengths.insert_extra_bits,
+        .insert_extra_bits = @intCast(lengths.insert_extra_bits),
         .copy_extra = command.copy_len - lengths.copy_base,
-        .copy_extra_bits = lengths.copy_extra_bits,
+        .copy_extra_bits = @intCast(lengths.copy_extra_bits),
         .distance_extra = command.distance_extra,
-        .distance_extra_bits = distance_extra_bits[command.distance_code()],
+        .distance_extra_bits = @intCast(distance_extra_bits[command.distance_code()]),
     };
 }
 
@@ -260,9 +260,10 @@ pub const small_symbols = symbols: {
 
 /// The first lengths and extra bits of each insert-and-copy symbol's two length codes, worked out
 /// from RFC 7932 §5's cells at compile time.
-const SymbolLengths = struct { insert_base: u16, insert_extra_bits: u5, copy_base: u16, copy_extra_bits: u5 };
+/// In a fixed layout, which the writers in assembly read (decision 63).
+pub const SymbolLengths = extern struct { insert_base: u16, copy_base: u16, insert_extra_bits: u8, copy_extra_bits: u8 };
 
-const symbol_lengths = lengths: {
+pub const symbol_lengths = lengths: {
     var table: [constants.insert_copy_alphabet_len]SymbolLengths = undefined;
     for (&table, 0..) |*entry, symbol| {
         const cell = constants.insert_copy_cells[symbol >> constants.insert_copy_cell_bits];
@@ -275,8 +276,8 @@ const symbol_lengths = lengths: {
 
 /// The extra bits of each distance code (RFC 7932 §4, NPOSTFIX and NDIRECT 0): none for a short
 /// code, and for code 16 + 2(n - 1) + half, n.
-const distance_extra_bits = bits: {
-    var table: [constants.encoder_distance_alphabet_len]u5 = @splat(0);
+pub const distance_extra_bits = bits: {
+    var table: [constants.encoder_distance_alphabet_len]u8 = @splat(0);
     for (constants.distance_short_codes_count..table.len) |code| {
         table[code] = (code - constants.distance_short_codes_count) / constants.distance_codes_per_extra_bits + 1;
     }
