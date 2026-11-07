@@ -16,12 +16,14 @@ const constants = @import("../constants.zig");
 const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
 const encoder_stream = @import("encoder_stream.zig");
+const encoder_buckets = @import("encoder_level5/encoder_buckets.zig");
 
 pub const EncoderOptions = struct {
-    /// 1 (decision 62).
+    /// 1 or 5 (decision 62).
     level: u4 = 1,
-    /// WBITS; null takes the level's, 18 at level 1 (decision 62). A caller whose messages are
-    /// small may take less, down to a meta-block's 16; level 1 takes 18 at most.
+    /// WBITS; null takes the level's, 18 at level 1 and 22 at level 5 (decision 62). A caller whose
+    /// messages are small may take less, down to a meta-block's 16; level 1 takes 18 at most, and
+    /// level 5 22.
     window_bits: ?u5 = null,
     /// Decision 16, ruled on 2026-11-05: the parse, the commands' records and the meta-block's
     /// writer run without Zig's checks. Off, the checks return; the tests and the benchmark take
@@ -36,7 +38,7 @@ pub const EncoderOptions = struct {
 /// The match finder of each level (decision 62): at level 1 a short table and a long one of 2^14
 /// entries each, whose reach ends where the window of RFC 7932 §9.1 does.
 fn level_of(comptime options: EncoderOptions) codec.match_finder.Level {
-    if (options.level != 1) @compileError("the brotli encoder has level 1 (decision 62)");
+    assert(options.level == 1);
     const window_bits = options.window_bits orelse constants.encoder_level1_window_bits;
     // Level 1's commands hold a distance's extra bits in 16 bits, which WBITS 18 bounds.
     assert(window_bits >= constants.encoder_window_bits_min and window_bits <= constants.encoder_level1_window_bits);
@@ -50,22 +52,34 @@ fn level_of(comptime options: EncoderOptions) codec.match_finder.Level {
     };
 }
 
+/// WBITS of level 5, whose commands hold a distance's extra bits in 32 bits.
+fn level5_window_bits(comptime options: EncoderOptions) u5 {
+    const window_bits = options.window_bits orelse constants.encoder_level5.window_bits;
+    assert(window_bits >= constants.encoder_window_bits_min and window_bits <= constants.encoder_level5.window_bits);
+    return window_bits;
+}
+
 pub fn Encoder(comptime options: EncoderOptions) type {
-    const level = comptime level_of(options);
+    if (options.level != 1 and options.level != constants.encoder_level5.number) @compileError("the brotli encoder has levels 1 and 5 (decision 62)");
+    const five = options.level == constants.encoder_level5.number;
     return struct {
         const Self = @This();
-        pub const window_bits: u5 = level.window_log;
+        /// Level 5: buckets, a lazy parse, and commands that reach WBITS 22 (decision 62).
+        pub const level_five = five;
+        pub const window_bits: u5 = if (five) level5_window_bits(options) else level_of(options).window_log;
+        /// The farthest a match reaches back: the window less RFC 7932 §9.1's gap.
+        pub const reach_len = (@as(usize, 1) << window_bits) - constants.window_len_gap;
         /// Whether the parse and the meta-block's writer keep Zig's checks (decision 16).
         pub const runtime_safety = !options.unchecked_loops;
         /// The match finder's level, and whether the parse runs in level 1's own loop.
-        pub const finder_level = level;
+        pub const finder_level = if (five) {} else level_of(options);
         pub const lean_parse = options.lean_parse;
         /// The history a match reaches, and a meta-block not yet encoded.
         const window_capacity = (@as(usize, 1) << window_bits) + constants.encoder_meta_block_len_max;
 
         window: [window_capacity]u8,
-        matcher: codec.match_finder.Matcher(level),
-        commands: encoder_commands.Commands,
+        matcher: if (five) encoder_buckets.Buckets else codec.match_finder.Matcher(level_of(options)),
+        commands: if (five) encoder_commands.WideCommands else encoder_commands.Commands,
         codes: encoder_meta_block.Codes,
         /// The stream header and a meta-block, as they wait for the caller's room.
         out: [constants.encoder_out_len]u8,
@@ -223,4 +237,9 @@ fn slide(self: anytype) void {
 
 test {
     _ = @import("encoder_test.zig");
+}
+
+test {
+    _ = @import("encoder_level5/encoder_level5_test.zig");
+    _ = @import("encoder_level5/encoder_buckets.zig");
 }
