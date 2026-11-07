@@ -14,6 +14,7 @@ const constants = @import("../constants.zig");
 const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
 const encoder_parse = @import("encoder_parse/encoder_parse.zig");
+const encoder_lazy = @import("encoder_level5/encoder_lazy.zig");
 
 /// What ends the meta-block: more input follows it, a flush brings the stream to an octet boundary
 /// after it, or it is the stream's last.
@@ -51,7 +52,9 @@ fn write_block(self: anytype, writer: *codec.BitWriter, block: []const u8, last:
     self.commands.reset();
     const Self = @TypeOf(self.*);
     const safety = Self.runtime_safety;
-    if (Self.lean_parse) {
+    if (Self.level_five) {
+        encoder_lazy.parse(safety, &self.matcher, &self.window, self.encoded_end, self.filled_end, Self.reach_len, &self.commands);
+    } else if (Self.lean_parse) {
         encoder_parse.parse(Self.finder_level, safety, &self.matcher, &self.window, self.encoded_end, self.filled_end, &self.commands);
     } else {
         var sink: encoder_commands.Sink(safety) = .{ .commands = &self.commands };

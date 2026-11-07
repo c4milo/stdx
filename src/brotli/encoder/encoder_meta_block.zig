@@ -29,7 +29,7 @@ pub const Codes = struct {
 
 /// Writes the commands of `input`, a meta-block's octets, as a compressed meta-block; `last` sets
 /// ISLAST. The caller compares what it wrote with `input`'s length.
-pub fn write_compressed(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: *const encoder_commands.Commands, codes: *Codes, last: bool) Error!void {
+pub fn write_compressed(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: *Codes, last: bool) Error!void {
     assert(input.len > 0 and input.len <= constants.encoder_meta_block_len_max);
     build_codes(commands, codes);
     try write_header(writer, input.len, last, false);
@@ -81,7 +81,7 @@ fn write_header(writer: *codec.BitWriter, len: usize, last: bool, uncompressed: 
     if (!last) try put(writer, @intFromBool(uncompressed), 1);
 }
 
-pub fn build_codes(commands: *const encoder_commands.Commands, codes: *Codes) void {
+pub fn build_codes(commands: anytype, codes: *Codes) void {
     // A code needs a symbol; a meta-block of no literals or no distances codes one it never uses.
     var literal_counts = commands.literal_counts;
     var distance_counts = commands.distance_counts;

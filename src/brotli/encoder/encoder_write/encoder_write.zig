@@ -57,14 +57,16 @@ comptime {
 
 /// Writes the commands of `input`, a meta-block's octets, through `codes` into `writer`: through
 /// the assembly of decision 63 where it takes the target, else through Zig.
-pub noinline fn write_commands(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: *const encoder_commands.Commands, codes: anytype) Error!void {
-    if (comptime aarch64.takes) return aarch64.write(writer, input, commands, codes);
-    if (comptime x86_64.takes) return x86_64.write(writer, input, commands, codes);
+pub noinline fn write_commands(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: anytype) Error!void {
+    // The assembly reads level 1's records of 8 octets.
+    const narrow = @TypeOf(commands) == *const encoder_commands.Commands or @TypeOf(commands) == *encoder_commands.Commands;
+    if (comptime narrow and aarch64.takes) return aarch64.write(writer, input, commands, codes);
+    if (comptime narrow and x86_64.takes) return x86_64.write(writer, input, commands, codes);
     return write_zig(safety, writer, input, commands, codes);
 }
 
 /// `write_commands` in Zig: the reference the assembly writes the octets of.
-pub fn write_zig(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: *const encoder_commands.Commands, codes: anytype) Error!void {
+pub fn write_zig(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: anytype) Error!void {
     @setRuntimeSafety(safety);
     // The first store drops the whole octets the header left, so the loop starts below 8 bits.
     if (!writer.has_store_room()) return error.NoSpaceLeft;
