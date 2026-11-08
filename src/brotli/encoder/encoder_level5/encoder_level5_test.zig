@@ -215,3 +215,46 @@ const far_saved_min = 32_768;
 
 /// The run between the far test's blocks.
 const run_octet = 'z';
+
+test "a stream begun with start writes the octets of one begun with init" {
+    try @call(.never_inline, expect_start_equals_init, .{});
+}
+
+/// After a stream whose literals split into blocks, so stale types and bucket entries are left,
+/// each input must code as it does after `init` (invariant 5, decision 60).
+fn expect_start_equals_init() !void {
+    var small: Small = undefined;
+    for (std.enums.values(Case)) |case| {
+        small.init();
+        _ = try small.encode_all(input_of(.alphabets), &coded);
+        small.start();
+        const plain = input_of(case);
+        const started = try small.encode_all(plain, &coded);
+        small.init();
+        const fresh = try small.encode_all(plain, &reference);
+        try testing.expectEqualSlices(u8, reference[0..fresh], coded[0..started]);
+    }
+}
+
+test "level 5's octets do not depend on the memory its state held before init" {
+    try @call(.never_inline, expect_memory_unread, .{});
+}
+
+/// Two encoders whose memory held other octets before `init` write the same octets: the state
+/// reads nothing it did not write (invariant 4). The text and the text after random octets give
+/// meta-blocks of one literal type, the alphabets one of several.
+fn expect_memory_unread() !void {
+    var states: [state_fills.len]Small = undefined;
+    for (&states, state_fills) |*state, fill| @memset(std.mem.asBytes(state), fill);
+    for ([_]Case{ .long, .mixed, .alphabets }) |case| {
+        const plain = input_of(case);
+        states[0].init();
+        const first = try states[0].encode_all(plain, &reference);
+        states[1].init();
+        const second = try states[1].encode_all(plain, &coded);
+        try testing.expectEqualSlices(u8, reference[0..first], coded[0..second]);
+    }
+}
+
+/// The octets the two encoders' memory holds before `init`.
+const state_fills = [_]u8{ 0, std.math.maxInt(u8) };
