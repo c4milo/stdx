@@ -149,7 +149,7 @@ fn write_loop(comptime safety: bool, writer: *codec.BitWriter, input: []const u8
         try literals.put(safety, &bits, input[produced..][0..command.insert_len]);
         produced += command.insert_len;
         if (produced == input.len) break;
-        produced += command.copy_len;
+        produced += encoder_commands.written_of(command);
         if (coded.symbol < constants.insert_copy_last_distance_symbols) continue;
         const code = command.distance_code();
         const code_len: u7 = @intCast(codes.distance.lengths[code]);
