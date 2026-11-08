@@ -390,6 +390,19 @@ to 12 are reordered and nothing else changes.
       reached 1.68 times the best baseline.
     - On the N2 runner at 1 MiB, dot products took Adler-32 from 0.64 of libdeflate to 1.02, and
       weights that count across a whole block, not within each register, from 1.02 to 1.25.
+    - On 2026-11-08, lead C1 of [issue 23](https://github.com/c4milo/stdx/issues/23) added two
+      registers' VPMADDUBSW sums before one VPMADDWD. `pairs_fit` proves the 16-bit sums fit at
+      compile time. The AVX2 loop fell from 28 instructions to 26, and the AVX-512 and short loops
+      from 16 to 15. Seven pairs against main (runs 42532134175, 42532135858, 42532137879,
+      42533429834, 42533432599, 42533434727 and 42533439947), as AVX2 over main:
+      - EPYC 7763, two jobs: 1.00 at 64 octets, 1.03 and 1.23 at 1 KiB, 1.10 and 1.13 at 16 KiB,
+        1.02 and 1.00 at 1 MiB.
+      - EPYC 9V74, three jobs: AVX2 1.04 to 1.12, AVX-512 1.01 to 1.10 above 64 octets. The CPU
+        runs VNNI, which C1 leaves as it was. VNNI read 0.96 to 0.975 at 1 MiB in all three jobs.
+        That is placement (decision 20): the VNNI object's 425 functions and the program's 486 are
+        identical apart from their addresses at both commits.
+      - EPYC 9V45, two jobs: no row past its spread in both, with spreads up to 80%.
+      - Neoverse N2: unchanged, as the UDOT object is identical.
     - The baselines: Zig hands Clang the target's whole feature list, which overrides zlib-ng's
       per-file flags, so each of its SIMD groups is a library built for its own features; and a
       runner with AVX10 cannot compile either library for its own CPU model, so both build for the
