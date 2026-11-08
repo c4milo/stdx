@@ -76,6 +76,8 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         buckets.insert(safety, window, position);
         return null;
     }
+    // `match_len`'s bounds, once for every candidate of the position.
+    assert(position + read_len <= end and end <= window.len);
     const low = @max(position -| reach_len, 1);
     var found: ?Found = null;
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
@@ -159,10 +161,11 @@ fn step_back(comptime safety: bool, window: []const u8, found: Found, anchor: us
     return .{ .position = position, .len = len, .offset = found.offset, .saves = found.saves };
 }
 
-/// The octets from `candidate` and from `position` that agree, up to `end`.
+/// The octets from `candidate` and from `position` that agree, up to `end`. The caller asserts
+/// `position`'s bounds once for all its candidates (decision 64, part 4): each candidate lies
+/// below `position`, by the bucket's range test or a last distance's reach.
 fn match_len(comptime safety: bool, window: []const u8, candidate: usize, position: usize, end: usize) usize {
     @setRuntimeSafety(safety);
-    assert(candidate < position and position <= end);
     const limit = end - position;
     var len: usize = 0;
     for (0..limit / @sizeOf(u64)) |_| {
