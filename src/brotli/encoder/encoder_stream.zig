@@ -15,6 +15,7 @@ const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
 const encoder_parse = @import("encoder_parse/encoder_parse.zig");
 const encoder_lazy = @import("encoder_level5/encoder_lazy.zig");
+const encoder_meta_block5 = @import("encoder_level5/encoder_meta_block5.zig");
 
 /// What ends the meta-block: more input follows it, a flush brings the stream to an octet boundary
 /// after it, or it is the stream's last.
@@ -62,9 +63,16 @@ fn write_block(self: anytype, writer: *codec.BitWriter, block: []const u8, last:
     }
     self.commands.close();
     const raw_len = block.len + constants.encoder_uncompressed_overhead;
-    const written = encoder_meta_block.write_compressed(safety, writer, block, &self.commands, &self.codes, last);
-    // The next meta-block's parse weighs a match against this one's literal code.
-    self.commands.weigh_literals(&self.codes.literal.lengths);
+    // The next meta-block's parse weighs a match against this one's literal codes.
+    const written = if (Self.level_five) written: {
+        const result = encoder_meta_block5.write_compressed(safety, writer, &self.window, self.encoded_end, block, &self.commands, &self.codes, last);
+        encoder_meta_block5.weigh_literals(&self.commands, &self.codes);
+        break :written result;
+    } else written: {
+        const result = encoder_meta_block.write_compressed(safety, writer, block, &self.commands, &self.codes, last);
+        self.commands.weigh_literals(&self.codes.literal.lengths);
+        break :written result;
+    };
     if (written) {
         if (writer.writer.position - saved_position <= raw_len) return;
     } else |_| {}

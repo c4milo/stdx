@@ -136,12 +136,37 @@ const Runs = struct {
     }
 };
 
-fn write_complex(writer: *codec.BitWriter, lengths: []const u8, symbols: []const u16) Error!void {
-    var runs: Runs = .{ .symbols = undefined, .extra = undefined, .len = 0, .counts = @splat(0) };
-    runs_of(lengths, symbols, &runs);
+/// The bits `write` takes for the description of `code`, its symbols `alphabet_bits` wide in the
+/// simple form.
+pub fn description_bits(comptime n: usize, code: *const Code(n), alphabet_bits: u4) u64 {
+    if (code.simple_count > 0) {
+        const select: u64 = @intFromBool(code.simple_count == constants.simple_symbols_max);
+        return constants.prefix_kind_bits + constants.simple_count_bits + @as(u64, code.simple_count) * alphabet_bits + select;
+    }
+    var runs: Runs = undefined;
     var length_code: Code(constants.code_length_alphabet_len) = undefined;
+    complex_parts(&code.lengths, code.listed[0..code.listed_len], &runs, &length_code);
+    var bits: u64 = constants.prefix_kind_bits;
+    const range = length_code_range(&length_code.lengths);
+    for (constants.code_length_code_order[range.skip .. range.last + 1]) |symbol| {
+        bits += constants.code_length_code_length_codes[length_code.lengths[symbol]].len;
+    }
+    for (runs.symbols[0..runs.len]) |symbol| bits += length_code.lengths[symbol] + extra_bits_of[symbol];
+    return bits;
+}
+
+/// A complex code's code length symbols and the code of their counts.
+fn complex_parts(lengths: []const u8, symbols: []const u16, runs: *Runs, length_code: *Code(constants.code_length_alphabet_len)) void {
+    runs.* = .{ .symbols = undefined, .extra = undefined, .len = 0, .counts = @splat(0) };
+    runs_of(lengths, symbols, runs);
     codec.prefix_code.build_lengths(&runs.counts, constants.code_length_code_len_max, &length_code.lengths);
     codec.prefix_code.build_codes(&length_code.lengths, &length_code.codes);
+}
+
+fn write_complex(writer: *codec.BitWriter, lengths: []const u8, symbols: []const u16) Error!void {
+    var runs: Runs = undefined;
+    var length_code: Code(constants.code_length_alphabet_len) = undefined;
+    complex_parts(lengths, symbols, &runs, &length_code);
     try write_length_code(writer, &length_code.lengths);
     // Each symbol's code and its extra bits in one put.
     for (runs.symbols[0..runs.len], runs.extra[0..runs.len]) |symbol, extra| {
@@ -161,9 +186,19 @@ const extra_bits_of = bits: {
 /// HSKIP and the code length code's lengths in RFC 7932 §3.5's order, each through the fixed code,
 /// up to the last that is not zero. The builder gives two symbols a length at least.
 fn write_length_code(writer: *codec.BitWriter, lengths: *const [constants.code_length_alphabet_len]u8) Error!void {
+    const range = length_code_range(lengths);
+    try put(writer, range.skip, constants.prefix_kind_bits);
+    for (constants.code_length_code_order[range.skip .. range.last + 1]) |symbol| {
+        const fixed = constants.code_length_code_length_codes[lengths[symbol]];
+        try put(writer, fixed.code, fixed.len);
+    }
+}
+
+/// HSKIP and the place in RFC 7932 §3.5's order of the last length that is not zero. HSKIP 2 leaves
+/// out the lengths of symbols 1 and 2, and HSKIP 3 that of 3 too; an HSKIP of 1 would name a
+/// simple code, so one zero alone is written.
+fn length_code_range(lengths: *const [constants.code_length_alphabet_len]u8) struct { skip: u2, last: usize } {
     const order = constants.code_length_code_order;
-    // RFC 7932 §3.5: HSKIP 2 leaves out the lengths of symbols 1 and 2, and HSKIP 3 that of 3 too;
-    // an HSKIP of 1 would name a simple code, so one zero alone is written.
     var skip: u2 = 0;
     for (order[0..constants.code_length_skip_max]) |symbol| {
         if (lengths[symbol] != 0) break;
@@ -174,11 +209,7 @@ fn write_length_code(writer: *codec.BitWriter, lengths: *const [constants.code_l
     for (order, 0..) |symbol, index| {
         if (lengths[symbol] != 0) last = index;
     }
-    try put(writer, skip, constants.prefix_kind_bits);
-    for (order[skip .. last + 1]) |symbol| {
-        const fixed = constants.code_length_code_length_codes[lengths[symbol]];
-        try put(writer, fixed.code, fixed.len);
-    }
+    return .{ .skip = skip, .last = last };
 }
 
 /// The code length symbols of `lengths` up to the last nonzero one (RFC 7932 §3.5), from
