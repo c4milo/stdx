@@ -48,8 +48,9 @@ pub const WideCommand = extern struct {
     insert_len: u16,
     copy_len: u16,
     symbol_and_code: u16,
-    /// Zero: it keeps `distance_extra` on 4 octets.
-    padding: u16 = 0,
+    /// For a static dictionary word, the octets its copy writes, which its transform makes fewer
+    /// than `copy_len`, the word's length (RFC 7932 §8); 0 when the copy writes `copy_len`.
+    written_len: u16 = 0,
     distance_extra: u32,
 
     pub inline fn symbol(self: WideCommand) u10 {
@@ -60,6 +61,12 @@ pub const WideCommand = extern struct {
         return @intCast(self.symbol_and_code >> symbol_bits);
     }
 };
+
+/// The octets a command's copy writes: a dictionary word's transformed length, else its length.
+pub inline fn written_of(command: anytype) usize {
+    if (@hasField(@TypeOf(command), "written_len") and command.written_len != 0) return command.written_len;
+    return command.copy_len;
+}
 
 /// The bits of an insert-and-copy symbol (RFC 7932 §5: 704 symbols).
 pub const symbol_bits = @bitSizeOf(u10);
@@ -131,6 +138,21 @@ pub fn CommandsOf(comptime Record: type) type {
             self.record(safety, @intCast(insert_len), @intCast(len), code.code, @intCast(code.extra));
             self.inserted += insert_len;
             if (code.code != 0) self.push_distance(safety, @intCast(distance));
+        }
+
+        /// Level 5's sink for a static dictionary word: the literals from `anchor` to `position`,
+        /// then the word of `word_len` octets whose copy writes `written_len`, at `distance`. A
+        /// word's distance stays out of the ring of last distances (RFC 7932 §4).
+        pub inline fn add_word(self: *Self, comptime safety: bool, window: []const u8, anchor: usize, position: usize, written_len: usize, word_len: usize, distance: usize) void {
+            @setRuntimeSafety(safety);
+            comptime assert(@hasField(Record, "written_len"));
+            assert(word_len >= constants.word_len_min and self.count < self.commands.len);
+            const insert_len = position - anchor;
+            self.add_literals(safety, window[anchor..position]);
+            const code = distance_code_of(safety, @intCast(distance));
+            record_into(self, safety, @intCast(insert_len), @intCast(word_len), code.code, @intCast(code.extra));
+            self.commands[self.count - 1].written_len = @intCast(written_len);
+            self.inserted += insert_len;
         }
 
         /// The finder's sink: literals, before a match or after the last one. The meta-block's last

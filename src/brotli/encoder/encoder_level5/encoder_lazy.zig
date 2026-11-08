@@ -9,11 +9,13 @@ const codec = @import("codec");
 const constants = @import("../../constants.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const buckets_module = @import("encoder_buckets.zig");
+const encoder_words = @import("encoder_words.zig");
 
 const Buckets = buckets_module.Buckets;
 
-/// A match and what it saves, in eighths of a bit, over its literals.
-const Found = struct { position: usize, len: usize, offset: usize, saves: i64 };
+/// A match and what it saves, in eighths of a bit, over its literals: `len` octets `offset` back, or
+/// for a static dictionary word of `word_len` octets, the `len` it writes at the distance `offset`.
+const Found = struct { position: usize, len: usize, offset: usize, saves: i64, word_len: usize = 0 };
 
 /// The octets a parse reads at a position: a match's compare reads 8 at a time.
 const read_len = codec.constants.match_read_len;
@@ -33,8 +35,13 @@ pub fn parse(comptime safety: bool, buckets: *Buckets, window: []const u8, start
             continue;
         };
         const probed = lazy(safety, buckets, window, &found, search_end, end, reach_len, commands);
-        const taken = step_back(safety, window, found, anchor);
-        commands.add(safety, window, anchor, taken.position, taken.len, taken.offset);
+        // A word's start is the word's own first octet, so a word does not extend back.
+        const taken = if (found.word_len > 0) found else step_back(safety, window, found, anchor);
+        if (taken.word_len > 0) {
+            commands.add_word(safety, window, anchor, taken.position, taken.len, taken.word_len, taken.offset);
+        } else {
+            commands.add(safety, window, anchor, taken.position, taken.len, taken.offset);
+        }
         const match_end = taken.position + taken.len;
         const covered_end = @min(match_end, search_end);
         for (@min(probed, covered_end)..covered_end) |covered| buckets.insert(safety, window, covered);
@@ -87,7 +94,27 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         consider(safety, window, position, candidate, end, commands, false, &found);
     }
     buckets.insert_at(safety, slot, position);
+    consider_word(safety, window, position, end, reach_len, commands, &found);
     return found;
+}
+
+/// `found` replaced by the static dictionary word the input at `position` matches, where that
+/// saves more. A word's distance is past the farthest the window reaches, by 1 and its word_id
+/// (RFC 7932 §8). The window holds the stream from its start, or 2^WBITS octets of history after a
+/// slide, past `reach_len`, so the reach is `position` or `reach_len`.
+fn consider_word(comptime safety: bool, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype, found: *?Found) void {
+    @setRuntimeSafety(safety);
+    if (found.*) |held| {
+        if (held.len >= constants.word_len_max) return;
+    }
+    const word = encoder_words.find(safety, window, position, end) orelse return;
+    const distance = @min(reach_len, position) + 1 + word.word_id;
+    const saves = saving(word.written_len, distance, false, commands.literal_cost);
+    if (saves <= 0) return;
+    if (found.*) |held| {
+        if (saves <= held.saves) return;
+    }
+    found.* = .{ .position = position, .len = word.written_len, .offset = distance, .saves = saves, .word_len = word.word_len };
 }
 
 /// `found` replaced by the match of `candidate` at `position` where that saves more.

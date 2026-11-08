@@ -96,6 +96,12 @@ pub const encoder_level5 = struct {
     pub const split_symbol_cost = 4 << split_cost_shift;
     /// RLEMAX of the literal context map: a run code of 6 covers a type's 64 zeros (RFC 7932 §7.3).
     pub const map_run_length_codes = 6;
+    /// The static dictionary's words (RFC 7932 §8), the owner's ruling of 2026-11-07: 2^14 buckets
+    /// of the 4 shortest words whose first 4 octets hash to each, 128 KiB of comptime data, and
+    /// the octets a match may leave of a word's end, those OmitLast1 to OmitLast9 drop.
+    pub const word_bucket_log = 14;
+    pub const word_ways = 4;
+    pub const word_omit_max = 9;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
