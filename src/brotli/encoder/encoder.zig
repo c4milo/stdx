@@ -267,4 +267,5 @@ test {
     _ = @import("encoder_level5/encoder_level5_test.zig");
     _ = @import("encoder_level5/encoder_buckets.zig");
     _ = @import("encoder_level5/encoder_split.zig");
+    _ = @import("encoder_level5/encoder_words.zig");
 }

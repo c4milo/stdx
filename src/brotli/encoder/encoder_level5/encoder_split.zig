@@ -134,7 +134,7 @@ fn gather(comptime safety: bool, self: *Split, window: []const u8, start: usize,
     for (commands.commands[0..commands.count]) |command| {
         @memcpy(self.literals[len..][0..command.insert_len], window[position..][0..command.insert_len]);
         len += command.insert_len;
-        position += @as(usize, command.insert_len) + command.copy_len;
+        position += command.insert_len + encoder_commands.written_of(command);
     }
     assert(len == commands.literals_len);
     self.literals_len = len;

@@ -1,0 +1,142 @@
+//! Level 5's static dictionary words (RFC 7932 §8; decision 62, as the owner's ruling of
+//! 2026-11-07 amends it): a match of the input with a word's first octets, coded as the word under
+//! the identity transform or OmitLast1 to OmitLast9, which drop its last 1 to 9 octets.
+//!
+//! A comptime table, built from the RFC's dictionary, holds for each hash of 4 octets the shortest
+//! words, up to `word_ways`, that start with octets of that hash. A word's reference takes 16
+//! bits: its length above its index.
+
+const std = @import("std");
+const assert = std.debug.assert;
+const codec = @import("codec");
+const constants = @import("../../constants.zig");
+const dictionary = @import("../../dictionary.zig");
+const transform = @import("../../transform.zig");
+
+const level5 = constants.encoder_level5;
+const bucket_count = @as(usize, 1) << level5.word_bucket_log;
+const ways = level5.word_ways;
+const index_bits = std.math.log2_int(usize, std.math.maxInt(u16) + 1) - @bitSizeOf(u5);
+const none = std.math.maxInt(u16);
+const key_len = @sizeOf(u32);
+
+comptime {
+    // A reference holds a length up to 24 in 5 bits above an index of up to 11 bits.
+    for (dictionary.bits) |word_bits| assert(word_bits <= index_bits);
+    assert(constants.word_len_max < 1 << @bitSizeOf(u5));
+    assert((constants.word_len_max << index_bits) + (1 << index_bits) - 1 < none);
+    assert(constants.word_len_min == key_len);
+}
+
+/// A word that matches the input: the octets it writes, its length, and its word_id (RFC 7932 §8).
+pub const Word = struct { written_len: usize, word_len: usize, word_id: u32 };
+
+/// The word whose first octets the most of `window[position..end]` match, 4 at least, with the
+/// transform that writes them.
+pub fn find(comptime safety: bool, window: []const u8, position: usize, end: usize) ?Word {
+    @setRuntimeSafety(safety);
+    assert(position + key_len <= end and end <= window.len);
+    const key = std.mem.readInt(u32, window[position..][0..key_len], .little);
+    var best: ?Word = null;
+    for (table[bucket_of(key)]) |reference| {
+        if (reference == none) break;
+        const word_len: usize = reference >> index_bits;
+        const index: u32 = reference & ((1 << index_bits) - 1);
+        const word = dictionary.word(word_len, index);
+        const len = agreed_len(safety, word, window[position..@min(end, position + word_len)]);
+        if (len < constants.word_len_min or word_len - len > level5.word_omit_max) continue;
+        if (best) |held| {
+            if (len <= held.written_len) continue;
+        }
+        const transform_id: u32 = omit_last_transforms[word_len - len];
+        best = .{ .written_len = len, .word_len = word_len, .word_id = index | transform_id << dictionary.bits[word_len] };
+    }
+    return best;
+}
+
+fn agreed_len(comptime safety: bool, word: []const u8, input: []const u8) usize {
+    @setRuntimeSafety(safety);
+    for (input, word[0..input.len], 0..) |left, right, index| {
+        if (left != right) return index;
+    }
+    return input.len;
+}
+
+fn bucket_of(key: u32) usize {
+    const product = @as(u64, key) *% codec.constants.match_hash_multiplier;
+    return @intCast(product >> (@bitSizeOf(u64) - level5.word_bucket_log));
+}
+
+/// The transform_id of the identity, then of OmitLast1 to OmitLast9, each with no prefix and no
+/// suffix, from RFC 7932 Appendix B's list.
+pub const omit_last_transforms = ids: {
+    var ids: [level5.word_omit_max + 1]u8 = undefined;
+    for (&ids, 0..) |*id, omitted| {
+        const kind: transform.Kind = if (omitted == 0) .identity else @enumFromInt(@intFromEnum(transform.Kind.omit_last_1) + omitted - 1);
+        id.* = for (transform.table, 0..) |entry, candidate| {
+            if (entry.kind == kind and entry.prefix.len == 0 and entry.suffix.len == 0) break candidate;
+        } else unreachable;
+    }
+    break :ids ids;
+};
+
+/// Each bucket's words, the shortest first: the dictionary lists them by length, then by index.
+const table = built: {
+    @setEvalBranchQuota(table_quota);
+    var buckets: [bucket_count][ways]u16 = @splat(@splat(none));
+    var filled: [bucket_count]u8 = @splat(0);
+    for (constants.word_len_min..constants.word_len_max + 1) |word_len| {
+        for (0..dictionary.word_count(word_len)) |index| {
+            const word = dictionary.word(word_len, @intCast(index));
+            const bucket = bucket_of(std.mem.readInt(u32, word[0..key_len], .little));
+            if (filled[bucket] == ways) continue;
+            buckets[bucket][filled[bucket]] = @intCast(word_len << index_bits | index);
+            filled[bucket] += 1;
+        }
+    }
+    break :built buckets;
+};
+
+const table_quota = 10_000_000;
+
+const testing = std.testing;
+
+test "the omitted octets name the identity and OmitLast1 to OmitLast9" {
+    // RFC 7932 Appendix B: the identity is 0, OmitLast1 is 12 and OmitLast9 is 64.
+    try testing.expectEqual(0, omit_last_transforms[0]);
+    try testing.expectEqual(omit_last_1_id, omit_last_transforms[1]);
+    try testing.expectEqual(omit_last_9_id, omit_last_transforms[level5.word_omit_max]);
+}
+
+const omit_last_1_id = 12;
+const omit_last_9_id = 64;
+
+test "a word the input holds is found, whole or less its last octets" {
+    const word = dictionary.word(test_word_len, test_word_index);
+    var window: [test_window_len]u8 = @splat('#');
+    @memcpy(window[test_at..][0..word.len], word);
+    const whole = find(true, &window, test_at, window.len) orelse return error.TestNotFound;
+    try testing.expect(whole.written_len >= word.len);
+    // The word less its last octet: a word that long, or this one under OmitLast1.
+    window[test_at + word.len - 1] = '#';
+    const less = find(true, &window, test_at, window.len) orelse return error.TestNotFound;
+    try testing.expectEqual(word.len - 1, less.written_len);
+}
+
+test "a word found leaves at most 9 of its octets out" {
+    // A long word whose first octets alone the input holds: OmitLast9 drops no more than 9.
+    const word = dictionary.word(long_word_len, test_word_index);
+    for (constants.word_len_min..long_word_len + 1) |kept| {
+        var window: [test_window_len]u8 = @splat('#');
+        @memcpy(window[test_at..][0..kept], word[0..kept]);
+        const found = find(true, &window, test_at, window.len) orelse continue;
+        try testing.expect(found.word_len - found.written_len <= level5.word_omit_max);
+        try testing.expect(found.written_len <= kept);
+    }
+}
+
+const long_word_len = 20;
+const test_word_len = 9;
+const test_word_index = 100;
+const test_window_len = 64;
+const test_at = 8;
