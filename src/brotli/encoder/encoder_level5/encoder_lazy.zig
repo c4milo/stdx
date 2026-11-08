@@ -12,7 +12,7 @@ const buckets_module = @import("encoder_buckets.zig");
 const encoder_words = @import("encoder_words.zig");
 const hits_aarch64 = @import("encoder_hits_aarch64.zig");
 const hits_x86_64 = @import("encoder_hits_x86_64.zig");
-/// The assembly that weighs a bucket's hits on this target, if one takes it (decision 64, part 5).
+/// The assembly that weighs a bucket's hits on this target, if one takes it (decision 66, part 5).
 const hits_assembly = if (hits_aarch64.takes) hits_aarch64 else hits_x86_64;
 const hits_assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
 
@@ -101,7 +101,7 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
 }
 
 /// Weighs the hits of `slot`'s bucket into `pick`: in assembly for the unchecked loop
-/// (decision 64, part 5), else in Zig, the reference the assembly makes the same choice as.
+/// (decision 66, part 5), else in Zig, the reference the assembly makes the same choice as.
 inline fn weigh_hits(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, low: usize, pick: *Pick) void {
     @setRuntimeSafety(safety);
     var hits = buckets.hits(slot);
@@ -142,7 +142,7 @@ inline fn weigh_hits(comptime safety: bool, buckets: *const Buckets, slot: bucke
 /// or the bucket.
 const Source = enum { last, bucket };
 
-/// The choice of match at a position (decision 64, part 5), which the assembly makes too:
+/// The choice of match at a position (decision 66, part 5), which the assembly makes too:
 /// 1. Each candidate, the last distances first and then the bucket's hits by way, weighs the
 ///    octets it agrees on within the first `read_len`; fewer than `min_len` weigh nothing.
 /// 2. The best saving wins, and the first of equal savings stays.
@@ -249,7 +249,7 @@ fn step_back(comptime safety: bool, window: []const u8, found: Found, anchor: us
 }
 
 /// The octets from `candidate` and from `position` that agree, up to `end`. The caller asserts
-/// `position`'s bounds once for all its candidates (decision 64, part 4): each candidate lies
+/// `position`'s bounds once for all its candidates (decision 66, part 4): each candidate lies
 /// below `position`, by the bucket's range test or a last distance's reach.
 fn match_len(comptime safety: bool, window: []const u8, candidate: usize, position: usize, end: usize) usize {
     @setRuntimeSafety(safety);

@@ -1,4 +1,4 @@
-//! Level 5's weighing of a bucket's hits in aarch64 assembly (decision 64, part 5, which amends
+//! Level 5's weighing of a bucket's hits in aarch64 assembly (decision 66, part 5, which amends
 //! decision 16 for this loop): each hit's candidate weighed by the octets it agrees on within the
 //! first 8, and kept by a select, as `Pick.weigh` does in Zig. It writes the pick and the list of
 //! long candidates the Zig loop writes.

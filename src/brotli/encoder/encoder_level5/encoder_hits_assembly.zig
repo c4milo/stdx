@@ -1,4 +1,4 @@
-//! The state of level 5's weighing of a bucket's hits in assembly (decision 64, part 5), which
+//! The state of level 5's weighing of a bucket's hits in assembly (decision 66, part 5), which
 //! `encoder_hits_aarch64.zig` and `encoder_hits_x86_64.zig` load and store, in this order.
 
 const std = @import("std");
