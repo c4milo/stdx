@@ -106,7 +106,6 @@ pub fn stdx_split(container: oracle.Container, buffers: Buffers, stream: []const
 pub fn stdx_all(container: oracle.Container, buffers: Buffers, stream: []const u8, output: []u8) !codec.Whole {
     switch (container) {
         inline else => |known| {
-            const module = Codec(known);
             const decoder = &@field(buffers.states, @tagName(known))[0];
             decoder.init(.{});
             return decoder.decode_all(stream, output);
@@ -151,7 +150,6 @@ fn deflate_decoder(decoder: anytype) *const deflate.Decoder {
 pub fn stdx_whole(container: oracle.Container, buffers: Buffers, input: []const u8, output: []u8) Verdict {
     switch (container) {
         inline else => |known| {
-            const module = Codec(known);
             const decoder = &@field(buffers.states, @tagName(known))[0];
             decoder.init(.{});
             const progress = decoder.decode(input, output) catch |err| {
