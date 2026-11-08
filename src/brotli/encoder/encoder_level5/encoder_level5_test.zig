@@ -266,7 +266,7 @@ test "level 5 writes the same octets with its loops checked and unchecked" {
 }
 
 /// The unchecked loops, the assembly among them where it takes the target, and the checked ones,
-/// the reference, choose the same matches (decision 64, part 5).
+/// the reference, choose the same matches (decision 66, part 5).
 fn expect_checked_equal() !void {
     var unchecked: Small = undefined;
     var checked: Checked = undefined;
