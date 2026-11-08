@@ -73,6 +73,29 @@ pub const encoder_level5 = struct {
     /// meta-blocks, so it moves the history and the buckets 16 times less often than once a
     /// meta-block, for 1 MiB more.
     pub const slack_len = 1_048_576;
+    /// The literal blocks (RFC 7932 §6), the owner's ruling of 2026-11-07. A meta-block's literals
+    /// go in chunks of 32 to block types; the costs count in 1/64 bit.
+    pub const split_chunk_len = 32;
+    pub const split_cost_shift = 6;
+    /// A chunk starts a new type when its cost under the best type passes its own entropy by
+    /// 100 bits; a switch costs about 12 bits.
+    pub const split_threshold = 100 << split_cost_shift;
+    pub const split_switch_cost = 12 << split_cost_shift;
+    /// The passes that move each chunk to its cheapest type, and the chunks a type takes between
+    /// two rebuilds of its costs in the first pass.
+    pub const split_passes = 1;
+    pub const split_refresh_chunks = 4;
+    pub const split_refresh_share = 8;
+    /// The fewest literals a meta-block splits: below them a second code's description costs more
+    /// than a split saves, as on the HTTP bodies of 1 KiB.
+    pub const split_literals_min = 2048;
+    /// The types one vector of 16-bit lanes prices a chunk under at once.
+    pub const split_lanes = 16;
+    /// A tree's description, as the split prices it: about 30 bits and 4 bits a symbol.
+    pub const split_tree_cost = 30 << split_cost_shift;
+    pub const split_symbol_cost = 4 << split_cost_shift;
+    /// RLEMAX of the literal context map: a run code of 6 covers a type's 64 zeros (RFC 7932 §7.3).
+    pub const map_run_length_codes = 6;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
