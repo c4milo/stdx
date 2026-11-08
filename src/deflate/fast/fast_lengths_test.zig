@@ -13,7 +13,7 @@ const deflate = @import("../decoder/decoder.zig");
 const fast_lengths = @import("fast_lengths.zig");
 
 const Stream = test_stream.Stream;
-pub const Generator = codec.split.Generator;
+pub const Generator = codec.testing.split.Generator;
 pub const alphabet_len = constants.code_length_alphabet_len;
 pub const CodeLengths = [alphabet_len]u8;
 const codes_min = test_stream.complete_codes_min;
@@ -180,10 +180,10 @@ pub const Read = struct {
 
 /// Decodes `input` in two calls cut at `cut`, or in one when `cut` is its length, on `options`.
 /// The state starts as `fill` in every octet, so a path that reads what it did not write shows.
-pub fn read_header(comptime options: deflate.Options, input: []const u8, cut: usize, fill: u8) Read {
+pub fn read_header(comptime options: deflate.DecodePaths, input: []const u8, cut: usize, fill: u8) Read {
     var decoder: deflate.Decoder = undefined;
     @memset(std.mem.asBytes(&decoder), fill);
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     var read: Read = .{ .result = undefined, .read_len = 0, .lengths = undefined, .codes = undefined, .output = undefined };
     read.result = decode_cut(options, &decoder, input, cut, &read.output);
     // A decode that passed the header read every length; one refused inside it stopped at one.
@@ -196,16 +196,16 @@ pub fn read_header(comptime options: deflate.Options, input: []const u8, cut: us
 /// The decoder's phase while it reads code lengths, as its enum numbers it (decoder.zig).
 const code_lengths_phase = 5;
 
-fn decode_cut(comptime options: deflate.Options, decoder: *deflate.Decoder, input: []const u8, cut: usize, output: *[output_len]u8) deflate.Error!codec.Progress {
-    const first = try deflate.decode_with(options, decoder, input[0..cut], output);
+fn decode_cut(comptime options: deflate.DecodePaths, decoder: *deflate.Decoder, input: []const u8, cut: usize, output: *[output_len]u8) deflate.Error!codec.Progress {
+    const first = try decoder.decode_with(options, input[0..cut], output);
     if (cut == input.len or first.status != .needs_input) return first;
-    const second = try deflate.decode_with(options, decoder, input[first.consumed..], output[first.written..]);
+    const second = try decoder.decode_with(options, input[first.consumed..], output[first.written..]);
     return .{ .consumed = first.consumed + second.consumed, .written = first.written + second.written, .status = second.status };
 }
 
-pub const loop_off: deflate.Options = .{ .claims = .{ .code_lengths_loop = false } };
-pub const tally_off: deflate.Options = .{ .claims = .{ .tallied_codes = false } };
-pub const checked: deflate.Options = .{ .fast_paths = false };
+pub const loop_off: deflate.DecodePaths = .{ .claims = .{ .code_lengths_loop = false } };
+pub const tally_off: deflate.DecodePaths = .{ .claims = .{ .tallied_codes = false } };
+pub const checked: deflate.DecodePaths = .{ .fast_paths = false };
 
 /// Requires the loops, the loops without the tally of the lengths (S14), the checked steps under
 /// the fast path, and the checked path alone to leave the same lengths, build the same codes and
@@ -318,9 +318,9 @@ test "the checked path alone builds no table for the code length code" {
     inline for (.{ checked, loop_off }) |options| {
         var decoder: deflate.Decoder = undefined;
         @memset(std.mem.asBytes(&decoder), marker);
-        deflate.init(&decoder, codec.Features.detect());
+        decoder.init(codec.Features.detect());
         var output: [output_len]u8 = undefined;
-        try testing.expectError(error.MissingEndOfBlock, deflate.decode_with(options, &decoder, input, &output));
+        try testing.expectError(error.MissingEndOfBlock, decoder.decode_with(options, input, &output));
         try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&decoder.code_length_table), marker));
     }
 }

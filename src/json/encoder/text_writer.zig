@@ -16,10 +16,11 @@ const Token = encoder_file.Token;
 const Framing = @import("../framing.zig").Framing;
 const Decimal = @import("../format.zig").Decimal;
 
-/// What a call can fail with: a refusal of the caller's input, or a buffer the text does not fit.
-pub const Error = encoder_file.Error || error{NoSpaceLeft};
-
 pub const TextWriter = struct {
+    /// What a call can fail with: a refusal of the caller's input, or a buffer the text does not
+    /// fit.
+    pub const Error = encoder_file.Error || error{NoSpaceLeft};
+
     encoder: Encoder,
     output: []u8,
     /// The octets of `output` written so far, from its start.

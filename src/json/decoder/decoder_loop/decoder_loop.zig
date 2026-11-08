@@ -4,9 +4,9 @@
 //! batch's last slot. It takes what claim J8's fast path takes: whitespace, a separator, and then a
 //! structural character, a name or a string of plain ASCII, a whole number with the octet that ends
 //! it, or a literal name. It also takes a sequence's record separator at a text's start, and a
-//! text's end. Every other token it leaves to `Decoder.run`, the path one token a call takes, which
-//! names every refusal, with the grammar's state where it stopped: past a separator it took, at the
-//! token it did not.
+//! text's end. Every other token it leaves to `decoder_file.run`, the path one token a call takes,
+//! which names every refusal, with the grammar's state where it stopped: past a separator it took,
+//! at the token it did not.
 //!
 //! It reads and writes the slices directly, as decision 16's table lets it: a string's octets go
 //! out a block of 16 at a time, or of 32 in the walk past a run's ASCII in the AVX2 variant
@@ -43,7 +43,7 @@ pub const Cursor = struct {
 /// Takes tokens into `slots` from `cursor` on, moves `cursor` past them, and returns how many
 /// slots it filled. At the text's end, in `piece`'s last octets or before the next text of a
 /// sequence, it leaves the decoder done. The text's start and end cost qlog's records, 36 tokens a
-/// text, about a sixth of their time through `Decoder.run` on the N2 (design §8 step 18).
+/// text, about a sixth of their time through `decoder_file.run` on the N2 (design §8 step 18).
 pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, output: []u8, piece: Piece, cursor: *Cursor, slots: []Slot) usize {
     // The loop's steps are inline, and each place a name or a string starts instantiates scan.zig's
     // vector helpers again.
@@ -267,7 +267,8 @@ pub const Loop = struct {
         return true;
     }
 
-    /// Moves the grammar past a value of `kind` that just ended, as `Decoder.value_ended` does.
+    /// Moves the grammar past a value of `kind` that just ended, as `decoder_file.value_ended`
+    /// does.
     inline fn value_ended(self: *Loop, kind: Kind) void {
         if (self.depth > 0) {
             self.expect = .separator_or_end;
@@ -278,8 +279,8 @@ pub const Loop = struct {
     }
 };
 
-/// Whether a value of `kind` is delimited, as `Decoder.value_ended` finds: a number or a literal
-/// name is not (RFC 7464 §2.4).
+/// Whether a value of `kind` is delimited, as `decoder_file.value_ended` finds: a number or a
+/// literal name is not (RFC 7464 §2.4).
 pub inline fn is_delimited(kind: Kind) bool {
     return switch (kind) {
         .number, .true, .false, .null => false,

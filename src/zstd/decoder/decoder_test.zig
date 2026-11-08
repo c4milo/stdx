@@ -142,10 +142,10 @@ test "every split of input and output gives the same octets, the state moved bet
     var writer: FrameWriter = .{};
     const text = standard_frame(&writer);
     for (0..64) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
+        var states: [codec.testing.split.state_slots]Decoder = undefined;
         states[0].init(.{});
         var output: [64]u8 = undefined;
-        const outcome = try codec.split.drive(Decoder, &states, step, writer.written(), &output, seed);
+        const outcome = try codec.testing.split.drive(Decoder, &states, step, writer.written(), &output, seed);
         try testing.expectEqual(.done, outcome.status);
         try testing.expectEqualStrings(text, output[0..outcome.written]);
     }

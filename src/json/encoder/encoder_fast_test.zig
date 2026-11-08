@@ -86,14 +86,14 @@ const Lockstep = struct {
 
     /// The room of the next call: all that is left when `split` is false, and else the piece
     /// `schedule` draws.
-    fn next_room_len(self: *const Lockstep, schedule: *codec.split.Schedule, split: bool) usize {
+    fn next_room_len(self: *const Lockstep, schedule: *codec.testing.split.Schedule, split: bool) usize {
         const room_left = text_len_max - self.written;
         return if (split) schedule.piece_len(room_left) else room_left;
     }
 
     /// Encodes one item's token in the pieces `schedule` draws, or whole when `split` is false.
     /// Returns false once the text ended or both refused.
-    fn item_call(self: *Lockstep, comptime pair: Pair, schedule: *codec.split.Schedule, split: bool, item: Item) !bool {
+    fn item_call(self: *Lockstep, comptime pair: Pair, schedule: *codec.testing.split.Schedule, split: bool, item: Item) !bool {
         var consumed: usize = 0;
         const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (item.octets.len + text_len_max);
         for (0..calls_max) |_| {
@@ -118,7 +118,7 @@ fn expect_lockstep(comptime pair: Pair, framing: Framing, items: []const Item, s
     var lockstep: Lockstep = .{ .fast = undefined, .checked = undefined };
     lockstep.fast.init(framing, codec.Features.detect());
     lockstep.checked.init(framing, codec.Features.detect());
-    var schedule = codec.split.Schedule.init(seed orelse 0);
+    var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     for (items) |item| {
         if (!try lockstep.item_call(pair, &schedule, seed != null, item)) return;
     }
@@ -222,7 +222,7 @@ test "a token that fills the output exactly is written, and one octet more is no
 
 test "seeded lists of tokens encode alike with the fast path on and off" {
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var program: round_trip.Program = .{};
         round_trip.Draw.value(&generator, &program, 0);
         try check(program.items[0..program.count], generator.next());

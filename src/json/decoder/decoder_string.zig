@@ -28,11 +28,11 @@ pub fn content(comptime claims: Claims, decoder: *Decoder, reader: *codec.Reader
     for (0..reader.remaining_len() + 1) |_| {
         if (!write_pending(decoder, writer)) return .{ .status = .needs_room, .kind = kind };
         if (decoder.escape != .none) {
-            try escape_octet(decoder, reader.read_octet() catch return .{ .status = .needs_input, .kind = kind });
+            try escape_octet(decoder, reader.take_octet() catch return .{ .status = .needs_input, .kind = kind });
             continue;
         }
         if (claims.decoder_string_vectors and after_ascii) copy_run(decoder, decoder.level.with(claims), reader, writer);
-        const octet = reader.read_octet() catch return .{ .status = .needs_input, .kind = kind };
+        const octet = reader.take_octet() catch return .{ .status = .needs_input, .kind = kind };
         after_ascii = octet < constants.non_ascii_min;
         if (try string_octet(claims, decoder, octet, reader, writer)) |outcome| return outcome;
     }
@@ -72,7 +72,7 @@ fn string_octet(comptime claims: Claims, decoder: *Decoder, octet: u8, reader: *
     if (claims.decoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
         reader.unread(1);
         if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return null;
-        _ = reader.read_octet() catch unreachable;
+        _ = reader.take_octet() catch unreachable;
     }
     // RFC 8259 §8.1 and RFC 3629 §4: a text is UTF-8.
     if (!decoder.utf8.accept(octet)) return error.InvalidUtf8;
@@ -97,7 +97,7 @@ fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
 fn delimiter(decoder: *Decoder, octet: u8) Error!?Outcome {
     const kind = decoder_file.kind_of(decoder.open);
     if (octet == constants.quotation_mark) {
-        if (kind == .name) decoder.name_ended() else decoder.value_ended(kind);
+        if (kind == .name) decoder_file.name_ended(decoder) else decoder_file.value_ended(decoder, kind);
         return .{ .status = .token, .kind = kind };
     }
     if (octet == constants.reverse_solidus) {

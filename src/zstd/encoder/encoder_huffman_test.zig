@@ -15,7 +15,7 @@ const coded_len_max = 8192;
 
 /// A message of `alphabet` literals from `first` on, skewed so that low ones come often and some
 /// come once: deep codes that pass 11 bits before the limit.
-fn draw_message(generator: *codec.split.Generator, message: []u8, first: usize, alphabet: usize) void {
+fn draw_message(generator: *codec.testing.split.Generator, message: []u8, first: usize, alphabet: usize) void {
     for (message) |*literal| {
         const skew = generator.below(alphabet);
         literal.* = @intCast(first + generator.below(skew + 1));
@@ -57,7 +57,7 @@ fn expect_round_trip(message: []const u8) !void {
 }
 
 test "Huffman-coded literals decode through the decoder's tree and stream" {
-    var generator = codec.split.Generator.init(4);
+    var generator = codec.testing.split.Generator.init(4);
     var message: [message_len_max]u8 = undefined;
     for (0..300) |_| {
         const len = generator.between(2, message_len_max);
@@ -99,7 +99,7 @@ test "literals over 128 take the FSE-compressed description" {
 test "deep trees whose repair overshoots get their room back, and stay whole" {
     // Counts that grow by a seeded factor, reset now and then: Huffman's tree passes 11 bits, and
     // bringing its leaves up to 11 often leaves the code short, which the repair fills again.
-    var generator = codec.split.Generator.init(12);
+    var generator = codec.testing.split.Generator.init(12);
     for (0..300) |_| {
         var counts: [constants.literal_symbols]u32 = @splat(0);
         draw_deep(&generator, &counts);
@@ -111,7 +111,7 @@ test "deep trees whose repair overshoots get their room back, and stay whole" {
 }
 
 /// Counts that grow by a factor from 5/4 to 2, reset to a few one time in four.
-fn draw_deep(generator: *codec.split.Generator, counts: *[constants.literal_symbols]u32) void {
+fn draw_deep(generator: *codec.testing.split.Generator, counts: *[constants.literal_symbols]u32) void {
     const used = generator.between(deep_used_min, constants.literal_symbols);
     const growth_quarters = generator.between(deep_growth_quarters_min, deep_growth_quarters_max);
     var weight: u64 = 1;

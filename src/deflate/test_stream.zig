@@ -109,7 +109,7 @@ pub const complete_codes_min = 2;
 /// `generator`: a code of no bits, split in two a length longer until `codes` exist or none can
 /// split, and given to the symbols in an order the generator draws (RFC 1951 §3.2.2). A symbol
 /// without a code gets 0.
-pub fn draw_complete_code(generator: *codec.split.Generator, lengths: []u8, codes: usize, len_max: u8) void {
+pub fn draw_complete_code(generator: *codec.testing.split.Generator, lengths: []u8, codes: usize, len_max: u8) void {
     std.debug.assert(codes >= complete_codes_min and codes <= lengths.len);
     var lens: [constants.literal_length_alphabet_len]u8 = @splat(0);
     lens[0] = 1;

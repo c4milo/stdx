@@ -156,7 +156,7 @@ fn expect_block_codes(block: *Block) !void {
     var buffer: [test_stream.stream_len_max + shared.padding_len]u8 = undefined;
     const input = block.header.padded(&buffer);
     const expected = try block.codes();
-    const paths = .{ .{ deflate.Options{}, shared.loop_fill }, .{ shared.tally_off, shared.tally_off_fill }, .{ shared.loop_off, shared.loop_off_fill }, .{ shared.checked, shared.checked_fill } };
+    const paths = .{ .{ deflate.DecodePaths{}, shared.loop_fill }, .{ shared.tally_off, shared.tally_off_fill }, .{ shared.loop_off, shared.loop_off_fill }, .{ shared.checked, shared.checked_fill } };
     inline for (paths) |path| {
         const read = shared.read_header(path[0], input, input.len, path[1]);
         try testing.expectEqual(codec.Status.done, (try read.result).status);
@@ -275,9 +275,9 @@ test "a decode that builds its codes from the lengths leaves the tally as it fou
     inline for (.{ shared.checked, shared.tally_off }) |options| {
         var decoder: deflate.Decoder = undefined;
         @memset(std.mem.asBytes(&decoder), marker);
-        deflate.init(&decoder, codec.Features.detect());
+        decoder.init(codec.Features.detect());
         var output: [shared.output_len]u8 = undefined;
-        const progress = try deflate.decode_with(options, &decoder, input, &output);
+        const progress = try decoder.decode_with(options, input, &output);
         try testing.expectEqual(codec.Status.done, progress.status);
         try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&decoder.tally), marker));
     }

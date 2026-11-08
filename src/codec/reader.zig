@@ -34,7 +34,7 @@ pub const Reader = struct {
     }
 
     /// The next octet, or `error.Truncated` when none is left.
-    pub fn read_octet(self: *Reader) error{Truncated}!u8 {
+    pub fn take_octet(self: *Reader) error{Truncated}!u8 {
         if (self.remaining_len() == 0) return error.Truncated;
         const octet = self.octets[self.position];
         self.position += 1;
@@ -43,7 +43,7 @@ pub const Reader = struct {
 
     /// The next `@sizeOf(T)` octets as an integer in the given byte order, or `error.Truncated`
     /// when fewer are left, in which case nothing is read.
-    pub fn read_int(self: *Reader, comptime T: type, endian: std.builtin.Endian) error{Truncated}!T {
+    pub fn take_int(self: *Reader, comptime T: type, endian: std.builtin.Endian) error{Truncated}!T {
         comptime assert(@typeInfo(T).int.bits % @bitSizeOf(u8) == 0);
         const octets = try self.take(@sizeOf(T));
         return std.mem.readInt(T, octets[0..@sizeOf(T)], endian);
@@ -79,21 +79,21 @@ pub const Reader = struct {
 
 const testing = std.testing;
 
-test "read_octet reads in order and refuses past the end" {
+test "take_octet reads in order and refuses past the end" {
     var reader = Reader.init(&.{ 1, 2 });
-    try testing.expectEqual(1, try reader.read_octet());
-    try testing.expectEqual(2, try reader.read_octet());
-    try testing.expectError(error.Truncated, reader.read_octet());
+    try testing.expectEqual(1, try reader.take_octet());
+    try testing.expectEqual(2, try reader.take_octet());
+    try testing.expectError(error.Truncated, reader.take_octet());
     try testing.expectEqual(2, reader.consumed());
 }
 
-test "read_int reads each byte order, and a short read reads nothing" {
+test "take_int reads each byte order, and a short read reads nothing" {
     var reader = Reader.init(&.{ 0x12, 0x34, 0x56, 0x78, 0x9a });
-    try testing.expectEqual(0x1234, try reader.read_int(u16, .big));
-    try testing.expectEqual(0x7856, try reader.read_int(u16, .little));
-    try testing.expectError(error.Truncated, reader.read_int(u16, .little));
+    try testing.expectEqual(0x1234, try reader.take_int(u16, .big));
+    try testing.expectEqual(0x7856, try reader.take_int(u16, .little));
+    try testing.expectError(error.Truncated, reader.take_int(u16, .little));
     try testing.expectEqual(4, reader.consumed());
-    try testing.expectEqual(0x9a, try reader.read_octet());
+    try testing.expectEqual(0x9a, try reader.take_octet());
 }
 
 test "take refuses a length past the end and reads nothing" {

@@ -57,8 +57,8 @@ pub fn encode_batch_with(encoder: *Encoder, comptime claims: Claims, items: []co
 }
 
 /// Writes the items from `written_items` on: the token loop's first (claim J11), then one through
-/// `Encoder.run`. Returns the batch's status when the pass ends it, and null when it wrote an item
-/// and the batch goes on.
+/// `encoder_file.run`. Returns the batch's status when the pass ends it, and null when it wrote an
+/// item and the batch goes on.
 inline fn pass(
     encoder: *Encoder,
     comptime claims: Claims,
@@ -81,7 +81,7 @@ inline fn pass(
     codec.check_entry(item.octets, output);
     assert(item.octets.len == 0 or encoder_file.takes_input(item.token));
     var reader = codec.Reader.init(item.octets);
-    switch (try encoder.run(comptime after_loop(claims), item.token, &reader, writer)) {
+    switch (try encoder_file.run(encoder, comptime after_loop(claims), item.token, &reader, writer)) {
         .needs_input => {
             written_items.* += 1;
             return if (written_items.* == items.len) .needs_input else null;
@@ -97,9 +97,9 @@ inline fn pass(
     }
 }
 
-/// The claims `Encoder.run` writes an item the loop left with. Claim J11's loop writes every item
-/// claim J9's fast path writes, so after it J9 would only try each item again and fail, as claim
-/// J8 does after the decoder's loop (decoder_batch.zig).
+/// The claims `encoder_file.run` writes an item the loop left with. Claim J11's loop writes every
+/// item claim J9's fast path writes, so after it J9 would only try each item again and fail, as
+/// claim J8 does after the decoder's loop (decoder_batch.zig).
 fn after_loop(claims: Claims) Claims {
     var run_claims = claims;
     if (claims.encoder_token_loop) run_claims.encoder_fast_path = false;

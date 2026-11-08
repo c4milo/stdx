@@ -1,7 +1,7 @@
-//! Claim J10's property: in a batch, the token loop takes tokens as `Decoder.run` takes them, or
-//! leaves them to it. Two decoders, one with the loop on and one with it off, decode the same input
-//! in batches with the same pieces of input and output, and every batch must give the same counts,
-//! slots, octets and error, and leave the same state.
+//! Claim J10's property: in a batch, the token loop takes tokens as `decoder_file.run` takes them,
+//! or leaves them to it. Two decoders, one with the loop on and one with it off, decode the same
+//! input in batches with the same pieces of input and output, and every batch must give the same
+//! counts, slots, octets and error, and leave the same state.
 
 const std = @import("std");
 const testing = std.testing;
@@ -140,7 +140,7 @@ fn expect_lockstep(comptime pair: Pair, framing: Framing, input: []const u8, see
     var lockstep: Lockstep = .{ .looped = undefined, .checked = undefined };
     lockstep.looped.init(framing, codec.Features.detect());
     lockstep.checked.init(framing, codec.Features.detect());
-    var schedule = codec.split.Schedule.init(seed orelse 0);
+    var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const count = if (seed) |value| 1 + value % slots_max else slots_max;
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + output_len_max);
     for (0..calls_max) |_| {
@@ -309,7 +309,7 @@ test "the loop steps aside at the depth limit, where the checked path refuses" {
 test "every seeded corruption of the texts decodes alike with the loop on and off" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const text = texts[generator.below(texts.len)];
         @memcpy(input[0..text.len], text);
         for (0..generator.below(flips_max + 1)) |_| {

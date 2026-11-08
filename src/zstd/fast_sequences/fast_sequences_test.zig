@@ -98,7 +98,7 @@ fn state_of(table: *const fse.Table(accuracy_log), symbol: u8) u16 {
 }
 
 /// The initial states: forced for the first sequence's codes, or drawn.
-fn initial_states(generator: *codec.split.Generator, tables: *const Tables, first: ?First) [codes]u16 {
+fn initial_states(generator: *codec.testing.split.Generator, tables: *const Tables, first: ?First) [codes]u16 {
     var states: [codes]u16 = undefined;
     for (&states, tables) |*state, *table| state.* = @intCast(generator.below(table.entries().len));
     if (first) |forced| {
@@ -110,7 +110,7 @@ fn initial_states(generator: *codec.split.Generator, tables: *const Tables, firs
 
 /// A sequence's extras: the offset's, forced for the first sequence, then the match length's and
 /// the literals length's, each drawn, in RFC 8878 §3.1.1.3.2.1.2's order.
-fn put_extras(generator: *codec.split.Generator, fields: *Fields, cells: [codes]fse.Entry, forced_bits: ?u64) void {
+fn put_extras(generator: *codec.testing.split.Generator, fields: *Fields, cells: [codes]fse.Entry, forced_bits: ?u64) void {
     const offset_code = cells[sequences.slot(.offset)].symbol;
     fields.put(forced_bits orelse generator.below(@as(u64, 1) << @intCast(offset_code)), @intCast(offset_code));
     const match_length = cells[sequences.slot(.match_length)].symbol;
@@ -124,7 +124,7 @@ fn put_extras(generator: *codec.split.Generator, fields: *Fields, cells: [codes]
     fields.decoded_len += literals_len + constants.match_length_baselines[match_length] + match_bits;
 }
 
-fn seeded_fields(generator: *codec.split.Generator, tables: *const Tables, shape: Shape) Fields {
+fn seeded_fields(generator: *codec.testing.split.Generator, tables: *const Tables, shape: Shape) Fields {
     var fields: Fields = .{};
     var states = initial_states(generator, tables, shape.first);
     // Initial states: literals length, offset, match length.
@@ -166,7 +166,7 @@ const compressed_modes: u8 = 0xa8;
 /// A seeded frame of `shape`: raw blocks of history, then a compressed block of raw literals and
 /// the sequences. Returns the octets it decodes to, when every rule holds.
 pub fn seeded_frame(frame: *FrameWriter, seed: u64, shape: Shape) !usize {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     const distributions = [_]fse.Distribution{ distribution_of(shape.literals_length_symbols, symbol_cells), distribution_of(shape.offset_symbols, shape.offset_first_cells), distribution_of(shape.match_length_symbols, symbol_cells) };
     var tables: Tables = undefined;
     for (&tables, distributions) |*table, distribution| try fse.build(accuracy_log, table, &distribution);
@@ -234,9 +234,9 @@ fn expect_alike(shape: Shape, seed: u64) !void {
     try testing.expectEqualSlices(u8, checked_output[0..decoded_len], output[0..decoded_len]);
     try testing.expectEqual(checked.work, decoder.work);
     var split_output: [output_capacity]u8 = undefined;
-    var states: [codec.split.state_slots]Decoder = undefined;
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
     states[0].init(codec.Features.detect());
-    const outcome = try codec.split.drive(Decoder, &states, step, frame.written(), &split_output, seed);
+    const outcome = try codec.testing.split.drive(Decoder, &states, step, frame.written(), &split_output, seed);
     try testing.expectEqual(.done, outcome.status);
     try testing.expectEqualSlices(u8, output[0..decoded_len], split_output[0..outcome.written]);
 }
@@ -384,7 +384,7 @@ test "a block whose literal source is shorter than a chunk decodes on the checke
     // and its literal source, the section after the literals header, takes 13 octets.
     const sequence_count = 12;
     const offset_code = 5;
-    var generator = codec.split.Generator.init(9);
+    var generator = codec.testing.split.Generator.init(9);
     var bits: test_writer.BitWriter = .{};
     for (0..sequence_count) |_| bits.put(generator.below(1 << offset_code), offset_code);
     var content: FrameWriter = .{};

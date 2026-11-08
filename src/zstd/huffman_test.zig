@@ -104,7 +104,7 @@ const share_divisor = 2;
 
 /// A seeded distribution of the 12 weights at an accuracy log of 5 or 6, with zeros and "less than
 /// 1" probabilities among them, the last weight taking the points left.
-fn seeded_weight_distribution(generator: *codec.split.Generator) fse.Distribution {
+fn seeded_weight_distribution(generator: *codec.testing.split.Generator) fse.Distribution {
     const accuracy_log: u4 = @intCast(constants.accuracy_log_offset + generator.below(constants.huffman_weights_accuracy_log_max + 1 - constants.accuracy_log_offset));
     var distribution: fse.Distribution = .{ .probabilities = @splat(0), .symbol_count = constants.huffman_weight_max + 1, .accuracy_log = accuracy_log };
     var left: i16 = @as(i16, 1) << accuracy_log;
@@ -170,7 +170,7 @@ test "FSE-compressed weights past the 255 that may precede the last are refused"
 test "seeded FSE-compressed weights decode as the checked backward reader reads them" {
     var agreed: usize = 0;
     for (0..1000) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const distribution = seeded_weight_distribution(&generator);
         var present: usize = 0;
         for (distribution.probabilities[0..distribution.symbol_count]) |probability| present += @intFromBool(probability != 0);
@@ -227,7 +227,7 @@ const literal_draws_max = 1000;
 /// Seeded weights for `count` literals, each 0 to 5 but the first, which is 1 so the tree reaches
 /// Max_Number_of_Bits; then the weights that bring the sum of 2^(Weight-1) within one power of 2 of
 /// the next power of 2, which the deduced last weight fills.
-fn seeded_weights(generator: *codec.split.Generator, count: u16, weights: *huffman.Weights) void {
+fn seeded_weights(generator: *codec.testing.split.Generator, count: u16, weights: *huffman.Weights) void {
     weights.init();
     weights.put(0, 1);
     for (1..count) |literal| weights.put(@intCast(literal), @intCast(generator.below(seeded_weight_limit)));
@@ -253,7 +253,7 @@ fn weights_of(values: []const u8) huffman.Weights {
 test "seeded trees decode the literals a writer encodes with them" {
     var built: usize = 0;
     for (0..400) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var weights: huffman.Weights = undefined;
         seeded_weights(&generator, @intCast(1 + generator.below(100)), &weights);
         var table: huffman.Table = undefined;
@@ -275,7 +275,7 @@ test "seeded trees decode the literals a writer encodes with them" {
 }
 
 /// A seeded literal with a nonzero weight, the deduced last one included.
-fn present_literal(generator: *codec.split.Generator, weights: *const huffman.Weights) u8 {
+fn present_literal(generator: *codec.testing.split.Generator, weights: *const huffman.Weights) u8 {
     for (0..literal_draws_max) |_| {
         const literal = generator.below(@as(u64, weights.written) + 1);
         if (weights.values[literal] != 0) return @intCast(literal);

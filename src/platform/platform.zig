@@ -34,6 +34,8 @@ const assert = std.debug.assert;
 
 pub const constants = @import("constants.zig");
 const platform_x86 = @import("platform_x86.zig");
+const answer = @import("platform_answer.zig").answer;
+const both = @import("platform_answer.zig").both;
 
 /// One answer about the CPU.
 pub const Answer = enum {
@@ -100,19 +102,6 @@ fn without_x86(cpu: Cpu) Cpu {
     answers.avx2 = .no;
     answers.vaes = .no;
     return answers;
-}
-
-/// `yes` when the source reports the feature, `no` when it reports its absence.
-pub fn answer(present: bool) Answer {
-    return if (present) .yes else .no;
-}
-
-/// The answer for two features taken together: `no` when either is absent, `yes` when both are
-/// present, and `not_known` otherwise.
-pub fn both(first: Answer, second: Answer) Answer {
-    if (first == .no or second == .no) return .no;
-    if (first == .yes and second == .yes) return .yes;
-    return .not_known;
 }
 
 fn probe_aarch64() Cpu {

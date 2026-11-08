@@ -15,25 +15,25 @@ const Decoder = decoder_file.Decoder;
 const Kind = decoder_file.Kind;
 const Framing = @import("../framing.zig").Framing;
 
-/// What `next` can fail with: a refusal of the text, or the operational errors of decision 11.
-pub const Error = decoder_file.Error || codec.Incomplete;
-
-/// A token, with a name's, a string's or a number's octets. They lie in the reader's storage and
-/// stay there until the next call.
-pub const Item = union(Kind) {
-    begin_object,
-    end_object,
-    begin_array,
-    end_array,
-    name: []const u8,
-    string: []const u8,
-    number: []const u8,
-    true,
-    false,
-    null,
-};
-
 pub const TextReader = struct {
+    /// What `next` can fail with: a refusal of the text, or the operational errors of decision 11.
+    pub const Error = decoder_file.Error || codec.Incomplete;
+
+    /// A token, with a name's, a string's or a number's octets. They lie in the reader's storage
+    /// and stay there until the next call.
+    pub const Item = union(Kind) {
+        begin_object,
+        end_object,
+        begin_array,
+        end_array,
+        name: []const u8,
+        string: []const u8,
+        number: []const u8,
+        true,
+        false,
+        null,
+    };
+
     decoder: Decoder,
     input: []const u8,
     consumed: usize,
@@ -77,7 +77,7 @@ pub const TextReader = struct {
     }
 
     /// The current text's next token, or null at its end.
-    pub fn next(self: *TextReader) Error!?Item {
+    pub fn next(self: *TextReader) Error!?TextReader.Item {
         assert(self.started and !self.ended);
         const progress = try self.decoder.decode(self.input[self.consumed..], self.storage, .last);
         self.consumed += progress.consumed;
@@ -99,7 +99,7 @@ pub const TextReader = struct {
     }
 };
 
-fn item(kind: Kind, octets: []const u8) Item {
+fn item(kind: Kind, octets: []const u8) TextReader.Item {
     return switch (kind) {
         .begin_object => .begin_object,
         .end_object => .end_object,

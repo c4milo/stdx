@@ -17,7 +17,7 @@ const output_len_max = 1024;
 /// The seeds each stream decodes under.
 const split_seeds = 200;
 
-pub const Stream = deflate.TestStream;
+pub const Stream = deflate.testing.Stream;
 
 /// CMF for DEFLATE with a window of `2^(window_bits_field + 8)` octets (RFC 1950 §2.2).
 pub fn method_and_info(window_bits_field: u8) u8 {
@@ -43,7 +43,7 @@ pub fn trailer(stream: *Stream, decoded: []const u8) void {
 }
 
 fn step(decoder: *Decoder, input: []const u8, output: []u8) zlib.Error!codec.Progress {
-    return zlib.decode(decoder, input, output);
+    return decoder.decode(input, output);
 }
 
 /// Decodes `input` in one call and under every seed, and requires `expected` and the stream's end
@@ -51,15 +51,15 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) zlib.Error!codec.Pro
 fn expect_decodes(input: []const u8, stream_len: usize, expected: []const u8) !void {
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    zlib.init(&decoder, .{});
-    const progress = try zlib.decode(&decoder, input, &output);
+    decoder.init(.{});
+    const progress = try decoder.decode(input, &output);
     try testing.expectEqual(codec.Status.done, progress.status);
     try testing.expectEqual(stream_len, progress.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
     for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
-        zlib.init(&states[0], .{});
-        const outcome = try codec.split.drive(Decoder, &states, step, input, output[0..expected.len], seed);
+        var states: [codec.testing.split.state_slots]Decoder = undefined;
+        states[0].init(.{});
+        const outcome = try codec.testing.split.drive(Decoder, &states, step, input, output[0..expected.len], seed);
         try testing.expectEqual(codec.Status.done, outcome.status);
         try testing.expectEqual(stream_len, outcome.consumed);
         try testing.expectEqualSlices(u8, expected, output[0..outcome.written]);
@@ -70,13 +70,13 @@ fn expect_decodes(input: []const u8, stream_len: usize, expected: []const u8) !v
 fn expect_refused(input: []const u8, expected: zlib.Error, class: codec.Refusal) !void {
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    zlib.init(&decoder, .{});
-    try testing.expectError(expected, zlib.decode(&decoder, input, &output));
+    decoder.init(.{});
+    try testing.expectError(expected, decoder.decode(input, &output));
     try testing.expectEqual(class, zlib.refusal(expected));
     for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
-        zlib.init(&states[0], .{});
-        try testing.expectError(expected, codec.split.drive(Decoder, &states, step, input, &output, seed));
+        var states: [codec.testing.split.state_slots]Decoder = undefined;
+        states[0].init(.{});
+        try testing.expectError(expected, codec.testing.split.drive(Decoder, &states, step, input, &output, seed));
     }
 }
 
@@ -106,14 +106,14 @@ test "decode_all decodes a whole stream, and names an input cut short and a full
     stream.append("next");
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    zlib.init(&decoder, .{});
-    const whole = try zlib.decode_all(&decoder, stream.slice(), &output);
+    decoder.init(.{});
+    const whole = try decoder.decode_all(stream.slice(), &output);
     try testing.expectEqual(codec.Whole{ .consumed = stream_len, .written = text.len }, whole);
     try testing.expectEqualSlices(u8, text, output[0..whole.written]);
-    zlib.init(&decoder, .{});
-    try testing.expectError(error.Truncated, zlib.decode_all(&decoder, stream.slice()[0 .. stream_len - 1], &output));
-    zlib.init(&decoder, .{});
-    try testing.expectError(error.NoSpaceLeft, zlib.decode_all(&decoder, stream.slice(), output[0 .. text.len - 1]));
+    decoder.init(.{});
+    try testing.expectError(error.Truncated, decoder.decode_all(stream.slice()[0 .. stream_len - 1], &output));
+    decoder.init(.{});
+    try testing.expectError(error.NoSpaceLeft, decoder.decode_all(stream.slice(), output[0 .. text.len - 1]));
 }
 
 test "an empty stream's ADLER32 is 1" {
@@ -140,8 +140,8 @@ test "a cut stream needs input, and is never done before its last octet" {
     var output: [output_len_max]u8 = undefined;
     for (0..whole.len) |cut| {
         var decoder: Decoder = undefined;
-        zlib.init(&decoder, .{});
-        const progress = try zlib.decode(&decoder, whole[0..cut], &output);
+        decoder.init(.{});
+        const progress = try decoder.decode(whole[0..cut], &output);
         try testing.expectEqual(codec.Status.needs_input, progress.status);
         try testing.expectEqual(cut, progress.consumed);
     }

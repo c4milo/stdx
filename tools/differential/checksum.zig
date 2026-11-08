@@ -45,7 +45,7 @@ const Check = struct {
     name: []const u8,
     initial: u32,
     /// A start value the seed draws, valid for the check.
-    draw_start: *const fn (generator: *codec.split.Generator) u32,
+    draw_start: *const fn (generator: *codec.testing.split.Generator) u32,
     rfc: *const fn (u32, []const u8) u32,
     zlib: *const fn (u32, []const u8) u32,
     wuffs: *const fn ([]const u8) u32,
@@ -76,11 +76,11 @@ const Path = struct {
     update: *const fn (u32, []const u8) u32,
 };
 
-fn draw_crc32_start(generator: *codec.split.Generator) u32 {
+fn draw_crc32_start(generator: *codec.testing.split.Generator) u32 {
     return @truncate(generator.next());
 }
 
-fn draw_adler32_start(generator: *codec.split.Generator) u32 {
+fn draw_adler32_start(generator: *codec.testing.split.Generator) u32 {
     const s1: u32 = @intCast(generator.below(checksum.constants.adler32_base));
     const s2: u32 = @intCast(generator.below(checksum.constants.adler32_base));
     return (s2 << @bitSizeOf(u16)) | s1;
@@ -152,7 +152,7 @@ fn compare(check: Check, tally: *Tally, case: Case, octets: []const u8) void {
 }
 
 /// Every length from 0 to `len_max`, at seeded offsets, from the initial value and a seeded start.
-fn check_lengths(check: Check, tally: *Tally, file: []const u8, input: []const u8, generator: *codec.split.Generator) void {
+fn check_lengths(check: Check, tally: *Tally, file: []const u8, input: []const u8, generator: *codec.testing.split.Generator) void {
     for (0..@min(input.len, len_max) + 1) |len| {
         const offset = draw_offset(generator, input.len, len);
         const octets = input[offset..][0..len];
@@ -165,7 +165,7 @@ fn check_lengths(check: Check, tally: *Tally, file: []const u8, input: []const u
 }
 
 /// An offset at which `len` octets fit in an input of `input_len`, drawn from the generator.
-fn draw_offset(generator: *codec.split.Generator, input_len: usize, len: usize) usize {
+fn draw_offset(generator: *codec.testing.split.Generator, input_len: usize, len: usize) usize {
     return @intCast(generator.below(input_len - len + 1));
 }
 
@@ -175,7 +175,7 @@ fn check_whole(check: Check, tally: *Tally, file: []const u8, input: []const u8,
     compare(check, tally, case, input);
     const wanted = check.rfc(check.initial, input);
     for (check.paths()) |path| {
-        var schedule = codec.split.Schedule.init(seed);
+        var schedule = codec.testing.split.Schedule.init(seed);
         var value = check.initial;
         var position: usize = 0;
         for (0..split_calls_max) |_| {
@@ -303,7 +303,7 @@ fn check_file(checks: []const Check, name: []const u8, input: []const u8) Tally 
     var tally: Tally = .{};
     const seed = std.hash.Wyhash.hash(0, name);
     for (checks) |check| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         check_lengths(check, &tally, name, input, &generator);
         check_whole(check, &tally, name, input, seed);
     }
@@ -346,7 +346,7 @@ test "detection on this host finds what the build host's CPU has" {
 }
 
 test "the offsets spread over the input and every piece fits" {
-    var generator = codec.split.Generator.init(0);
+    var generator = codec.testing.split.Generator.init(0);
     const input_len = 3 * len_max;
     var offsets_seen: usize = 0;
     var offset_max: usize = 0;

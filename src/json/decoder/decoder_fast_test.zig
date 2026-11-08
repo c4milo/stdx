@@ -96,7 +96,7 @@ fn expect_lockstep(comptime pair: Pair, framing: Framing, input: []const u8, see
     var lockstep: Lockstep = .{ .fast = undefined, .checked = undefined };
     lockstep.fast.init(framing, codec.Features.detect());
     lockstep.checked.init(framing, codec.Features.detect());
-    var schedule = codec.split.Schedule.init(seed orelse 0);
+    var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
     for (0..calls_max) |_| {
         const left = input.len - lockstep.consumed;
@@ -185,7 +185,7 @@ test "a number and a string that fill the output exactly are taken, and one octe
 test "every seeded corruption of the texts decodes alike with the fast path on and off" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const text = texts[generator.below(texts.len)];
         @memcpy(input[0..text.len], text);
         for (0..generator.below(flips_max + 1)) |_| {

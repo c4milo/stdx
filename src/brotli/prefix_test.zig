@@ -45,7 +45,7 @@ fn nth_symbol_of_len(lengths: []const u8, len: usize, rank: u32) u16 {
 /// Random lengths of a complete code of `count` symbols out of `lengths.len`: two leaves of depth
 /// 1, then a random leaf shorter than the longest code split in two until there are `count`, placed
 /// on the first `count` symbols of a random order of the alphabet.
-fn random_lengths(generator: *codec.split.Generator, lengths: []u8, count: usize) void {
+fn random_lengths(generator: *codec.testing.split.Generator, lengths: []u8, count: usize) void {
     var depths: [constants.insert_copy_alphabet_len]u8 = undefined;
     depths[0] = 1;
     depths[1] = 1;
@@ -107,7 +107,7 @@ fn expect_table_matches(table: anytype, lengths: []const u8) !void {
 }
 
 test "every table takes the entries its codes need, decodes every value as the canonical code does, and asks for bits it lacks" {
-    var generator = codec.split.Generator.init(0);
+    var generator = codec.testing.split.Generator.init(0);
     for (0..24) |_| {
         var lengths: [constants.literal_alphabet_len]u8 = undefined;
         random_lengths(&generator, &lengths, generator.between(2, lengths.len));

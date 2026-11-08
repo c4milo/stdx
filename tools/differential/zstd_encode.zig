@@ -212,7 +212,7 @@ const block_len_max = 128 * 1024;
 /// Seeded flush points in `input`, ascending and before its end, where the finish falls.
 fn draw_points(name: []const u8, level: u4, with_checksum: bool, input_len: usize, points: *[flush_points_max]usize) []const usize {
     if (input_len == 0) return points[0..0];
-    var generator = codec.split.Generator.init(std.hash.Wyhash.hash(@as(u64, level) * 2 + @intFromBool(with_checksum), name));
+    var generator = codec.testing.split.Generator.init(std.hash.Wyhash.hash(@as(u64, level) * 2 + @intFromBool(with_checksum), name));
     const count = generator.below(flush_points_max + 1);
     for (points[0..count]) |*point| point.* = generator.below(input_len);
     std.mem.sort(usize, points[0..count], {}, std.sort.asc(usize));
@@ -226,7 +226,7 @@ fn check_flushes(comptime level: u4, comptime with_checksum: bool, run: *Run, na
     const E = Encoder(level, with_checksum);
     var points_buffer: [flush_points_max]usize = undefined;
     const points = draw_points(name, level, with_checksum, input.len, &points_buffer);
-    const states = try run.arena.create([codec.split.state_slots]E);
+    const states = try run.arena.create([codec.testing.split.state_slots]E);
     defer run.arena.destroy(states);
     states[0].init(codec.Features.detect());
     var written: usize = 0;
@@ -249,7 +249,7 @@ fn check_flushes(comptime level: u4, comptime with_checksum: bool, run: *Run, na
     }.call;
     for (0..split_seeds) |seed| {
         states[0].init(codec.Features.detect());
-        const outcome = try codec.split.drive_encoder(E, states, step, input, run.split, points, std.hash.Wyhash.hash(seed, name));
+        const outcome = try codec.testing.split.drive_encoder(E, states, step, input, run.split, points, std.hash.Wyhash.hash(seed, name));
         if (outcome.status != .done or !std.mem.eql(u8, run.encoded[0..written], run.split[0..outcome.written])) return fail(run, name, level, "a split gave other octets");
     }
 }

@@ -376,7 +376,7 @@ test "the decoder's verdict is the parser's on every text the RFC gives and on h
 test "the decoder's verdict is the parser's on seeded inputs near and far from the grammar" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const len = draw_jsonish(&generator, &input);
         try expect_judged(.text, input[0..len]);
         try expect_judged(.sequence, input[0..len]);
@@ -387,7 +387,7 @@ test "the decoder's verdict is the parser's on seeded inputs near and far from t
 }
 
 /// Octets drawn from the grammar's alphabet, in runs that often form its tokens.
-fn draw_jsonish(generator: *codec.split.Generator, buffer: []u8) usize {
+fn draw_jsonish(generator: *codec.testing.split.Generator, buffer: []u8) usize {
     const pieces = [_][]const u8{
         "{",  "}",  "[",       "]",   ":",       ",",    " ",     "\n",   "\"",       "\"a\"",        "\"\\n\"", "\"\\u00e9\"", "\"\\uD834\\uDD1E\"", "\\",
         "0",  "-1", "2.5",     "1e9", "-0.0E-1", "true", "false", "null", "\xc3\xa9", "\xe2\x82\xac", "\x1e",    "\x00",        "\xff",               "\"\\uD834\"",

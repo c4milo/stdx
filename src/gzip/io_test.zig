@@ -5,7 +5,7 @@ const testing = std.testing;
 const codec = @import("codec");
 const io = @import("io.zig");
 
-const io_parts = codec.io_parts;
+const io_parts = codec.testing.io_parts;
 const header_len = @import("constants.zig").fixed_header_len;
 
 const plain_len_max = 6000;

@@ -154,7 +154,7 @@ test "four letters' literals are cheap and priced less their share; text's are n
     var block: Block = undefined;
     var plan: Plan = undefined;
     var costs: Costs = undefined;
-    var generator = codec.split.Generator.init(5);
+    var generator = codec.testing.split.Generator.init(5);
     // Four letters a fifth of the symbols, pairs the rest: the letters code in 4 or 5 bits, about
     // 2 among the literals.
     block.reset(0);

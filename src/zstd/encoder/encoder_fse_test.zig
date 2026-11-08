@@ -18,7 +18,7 @@ const count_max = 1000;
 const stream_len_max = 1024;
 
 /// Counts a seeded generator draws for `symbols` symbols, about a third of them zero in runs.
-fn draw_counts(generator: *codec.split.Generator, counts: []u32) u32 {
+fn draw_counts(generator: *codec.testing.split.Generator, counts: []u32) u32 {
     var total: u32 = 0;
     for (counts) |*count| {
         count.* = if (generator.below(zero_odds) == 0) 0 else @intCast(generator.below(count_max) + 1);
@@ -35,7 +35,7 @@ fn draw_counts(generator: *codec.split.Generator, counts: []u32) u32 {
 }
 
 test "a normalized distribution sums to its scale, and every symbol that occurs keeps a point" {
-    var generator = codec.split.Generator.init(1);
+    var generator = codec.testing.split.Generator.init(1);
     for (0..200) |_| {
         var counts: [fse.symbols_max]u32 = undefined;
         const symbols = generator.between(2, fse.symbols_max);
@@ -56,7 +56,7 @@ test "a normalized distribution sums to its scale, and every symbol that occurs 
 }
 
 test "a written description reads back as the same distribution" {
-    var generator = codec.split.Generator.init(2);
+    var generator = codec.testing.split.Generator.init(2);
     for (0..200) |_| {
         var counts: [fse.symbols_max]u32 = undefined;
         const symbols = generator.between(2, fse.symbols_max);
@@ -80,7 +80,7 @@ test "a written description reads back as the same distribution" {
 }
 
 test "symbols encoded backward decode forward through the decoder's table" {
-    var generator = codec.split.Generator.init(3);
+    var generator = codec.testing.split.Generator.init(3);
     for (0..100) |_| {
         var counts: [fse.symbols_max]u32 = undefined;
         const symbols = generator.between(2, fse.symbols_max);
@@ -100,7 +100,7 @@ test "symbols encoded backward decode forward through the decoder's table" {
 }
 
 /// Symbols that occur, drawn with no weight in particular.
-fn draw_message(generator: *codec.split.Generator, counts: []const u32, message: []u8) void {
+fn draw_message(generator: *codec.testing.split.Generator, counts: []const u32, message: []u8) void {
     for (message) |*symbol| {
         var drawn: usize = generator.below(counts.len);
         for (0..counts.len) |_| {

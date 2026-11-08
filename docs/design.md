@@ -90,12 +90,12 @@ a gzip body that arrives in pieces:
 
 ```zig
 var decoder: gzip.Decoder = undefined;
-gzip.init(&decoder);
+decoder.init(codec.Features.detect());
 while (true) {
     const piece = try receive(); // the caller's I/O, not stdx's
     var input = piece;
     while (true) {
-        const progress = try gzip.decode(&decoder, input, room());
+        const progress = try decoder.decode(input, room());
         deliver(progress.written); // output[0..written] is decoded data
         input = input[progress.consumed..];
         switch (progress.status) {
@@ -312,7 +312,7 @@ to 12 are reordered and nothing else changes.
       77 of 100 seeds of the toy with that defect fail; the test pins the exact count. The rest
       finish in one call, or read the header only after that move.
   - 20 mutations, all CAUGHT:
-    - the reader reading past its end in `take` and in `read_octet`; the writer writing past its
+    - the reader reading past its end in `take` and in `take_octet`; the writer writing past its
       end in `write_all`, and `write_partial` writing all of its input;
     - the bit reader counting an octet as 7 bits, `align_to_octet` dropping nothing,
       `unread_whole_octets` handing back an earlier call's octets, and its mask one bit too wide;
@@ -455,7 +455,7 @@ to 12 are reordered and nothing else changes.
   **Check passed, 2026-09-26.** Zig 0.16.0 on macOS 26.6 arm64 by hand, and on both hosted runners.
   - The decoders: zlib (fddeead) and gzip (c3fd932) around step 5's decoder. `codec.Field` reads a
     header or trailer field split anywhere (6e2e5cb). `checksum.Features.from` picks each
-    checksum path from the caller's `codec.Features` (bff6c14), and `deflate.limit_window` holds
+    checksum path from the caller's `codec.Features` (bff6c14), and `deflate.Decoder.limit_window` holds
     a stream to the window CINFO declares (ba7cd14).
   - `zig build differential-deflate -Doracles` passed on both runners in CI run
     [36214438697](https://github.com/c4milo/stdx/actions/runs/36214438697), with the same counts
@@ -568,7 +568,7 @@ to 12 are reordered and nothing else changes.
       on's claims, so the two shared the functions over the claims that read a block's header,
       copy a stored block and read the code lengths, and LLVM kept those out of line in both,
       where each claim candidate inlined its own. The gzip decoder and S10's decodes reach all
-      on's entry through `deflate.decode`, so LLVM kept that entry out of line too. Since 91238df
+      on's entry through `deflate.Decoder.decode`, so LLVM kept that entry out of line too. Since 91238df
       the checked candidate turns off S1 and S4, which only the fast path reads, and every
       candidate's entry stays out of line. All on's `run` is then the same size as S1's, S2's
       and S4's on both architectures.
@@ -4861,7 +4861,7 @@ to 12 are reordered and nothing else changes.
   `exp-json-perf-2`, at 305af14 with J8 and J9, found the benchmark's build calling what the probes
   inlined. Decoding qlog, 35% of the time was in `next_token`, 17% in `value` and 4% in
   `container_end`; about 10% was in the number machine's table, stepped once a digit. Encoding,
-  15% was in `Encoder.advance` and 9% in `memcpy`, copying a token's one or two octets of opening
+  15% was in `advance` in encoder.zig and 9% in `memcpy`, copying a token's one or two octets of opening
   and closing. Both fast paths are now inline throughout. The encoder writes those octets one at a
   time, and a number's scans take a run of digits without stepping the machine where a digit
   leaves its state as it is. Mutations, each against `zig build test-json`:
@@ -5017,7 +5017,7 @@ to 12 are reordered and nothing else changes.
     English text 5% to 12% faster. J7 now takes AVX2's kernels alone (decision 30).
   - On the N2, where J7 takes no kernel, long strings with escapes encoded 4% to 8% faster with any
     one claim off, J7's included. What the all-on build inlined slowed its checked content loop, so
-    `Encoder.run` now calls that loop out of line in every build.
+    `run` in encoder.zig now calls that loop out of line in every build.
 
   bench-json run [36502826435](https://github.com/c4milo/stdx/actions/runs/36502826435) at d90d8f6
   listed no loss on the N2. On an AMD EPYC 7763 it listed seven, each 5% to 8%: 1 KiB hex strings
@@ -5678,7 +5678,7 @@ to 12 are reordered and nothing else changes.
   `]`, the depth limit, both string blocks' lengths and room, the plain number's leading zero,
   fraction and end, and decision 43's four checks, each inverted. NOT CAUGHT: a separator's pair
   that takes a space as the next token's first octet. Every step refuses a space as a first octet
-  and stops there, and `Decoder.run` takes the whitespace and the token, so the tokens, the octets
+  and stops there, and `run` in decoder.zig takes the whitespace and the token, so the tokens, the octets
   and the state are the same.
 
   **The walk's runs, 2026-10-03.** bench-json runs

@@ -6,7 +6,7 @@ const testing = std.testing;
 const codec = @import("codec");
 const io = @import("io.zig");
 
-const io_parts = codec.io_parts;
+const io_parts = codec.testing.io_parts;
 
 /// The smallest window the decoder takes, so the test's reader fits its stack.
 const TestReader = io.IoReader(.{ .window_len_max = @import("constants.zig").block_len_max });

@@ -100,12 +100,12 @@ noinline fn expect_paths(comptime paths: claims.Paths, input: []const u8, expect
 
 /// Decodes `input` in one call and under `seed`'s split, and requires both to agree.
 noinline fn check_split(input: []const u8, seed: u64) !void {
-    var states: [codec.split.state_slots]Decoder = undefined;
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
     const whole = try decode_whole(&states[0], input, &whole_output);
     states[0].init(codec.Features.detect());
     var split_output: [output_len_max]u8 = undefined;
-    const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
+    const outcome = codec.testing.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         if (err == error.TestWorkPastBound) return err;
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
         return;
@@ -123,7 +123,7 @@ noinline fn check_split(input: []const u8, seed: u64) !void {
 test "every seeded corruption of a valid stream decodes alike in one call and split" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const valid = valid_streams[generator.below(valid_streams.len)];
         @memcpy(input[0..valid.len], valid);
         for (0..generator.below(flips_max + 1)) |_| {

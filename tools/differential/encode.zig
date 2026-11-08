@@ -236,8 +236,8 @@ fn check_decoders(comptime container: oracle.Container, comptime level: u4, run:
     const module = Decoder(container);
     const state = try run.arena.create(module.Decoder);
     defer run.arena.destroy(state);
-    module.init(state, codec.Features.detect());
-    const whole = module.decode_all(state, stream, run.decoded) catch return fail(run, name, container, level, "stdx's decoder refused it");
+    state.init(codec.Features.detect());
+    const whole = state.decode_all(stream, run.decoded) catch return fail(run, name, container, level, "stdx's decoder refused it");
     if (whole.consumed != stream.len or !std.mem.eql(u8, input, run.decoded[0..whole.written])) return fail(run, name, container, level, "stdx's decoder gave other octets");
     const by_zlib = oracle.zlib_decode(container, stream, run.decoded);
     if (by_zlib.verdict != .ok or by_zlib.consumed != stream.len or !std.mem.eql(u8, input, run.decoded[0..by_zlib.written])) return fail(run, name, container, level, "zlib disagreed");
@@ -249,7 +249,7 @@ fn check_decoders(comptime container: oracle.Container, comptime level: u4, run:
 fn draw_points(name: []const u8, container: oracle.Container, level: u4, input_len: usize, points: *[flush_points_max]usize) []const usize {
     if (input_len == 0) return points[0..0];
     const seed = @as(u64, level) + @as(u64, @intCast(@intFromEnum(container))) * containers_seed_step;
-    var generator = codec.split.Generator.init(std.hash.Wyhash.hash(seed, name));
+    var generator = codec.testing.split.Generator.init(std.hash.Wyhash.hash(seed, name));
     const count = generator.below(flush_points_max + 1);
     for (points[0..count]) |*point| point.* = generator.below(input_len);
     std.mem.sort(usize, points[0..count], {}, std.sort.asc(usize));
@@ -263,7 +263,7 @@ fn check_flushes(comptime container: oracle.Container, comptime level: u4, run: 
     const E = Encoder(container, level);
     var points_buffer: [flush_points_max]usize = undefined;
     const points = draw_points(name, container, level, input.len, &points_buffer);
-    const states = try run.arena.create([codec.split.state_slots]E);
+    const states = try run.arena.create([codec.testing.split.state_slots]E);
     defer run.arena.destroy(states);
     states[0].init(codec.Features.detect());
     var written: usize = 0;
@@ -286,7 +286,7 @@ fn check_flushes(comptime container: oracle.Container, comptime level: u4, run: 
     }.call;
     for (0..split_seeds) |seed| {
         states[0].init(codec.Features.detect());
-        const outcome = try codec.split.drive_encoder(E, states, step, input, run.split, points, std.hash.Wyhash.hash(seed, name));
+        const outcome = try codec.testing.split.drive_encoder(E, states, step, input, run.split, points, std.hash.Wyhash.hash(seed, name));
         if (outcome.status != .done or !std.mem.eql(u8, run.encoded[0..written], run.split[0..outcome.written])) return fail(run, name, container, level, "a split gave other octets");
     }
 }
@@ -296,7 +296,7 @@ fn check_flushed(comptime container: oracle.Container, comptime level: u4, run: 
     const module = Decoder(container);
     const state = try run.arena.create(module.Decoder);
     defer run.arena.destroy(state);
-    module.init(state, codec.Features.detect());
-    const progress = module.decode(state, stream, run.decoded) catch return fail(run, name, container, level, "stdx refused a flushed stream");
+    state.init(codec.Features.detect());
+    const progress = state.decode(stream, run.decoded) catch return fail(run, name, container, level, "stdx refused a flushed stream");
     if (progress.status != .needs_input or !std.mem.eql(u8, input, run.decoded[0..progress.written])) return fail(run, name, container, level, "a flush left input undecodable");
 }

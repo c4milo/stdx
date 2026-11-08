@@ -141,7 +141,7 @@ test "a decimal is written with exactly its fraction's digits" {
 test "every text written holds the digits std.fmt writes for its value" {
     var buffer: Buffer = undefined;
     var expected: [constants.number_text_len_max]u8 = undefined;
-    var generator = codec.split.Generator.init(2);
+    var generator = codec.testing.split.Generator.init(2);
     for (0..10_000) |_| {
         const value = generator.next() >> @intCast(generator.below(64));
         try testing.expectEqualStrings(try std.fmt.bufPrint(&expected, "{d}", .{value}), unsigned(&buffer, value));
@@ -156,7 +156,7 @@ test "every text written holds the digits std.fmt writes for its value" {
 
 test "every text written is a number of RFC 8259 §6" {
     var buffer: Buffer = undefined;
-    var generator = codec.split.Generator.init(1);
+    var generator = codec.testing.split.Generator.init(1);
     for (0..10_000) |_| {
         const value = generator.next();
         try testing.expect(number.is_number(unsigned(&buffer, value >> @intCast(value % 64))));

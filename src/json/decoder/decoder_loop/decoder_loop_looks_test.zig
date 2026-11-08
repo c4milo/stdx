@@ -98,7 +98,7 @@ const tail = "\",1]" ++ " " ** padding_len;
 test "a string's rest is copied alike with the blocks and with the walk that stops at each escape" {
     var text: [text_len_max]u8 = undefined;
     for (0..seeded.seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const len = seeded.seeded_text(&generator, seeded.mix_of(seed), &text);
         @memcpy(text[len..][0..tail.len], tail);
         // The string whole with what follows it, then cut where the seed says.

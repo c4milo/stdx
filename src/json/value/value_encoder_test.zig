@@ -47,7 +47,7 @@ test "a value of every shape encodes to its text, whole and under any split of t
     const text = try value_encoder.encode_value(Record, &record, &output, .text, codec.Features.none());
     try testing.expectEqualStrings(record_text, text);
     try testing.expectError(error.NoSpaceLeft, value_encoder.encode_value(Record, &record, output[0..10], .text, codec.Features.none()));
-    var generator = codec.split.Generator.init(61);
+    var generator = codec.testing.split.Generator.init(61);
     for (0..200) |_| {
         var state: value_encoder.ValueEncoder(Record) = undefined;
         state.init(.text, codec.Features.none());

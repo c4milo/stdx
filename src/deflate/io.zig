@@ -9,11 +9,7 @@ const encoder = @import("encoder/encoder.zig");
 
 /// The decoder of one raw DEFLATE stream. Octets after the stream's last block are refused as
 /// `error.TrailingOctets`.
-pub const IoReader = codec.IoReader(decoder.Decoder, decoder.Error, .{
-    .init = decoder.init,
-    .decode = decoder.decode,
-    .after_done = .refuse,
-});
+pub const IoReader = codec.IoReader(decoder.Decoder, decoder.Error, .refuse);
 
 /// The encoder of one raw DEFLATE stream at `options`. It holds back at most its window of input
 /// between calls.

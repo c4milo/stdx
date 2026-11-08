@@ -118,7 +118,7 @@ test "RFC 1951 section 3.2.7's incomplete distance codes leave the unused values
 
 test "every seeded complete code's table agrees with the canonical decode" {
     for (0..200) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var lengths: [constants.literal_length_used]u8 = @splat(0);
         const symbols = generator.between(2, constants.literal_length_used);
         complete_lengths(&generator, lengths[0..symbols]);
@@ -137,7 +137,7 @@ test "every seeded complete code's table agrees with the canonical decode" {
 
 test "combining joins each resolved length with the distance code after it, where the code fits" {
     for (0..500) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var literal_lengths: [constants.literal_length_used]u8 = @splat(0);
         deal(&generator, &literal_lengths, generator.between(2, combining_symbols_max), constants.first_length_symbol);
         // Every other code takes the whole distance alphabet, codes 30 and 31 favored, which never
@@ -186,7 +186,7 @@ fn expected_combined(plain: lookup.Entry, index: usize, bits: u4, distance_bits:
 
 /// Gives the lengths of a seeded complete code over `count` symbols to symbols of `lengths` the
 /// generator draws, half of them from `favored` on, where a literal/length code's lengths start.
-fn deal(generator: *codec.split.Generator, lengths: []u8, count: usize, favored: usize) void {
+fn deal(generator: *codec.testing.split.Generator, lengths: []u8, count: usize, favored: usize) void {
     var code: [constants.literal_length_used]u8 = @splat(0);
     complete_lengths(generator, code[0..count]);
     for (code[0..count]) |len| lengths[free_symbol(generator, lengths, favored)] = len;
@@ -197,7 +197,7 @@ const ranges = 2;
 
 /// A symbol of `lengths` with no length yet: drawn below `favored` or from it on, alike, and the
 /// next free one from there. One exists, since a code has fewer symbols than its alphabet.
-fn free_symbol(generator: *codec.split.Generator, lengths: []const u8, favored: usize) usize {
+fn free_symbol(generator: *codec.testing.split.Generator, lengths: []const u8, favored: usize) usize {
     const favor = favored < lengths.len and generator.below(ranges) == 0;
     const start = if (favor) favored else 0;
     const end = if (favor or favored >= lengths.len) lengths.len else favored;
@@ -212,7 +212,7 @@ fn free_symbol(generator: *codec.split.Generator, lengths: []const u8, favored: 
 /// Lengths of a complete code for every symbol of `lengths`: starting from one leaf of no bits,
 /// splits a seeded leaf in two until there are as many leaves as symbols, deepening no leaf past
 /// 15 bits (RFC 1951 §3.2.7).
-fn complete_lengths(generator: *codec.split.Generator, lengths: []u8) void {
+fn complete_lengths(generator: *codec.testing.split.Generator, lengths: []u8) void {
     lengths[0] = 0;
     for (1..lengths.len) |leaves| {
         var leaf: usize = @intCast(generator.below(leaves));
@@ -223,7 +223,7 @@ fn complete_lengths(generator: *codec.split.Generator, lengths: []u8) void {
     }
 }
 
-fn shuffle(generator: *codec.split.Generator, lengths: []u8) void {
+fn shuffle(generator: *codec.testing.split.Generator, lengths: []u8) void {
     for (1..lengths.len) |index| {
         const other: usize = @intCast(generator.below(index + 1));
         std.mem.swap(u8, &lengths[index], &lengths[other]);

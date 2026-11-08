@@ -213,7 +213,7 @@ const Started = struct {
 
 /// Adds `count` literals to `block`, drawn from `letters` letters from `first` on.
 fn add_letters(block: *Block, count: usize, first: u8, letters: u8, seed: u64) void {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     for (0..count) |_| block.add_literal(true, first + @as(u8, @intCast(generator.below(letters))));
 }
 

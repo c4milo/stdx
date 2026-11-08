@@ -4,7 +4,7 @@
 const Claims = @import("claims.zig").Claims;
 const constants = @import("constants.zig");
 
-pub const Options = struct {
+pub const DecodePaths = struct {
     /// The fast path of decision 16, for the symbols of a block while the margins hold.
     fast_paths: bool = true,
     /// Decision 14's claims, which the benchmark switches off one at a time (claims.zig).
@@ -47,6 +47,6 @@ pub const How = enum { table, canonical };
 
 /// Where a decode on `options` counts: the caller's `Lookups` when it counts, and nothing when it
 /// does not, so a decode that does not count carries no counter.
-pub fn Counter(comptime options: Options) type {
+pub fn Counter(comptime options: DecodePaths) type {
     return if (options.count_lookups) *Lookups else void;
 }

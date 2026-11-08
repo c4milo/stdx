@@ -43,7 +43,7 @@ fn Step(comptime level: u4, comptime with_checksum: bool) type {
 }
 
 /// Text-like input: words with seeded noise, which repeats as a body of text does.
-fn fill_text(generator: *codec.split.Generator, octets: []u8) void {
+fn fill_text(generator: *codec.testing.split.Generator, octets: []u8) void {
     const words = [_][]const u8{ "octet ", "window ", "stream ", "the ", "of ", "match ", "zstd ", "frame ", "a ", "coded " };
     var at: usize = 0;
     for (0..octets.len) |_| {
@@ -67,7 +67,7 @@ const medium_len = 5000;
 const long_len = 140_000;
 
 fn input_of(case: Case) []const u8 {
-    var generator = codec.split.Generator.init(@intFromEnum(case));
+    var generator = codec.testing.split.Generator.init(@intFromEnum(case));
     const len: usize = switch (case) {
         .empty => 0,
         .one => 1,
@@ -124,13 +124,13 @@ fn expect_frames(comptime level: u4, comptime with_checksum: bool) !void {
 }
 
 test "a frame's octets are the same under every split of its input and output" {
-    var generator = codec.split.Generator.init(11);
+    var generator = codec.testing.split.Generator.init(11);
     for (cases) |case| try @call(.never_inline, expect_splits, .{ &generator, input_of(case) });
 }
 
-fn expect_splits(generator: *codec.split.Generator, plain: []const u8) !void {
+fn expect_splits(generator: *codec.testing.split.Generator, plain: []const u8) !void {
     const S = Step(split_level, false);
-    var states: [codec.split.state_slots]S.Encoder = undefined;
+    var states: [codec.testing.split.state_slots]S.Encoder = undefined;
     // Flush points at seeded places, ascending, before the input's end.
     var points: [split_points]usize = undefined;
     var point_count: usize = 0;
@@ -143,7 +143,7 @@ fn expect_splits(generator: *codec.split.Generator, plain: []const u8) !void {
     try expect_decodes(reference[0..reference_len], plain);
     for (0..split_seeds) |seed| {
         states[0].init(.{});
-        const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, plain, &coded, points[0..point_count], seed);
+        const outcome = try codec.testing.split.drive_encoder(S.Encoder, &states, S.step, plain, &coded, points[0..point_count], seed);
         try testing.expectEqual(.done, outcome.status);
         try testing.expectEqualSlices(u8, reference[0..reference_len], coded[0..outcome.written]);
     }
@@ -203,7 +203,7 @@ test "a raw block puts back the Repeated_Offsets its parse moved" {
     // second block repeats at offset 28 after literals, which an encoder that kept the parse's
     // offsets would write as Offset_Value 1, naming the decoder's Repeated_Offset1 of 1.
     var state: Step(1, false).Encoder = undefined;
-    var generator = codec.split.Generator.init(13);
+    var generator = codec.testing.split.Generator.init(13);
     for (input[0..720]) |*octet| octet.* = @truncate(generator.next());
     @memcpy(input[30..35], input[2..7]);
     @memcpy(input[650..670], input[622..642]);

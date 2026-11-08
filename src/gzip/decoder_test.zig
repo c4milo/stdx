@@ -18,7 +18,7 @@ const output_len_max = 1024;
 /// The seeds each member decodes under.
 const split_seeds = 200;
 
-pub const Stream = deflate.TestStream;
+pub const Stream = deflate.testing.Stream;
 
 /// The header's fields a member may carry, and whether FHCRC adds the CRC16.
 pub const Member = struct {
@@ -89,7 +89,7 @@ pub fn stored_member(stream: *Stream, member: Member, octets: []const u8) void {
 }
 
 fn step(decoder: *Decoder, input: []const u8, output: []u8) gzip.Error!codec.Progress {
-    return gzip.decode(decoder, input, output);
+    return decoder.decode(input, output);
 }
 
 /// Decodes `input` in one call and under every seed, and requires `expected` and the member's end
@@ -97,15 +97,15 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) gzip.Error!codec.Pro
 fn expect_decodes(input: []const u8, member_len: usize, expected: []const u8) !void {
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    gzip.init(&decoder, .{});
-    const progress = try gzip.decode(&decoder, input, &output);
+    decoder.init(.{});
+    const progress = try decoder.decode(input, &output);
     try testing.expectEqual(codec.Status.done, progress.status);
     try testing.expectEqual(member_len, progress.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
     for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
-        gzip.init(&states[0], .{});
-        const outcome = try codec.split.drive(Decoder, &states, step, input, output[0..expected.len], seed);
+        var states: [codec.testing.split.state_slots]Decoder = undefined;
+        states[0].init(.{});
+        const outcome = try codec.testing.split.drive(Decoder, &states, step, input, output[0..expected.len], seed);
         try testing.expectEqual(codec.Status.done, outcome.status);
         try testing.expectEqual(member_len, outcome.consumed);
         try testing.expectEqualSlices(u8, expected, output[0..outcome.written]);
@@ -116,13 +116,13 @@ fn expect_decodes(input: []const u8, member_len: usize, expected: []const u8) !v
 fn expect_refused(input: []const u8, expected: gzip.Error) !void {
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    gzip.init(&decoder, .{});
-    try testing.expectError(expected, gzip.decode(&decoder, input, &output));
+    decoder.init(.{});
+    try testing.expectError(expected, decoder.decode(input, &output));
     try testing.expectEqual(codec.Refusal.corrupt, gzip.refusal(expected));
     for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Decoder = undefined;
-        gzip.init(&states[0], .{});
-        try testing.expectError(expected, codec.split.drive(Decoder, &states, step, input, &output, seed));
+        var states: [codec.testing.split.state_slots]Decoder = undefined;
+        states[0].init(.{});
+        try testing.expectError(expected, codec.testing.split.drive(Decoder, &states, step, input, &output, seed));
     }
 }
 
@@ -135,19 +135,19 @@ test "decode_all decodes every member, and refuses what follows the last unless 
     const members_len = stream.slice().len;
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    gzip.init(&decoder, .{});
-    const whole = try gzip.decode_all(&decoder, stream.slice(), &output);
+    decoder.init(.{});
+    const whole = try decoder.decode_all(stream.slice(), &output);
     try testing.expectEqual(codec.Whole{ .consumed = members_len, .written = 12 }, whole);
     try testing.expectEqualSlices(u8, "first second", output[0..whole.written]);
     // The second member cut short, and room for the first member alone.
-    gzip.init(&decoder, .{});
-    try testing.expectError(error.Truncated, gzip.decode_all(&decoder, stream.slice()[0 .. members_len - 1], &output));
-    gzip.init(&decoder, .{});
-    try testing.expectError(error.NoSpaceLeft, gzip.decode_all(&decoder, stream.slice(), output[0..8]));
+    decoder.init(.{});
+    try testing.expectError(error.Truncated, decoder.decode_all(stream.slice()[0 .. members_len - 1], &output));
+    decoder.init(.{});
+    try testing.expectError(error.NoSpaceLeft, decoder.decode_all(stream.slice(), output[0..8]));
     // RFC 1952 §2.3.1: a member starts with ID1 and ID2, so ten zero octets start none.
     stream.append(&(.{0} ** constants.fixed_header_len));
-    gzip.init(&decoder, .{});
-    try testing.expectError(error.InvalidIdentification, gzip.decode_all(&decoder, stream.slice(), &output));
+    decoder.init(.{});
+    try testing.expectError(error.InvalidIdentification, decoder.decode_all(stream.slice(), &output));
     // Two of the shortest members: a fixed block holding end-of-block alone, and no octet decoded.
     stream = .{};
     for (0..2) |_| {
@@ -158,14 +158,14 @@ test "decode_all decodes every member, and refuses what follows the last unless 
         trailer(&stream, "");
     }
     try testing.expectEqual(2 * constants.member_len_min, stream.slice().len);
-    gzip.init(&decoder, .{});
-    try testing.expectEqual(codec.Whole{ .consumed = stream.slice().len, .written = 0 }, try gzip.decode_all(&decoder, stream.slice(), &output));
+    decoder.init(.{});
+    try testing.expectEqual(codec.Whole{ .consumed = stream.slice().len, .written = 0 }, try decoder.decode_all(stream.slice(), &output));
     // ID1 alone may start a member, which then needs input.
     stream = .{};
     stored_member(&stream, .{}, "first ");
     stream.append(&.{constants.identification_1});
-    gzip.init(&decoder, .{});
-    try testing.expectError(error.Truncated, gzip.decode_all(&decoder, stream.slice(), &output));
+    decoder.init(.{});
+    try testing.expectError(error.Truncated, decoder.decode_all(stream.slice(), &output));
 }
 
 /// The fields a member shape may hold, one bit of the shape's index each.
@@ -212,12 +212,12 @@ test "members follow one another, each done at its end" {
     const input = stream.slice();
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    gzip.init(&decoder, .{});
-    const first = try gzip.decode(&decoder, input, &output);
+    decoder.init(.{});
+    const first = try decoder.decode(input, &output);
     try testing.expectEqual(codec.Status.done, first.status);
     try testing.expectEqual(members_len, first.consumed);
-    gzip.init(&decoder, .{});
-    const second = try gzip.decode(&decoder, input[first.consumed..], output[first.written..]);
+    decoder.init(.{});
+    const second = try decoder.decode(input[first.consumed..], output[first.written..]);
     try testing.expectEqual(codec.Status.done, second.status);
     try testing.expectEqual(input.len, first.consumed + second.consumed);
     try testing.expectEqualStrings("first membersecond member", output[0 .. first.written + second.written]);
@@ -230,8 +230,8 @@ test "a cut member needs input, and is never done before its last octet" {
     var output: [output_len_max]u8 = undefined;
     for (0..whole.len) |cut| {
         var decoder: Decoder = undefined;
-        gzip.init(&decoder, .{});
-        const progress = try gzip.decode(&decoder, whole[0..cut], &output);
+        decoder.init(.{});
+        const progress = try decoder.decode(whole[0..cut], &output);
         try testing.expectEqual(codec.Status.needs_input, progress.status);
         try testing.expectEqual(cut, progress.consumed);
     }
@@ -296,8 +296,8 @@ test "a wrong CRC32 is refused as soon as its four octets are in, before ISIZE" 
     stored_member(&valid, .{}, text);
     var output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    gzip.init(&decoder, .{});
-    const progress = try gzip.decode(&decoder, valid.slice()[0..cut.len], &output);
+    decoder.init(.{});
+    const progress = try decoder.decode(valid.slice()[0..cut.len], &output);
     try testing.expectEqual(codec.Status.needs_input, progress.status);
 }
 

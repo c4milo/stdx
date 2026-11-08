@@ -46,47 +46,48 @@ pub const Decoder = struct {
     /// The Adler-32 of every octet written so far, and the path that computes it (decision 21).
     adler32: u32,
     adler32_path: checksum.Adler32Path,
+
+    /// Starts a stream. Writes no octet of the window (decision 11).
+    pub fn init(self: *Decoder, features: codec.Features) void {
+        self.stream.init(features);
+        self.phase = .header;
+        self.field.init();
+        self.adler32 = constants.adler32_initial;
+        self.adler32_path = checksum.Adler32Path.fastest(checksum.Features.from(features));
+    }
+
+    /// Decodes as much of `input` into `output` as both allow (decision 11).
+    pub fn decode(self: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
+        codec.check_entry(input, output);
+        // A call after `done` or after a refusal, without `init`, is a programmer error (decision
+        // 11).
+        assert(self.phase != .done and self.phase != .refused);
+        var cursor: Cursor = .{};
+        const status = run(self, input, output, &cursor) catch |err| {
+            self.phase = .refused;
+            return err;
+        };
+        // Invariant 11: `done` only after ADLER32 matched the octets written.
+        if (status == .done) assert(held_adler32(self) == self.adler32);
+        const progress: codec.Progress = .{ .consumed = cursor.consumed, .written = cursor.written, .status = status };
+        codec.check_progress(input.len, output.len, progress);
+        return progress;
+    }
+
+    /// Decodes a whole stream in one call (decision 11). The input ending before the stream does is
+    /// `error.Truncated`, and the output filling first is `error.NoSpaceLeft`. Octets after the
+    /// stream stay the caller's: `consumed` says where it ended.
+    pub fn decode_all(self: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
+        return codec.whole(try self.decode(input, output));
+    }
 };
 
 comptime {
     assert(@sizeOf(Decoder) <= @sizeOf(deflate.Decoder) + constants.decoder_state_extra_len);
 }
 
-/// Starts a stream. Writes no octet of the window (decision 11).
-pub fn init(decoder: *Decoder, features: codec.Features) void {
-    deflate.init(&decoder.stream, features);
-    decoder.phase = .header;
-    decoder.field.init();
-    decoder.adler32 = constants.adler32_initial;
-    decoder.adler32_path = checksum.Adler32Path.fastest(checksum.Features.from(features));
-}
-
 /// Where a call stands: the octets of its input read and of its output written.
 const Cursor = struct { consumed: usize = 0, written: usize = 0 };
-
-/// Decodes as much of `input` into `output` as both allow (decision 11).
-pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
-    codec.check_entry(input, output);
-    // A call after `done` or after a refusal, without `init`, is a programmer error (decision 11).
-    assert(decoder.phase != .done and decoder.phase != .refused);
-    var cursor: Cursor = .{};
-    const status = run(decoder, input, output, &cursor) catch |err| {
-        decoder.phase = .refused;
-        return err;
-    };
-    // Invariant 11: `done` only after ADLER32 matched the octets written.
-    if (status == .done) assert(held_adler32(decoder) == decoder.adler32);
-    const progress: codec.Progress = .{ .consumed = cursor.consumed, .written = cursor.written, .status = status };
-    codec.check_progress(input.len, output.len, progress);
-    return progress;
-}
-
-/// Decodes a whole stream in one call (decision 11). The input ending before the stream does is
-/// `error.Truncated`, and the output filling first is `error.NoSpaceLeft`. Octets after the stream
-/// stay the caller's: `consumed` says where it ended.
-pub fn decode_all(decoder: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
-    return codec.whole(try decode(decoder, input, output));
-}
 
 fn run(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cursor) Error!codec.Status {
     for (0..constants.phases_per_call_max) |_| {
@@ -126,7 +127,7 @@ fn read_header(decoder: *Decoder, input: []const u8, cursor: *Cursor) Error!?cod
     // RFC 1950 §2.3: a decompressor must reject FDICT when the format around it uses no preset
     // dictionary.
     if (flags & constants.preset_dictionary_flag != 0) return error.PresetDictionary;
-    deflate.limit_window(&decoder.stream, @as(usize, 1) << @intCast(window_bits_field + constants.window_bits_offset));
+    decoder.stream.limit_window(@as(usize, 1) << @intCast(window_bits_field + constants.window_bits_offset));
     decoder.field.init();
     decoder.phase = .stream;
     return null;
@@ -134,7 +135,7 @@ fn read_header(decoder: *Decoder, input: []const u8, cursor: *Cursor) Error!?cod
 
 fn decode_stream(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cursor) Error!?codec.Status {
     const room = output[cursor.written..];
-    const progress = try deflate.decode(&decoder.stream, input[cursor.consumed..], room);
+    const progress = try decoder.stream.decode(input[cursor.consumed..], room);
     decoder.adler32 = checksum.adler32(decoder.adler32_path, decoder.adler32, room[0..progress.written]);
     cursor.consumed += progress.consumed;
     cursor.written += progress.written;

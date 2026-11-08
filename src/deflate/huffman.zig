@@ -342,7 +342,7 @@ const none_or_one = 2;
 
 /// Lengths for an alphabet, drawn from `generator`: no code or one of one bit, lengths at random,
 /// which seldom form a code the decoder accepts, or a complete code.
-fn draw_lengths(generator: *codec.split.Generator, lengths: []u8) void {
+fn draw_lengths(generator: *codec.testing.split.Generator, lengths: []u8) void {
     @memset(lengths, 0);
     switch (generator.below(length_kinds)) {
         0 => if (generator.below(none_or_one) == 0) {
@@ -379,7 +379,7 @@ fn expect_tallied(comptime alphabet_len: usize, lengths: []const u8, counts: *co
 test "a code built from a tally of its lengths is the code built from the lengths (decision 14, S14)" {
     var accepted: usize = 0;
     for (0..tally_seeds) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const literal_length_count: u16 = @intCast(generator.between(constants.hlit_base, constants.literal_length_used));
         const distance_count: u16 = @intCast(generator.between(constants.hdist_base, constants.distance_alphabet_len));
         var lengths: [constants.header_lengths_max]u8 = undefined;

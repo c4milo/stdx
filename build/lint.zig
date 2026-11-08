@@ -53,7 +53,7 @@ const canary_source =
     \\    if (buffer.len == 0) return error.Empty;
     \\}
     \\pub fn parse(reader: *Reader, buffer: []u8) !void {
-    \\    _ = buffer[0..try reader.read_octet()];
+    \\    _ = buffer[0..try reader.take_octet()];
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;

@@ -21,7 +21,7 @@ fn message(comptime read: []const u8) []const u8 {
 /// A stored block's LEN (RFC 1951 §3.2.4), read and then used as a slice end with no check.
 const length_fixture: [:0]const u8 =
     \\pub fn copy_stored(reader: *Reader, window: []u8) !void {
-    \\    const len = try reader.read_int(u16, .little);
+    \\    const len = try reader.take_int(u16, .little);
     \\    _ = window[0..len];
     \\}
 ;
@@ -43,7 +43,7 @@ test "input-index passes literal indexes, lengths, and values no reader produced
         \\}
         \\test "a test slices as it likes" {
         \\    var reader = Reader.init(&octets);
-        \\    const len = try reader.read_octet();
+        \\    const len = try reader.take_octet();
         \\    _ = octets[0..len];
         \\}
     , &.{});
@@ -70,7 +70,7 @@ test "input-index follows a local reader, an assignment and each kind of capture
         \\pub fn parse(input: []const u8, table: []const u8) !void {
         \\    var reader = Reader.init(input);
         \\    var total: usize = 0;
-        \\    total += try reader.read_octet();
+        \\    total += try reader.take_octet();
         \\    _ = table[total];
         \\    var bits: codec.BitReader = undefined;
         \\    const octets = try reader.take(2);
@@ -97,7 +97,7 @@ test "input-index follows a local reader, an assignment and each kind of capture
 test "input-index reads each function, a nested one too, with only its own names" {
     try expect_findings("src/deflate/stored.zig",
         \\pub fn parse(reader: *Reader, table: []u8) !u16 {
-        \\    const len = try reader.read_int(u16, .little);
+        \\    const len = try reader.take_int(u16, .little);
         \\    const Local = struct {
         \\        fn fill(window: []u8, len: usize) void {
         \\            _ = window[0..len];

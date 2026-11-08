@@ -187,7 +187,7 @@ fn judge_valid_as(base: Case, what: []const u8, input: []const u8, buffers: Buff
 pub fn check_file(name: []const u8, input: []const u8, buffers: Buffers) Tally {
     var tally: Tally = .{};
     const prefix = input[0..@min(input.len, base_input_len_max)];
-    var generator = codec.split.Generator.init(std.hash.Wyhash.hash(1, name));
+    var generator = codec.testing.split.Generator.init(std.hash.Wyhash.hash(1, name));
     for (base_encodings) |encoding| {
         const frame_len = oracle.zstd_encode(encoding, prefix, buffers.base) orelse {
             tally.failures += 1;
@@ -202,7 +202,7 @@ pub fn check_file(name: []const u8, input: []const u8, buffers: Buffers) Tally {
     return tally;
 }
 
-fn corrupt_frame(base: Case, buffers: Buffers, generator: *codec.split.Generator, tally: *Tally) void {
+fn corrupt_frame(base: Case, buffers: Buffers, generator: *codec.testing.split.Generator, tally: *Tally) void {
     const valid = base.input;
     const corrupted = buffers.corrupted;
     for (0..valid.len) |cut| judge_as(base, "a cut", valid[0..cut], buffers, tally);
@@ -223,7 +223,7 @@ fn corrupt_frame(base: Case, buffers: Buffers, generator: *codec.split.Generator
 }
 
 /// An octet to flip: half the time within `edge_len` of either end.
-fn flipped_octet(generator: *codec.split.Generator, len: usize) usize {
+fn flipped_octet(generator: *codec.testing.split.Generator, len: usize) usize {
     const edge = @min(edge_len, len);
     return switch (generator.below(4)) {
         0 => generator.below(edge),

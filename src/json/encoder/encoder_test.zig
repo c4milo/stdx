@@ -57,7 +57,7 @@ pub fn encode_whole_with(comptime claims_used: claims.Claims, features: codec.Fe
 /// the state moved to the other slot before the second call and at drawn calls after it, and
 /// returns the octets written or the first error.
 pub fn encode_split(framing: Framing, items: []const Item, output: []u8, seed: u64) !usize {
-    var drive: EncodeDrive = .{ .schedule = codec.split.Schedule.init(seed), .output = output };
+    var drive: EncodeDrive = .{ .schedule = codec.testing.split.Schedule.init(seed), .output = output };
     drive.states[0].init(framing, codec.Features.detect());
     for (items) |item| {
         if (try drive.token(item)) return drive.written;
@@ -67,9 +67,9 @@ pub fn encode_split(framing: Framing, items: []const Item, output: []u8, seed: u
 
 /// Where a split encode stands: the states it moves between, and the output it has written.
 const EncodeDrive = struct {
-    schedule: codec.split.Schedule,
+    schedule: codec.testing.split.Schedule,
     output: []u8,
-    states: [codec.split.state_slots]Encoder = undefined,
+    states: [codec.testing.split.state_slots]Encoder = undefined,
     slot: usize = 0,
     calls: usize = 0,
     written: usize = 0,
@@ -110,7 +110,7 @@ pub fn piece_token(token: Token, last: bool) Token {
     };
 }
 
-fn move(states: *[codec.split.state_slots]Encoder, slot: usize) usize {
+fn move(states: *[codec.testing.split.state_slots]Encoder, slot: usize) usize {
     const other = 1 - slot;
     states[other] = states[slot];
     @memset(std.mem.asBytes(&states[slot]), codec.constants.moved_state_fill);

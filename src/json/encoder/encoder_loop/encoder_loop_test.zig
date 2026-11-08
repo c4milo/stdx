@@ -1,7 +1,7 @@
-//! Claim J11's property: in a batch, the token loop writes items as `Encoder.run` writes them, or
-//! leaves them to it. Two encoders, one with the loop on and one with it off, encode the same items
-//! in batches with the same counts of items and the same room, and every batch must give the same
-//! counts, octets and error, and leave the same state.
+//! Claim J11's property: in a batch, the token loop writes items as `encoder_file.run` writes them,
+//! or leaves them to it. Two encoders, one with the loop on and one with it off, encode the same
+//! items in batches with the same counts of items and the same room, and every batch must give the
+//! same counts, octets and error, and leave the same state.
 
 const std = @import("std");
 const testing = std.testing;
@@ -99,7 +99,7 @@ fn expect_lockstep(comptime pair: Pair, framing: Framing, items: []const encoder
     var lockstep: Lockstep = .{ .looped = undefined, .checked = undefined };
     lockstep.looped.init(framing, codec.Features.detect());
     lockstep.checked.init(framing, codec.Features.detect());
-    var schedule = codec.split.Schedule.init(seed orelse 0);
+    var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * text_len_max;
     for (0..calls_max) |_| {
         const left = items.len - lockstep.index;
@@ -364,7 +364,7 @@ const dense_taken_len = dense_taken.len;
 
 test "seeded strings of close escapes encode alike with the loop on and off" {
     for (0..dense_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var octets: [dense_len_max + 2]u8 = undefined;
         var len: usize = @intCast(generator.below(dense_len_max + 1));
         // One string in four holds an octet the blocks leave, one octet in thirty-two, and one
@@ -417,7 +417,7 @@ test "the loop steps aside at the depth limit, where the checked path refuses" {
 
 test "seeded lists of tokens encode alike with the loop on and off" {
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var program: round_trip.Program = .{};
         round_trip.Draw.value(&generator, &program, 0);
         try check(program.items[0..program.count], generator.next());

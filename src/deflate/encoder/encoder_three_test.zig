@@ -21,7 +21,7 @@ const slot_len = triple_len + 1;
 const input_len = 122_880;
 
 fn fill_triples(input: []u8, seed: u64) void {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     var list: [triples][triple_len]u8 = undefined;
     for (&list) |*triple| {
         for (triple) |*octet| octet.* = @truncate(generator.next());
@@ -78,9 +78,9 @@ test "every split gives the same octets where the table of 3 octets slides with 
         const S = Step(level);
         const whole_len = try encoder_test.encode_whole(level, &input, &whole);
         for (0..split_seeds) |seed| {
-            var states: [codec.split.state_slots]S.Encoder = undefined;
+            var states: [codec.testing.split.state_slots]S.Encoder = undefined;
             states[0].init(.{});
-            const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &.{}, seed);
+            const outcome = try codec.testing.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &.{}, seed);
             try testing.expectEqual(.done, outcome.status);
             try testing.expectEqualSlices(u8, whole[0..whole_len], split[0..outcome.written]);
         }
@@ -112,10 +112,10 @@ test "a flush among matches of 3 octets leaves the output so far decoding, and s
         written += last.written;
         try encoder_test.expect_decodes_to(output[0..written], &input);
         for (0..split_seeds) |seed| {
-            var states: [codec.split.state_slots]S.Encoder = undefined;
+            var states: [codec.testing.split.state_slots]S.Encoder = undefined;
             states[0].init(.{});
             var split: [output.len]u8 = undefined;
-            const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &points, seed);
+            const outcome = try codec.testing.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &points, seed);
             try testing.expectEqualSlices(u8, output[0..written], split[0..outcome.written]);
         }
     }

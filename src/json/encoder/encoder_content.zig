@@ -30,7 +30,7 @@ pub fn write(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *
 
 fn string(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *codec.Reader, writer: *codec.Writer) Error!?codec.Status {
     for (0..reader.remaining_len() + 1) |_| {
-        if (!encoder.write_pending(writer)) return .needs_room;
+        if (!encoder_file.write_pending(encoder, writer)) return .needs_room;
         if (reader.remaining_len() == 0) return end_of_string(encoder, piece);
         if (claims.encoder_string_vectors and encoder.utf8.between_characters()) {
             copy_run(encoder.level.with(claims), reader, writer);
@@ -54,7 +54,7 @@ fn copy_run(level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) voi
 /// Takes the next octet of a string: escapes it, or checks it as UTF-8 and copies it. Returns false
 /// when the output has no room for it, and then leaves it unread.
 fn string_octet(comptime claims: Claims, encoder: *Encoder, reader: *codec.Reader, writer: *codec.Writer) Error!bool {
-    const octet = reader.read_octet() catch unreachable;
+    const octet = reader.take_octet() catch unreachable;
     const between_characters = encoder.utf8.between_characters();
     if (between_characters and octet < constants.non_ascii_min and !scan.is_plain_ascii(octet)) {
         hold_escape(encoder, octet);
@@ -68,7 +68,7 @@ fn string_octet(comptime claims: Claims, encoder: *Encoder, reader: *codec.Reade
     if (claims.encoder_string_vectors and claims.utf8_vectors and between_characters and octet >= constants.non_ascii_min) {
         reader.unread(1);
         if (@call(.never_inline, copy_characters, .{ reader, writer }) > 0) return true;
-        _ = reader.read_octet() catch unreachable;
+        _ = reader.take_octet() catch unreachable;
     }
     // RFC 8259 §8.1 and RFC 3629 §4: a string's octets are UTF-8.
     if (!encoder.utf8.accept(octet)) return error.InvalidUtf8;
@@ -93,11 +93,11 @@ fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
 fn hold_escape(encoder: *Encoder, octet: u8) void {
     assert(octet < constants.unescaped_min or octet == constants.quotation_mark or octet == constants.reverse_solidus);
     if (std.mem.indexOfScalar(u8, constants.escaped_characters, octet)) |index| {
-        encoder.hold(&.{ constants.reverse_solidus, constants.escape_letters[index] });
+        encoder_file.hold(encoder, &.{ constants.reverse_solidus, constants.escape_letters[index] });
         return;
     }
-    encoder.hold(constants.control_escape_prefix);
-    encoder.hold(&hex_pair(octet));
+    encoder_file.hold(encoder, constants.control_escape_prefix);
+    encoder_file.hold(encoder, &hex_pair(octet));
 }
 
 fn hex_pair(octet: u8) [constants.hex_digits_per_octet]u8 {
@@ -113,11 +113,11 @@ fn end_of_string(encoder: *Encoder, piece: Piece) Error!?codec.Status {
 
 fn hex(comptime claims: Claims, encoder: *Encoder, piece: Piece, reader: *codec.Reader, writer: *codec.Writer) ?codec.Status {
     for (0..reader.remaining_len() + 1) |_| {
-        if (!encoder.write_pending(writer)) return .needs_room;
+        if (!encoder_file.write_pending(encoder, writer)) return .needs_room;
         if (reader.remaining_len() == 0) return end_of_hex(piece);
         if (writer.room_len() == 0) return .needs_room;
         // With room for one digit, the next octet's two wait in `pending`.
-        if (hex_run(claims, encoder.level, reader, writer) == 0) encoder.hold(&hex_pair(reader.read_octet() catch unreachable));
+        if (hex_run(claims, encoder.level, reader, writer) == 0) encoder_file.hold(encoder, &hex_pair(reader.take_octet() catch unreachable));
     }
     // Each pass that does not return takes at least one octet.
     unreachable;
@@ -146,7 +146,7 @@ fn number(encoder: *Encoder, piece: Piece, reader: *codec.Reader, writer: *codec
     for (0..reader.remaining_len() + 1) |_| {
         if (reader.remaining_len() == 0) return end_of_number(encoder, piece);
         if (writer.room_len() == 0) return .needs_room;
-        const octet = reader.read_octet() catch unreachable;
+        const octet = reader.take_octet() catch unreachable;
         // RFC 8259 §6: every octet of a number's text belongs to the one number it holds.
         if (encoder.number.accept(octet) != .taken) return error.InvalidNumber;
         writer.write_octet(octet) catch unreachable;

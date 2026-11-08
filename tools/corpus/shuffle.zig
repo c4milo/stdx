@@ -3,8 +3,8 @@
 //!
 //! A shuffle keeps the file's octet frequencies, so its literals keep Huffman codes of many
 //! lengths, and it breaks the file's repeated strings, so few matches cover it: an encoder emits
-//! most of it as literals. The order is a Fisher-Yates shuffle drawn by `codec.split.Generator`,
-//! SplitMix64, from `seed`, so every host writes the same octets.
+//! most of it as literals. The order is a Fisher-Yates shuffle drawn by
+//! `codec.testing.split.Generator`, SplitMix64, from `seed`, so every host writes the same octets.
 //!
 //! Usage: `corpus_shuffle <output> <source>`
 //!
@@ -26,7 +26,7 @@ const usage_exit_status = 2;
 /// Puts `octets` in the order a Fisher-Yates shuffle draws from `seed`: from the last position down
 /// to the first, each position takes the octet of a position drawn at or below it.
 pub fn shuffle(octets: []u8) void {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     var remaining = octets.len;
     for (0..octets.len) |_| {
         const drawn: usize = @intCast(generator.below(remaining));

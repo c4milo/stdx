@@ -151,7 +151,7 @@ pub fn copy_raw(comptime options: DecoderOptions, self: *Self(options), reader: 
 
 /// A repeated block's one octet (RFC 8878 §3.1.1.2.2).
 pub fn read_repeated_octet(comptime options: DecoderOptions, self: *Self(options), reader: *codec.Reader) Error!?Status {
-    self.repeated = reader.read_octet() catch return .needs_input;
+    self.repeated = reader.take_octet() catch return .needs_input;
     self.phase = .repeated_block;
     return null;
 }

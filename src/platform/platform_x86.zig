@@ -9,8 +9,8 @@ const platform = @import("platform.zig");
 const constants = platform.constants;
 const Answer = platform.Answer;
 const Cpu = platform.Cpu;
-const answer = platform.answer;
-const both = platform.both;
+const answer = @import("platform_answer.zig").answer;
+const both = @import("platform_answer.zig").both;
 
 /// The four registers CPUID writes.
 const Registers = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };

@@ -44,7 +44,6 @@ pub const TextReader = text_reader.TextReader;
 pub fn is_utf8(octets: []const u8, features: codec.Features) bool {
     return wide.is_utf8(wide.CheckLevel.of(features), octets);
 }
-pub const Item = text_reader.Item;
 
 const value_encoder = @import("value/value_encoder.zig");
 pub const ValueEncoder = value_encoder.ValueEncoder;
@@ -53,7 +52,6 @@ const value_decoder = @import("value/value_decoder.zig");
 pub const ValueDecoder = value_decoder.ValueDecoder;
 pub const decode_value = value_decoder.decode_value;
 pub const ValueDecodeError = value_decoder.Error;
-pub const ValueEncodeError = value_encoder.Error;
 
 test {
     _ = constants;

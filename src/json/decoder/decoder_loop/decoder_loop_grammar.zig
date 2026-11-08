@@ -189,7 +189,7 @@ inline fn literal_value(loop: *Loop, run: *Run, comptime kind: Kind, comptime te
 
 /// After a value: the ends of the containers it closes, then a value separator and, in an
 /// object, the next member's name and name separator, or the text's end at depth 0, as
-/// `Decoder.value_ended` finds it. True at the next value's first octet, and false where the
+/// `decoder_file.value_ended` finds it. True at the next value's first octet, and false where the
 /// loop stops. Each pass closes a container: the depth bounds the loop.
 inline fn after_values(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) bool {
     while (loop.depth > 0) {

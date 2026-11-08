@@ -58,9 +58,9 @@ pub const containers = std.enums.values(oracle.Container);
 
 /// The states a split moves between, for each container's decoder.
 pub const States = struct {
-    raw: [codec.split.state_slots]deflate.Decoder,
-    zlib: [codec.split.state_slots]zlib.Decoder,
-    gzip: [codec.split.state_slots]gzip.Decoder,
+    raw: [codec.testing.split.state_slots]deflate.Decoder,
+    zlib: [codec.testing.split.state_slots]zlib.Decoder,
+    gzip: [codec.testing.split.state_slots]gzip.Decoder,
 };
 
 /// The buffers one file's checks reuse.
@@ -91,13 +91,13 @@ pub fn codec_name(container: oracle.Container) []const u8 {
 }
 
 /// stdx's decode of `stream` under `seed`'s split.
-pub fn stdx_split(container: oracle.Container, buffers: Buffers, stream: []const u8, output: []u8, seed: u64) !codec.split.Outcome {
+pub fn stdx_split(container: oracle.Container, buffers: Buffers, stream: []const u8, output: []u8, seed: u64) !codec.testing.split.Outcome {
     switch (container) {
         inline else => |known| {
             const module = Codec(known);
             const states = &@field(buffers.states, @tagName(known));
-            module.init(&states[0], .{});
-            return codec.split.drive(module.Decoder, states, module.decode, stream, output, seed);
+            states[0].init(.{});
+            return codec.testing.split.drive(module.Decoder, states, module.Decoder.decode, stream, output, seed);
         },
     }
 }
@@ -108,8 +108,8 @@ pub fn stdx_all(container: oracle.Container, buffers: Buffers, stream: []const u
         inline else => |known| {
             const module = Codec(known);
             const decoder = &@field(buffers.states, @tagName(known))[0];
-            module.init(decoder, .{});
-            return module.decode_all(decoder, stream, output);
+            decoder.init(.{});
+            return decoder.decode_all(stream, output);
         },
     }
 }
@@ -153,8 +153,8 @@ pub fn stdx_whole(container: oracle.Container, buffers: Buffers, input: []const 
         inline else => |known| {
             const module = Codec(known);
             const decoder = &@field(buffers.states, @tagName(known))[0];
-            module.init(decoder, .{});
-            const progress = module.decode(decoder, input, output) catch |err| {
+            decoder.init(.{});
+            const progress = decoder.decode(input, output) catch |err| {
                 return stopped_at(decoder, .{ .kind = .refused, .stdx_error = @errorName(err) });
             };
             const kind: verdicts.Kind = switch (progress.status) {
@@ -174,7 +174,7 @@ const Setting = struct {
     point_count: usize,
 };
 
-fn draw_setting(generator: *codec.split.Generator, container: oracle.Container, level: c_int, strategy: oracle.Strategy, input_len: usize) Setting {
+fn draw_setting(generator: *codec.testing.split.Generator, container: oracle.Container, level: c_int, strategy: oracle.Strategy, input_len: usize) Setting {
     var setting: Setting = .{
         .encoding = .{
             .container = container,
@@ -248,7 +248,7 @@ fn fail(tally: *Tally, name: []const u8, setting: Setting, who: []const u8, what
 /// Every container, level and strategy over the prefix, then the whole file at zlib's default.
 fn check_matrix(name: []const u8, input: []const u8, buffers: Buffers, tally: *Tally) void {
     const prefix = input[0..@min(input.len, matrix_input_len_max)];
-    var generator = codec.split.Generator.init(std.hash.Wyhash.hash(0, name));
+    var generator = codec.testing.split.Generator.init(std.hash.Wyhash.hash(0, name));
     for (containers) |container| {
         var level: c_int = 0;
         while (level <= oracle.level_max) : (level += 1) {

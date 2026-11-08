@@ -28,21 +28,21 @@ const trees = [_][]const u8{ "\x84\x43\x20\x10", "\x8a\xba\x98\x76\x54\x32\x10",
 const streams = constants.literal_streams;
 
 /// A literal the tree gives a code, drawn.
-fn present_literal(generator: *codec.split.Generator, table: *const huffman.Table) u8 {
+fn present_literal(generator: *codec.testing.split.Generator, table: *const huffman.Table) u8 {
     const cells = table.cells[0 .. @as(usize, 1) << table.bits_max];
     return cells[generator.below(cells.len)].symbol;
 }
 
 /// A literal whose code is the tree's longest, drawn, so a load's literals take its most bits. The
 /// longest codes take the table's first cells, one each.
-fn deepest_literal(generator: *codec.split.Generator, table: *const huffman.Table) u8 {
+fn deepest_literal(generator: *codec.testing.split.Generator, table: *const huffman.Table) u8 {
     const cells = table.cells[0 .. @as(usize, 1) << table.bits_max];
     var deepest: usize = 0;
     while (deepest < cells.len and cells[deepest].bits == table.bits_max) deepest += 1;
     return cells[generator.below(deepest)].symbol;
 }
 
-const Draw = *const fn (*codec.split.Generator, *const huffman.Table) u8;
+const Draw = *const fn (*codec.testing.split.Generator, *const huffman.Table) u8;
 
 /// Seeded streams of `stream_literals` literals each, written as the checked decoder reads them.
 const Streams = struct {
@@ -50,11 +50,11 @@ const Streams = struct {
     octets: [streams][]u8 = undefined,
     counts: [streams]usize = undefined,
 
-    fn write(self: *Streams, generator: *codec.split.Generator, table: *const huffman.Table) void {
+    fn write(self: *Streams, generator: *codec.testing.split.Generator, table: *const huffman.Table) void {
         self.write_drawn(generator, table, present_literal);
     }
 
-    fn write_drawn(self: *Streams, generator: *codec.split.Generator, table: *const huffman.Table, draw: Draw) void {
+    fn write_drawn(self: *Streams, generator: *codec.testing.split.Generator, table: *const huffman.Table, draw: Draw) void {
         for (&self.writers, &self.octets, &self.counts) |*writer, *octets, *count| {
             count.* = generator.between(1, stream_literals);
             var literals: [stream_literals]u8 = undefined;
@@ -64,7 +64,7 @@ const Streams = struct {
         }
     }
 
-    fn flip(self: *Streams, generator: *codec.split.Generator) void {
+    fn flip(self: *Streams, generator: *codec.testing.split.Generator) void {
         const stream = self.octets[generator.below(streams)];
         stream[generator.below(stream.len)] ^= @as(u8, 1) << @intCast(generator.below(@bitSizeOf(u8)));
     }
@@ -127,7 +127,7 @@ test "long streams decode alike on the fast path, interleaved and one by one, an
         // One literal a lookup, then pairs (Z2).
         for (0..2) |_| {
             for (0..seeds) |seed| {
-                var generator = codec.split.Generator.init(seed);
+                var generator = codec.testing.split.Generator.init(seed);
                 var set: Streams = .{};
                 set.write(&generator, &table);
                 try expect_each_way(&table, &set);
@@ -177,7 +177,7 @@ test "a new tree drops the pairs of the one before" {
     fast_literals.build_pairs(&table);
     _ = try huffman.read_tree(trees[0], &table);
     try testing.expect(!table.pairs_ready);
-    var generator = codec.split.Generator.init(3);
+    var generator = codec.testing.split.Generator.init(3);
     var set: Streams = .{};
     set.write(&generator, &table);
     try expect_each_way(&table, &set);
@@ -205,7 +205,7 @@ test "the fast path leaves no literal of a valid stream to the checked decoder" 
         var table: huffman.Table = undefined;
         _ = try huffman.read_tree(tree, &table);
         for (0..seeds) |seed| {
-            var generator = codec.split.Generator.init(seed);
+            var generator = codec.testing.split.Generator.init(seed);
             var set: Streams = .{};
             set.write(&generator, &table);
             inline for ([_]@import("claims.zig").Claims{ .{}, .{ .interleaved_streams = false } }) |claims| {
@@ -239,7 +239,7 @@ test "every longest code from 1 to 11 bits decodes alike on each path, each its 
         // The second round decodes in pairs (Z2).
         if (which >= constants.huffman_bits_max) fast_literals.build_pairs(&table);
         for (0..seeds / 8) |seed| {
-            var generator = codec.split.Generator.init(seed);
+            var generator = codec.testing.split.Generator.init(seed);
             // Literals of every code, then of the longest alone, so a load's literals take its
             // most bits.
             for ([_]Draw{ present_literal, deepest_literal }) |draw| {
@@ -256,7 +256,7 @@ test "every longest code from 1 to 11 bits decodes alike on each path, each its 
 test "a stream that ends in an octet of 0 sends every stream to the checked path, refusals in order" {
     var table: huffman.Table = undefined;
     _ = try huffman.read_tree(trees[0], &table);
-    var generator = codec.split.Generator.init(1);
+    var generator = codec.testing.split.Generator.init(1);
     var set: Streams = .{};
     set.write(&generator, &table);
     // The second stream's last octet cleared, and a bit of the first flipped: the checked path
@@ -272,7 +272,7 @@ test "a stream that holds more bits than its literals take is refused as on the 
     for (trees) |tree| {
         var table: huffman.Table = undefined;
         _ = try huffman.read_tree(tree, &table);
-        var generator = codec.split.Generator.init(2);
+        var generator = codec.testing.split.Generator.init(2);
         var set: Streams = .{};
         set.write(&generator, &table);
         // A load's worth of literals and fewer, from a stream of up to 400: the stream's bits
@@ -293,7 +293,7 @@ test "four streams that hold more bits than their literals take stop at their ou
         _ = try huffman.read_tree(tree, &table);
         // One literal a lookup, then pairs (Z2), whose stores need twice the room.
         for (0..2) |_| {
-            var generator = codec.split.Generator.init(which);
+            var generator = codec.testing.split.Generator.init(which);
             var set: Streams = .{};
             set.write_drawn(&generator, &table, deepest_literal);
             // Outputs of half the literals, and of a few: the streams' bits outlast them, so only the

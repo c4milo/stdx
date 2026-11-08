@@ -101,8 +101,8 @@ const StdxDecode = struct {
     features: codec.Features,
 
     pub fn run(self: *const StdxDecode, stream: []const u8) ?usize {
-        gzip.init(self.decoder, self.features);
-        const progress = gzip.decode(self.decoder, stream, self.output) catch return null;
+        self.decoder.init(self.features);
+        const progress = self.decoder.decode(stream, self.output) catch return null;
         return if (progress.status == .done) progress.written else null;
     }
 };
@@ -110,7 +110,7 @@ const StdxDecode = struct {
 /// A decode of one raw DEFLATE stream by stdx's decoder on the paths `options` names, in one call,
 /// with the CPU's features, as the gzip decode takes them, so it runs the assembly of decision 29
 /// wherever the CPU does.
-fn RawDecode(comptime options: deflate.Options) type {
+fn RawDecode(comptime options: deflate.DecodePaths) type {
     return struct {
         const Self = @This();
 
@@ -119,12 +119,12 @@ fn RawDecode(comptime options: deflate.Options) type {
         features: codec.Features,
 
         pub fn run(self: *const Self, stream: []const u8) ?usize {
-            deflate.init(self.decoder, self.features);
+            self.decoder.init(self.features);
             // Out of line, so every candidate's entry takes the same shape. LLVM inlines a function
             // by how many callers it has, and the gzip decoder and S10's decodes call all on's
-            // entry through `deflate.decode`, so LLVM kept that one out of line and inlined each
+            // entry through `Decoder.decode`, so LLVM kept that one out of line and inlined each
             // other candidate's here.
-            const progress = @call(.never_inline, deflate.decode_with, .{ options, self.decoder, stream, self.output }) catch return null;
+            const progress = @call(.never_inline, deflate.Decoder.decode_with, .{ self.decoder, options, stream, self.output }) catch return null;
             return if (progress.status == .done) progress.written else null;
         }
     };
@@ -262,7 +262,7 @@ fn compressed_percent(coded: []const []const u8, input: Input) f64 {
 }
 
 /// A raw decode on `options`'s paths, checked over `coded` against `input` and placed for timing.
-fn raw_candidate(comptime options: deflate.Options, arena: std.mem.Allocator, coded: []const []const u8, input: Input) !timing.Operation {
+fn raw_candidate(comptime options: deflate.DecodePaths, arena: std.mem.Allocator, coded: []const []const u8, input: Input) !timing.Operation {
     const candidate: RawDecode(options) = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(deflate.Decoder), .features = codec.Features.detect() };
     return inputs.decoder_operation(arena, candidate, coded, input);
 }
@@ -292,14 +292,14 @@ const SplitDecode = struct {
 
     pub fn run(self: *const SplitDecode, stream: []const u8) ?usize {
         if (self.checksum_after) {
-            deflate.init(self.raw_decoder, self.features);
-            const written = split(deflate.Decoder, self.raw_decoder, deflate.decode, stream, self.output);
+            self.raw_decoder.init(self.features);
+            const written = split(deflate.Decoder, self.raw_decoder, deflate.Decoder.decode, stream, self.output);
             const path = checksum.Crc32Path.fastest(checksum.Features.from(self.features));
             std.mem.doNotOptimizeAway(checksum.crc32(path, gzip.constants.crc32_initial, self.output[0..written]));
             return written;
         }
-        gzip.init(self.gzip_decoder, self.features);
-        return split(gzip.Decoder, self.gzip_decoder, gzip.decode, stream, self.output);
+        self.gzip_decoder.init(self.features);
+        return split(gzip.Decoder, self.gzip_decoder, gzip.Decoder.decode, stream, self.output);
     }
 
     /// Decodes the whole stream into `output`, `split_output_len` octets of room a call. Returns the

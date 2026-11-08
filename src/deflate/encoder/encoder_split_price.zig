@@ -215,7 +215,7 @@ fn reference_tally(counts: []const u16) Tally {
 /// Fills `all` with counts that sum to `total_max` at most, 1 in `zero_odds` of them 0 and 1 in
 /// `large_odds` as large as the sum allows, the rest `small_count_max` at most, and `before` with
 /// a part of each.
-fn fill_counts(generator: *codec.split.Generator, all: []u16, before: []u16) void {
+fn fill_counts(generator: *codec.testing.split.Generator, all: []u16, before: []u16) void {
     var left: usize = total_max;
     for (all, before) |*all_count, *before_count| {
         const large = generator.below(large_odds) == 0;
@@ -231,7 +231,7 @@ const large_odds = 16;
 const small_count_max = 200;
 
 test "a tally in vectors is its counts added one by one, the last counts of an alphabet included" {
-    var generator = codec.split.Generator.init(11);
+    var generator = codec.testing.split.Generator.init(11);
     for (0..500) |_| {
         var all: [constants.literal_length_used]u16 = undefined;
         var before: [constants.literal_length_used]u16 = undefined;

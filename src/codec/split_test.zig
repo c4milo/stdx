@@ -18,13 +18,13 @@ fn toy_step(toy: *Toy, input: []const u8, output: []u8) !Progress {
     var reader = Reader.init(input);
     var writer = Writer.init(output);
     if (!toy.header_read) {
-        toy.remaining = reader.read_octet() catch return .{ .consumed = 0, .written = 0, .status = .needs_input };
+        toy.remaining = reader.take_octet() catch return .{ .consumed = 0, .written = 0, .status = .needs_input };
         toy.header_read = true;
     }
     // At most `toy.remaining` octets, 255 at most, so the loop is bounded by the header's octet.
     for (0..toy.remaining) |_| {
         if (writer.room_len() == 0) return .{ .consumed = reader.consumed(), .written = writer.position, .status = .needs_room };
-        const octet = reader.read_octet() catch {
+        const octet = reader.take_octet() catch {
             return .{ .consumed = reader.consumed(), .written = writer.position, .status = .needs_input };
         };
         writer.write_octet(octet) catch unreachable;
@@ -45,13 +45,13 @@ fn pointer_toy_step(toy: *PointerToy, input: []const u8, output: []u8) !Progress
     var reader = Reader.init(input);
     var writer = Writer.init(output);
     if (!toy.header_read) {
-        toy.remaining = reader.read_octet() catch return .{ .consumed = 0, .written = 0, .status = .needs_input };
+        toy.remaining = reader.take_octet() catch return .{ .consumed = 0, .written = 0, .status = .needs_input };
         toy.counter = &toy.remaining;
         toy.header_read = true;
     }
     for (0..toy.counter.*) |_| {
         if (writer.room_len() == 0) return .{ .consumed = reader.consumed(), .written = writer.position, .status = .needs_room };
-        const octet = reader.read_octet() catch {
+        const octet = reader.take_octet() catch {
             return .{ .consumed = reader.consumed(), .written = writer.position, .status = .needs_input };
         };
         writer.write_octet(octet) catch unreachable;

@@ -78,7 +78,7 @@ const Draw = struct {
     const weights = [_]u64{ letter_weight, whitespace_weight, escaped_weight, character_weight, any_octet_weight };
     const whitespace = " \t\n\r";
 
-    fn input(generator: *codec.split.Generator, buffer: []u8) usize {
+    fn input(generator: *codec.testing.split.Generator, buffer: []u8) usize {
         var len: usize = 0;
         for (0..buffer.len) |_| {
             var octets: [constants.utf8_len_max]u8 = undefined;
@@ -90,7 +90,7 @@ const Draw = struct {
         return len;
     }
 
-    fn kind(generator: *codec.split.Generator) Kind {
+    fn kind(generator: *codec.testing.split.Generator) Kind {
         var total: u64 = 0;
         for (weights) |weight| total += weight;
         var draw = generator.below(total);
@@ -101,7 +101,7 @@ const Draw = struct {
         unreachable;
     }
 
-    fn character(generator: *codec.split.Generator, drawn: Kind, octets: *[constants.utf8_len_max]u8) []const u8 {
+    fn character(generator: *codec.testing.split.Generator, drawn: Kind, octets: *[constants.utf8_len_max]u8) []const u8 {
         octets[0] = switch (drawn) {
             .letter => @intCast(generator.between(constants.unescaped_min, constants.non_ascii_min - 1)),
             .whitespace => whitespace[generator.below(whitespace.len)],
@@ -120,7 +120,7 @@ const Draw = struct {
 test "the vector paths return what the scalar paths return on drawn inputs, whole and cut" {
     var buffer: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const len = Draw.input(&generator, &buffer);
         try expect_same(buffer[0..len]);
         try expect_same(buffer[0..generator.below(len + 1)]);

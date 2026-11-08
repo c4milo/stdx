@@ -24,7 +24,7 @@ const Kind = enum { words, random, zeros, mixed };
 
 /// Fills `input` with `kind`, drawn from `seed`.
 fn fill(input: []u8, kind: Kind, seed: u64) void {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     var index: usize = 0;
     for (0..input.len) |_| {
         if (index == input.len) break;
@@ -42,7 +42,7 @@ fn fill(input: []u8, kind: Kind, seed: u64) void {
     }
 }
 
-fn write_words(target: []u8, generator: *codec.split.Generator) void {
+fn write_words(target: []u8, generator: *codec.testing.split.Generator) void {
     const words = [_][]const u8{ "the ", "stream ", "encoder ", "window ", "of ", "a ", "match ", "block ", "octets ", "and " };
     var at: usize = 0;
     for (0..target.len) |_| {
@@ -59,8 +59,8 @@ fn write_words(target: []u8, generator: *codec.split.Generator) void {
 pub fn expect_decodes_to(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max + 1]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    decoder.init(&state, codec.Features.detect());
-    const whole = try decoder.decode_all(&state, stream, &output);
+    state.init(codec.Features.detect());
+    const whole = try state.decode_all(stream, &output);
     try testing.expectEqual(stream.len, whole.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..whole.written]);
 }
@@ -110,9 +110,9 @@ test "every split of input and output gives the same octets, the state moved bet
         const S = Step(level);
         const whole_len = try encode_whole(level, &input, &whole);
         for (0..8) |seed| {
-            var states: [codec.split.state_slots]S.Encoder = undefined;
+            var states: [codec.testing.split.state_slots]S.Encoder = undefined;
             states[0].init(.{});
-            const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &.{}, seed);
+            const outcome = try codec.testing.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &.{}, seed);
             try testing.expectEqual(.done, outcome.status);
             try testing.expectEqual(input.len, outcome.consumed);
             try testing.expectEqualSlices(u8, whole[0..whole_len], split[0..outcome.written]);
@@ -143,10 +143,10 @@ test "after each flush the output so far decodes to the input so far, and splits
         written += last.written;
         try expect_decodes_to(output[0..written], &input);
         for (0..4) |seed| {
-            var states: [codec.split.state_slots]S.Encoder = undefined;
+            var states: [codec.testing.split.state_slots]S.Encoder = undefined;
             states[0].init(.{});
             var split: [output.len]u8 = undefined;
-            const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &points, seed);
+            const outcome = try codec.testing.split.drive_encoder(S.Encoder, &states, S.step, &input, &split, &points, seed);
             try testing.expectEqualSlices(u8, output[0..written], split[0..outcome.written]);
         }
     }
@@ -157,8 +157,8 @@ test "after each flush the output so far decodes to the input so far, and splits
 pub fn expect_prefix_decodes(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    decoder.init(&state, codec.Features.detect());
-    const progress = try decoder.decode(&state, stream, &output);
+    state.init(codec.Features.detect());
+    const progress = try state.decode(stream, &output);
     try testing.expectEqual(.needs_input, progress.status);
     try testing.expectEqualSlices(u8, expected, output[0..progress.written]);
 }
@@ -168,7 +168,7 @@ test "encoded_len_max holds where short repeats keep stored blocks across the wi
     // input than it has symbols, so the slides cut blocks where the symbol limit does not.
     var input: [input_len_max]u8 = undefined;
     fill(&input, .random, 13);
-    var generator = codec.split.Generator.init(13);
+    var generator = codec.testing.split.Generator.init(13);
     var at: usize = repeat_start;
     for (0..input.len) |_| {
         if (at + repeat_len >= input.len) break;
@@ -245,7 +245,7 @@ test "each level's output for two seeded letters, whose chains run long, is the 
         .{ 4029, 0xc14003575ca02bbc },
     };
     var input: [letters_len]u8 = undefined;
-    var generator = codec.split.Generator.init(17);
+    var generator = codec.testing.split.Generator.init(17);
     for (&input) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(letters)));
     var output: [input.len + 1024]u8 = undefined;
     inline for (levels, recorded) |level, expected| {
@@ -343,7 +343,7 @@ const dna_copy_odds = 2;
 /// stretch with one letter changed, as DNA repeats itself.
 fn fill_dna(input: []u8, seed: u64) void {
     const dna_letters = "acgt";
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     var at: usize = 0;
     for (0..input.len) |_| {
         if (at == input.len) break;
@@ -405,10 +405,10 @@ fn expect_flush_splits_agree(comptime level: u4, input: []const u8, point: usize
     try testing.expectEqual(.done, last.status);
     const carried_len = first.written + last.written;
     for (0..flush_split_seeds) |seed| {
-        var states: [codec.split.state_slots]S.Encoder = undefined;
+        var states: [codec.testing.split.state_slots]S.Encoder = undefined;
         states[0].init(.{});
         var split: [carried.len]u8 = undefined;
-        const outcome = try codec.split.drive_encoder(S.Encoder, &states, S.step, input, &split, &.{point}, seed);
+        const outcome = try codec.testing.split.drive_encoder(S.Encoder, &states, S.step, input, &split, &.{point}, seed);
         try testing.expectEqualSlices(u8, carried[0..carried_len], split[0..outcome.written]);
     }
 }

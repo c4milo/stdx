@@ -27,7 +27,7 @@ test "the plan takes stored for random octets, fixed for a few, dynamic for a sk
     var block: Block = undefined;
     var result: Plan = undefined;
     // 16,384 random literals code no shorter than 8 bits each, and stored adds 5 octets.
-    var generator = codec.split.Generator.init(1);
+    var generator = codec.testing.split.Generator.init(1);
     block.reset(0);
     for (0..constants.block_symbols_max) |_| block.add_literal(true, @intCast(generator.below(256)));
     block_module.plan(&block, true, 0, &result);
@@ -57,7 +57,7 @@ test "the plan takes the least of the three prices, for every seeded block" {
     var block: Block = undefined;
     var result: Plan = undefined;
     for (0..200) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         block.reset(0);
         const symbols = generator.below(constants.block_symbols_max);
         // A seeded share of pairs and a seeded alphabet, so each type wins somewhere.

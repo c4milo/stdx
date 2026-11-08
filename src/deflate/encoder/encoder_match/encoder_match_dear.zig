@@ -313,7 +313,7 @@ fn expect_forms_agree(comptime level: constants.Level, letters: u64, counts: *Fo
     // No match, 3 octets, 4, one short of `lazy_len`, and `lazy_len`.
     const previous_lens = [_]u16{ 0, constants.match_len_min, constants.match_len_min + 1, level.lazy_len - 1, level.lazy_len };
     var input: [forms_input_len]u8 = undefined;
-    var generator = codec.split.Generator.init(forms_seed);
+    var generator = codec.testing.split.Generator.init(forms_seed);
     for (&input) |*octet| octet.* = @intCast(generator.below(letters));
     var matcher: Matcher(level) = undefined;
     matcher.init();

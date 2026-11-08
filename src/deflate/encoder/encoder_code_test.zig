@@ -54,7 +54,7 @@ fn expect_complete(comptime alphabet_len: usize, lengths: []const u8, len_max: u
 
 test "both builders give Huffman's coded size where 15 bits do not bind" {
     for (0..100) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var counts: [constants.literal_length_used]u16 = @splat(0);
         const symbols = generator.between(2, counts.len);
         // Counts within a factor of two keep Huffman's code under 15 bits; a quarter are 0.
@@ -103,7 +103,7 @@ test "a code with one symbol or none still codes two, one bit each" {
 }
 
 test "each canonical code, reversed, decodes to its symbol" {
-    var generator = codec.split.Generator.init(7);
+    var generator = codec.testing.split.Generator.init(7);
     var counts: [constants.literal_length_used]u16 = undefined;
     for (&counts) |*count| count.* = @intCast(generator.below(300));
     var lengths: [counts.len]u8 = undefined;
@@ -135,7 +135,7 @@ const seed_count_max = 400;
 /// Seeded counts for the literal/length alphabet: some unused, and every third seed Fibonacci
 /// counts on its first symbols and no other, so that its lengths come from package-merge.
 fn listed_seed_counts(seed: usize) [constants.literal_length_used]u16 {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     var counts: [constants.literal_length_used]u16 = @splat(0);
     if (seed % skewed_seed_period != 0) {
         for (&counts) |*count| count.* = if (generator.below(unused_period) == 0) 0 else @intCast(1 + generator.below(seed_count_max));
@@ -216,7 +216,7 @@ test "code lengths as runs: zeros as 17 and 18, a repeated length as 16, and bac
     try testing.expectEqualSlices(code.Item, &expected, items[0..count]);
     try expect_counts(items[0..count], &counts);
     for (0..200) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var random: [code.items_max]u8 = undefined;
         const len = generator.between(1, random.len);
         for (random[0..len]) |*value| value.* = if (generator.below(3) == 0) @intCast(generator.below(16)) else 0;
@@ -241,7 +241,7 @@ test "code lengths split across the two tables give the items of one sequence" {
     var whole_items: [code.items_max]code.Item = undefined;
     var split_items: [code.items_max]code.Item = undefined;
     for (0..100) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var lengths: [code.items_max]u8 = undefined;
         const len = generator.between(2, lengths.len);
         // Long runs of few values, so runs often cross a split.

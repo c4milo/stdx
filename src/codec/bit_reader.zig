@@ -44,7 +44,7 @@ pub const BitReader = struct {
     pub fn ensure(self: *BitReader, count: u7) bool {
         assert(count <= constants.ensure_bits_max);
         while (self.bits.count < count) {
-            const octet = self.reader.read_octet() catch return false;
+            const octet = self.reader.take_octet() catch return false;
             self.bits.buffer |= @as(u64, octet) << @intCast(self.bits.count);
             self.bits.count += @bitSizeOf(u8);
         }

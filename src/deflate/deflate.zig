@@ -11,14 +11,7 @@ pub const Decoder = decoder.Decoder;
 pub const Corrupt = decoder.Corrupt;
 pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
-pub const init = decoder.init;
-pub const limit_window = decoder.limit_window;
-pub const decode = decoder.decode;
-pub const decode_all = decoder.decode_all;
-pub const decode_with = decoder.decode_with;
-pub const decode_counting = decoder.decode_counting;
-pub const Lookups = decoder.Lookups;
-pub const Options = decoder.Options;
+pub const DecodePaths = decoder.DecodePaths;
 pub const claims = @import("claims.zig");
 pub const Claims = claims.Claims;
 pub const refusal = decoder.refusal;
@@ -31,8 +24,8 @@ const io = @import("io.zig");
 pub const IoReader = io.IoReader;
 pub const IoWriter = io.IoWriter;
 
-/// A bit writer that builds DEFLATE streams for tests, this module's and its containers'.
-pub const TestStream = @import("test_stream.zig").Stream;
+/// What stdx's own tests, tools and benchmarks use, and no part of the API (decision 64).
+pub const testing = @import("testing.zig");
 
 test {
     _ = io;
@@ -41,7 +34,7 @@ test {
     _ = @import("lookup.zig");
     _ = @import("fast/fast.zig");
     _ = decoder;
-    _ = @import("test_stream.zig");
+    _ = testing;
     _ = @import("encoder/encoder_code.zig");
     _ = @import("encoder/encoder_block.zig");
     _ = @import("encoder/encoder_match/encoder_match_cost.zig");

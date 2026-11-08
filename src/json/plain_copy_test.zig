@@ -146,7 +146,7 @@ test "a copy returns the first of two stops, at every length and from every octe
     inline for (widths) |width| {
         var source: [width + 2 * plain.pass_blocks * width + width + 1]u8 = undefined;
         for (width..source.len + 1) |len| {
-            var generator = codec.split.Generator.init(len);
+            var generator = codec.testing.split.Generator.init(len);
             fill_plain(&source);
             const skew: usize = @intCast(generator.below(alignment));
             for ([_]usize{ width, @min(len, width + 1), @min(len, 2 * width), len }) |from| {
@@ -180,7 +180,7 @@ test "a copy stores at every address of the destination within a block" {
 
 /// Draws a string of plain ASCII with a few octets drawn from all 256 among it, past its first
 /// `plain_len` octets.
-pub fn draw(generator: *codec.split.Generator, octets: []u8, plain_len: usize) void {
+pub fn draw(generator: *codec.testing.split.Generator, octets: []u8, plain_len: usize) void {
     fill_plain(octets);
     for (0..generator.below(drawn_octets_max + 1)) |_| {
         if (octets.len == plain_len) return;
@@ -195,7 +195,7 @@ const drawn_octets_max = 3;
 test "seeded strings copy as far as their plain ASCII runs, at every width" {
     var source: [string_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         inline for (widths) |width| {
             const len: usize = @intCast(generator.between(width, string_len_max));
             const from: usize = @intCast(generator.between(width, @min(len, 2 * width)));
@@ -227,7 +227,7 @@ test "a run copied from 16 octets on and from 64, at every length, with a stop a
 test "seeded runs copy as far as their plain ASCII goes, from 16 octets on and from 64" {
     var source: [string_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const from = froms[@intCast(generator.below(froms.len))];
         const len: usize = @intCast(generator.between(from, string_len_max));
         draw(&generator, source[0..len], from);

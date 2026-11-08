@@ -55,7 +55,7 @@ const Raw = struct { at: usize, text: []const u8 };
 /// Fills `input` with seeded octets, plants each repeat, source first, and writes each raw text.
 /// Octets after a planted text are flipped where they would lengthen the repeat.
 fn build(input: []u8, plants: []const Plant, raws: []const Raw) void {
-    var generator = codec.split.Generator.init(octets_seed);
+    var generator = codec.testing.split.Generator.init(octets_seed);
     for (input) |*octet| octet.* = @truncate(generator.next());
     for (plants) |plant| {
         @memcpy(input[plant.at - plant.distance ..][0..plant.text.len], plant.text);
@@ -351,7 +351,7 @@ fn pairs_at(block: *const Block, position: usize) usize {
 /// `distance` back from `reach_position`. Returns whether a pair starts there.
 fn reach_taken(comptime level_number: u4, distance: usize) !bool {
     var input: [reach_position + tail_long]u8 = undefined;
-    var generator = codec.split.Generator.init(octets_seed);
+    var generator = codec.testing.split.Generator.init(octets_seed);
     for (&input) |*octet| octet.* = @intCast(generator.below(reach_octets));
     @memcpy(input[reach_position - distance ..][0..reach_text.len], &reach_text);
     @memcpy(input[reach_position..][0..reach_text.len], &reach_text);

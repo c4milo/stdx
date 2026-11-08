@@ -275,7 +275,7 @@ const alphabet_taken_len = alphabet_taken.len;
 test "seeded strings of plain ASCII, escapes and octets the blocks leave, in seeded rooms, as the model takes them" {
     if (comptime !escapes.available) return error.SkipZigTest;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var input: [string_len_max]u8 = undefined;
         const len: usize = @intCast(generator.below(string_len_max + 1));
         // One string in four draws an octet the blocks leave, one octet in thirty-two.

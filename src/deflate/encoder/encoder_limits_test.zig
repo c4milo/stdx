@@ -25,7 +25,7 @@ const nearer_phrase_len = 200;
 const output_slack_len = 1024;
 
 /// Writes `parts` at `at`, each followed by `gap_len` random octets, and returns the end.
-fn write_parts(input: []u8, at: usize, generator: *codec.split.Generator, parts: [scene_parts][]const u8) usize {
+fn write_parts(input: []u8, at: usize, generator: *codec.testing.split.Generator, parts: [scene_parts][]const u8) usize {
     var end = at;
     for (parts) |part| {
         @memcpy(input[end..][0..part.len], part);
@@ -45,7 +45,7 @@ fn waiting_scene_len(waiting_len: usize) usize {
 /// its octets from the second on and its first `waiting_len` octets. At the phrase a match of
 /// `waiting_len` octets waits; the next position holds one `waiting_rest_len - 1` octets longer,
 /// and after the waiting match too few octets are left for any match.
-fn write_waiting_scene(input: []u8, at: usize, generator: *codec.split.Generator, waiting_len: usize) usize {
+fn write_waiting_scene(input: []u8, at: usize, generator: *codec.testing.split.Generator, waiting_len: usize) usize {
     var phrase: [constants.match_len_max]u8 = undefined;
     const phrase_len = waiting_len + waiting_rest_len;
     for (phrase[0..phrase_len]) |*octet| octet.* = @truncate(generator.next());
@@ -60,7 +60,7 @@ fn nearer_scene_len(nearer_len: usize) usize {
 /// Writes one scene at `at` and returns its end: a phrase of random octets, and before it the
 /// whole phrase and, nearer, its first `nearer_len` octets. A search at the phrase meets the
 /// match of `nearer_len` octets first, and the whole phrase only when it goes on.
-fn write_nearer_scene(input: []u8, at: usize, generator: *codec.split.Generator, nearer_len: usize) usize {
+fn write_nearer_scene(input: []u8, at: usize, generator: *codec.testing.split.Generator, nearer_len: usize) usize {
     var phrase: [nearer_phrase_len]u8 = undefined;
     for (&phrase) |*octet| octet.* = @truncate(generator.next());
     return write_parts(input, at, generator, .{ &phrase, phrase[0..nearer_len], &phrase });
@@ -83,7 +83,7 @@ test "each level's output where matches of 32 and of 31 octets wait before a lon
     const long = 32;
     const short = 31;
     var input: [scenes * (waiting_scene_len(long) + waiting_scene_len(short))]u8 = undefined;
-    var generator = codec.split.Generator.init(31);
+    var generator = codec.testing.split.Generator.init(31);
     var at: usize = 0;
     for (0..scenes) |_| {
         at = write_waiting_scene(&input, at, &generator, long);
@@ -103,7 +103,7 @@ test "each level's output where a nearer match of 128 or of 127 octets stands be
     const nice = 128;
     const under = 127;
     var input: [scenes * (nearer_scene_len(nice) + nearer_scene_len(under))]u8 = undefined;
-    var generator = codec.split.Generator.init(37);
+    var generator = codec.testing.split.Generator.init(37);
     var at: usize = 0;
     for (0..scenes) |_| {
         at = write_nearer_scene(&input, at, &generator, nice);

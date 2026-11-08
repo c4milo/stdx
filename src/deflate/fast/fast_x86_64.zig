@@ -10,7 +10,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const lookup = @import("../lookup.zig");
 const fast = @import("fast.zig");
-const Options = @import("../options.zig").Options;
+const DecodePaths = @import("../options.zig").DecodePaths;
 const fast_copy = @import("fast_copy.zig");
 const loop_text = @import("fast_x86_64_template.zig");
 
@@ -25,7 +25,7 @@ pub fn runs(features: codec.Features) bool {
 
 /// Whether the assembly takes the common loop where the CPU runs it: an x86-64 target whose
 /// compiler assembles it, S1 and S4 on, and no count of lookups.
-pub fn takes(comptime options: Options) bool {
+pub fn takes(comptime options: DecodePaths) bool {
     return assembles and builtin.cpu.arch == .x86_64 and options.claims.word_refill and options.claims.chunk_copies and !options.count_lookups;
 }
 

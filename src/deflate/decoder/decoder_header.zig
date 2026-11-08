@@ -18,20 +18,20 @@ const fast_lengths = @import("../fast/fast_lengths.zig");
 
 /// Whether a decode on `options` reads a header's lengths through the loops of fast_lengths.zig
 /// (decision 14, S13).
-fn loops_lengths(comptime options: decoder_module.Options) bool {
+fn loops_lengths(comptime options: decoder_module.DecodePaths) bool {
     return options.fast_paths and options.claims.code_lengths_loop;
 }
 
 /// Whether a decode on `options` tallies a header's lengths as it reads them, and builds the
 /// block's codes from the tally (decision 14, S14). The checked path alone passes over the
 /// lengths, as huffman.zig's `build` does.
-fn tallies_lengths(comptime options: decoder_module.Options) bool {
+fn tallies_lengths(comptime options: decoder_module.DecodePaths) bool {
     return options.fast_paths and options.claims.tallied_codes;
 }
 
 /// Reads HLIT, HDIST and HCLEN (RFC 1951 §3.2.7), and clears the code lengths the header fills,
 /// and the tally of them when the decode tallies.
-pub fn read_table_counts(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_table_counts(comptime options: decoder_module.DecodePaths, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     if (!bits.ensure(constants.hlit_bits + constants.hdist_bits + constants.hclen_bits)) return .needs_input;
     const literal_length_count = constants.hlit_base + @as(u16, @intCast(bits.read(constants.hlit_bits).?));
     decoder.distance_count = constants.hdist_base + @as(u16, @intCast(bits.read(constants.hdist_bits).?));
@@ -49,7 +49,7 @@ pub fn read_table_counts(comptime options: decoder_module.Options, decoder: *Dec
 
 /// Reads one 3-bit code length of the code length alphabet, or builds that code after the last.
 /// The loop of fast_lengths.zig reads the lengths first, while the input's margin holds.
-pub fn read_code_length_code(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_code_length_code(comptime options: decoder_module.DecodePaths, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const loops = comptime loops_lengths(options);
     if (loops) count_work(decoder, fast_lengths.read_code_length_code(&decoder.lengths, &decoder.header_index, decoder.code_length_count, bits));
     if (decoder.header_index == decoder.code_length_count) {
@@ -78,7 +78,7 @@ fn prepare_lengths_loop(decoder: *Decoder) void {
 /// Reads the code length symbols, with their repeats' extra bits, while the input holds them, then
 /// builds the block's codes after the last length, its tables in the shape `options` gives. The
 /// loop of fast_lengths.zig reads the symbols first, while the input's margin holds.
-pub fn read_code_lengths(comptime options: decoder_module.Options, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
+pub fn read_code_lengths(comptime options: decoder_module.DecodePaths, decoder: *Decoder, bits: *codec.BitReader) Error!?codec.Status {
     const total = decoder.literal_length_count + decoder.distance_count;
     const tallies = comptime tallies_lengths(options);
     if (comptime loops_lengths(options)) {
@@ -150,7 +150,7 @@ fn fill_lengths(lengths: []u8, start: usize, count: usize, len: u8) void {
 
 /// Builds a dynamic block's literal/length and distance codes from the lengths just read, with
 /// `input_left` octets of the call's input after them.
-fn build_block_codes(comptime options: decoder_module.Options, decoder: *Decoder, input_left: usize) Error!void {
+fn build_block_codes(comptime options: decoder_module.DecodePaths, decoder: *Decoder, input_left: usize) Error!void {
     const claims = options.claims;
     const literal_lengths = decoder.lengths[0..decoder.literal_length_count];
     // RFC 1951 §3.2.7: every block ends with symbol 256, so its code must have a length.
@@ -182,7 +182,7 @@ fn build_tallied_codes(decoder: *Decoder, literal_lengths: []const u8, distance_
 
 /// Whether a block's tables combine: after `combine_bits_min` bits since the last combination, or
 /// once a call when the call's input holds `combine_input_min` octets after the block's header.
-fn combination_due(comptime options: decoder_module.Options, decoder: *Decoder, input_left: usize) bool {
+fn combination_due(comptime options: decoder_module.DecodePaths, decoder: *Decoder, input_left: usize) bool {
     if (decoder.bits_since_combination >= options.combine_bits_min) return true;
     if (decoder.combined_for_input or input_left < constants.combine_input_min) return false;
     decoder.combined_for_input = true;

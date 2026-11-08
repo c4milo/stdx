@@ -17,7 +17,7 @@ const Outcome = decoder_file.Outcome;
 pub fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
     assert(decoder.open == .number);
     for (0..reader.remaining_len() + 1) |_| {
-        const octet = reader.read_octet() catch return end_of_input(decoder, piece);
+        const octet = reader.take_octet() catch return end_of_input(decoder, piece);
         var next = decoder.number;
         switch (next.accept(octet)) {
             .taken => {
@@ -30,7 +30,7 @@ pub fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer, p
             },
             .ended => {
                 reader.unread(1);
-                decoder.value_ended(.number);
+                decoder_file.value_ended(decoder, .number);
                 return .{ .status = .token, .kind = .number };
             },
             // RFC 8259 §6: the octet cannot come next in a number, and the number is not whole.
@@ -44,7 +44,7 @@ pub fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer, p
 /// A number the input ran out in: whole at the text's last octet, and else waiting for more.
 fn end_of_input(decoder: *Decoder, piece: Piece) Outcome {
     if (piece == .last and decoder.number.whole()) {
-        decoder.value_ended(.number);
+        decoder_file.value_ended(decoder, .number);
         return .{ .status = .token, .kind = .number };
     }
     return .{ .status = .needs_input, .kind = .number };
@@ -62,7 +62,7 @@ pub fn literal(decoder: *Decoder, reader: *codec.Reader) Error!Outcome {
     };
     assert(decoder.matched >= 1 and decoder.matched <= text.len);
     for (decoder.matched..text.len) |index| {
-        const octet = reader.read_octet() catch return .{ .status = .needs_input, .kind = null };
+        const octet = reader.take_octet() catch return .{ .status = .needs_input, .kind = null };
         if (octet != text[index]) {
             // RFC 7464 §2.1: a record separator ends a sequence's text, here inside a literal name.
             if (decoder.framing == .sequence and octet == constants.record_separator) return error.IncompleteText;
@@ -71,6 +71,6 @@ pub fn literal(decoder: *Decoder, reader: *codec.Reader) Error!Outcome {
         }
         decoder.matched += 1;
     }
-    decoder.value_ended(kind);
+    decoder_file.value_ended(decoder, kind);
     return .{ .status = .token, .kind = kind };
 }

@@ -202,12 +202,12 @@ small file.
     pub const Progress = struct { consumed: usize, written: usize, status: Status };
     pub const Flush = enum { none, flush, finish };
 
-    // In each codec, for example gzip:
-    pub fn init(decoder: *Decoder) void;
-    pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!Progress;
+    // In each codec, for example gzip, as methods of `Decoder` and `Encoder` (entry 64):
+    pub fn init(self: *Decoder, features: codec.Features) void;
+    pub fn decode(self: *Decoder, input: []const u8, output: []u8) Error!Progress;
 
-    pub fn init(encoder: *Encoder) void;
-    pub fn encode(encoder: *Encoder, input: []const u8, output: []u8, flush: codec.Flush) codec.Progress;
+    pub fn init(self: *Encoder, features: codec.Features) void;
+    pub fn encode(self: *Encoder, input: []const u8, output: []u8, flush: codec.Flush) codec.Progress;
     ```
 
     - `consumed` counts the octets of `input` the call took. The caller never presents them
@@ -954,10 +954,10 @@ small file.
     | brotli command loop | 12 | 8 octets per refill | `chunk_len_max` plus 16 | As above |
     | brotli code lengths, in the header | 12 | 8 octets per refill | none: the lengths go to the state's array, whose size is fixed | Throughput against the loop off, two N2 jobs a side at 442ea0c against d478f94 (runs 36503381259 and 36503386029 against 36501231721 and 36501237307): the 1 KiB HTTP bodies +2.7 to +4.0%, json-16k +2%, xargs.1 +3 to +5%, no file behind by more than 1% in both; the x86-64 jobs drew different CPUs. The experiment the owner allowed on 2026-09-28; the owner approved the row on the N2 numbers the same day, and the x86-64 pair follows from the workflow's `base` input |
     | Every encoder's bit writer (E5) | 9, 13, 14 | none | 8 octets | Encode throughput against the checked writer |
-    | JSON encoder token loop (J11) | 18 | none: an item's octets are its own slice, read inside it | none: it checks the room an item takes before it writes the item | Throughput of batches against every item through `Encoder.run`, over bench-json's workloads |
+    | JSON encoder token loop (J11) | 18 | none: an item's octets are its own slice, read inside it | none: it checks the room an item takes before it writes the item | Throughput of batches against every item through `run` in encoder.zig, over bench-json's workloads |
     | JSON encoder token loop with runtime safety off, at the caller's choice (J11, decision 35) | 18 | as J11 | as J11 | Throughput with safety off over on in the loop's two files, run [36515654643](https://github.com/c4milo/stdx/actions/runs/36515654643): CLDR's texts 1.071 and qlog's records 1.053 on the N2, 1.057 and 1.089 on the EPYC 9V45 |
     | DEFLATE encoder's match finder, appender and symbol writer with runtime safety off, at the caller's choice (decision 49) | 9 | none: the matcher reads its own window | none: the appender's block, and the writer's 8 octets (E5) | Throughput with safety off over on in the encoder's five inner files, the probe after its base in one job, run [38172161400](https://github.com/c4milo/stdx/actions/runs/38172161400): levels 1, 6 and 9 at 1.049, 1.044 and 1.067 at the median on the N2 and at 1.044, 1.037 and 1.050 on a Xeon 8573C; since then each bench-deflate report's `stdx unchecked` column beside `stdx` |
-    | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time, or of 32 in the AVX2 variant object's walk (entry 47) | 16 octets, and 32 in that walk: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `Decoder.run`, over bench-json's workloads |
+    | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time, or of 32 in the AVX2 variant object's walk (entry 47) | 16 octets, and 32 in that walk: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `run` in decoder.zig, over bench-json's workloads |
     | DEFLATE encoder's level 6 lazy loop in aarch64 assembly (decision 53) | 9 | none: every position lies below the window's end less the lookahead, and a match's compare reads inside the window | none: each symbol goes below the block's room, which the loop tests at each position | Throughput with the loop over main's without it, the change after its base in one job (entry 20), at be101d8 against 5fd03aa (runs [40261381739](https://github.com/c4milo/stdx/actions/runs/40261381739) and [40261383705](https://github.com/c4milo/stdx/actions/runs/40261383705)): level 6 at 1.064 and 1.068 at the median on the N2, 36 rows faster in both jobs and none slower |
 
     The alternatives refused:
@@ -1500,7 +1500,7 @@ small file.
     - `tools/corpus/shuffle.zig` writes the first MiB of Silesia's dickens in the order a
       Fisher-Yates shuffle draws from a fixed seed, and `zig build corpus` installs it as
       `shuffled/dickens-1m`. Every check and benchmark over the corpora takes it.
-    - `codec.split.Generator` draws the order, so every host writes the same octets. A host that
+    - `codec.testing.split.Generator` draws the order, so every host writes the same octets. A host that
       wrote others would fail differential-encode, whose recorded hashes cover the file.
     - The shuffle keeps the text's octet frequencies and breaks its repeated strings: libzstd at
       level 3 leaves 868,620 of its 1,048,576 octets as literals, with Huffman codes of many
@@ -1920,7 +1920,7 @@ small file.
     the call from its start: an escape, a non-ASCII octet, a record separator, a token the input
     cuts, an output without the room, and every refusal.
     - It reads through the checked reader and writes through the checked writer. It reads each
-      octet the grammar turns on with `read_octet`, counts each run with a scan of `scan.zig` or
+      octet the grammar turns on with `take_octet`, counts each run with a scan of `scan.zig` or
       `number.zig`, and takes the run with `take`. So entry 16 needs no new exception, and the
       input-index rule reads it.
     - It leaves the state the checked path leaves, field for field. The tests require the same
@@ -2688,7 +2688,7 @@ small file.
     - A batch's exit checks invariant 7's counts, the slots filled against the slots given, the
       last slot's `ended` against the batch's status, and the last slot's octets ending where the
       batch's do.
-    - The slots before the last are as the token loop and `Decoder.run` wrote them, each from the
+    - The slots before the last are as the token loop and `run` in decoder.zig wrote them, each from the
       one position in the output that the call only moves forward. decoder_loop_test.zig's lockstep
       requires every slot of every batch to equal the checked path's, whole, under seeded splits
       and slot counts, and over seeded corruptions.
@@ -4184,3 +4184,32 @@ small file.
     - Whole-buffer calls alone: a response larger than its buffer would need a larger buffer.
     - Skipping a member the type does not name: a server would accept a text it does not read.
     - Decoding through `std.json`: it takes an allocator, which entry 2 refuses.
+
+64. **The public API follows TigerStyle first, then the idioms of Zig's standard library.** Ruled
+    by the owner on 2026-11-07, on an audit of every Zig project's public API. A Zig programmer
+    must not find stdx's API strange. Each change below is one the audit found, and the owner
+    approved each:
+    - The `deflate`, `zlib` and `gzip` decoders take their calls as methods, as `zstd`, `brotli`
+      and every encoder do. `codec.IoReader` takes the decoder's type, its error set and an
+      `AfterDone`, so `codec.DecoderCalls` goes.
+    - `json.TextWriter.Error` and `json.TextReader.Error` name the sets their calls return, and
+      `zlib` and `gzip` export `EncoderOptions`, which their encoders take.
+    - `json.ValueEncodeError` goes, since `json.EncodeError` is the same set. `json.Item` moves to
+      `json.TextReader.Item`, beside `json.Encoder.Item`.
+    - The `json` encoder's and decoder's internal calls, and `platform`'s `answer` and `both`,
+      become free functions in files the roots do not export. The encoder's `close` becomes
+      `close_token`, since it holds the octets that end a token and ends nothing.
+    - `codec.Reader.read_octet` and `read_int` become `take_octet` and `take_int`, beside `take`,
+      as `std.Io.Reader` names its calls.
+    - `deflate.Options` becomes `deflate.DecodePaths`, since `zstd.DecoderOptions` sets a window.
+
+    **Test helpers, as the owner chose.** `codec.testing` holds `split` and `io_parts`, and
+    `deflate.testing` holds `Stream`, `Lookups` and `decode_counting`, as `std.testing` holds what
+    std's tests use. stdx's own tests, tools and benchmarks reach them, and no part of the API
+    does.
+
+    The alternatives refused:
+    - A test module of its own, made with `b.createModule`. It cannot reach deflate's private
+      calls, so `decode_counting` cannot move into it, and it adds an edge to design §3.
+    - A namespace that a build option exports only in this build's private graphs. It adds a
+      build-options import to each module, an edge to design §3.

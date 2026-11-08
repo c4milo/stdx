@@ -10,12 +10,7 @@ const encoder = @import("encoder/encoder.zig");
 /// The decoder of every frame of the coded octets, one after another, skippable frames among them
 /// (RFC 8878 §3.1), with a window of at most `options.window_len_max` octets.
 pub fn IoReader(comptime options: decoder.DecoderOptions) type {
-    const Decoder = decoder.Decoder(options);
-    return codec.IoReader(Decoder, decoder.Error, .{
-        .init = Decoder.init,
-        .decode = Decoder.decode,
-        .after_done = .restart,
-    });
+    return codec.IoReader(decoder.Decoder(options), decoder.Error, .restart);
 }
 
 /// The reader of the `zstd` content coding: a window of 2^23 octets (RFC 9659 §3, decision 12).

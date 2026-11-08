@@ -33,7 +33,7 @@ threadlocal var literals: [constants.block_len_max]u8 = undefined;
 threadlocal var sequences: encoder_sequences.Sequences = undefined;
 
 /// Fills `octets` with text-like runs: words from a small set, with seeded noise.
-fn fill(generator: *codec.split.Generator, octets: []u8) void {
+fn fill(generator: *codec.testing.split.Generator, octets: []u8) void {
     const words = [_][]const u8{ "octet ", "window ", "stream ", "the ", "of ", "match ", "zstd ", "frame " };
     var at: usize = 0;
     for (0..octets.len) |_| {
@@ -72,7 +72,7 @@ fn execute(start: usize, repeats: *encoder_repeat.Repeats, literals_used: []cons
 
 test "a block's sequences and literals execute back into the block, at both levels" {
     inline for (levels) |level| {
-        var generator = codec.split.Generator.init(9);
+        var generator = codec.testing.split.Generator.init(9);
         const Matcher = encoder_match.Matcher(level);
         var matcher: Matcher = undefined;
         matcher.init();
@@ -109,7 +109,7 @@ test "start moves to the next tag, and clears the tables once the tags run out" 
     const Matcher = encoder_match.Matcher(level);
     var matcher: Matcher = undefined;
     matcher.init();
-    var generator = codec.split.Generator.init(14);
+    var generator = codec.testing.split.Generator.init(14);
     fill(&generator, &window);
     var repeats: encoder_repeat.Repeats = constants.repeated_offsets_initial;
     sequences.count = 0;

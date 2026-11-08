@@ -67,7 +67,7 @@ test "the table names the latest position with a hash of 3 octets, whatever the 
 
 test "the table's hash is the top bits of the product of the word less its fourth octet" {
     var three: Three = undefined;
-    var generator = codec.split.Generator.init(43);
+    var generator = codec.testing.split.Generator.init(43);
     for (0..1000) |_| {
         const word: u32 = @truncate(generator.next());
         @memset(&three.heads, 0);

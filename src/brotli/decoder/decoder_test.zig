@@ -30,7 +30,7 @@ fn plain_of(plain: Plain, buffer: *[output_len_max]u8) []const u8 {
         .hello => return "hello",
         .text => return @embedFile("../fixtures/text.txt"),
         .random => {
-            var generator = codec.split.Generator.init(0);
+            var generator = codec.testing.split.Generator.init(0);
             for (buffer[0..random_len]) |*octet| octet.* = @truncate(generator.next());
             return buffer[0..random_len];
         },
@@ -110,10 +110,10 @@ noinline fn expect_splits(comptime Tested: type, fixture: Fixture) !void {
     var expected_buffer: [output_len_max]u8 = undefined;
     const expected = plain_of(fixture.plain, &expected_buffer);
     for (0..split_seeds) |seed| {
-        var states: [codec.split.state_slots]Tested = undefined;
+        var states: [codec.testing.split.state_slots]Tested = undefined;
         states[0].init(codec.Features.detect());
         var output: [output_len_max]u8 = undefined;
-        const outcome = try codec.split.drive(Tested, &states, step, fixture.stream, output[0..expected.len], seed);
+        const outcome = try codec.testing.split.drive(Tested, &states, step, fixture.stream, output[0..expected.len], seed);
         try testing.expectEqual(.done, outcome.status);
         try testing.expectEqual(fixture.stream.len, outcome.consumed);
         try testing.expectEqualSlices(u8, expected, output[0..outcome.written]);

@@ -13,7 +13,7 @@ const Sequences = encoder_sequences.Sequences;
 
 /// Sequences a seeded generator draws in one of four shapes: short lengths and near offsets, one
 /// code alone, long lengths and far offsets, and a mix.
-fn draw(generator: *codec.split.Generator, drawn: *Sequences, count: usize) void {
+fn draw(generator: *codec.testing.split.Generator, drawn: *Sequences, count: usize) void {
     const shape: Shape = @enumFromInt(generator.below(@typeInfo(Shape).@"enum".fields.len));
     for (0..count) |index| {
         if (shape == .one_code) {
@@ -60,7 +60,7 @@ threadlocal var octets: [section_len_max]u8 = undefined;
 threadlocal var expected: [section_len_max]u8 = undefined;
 
 test "a written section's sequences read back through the decoder, block after block" {
-    var generator = codec.split.Generator.init(6);
+    var generator = codec.testing.split.Generator.init(6);
     state.init();
     tables.init();
     for (0..60) |_| {
@@ -94,7 +94,7 @@ test "a written section's sequences read back through the decoder, block after b
 }
 
 test "a section fits an output of exactly its length, and not one octet less" {
-    var generator = codec.split.Generator.init(7);
+    var generator = codec.testing.split.Generator.init(7);
     for (0..20) |_| {
         draw(&generator, &sequences, generator.between(1, 3000));
         state.init();

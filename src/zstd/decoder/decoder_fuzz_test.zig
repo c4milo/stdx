@@ -55,7 +55,7 @@ fn check_paths(comptime paths: claims.Paths, input: []const u8, whole: Verdict, 
 /// alone and with each claim off, and requires all to agree. The split decode takes the CPU's
 /// features, so where the CPU runs the assembly it meets the Zig loop (decision 23).
 fn check_split(input: []const u8, seed: u64) !void {
-    var states: [codec.split.state_slots]Decoder = undefined;
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
     var whole_output: [output_len_max]u8 = undefined;
     states[0].init(.{});
     const whole = verdict_of(states[0].decode(input, &whole_output));
@@ -63,7 +63,7 @@ fn check_split(input: []const u8, seed: u64) !void {
     inline for (claims.each_off) |off| try check_paths(.{ .claims = off }, input, whole, &whole_output);
     states[0].init(codec.Features.detect());
     var split_output: [output_len_max]u8 = undefined;
-    const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
+    const outcome = codec.testing.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
         return;
     };
@@ -101,7 +101,7 @@ test "every seeded corruption of a valid frame decodes alike in one call and spl
     _ = try fast_sequences_test.seeded_frame(&many, many_sequences_seed, .{});
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const frames = [_][]const u8{ standard.written(), marker.written(), skippable_frame, many.written() };
         const valid = frames[generator.below(frames.len)];
         @memcpy(input[0..valid.len], valid);

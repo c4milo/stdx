@@ -48,7 +48,7 @@ fn check(input: []const u8, seed: u64) !void {
 test "every seeded corruption of a valid text decodes alike every way" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const text = texts[generator.below(texts.len)];
         @memcpy(input[0..text.len], text);
         for (0..generator.below(flips_max + 1)) |_| {

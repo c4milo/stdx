@@ -97,8 +97,8 @@ fn decode_wuffs(_: Context, stream: []const u8, output: []u8) bool {
 }
 
 fn decode_stdx(context: Context, stream: []const u8, output: []u8) bool {
-    gzip.init(context.decoder, context.features);
-    const progress = gzip.decode(context.decoder, stream, output) catch return false;
+    context.decoder.init(context.features);
+    const progress = context.decoder.decode(stream, output) catch return false;
     return progress.status == .done and progress.written == output.len;
 }
 
@@ -184,10 +184,10 @@ fn report_lookups(arena: std.mem.Allocator, out: *std.Io.Writer, input: Input) !
     const coded = try inputs.streams(arena, input, ZlibStreams{ .container = .raw });
     const output = try arena.alloc(u8, input.part_len);
     const decoder = try arena.create(deflate.Decoder);
-    var lookups: deflate.Lookups = .{};
+    var lookups: deflate.testing.Lookups = .{};
     for (coded, input.parts) |stream, part| {
-        deflate.init(decoder, .{});
-        const progress = try deflate.decode_counting(.{}, decoder, stream, output, &lookups);
+        decoder.init(.{});
+        const progress = try deflate.testing.decode_counting(.{}, decoder, stream, output, &lookups);
         if (progress.status != .done or !std.mem.eql(u8, part, output)) return error.CandidateDisagrees;
     }
     const symbols = lookups.table + lookups.canonical + lookups.checked;

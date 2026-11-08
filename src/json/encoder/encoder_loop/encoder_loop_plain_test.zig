@@ -44,7 +44,7 @@ test "the loop's copy takes a string of every length past 16, with a stop at eve
 test "the loop's copy takes seeded strings as far as their plain ASCII runs" {
     var source: [string_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const len: usize = @intCast(generator.between(constants.vector_len + 1, string_len_max));
         draw(&generator, source[0..len], 0);
         try expect_copy(@intCast(generator.below(alignment)), source[0..len]);

@@ -52,7 +52,7 @@ pub fn offset_value(repeats: *Repeats, offset: u32, literals_len: u32) u32 {
 test "an Offset_Value resolves to its offset, and both sides keep the same Repeated_Offsets" {
     const codec = @import("codec");
     const sequences = @import("../sequences.zig");
-    var generator = codec.split.Generator.init(5);
+    var generator = codec.testing.split.Generator.init(5);
     var encoder_repeats: Repeats = constants.repeated_offsets_initial;
     var decoder_repeats: Repeats = constants.repeated_offsets_initial;
     for (0..10_000) |_| {

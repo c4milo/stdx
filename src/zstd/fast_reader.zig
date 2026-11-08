@@ -100,7 +100,7 @@ pub const Reader = struct {
 };
 
 test "the fast reader reads what the checked backward reader reads, across its loads" {
-    var generator = codec.split.Generator.init(1);
+    var generator = codec.testing.split.Generator.init(1);
     var stream: [64]u8 = undefined;
     for (&stream) |*octet| octet.* = @truncate(generator.next());
     stream[stream.len - 1] |= 0x80;

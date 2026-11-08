@@ -127,7 +127,7 @@ const seeded_cases = 2000;
 
 test "seeded strings of Cyrillic and CJK characters, escapes and refused octets copy alike at both widths" {
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var storage: [string_len_max]u8 = undefined;
         var len: usize = 0;
         const refuses = generator.below(8) == 0;
@@ -233,7 +233,7 @@ const raw_refused = [_][]const u8{ "\x80", "\xc0", "\xff", "\xed\xa0\x80", "\xe4
 
 test "the encoder writes seeded strings of Cyrillic and CJK characters, escapes and refused octets alike at both widths" {
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var storage: [string_len_max]u8 = undefined;
         var len: usize = 0;
         const refuses = generator.below(8) == 0;

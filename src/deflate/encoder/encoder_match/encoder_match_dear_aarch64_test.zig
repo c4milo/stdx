@@ -58,7 +58,7 @@ const copy_odds = 2;
 
 /// Fills `window` with seeded octets of `kind`.
 fn fill(window: []u8, kind: Kind, seed: u64) void {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     switch (kind) {
         .letters => |letters| for (window) |*octet| {
             octet.* = @intCast(generator.below(letters));

@@ -27,19 +27,19 @@ const Verdict = union(enum) {
 };
 
 fn step(decoder: *Decoder, input: []const u8, output: []u8) zlib.Error!codec.Progress {
-    return zlib.decode(decoder, input, output);
+    return decoder.decode(input, output);
 }
 
 /// Decodes `input` in one call and under `seed`'s split, and requires the two to agree.
 fn check_split(input: []const u8, seed: u64) !void {
     var whole_output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    zlib.init(&decoder, .{});
-    const whole: Verdict = if (zlib.decode(&decoder, input, &whole_output)) |progress| .{ .progress = progress } else |err| .{ .refused = err };
-    var states: [codec.split.state_slots]Decoder = undefined;
-    zlib.init(&states[0], .{});
+    decoder.init(.{});
+    const whole: Verdict = if (decoder.decode(input, &whole_output)) |progress| .{ .progress = progress } else |err| .{ .refused = err };
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
+    states[0].init(.{});
     var split_output: [output_len_max]u8 = undefined;
-    const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
+    const outcome = codec.testing.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
         return;
     };
@@ -72,7 +72,7 @@ test "every seeded corruption of a valid stream decodes alike in one call and sp
     const valid = stream.slice();
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         @memcpy(input[0..valid.len], valid);
         for (0..generator.below(flips_max + 1)) |_| {
             const bit = generator.below(valid.len * @bitSizeOf(u8));

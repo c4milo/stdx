@@ -4,7 +4,7 @@
 //! starts a sequence's text, the value separator before a value, the token, and the line feed that
 //! ends a sequence's text, for a structural character, a name or a string of plain ASCII, a hex
 //! string, a number's text that is one whole number, a number it formats, and a literal name. Every
-//! other item it leaves to `Encoder.run`, the path one token a call takes, which names every
+//! other item it leaves to `encoder_file.run`, the path one token a call takes, which names every
 //! refusal.
 //!
 //! It checks once that the output holds all an item writes, then stores into the slice directly, as
@@ -79,10 +79,10 @@ const Frame = packed struct(u8) {
 };
 
 /// The loop keeps the grammar's position and depth in locals, and writes them into the encoder
-/// once, at the batch's end, with what `Encoder.run` leaves after the last item: stored at every
-/// item, they took loads and stores the checked path reads only once the batch is over. Every value
-/// an item keeps live across its octets costs registers the loop runs short of, so the last item's
-/// kind and number are found again from the item, once.
+/// once, at the batch's end, with what `encoder_file.run` leaves after the last item: stored at
+/// every item, they took loads and stores the checked path reads only once the batch is over. Every
+/// value an item keeps live across its octets costs registers the loop runs short of, so the last
+/// item's kind and number are found again from the item, once.
 const Loop = struct {
     encoder: *Encoder,
     /// The batch's whole output, which each item's octets must not overlap.
@@ -181,7 +181,7 @@ const Loop = struct {
     }
 
     /// Writes the line feed after an item that ends a sequence's text, and moves the grammar past
-    /// the item as `Encoder.run` does.
+    /// the item as `encoder_file.run` does.
     inline fn close(self: *Loop, comptime claims: Claims, comptime kind: Kind, ends_text: bool) void {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (ends_text and self.sequence) self.put(claims, constants.line_feed);
@@ -189,7 +189,7 @@ const Loop = struct {
         assert((self.position == .text_end) == ends_text);
     }
 
-    /// Writes the grammar's position and depth into the encoder, and what `Encoder.run` leaves
+    /// Writes the grammar's position and depth into the encoder, and what `encoder_file.run` leaves
     /// after `last`, the last item the loop wrote: its kind, and a number's text's last state.
     /// Inline, as every method here is: one that takes the loop's address out of line keeps all of
     /// its fields in memory.

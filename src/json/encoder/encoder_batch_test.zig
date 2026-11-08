@@ -52,10 +52,10 @@ const EncodeDrive = struct {
 /// other slot at drawn calls. Returns the octets written.
 fn encode_batches(framing: Framing, items: []const encoder_test.Item, output: []u8, seed: ?u64) !usize {
     var drive: EncodeDrive = .{ .items = items, .output = output };
-    var states: [codec.split.state_slots]Encoder = undefined;
+    var states: [codec.testing.split.state_slots]Encoder = undefined;
     states[0].init(framing, codec.Features.detect());
     var slot: usize = 0;
-    var schedule = codec.split.Schedule.init(seed orelse 0);
+    var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * output.len;
     for (0..calls_max) |call| {
         const left = items.len - drive.index;
@@ -67,7 +67,7 @@ fn encode_batches(framing: Framing, items: []const encoder_test.Item, output: []
     return error.TestNoProgress;
 }
 
-fn move(states: *[codec.split.state_slots]Encoder, slot: usize) usize {
+fn move(states: *[codec.testing.split.state_slots]Encoder, slot: usize) usize {
     const other = 1 - slot;
     states[other] = states[slot];
     @memset(std.mem.asBytes(&states[slot]), codec.constants.moved_state_fill);
@@ -137,7 +137,7 @@ test "TextWriter's write_items writes a record as its one-token calls do, or fai
 
 test "seeded lists of tokens encode alike in batches" {
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var program: round_trip.Program = .{};
         round_trip.Draw.value(&generator, &program, 0);
         try check(program.items[0..program.count], generator.next());

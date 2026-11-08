@@ -202,7 +202,7 @@ pub const Decoder = struct {
         assert(self.stage != .done and self.stage != .refused);
         var reader = codec.Reader.init(input);
         var writer = codec.Writer.init(output);
-        const outcome = self.run(claims, &reader, &writer, piece) catch |err| {
+        const outcome = run(self, claims, &reader, &writer, piece) catch |err| {
             self.stage = .refused;
             return err;
         };
@@ -225,22 +225,6 @@ pub const Decoder = struct {
         return self.stage == .done;
     }
 
-    /// The call's loop, inline in `decode_with`, its one caller. Out of line, as LLVM left it in
-    /// the benchmark's build with every claim on, where it had a second caller, each token paid a
-    /// call of its own.
-    pub inline fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
-        if (self.open != .none) return self.continue_token(claims, reader, writer, piece);
-        if (claims.decoder_fast_path and self.stage == .tokens) {
-            if (fast.token(self, claims, reader, writer)) |outcome| return outcome;
-        }
-        for (0..constants.decoder_steps_max) |_| {
-            if (try self.step(claims, reader, writer, piece)) |outcome| return outcome;
-        }
-        // A step returns, or passes the record separators, the byte order mark's check or one
-        // separator, each at most once between two tokens.
-        unreachable;
-    }
-
     /// Takes the octets between tokens up to the next separator or token. Returns the call's
     /// outcome, or null when it passed a separator and the next step goes on.
     fn step(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!?Outcome {
@@ -252,7 +236,7 @@ pub const Decoder = struct {
         }
         const whitespace = skip_whitespace(reader);
         if (whitespace > 0 and self.expect == .end_of_text) self.value_delimited = true;
-        const octet = reader.read_octet() catch return try self.end_of_input(piece);
+        const octet = reader.take_octet() catch return try self.end_of_input(piece);
         if (self.framing == .sequence and octet == constants.record_separator) {
             reader.unread(1);
             return try self.text_ended_by_separator();
@@ -261,8 +245,8 @@ pub const Decoder = struct {
         if (self.expect == .end_of_text) return error.TrailingOctets;
         return switch (self.expect) {
             .value => try self.value(claims, octet, reader, writer, piece),
-            .value_or_end_array => if (octet == constants.end_array) self.end_container(.end_array) else try self.value(claims, octet, reader, writer, piece),
-            .name_or_end_object => if (octet == constants.end_object) self.end_container(.end_object) else try self.name(claims, octet, reader, writer, piece),
+            .value_or_end_array => if (octet == constants.end_array) end_container(self, .end_array) else try self.value(claims, octet, reader, writer, piece),
+            .name_or_end_object => if (octet == constants.end_object) end_container(self, .end_object) else try self.name(claims, octet, reader, writer, piece),
             .name => try self.name(claims, octet, reader, writer, piece),
             .name_separator => try self.name_separator(octet),
             .separator_or_end => try self.separator_or_end(octet),
@@ -274,7 +258,7 @@ pub const Decoder = struct {
     /// any after it, which denote no text between them.
     fn record_separators(self: *Decoder, reader: *codec.Reader, piece: Piece) Error!?Outcome {
         for (0..reader.remaining_len()) |_| {
-            const octet = reader.read_octet() catch unreachable;
+            const octet = reader.take_octet() catch unreachable;
             if (octet == constants.record_separator) {
                 self.matched = 1;
                 continue;
@@ -292,8 +276,9 @@ pub const Decoder = struct {
     /// Refuses a text that starts with a byte order mark (RFC 8259 §8.1), which no JSON text holds.
     fn byte_order_mark(self: *Decoder, reader: *codec.Reader, piece: Piece) Error!?Outcome {
         for (self.matched..constants.byte_order_mark.len) |index| {
-            const octet = reader.read_octet() catch {
-                // RFC 8259 §3: at the text's end, octets taken as a byte order mark's start no value.
+            const octet = reader.take_octet() catch {
+                // RFC 8259 §3: at the text's end, octets taken as a byte order mark's start no
+                // value.
                 if (piece == .last and self.matched > 0) return error.ExpectedValue;
                 return try self.end_of_input(piece);
             };
@@ -335,7 +320,7 @@ pub const Decoder = struct {
     /// Starts the value `octet` begins (RFC 8259 §3).
     fn value(self: *Decoder, comptime claims: Claims, octet: u8, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
         switch (octet) {
-            constants.begin_object, constants.begin_array => return self.begin_container(octet),
+            constants.begin_object, constants.begin_array => return begin_container(self, octet),
             constants.quotation_mark => return self.start_token(claims, .string, reader, writer, piece),
             constants.literal_true[0] => return self.start_token(claims, .true, reader, writer, piece),
             constants.literal_false[0] => return self.start_token(claims, .false, reader, writer, piece),
@@ -367,27 +352,10 @@ pub const Decoder = struct {
             self.expect = if (in_object) .name else .value;
             return null;
         }
-        if (octet == constants.end_object and in_object) return self.end_container(.end_object);
-        if (octet == constants.end_array and !in_object) return self.end_container(.end_array);
+        if (octet == constants.end_object and in_object) return end_container(self, .end_object);
+        if (octet == constants.end_array and !in_object) return end_container(self, .end_array);
         // RFC 8259 §4, §5: a comma or the container's own end follows each value in it.
         return error.ExpectedValueSeparator;
-    }
-
-    pub fn begin_container(self: *Decoder, octet: u8) Error!Outcome {
-        // RFC 8259 §9: an implementation may limit the depth of nesting.
-        if (self.depth == constants.depth_max) return error.DepthTooLarge;
-        const object = octet == constants.begin_object;
-        self.containers.set(self.depth, object);
-        self.depth += 1;
-        self.expect = if (object) .name_or_end_object else .value_or_end_array;
-        return .{ .status = .token, .kind = if (object) .begin_object else .begin_array };
-    }
-
-    pub fn end_container(self: *Decoder, kind: Kind) Outcome {
-        assert(self.depth > 0 and self.containers.is_object(self.depth - 1) == (kind == .end_object));
-        self.depth -= 1;
-        self.value_ended(kind);
-        return .{ .status = .token, .kind = kind };
     }
 
     fn start_token(self: *Decoder, comptime claims: Claims, open: Open, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
@@ -407,27 +375,60 @@ pub const Decoder = struct {
             .none => unreachable,
         };
     }
-
-    /// Moves the grammar past a value of `kind` that just ended.
-    pub fn value_ended(self: *Decoder, kind: Kind) void {
-        self.open = .none;
-        if (self.depth > 0) {
-            self.expect = .separator_or_end;
-            return;
-        }
-        self.expect = .end_of_text;
-        self.value_delimited = switch (kind) {
-            .number, .true, .false, .null => false,
-            else => true,
-        };
-    }
-
-    /// Moves the grammar past a name that just ended.
-    pub fn name_ended(self: *Decoder) void {
-        self.open = .none;
-        self.expect = .name_separator;
-    }
 };
+
+/// The call's loop, inline in `decode_with`, its one caller. Out of line, as LLVM left it in
+/// the benchmark's build with every claim on, where it had a second caller, each token paid a
+/// call of its own.
+pub inline fn run(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
+    if (decoder.open != .none) return decoder.continue_token(claims, reader, writer, piece);
+    if (claims.decoder_fast_path and decoder.stage == .tokens) {
+        if (fast.token(decoder, claims, reader, writer)) |outcome| return outcome;
+    }
+    for (0..constants.decoder_steps_max) |_| {
+        if (try decoder.step(claims, reader, writer, piece)) |outcome| return outcome;
+    }
+    // A step returns, or passes the record separators, the byte order mark's check or one
+    // separator, each at most once between two tokens.
+    unreachable;
+}
+
+pub fn begin_container(decoder: *Decoder, octet: u8) Error!Outcome {
+    // RFC 8259 §9: an implementation may limit the depth of nesting.
+    if (decoder.depth == constants.depth_max) return error.DepthTooLarge;
+    const object = octet == constants.begin_object;
+    decoder.containers.set(decoder.depth, object);
+    decoder.depth += 1;
+    decoder.expect = if (object) .name_or_end_object else .value_or_end_array;
+    return .{ .status = .token, .kind = if (object) .begin_object else .begin_array };
+}
+
+pub fn end_container(decoder: *Decoder, kind: Kind) Outcome {
+    assert(decoder.depth > 0 and decoder.containers.is_object(decoder.depth - 1) == (kind == .end_object));
+    decoder.depth -= 1;
+    value_ended(decoder, kind);
+    return .{ .status = .token, .kind = kind };
+}
+
+/// Moves the grammar past a value of `kind` that just ended.
+pub fn value_ended(decoder: *Decoder, kind: Kind) void {
+    decoder.open = .none;
+    if (decoder.depth > 0) {
+        decoder.expect = .separator_or_end;
+        return;
+    }
+    decoder.expect = .end_of_text;
+    decoder.value_delimited = switch (kind) {
+        .number, .true, .false, .null => false,
+        else => true,
+    };
+}
+
+/// Moves the grammar past a name that just ended.
+pub fn name_ended(decoder: *Decoder) void {
+    decoder.open = .none;
+    decoder.expect = .name_separator;
+}
 
 /// A call's status and the token it names.
 pub const Outcome = struct { status: Status, kind: ?Kind };

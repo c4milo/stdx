@@ -59,7 +59,7 @@ pub const Buffers = struct {
     stream: []u8,
     output: []u8,
     oracle_output: []u8,
-    decoders: *[codec.split.state_slots]Decoder,
+    decoders: *[codec.testing.split.state_slots]Decoder,
 };
 
 fn fail(tally: *Tally, name: []const u8, what: []const u8, encoding: oracle.BrotliEncoding, detail: []const u8) void {
@@ -86,12 +86,13 @@ pub fn check_stream(tally: *Tally, buffers: Buffers, name: []const u8, input: []
     const whole = buffers.decoders[0].decode_all(stream, buffers.output) catch |err| return fail(tally, name, "stdx whole", encoding, @errorName(err));
     if (whole.consumed != stream.len or !std.mem.eql(u8, input, buffers.output[0..whole.written])) return fail(tally, name, "stdx whole", encoding, "decoded other octets");
     buffers.decoders[0].init(codec.Features.detect());
-    const outcome = codec.split.drive(Decoder, buffers.decoders, step, stream, buffers.output, seed) catch |err| return fail(tally, name, "stdx split", encoding, @errorName(err));
+    const outcome = codec.testing.split.drive(Decoder, buffers.decoders, step, stream, buffers.output, seed) catch |err| return fail(tally, name, "stdx split", encoding, @errorName(err));
     if (outcome.status != .done or !std.mem.eql(u8, input, buffers.output[0..outcome.written])) return fail(tally, name, "stdx split", encoding, "decoded other octets");
 }
 
-/// An encoding at `quality` and `window`, with NPOSTFIX, NDIRECT and a flush interval the seed draws.
-fn seeded_encoding(generator: *codec.split.Generator, quality: c_int, window: c_int) oracle.BrotliEncoding {
+/// An encoding at `quality` and `window`, with NPOSTFIX, NDIRECT and a flush interval the seed
+/// draws.
+fn seeded_encoding(generator: *codec.testing.split.Generator, quality: c_int, window: c_int) oracle.BrotliEncoding {
     const postfix_bits: u2 = @intCast(generator.below(postfix_bits_max + 1));
     return .{
         .quality = quality,
@@ -104,7 +105,7 @@ fn seeded_encoding(generator: *codec.split.Generator, quality: c_int, window: c_
 
 /// Every check of one file.
 pub fn check_file(tally: *Tally, buffers: Buffers, name: []const u8, input: []const u8) void {
-    var generator = codec.split.Generator.init(std.hash.Wyhash.hash(0, name));
+    var generator = codec.testing.split.Generator.init(std.hash.Wyhash.hash(0, name));
     const prefix = input[0..@min(input.len, matrix_input_len_max)];
     for (qualities) |quality| {
         for (window_bits) |window| check_stream(tally, buffers, name, prefix, seeded_encoding(&generator, quality, window), generator.next());
@@ -130,7 +131,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("differential-brotli FAILED: the build passed {d} files, not the {d} of decision 15\n", .{ names.items.len, corpus.names.len });
         std.process.exit(1);
     }
-    const decoders = try arena.create([codec.split.state_slots]Decoder);
+    const decoders = try arena.create([codec.testing.split.state_slots]Decoder);
     const corrupt_buffers: brotli_corrupt.Buffers = .{
         .base = try arena.alloc(u8, oracle.brotli_bound(brotli_corrupt.base_input_len_max)),
         .corrupted = try arena.alloc(u8, brotli_corrupt.corrupted_len(oracle.brotli_bound(brotli_corrupt.base_input_len_max))),

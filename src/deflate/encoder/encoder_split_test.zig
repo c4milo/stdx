@@ -26,7 +26,7 @@ const octet_values = std.math.maxInt(u8) + 1;
 const fixed_short_literals = 144;
 
 /// Fills `target` with octets drawn below `bound`.
-fn fill_below(target: []u8, generator: *codec.split.Generator, bound: usize) void {
+fn fill_below(target: []u8, generator: *codec.testing.split.Generator, bound: usize) void {
     for (target) |*octet| octet.* = @intCast(generator.below(bound));
 }
 
@@ -64,7 +64,7 @@ test "a block that crossed a slide and ends cheapest stored goes out coded to th
     // its end the stored form is cheapest, with its first octets gone from the window. The block
     // ends at the symbol limit, at the stream's end, and at a flush.
     var input: [crossing_len]u8 = undefined;
-    var generator = codec.split.Generator.init(41);
+    var generator = codec.testing.split.Generator.init(41);
     fill_below(&input, &generator, octet_values);
     fill_below(input[crossing_flush..][0..crossing_low_len], &generator, fixed_short_literals);
     const after = crossing_flush + crossing_low_len;
@@ -96,7 +96,7 @@ test "few newest symbols that code apart leave the block at the end, at a flush 
     // Letters of 7 bits, with hardly a match among them, so a symbol an octet, then random octets,
     // fewer than a check's worth of symbols. Joined to the letters' block the random octets would
     // take its codes, 9 bits and more each; in a block of their own they are stored.
-    var generator = codec.split.Generator.init(47);
+    var generator = codec.testing.split.Generator.init(47);
     var input: [newest_letters_len + newest_random_len + newest_tail_len]u8 = undefined;
     fill_below(&input, &generator, letter_values);
     fill_below(input[newest_letters_len..][0..newest_random_len], &generator, octet_values);
@@ -143,7 +143,7 @@ const newest_slide_start = newest_slide_checks * constants.block_chunk_symbols +
 const newest_slide_slack_len = 160;
 
 /// Fills `input` with stretches that differ, each `stretch_len_max` octets at most.
-fn fill_stretches(input: []u8, generator: *codec.split.Generator) void {
+fn fill_stretches(input: []u8, generator: *codec.testing.split.Generator) void {
     var at: usize = 0;
     for (0..input.len) |_| {
         if (at == input.len) break;
@@ -158,7 +158,7 @@ fn fill_stretches(input: []u8, generator: *codec.split.Generator) void {
 const Stretch = enum { values, copy, run, short_literals };
 
 /// Fills `input` from `at` on with one stretch of a seeded kind.
-fn fill_stretch(input: []u8, at: usize, generator: *codec.split.Generator) void {
+fn fill_stretch(input: []u8, at: usize, generator: *codec.testing.split.Generator) void {
     const stretch = input[at..];
     const kinds = std.enums.values(Stretch);
     switch (kinds[generator.below(kinds.len)]) {
@@ -191,15 +191,15 @@ fn expect_splits_agree(comptime level: u4, input: []const u8, points: []const us
             return state.encode(piece, output, flush);
         }
     }.call;
-    var states: [codec.split.state_slots]Encoder = undefined;
+    var states: [codec.testing.split.state_slots]Encoder = undefined;
     var first: [stretches_len_max + output_slack_len]u8 = undefined;
     states[0].init(.{});
-    const outcome = try codec.split.drive_encoder(Encoder, &states, step, input, &first, points, seed);
+    const outcome = try codec.testing.split.drive_encoder(Encoder, &states, step, input, &first, points, seed);
     try testing.expectEqual(.done, outcome.status);
     try testing.expectEqual(input.len, outcome.consumed);
     var second: [first.len]u8 = undefined;
     states[0].init(.{});
-    const again = try codec.split.drive_encoder(Encoder, &states, step, input, &second, points, seed +% 1);
+    const again = try codec.testing.split.drive_encoder(Encoder, &states, step, input, &second, points, seed +% 1);
     try testing.expectEqualSlices(u8, first[0..outcome.written], second[0..again.written]);
     try shared.expect_decodes_to(first[0..outcome.written], input);
 }
@@ -209,7 +209,7 @@ test "seeded inputs of stretches that differ decode to themselves at every level
     // flushes: blocks end before newest symbols, cross slides, and fall back to their stored form.
     var input: [stretches_len_max]u8 = undefined;
     for (0..stretch_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const len = generator.between(stretches_len_max / 2, stretches_len_max);
         fill_stretches(input[0..len], &generator);
         var points: [stretch_points_max]usize = undefined;

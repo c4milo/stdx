@@ -203,7 +203,7 @@ pub fn read_header(section: []const u8, tables: *Tables) Error!Header {
     const count = try read_count(&reader);
     if (count == 0) return .{ .count = 0, .header_len = @intCast(reader.consumed()) };
     // RFC 8878 §3.1.1.3.2.1: Symbol_Compression_Modes follows Number_of_Sequences.
-    const modes = reader.read_octet() catch return error.SequencesTruncated;
+    const modes = reader.take_octet() catch return error.SequencesTruncated;
     // RFC 8878 §3.1.1.3.2.1: the Reserved field must be all zeroes.
     if (modes & constants.modes_reserved_mask != 0) return error.SequencesModesReserved;
     const shifts = [codes.len]u3{ constants.literals_length_mode_shift, constants.offset_mode_shift, constants.match_length_mode_shift };
@@ -221,15 +221,15 @@ pub fn read_header(section: []const u8, tables: *Tables) Error!Header {
 /// §3.1.1.3.2.1).
 fn read_count(reader: *codec.Reader) Error!u32 {
     // RFC 8878 §3.1.1.3.2.1: a section starts with Number_of_Sequences.
-    const first = reader.read_octet() catch return error.SequencesTruncated;
+    const first = reader.take_octet() catch return error.SequencesTruncated;
     if (first <= constants.sequences_one_octet_max) return first;
     if (first <= constants.sequences_two_octet_max) {
         // RFC 8878 §3.1.1.3.2.1: a first octet of 128 to 254 takes a second.
-        const second = reader.read_octet() catch return error.SequencesTruncated;
+        const second = reader.take_octet() catch return error.SequencesTruncated;
         return (@as(u32, first - constants.sequences_two_octet_base) << @bitSizeOf(u8)) + second;
     }
     // RFC 8878 §3.1.1.3.2.1: a first octet of 255 takes two more, least significant first.
-    const rest = reader.read_int(u16, .little) catch return error.SequencesTruncated;
+    const rest = reader.take_int(u16, .little) catch return error.SequencesTruncated;
     return @as(u32, rest) + constants.sequences_long_offset;
 }
 

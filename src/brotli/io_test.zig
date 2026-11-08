@@ -5,7 +5,7 @@ const testing = std.testing;
 const codec = @import("codec");
 const io = @import("io.zig");
 
-const io_parts = codec.io_parts;
+const io_parts = codec.testing.io_parts;
 
 /// A window of 2^18 octets, so the test's reader fits its stack.
 const test_window_bits = 18;

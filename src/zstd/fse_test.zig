@@ -61,7 +61,7 @@ const share_divisor = 3;
 
 /// A seeded distribution of `symbol_count` symbols over 2^`accuracy_log` points, with zeros and
 /// "less than 1" probabilities among them.
-fn seeded_distribution(generator: *codec.split.Generator, symbol_count: u16, accuracy_log: u4) fse.Distribution {
+fn seeded_distribution(generator: *codec.testing.split.Generator, symbol_count: u16, accuracy_log: u4) fse.Distribution {
     var distribution: fse.Distribution = .{ .probabilities = @splat(0), .symbol_count = symbol_count, .accuracy_log = accuracy_log };
     var left: i32 = @as(i32, 1) << accuracy_log;
     for (0..symbol_count - 1) |symbol| {
@@ -81,7 +81,7 @@ fn seeded_distribution(generator: *codec.split.Generator, symbol_count: u16, acc
 
 test "a distribution reads back as it was written, taking a round number of octets" {
     for (0..300) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const accuracy_log: u4 = @intCast(5 + generator.below(5));
         const symbol_count: u16 = @intCast(2 + generator.below(constants.match_length_symbols - 1));
         const written = seeded_distribution(&generator, symbol_count, accuracy_log);
@@ -103,7 +103,7 @@ test "a distribution reads back as it was written, taking a round number of octe
 test "every cut of a written description is refused as cut, and the description alone reads" {
     var ends_at_octet: usize = 0;
     for (0..300) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const accuracy_log: u4 = @intCast(5 + generator.below(5));
         const symbol_count: u16 = @intCast(2 + generator.below(constants.match_length_symbols - 1));
         const written = seeded_distribution(&generator, symbol_count, accuracy_log);
@@ -150,7 +150,7 @@ test "a spread whose steps end among the cells of \"less than 1\" symbols builds
 
 test "every cell's bits and Baseline are RFC 8878 §4.1.1's, at every accuracy log" {
     for (0..100) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const accuracy_log: u4 = @intCast(constants.accuracy_log_offset + seed % 5);
         const symbol_count: u16 = @intCast(2 + generator.below(constants.match_length_symbols - 1));
         const distribution = seeded_distribution(&generator, symbol_count, accuracy_log);

@@ -12,7 +12,7 @@
 //! the build calls, and the checked path stays in functions of its own.
 //!
 //! It reads through the checked reader and writes through the checked writer: each octet the
-//! grammar turns on with `read_octet`, and each run counted by a scan of scan.zig or number.zig and
+//! grammar turns on with `take_octet`, and each run counted by a scan of scan.zig or number.zig and
 //! taken with `take`. It changes the state only once the token is whole, and leaves it as the
 //! checked path would, field for field, which decoder_fast_test.zig requires after every call.
 
@@ -49,12 +49,12 @@ pub inline fn token(decoder: *Decoder, comptime claims: Claims, reader: *codec.R
 
 inline fn next_token(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
     _ = decoder_file.skip_whitespace(reader);
-    var octet = reader.read_octet() catch return null;
+    var octet = reader.take_octet() catch return null;
     var expect = decoder.expect;
     if (expect == .separator_or_end or expect == .name_separator) {
         expect = after_separator(decoder, expect, octet) orelse return container_end(decoder, expect, octet);
         _ = decoder_file.skip_whitespace(reader);
-        octet = reader.read_octet() catch return null;
+        octet = reader.take_octet() catch return null;
     }
     return token_at(decoder, claims, expect, octet, reader, writer);
 }
@@ -91,7 +91,7 @@ inline fn value(decoder: *Decoder, expect: Expect, octet: u8, reader: *codec.Rea
         constants.begin_object, constants.begin_array => {
             // The checked path refuses a container past the depth limit.
             if (decoder.depth == constants.depth_max) return null;
-            return @call(.always_inline, Decoder.begin_container, .{ decoder, octet }) catch unreachable;
+            return @call(.always_inline, decoder_file.begin_container, .{ decoder, octet }) catch unreachable;
         },
         constants.literal_true[0], constants.literal_false[0], constants.literal_null[0] => return literal(decoder, octet, reader),
         else => {},
@@ -111,11 +111,11 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
     else
         scan.plain_len_scalar(window);
     const content = reader.take(run_len) catch unreachable;
-    const closing = reader.read_octet() catch return null;
+    const closing = reader.take_octet() catch return null;
     if (closing != constants.quotation_mark) return null;
     writer.write_all(content) catch unreachable;
     started(decoder, 1, .{});
-    if (kind == .name) decoder.name_ended() else decoder.value_ended(kind);
+    if (kind == .name) decoder_file.name_ended(decoder) else decoder_file.value_ended(decoder, kind);
     return .{ .status = .token, .kind = kind };
 }
 
@@ -131,7 +131,7 @@ inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer
     const octets = @call(.always_inline, codec.Reader.take, .{ reader, ended.len }) catch unreachable;
     @call(.always_inline, codec.Writer.write_all, .{ writer, octets }) catch unreachable;
     started(decoder, 1, ended.number);
-    decoder.value_ended(.number);
+    decoder_file.value_ended(decoder, .number);
     return .{ .status = .token, .kind = .number };
 }
 
@@ -153,13 +153,13 @@ inline fn literal_of(decoder: *Decoder, kind: Kind, comptime text: []const u8, r
         if (rest[index] != letter) return null;
     }
     started(decoder, text.len, .{});
-    decoder.value_ended(kind);
+    decoder_file.value_ended(decoder, kind);
     return .{ .status = .token, .kind = kind };
 }
 
-/// `Decoder.end_container`, inline here alone: the checked path calls it too.
+/// `decoder_file.end_container`, inline here alone: the checked path calls it too.
 inline fn end_container(decoder: *Decoder, kind: Kind) Outcome {
-    return @call(.always_inline, Decoder.end_container, .{ decoder, kind });
+    return @call(.always_inline, decoder_file.end_container, .{ decoder, kind });
 }
 
 /// Leaves the fields `Decoder.start_token` sets as the checked path leaves them at the token's end:

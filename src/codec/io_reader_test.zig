@@ -22,12 +22,12 @@ const Twice = struct {
     pending_count: u2,
     done: bool,
 
-    fn init(self: *Twice, features: Features) void {
+    pub fn init(self: *Twice, features: Features) void {
         _ = features;
         self.* = .{ .pending = 0, .pending_count = 0, .done = false };
     }
 
-    fn decode(self: *Twice, input: []const u8, output: []u8) error{TestRefused}!status.Progress {
+    pub fn decode(self: *Twice, input: []const u8, output: []u8) error{TestRefused}!status.Progress {
         // A call after `done` without `init` is a programmer error, as in every codec.
         assert(!self.done);
         var consumed: usize = 0;
@@ -55,8 +55,8 @@ const Twice = struct {
     }
 };
 
-const OneStream = io_reader.IoReader(Twice, error{TestRefused}, .{ .init = Twice.init, .decode = Twice.decode, .after_done = .refuse });
-const ManyStreams = io_reader.IoReader(Twice, error{TestRefused}, .{ .init = Twice.init, .decode = Twice.decode, .after_done = .restart });
+const OneStream = io_reader.IoReader(Twice, error{TestRefused}, .refuse);
+const ManyStreams = io_reader.IoReader(Twice, error{TestRefused}, .restart);
 
 test "an IoReader decodes a stream given whole, then ends with its source" {
     var source_buffer: [8]u8 = undefined;

@@ -105,24 +105,24 @@ fn letter(index: usize) u8 {
     return letters[index % letters.len];
 }
 
-const tail_off: deflate.Options = .{ .claims = .{ .wide_tail = false } };
-const checked: deflate.Options = .{ .fast_paths = false };
+const tail_off: deflate.DecodePaths = .{ .claims = .{ .wide_tail = false } };
+const checked: deflate.DecodePaths = .{ .fast_paths = false };
 
 /// Requires the stream to decode to the fixture's octets in two calls: the first takes
 /// `input[0..cut]` and writes into `room` octets, and the second takes what is left of both.
-fn expect_decodes(comptime options: deflate.Options, fixture: *const Fixture, input: []const u8, cut: usize, room: usize) !void {
+fn expect_decodes(comptime options: deflate.DecodePaths, fixture: *const Fixture, input: []const u8, cut: usize, room: usize) !void {
     const expected = fixture.output();
     var decoder: deflate.Decoder = undefined;
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     var output: [output_len_max]u8 = undefined;
     @memset(&output, 0);
-    const first = try deflate.decode_with(options, &decoder, input[0..cut], output[0..room]);
+    const first = try decoder.decode_with(options, input[0..cut], output[0..room]);
     try testing.expectEqualSlices(u8, expected[0..first.written], output[0..first.written]);
     if (first.status == .done) {
         try testing.expectEqual(expected.len, first.written);
         return;
     }
-    const second = try deflate.decode_with(options, &decoder, input[first.consumed..], output[first.written..expected.len]);
+    const second = try decoder.decode_with(options, input[first.consumed..], output[first.written..expected.len]);
     try testing.expectEqual(codec.Status.done, second.status);
     try testing.expectEqual(input.len, first.consumed + second.consumed);
     try testing.expectEqualSlices(u8, expected, output[0 .. first.written + second.written]);
@@ -132,7 +132,7 @@ test "the tail decodes into every room up to the stream's length" {
     const fixture = Fixture.init();
     const input = fixture.stream.slice();
     for (0..fixture.expected_len + 1) |room| {
-        inline for (.{ deflate.Options{}, tail_off, checked }) |options| {
+        inline for (.{ deflate.DecodePaths{}, tail_off, checked }) |options| {
             try expect_decodes(options, &fixture, input, input.len, room);
         }
     }
@@ -142,7 +142,7 @@ test "the tail decodes from every input length, into a buffer of the stream's le
     const fixture = Fixture.init();
     const input = fixture.stream.slice();
     for (0..input.len + 1) |cut| {
-        inline for (.{ deflate.Options{}, tail_off, checked }) |options| {
+        inline for (.{ deflate.DecodePaths{}, tail_off, checked }) |options| {
             try expect_decodes(options, &fixture, input, cut, fixture.expected_len);
         }
     }
@@ -155,7 +155,7 @@ test "the tail decodes from every input length into a room shorter than the marg
     const input = fixture.stream.slice();
     const room = history_len + constants.match_len_max;
     for (0..input.len + 1) |cut| {
-        inline for (.{ deflate.Options{}, tail_off }) |options| {
+        inline for (.{ deflate.DecodePaths{}, tail_off }) |options| {
             try expect_decodes(options, &fixture, input, cut, room);
         }
     }
@@ -173,13 +173,13 @@ test "the tail starts from the bits a call cut short left, at every input length
     const input = fixture.stream.slice();
     const expected = fixture.output();
     for (0..input.len + 1) |cut| {
-        inline for (.{ deflate.Options{}, tail_off }) |options| {
+        inline for (.{ deflate.DecodePaths{}, tail_off }) |options| {
             var decoder: deflate.Decoder = undefined;
-            deflate.init(&decoder, codec.Features.detect());
+            decoder.init(codec.Features.detect());
             var output: [output_len_max]u8 = undefined;
             var consumed: usize = 0;
             var written: usize = 0;
-            const first = try deflate.decode_with(options, &decoder, input[0..cut], output[0..expected.len]);
+            const first = try decoder.decode_with(options, input[0..cut], output[0..expected.len]);
             consumed += first.consumed;
             written += first.written;
             var status = first.status;
@@ -187,7 +187,7 @@ test "the tail starts from the bits a call cut short left, at every input length
             for (0..expected.len + 1) |_| {
                 if (status == .done) break;
                 const room = @min(short_room, expected.len - written);
-                const next = try deflate.decode_with(options, &decoder, input[consumed..], output[written..][0..room]);
+                const next = try decoder.decode_with(options, input[consumed..], output[written..][0..room]);
                 consumed += next.consumed;
                 written += next.written;
                 status = next.status;
@@ -208,14 +208,14 @@ test "with its chunks off, the tail writes nothing past the octets it decodes" {
     // copies octet by octet, so no octet of that room changes.
     const fixture = Fixture.init();
     const input = fixture.stream.slice();
-    const chunks_off: deflate.Options = .{ .claims = .{ .chunk_copies = false } };
+    const chunks_off: deflate.DecodePaths = .{ .claims = .{ .chunk_copies = false } };
     const room = fast.output_slack - 1;
     for (0..input.len + 1) |cut| {
         inline for (.{ tail_off, chunks_off, checked }) |options| {
             var decoder: deflate.Decoder = undefined;
-            deflate.init(&decoder, codec.Features.detect());
+            decoder.init(codec.Features.detect());
             var output: [output_len_max]u8 = @splat(untouched);
-            const first = try deflate.decode_with(options, &decoder, input[0..cut], output[0..room]);
+            const first = try decoder.decode_with(options, input[0..cut], output[0..room]);
             try testing.expectEqualSlices(u8, fixture.expected[0..first.written], output[0..first.written]);
             try testing.expect(std.mem.allEqual(u8, output[first.written..], untouched));
         }

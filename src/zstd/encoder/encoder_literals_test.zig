@@ -38,7 +38,7 @@ fn expect_round_trip(literals: []const u8) !usize {
 }
 
 test "literals of every size and shape read back through the decoder" {
-    var generator = codec.split.Generator.init(7);
+    var generator = codec.testing.split.Generator.init(7);
     for (0..120) |_| {
         const len: usize = switch (generator.below(4)) {
             0 => generator.below(40),
@@ -60,7 +60,7 @@ test "text compresses, one octet repeated takes its header and one octet, and ra
     try testing.expect(try expect_round_trip(message[0..len]) < len * 3 / 4);
     @memset(message[0..5000], 'x');
     try testing.expectEqual(4, try expect_round_trip(message[0..5000]));
-    var generator = codec.split.Generator.init(8);
+    var generator = codec.testing.split.Generator.init(8);
     for (message[0..5000]) |*literal| literal.* = @truncate(generator.next());
     try testing.expectEqual(5000 + 3, try expect_round_trip(message[0..5000]));
 }

@@ -4,6 +4,8 @@
 //!
 //! Design §8 step 6 writes the decoder, and step 9 the encoder.
 
+const deflate = @import("deflate");
+
 pub const constants = @import("constants.zig");
 
 const decoder = @import("decoder.zig");
@@ -11,13 +13,13 @@ pub const Decoder = decoder.Decoder;
 pub const Corrupt = decoder.Corrupt;
 pub const Unsupported = decoder.Unsupported;
 pub const Error = decoder.Error;
-pub const init = decoder.init;
-pub const decode = decoder.decode;
-pub const decode_all = decoder.decode_all;
 pub const refusal = decoder.refusal;
 
 const encoder = @import("encoder.zig");
 pub const Encoder = encoder.Encoder;
+/// The level and the safety option of the encoder, as `deflate` takes them. The container adds
+/// none.
+pub const EncoderOptions = deflate.EncoderOptions;
 
 const io = @import("io.zig");
 pub const IoReader = io.IoReader;

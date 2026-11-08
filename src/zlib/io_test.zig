@@ -5,7 +5,7 @@ const testing = std.testing;
 const codec = @import("codec");
 const io = @import("io.zig");
 
-const io_parts = codec.io_parts;
+const io_parts = codec.testing.io_parts;
 
 const plain_len_max = 6000;
 /// Room for the stream, which the text codes to fewer octets than its own.

@@ -34,7 +34,7 @@ fn verdict_of(result: deflate.Error!codec.Progress) Verdict {
 }
 
 fn step(decoder: *Decoder, input: []const u8, output: []u8) deflate.Error!codec.Progress {
-    return deflate.decode(decoder, input, output);
+    return decoder.decode(input, output);
 }
 
 /// Decodes `input` in one call and under `seed`'s split, and in one call through the checked path
@@ -42,25 +42,25 @@ fn step(decoder: *Decoder, input: []const u8, output: []u8) deflate.Error!codec.
 fn check_split(input: []const u8, seed: u64) !void {
     var whole_output: [output_len_max]u8 = undefined;
     var decoder: Decoder = undefined;
-    deflate.init(&decoder, .{});
-    const whole = verdict_of(deflate.decode(&decoder, input, &whole_output));
+    decoder.init(.{});
+    const whole = verdict_of(decoder.decode(input, &whole_output));
     var checked_output: [output_len_max]u8 = undefined;
-    deflate.init(&decoder, .{});
-    const checked = verdict_of(deflate.decode_with(.{ .fast_paths = false }, &decoder, input, &checked_output));
+    decoder.init(.{});
+    const checked = verdict_of(decoder.decode_with(.{ .fast_paths = false }, input, &checked_output));
     try testing.expectEqual(checked, whole);
     if (whole == .progress) try testing.expectEqualSlices(u8, checked_output[0..whole.progress.written], whole_output[0..whole.progress.written]);
     var combined_output: [output_len_max]u8 = undefined;
     // The combining and the split decodes take the CPU's features, so where the CPU runs the
     // assembly of decision 29, they meet the Zig loop and the checked path.
-    deflate.init(&decoder, codec.Features.detect());
-    const combined = verdict_of(deflate.decode_with(decoder_test.combining, &decoder, input, &combined_output));
+    decoder.init(codec.Features.detect());
+    const combined = verdict_of(decoder.decode_with(decoder_test.combining, input, &combined_output));
     try testing.expectEqual(whole, combined);
     if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], combined_output[0..whole.progress.written]);
     try check_each_claim_off(input, whole, &whole_output);
-    var states: [codec.split.state_slots]Decoder = undefined;
-    deflate.init(&states[0], codec.Features.detect());
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
+    states[0].init(codec.Features.detect());
     var split_output: [output_len_max]u8 = undefined;
-    const outcome = codec.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
+    const outcome = codec.testing.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
         return;
     };
@@ -80,8 +80,8 @@ fn check_each_claim_off(input: []const u8, whole: Verdict, whole_output: []const
     inline for (claims.each_off) |off| {
         var output: [output_len_max]u8 = undefined;
         var decoder: Decoder = undefined;
-        deflate.init(&decoder, codec.Features.detect());
-        const verdict = verdict_of(deflate.decode_with(.{ .claims = off }, &decoder, input, &output));
+        decoder.init(codec.Features.detect());
+        const verdict = verdict_of(decoder.decode_with(.{ .claims = off }, input, &output));
         try testing.expectEqual(whole, verdict);
         if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], output[0..whole.progress.written]);
     }
@@ -109,7 +109,7 @@ test "every seeded corruption of a valid stream decodes alike in one call and sp
     const valid = stream.slice();
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         @memcpy(input[0..valid.len], valid);
         const flips = generator.below(flips_max + 1);
         for (0..flips) |_| {

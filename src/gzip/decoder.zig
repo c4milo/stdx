@@ -66,63 +66,64 @@ pub const Decoder = struct {
     crc32: u32,
     size: u32,
     crc32_path: checksum.Crc32Path,
+
+    /// Starts a member. Writes no octet of the window (decision 11).
+    pub fn init(self: *Decoder, features: codec.Features) void {
+        self.stream.init(features);
+        self.phase = .header;
+        self.flags = 0;
+        self.field.init();
+        self.extra_left = 0;
+        self.header_crc = constants.crc32_initial;
+        self.crc32 = constants.crc32_initial;
+        self.size = 0;
+        self.crc32_path = checksum.Crc32Path.fastest(checksum.Features.from(features));
+    }
+
+    /// Decodes as much of `input` into `output` as both allow, up to the end of one member
+    /// (decision 11).
+    pub fn decode(self: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
+        codec.check_entry(input, output);
+        // A call after `done` or after a refusal, without `init`, is a programmer error (decision
+        // 11).
+        assert(self.phase != .done and self.phase != .refused);
+        var cursor: Cursor = .{};
+        const status = run(self, input, output, &cursor) catch |err| {
+            self.phase = .refused;
+            return err;
+        };
+        // Invariant 11: `done` only after CRC32 and ISIZE matched the octets written.
+        if (status == .done) assert(held_trailer_int(self, 0) == self.crc32 and held_trailer_int(self, 1) == self.size);
+        const progress: codec.Progress = .{ .consumed = cursor.consumed, .written = cursor.written, .status = status };
+        codec.check_progress(input.len, output.len, progress);
+        return progress;
+    }
+
+    /// Decodes every member of a gzip file, one after another (RFC 1952 §2.2), from a self `init`
+    /// started (decision 11). The input ending inside a member is `error.Truncated`, and the output
+    /// filling first is `error.NoSpaceLeft`. Octets after a member that do not start another fail
+    /// that member's header check (decision 15).
+    pub fn decode_all(self: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
+        var total: codec.Whole = .{ .consumed = 0, .written = 0 };
+        // Each member takes at least `member_len_min` octets, so this many calls end the input.
+        for (0..input.len / constants.member_len_min + 1) |_| {
+            const member = try codec.whole(try self.decode(input[total.consumed..], output[total.written..]));
+            assert(member.consumed >= constants.member_len_min);
+            total.consumed += member.consumed;
+            total.written += member.written;
+            if (total.consumed == input.len) return total;
+            self.init(self.stream.features);
+        }
+        unreachable;
+    }
 };
 
 comptime {
     assert(@sizeOf(Decoder) <= @sizeOf(deflate.Decoder) + constants.decoder_state_extra_len);
 }
 
-/// Starts a member. Writes no octet of the window (decision 11).
-pub fn init(decoder: *Decoder, features: codec.Features) void {
-    deflate.init(&decoder.stream, features);
-    decoder.phase = .header;
-    decoder.flags = 0;
-    decoder.field.init();
-    decoder.extra_left = 0;
-    decoder.header_crc = constants.crc32_initial;
-    decoder.crc32 = constants.crc32_initial;
-    decoder.size = 0;
-    decoder.crc32_path = checksum.Crc32Path.fastest(checksum.Features.from(features));
-}
-
 /// Where a call stands: the octets of its input read and of its output written.
 const Cursor = struct { consumed: usize = 0, written: usize = 0 };
-
-/// Decodes as much of `input` into `output` as both allow, up to the end of one member (decision
-/// 11).
-pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
-    codec.check_entry(input, output);
-    // A call after `done` or after a refusal, without `init`, is a programmer error (decision 11).
-    assert(decoder.phase != .done and decoder.phase != .refused);
-    var cursor: Cursor = .{};
-    const status = run(decoder, input, output, &cursor) catch |err| {
-        decoder.phase = .refused;
-        return err;
-    };
-    // Invariant 11: `done` only after CRC32 and ISIZE matched the octets written.
-    if (status == .done) assert(held_trailer_int(decoder, 0) == decoder.crc32 and held_trailer_int(decoder, 1) == decoder.size);
-    const progress: codec.Progress = .{ .consumed = cursor.consumed, .written = cursor.written, .status = status };
-    codec.check_progress(input.len, output.len, progress);
-    return progress;
-}
-
-/// Decodes every member of a gzip file, one after another (RFC 1952 §2.2), from a decoder `init`
-/// started (decision 11). The input ending inside a member is `error.Truncated`, and the output
-/// filling first is `error.NoSpaceLeft`. Octets after a member that do not start another fail that
-/// member's header check (decision 15).
-pub fn decode_all(decoder: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
-    var total: codec.Whole = .{ .consumed = 0, .written = 0 };
-    // Each member takes at least `member_len_min` octets, so this many calls end the input.
-    for (0..input.len / constants.member_len_min + 1) |_| {
-        const member = try codec.whole(try decode(decoder, input[total.consumed..], output[total.written..]));
-        assert(member.consumed >= constants.member_len_min);
-        total.consumed += member.consumed;
-        total.written += member.written;
-        if (total.consumed == input.len) return total;
-        init(decoder, decoder.stream.features);
-    }
-    unreachable;
-}
 
 fn run(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cursor) Error!codec.Status {
     for (0..constants.phases_per_call_max) |_| {
@@ -214,7 +215,7 @@ fn skip_terminated(decoder: *Decoder, input: []const u8, cursor: *Cursor) ?codec
     var reader = codec.Reader.init(input[cursor.consumed..]);
     defer cursor.consumed += reader.consumed();
     for (0..reader.remaining_len()) |_| {
-        const octet = reader.read_octet() catch unreachable;
+        const octet = reader.take_octet() catch unreachable;
         hash_header(decoder, &.{octet});
         if (octet == constants.field_terminator) {
             enter(decoder, next_phase(decoder.flags, decoder.phase));
@@ -236,7 +237,7 @@ fn read_header_crc(decoder: *Decoder, input: []const u8, cursor: *Cursor) Error!
 
 fn decode_stream(decoder: *Decoder, input: []const u8, output: []u8, cursor: *Cursor) Error!?codec.Status {
     const room = output[cursor.written..];
-    const progress = try deflate.decode(&decoder.stream, input[cursor.consumed..], room);
+    const progress = try decoder.stream.decode(input[cursor.consumed..], room);
     decoder.crc32 = checksum.crc32(decoder.crc32_path, decoder.crc32, room[0..progress.written]);
     decoder.size +%= @truncate(progress.written);
     cursor.consumed += progress.consumed;

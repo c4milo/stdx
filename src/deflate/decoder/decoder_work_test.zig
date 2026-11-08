@@ -116,9 +116,9 @@ fn expect_whole(block_count: usize, literal_count: usize) !void {
     var stream: Stream = .{};
     const work = worst_case(&stream, block_count, literal_count);
     var decoder: deflate.Decoder = undefined;
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     var output: [literals]u8 = undefined;
-    const progress = try deflate.decode(&decoder, stream.slice(), &output);
+    const progress = try decoder.decode(stream.slice(), &output);
     try testing.expectEqual(.done, progress.status);
     try testing.expectEqual(stream.slice().len, progress.consumed);
     try testing.expectEqual(literal_count, progress.written);
@@ -139,7 +139,7 @@ test "the worst case an octet at a time costs at most the bound per call" {
     const work = worst_case(&stream, minimal_blocks, split_literals);
     const input = stream.slice();
     var decoder: deflate.Decoder = undefined;
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     var output: [split_literals]u8 = undefined;
     var consumed: usize = 0;
     var written: usize = 0;
@@ -147,7 +147,7 @@ test "the worst case an octet at a time costs at most the bound per call" {
     for (0..input.len + split_literals) |_| {
         const before = decoder.work;
         const end = @min(consumed + 1, input.len);
-        const progress = try deflate.decode(&decoder, input[consumed..end], output[written..]);
+        const progress = try decoder.decode(input[consumed..end], output[written..]);
         try expect_bounded(decoder.work - before, progress.consumed);
         consumed += progress.consumed;
         written += progress.written;

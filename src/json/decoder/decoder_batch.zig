@@ -75,8 +75,8 @@ pub fn decode_batch_with(decoder: *Decoder, comptime claims: Claims, input: []co
 }
 
 /// Fills the slots from `filled` on: the token loop's tokens first (claim J10), then one token
-/// through `Decoder.run`. Returns the batch's status when the pass ends it, and null when it filled
-/// a slot and the batch goes on.
+/// through `decoder_file.run`. Returns the batch's status when the pass ends it, and null when it
+/// filled a slot and the batch goes on.
 inline fn pass(
     decoder: *Decoder,
     comptime claims: Claims,
@@ -97,7 +97,7 @@ inline fn pass(
         if (filled.* == slots.len) return .needs_slots;
     }
     const start = writer.position;
-    const outcome = try decoder.run(comptime after_loop(claims), reader, writer, piece);
+    const outcome = try decoder_file.run(decoder, comptime after_loop(claims), reader, writer, piece);
     if (outcome.kind) |kind| {
         slots[filled.*] = .{ .kind = kind, .ended = outcome.status == .token, .start = start, .len = writer.position - start };
         filled.* += 1;
@@ -110,9 +110,10 @@ inline fn pass(
     };
 }
 
-/// The claims `Decoder.run` takes a token the loop left with. Claim J10's loop takes every token
-/// claim J8's fast path takes, so after it J8 would only try each token again and fail: with J8 on
-/// in batches, the decoder ran CLDR's texts 7% slower on an AMD EPYC 7763 (design §8 step 18).
+/// The claims `decoder_file.run` takes a token the loop left with. Claim J10's loop takes every
+/// token claim J8's fast path takes, so after it J8 would only try each token again and fail: with
+/// J8 on in batches, the decoder ran CLDR's texts 7% slower on an AMD EPYC 7763 (design §8 step
+/// 18).
 fn after_loop(claims: Claims) Claims {
     var run_claims = claims;
     if (claims.decoder_token_loop) run_claims.decoder_fast_path = false;
@@ -122,7 +123,7 @@ fn after_loop(claims: Claims) Claims {
 /// The checks every batch makes at its exit: invariant 7 for the counts, the slots filled against
 /// the slots given, a last slot that did not end only in a batch that ran out of input or room, and
 /// the last slot's octets ending where the batch's do. The slots before the last start where the
-/// one before ended, as the token loop and `Decoder.run` write them from one position in the
+/// one before ended, as the token loop and `decoder_file.run` write them from one position in the
 /// output, which decoder_loop_test.zig's lockstep compares at every batch: read back here, they
 /// cost 11 instructions a token, about a tenth of decoding qlog's records (decision 43).
 fn check_batch(input_len: usize, output_len: usize, slots: []const Slot, batch: Batch) void {

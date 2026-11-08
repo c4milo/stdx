@@ -57,7 +57,7 @@ pub const Counts = struct {
 pub fn check_file(by: Candidate, frame: []u8, name: []const u8, input: []const u8, limits: Limits, seed: u64) Counts {
     std.debug.assert(frame.len >= oracle.zstd_bound(input.len));
     var counts: Counts = .{};
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     for (0..@min(input.len, limits.len_max) + 1) |len| {
         const offset: usize = @intCast(generator.below(input.len - len + 1));
         const case: Case = .{ .file = name, .offset = offset, .len = len };
@@ -104,7 +104,7 @@ fn compare_all_bits(by: Candidate, counts: *Counts, case: Case, seed: u64, octet
 
 /// The candidate's state fed `input` in seeded pieces, against its hash of the whole input.
 fn compare_split(by: Candidate, counts: *Counts, name: []const u8, input: []const u8, limits: Limits, seed: u64) void {
-    var schedule = codec.split.Schedule.init(seed);
+    var schedule = codec.testing.split.Schedule.init(seed);
     var state = checksum.Xxh64.init(by.path, zstd_seed);
     var position: usize = 0;
     for (0..limits.split_calls_max) |_| {

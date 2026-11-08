@@ -50,7 +50,7 @@ test "a text decodes into a value of every shape, whole and under any split of t
     var storage: [128]u8 = undefined;
     const whole = try value_decoder.decode_value(Record, text, &storage, .text, codec.Features.none());
     try check.record(&whole);
-    var generator = codec.split.Generator.init(62);
+    var generator = codec.testing.split.Generator.init(62);
     for (0..200) |_| {
         var state: value_decoder.ValueDecoder(Record) = undefined;
         state.init(.text, codec.Features.none());
@@ -126,7 +126,7 @@ test "seeded values encode and decode back" {
         corners: [2]Point,
     };
     const words = [_][]const u8{ "", "a", "\u{e9}t\u{e9}", "tab\there", "quote\"", "\\" };
-    var generator = codec.split.Generator.init(63);
+    var generator = codec.testing.split.Generator.init(63);
     for (0..300) |_| {
         const record: Record = .{
             .name = words[generator.below(words.len)],

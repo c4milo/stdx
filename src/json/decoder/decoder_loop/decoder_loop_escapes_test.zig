@@ -214,7 +214,7 @@ const long_seed_period = 32;
 /// The octets a caller writes after a seeded text, at most.
 const reserved_len = 64;
 
-fn drawn(generator: *codec.split.Generator, rule: Rule) usize {
+fn drawn(generator: *codec.testing.split.Generator, rule: Rule) usize {
     const kind = generator.below(rule.share);
     if (kind == 0) return generator.below(fragments.len);
     if (kind <= rule.walked) return plain_fragments + generator.below(walked_fragments - plain_fragments);
@@ -223,7 +223,7 @@ fn drawn(generator: *codec.split.Generator, rule: Rule) usize {
 }
 
 /// Fills `text` with the fragments `mix` draws from the seed, and returns its length.
-pub fn seeded_text(generator: *codec.split.Generator, mix: Mix, text: *[text_len_max]u8) usize {
+pub fn seeded_text(generator: *codec.testing.split.Generator, mix: Mix, text: *[text_len_max]u8) usize {
     const rule = rule_of(mix);
     var len: usize = 0;
     for (0..rule.count_min + generator.below(rule.count_max - rule.count_min + 1)) |_| {
@@ -239,7 +239,7 @@ test "the blocks take seeded texts of plain ASCII, escapes and stops as the mode
     if (comptime !escapes.available) return error.SkipZigTest;
     var text: [text_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const len = seeded_text(&generator, mix_of(seed), &text);
         // Two quotation marks: a reverse solidus that ends the text escapes the first.
         text[len..][0..ends.len].* = ends.*;

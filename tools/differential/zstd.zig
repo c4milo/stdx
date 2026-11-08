@@ -53,7 +53,7 @@ pub const Buffers = struct {
     frame: []u8,
     output: []u8,
     oracle_output: []u8,
-    decoders: *[codec.split.state_slots]Decoder,
+    decoders: *[codec.testing.split.state_slots]Decoder,
 };
 
 fn fail(tally: *Tally, name: []const u8, what: []const u8, encoding: oracle.ZstdEncoding, detail: []const u8) void {
@@ -80,7 +80,7 @@ pub fn check_frame(tally: *Tally, buffers: Buffers, name: []const u8, input: []c
     const whole = buffers.decoders[0].decode_all(frame, buffers.output) catch |err| return fail(tally, name, "stdx whole", encoding, @errorName(err));
     if (whole.consumed != frame.len or !std.mem.eql(u8, input, buffers.output[0..whole.written])) return fail(tally, name, "stdx whole", encoding, "decoded other octets");
     buffers.decoders[0].init(codec.Features.detect());
-    const outcome = codec.split.drive(Decoder, buffers.decoders, step, frame, buffers.output, seed) catch |err| return fail(tally, name, "stdx split", encoding, @errorName(err));
+    const outcome = codec.testing.split.drive(Decoder, buffers.decoders, step, frame, buffers.output, seed) catch |err| return fail(tally, name, "stdx split", encoding, @errorName(err));
     if (outcome.status != .done or !std.mem.eql(u8, input, buffers.output[0..outcome.written])) return fail(tally, name, "stdx split", encoding, "decoded other octets");
 }
 
@@ -101,7 +101,7 @@ fn check_frames(tally: *Tally, buffers: Buffers, name: []const u8, input: []cons
 
 /// Every check of one file.
 pub fn check_file(tally: *Tally, buffers: Buffers, name: []const u8, input: []const u8) void {
-    var generator = codec.split.Generator.init(std.hash.Wyhash.hash(0, name));
+    var generator = codec.testing.split.Generator.init(std.hash.Wyhash.hash(0, name));
     const prefix = input[0..@min(input.len, matrix_input_len_max)];
     for (levels) |level| {
         for (window_logs) |window_log| {
@@ -130,7 +130,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("differential-zstd FAILED: the build passed {d} files, not the {d} of decision 15\n", .{ names.items.len, corpus.names.len });
         std.process.exit(1);
     }
-    const decoders = try arena.create([codec.split.state_slots]Decoder);
+    const decoders = try arena.create([codec.testing.split.state_slots]Decoder);
     const base_len = oracle.zstd_bound(zstd_corrupt.base_input_len_max);
     const corrupt_buffers: zstd_corrupt.Buffers = .{
         .base = try arena.alloc(u8, base_len),

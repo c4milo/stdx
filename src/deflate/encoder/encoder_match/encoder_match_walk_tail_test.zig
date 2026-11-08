@@ -39,7 +39,7 @@ const octets_values = std.math.maxInt(u8);
 /// The octets at a hand-set test's position: no 4 of them recur among them.
 fn position_octets() [constants.match_len_max]u8 {
     var octets: [constants.match_len_max]u8 = undefined;
-    var generator = codec.split.Generator.init(octets_seed);
+    var generator = codec.testing.split.Generator.init(octets_seed);
     for (&octets) |*octet| octet.* = @intCast(1 + generator.below(octets_values));
     return octets;
 }
@@ -388,7 +388,7 @@ const copy_len_max = 300;
 const copy_distance_max = 20_000;
 
 fn fill_repeats(window: []u8) void {
-    var generator = codec.split.Generator.init(seeded_seed);
+    var generator = codec.testing.split.Generator.init(seeded_seed);
     var at: usize = 0;
     while (at < window.len) {
         const fresh = at == 0 or generator.below(fresh_share) == 0;

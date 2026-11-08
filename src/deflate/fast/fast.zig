@@ -31,7 +31,7 @@ const fast_step = @import("fast_step.zig");
 const fast_aarch64 = @import("fast_aarch64.zig");
 const fast_x86_64 = @import("fast_x86_64.zig");
 const options_module = @import("../options.zig");
-const Options = options_module.Options;
+const DecodePaths = options_module.DecodePaths;
 const Lookups = options_module.Lookups;
 const How = options_module.How;
 
@@ -219,17 +219,17 @@ pub inline fn past(buffer: u64, entry: lookup.Entry) u64 {
 
 /// Decodes symbols from `bits` into `writer` until a margin, a block's end, or a symbol for the
 /// checked path, and hands the bit buffer, the input position and the output position back.
-pub noinline fn run(comptime options: Options, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+pub noinline fn run(comptime options: DecodePaths, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
     return run_loop(.wide, options, codes, history, bits, writer);
 }
 
 /// As `run`, symbol by symbol through the end of the input and of the output, for what the wide
 /// loop's margins leave out.
-pub noinline fn run_tail(comptime options: Options, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+pub noinline fn run_tail(comptime options: DecodePaths, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
     return run_loop(.tail, options, codes, history, bits, writer);
 }
 
-inline fn run_loop(comptime mode: Mode, comptime options: Options, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
+inline fn run_loop(comptime mode: Mode, comptime options: DecodePaths, codes: Codes, history: History, bits: *codec.BitReader, writer: *codec.Writer) End {
     var loop: Loop = .{
         .input = bits.reader.octets,
         .rest = bits.reader.octets[bits.reader.position..],
@@ -264,7 +264,7 @@ inline fn run_loop(comptime mode: Mode, comptime options: Options, codes: Codes,
 
 /// The wide loop, entered with its margins held: the common symbols, and each other symbol out
 /// of line.
-inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, history: History) End {
+inline fn decode_symbols(comptime options: DecodePaths, loop: *Loop, codes: Codes, history: History) End {
     assert(loop.has_margin());
     // Each round decodes a symbol at least, which takes a bit, or ends the loop.
     const rounds_max = @bitSizeOf(u8) * loop.rest.len + @bitSizeOf(u64) + 1;
@@ -277,7 +277,7 @@ inline fn decode_symbols(comptime options: Options, loop: *Loop, codes: Codes, h
 }
 
 /// The common symbols, through the assembly of decision 29 where it runs.
-inline fn common(comptime options: Options, loop: *Loop, codes: Codes, history: History) Stop {
+inline fn common(comptime options: DecodePaths, loop: *Loop, codes: Codes, history: History) Stop {
     if (comptime fast_aarch64.takes(options)) return fast_aarch64.decode_common(loop, codes);
     if ((comptime fast_x86_64.takes(options)) and history.assembly) return fast_x86_64.decode_common(loop, codes);
     return decode_common(options, loop);
@@ -308,7 +308,7 @@ inline fn margins(loop: *const Loop) ?Margins {
 /// Decodes the common symbols until a margin, or a symbol it leaves for `decode_rare`: with the
 /// margins held, at least `refill_bits` bits in the buffer, and none of that symbol's bits used.
 /// It works on a copy of the state, which stays in registers, and writes it back when it stops.
-inline fn decode_common(comptime options: Options, state: *Loop) Stop {
+inline fn decode_common(comptime options: DecodePaths, state: *Loop) Stop {
     var loop = state.*;
     defer state.* = loop;
     // The masks come back from memory: their tables' index types bound them again.
@@ -342,7 +342,7 @@ inline fn decode_common(comptime options: Options, state: *Loop) Stop {
 
 /// Decodes the symbol `decode_common` stopped at: a code longer than the table, the end of the
 /// block, a match from the window or less than a word back, or a value for the checked path.
-noinline fn decode_rare(comptime options: Options, state: *Loop, codes: Codes, history: History) Next {
+noinline fn decode_rare(comptime options: DecodePaths, state: *Loop, codes: Codes, history: History) Next {
     var loop = state.*;
     defer state.* = loop;
     return fast_step.step(.wide, options, &loop, codes, history, loop.look_up());
@@ -352,7 +352,7 @@ noinline fn decode_rare(comptime options: Options, state: *Loop, codes: Codes, h
 /// while the buffer held its index, or a lookup. When the bits before the refill hold a whole
 /// table index, the lookup reads them, which the refill leaves in place, so it need not wait for
 /// the refill.
-inline fn next_entry(comptime options: Options, loop: *Loop, word: *const [@sizeOf(u64)]u8, known: ?lookup.Entry) lookup.Entry {
+inline fn next_entry(comptime options: DecodePaths, loop: *Loop, word: *const [@sizeOf(u64)]u8, known: ?lookup.Entry) lookup.Entry {
     if (known) |entry| {
         refill(options, loop, word);
         return entry;
@@ -367,14 +367,14 @@ inline fn next_entry(comptime options: Options, loop: *Loop, word: *const [@size
 }
 
 /// The wide loop's refill: one 8-octet load (S1), or with the claim off, an octet at a time.
-inline fn refill(comptime options: Options, loop: *Loop, word: *const [@sizeOf(u64)]u8) void {
+inline fn refill(comptime options: DecodePaths, loop: *Loop, word: *const [@sizeOf(u64)]u8) void {
     if (options.claims.word_refill) loop.refill(word) else loop.refill_exact();
 }
 
 /// Writes the literal `first` and the literals after it, up to `literals_per_refill`, into `room`,
 /// and returns the entry of the symbol after them when it looked it up, or null when the run
 /// filled. The bit count drops once, by the run's bits.
-inline fn literal_run(comptime options: Options, loop: *Loop, room: *[output_slack]u8, first: lookup.Entry) ?lookup.Entry {
+inline fn literal_run(comptime options: DecodePaths, loop: *Loop, room: *[output_slack]u8, first: lookup.Entry) ?lookup.Entry {
     var run_bits: u32 = 0;
     write_literal(options, loop, room, 0, first, &run_bits);
     inline for (1..literals_per_refill) |index| {
@@ -392,7 +392,7 @@ inline fn literal_run(comptime options: Options, loop: *Loop, room: *[output_sla
 }
 
 /// Writes a literal at `index` of the iteration's room, and adds its bits to the run's.
-inline fn write_literal(comptime options: Options, loop: *Loop, room: *[output_slack]u8, comptime index: usize, entry: lookup.Entry, run_bits: *u32) void {
+inline fn write_literal(comptime options: DecodePaths, loop: *Loop, room: *[output_slack]u8, comptime index: usize, entry: lookup.Entry, run_bits: *u32) void {
     if (options.count_lookups) count_symbol(loop, .table);
     room[index] = @truncate(entry.value);
     loop.buffer = past(loop.buffer, entry);
@@ -402,7 +402,7 @@ inline fn write_literal(comptime options: Options, loop: *Loop, room: *[output_s
 
 /// Decodes a pair whose codes the tables hold and copies its match, when the match lies in this
 /// call's output at least a word back. Returns false, having used no bit, for any other pair.
-inline fn copy_common(comptime options: Options, loop: *Loop, length: lookup.Entry) bool {
+inline fn copy_common(comptime options: DecodePaths, loop: *Loop, length: lookup.Entry) bool {
     const len = length_of(loop.buffer, length, loop.lengths_resolved) orelse return false;
     const after_length = past(loop.buffer, length);
     const distance_entry = loop.look_up_distance(after_length);
@@ -416,7 +416,7 @@ inline fn copy_common(comptime options: Options, loop: *Loop, length: lookup.Ent
 /// Copies the match a combined entry decodes, its distance's extra bits read after the entry's
 /// bits, when the match lies in this call's output at least a word back. Returns false, having
 /// used no bit, for any other.
-inline fn copy_combined(comptime options: Options, loop: *Loop, entry: lookup.Entry) bool {
+inline fn copy_combined(comptime options: DecodePaths, loop: *Loop, entry: lookup.Entry) bool {
     const distance = combined_distance(loop.buffer, entry);
     if (!copy_near(options, loop, distance, entry.combined_length())) return false;
     loop.buffer = past(loop.buffer, entry);
@@ -428,7 +428,7 @@ inline fn copy_combined(comptime options: Options, loop: *Loop, entry: lookup.En
 /// Copies a match of `len` octets from `distance` back, when it lies in this call's output at
 /// least a word back, and counts its octets written and its two symbols. Returns false, having
 /// written nothing, for any other.
-inline fn copy_near(comptime options: Options, loop: *Loop, distance: u64, len: u64) bool {
+inline fn copy_near(comptime options: DecodePaths, loop: *Loop, distance: u64, len: u64) bool {
     // The source is in this call's output when the subtraction does not pass its start.
     _ = std.math.sub(u64, loop.written, distance) catch return false;
     if (distance > loop.distance_max) return false;
@@ -485,7 +485,7 @@ pub inline fn length_of(buffer: u64, length: lookup.Entry, resolved: bool) ?u64 
 }
 
 /// Counts a symbol the fast path decoded, for S2's count (options.zig). Each call is under a
-/// comptime test of `Options.count_lookups`, so a decode that does not count evaluates nothing.
+/// comptime test of `DecodePaths.count_lookups`, so a decode that does not count evaluates nothing.
 pub inline fn count_symbol(loop: *Loop, how: How) void {
     loop.lookups.count(how);
 }

@@ -32,15 +32,6 @@ pub const AfterDone = enum {
     restart,
 };
 
-/// The calls of a decoder that `IoReader` makes.
-pub fn DecoderCalls(comptime Decoder: type, comptime Error: type) type {
-    return struct {
-        init: fn (*Decoder, Features) void,
-        decode: fn (*Decoder, []const u8, []u8) Error!status.Progress,
-        after_done: AfterDone,
-    };
-}
-
 /// The two refusals of the reader itself, beside the decoder's.
 pub const Ended = error{
     /// The source ended inside a stream.
@@ -49,7 +40,9 @@ pub const Ended = error{
     TrailingOctets,
 };
 
-pub fn IoReader(comptime Decoder: type, comptime Error: type, comptime calls: DecoderCalls(Decoder, Error)) type {
+/// `Decoder` has `init(*Decoder, Features)` and `decode(*Decoder, input, output)`, which returns
+/// `Error!Progress`. `after_done` says what the reader does with the coded octets after a stream.
+pub fn IoReader(comptime Decoder: type, comptime Error: type, comptime after_done: AfterDone) type {
     return struct {
         const Self = @This();
 
@@ -81,14 +74,14 @@ pub fn IoReader(comptime Decoder: type, comptime Error: type, comptime calls: De
             self.features = features;
             self.last = .needs_input;
             self.failure = null;
-            calls.init(&self.decoder, features);
+            self.decoder.init(features);
         }
 
         fn stream(interface: *Reader, destination: *Writer, limit: Limit) Reader.StreamError!usize {
             return stream_into(@as(*Self, @alignCast(@fieldParentPtr("interface", interface))), destination, limit);
         }
 
-        const decoder_calls = calls;
+        const after = after_done;
     };
 }
 
@@ -117,10 +110,10 @@ fn take_input(self: anytype) Reader.Error![]const u8 {
         .done => {
             // `EndOfStream` passes through: the stream is whole and its source ended.
             const input = try self.source.peekGreedy(1);
-            switch (@TypeOf(self.*).decoder_calls.after_done) {
+            switch (@TypeOf(self.*).after) {
                 .refuse => return fail(self, error.TrailingOctets),
                 .restart => {
-                    @TypeOf(self.*).decoder_calls.init(&self.decoder, self.features);
+                    self.decoder.init(self.features);
                     self.last = .needs_input;
                     return input;
                 },
@@ -141,7 +134,7 @@ fn decode_buffered(self: anytype, input: []const u8) Reader.Error!usize {
 
 fn decode(self: anytype, input: []const u8, output: []u8) error{ReadFailed}!usize {
     assert(output.len > 0);
-    const progress = @TypeOf(self.*).decoder_calls.decode(&self.decoder, input, output) catch |err| return fail(self, err);
+    const progress = self.decoder.decode(input, output) catch |err| return fail(self, err);
     self.source.toss(progress.consumed);
     self.last = progress.status;
     return progress.written;

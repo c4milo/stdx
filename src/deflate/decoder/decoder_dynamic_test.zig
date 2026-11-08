@@ -160,15 +160,15 @@ test "the window takes a call's octets unless the call ends the stream (decision
     @memcpy(input[0..stream.slice().len], stream.slice());
     var output: [output_len]u8 = undefined;
     var decoder: deflate.Decoder = undefined;
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     // The first call ends inside the dynamic block's header, past the fixed block's last symbol
     // by more than a pair's bits, so the fast path decodes that block whole and syncs nothing.
     const cut = fixed_len + header_cut_len;
-    const first = try deflate.decode(&decoder, input[0..cut], &output);
+    const first = try decoder.decode(input[0..cut], &output);
     try testing.expectEqual(codec.Progress{ .consumed = cut, .written = 4, .status = .needs_input }, first);
     // The call's end gave the window its four octets, which the next call's match copies.
     try testing.expectEqual(4, decoder.window.reach());
-    const second = try deflate.decode(&decoder, input[cut .. stream.slice().len + padding_len], output[first.written..]);
+    const second = try decoder.decode(input[cut .. stream.slice().len + padding_len], output[first.written..]);
     try testing.expectEqual(codec.Status.done, second.status);
     try testing.expectEqualSlices(u8, "abcdcdcdc", output[0 .. first.written + second.written]);
     // The call that ended the stream copied nothing: no call reads the window after `done`.
@@ -238,14 +238,14 @@ test "S2's count tells a table's symbols from the canonical decode's and the che
     var output: [long_codes_output.len]u8 = undefined;
     var decoder: deflate.Decoder = undefined;
     var lookups: deflate.Lookups = .{};
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     _ = try deflate.decode_counting(.{}, &decoder, &input, &output, &lookups);
     try testing.expectEqualSlices(u8, long_codes_output, &output);
     // Of the 100 symbols, 25 take codes past the tables: 'l', 'm' and the 17 'n's, both lengths
     // and both distances, and end-of-block. The 64 'k's and the rest take one lookup.
     try testing.expectEqual(deflate.Lookups{ .table = 75, .canonical = 25, .checked = 0 }, lookups);
     var checked: deflate.Lookups = .{};
-    deflate.init(&decoder, codec.Features.detect());
+    decoder.init(codec.Features.detect());
     _ = try deflate.decode_counting(.{ .fast_paths = false }, &decoder, &input, &output, &checked);
     try testing.expectEqual(deflate.Lookups{ .table = 0, .canonical = 0, .checked = 100 }, checked);
 }
@@ -280,7 +280,7 @@ fn expect_literals_decode(block: *const Dynamic, seed: u64) !void {
     var stream: Stream = .{};
     block.header(&stream, true);
     var expected: [wide_literals_len]u8 = undefined;
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     for (&expected) |*octet| {
         octet.* = @intCast(generator.below(constants.end_of_block));
         block.literal(&stream, octet.*);
@@ -320,11 +320,11 @@ test "a call that ends in a dynamic header leaves the fast path's octets in the 
     const input = stream.slice();
     for (1..input.len) |cut| {
         var decoder: deflate.Decoder = undefined;
-        deflate.init(&decoder, codec.Features.detect());
+        decoder.init(codec.Features.detect());
         var output: [expected.len]u8 = undefined;
-        const first = try deflate.decode(&decoder, input[0..cut], &output);
+        const first = try decoder.decode(input[0..cut], &output);
         try testing.expectEqual(codec.Status.needs_input, first.status);
-        const second = try deflate.decode(&decoder, input[first.consumed..], output[first.written..]);
+        const second = try decoder.decode(input[first.consumed..], output[first.written..]);
         try testing.expectEqual(codec.Status.done, second.status);
         try testing.expectEqualSlices(u8, &expected, output[0 .. first.written + second.written]);
     }

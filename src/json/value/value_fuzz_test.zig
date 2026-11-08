@@ -48,7 +48,7 @@ const texts = [_][]const u8{
 const flip_octets = "{}[]:,\"\\ 0123-.enul\x00\xff";
 
 fn decode_split(input: []const u8, seed: u64, storage: []u8, record: *Record) value_decoder.Error!bool {
-    var generator = codec.split.Generator.init(seed);
+    var generator = codec.testing.split.Generator.init(seed);
     var state: value_decoder.ValueDecoder(Record) = undefined;
     state.init(.text, codec.Features.none());
     var consumed: usize = 0;
@@ -91,7 +91,7 @@ fn check(input: []const u8, seed: u64) !void {
 test "every seeded corruption of a valid text decodes alike whole and split" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const text = texts[generator.below(texts.len)];
         @memcpy(input[0..text.len], text);
         for (0..generator.below(flips_max + 1)) |_| {

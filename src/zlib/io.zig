@@ -9,11 +9,7 @@ const encoder = @import("encoder.zig");
 
 /// The decoder of one zlib stream. Octets after its ADLER32 are refused as
 /// `error.TrailingOctets`.
-pub const IoReader = codec.IoReader(decoder.Decoder, decoder.Error, .{
-    .init = decoder.init,
-    .decode = decoder.decode,
-    .after_done = .refuse,
-});
+pub const IoReader = codec.IoReader(decoder.Decoder, decoder.Error, .refuse);
 
 /// The encoder of one zlib stream at `options`. It holds back at most the DEFLATE encoder's window
 /// of input between calls.

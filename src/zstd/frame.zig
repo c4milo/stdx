@@ -49,11 +49,11 @@ fn content_size_len(descriptor: u8) usize {
 pub fn read(octets: []const u8, window_len_max: u64) Error!Header {
     assert(octets.len == header_len(octets[0]));
     var reader = codec.Reader.init(octets);
-    const descriptor = reader.read_octet() catch unreachable;
+    const descriptor = reader.take_octet() catch unreachable;
     // RFC 8878 §3.1.1.1.1.4: a decoder must ensure the reserved bit is not set.
     if (descriptor & constants.descriptor_reserved != 0) return error.ReservedBitSet;
     const single = descriptor & constants.descriptor_single_segment != 0;
-    const window_descriptor: ?u8 = if (single) null else reader.read_octet() catch unreachable;
+    const window_descriptor: ?u8 = if (single) null else reader.take_octet() catch unreachable;
     const dictionary_id = read_little(&reader, dictionary_id_len(descriptor));
     const content_len = read_content_len(&reader, content_size_len(descriptor));
     // RFC 8878 §5: Dictionary_ID 0 names no dictionary. Any other needs one, which stdx does not
@@ -71,7 +71,7 @@ pub fn read(octets: []const u8, window_len_max: u64) Error!Header {
 fn read_little(reader: *codec.Reader, len: usize) u64 {
     var value: u64 = 0;
     for (0..len) |index| {
-        const octet = reader.read_octet() catch unreachable;
+        const octet = reader.take_octet() catch unreachable;
         value |= @as(u64, octet) << @intCast(index * @bitSizeOf(u8));
     }
     return value;

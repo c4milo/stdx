@@ -149,7 +149,7 @@ pub const Encoder = struct {
         assert(input.len == 0 or takes_input(token));
         var reader = codec.Reader.init(input);
         var writer = codec.Writer.init(output);
-        const status = self.run(claims, token, &reader, &writer) catch |err| {
+        const status = run(self, claims, token, &reader, &writer) catch |err| {
             self.part = .refused;
             return err;
         };
@@ -169,33 +169,6 @@ pub const Encoder = struct {
     /// True when the text has ended.
     pub fn is_done(self: *const Encoder) bool {
         return self.part == .done;
-    }
-
-    /// The call's loop, inline in `encode_with`, its one caller. Out of line, as LLVM left it in
-    /// the benchmark's build with every claim off, where it had a second caller, each token paid a
-    /// call of its own.
-    pub inline fn run(self: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
-        if (try self.start(claims, token, reader, writer)) |status| return status;
-        for (0..constants.token_parts) |_| {
-            if (!self.write_pending(writer)) return .needs_room;
-            switch (self.part) {
-                .opening => if (takes_input(token)) {
-                    self.part = .content;
-                } else self.close(),
-                .content => {
-                    // Out of line, so a name's or a string's octets that need the checked path
-                    // compile alike whatever else the build inlines: bench-json at 1dde0ba ran long
-                    // strings 4% to 8% faster on the N2 with any one claim off, J7's included,
-                    // which the N2 never takes (design §8 step 18).
-                    if (try @call(.never_inline, content.write, .{ claims, self, piece_of(token), reader, writer })) |status| return status;
-                    self.close();
-                },
-                .closing => return self.finish(),
-                .between_tokens, .done, .refused => unreachable,
-            }
-        }
-        // The closing ends every token, and a call reaches it within the parts it passes.
-        unreachable;
     }
 
     /// Starts a call. Between tokens, it writes `token` whole on claim J9's fast path, and returns
@@ -221,12 +194,12 @@ pub const Encoder = struct {
             // RFC 8259 §9: an implementation may limit the depth of nesting.
             if (self.depth == constants.depth_max) return error.DepthTooLarge;
         }
-        if (self.framing == .sequence and self.position == .text_start) self.hold(&.{constants.record_separator});
+        if (self.framing == .sequence and self.position == .text_start) hold(self, &.{constants.record_separator});
         if (self.position == .object_next or self.position == .array_next) {
-            if (kind != .end_object and kind != .end_array) self.hold(&.{constants.value_separator});
+            if (kind != .end_object and kind != .end_array) hold(self, &.{constants.value_separator});
         }
         self.hold_opening(token);
-        self.advance(kind);
+        advance(self, kind);
         assert(self.depth <= opening_depth + 1);
         self.kind = kind;
         self.ends_text = self.position == .text_end;
@@ -240,36 +213,18 @@ pub const Encoder = struct {
     fn hold_opening(self: *Encoder, token: Token) void {
         var buffer: format.Buffer = undefined;
         switch (token) {
-            .begin_object => self.hold(&.{constants.begin_object}),
-            .end_object => self.hold(&.{constants.end_object}),
-            .begin_array => self.hold(&.{constants.begin_array}),
-            .end_array => self.hold(&.{constants.end_array}),
-            .name, .string, .hex => self.hold(&.{constants.quotation_mark}),
+            .begin_object => hold(self, &.{constants.begin_object}),
+            .end_object => hold(self, &.{constants.end_object}),
+            .begin_array => hold(self, &.{constants.begin_array}),
+            .end_array => hold(self, &.{constants.end_array}),
+            .name, .string, .hex => hold(self, &.{constants.quotation_mark}),
             .number => {},
-            .unsigned => |value| self.hold(format.unsigned(&buffer, value)),
-            .signed => |value| self.hold(format.signed(&buffer, value)),
-            .decimal => |value| self.hold(format.decimal(&buffer, value)),
-            .boolean => |value| self.hold(if (value) constants.literal_true else constants.literal_false),
-            .null => self.hold(constants.literal_null),
+            .unsigned => |value| hold(self, format.unsigned(&buffer, value)),
+            .signed => |value| hold(self, format.signed(&buffer, value)),
+            .decimal => |value| hold(self, format.decimal(&buffer, value)),
+            .boolean => |value| hold(self, if (value) constants.literal_true else constants.literal_false),
+            .null => hold(self, constants.literal_null),
         }
-    }
-
-    /// Moves the grammar past a token of `kind`, which `allowed` let through.
-    pub fn advance(self: *Encoder, kind: Kind) void {
-        advance_with(&self.position, &self.depth, &self.containers, kind);
-    }
-
-    /// Holds the octets that end the token in progress: a name's quotation mark and name
-    /// separator, a string's quotation mark, and the line feed after a sequence's text (RFC 7464
-    /// §2.2).
-    pub fn close(self: *Encoder) void {
-        switch (self.kind) {
-            .name => self.hold(&.{ constants.quotation_mark, constants.name_separator }),
-            .string, .hex => self.hold(&.{constants.quotation_mark}),
-            else => {},
-        }
-        if (self.ends_text and self.framing == .sequence) self.hold(&.{constants.line_feed});
-        self.part = .closing;
     }
 
     fn finish(self: *Encoder) codec.Status {
@@ -281,26 +236,71 @@ pub const Encoder = struct {
         self.part = .between_tokens;
         return .needs_input;
     }
-
-    /// Adds `octets` to what the next call writes first.
-    pub fn hold(self: *Encoder, octets: []const u8) void {
-        assert(self.pending_len + octets.len <= self.pending.len);
-        @memcpy(self.pending[self.pending_len..][0..octets.len], octets);
-        self.pending_len += @intCast(octets.len);
-    }
-
-    /// Writes what `output` takes of the held octets. Returns whether all of them are written.
-    pub fn write_pending(self: *Encoder, writer: *codec.Writer) bool {
-        assert(self.pending_written <= self.pending_len);
-        self.pending_written += @intCast(writer.write_partial(self.pending[self.pending_written..self.pending_len]));
-        if (self.pending_written < self.pending_len) return false;
-        self.pending_len = 0;
-        self.pending_written = 0;
-        return true;
-    }
 };
 
-/// `Encoder.advance` on the fields it moves, which the token loop keeps in its own locals. A value
+/// The call's loop, inline in `encode_with`, its one caller. Out of line, as LLVM left it in
+/// the benchmark's build with every claim off, where it had a second caller, each token paid a
+/// call of its own.
+pub inline fn run(encoder: *Encoder, comptime claims: Claims, token: Token, reader: *codec.Reader, writer: *codec.Writer) Error!codec.Status {
+    if (try encoder.start(claims, token, reader, writer)) |status| return status;
+    for (0..constants.token_parts) |_| {
+        if (!write_pending(encoder, writer)) return .needs_room;
+        switch (encoder.part) {
+            .opening => if (takes_input(token)) {
+                encoder.part = .content;
+            } else close_token(encoder),
+            .content => {
+                // Out of line, so a name's or a string's octets that need the checked path
+                // compile alike whatever else the build inlines: bench-json at 1dde0ba ran long
+                // strings 4% to 8% faster on the N2 with any one claim off, J7's included,
+                // which the N2 never takes (design §8 step 18).
+                if (try @call(.never_inline, content.write, .{ claims, encoder, piece_of(token), reader, writer })) |status| return status;
+                close_token(encoder);
+            },
+            .closing => return encoder.finish(),
+            .between_tokens, .done, .refused => unreachable,
+        }
+    }
+    // The closing ends every token, and a call reaches it within the parts it passes.
+    unreachable;
+}
+
+/// Moves the grammar past a token of `kind`, which `allowed` let through.
+pub fn advance(encoder: *Encoder, kind: Kind) void {
+    advance_with(&encoder.position, &encoder.depth, &encoder.containers, kind);
+}
+
+/// Holds the octets that end the token in progress: a name's quotation mark and name
+/// separator, a string's quotation mark, and the line feed after a sequence's text (RFC 7464
+/// §2.2).
+pub fn close_token(encoder: *Encoder) void {
+    switch (encoder.kind) {
+        .name => hold(encoder, &.{ constants.quotation_mark, constants.name_separator }),
+        .string, .hex => hold(encoder, &.{constants.quotation_mark}),
+        else => {},
+    }
+    if (encoder.ends_text and encoder.framing == .sequence) hold(encoder, &.{constants.line_feed});
+    encoder.part = .closing;
+}
+
+/// Adds `octets` to what the next call writes first.
+pub fn hold(encoder: *Encoder, octets: []const u8) void {
+    assert(encoder.pending_len + octets.len <= encoder.pending.len);
+    @memcpy(encoder.pending[encoder.pending_len..][0..octets.len], octets);
+    encoder.pending_len += @intCast(octets.len);
+}
+
+/// Writes what `output` takes of the held octets. Returns whether all of them are written.
+pub fn write_pending(encoder: *Encoder, writer: *codec.Writer) bool {
+    assert(encoder.pending_written <= encoder.pending_len);
+    encoder.pending_written += @intCast(writer.write_partial(encoder.pending[encoder.pending_written..encoder.pending_len]));
+    if (encoder.pending_written < encoder.pending_len) return false;
+    encoder.pending_len = 0;
+    encoder.pending_written = 0;
+    return true;
+}
+
+/// `advance` on the fields it moves, which the token loop keeps in its own locals. A value
 /// that is no container's end leaves the position its own position names: its container is an
 /// object after a name, an array at an array's first or next value, and none at the text's start.
 pub inline fn advance_with(position: *Position, depth: *u16, containers: *Containers, kind: Kind) void {

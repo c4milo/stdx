@@ -83,7 +83,7 @@ pub fn read_with(comptime paths: Paths, block: []const u8, literals_len_max: u32
     assert(tables.buffer.len >= literals_len_max);
     var reader = codec.Reader.init(block);
     // RFC 8878 §3.1.1.3.1.1: the header's first octet is always present.
-    const first = reader.read_octet() catch return error.LiteralsTruncated;
+    const first = reader.take_octet() catch return error.LiteralsTruncated;
     const kind: Kind = @enumFromInt(first & constants.literals_type_mask);
     const format = (first >> constants.literals_size_format_shift) & constants.literals_size_format_mask;
     return switch (kind) {
@@ -100,7 +100,7 @@ fn read_uncompressed(reader: *codec.Reader, first: u8, format: u8, kind: Kind, l
     const header_len: u32 = @intCast(reader.consumed());
     if (kind == .repeated) {
         // RFC 8878 §3.1.1.3.1.3: the section holds the one octet to repeat.
-        const octet = reader.read_octet() catch return error.LiteralsTruncated;
+        const octet = reader.take_octet() catch return error.LiteralsTruncated;
         return .{ .source = .repeated, .len = len, .offset = 0, .octet = octet, .section_len = header_len + 1 };
     }
     // RFC 8878 §3.1.1.3.1.2: Regenerated_Size raw octets follow the header.
@@ -113,10 +113,10 @@ fn uncompressed_size(reader: *codec.Reader, first: u8, format: u8) Error!u32 {
     if (format & short_format_bit == 0) return first >> short_size_shift;
     const low: u32 = first >> long_size_shift;
     // RFC 8878 §3.1.1.3.1.1: Size_Format 01 and 11 take two and three header octets.
-    const second = reader.read_octet() catch return error.LiteralsTruncated;
+    const second = reader.take_octet() catch return error.LiteralsTruncated;
     if (format == two_octet_format) return low | @as(u32, second) << long_size_shift;
     // RFC 8878 §3.1.1.3.1.1: the third octet of Size_Format 11.
-    const third = reader.read_octet() catch return error.LiteralsTruncated;
+    const third = reader.take_octet() catch return error.LiteralsTruncated;
     return low | @as(u32, second) << long_size_shift | @as(u32, third) << (long_size_shift + @bitSizeOf(u8));
 }
 
@@ -128,7 +128,7 @@ fn read_compressed(comptime paths: Paths, reader: *codec.Reader, first: u8, form
     var header: u64 = first;
     for (1..header_len) |index| {
         // RFC 8878 §3.1.1.3.1.1: the header takes 3, 4 or 5 octets by Size_Format.
-        const octet = reader.read_octet() catch return error.LiteralsTruncated;
+        const octet = reader.take_octet() catch return error.LiteralsTruncated;
         header |= @as(u64, octet) << @intCast(index * @bitSizeOf(u8));
     }
     const size_mask = (@as(u64, 1) << size_bits) - 1;
@@ -182,7 +182,7 @@ fn decode_four(comptime paths: Paths, table: *const huffman.Table, streams: []co
     var sizes: [constants.literal_streams]usize = undefined;
     var total: usize = 0;
     for (sizes[0 .. constants.literal_streams - 1]) |*size| {
-        size.* = reader.read_int(u16, .little) catch unreachable;
+        size.* = reader.take_int(u16, .little) catch unreachable;
         total += size.*;
     }
     // RFC 8878 §3.1.1.3.1.6: the first three streams' sizes may not exceed Total_Streams_Size.

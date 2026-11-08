@@ -265,7 +265,7 @@ pub const Draw = struct {
 
 test "seeded lists of tokens encode, and decode back, alike every way" {
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         var program: Program = .{};
         Draw.value(&generator, &program, 0);
         try check(if (seed % 2 == 0) .text else .sequence, &program, generator.next());

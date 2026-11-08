@@ -80,8 +80,8 @@ pub fn decode_whole_with(comptime claims_used: claims.Claims, features: codec.Fe
 /// Decodes `input` with the input and the output cut into the pieces `seed` draws, and the state
 /// moved to the other slot before the second call and at drawn calls after it.
 pub fn decode_split(framing: Framing, input: []const u8, seed: u64, transcript: *Transcript) !Verdict {
-    var schedule = codec.split.Schedule.init(seed);
-    var states: [codec.split.state_slots]Decoder = undefined;
+    var schedule = codec.testing.split.Schedule.init(seed);
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
     states[0].init(framing, codec.Features.detect());
     var slot: usize = 0;
     var drive: SplitDrive = .{ .input = input, .transcript = transcript };
@@ -102,7 +102,7 @@ const SplitDrive = struct {
     content_len: usize = 0,
 
     /// Makes one call with the pieces `schedule` draws. Returns the verdict once there is one.
-    fn call(self: *SplitDrive, decoder: *Decoder, schedule: *codec.split.Schedule) !?Verdict {
+    fn call(self: *SplitDrive, decoder: *Decoder, schedule: *codec.testing.split.Schedule) !?Verdict {
         const input = self.input[self.consumed..][0..schedule.piece_len(self.input.len - self.consumed)];
         const piece: Piece = if (self.consumed + input.len == self.input.len) .last else .more;
         const room = self.content[self.content_len..][0..schedule.piece_len(self.content.len - self.content_len)];
@@ -122,7 +122,7 @@ const SplitDrive = struct {
     }
 };
 
-fn move(states: *[codec.split.state_slots]Decoder, slot: usize) usize {
+fn move(states: *[codec.testing.split.state_slots]Decoder, slot: usize) usize {
     const other = 1 - slot;
     states[other] = states[slot];
     @memset(std.mem.asBytes(&states[slot]), codec.constants.moved_state_fill);

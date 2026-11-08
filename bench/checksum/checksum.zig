@@ -135,7 +135,7 @@ pub fn main(init: std.process.Init) !void {
     const out = &stdout.interface;
 
     const input = try init.arena.allocator().alloc(u8, sizes[sizes.len - 1]);
-    var generator = codec.split.Generator.init(input_seed);
+    var generator = codec.testing.split.Generator.init(input_seed);
     for (input) |*octet| octet.* = @truncate(generator.next());
 
     const features = codec.Features.detect();

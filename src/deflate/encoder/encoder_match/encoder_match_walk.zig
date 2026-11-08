@@ -406,7 +406,7 @@ fn expect_seeded(comptime level: constants.Level) !void {
     @setRuntimeSafety(level.runtime_safety);
     var matcher: Matcher(level) = undefined;
     matcher.init();
-    var generator = codec.split.Generator.init(seeded_seed);
+    var generator = codec.testing.split.Generator.init(seeded_seed);
     for (matcher.window[0..constants.encoder_window_len]) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(seeded_values)));
     matcher.filled = constants.encoder_window_len;
     // Every position joins its chain as the lazy loop's insert joins it, past a slide's worth of

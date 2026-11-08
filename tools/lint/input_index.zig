@@ -7,22 +7,21 @@
 //! Over every `.zig` file under `src/`, but for the reader, the bit reader and the writer, the rule
 //! reads each function on its own and follows the values a reader produced:
 //!
-//! 1. A value is input-derived when it is a parameter whose type names `Reader` or `BitReader`, or a
-//!    local whose type names one of them or whose value calls `Reader.init` or `BitReader.init`.
-//! 2. A name declared, assigned or captured from an expression that reads an input-derived name is
-//!    input-derived too: `const len = try reader.read_int(u16, .little);`, `total += len;`,
-//!    `if (reader.read(4)) |bits|`. A `for` capture follows its own input, so in
-//!    `for (octets, 0..) |octet, index|` the octet is input-derived and the index is not.
-//! 3. A `[...]` index, or a slice's start, end or sentinel, that reads an input-derived name is a
-//!    finding.
+//! 1. A value is input-derived when it is a parameter whose type names `Reader` or `BitReader`, or
+//!    a local whose type names one of them or whose value calls `Reader.init` or `BitReader.init`.
+//!    2. A name declared, assigned or captured from an expression that reads an input-derived name
+//!    is input-derived too: `const len = try reader.take_int(u16, .little);`, `total += len;`, `if
+//!    (reader.read(4)) |bits|`. A `for` capture follows its own input, so in `for (octets, 0..)
+//!    |octet, index|` the octet is input-derived and the index is not. 3. A `[...]` index, or a
+//!    slice's start, end or sentinel, that reads an input-derived name is a finding.
 //!
 //! `name.len` does not read `name`. A slice the reader returned is bounded by the memory it covers,
 //! so its length is not a value the input chose. `test` blocks are not read.
 //!
 //! Decision 16 lets the fast paths it names leave the checked reader and writer. Each lives in a
-//! file of its own, which this rule does not read: `src/deflate/fast/fast.zig`, the DEFLATE
-//! symbol loop and match copy of design §8 step 7, `src/deflate/fast/fast_lengths.zig`, a dynamic
-//! block's code lengths of that step, `src/zstd/fast_sequences/fast_sequences.zig`,
+//! file of its own, which this rule does not read: `src/deflate/fast/fast.zig`, the DEFLATE symbol
+//! loop and match copy of design §8 step 7, `src/deflate/fast/fast_lengths.zig`, a dynamic block's
+//! code lengths of that step, `src/zstd/fast_sequences/fast_sequences.zig`,
 //! `src/zstd/fast_literals.zig` and `src/zstd/fast_reader.zig`, the Zstandard sequence execution,
 //! literal decoding and backward stream of step 11, and the files of `src/brotli/decoder/decoder_fast/`
 //! but its test, the brotli command loop, its literal runs, its copies and the header's code

@@ -83,10 +83,10 @@ const BatchDrive = struct {
 /// schedule draws, with the state moved to the other slot at drawn calls.
 fn decode_batches(framing: Framing, input: []const u8, slots: []Slot, seed: ?u64, transcript: *Transcript) !Verdict {
     var drive: BatchDrive = .{ .input = input, .transcript = transcript };
-    var states: [codec.split.state_slots]Decoder = undefined;
+    var states: [codec.testing.split.state_slots]Decoder = undefined;
     states[0].init(framing, codec.Features.detect());
     var slot: usize = 0;
-    var schedule = codec.split.Schedule.init(seed orelse 0);
+    var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
     for (0..calls_max) |call| {
         const left = input.len - drive.consumed;
@@ -98,7 +98,7 @@ fn decode_batches(framing: Framing, input: []const u8, slots: []Slot, seed: ?u64
     return error.TestNoProgress;
 }
 
-fn move(states: *[codec.split.state_slots]Decoder, slot: usize) usize {
+fn move(states: *[codec.testing.split.state_slots]Decoder, slot: usize) usize {
     const other = 1 - slot;
     states[other] = states[slot];
     @memset(std.mem.asBytes(&states[slot]), codec.constants.moved_state_fill);
@@ -181,7 +181,7 @@ test "a batch that meets a refusal fails, and leaves the decoder refused" {
 test "every seeded corruption of the texts decodes alike in batches" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
-        var generator = codec.split.Generator.init(seed);
+        var generator = codec.testing.split.Generator.init(seed);
         const text = texts[generator.below(texts.len)];
         @memcpy(input[0..text.len], text);
         for (0..generator.below(flips_max + 1)) |_| {

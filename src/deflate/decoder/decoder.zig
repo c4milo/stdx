@@ -114,37 +114,55 @@ pub const Decoder = struct {
     /// touched and the symbols it has decoded since `init`, one per entry and one per decode, and
     /// at most `constants.build_work_max` per code built.
     work: huffman.Work,
+
+    /// Starts a stream. Writes no octet of the window (decision 11).
+    pub fn init(self: *Decoder, features: codec.Features) void {
+        self.window.init();
+        self.bits = .{};
+        self.phase = .block_header;
+        self.last_block = false;
+        self.fixed_codes = false;
+        self.stored_left = 0;
+        self.copy_len = 0;
+        self.copy_distance = 0;
+        self.distance_max = constants.window_len;
+        self.window_synced = 0;
+        self.features = features;
+        self.bits_since_combination = 0;
+        self.combined_for_input = false;
+        self.work = huffman.work_zero;
+    }
+
+    /// Refuses distances past `window_len`, the window a container declares for the stream
+    /// (decision 12). The caller calls it after `init` and before the first `decode`.
+    pub fn limit_window(self: *Decoder, window_len: usize) void {
+        assert(std.math.isPowerOfTwo(window_len));
+        assert(window_len <= constants.window_len);
+        assert(self.phase == .block_header and self.window.reach() == 0);
+        self.distance_max = @intCast(window_len);
+    }
+
+    /// Decodes as much of `input` into `output` as both allow (decision 11).
+    pub fn decode(self: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
+        return self.decode_with(.{}, input, output);
+    }
+
+    /// `decode`, with the paths `paths` names.
+    pub fn decode_with(self: *Decoder, comptime paths: DecodePaths, input: []const u8, output: []u8) Error!codec.Progress {
+        comptime assert(!paths.count_lookups);
+        return decode_counted(paths, self, input, output, {});
+    }
+
+    /// Decodes a whole stream in one call (decision 11). The input ending before the stream does
+    /// is `error.Truncated`, and the output filling first is `error.NoSpaceLeft`. Octets after the
+    /// stream stay the caller's: `consumed` says where it ended.
+    pub fn decode_all(self: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
+        return codec.whole(try self.decode(input, output));
+    }
 };
 
 comptime {
     assert(@sizeOf(Decoder) <= constants.window_len + constants.decoder_state_budget_len);
-}
-
-/// Starts a stream. Writes no octet of the window (decision 11).
-pub fn init(decoder: *Decoder, features: codec.Features) void {
-    decoder.window.init();
-    decoder.bits = .{};
-    decoder.phase = .block_header;
-    decoder.last_block = false;
-    decoder.fixed_codes = false;
-    decoder.stored_left = 0;
-    decoder.copy_len = 0;
-    decoder.copy_distance = 0;
-    decoder.distance_max = constants.window_len;
-    decoder.window_synced = 0;
-    decoder.features = features;
-    decoder.bits_since_combination = 0;
-    decoder.combined_for_input = false;
-    decoder.work = huffman.work_zero;
-}
-
-/// Refuses distances past `window_len`, the window a container declares for the stream (decision
-/// 12). The caller calls it after `init` and before the first `decode`.
-pub fn limit_window(decoder: *Decoder, window_len: usize) void {
-    assert(std.math.isPowerOfTwo(window_len));
-    assert(window_len <= constants.window_len);
-    assert(decoder.phase == .block_header and decoder.window.reach() == 0);
-    decoder.distance_max = @intCast(window_len);
 }
 
 /// Adds to invariant 17's count, in a test build.
@@ -153,38 +171,20 @@ pub fn count_work(decoder: *Decoder, work: usize) void {
 }
 
 /// What a decode may use. Tests and the fuzzer build both settings and compare them (decision 16).
-pub const Options = options_module.Options;
+pub const DecodePaths = options_module.DecodePaths;
 
-/// Decodes as much of `input` into `output` as both allow (decision 11).
-pub fn decode(decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
-    return decode_with(.{}, decoder, input, output);
-}
-
-/// `decode`, with the paths `options` names.
-pub fn decode_with(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8) Error!codec.Progress {
-    comptime assert(!options.count_lookups);
-    return decode_counted(options, decoder, input, output, {});
-}
-
-/// `decode_with`, adding to `lookups` how the call took each symbol: S2's test (decision 14),
-/// which the benchmark runs over the corpora (design §8 step 7).
-pub fn decode_counting(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8, lookups: *Lookups) Error!codec.Progress {
+/// `Decoder.decode_with`, adding to `lookups` how the call took each symbol: S2's test (decision
+/// 14), which the benchmark runs over the corpora (design §8 step 7).
+pub fn decode_counting(comptime paths: DecodePaths, decoder: *Decoder, input: []const u8, output: []u8, lookups: *Lookups) Error!codec.Progress {
     const counting = comptime counting: {
-        var counting = options;
+        var counting = paths;
         counting.count_lookups = true;
         break :counting counting;
     };
     return decode_counted(counting, decoder, input, output, lookups);
 }
 
-/// Decodes a whole stream in one call (decision 11). The input ending before the stream does is
-/// `error.Truncated`, and the output filling first is `error.NoSpaceLeft`. Octets after the stream
-/// stay the caller's: `consumed` says where it ended.
-pub fn decode_all(decoder: *Decoder, input: []const u8, output: []u8) (Error || codec.Incomplete)!codec.Whole {
-    return codec.whole(try decode(decoder, input, output));
-}
-
-fn decode_counted(comptime options: Options, decoder: *Decoder, input: []const u8, output: []u8, lookups: Counter(options)) Error!codec.Progress {
+fn decode_counted(comptime options: DecodePaths, decoder: *Decoder, input: []const u8, output: []u8, lookups: Counter(options)) Error!codec.Progress {
     codec.check_entry(input, output);
     // A call after `done` or after a refusal, without `init`, is a programmer error (decision 11).
     assert(decoder.phase != .done and decoder.phase != .refused);
@@ -209,7 +209,7 @@ fn decode_counted(comptime options: Options, decoder: *Decoder, input: []const u
     return progress;
 }
 
-fn run(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, input_len: usize, output_len: usize, lookups: Counter(options)) Error!codec.Status {
+fn run(comptime options: DecodePaths, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, input_len: usize, output_len: usize, lookups: Counter(options)) Error!codec.Status {
     const units = @bitSizeOf(u8) * input_len + codec.constants.bit_buffer_bits + output_len;
     const steps_max = constants.steps_per_unit * units + constants.steps_floor;
     for (0..steps_max) |_| {
@@ -220,7 +220,7 @@ fn run(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, wri
 }
 
 /// One step, and the status that ends the call, or null to go on.
-fn step(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
+fn step(comptime options: DecodePaths, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
     return switch (decoder.phase) {
         .block_header => try read_block_header(options.claims, decoder, bits),
         .stored_header => try read_stored_header(decoder, bits),
@@ -330,7 +330,7 @@ fn copy_stored(comptime claims: Claims, decoder: *Decoder, bits: *codec.BitReade
 }
 
 /// Runs the fast path while its margins hold, then reads one symbol through the checked path.
-fn read_symbols_fast(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
+fn read_symbols_fast(comptime options: DecodePaths, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
     const claims = options.claims;
     const Fixed = lookup.Fixed(claims.literal_length_table_bits, claims.distance_table_bits);
     const comptime_fixed = decoder.fixed_codes and claims.comptime_fixed_tables;
@@ -380,7 +380,7 @@ fn block_distance_code(decoder: *const Decoder) *const huffman.Code(constants.di
 }
 
 /// Reads one literal/length symbol, and a length's distance with it.
-fn read_symbol(comptime options: Options, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
+fn read_symbol(comptime options: DecodePaths, decoder: *Decoder, bits: *codec.BitReader, writer: *codec.Writer, lookups: Counter(options)) Error!?codec.Status {
     _ = bits.ensure(constants.pair_bits_max);
     const available = @min(bits.bits.count, codec.constants.ensure_bits_max);
     const buffer = bits.peek(available);

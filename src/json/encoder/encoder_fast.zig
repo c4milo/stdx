@@ -204,7 +204,7 @@ inline fn write_content(comptime claims: Claims, level: wide.Level, body: Body, 
 inline fn ended(encoder: *Encoder, kind: Kind, ends_text: bool, number: number_grammar.Number) void {
     // Inline here alone: the checked path's `open` calls it too, and a call a token cost the
     // fast path a sixth of its time on the N2 (design §8 step 17).
-    @call(.always_inline, Encoder.advance, .{ encoder, kind });
+    @call(.always_inline, encoder_file.advance, .{ encoder, kind });
     assert(encoder.position == .text_end or !ends_text);
     encoder.kind = kind;
     encoder.ends_text = ends_text;
