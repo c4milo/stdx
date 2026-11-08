@@ -12,6 +12,8 @@ const encoder = @import("../encoder.zig");
 
 const small_window_bits = constants.encoder_window_bits_min;
 const Small = encoder.Encoder(.{ .level = constants.encoder_level5.number, .window_bits = small_window_bits });
+/// Level 5 with Zig's checks: the parse's reference, which the assembly makes the same choice as.
+const Checked = encoder.Encoder(.{ .level = constants.encoder_level5.number, .window_bits = small_window_bits, .unchecked_loops = false });
 /// A window past level 1's 2^18, small enough that the test's state fits aarch64's thread-local
 /// offsets: 2^22's window and decoder would not.
 const large_window_bits = 19;
@@ -258,3 +260,22 @@ fn expect_memory_unread() !void {
 
 /// The octets the two encoders' memory holds before `init`.
 const state_fills = [_]u8{ 0, std.math.maxInt(u8) };
+
+test "level 5 writes the same octets with its loops checked and unchecked" {
+    try @call(.never_inline, expect_checked_equal, .{});
+}
+
+/// The unchecked loops, the assembly among them where it takes the target, and the checked ones,
+/// the reference, choose the same matches (decision 64, part 5).
+fn expect_checked_equal() !void {
+    var unchecked: Small = undefined;
+    var checked: Checked = undefined;
+    for (std.enums.values(Case)) |case| {
+        const plain = input_of(case);
+        unchecked.init();
+        const fast = try unchecked.encode_all(plain, &coded);
+        checked.init();
+        const slow = try checked.encode_all(plain, &reference);
+        try testing.expectEqualSlices(u8, reference[0..slow], coded[0..fast]);
+    }
+}
