@@ -17,6 +17,7 @@ const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
 const encoder_stream = @import("encoder_stream.zig");
 const encoder_buckets = @import("encoder_level5/encoder_buckets.zig");
+const encoder_meta_block5 = @import("encoder_level5/encoder_meta_block5.zig");
 
 pub const EncoderOptions = struct {
     /// 1 or 5 (decision 62).
@@ -69,6 +70,7 @@ fn Parts(comptime options: EncoderOptions) type {
         const slack_len = constants.encoder_level5.slack_len;
         const Matcher = encoder_buckets.Buckets;
         const Commands = encoder_commands.WideCommands;
+        const Codes = encoder_meta_block5.Codes;
     };
     return struct {
         const window_bits = level_of(options).window_log;
@@ -76,6 +78,7 @@ fn Parts(comptime options: EncoderOptions) type {
         const slack_len = constants.encoder_meta_block_len_max;
         const Matcher = codec.match_finder.Matcher(level_of(options));
         const Commands = encoder_commands.Commands;
+        const Codes = encoder_meta_block.Codes;
     };
 }
 
@@ -101,7 +104,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         window: [window_capacity]u8,
         matcher: parts.Matcher,
         commands: parts.Commands,
-        codes: encoder_meta_block.Codes,
+        codes: parts.Codes,
         /// The stream header and a meta-block, as they wait for the caller's room.
         out: [constants.encoder_out_len]u8,
         out_start: usize,
@@ -263,4 +266,5 @@ test {
 test {
     _ = @import("encoder_level5/encoder_level5_test.zig");
     _ = @import("encoder_level5/encoder_buckets.zig");
+    _ = @import("encoder_level5/encoder_split.zig");
 }
