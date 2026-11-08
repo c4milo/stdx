@@ -1,6 +1,8 @@
 //! Adler-32 by dot products, for every variant object with an instruction that multiplies octets
 //! in groups of four and adds each group's products into a 32-bit lane: Arm's UDOT, x86's VPDPBUSD,
 //! or VPMADDUBSW followed by VPMADDWD. Each object supplies `Dot`; this file holds the rest.
+//! VPMADDUBSW gives 16-bit sums of two products, so where `Dot` has `pairs`, the path adds the sums
+//! of two registers whose weights have opposite signs, and runs one VPMADDWD for both.
 //!
 //! A block is `register_count` registers of `Dot.register_len` octets, `block_len` in all. The path
 //! keeps three kinds of vectors of 32-bit lanes:
@@ -23,6 +25,12 @@ const constants = @import("../constants.zig");
 /// Signed weights are shifted down by half the block length, which centers them on zero.
 const center_divisor = 2;
 
+/// The registers whose 16-bit sums `add_pairs` adds before it widens them.
+const registers_per_pair = 2;
+
+/// The octets whose products VPMADDUBSW adds into one 16-bit lane.
+pub const octets_per_pair = 2;
+
 /// The sum 0 + 1 + … + (B − 1), which bounds how often a lane of `sums_before` gains a lane of
 /// `sums`, is at most B² over this.
 const triangle_divisor = 2;
@@ -34,7 +42,9 @@ const triangle_divisor = 2;
 /// - `signed_weights`, true when `weighted` takes each weight as a signed octet, and `weight_max`,
 ///   the largest weight it takes, signed or not;
 /// - `weighted(accumulator, octets, weights)`, adding into each 32-bit lane the products of its four
-///   octets with their weights;
+///   octets with their weights; or, in its place, `pairs(octets, weights)`, a vector of 16-bit
+///   lanes, each the sum of two neighbouring products, and `widen(accumulator, pairs)`, adding
+///   each two neighbouring 16-bit lanes into a 32-bit lane;
 /// - `sums(accumulator, octets)`, adding the octets into the lanes, in any grouping;
 /// - optionally `accumulator_sets`, the sets of weighted sums the blocks take in turn, 2 when
 ///   `weighted` accumulates in place with a latency longer than a block's other work.
@@ -61,6 +71,7 @@ pub fn Kernel(comptime Dot: type, comptime register_count: usize, comptime Next:
             assert(!Dot.signed_weights or weight_shift - 1 <= -@as(isize, std.math.minInt(i8)));
             assert(before_fits(Dot, register_count, blocks_per_run_max));
             assert(weighted_fits(Dot, register_count, blocks_per_run_max));
+            if (@hasDecl(Dot, "pairs")) assert(pairs_fit(register_count, register_len, weights));
         }
 
         /// The Adler-32 value after the octets, from `adler`. The octets after the last whole
@@ -101,12 +112,58 @@ inline fn add_block(
     // rather than check.
     sums_before.* +%= sums.*;
     var block_sums: Lanes(Dot) = @splat(0);
-    inline for (0..register_count) |register| {
-        const octets: @Vector(Dot.register_len, u8) = block[register * Dot.register_len ..][0..Dot.register_len].*;
+    if (@hasDecl(Dot, "pairs")) {
+        add_pairs(Dot, register_count, weights, &block_sums, weighted, block);
+    } else inline for (0..register_count) |register| {
+        const octets = register_octets(Dot, block, register);
         block_sums = Dot.sums(block_sums, octets);
         weighted[register] = Dot.weighted(weighted[register], octets, weights[register]);
     }
     sums.* +%= block_sums;
+}
+
+/// Adds the octets of a block into `block_sums`, and their weighted products into `weighted`, one
+/// set for each register and its partner. `pairs_fit` proves that the 16-bit sums of the two
+/// registers do not overflow.
+inline fn add_pairs(
+    comptime Dot: type,
+    comptime register_count: usize,
+    weights: [register_count]@Vector(Dot.register_len, u8),
+    block_sums: *Lanes(Dot),
+    weighted: *[register_count]Lanes(Dot),
+    block: *const [register_count * Dot.register_len]u8,
+) void {
+    inline for (0..comptime pair_count(register_count)) |register| {
+        const other = comptime partner(register_count, register);
+        const octets = register_octets(Dot, block, register);
+        block_sums.* = Dot.sums(block_sums.*, octets);
+        var pair_sums = Dot.pairs(octets, weights[register]);
+        if (other != register) {
+            const other_octets = register_octets(Dot, block, other);
+            block_sums.* = Dot.sums(block_sums.*, other_octets);
+            pair_sums +%= Dot.pairs(other_octets, weights[other]);
+        }
+        weighted[register] = Dot.widen(weighted[register], pair_sums);
+    }
+}
+
+/// The octets of one register of a block, a pointer to an array whose length is known at compile
+/// time, so no bounds check runs.
+inline fn register_octets(comptime Dot: type, block: anytype, comptime register: usize) @Vector(Dot.register_len, u8) {
+    return block[register * Dot.register_len ..][0..Dot.register_len].*;
+}
+
+/// The registers that start a pair: the first half of a block, and its middle register when the
+/// count is odd.
+fn pair_count(comptime register_count: usize) usize {
+    return (register_count + 1) / registers_per_pair;
+}
+
+/// The register whose sums join those of `register`. The weights fall from the first register to
+/// the last and are centered on zero, so the two registers at the same distance from the ends have
+/// weights of opposite signs and of about the same size.
+fn partner(comptime register_count: usize, comptime register: usize) usize {
+    return register_count - 1 - register;
 }
 
 /// What one run adds to s1, and to s2 beyond `block_len` times s1 per block. `sets` sets of
@@ -171,6 +228,33 @@ fn block_weights(comptime register_count: usize, comptime register_len: usize, c
     var vectors: [register_count]@Vector(register_len, u8) = undefined;
     for (&vectors, result) |*vector, octets| vector.* = octets;
     return vectors;
+}
+
+/// True when no 16-bit lane of `add_pairs` overflows: for each register and its partner, the
+/// positive weights of a lane's four octets, times 255, fit an i16, and so do the negative ones.
+pub fn pairs_fit(comptime register_count: usize, comptime register_len: usize, comptime weights: anytype) bool {
+    for (0..pair_count(register_count)) |register| {
+        const other = partner(register_count, register);
+        for (0..register_len / octets_per_pair) |lane| {
+            var positive: isize = 0;
+            var negative: isize = 0;
+            add_lane_weights(register_len, weights[register], lane, &positive, &negative);
+            if (other != register) add_lane_weights(register_len, weights[other], lane, &positive, &negative);
+            const octet_max = std.math.maxInt(u8);
+            if (positive * octet_max > std.math.maxInt(i16)) return false;
+            if (negative * octet_max < std.math.minInt(i16)) return false;
+        }
+    }
+    return true;
+}
+
+/// Adds the two signed weights of one 16-bit lane into `positive` or `negative`, by their sign.
+fn add_lane_weights(comptime register_len: usize, comptime register_weights: @Vector(register_len, u8), comptime lane: usize, positive: *isize, negative: *isize) void {
+    const array: [register_len]u8 = register_weights;
+    for (array[lane * octets_per_pair ..][0..octets_per_pair]) |octet| {
+        const weight: isize = @as(i8, @bitCast(octet));
+        if (weight > 0) positive.* += weight else negative.* += weight;
+    }
 }
 
 /// The largest power of two of blocks a run may take, so that no 32-bit lane overflows.

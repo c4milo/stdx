@@ -45,6 +45,51 @@ fn Software(comptime len: usize, comptime signed: bool, comptime max: comptime_i
     };
 }
 
+/// The octets whose products VPMADDUBSW adds into one 16-bit lane.
+const pair_octets = adler32_dot.octets_per_pair;
+
+/// The 16-bit lanes VPMADDWD adds into one 32-bit lane.
+const lanes_per_widen = @sizeOf(u32) / @sizeOf(u16);
+
+/// VPMADDUBSW and VPMADDWD lane by lane, as two steps, so the path adds two registers' 16-bit sums
+/// between them. VPMADDUBSW saturates each 16-bit sum, and the path's VPADDW wraps.
+fn Paired(comptime len: usize) type {
+    const Whole = Software(len, true, pair_weight_max, @sizeOf(u64));
+    const Pairs = @Vector(len / @sizeOf(u16), i16);
+    return struct {
+        pub const register_len = len;
+        pub const lane_octets = Whole.lane_octets;
+        pub const signed_weights = true;
+        pub const weight_max = pair_weight_max;
+        pub const sums = Whole.sums;
+
+        pub fn pairs(octets: @Vector(len, u8), weights: @Vector(len, u8)) Pairs {
+            var result: [len / @sizeOf(u16)]i16 = undefined;
+            const octet_array: [len]u8 = octets;
+            const weight_array: [len]u8 = weights;
+            for (&result, 0..) |*pair, index| {
+                var sum: i32 = 0;
+                for (index * pair_octets..(index + 1) * pair_octets) |octet_index| {
+                    sum += @as(i32, octet_array[octet_index]) * @as(i8, @bitCast(weight_array[octet_index]));
+                }
+                pair.* = @intCast(std.math.clamp(sum, std.math.minInt(i16), std.math.maxInt(i16)));
+            }
+            return result;
+        }
+
+        pub fn widen(accumulator: Whole.Lanes, sums_of_pairs: Pairs) Whole.Lanes {
+            var result: [len / group_len]u32 = accumulator;
+            const pair_array: [len / @sizeOf(u16)]i16 = sums_of_pairs;
+            for (&result, 0..) |*lane, index| {
+                const first = pair_array[index * lanes_per_widen];
+                const sum = @as(i32, first) + pair_array[index * lanes_per_widen + 1];
+                lane.* +%= @bitCast(sum);
+            }
+            return result;
+        }
+    };
+}
+
 /// The 32-bit lanes of one 64-bit lane of VPSADBW.
 const lanes_per_sad = @sizeOf(u64) / group_len;
 
@@ -73,6 +118,11 @@ const VnniInTurn = struct {
     pub const sums = Vnni.sums;
 };
 
+/// VPMADDUBSW's shapes with two registers' 16-bit sums added, as the x86-64 objects run them.
+const Avx2Paired = Paired(avx2_len);
+const Avx512Paired = Paired(avx512_len);
+const Short128Paired = Paired(neon_len);
+
 /// The x86 shapes on 128-bit registers, as the short blocks take them.
 const Short128 = Software(neon_len, true, pair_weight_max, @sizeOf(u64));
 const VnniShort128 = Software(neon_len, true, std.math.maxInt(i8), group_len);
@@ -94,7 +144,7 @@ const start_max: u32 = ((constants.adler32_base - 1) << @bitSizeOf(u16)) | (cons
 test "the dot-product path equals the reference in every object's shape" {
     var octets: [1024 + 64]u8 = undefined;
     for (&octets, 0..) |*octet, index| octet.* = @truncate(index *% 2654435761 >> 11);
-    inline for (.{ .{ Udot, Udot }, .{ Avx2, Short128 }, .{ Avx512, Short128 }, .{ Vnni, VnniShort128 }, .{ VnniInTurn, VnniShort128 } }) |shape| {
+    inline for (.{ .{ Udot, Udot }, .{ Avx2, Short128 }, .{ Avx512, Short128 }, .{ Vnni, VnniShort128 }, .{ VnniInTurn, VnniShort128 }, .{ Avx2Paired, Short128Paired }, .{ Avx512Paired, Short128Paired } }) |shape| {
         const Dot = shape[0];
         const Short = adler32_dot.Kernel(shape[1], 2, adler32_scalar);
         const Kernel = adler32_dot.Kernel(Dot, 128 / Dot.register_len, Short);
@@ -110,10 +160,26 @@ test "the dot-product path equals the reference in every object's shape" {
 }
 
 test "the dot-product path holds its lanes over a whole run of 0xff" {
-    inline for (.{ Udot, Avx2, Avx512, Vnni, VnniInTurn }) |Dot| {
+    inline for (.{ Udot, Avx2, Avx512, Vnni, VnniInTurn, Avx2Paired, Avx512Paired, Short128Paired }) |Dot| {
         const Kernel = adler32_dot.Kernel(Dot, 128 / Dot.register_len, adler32_scalar);
         const len = (Kernel.blocks_per_run_max + 1) * Kernel.block_len + 7;
         const ones: [len]u8 = @splat(0xff);
         try testing.expectEqual(reference(start_max, &ones), Kernel.update(start_max, &ones));
     }
 }
+
+test "pairs_fit refuses two registers whose 16-bit sums pass an i16" {
+    const Weights = @Vector(pair_octets, u8);
+    const high: Weights = .{ pair_weight_max, pair_weight_max - 1 };
+    const low: Weights = @bitCast(-%@as(@Vector(pair_octets, i8), @bitCast(high)));
+    const zero: Weights = @splat(0);
+    // Each register alone fits; two registers of one sign do not.
+    try testing.expect(comptime adler32_dot.pairs_fit(1, pair_octets, [_]Weights{high}));
+    try testing.expect(comptime adler32_dot.pairs_fit(registers_two, pair_octets, [_]Weights{ high, low }));
+    try testing.expect(comptime adler32_dot.pairs_fit(registers_two, pair_octets, [_]Weights{ high, zero }));
+    try testing.expect(!comptime adler32_dot.pairs_fit(registers_two, pair_octets, [_]Weights{ high, high }));
+    try testing.expect(!comptime adler32_dot.pairs_fit(registers_two, pair_octets, [_]Weights{ low, low }));
+}
+
+/// A block of two registers, one pair.
+const registers_two = 2;

@@ -3,7 +3,8 @@
 //! and their sums in one instruction. VPMADDUBSW multiplies each unsigned octet by a signed weight
 //! and adds neighbouring products into 16 bits, which holds them while every weight is at most 64;
 //! VPMADDWD by ones adds neighbouring 16-bit sums into 32 bits; VPSADBW adds each eight octets into
-//! a 64-bit lane. This file exports nothing.
+//! a 64-bit lane. `Dot` gives the first two steps apart, so adler32_dot.zig adds two registers'
+//! 16-bit sums with one VPADDW before one VPMADDWD. This file exports nothing.
 
 const std = @import("std");
 
@@ -25,16 +26,22 @@ pub fn Dot(comptime len: usize) type {
             std.debug.assert((2 * weight_max - 1) * std.math.maxInt(u8) <= std.math.maxInt(i16));
         }
 
-        pub fn weighted(accumulator: Lanes, octets: Octets, weights: Octets) Lanes {
-            const pairs = asm ("vpmaddubsw %[weights], %[octets], %[out]"
+        /// VPMADDUBSW: each 16-bit lane is the sum of two neighbouring products of an unsigned
+        /// octet and a signed weight.
+        pub fn pairs(octets: Octets, weights: Octets) Pairs {
+            return asm ("vpmaddubsw %[weights], %[octets], %[out]"
                 : [out] "=x" (-> Pairs),
                 : [octets] "x" (octets),
                   [weights] "x" (weights),
             );
+        }
+
+        /// VPMADDWD by ones: each 32-bit lane gains two neighbouring 16-bit lanes.
+        pub fn widen(accumulator: Lanes, sums_of_pairs: Pairs) Lanes {
             const ones: Pairs = @splat(1);
             const quads = asm ("vpmaddwd %[ones], %[pairs], %[out]"
                 : [out] "=x" (-> Lanes),
-                : [pairs] "x" (pairs),
+                : [pairs] "x" (sums_of_pairs),
                   [ones] "x" (ones),
             );
             return accumulator +% quads;
