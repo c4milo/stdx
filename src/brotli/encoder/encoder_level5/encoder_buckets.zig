@@ -52,8 +52,11 @@ pub const Buckets = struct {
     }
 
     /// Begins the next stream of buckets `init` started: the next tag, which no entry holds, or a
-    /// clear when the tags ran out.
+    /// clear when the tags ran out. Each bucket's ring starts again at its first way, so the stream
+    /// fills the ways in the order a stream after `init` does: the parse tries them in that order,
+    /// and the first of two equal matches wins (invariant 5). That clears 16 KiB, a constant.
     pub fn start(self: *Buckets) void {
+        self.next = @splat(0);
         self.tag += 1;
         if (self.tag == @as(u64, 1) << tag_bits) return self.clear();
         self.base = self.tag << position_bits;
