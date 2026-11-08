@@ -11,6 +11,10 @@ const encoder_commands = @import("../encoder_commands.zig");
 const buckets_module = @import("encoder_buckets.zig");
 const encoder_words = @import("encoder_words.zig");
 const hits_aarch64 = @import("encoder_hits_aarch64.zig");
+const hits_x86_64 = @import("encoder_hits_x86_64.zig");
+/// The assembly that weighs a bucket's hits on this target, if one takes it (decision 64, part 5).
+const hits_assembly = if (hits_aarch64.takes) hits_aarch64 else hits_x86_64;
+const hits_assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
 
 const Buckets = buckets_module.Buckets;
 
@@ -96,15 +100,15 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     return found;
 }
 
-/// Weighs the hits of `slot`'s bucket into `pick`: in aarch64 assembly for the unchecked loop
+/// Weighs the hits of `slot`'s bucket into `pick`: in assembly for the unchecked loop
 /// (decision 64, part 5), else in Zig, the reference the assembly makes the same choice as.
 inline fn weigh_hits(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, low: usize, pick: *Pick) void {
     @setRuntimeSafety(safety);
     var hits = buckets.hits(slot);
     // Many positions of a row of literals have no hit, and then the state costs more than the scan.
     if (hits == 0) return;
-    if (comptime hits_aarch64.takes and !safety) {
-        var state: hits_aarch64.State = .{
+    if (comptime hits_assembly_takes and !safety) {
+        var state: hits_assembly.State = .{
             .window = window.ptr,
             .here = pick.here,
             .cost = pick.cost,
@@ -119,7 +123,7 @@ inline fn weigh_hits(comptime safety: bool, buckets: *const Buckets, slot: bucke
             .long = &pick.long,
             .long_count = pick.long_count,
         };
-        hits_aarch64.weigh(&state);
+        hits_assembly.weigh(&state);
         pick.saves = state.saves;
         pick.candidate = state.candidate;
         pick.long_count = state.long_count;
@@ -309,7 +313,7 @@ const whole_at = 16;
 const weigh_literal_cost = 64;
 
 test "the assembly weighs a bucket's hits as the Zig loop does" {
-    if (comptime !hits_aarch64.takes) return error.SkipZigTest;
+    if (comptime !hits_assembly_takes) return error.SkipZigTest;
     // Two candidates of equal saving, offsets 100 and 80, both of log2 6: the first way stays. A
     // third agrees on 3 octets only, and weighs nothing.
     const tie = try expect_hits_equal(&.{ hits_position - tie_offset, hits_position - tie_offset_second, collision_at }, &.{ 6, 6, 3 });
@@ -326,7 +330,7 @@ test "the assembly weighs a bucket's hits as the Zig loop does" {
 
 /// Places `firsts`, each agreeing on its `agreeing` octets of the text at `hits_position`, in a
 /// bucket's ways, weighs them in assembly and in Zig, and requires the same pick.
-fn expect_hits_equal(firsts: []const usize, agreeing: []const usize) !hits_aarch64.State {
+fn expect_hits_equal(firsts: []const usize, agreeing: []const usize) !hits_assembly.State {
     var window: [hits_window_len]u8 = @splat('-');
     @memcpy(window[hits_position..][0..weigh_text.len], weigh_text);
     window[hits_position + weigh_text.len] = '#';
@@ -336,8 +340,8 @@ fn expect_hits_equal(firsts: []const usize, agreeing: []const usize) !hits_aarch
     var zig_pick: Pick = .{ .here = read64(true, &window, hits_position), .cost = weigh_literal_cost };
     for (firsts) |first| zig_pick.weigh(true, &window, hits_position, first, .bucket);
     var long: [buckets_module.ways]usize = undefined;
-    var state: hits_aarch64.State = .{ .window = &window, .here = zig_pick.here, .cost = weigh_literal_cost, .position = hits_position, .low = 1, .reach = hits_position - 1, .base = hits_base, .entries = &entries, .hits = (@as(u64, 1) << @intCast(firsts.len)) - 1, .saves = 0, .candidate = 0, .long = &long, .long_count = 0 };
-    hits_aarch64.weigh(&state);
+    var state: hits_assembly.State = .{ .window = &window, .here = zig_pick.here, .cost = weigh_literal_cost, .position = hits_position, .low = 1, .reach = hits_position - 1, .base = hits_base, .entries = &entries, .hits = (@as(u64, 1) << @intCast(firsts.len)) - 1, .saves = 0, .candidate = 0, .long = &long, .long_count = 0 };
+    hits_assembly.weigh(&state);
     try testing.expectEqual(zig_pick.saves, state.saves);
     try testing.expectEqual(zig_pick.candidate, state.candidate);
     try testing.expectEqual(zig_pick.long_count, state.long_count);
