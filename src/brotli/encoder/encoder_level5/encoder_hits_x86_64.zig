@@ -1,4 +1,4 @@
-//! Level 5's weighing of a bucket's hits in x86-64 assembly (decision 64, part 5): the port of
+//! Level 5's weighing of a bucket's hits in x86-64 assembly (decision 66, part 5): the port of
 //! `encoder_hits_aarch64.zig`, as decision 54 ported DEFLATE's loop. It writes the pick and the
 //! list of long candidates the Zig loop writes.
 //!
