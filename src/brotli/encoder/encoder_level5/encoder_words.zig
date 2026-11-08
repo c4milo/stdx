@@ -37,9 +37,20 @@ pub fn find(comptime safety: bool, window: []const u8, position: usize, end: usi
     @setRuntimeSafety(safety);
     assert(position + key_len <= end and end <= window.len);
     const key = std.mem.readInt(u32, window[position..][0..key_len], .little);
+    const slot = slot_of(key);
+    // The frequent case, its own code (decision 66, part 3): no way's check agrees, and the
+    // dictionary is not read. One read of 4 checks, in a table that stays in the first-level cache.
+    const Checks = @Vector(ways, u8);
+    const agreeing: Checks = checks[slot.bucket];
+    var hits: std.meta.Int(.unsigned, ways) = @bitCast(agreeing == @as(Checks, @splat(slot.check)));
+    if (hits == 0) return null;
     var best: ?Word = null;
-    for (table[bucket_of(key)]) |reference| {
-        if (reference == none) break;
+    for (0..ways) |_| {
+        if (hits == 0) break;
+        const way = @ctz(hits);
+        hits &= hits - 1;
+        const reference = table[slot.bucket][way];
+        if (reference == none) continue;
         const word_len: usize = reference >> index_bits;
         const index: u32 = reference & ((1 << index_bits) - 1);
         const word = dictionary.word(word_len, index);
@@ -62,9 +73,15 @@ fn agreed_len(comptime safety: bool, word: []const u8, input: []const u8) usize 
     return input.len;
 }
 
-fn bucket_of(key: u32) usize {
+/// The bucket of 4 octets, and their check: the 8 bits of the hash below the bucket's.
+const Slot = struct { bucket: usize, check: u8 };
+
+fn slot_of(key: u32) Slot {
     const product = @as(u64, key) *% codec.constants.match_hash_multiplier;
-    return @intCast(product >> (@bitSizeOf(u64) - level5.word_bucket_log));
+    return .{
+        .bucket = @intCast(product >> (@bitSizeOf(u64) - level5.word_bucket_log)),
+        .check = @truncate(product >> (@bitSizeOf(u64) - level5.word_bucket_log - @bitSizeOf(u8))),
+    };
 }
 
 /// The transform_id of the identity, then of OmitLast1 to OmitLast9, each with no prefix and no
@@ -81,21 +98,27 @@ pub const omit_last_transforms = ids: {
 };
 
 /// Each bucket's words, the shortest first: the dictionary lists them by length, then by index.
-const table = built: {
+const Tables = struct { references: [bucket_count][ways]u16, checks: [bucket_count][ways]u8 };
+
+const tables: Tables = built: {
     @setEvalBranchQuota(table_quota);
-    var buckets: [bucket_count][ways]u16 = @splat(@splat(none));
+    var built: Tables = .{ .references = @splat(@splat(none)), .checks = @splat(@splat(0)) };
     var filled: [bucket_count]u8 = @splat(0);
     for (constants.word_len_min..constants.word_len_max + 1) |word_len| {
         for (0..dictionary.word_count(word_len)) |index| {
             const word = dictionary.word(word_len, @intCast(index));
-            const bucket = bucket_of(std.mem.readInt(u32, word[0..key_len], .little));
-            if (filled[bucket] == ways) continue;
-            buckets[bucket][filled[bucket]] = @intCast(word_len << index_bits | index);
-            filled[bucket] += 1;
+            const slot = slot_of(std.mem.readInt(u32, word[0..key_len], .little));
+            if (filled[slot.bucket] == ways) continue;
+            built.references[slot.bucket][filled[slot.bucket]] = @intCast(word_len << index_bits | index);
+            built.checks[slot.bucket][filled[slot.bucket]] = slot.check;
+            filled[slot.bucket] += 1;
         }
     }
-    break :built buckets;
+    break :built built;
 };
+const table = &tables.references;
+/// Each way's check, 64 KiB: an empty way's is 0, and its reference, `none`, names no word.
+const checks = &tables.checks;
 
 const table_quota = 10_000_000;
 
