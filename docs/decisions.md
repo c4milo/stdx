@@ -4213,3 +4213,43 @@ small file.
       calls, so `decode_counting` cannot move into it, and it adds an edge to design §3.
     - A namespace that a build option exports only in this build's private graphs. It adds a
       build-options import to each module, an edge to design §3.
+
+## Releases
+
+65. **stdx numbers its releases by SemVer 2.0.0, and 0.1.0 is the first.** Ruled by the owner on
+    2026-11-08, as drafted. The owner ruled on 2026-11-07 and 2026-11-08 when 0.1.0 comes: when main
+    holds the brotli encoder of design §8 step 14 and the encoder adapters of [issue
+    21](https://github.com/c4milo/stdx/issues/21). Step 15 does not hold the release back. Until
+    0.1.0, a dependent pins stdx by hash alone. This entry states what a number promises.
+    - **The number.** A release is `MAJOR.MINOR.PATCH`, as SemVer 2.0.0 defines it.
+      `build.zig.zon`'s `.version` holds it, and the tag names the commit that changes it.
+    - **Before 1.0.0.** SemVer's item 4 lets a 0.y.z release change anything. stdx narrows that
+      rule, so a dependent can read the number:
+      - MINOR goes up when a dependent can see the change. A public name is added, removed or
+        renamed, or a call's parameters or error set change. A state size constant grows, or the
+        minimum Zig version changes. Or an encoder's output differs by one octet or more.
+      - PATCH goes up for every other change: a fix that keeps every public name and every
+        encoder's output, a faster path, a test or a document.
+    - **Encoder output counts.** Decision 5 says a cache or a content hash over encoded output stays
+      valid across releases of the same version. A PATCH release keeps that promise, so it changes
+      no octet of any encoder's output. `tools/differential/encode_hashes.zig` and
+      `zstd_encode_hashes.zig` prove it: a release whose hashes changed is a MINOR release.
+    - **The public API.** It is each module root's exported names, with their parameters, error
+      sets and size constants. The `testing` namespaces of decision 64 are not part of it, and any
+      release may change them.
+    - **The tag.** An annotated tag `vMAJOR.MINOR.PATCH` on a commit of main, with the subject
+      "stdx MAJOR.MINOR.PATCH: " and what the release adds. It goes on after `tools/ci.sh` passes on
+      that commit on all three runners of decision 19. A GitHub release lists the changes since
+      the previous tag, the MINOR ones first, with a table of the old and new names where names
+      moved.
+    - **1.0.0.** The owner rules when the API is stable. This entry does not set a date.
+
+    The alternatives refused:
+    - Hashes alone, with no number. A dependent cannot tell from a hash whether a move breaks its
+      code or changes its stored output.
+    - 1.0.0 first. Decision 64 changed the API on 2026-11-07, and the encoders still change their
+      output as their levels improve. A 1.0.0 would promise what stdx cannot keep yet.
+    - A number from the date, as 2026.11.0. It says when, not what changed, so a dependent cannot
+      see a change that breaks its code.
+    - SemVer's item 4 as it stands. It lets a PATCH release change an encoder's output, which
+      breaks a dependent's cache with no sign in the number.
