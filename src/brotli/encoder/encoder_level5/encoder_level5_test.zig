@@ -32,8 +32,9 @@ threadlocal var reference: [far_input_len + coded_slack]u8 = undefined;
 threadlocal var decoded: [far_input_len]u8 = undefined;
 threadlocal var decoder: decoder_module.Decoder(.{ .window_bits_max = large_window_bits }) = undefined;
 
-/// The inputs: text short and long, random octets, a run, and random octets then text.
-const Case = enum { empty, one, short, long, random, run, mixed };
+/// The inputs: text short and long, random octets, a run, random octets then text, and pieces of
+/// four alphabets in a seeded order, which one meta-block codes in blocks of several types.
+const Case = enum { empty, one, short, long, random, run, mixed, alphabets };
 const short_len = 700;
 const long_len = 120_000;
 const noise_odds = 20;
@@ -55,6 +56,24 @@ fn fill_text(generator: *codec.split.Generator, octets: []u8) void {
     }
 }
 
+/// One meta-block of pieces, each `piece_len` random octets of one of four alphabets of 16
+/// octets, the alphabet seeded: its literals have no matches, and code shorter in blocks.
+const alphabets_len = 60_000;
+const piece_len = 600;
+const alphabet_firsts = [_]u8{ 'a', '0', 'A', high_first };
+/// The first octet of the alphabet past ASCII.
+const high_first = 0x80;
+const alphabet_len = 16;
+
+fn fill_alphabets(generator: *codec.split.Generator, octets: []u8) void {
+    var start: usize = 0;
+    for (0..octets.len / piece_len) |_| {
+        const first = alphabet_firsts[generator.below(alphabet_firsts.len)];
+        for (octets[start..][0..piece_len]) |*octet| octet.* = first + @as(u8, @intCast(generator.below(alphabet_len)));
+        start += piece_len;
+    }
+}
+
 fn input_of(case: Case) []const u8 {
     var generator = codec.split.Generator.init(@intFromEnum(case));
     const len: usize = switch (case) {
@@ -63,12 +82,14 @@ fn input_of(case: Case) []const u8 {
         .short => short_len,
         .long => long_len,
         .random, .run, .mixed => input_len_max,
+        .alphabets => alphabets_len,
     };
     switch (case) {
         .random => for (input[0..len]) |*octet| {
             octet.* = @truncate(generator.next());
         },
         .run => @memset(input[0..len], 'z'),
+        .alphabets => fill_alphabets(&generator, input[0..len]),
         .mixed => {
             for (input[0..long_len]) |*octet| octet.* = @truncate(generator.next());
             fill_text(&generator, input[long_len..len]);
@@ -84,6 +105,10 @@ fn expect_decodes(stream: []const u8, expected: []const u8) !void {
     try testing.expectEqual(stream.len, whole.consumed);
     try testing.expectEqualSlices(u8, expected, decoded[0..whole.written]);
 }
+
+/// The bits a literal of one of the four alphabets takes at most: 4 in its block's code, and a
+/// part of a bit for the blocks' switches and the codes' descriptions.
+const alphabet_bits_max = 5;
 
 /// Text and runs compress to less than this share of their octets.
 const compressed_ratio_min = 2;
@@ -104,6 +129,12 @@ fn expect_streams() !void {
         try expect_decodes(coded[0..written], plain);
         const compresses = case == .long or case == .run;
         if (compresses) try testing.expect(written < plain.len / compressed_ratio_min);
+        // The four alphabets take a block type each at least, a chunk across two of them perhaps
+        // one more, and 4 bits a literal or less.
+        if (case == .alphabets) {
+            try testing.expect(small[0].codes.split.types_count >= alphabet_firsts.len);
+            try testing.expect(written * @bitSizeOf(u8) < plain.len * alphabet_bits_max);
+        }
     }
 }
 
