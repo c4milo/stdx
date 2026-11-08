@@ -67,6 +67,74 @@ pub noinline fn write_commands(comptime safety: bool, writer: *codec.BitWriter, 
 
 /// `write_commands` in Zig: the reference the assembly writes the octets of.
 pub fn write_zig(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: anytype) Error!void {
+    var literals: OneCode(@TypeOf(&codes.literal)) = .{ .code = &codes.literal };
+    return write_loop(safety, writer, input, commands, codes, &literals);
+}
+
+/// Level 5's commands, whose literals go in `blocks`'s blocks, each through its type's code, with
+/// a block switch before every block after the first (RFC 7932 §6, §9.3).
+pub fn write_split(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: anytype, blocks: *const Blocks) Error!void {
+    var literals: BlockCodes(@TypeOf(&codes.literals)) = .{ .codes = &codes.literals, .blocks = blocks, .left = if (blocks.count > 0) blocks.lens[0] else 0, .tree = if (blocks.count > 0) blocks.types[0] else 0 };
+    return write_loop(safety, writer, input, commands, codes, &literals);
+}
+
+/// The blocks of a meta-block's literals, and before each after the first its switch's codes and
+/// extra bits in one put: the block type code, the block count code and its extra bits.
+pub const Blocks = struct {
+    types: []const u8,
+    lens: []const u16,
+    switch_values: []const u64,
+    switch_lens: []const u8,
+    count: usize,
+};
+
+fn OneCode(comptime Code: type) type {
+    return struct {
+        code: Code,
+
+        inline fn put(self: *@This(), comptime safety: bool, bits: *Bits, literals: []const u8) Error!void {
+            return put_literals(safety, bits, literals, self.code);
+        }
+    };
+}
+
+fn BlockCodes(comptime Codes: type) type {
+    return struct {
+        codes: Codes,
+        blocks: *const Blocks,
+        /// The current block, its literals not yet written and its tree.
+        index: usize = 0,
+        left: usize,
+        tree: usize,
+
+        inline fn put(self: *@This(), comptime safety: bool, bits: *Bits, literals: []const u8) Error!void {
+            @setRuntimeSafety(safety);
+            var rest = literals;
+            // Each round writes a block's part, so the blocks bound the rounds.
+            for (0..self.blocks.count + 1) |_| {
+                if (rest.len == 0) return;
+                if (self.left == 0) try self.switch_block(safety, bits);
+                const piece = rest[0..@min(rest.len, self.left)];
+                try put_literals(safety, bits, piece, &self.codes[self.tree]);
+                self.left -= piece.len;
+                rest = rest[piece.len..];
+            }
+            unreachable;
+        }
+
+        fn switch_block(self: *@This(), comptime safety: bool, bits: *Bits) Error!void {
+            @setRuntimeSafety(safety);
+            self.index += 1;
+            assert(self.index < self.blocks.count);
+            try bits.check(safety, constants.encoder_put_bits_max);
+            bits.put(safety, self.blocks.switch_values[self.index], self.blocks.switch_lens[self.index]);
+            self.left = self.blocks.lens[self.index];
+            self.tree = self.blocks.types[self.index];
+        }
+    };
+}
+
+fn write_loop(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: anytype, literals: anytype) Error!void {
     @setRuntimeSafety(safety);
     // The first store drops the whole octets the header left, so the loop starts below 8 bits.
     if (!writer.has_store_room()) return error.NoSpaceLeft;
@@ -78,7 +146,7 @@ pub fn write_zig(comptime safety: bool, writer: *codec.BitWriter, input: []const
         const coded = encoder_commands.coded_of(safety, command);
         try bits.check(safety, constants.encoder_command_bits_max);
         put_lengths(safety, &bits, &codes.command, coded);
-        try put_literals(safety, &bits, input[produced..][0..command.insert_len], &codes.literal);
+        try literals.put(safety, &bits, input[produced..][0..command.insert_len]);
         produced += command.insert_len;
         if (produced == input.len) break;
         produced += command.copy_len;

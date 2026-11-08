@@ -73,7 +73,7 @@ pub fn write_flush(writer: *codec.BitWriter) Error!void {
 
 /// ISLAST, ISLASTEMPTY for a last one, MNIBBLES, MLEN - 1, and ISUNCOMPRESSED for one that is not
 /// the last (RFC 7932 §9.2). MLEN - 1 of a meta-block of 65,536 octets or fewer takes 4 nibbles.
-fn write_header(writer: *codec.BitWriter, len: usize, last: bool, uncompressed: bool) Error!void {
+pub fn write_header(writer: *codec.BitWriter, len: usize, last: bool, uncompressed: bool) Error!void {
     try put(writer, @intFromBool(last), 1);
     if (last) try put(writer, 0, 1);
     try put(writer, constants.encoder_length_nibbles - constants.nibbles_min, constants.nibbles_field_bits);

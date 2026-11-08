@@ -156,6 +156,8 @@ fn expect_round_trip(comptime n: usize, counts: *const [n]u16, message: []const 
     var octets: [round_trip_len]u8 = undefined;
     var writer = codec.BitWriter.init(&octets, .{});
     try encoder_prefix.write(n, &writer, &code, alphabet_bits);
+    // The price level 5's split weighs a code by is the bits its description took.
+    try testing.expectEqual(writer.writer.position * @bitSizeOf(u8) + writer.bits.count, encoder_prefix.description_bits(n, &code, alphabet_bits));
     for (message) |symbol| try encoder_prefix.put_symbol(n, &writer, &code, symbol);
     writer.put(0, writer.bits_to_octet());
     try testing.expect(writer.drain());
