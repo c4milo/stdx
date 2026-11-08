@@ -10,6 +10,7 @@ const constants = @import("../../constants.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const buckets_module = @import("encoder_buckets.zig");
 const encoder_words = @import("encoder_words.zig");
+const hits_aarch64 = @import("encoder_hits_aarch64.zig");
 
 const Buckets = buckets_module.Buckets;
 
@@ -88,7 +89,42 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     }
     // The entries whose check matches the position's, the lowest way first.
     const slot = Buckets.slot_of(safety, window, position);
+    weigh_hits(safety, buckets, slot, window, position, low, &pick);
+    buckets.insert_at(safety, slot, position);
+    var found = pick.measure_long(safety, window, position, end);
+    consider_word(safety, window, position, end, reach_len, commands, &found);
+    return found;
+}
+
+/// Weighs the hits of `slot`'s bucket into `pick`: in aarch64 assembly for the unchecked loop
+/// (decision 64, part 5), else in Zig, the reference the assembly makes the same choice as.
+inline fn weigh_hits(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, low: usize, pick: *Pick) void {
+    @setRuntimeSafety(safety);
     var hits = buckets.hits(slot);
+    // Many positions of a row of literals have no hit, and then the state costs more than the scan.
+    if (hits == 0) return;
+    if (comptime hits_aarch64.takes and !safety) {
+        var state: hits_aarch64.State = .{
+            .window = window.ptr,
+            .here = pick.here,
+            .cost = pick.cost,
+            .position = position,
+            .low = low,
+            .reach = position - low,
+            .base = buckets.base,
+            .entries = &buckets.entries[slot.bucket],
+            .hits = hits,
+            .saves = pick.saves,
+            .candidate = pick.candidate,
+            .long = &pick.long,
+            .long_count = pick.long_count,
+        };
+        hits_aarch64.weigh(&state);
+        pick.saves = state.saves;
+        pick.candidate = state.candidate;
+        pick.long_count = state.long_count;
+        return;
+    }
     for (0..buckets_module.ways) |_| {
         if (hits == 0) break;
         const way = @ctz(hits);
@@ -96,10 +132,6 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
         pick.weigh(safety, window, position, candidate, .bucket);
     }
-    buckets.insert_at(safety, slot, position);
-    var found = pick.measure_long(safety, window, position, end);
-    consider_word(safety, window, position, end, reach_len, commands, &found);
-    return found;
 }
 
 /// Where a candidate comes from: the ring of last distances, whose short codes take no extra bits,
@@ -117,7 +149,6 @@ const Pick = struct {
     cost: u32,
     saves: i64 = 0,
     candidate: usize = 0,
-    source: Source = .bucket,
     /// The candidates that agreed on all `read_len` octets, by source.
     last_long: [constants.last_distances_count]usize = undefined,
     last_long_count: usize = 0,
@@ -133,7 +164,6 @@ const Pick = struct {
         if (saves <= self.saves) return;
         self.saves = saves;
         self.candidate = candidate;
-        self.source = source;
     }
 
     fn keep_long(self: *Pick, candidate: usize, comptime source: Source) void {
@@ -277,3 +307,49 @@ const long_at = 8;
 const whole_at = 16;
 /// 8 bits a literal, in eighths of a bit.
 const weigh_literal_cost = 64;
+
+test "the assembly weighs a bucket's hits as the Zig loop does" {
+    if (comptime !hits_aarch64.takes) return error.SkipZigTest;
+    // Two candidates of equal saving, offsets 100 and 80, both of log2 6: the first way stays. A
+    // third agrees on 3 octets only, and weighs nothing.
+    const tie = try expect_hits_equal(&.{ hits_position - tie_offset, hits_position - tie_offset_second, collision_at }, &.{ 6, 6, 3 });
+    try testing.expectEqual(hits_position - tie_offset, tie.candidate);
+    try testing.expectEqual(0, tie.long_count);
+    // A collision alone weighs nothing.
+    const collision = try expect_hits_equal(&.{collision_at}, &.{3});
+    try testing.expectEqual(0, collision.saves);
+    // A candidate that agrees on all 8 goes on the long list.
+    const long = try expect_hits_equal(&.{ collision_at, whole_hit_at }, &.{ 3, weigh_text.len });
+    try testing.expectEqual(whole_hit_at, long.candidate);
+    try testing.expectEqual(1, long.long_count);
+}
+
+/// Places `firsts`, each agreeing on its `agreeing` octets of the text at `hits_position`, in a
+/// bucket's ways, weighs them in assembly and in Zig, and requires the same pick.
+fn expect_hits_equal(firsts: []const usize, agreeing: []const usize) !hits_aarch64.State {
+    var window: [hits_window_len]u8 = @splat('-');
+    @memcpy(window[hits_position..][0..weigh_text.len], weigh_text);
+    window[hits_position + weigh_text.len] = '#';
+    for (firsts, agreeing) |first, len| @memcpy(window[first..][0..len], weigh_text[0..len]);
+    var entries: [buckets_module.ways]u32 = @splat(0);
+    for (firsts, 0..) |first, way| entries[way] = hits_base + @as(u32, @intCast(first));
+    var zig_pick: Pick = .{ .here = read64(true, &window, hits_position), .cost = weigh_literal_cost };
+    for (firsts) |first| zig_pick.weigh(true, &window, hits_position, first, .bucket);
+    var long: [buckets_module.ways]usize = undefined;
+    var state: hits_aarch64.State = .{ .window = &window, .here = zig_pick.here, .cost = weigh_literal_cost, .position = hits_position, .low = 1, .reach = hits_position - 1, .base = hits_base, .entries = &entries, .hits = (@as(u64, 1) << @intCast(firsts.len)) - 1, .saves = 0, .candidate = 0, .long = &long, .long_count = 0 };
+    hits_aarch64.weigh(&state);
+    try testing.expectEqual(zig_pick.saves, state.saves);
+    try testing.expectEqual(zig_pick.candidate, state.candidate);
+    try testing.expectEqual(zig_pick.long_count, state.long_count);
+    try testing.expectEqualSlices(usize, zig_pick.long[0..zig_pick.long_count], long[0..state.long_count]);
+    return state;
+}
+
+const hits_window_len = 256;
+const hits_position = 200;
+const tie_offset = 100;
+const tie_offset_second = 80;
+const collision_at = 20;
+const whole_hit_at = 40;
+/// A stream's base, as `Buckets` keeps it above every position.
+const hits_base = @as(u32, 1) << (constants.encoder_level5.window_bits + 1);
