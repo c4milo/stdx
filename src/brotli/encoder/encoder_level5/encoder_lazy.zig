@@ -79,11 +79,12 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     // `match_len`'s bounds, once for every candidate of the position.
     assert(position + read_len <= end and end <= window.len);
     const low = @max(position -| reach_len, 1);
-    var found: ?Found = null;
+    var pick: Pick = .{ .here = read64(safety, window, position), .cost = commands.literal_cost };
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
-        consider(safety, window, position, position - distance, end, commands, true, &found);
+        if (read32(safety, window, position - distance) != @as(u32, @truncate(pick.here))) continue;
+        pick.weigh(safety, window, position, position - distance, .last);
     }
     // The entries whose check matches the position's, the lowest way first.
     const slot = Buckets.slot_of(safety, window, position);
@@ -93,12 +94,84 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         const way = @ctz(hits);
         hits &= hits - 1;
         const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
-        consider(safety, window, position, candidate, end, commands, false, &found);
+        pick.weigh(safety, window, position, candidate, .bucket);
     }
     buckets.insert_at(safety, slot, position);
+    var found = pick.measure_long(safety, window, position, end);
     consider_word(safety, window, position, end, reach_len, commands, &found);
     return found;
 }
+
+/// Where a candidate comes from: the ring of last distances, whose short codes take no extra bits,
+/// or the bucket.
+const Source = enum { last, bucket };
+
+/// The choice of match at a position (decision 64, part 5), which the assembly makes too:
+/// 1. Each candidate, the last distances first and then the bucket's hits by way, weighs the
+///    octets it agrees on within the first `read_len`; fewer than `min_len` weigh nothing.
+/// 2. The best saving wins, and the first of equal savings stays.
+/// 3. Each candidate that agreed on all `read_len` octets is then measured to its end, the last
+///    distances first, and wins only by a greater saving.
+const Pick = struct {
+    here: u64,
+    cost: u32,
+    saves: i64 = 0,
+    candidate: usize = 0,
+    source: Source = .bucket,
+    /// The candidates that agreed on all `read_len` octets, by source.
+    last_long: [constants.last_distances_count]usize = undefined,
+    last_long_count: usize = 0,
+    long: [buckets_module.ways]usize = undefined,
+    long_count: usize = 0,
+
+    fn weigh(self: *Pick, comptime safety: bool, window: []const u8, position: usize, candidate: usize, comptime source: Source) void {
+        @setRuntimeSafety(safety);
+        const agreed: usize = @ctz(self.here ^ read64(safety, window, candidate)) / @bitSizeOf(u8);
+        if (agreed < min_len) return;
+        if (agreed == read_len) self.keep_long(candidate, source);
+        const saves = saving(agreed, position - candidate, source == .last, self.cost);
+        if (saves <= self.saves) return;
+        self.saves = saves;
+        self.candidate = candidate;
+        self.source = source;
+    }
+
+    fn keep_long(self: *Pick, candidate: usize, comptime source: Source) void {
+        switch (source) {
+            .last => {
+                self.last_long[self.last_long_count] = candidate;
+                self.last_long_count += 1;
+            },
+            .bucket => {
+                self.long[self.long_count] = candidate;
+                self.long_count += 1;
+            },
+        }
+    }
+
+    /// The best match by rule 3, or none that saves anything.
+    fn measure_long(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize) ?Found {
+        @setRuntimeSafety(safety);
+        var len: usize = @ctz(self.here ^ read64(safety, window, self.candidate)) / @bitSizeOf(u8);
+        for (self.last_long[0..self.last_long_count]) |candidate| self.measure(safety, window, position, end, candidate, true, &len);
+        for (self.long[0..self.long_count]) |candidate| self.measure(safety, window, position, end, candidate, false, &len);
+        if (self.saves <= 0) return null;
+        return .{ .position = position, .len = len, .offset = position - self.candidate, .saves = self.saves };
+    }
+
+    fn measure(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize, candidate: usize, last: bool, len: *usize) void {
+        @setRuntimeSafety(safety);
+        const long_len = match_len(safety, window, candidate, position, end);
+        const saves = saving(long_len, position - candidate, last, self.cost);
+        if (saves <= self.saves) return;
+        self.saves = saves;
+        self.candidate = candidate;
+        len.* = long_len;
+    }
+};
+
+/// The fewest octets a candidate must agree on: the hash's 4, which a bucket's entries share.
+const min_len = constants.encoder_level5.hash_len;
 
 /// `found` replaced by the static dictionary word the input at `position` matches, where that
 /// saves more. A word's distance is past the farthest the window reaches, by 1 and its word_id
@@ -117,26 +190,6 @@ fn consider_word(comptime safety: bool, window: []const u8, position: usize, end
         if (saves <= held.saves) return;
     }
     found.* = .{ .position = position, .len = word.written_len, .offset = distance, .saves = saves, .word_len = word.word_len };
-}
-
-/// `found` replaced by the match of `candidate` at `position` where that saves more.
-inline fn consider(comptime safety: bool, window: []const u8, position: usize, candidate: usize, end: usize, commands: anytype, last: bool, found: *?Found) void {
-    @setRuntimeSafety(safety);
-    // A candidate shorter than the best so far differs at the best's last octet; one whose first 4
-    // octets differ, a bucket's collision, is shorter than any match.
-    if (found.*) |held| {
-        if (window[candidate + held.len - 1] != window[position + held.len - 1]) return;
-    }
-    if (read32(safety, window, candidate) != read32(safety, window, position)) return;
-    const len = match_len(safety, window, candidate, position, end);
-    if (len < constants.copy_length_codes[0].base) return;
-    const offset = position - candidate;
-    const saves = saving(len, offset, last, commands.literal_cost);
-    if (saves <= 0) return;
-    if (found.*) |held| {
-        if (saves <= held.saves) return;
-    }
-    found.* = .{ .position = position, .len = len, .offset = offset, .saves = saves };
 }
 
 /// What a match saves over its literals, in eighths of a bit, as `Commands.takes` weighs it: a
@@ -189,3 +242,38 @@ inline fn read64(comptime safety: bool, window: []const u8, position: usize) u64
     @setRuntimeSafety(safety);
     return std.mem.readInt(u64, window[position..][0..@sizeOf(u64)], .little);
 }
+
+const testing = std.testing;
+
+test "a candidate is weighed by the octets it agrees on, 4 at least" {
+    var window: [weigh_window_len]u8 = @splat('-');
+    const position = weigh_window_len / 2;
+    // At `short_at` 3 octets agree, at `long_at` 6 do, and at `whole_at` all 8.
+    @memcpy(window[position..][0..weigh_text.len], weigh_text);
+    // The filler after the text differs from the filler after each copy, so a match ends there.
+    window[position + weigh_text.len] = '#';
+    @memcpy(window[short_at..][0..3], weigh_text[0..3]);
+    @memcpy(window[long_at..][0..6], weigh_text[0..6]);
+    @memcpy(window[whole_at..][0..weigh_text.len], weigh_text);
+    var pick: Pick = .{ .here = read64(true, &window, position), .cost = weigh_literal_cost };
+    pick.weigh(true, &window, position, short_at, .bucket);
+    try testing.expectEqual(0, pick.saves);
+    pick.weigh(true, &window, position, long_at, .bucket);
+    try testing.expect(pick.saves > 0);
+    try testing.expectEqual(long_at, pick.candidate);
+    try testing.expectEqual(0, pick.long_count);
+    // All 8 agree: the candidate goes on the long list, measured to its end after the scan.
+    pick.weigh(true, &window, position, whole_at, .bucket);
+    try testing.expectEqual(1, pick.long_count);
+    const found = pick.measure_long(true, &window, position, window.len) orelse return error.TestNoMatch;
+    try testing.expectEqual(position - whole_at, found.offset);
+    try testing.expectEqual(weigh_text.len, found.len);
+}
+
+const weigh_window_len = 64;
+const weigh_text = "abcdefghij";
+const short_at = 2;
+const long_at = 8;
+const whole_at = 16;
+/// 8 bits a literal, in eighths of a bit.
+const weigh_literal_cost = 64;
