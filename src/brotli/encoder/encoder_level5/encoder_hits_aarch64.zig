@@ -14,39 +14,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const constants = @import("../../constants.zig");
-const encoder_commands = @import("../encoder_commands.zig");
+const assembly = @import("encoder_hits_assembly.zig");
 
 /// Whether the assembly weighs the hits: an aarch64 target built by LLVM.
 pub const takes = builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm;
 
-/// The loop's state, in the order the text loads and stores it.
-pub const State = extern struct {
-    window: [*]const u8,
-    here: u64,
-    cost: u64,
-    position: u64,
-    low: u64,
-    reach: u64,
-    base: u64,
-    entries: [*]const u32,
-    hits: u64,
-    saves: i64,
-    candidate: u64,
-    long: [*]u64,
-    long_count: u64,
-};
-
-/// The cost of a match with no distance bits less the most a distance's log2 adds, so that
-/// `cost - 8 * clz(offset)` is `encoder_match_cost_base + 8 * log2(offset)`.
-const cost_bias = constants.encoder_match_cost_base + (@bitSizeOf(u64) - 1) * encoder_commands.eighths;
-
-comptime {
-    // `sub` takes the bias as a 12-bit immediate.
-    assert(cost_bias < 1 << 12);
-    assert(encoder_commands.eighths == 1 << 3);
-    assert(@offsetOf(State, "here") == 8 and @offsetOf(State, "long_count") == 12 * 8);
-}
+pub const State = assembly.State;
 
 /// Weighs the hits `state` names and stores the pick back.
 pub inline fn weigh(state: *State) void {
@@ -107,4 +80,4 @@ const text = std.fmt.comptimePrint(
     \\2:
     \\ stp x10, x11, [x0, #72]
     \\ str x13, [x0, #96]
-, .{ .min_len = constants.encoder_level5.hash_len, .read_len = @sizeOf(u64), .cost_bias = cost_bias });
+, .{ .min_len = assembly.min_len, .read_len = assembly.read_len, .cost_bias = assembly.cost_bias });
