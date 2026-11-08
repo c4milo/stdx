@@ -14,6 +14,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
+const encoder_commands = @import("../encoder_commands.zig");
 
 const level5 = constants.encoder_level5;
 pub const types_max = constants.block_types_max;
@@ -143,6 +144,7 @@ fn gather(comptime safety: bool, self: *Split, window: []const u8, start: usize,
 fn seed(self: *Split) void {
     clear_group(self, 0);
     self.counts[0] = @splat(0);
+    self.chunk_types[0] = 0;
     add_chunk(self, 0, self.chunk(0));
     rebuild_costs(self, 0);
     // A type's costs are rebuilt after `split_refresh_chunks` chunks, or an eighth of those it
@@ -368,3 +370,30 @@ test "log2_scaled gives log2 in 1/64 bit" {
 
 /// log2(3) in 1/64 bit.
 const log2_three = 101;
+
+test "literals of one kind take one block of type 0, whatever the state held before" {
+    try @call(.never_inline, expect_one_kind, .{});
+}
+
+/// Literals of one kind in a meta-block that splits: the split must write each chunk's type, the
+/// first included, and not read what the state held (invariant 4).
+fn expect_one_kind() !void {
+    var state: Split = undefined;
+    @memset(std.mem.asBytes(&state), std.math.maxInt(u8));
+    var window: [one_kind_len]u8 = undefined;
+    var generator = @import("codec").testing.split.Generator.init(one_kind_len);
+    for (&window) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(one_kind_alphabet)));
+    var commands: encoder_commands.WideCommands = undefined;
+    commands.init();
+    commands.add_literals(true, &window);
+    commands.close();
+    split(true, &state, &window, 0, &commands);
+    try testing.expectEqual(1, state.types_count);
+    try testing.expectEqual(1, state.blocks_count);
+    try testing.expectEqual(0, state.block_types[0]);
+}
+
+/// Twice the fewest literals a meta-block splits, of 16 letters.
+const one_kind_len = one_kind_times * level5.split_literals_min;
+const one_kind_times = 2;
+const one_kind_alphabet = 16;
