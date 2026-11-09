@@ -85,6 +85,10 @@ pub const Split = struct {
     /// side by side so one vector add prices a literal under 16 of them.
     counts: [types_max][alphabet_len]u16,
     costs: [alphabet_len][types_max]u16,
+    /// For the merge: each type's symbols that occur, how many, and its literals.
+    listed: [types_max][alphabet_len]u8,
+    listed_len: [types_max]u16,
+    totals: [types_max]u32,
 
     fn chunks_count(self: *const Split) usize {
         return std.math.divCeil(usize, self.literals_len, chunk_len) catch unreachable;
@@ -102,18 +106,13 @@ pub fn split(comptime safety: bool, self: *Split, window: []const u8, start: usi
     gather(safety, self, window, start, commands);
     self.types_count = 1;
     if (self.literals_len < level5.split_literals_min) return make_one(self, &commands.literal_counts);
-    // The seed leaves each type's counts those of its chunks; a pass moves chunks, and the counts
-    // follow before the next pass and after the numbering.
+    // Each step leaves each type's counts those of its chunks: a pass moves a chunk's counts with
+    // it, the merge adds a type's to the one it joins, and the numbering moves them to the number.
     seed(self);
     if (self.types_count > 1) {
-        for (0..level5.split_passes) |pass| {
-            if (pass > 0) recount(self);
-            move_chunks(self);
-        }
-        recount(self);
+        for (0..level5.split_passes) |_| move_chunks(self);
         merge_types(self);
         number_types(self);
-        recount(self);
     }
     if (self.types_count > 1 and price_split(self) >= price_one(&commands.literal_counts)) return make_one(self, &commands.literal_counts);
     join_blocks(self);
@@ -190,7 +189,14 @@ fn move_chunks(self: *Split) void {
     for (0..self.types_count) |type_index| rebuild_costs(self, type_index);
     for (0..self.chunks_count()) |index| {
         const previous: ?usize = if (index == 0) null else self.chunk_types[index - 1];
-        self.chunk_types[index] = @intCast(cheapest(self, self.chunk(index), previous).type_index);
+        const moved = cheapest(self, self.chunk(index), previous).type_index;
+        const held = self.chunk_types[index];
+        if (moved == held) continue;
+        for (self.chunk(index)) |octet| {
+            self.counts[held][octet] -= 1;
+            self.counts[moved][octet] += 1;
+        }
+        self.chunk_types[index] = @intCast(moved);
     }
 }
 
@@ -264,10 +270,11 @@ fn merge_types(self: *Split) void {
     for (0..self.types_count) |type_index| {
         prices[type_index] = price_counts(&self.counts[type_index]);
         into[type_index] = @intCast(type_index);
+        list_symbols(self, type_index);
     }
     for (1..self.types_count) |later| {
         const best = best_join(self, &prices, &into, later) orelse continue;
-        for (&self.counts[best.into], self.counts[later]) |*count, added| count.* += added;
+        join_into(self, best.into, later);
         prices[best.into] = best.price;
         into[later] = @intCast(best.into);
     }
@@ -283,9 +290,7 @@ fn best_join(self: *const Split, prices: *const [types_max]u64, into: *const [ty
     var best_saving: u64 = 0;
     for (0..later) |earlier| {
         if (into[earlier] != earlier) continue;
-        var joined: [alphabet_len]u16 = undefined;
-        for (&joined, self.counts[earlier], self.counts[later]) |*count, left, right| count.* = left + right;
-        const price = price_counts(&joined);
+        const price = price_joined(self, earlier, later);
         const apart = prices[earlier] + prices[later];
         if (price >= apart or apart - price <= best_saving) continue;
         best_saving = apart - price;
@@ -306,13 +311,33 @@ fn number_types(self: *Split) void {
         }
         type_index.* = @intCast(numbers[type_index.*]);
     }
+    move_counts(self, &numbers);
     self.types_count = next;
 }
 
-/// Each type's counts from the chunks it holds.
-fn recount(self: *Split) void {
-    for (self.counts[0..self.types_count]) |*counts| counts.* = @splat(0);
-    for (0..self.chunks_count()) |index| add_chunk(self, self.chunk_types[index], self.chunk(index));
+/// Moves each kept type's counts to its number, in place: along each chain of numbers, one type's
+/// counts are carried to the next's place until a place that holds none still needed.
+fn move_counts(self: *Split, numbers: *const [types_max]u16) void {
+    const none = std.math.maxInt(u16);
+    var moved: [types_max]bool = @splat(false);
+    for (0..self.types_count) |start| {
+        if (numbers[start] == none or moved[start]) continue;
+        var carried = self.counts[start];
+        var at = start;
+        for (0..self.types_count) |_| {
+            const place = numbers[at];
+            moved[at] = true;
+            const needed = numbers[place] != none and !moved[place];
+            if (!needed) {
+                self.counts[place] = carried;
+                break;
+            }
+            const next = self.counts[place];
+            self.counts[place] = carried;
+            carried = next;
+            at = place;
+        }
+    }
 }
 
 fn join_blocks(self: *Split) void {
@@ -330,8 +355,54 @@ fn join_blocks(self: *Split) void {
     }
 }
 
+/// Lists `type_index`'s symbols that occur, and its literals.
+pub fn list_symbols(self: *Split, type_index: usize) void {
+    var len: u16 = 0;
+    var total: u32 = 0;
+    for (self.counts[type_index], 0..) |count, symbol| {
+        self.listed[type_index][len] = @intCast(symbol);
+        len += @intFromBool(count != 0);
+        total += count;
+    }
+    self.listed_len[type_index] = len;
+    self.totals[type_index] = total;
+}
+
+/// Adds `later`'s counts to `into`'s, and its symbols to `into`'s list.
+pub fn join_into(self: *Split, into: usize, later: usize) void {
+    for (self.listed[later][0..self.listed_len[later]]) |symbol| {
+        if (self.counts[into][symbol] == 0) {
+            self.listed[into][self.listed_len[into]] = symbol;
+            self.listed_len[into] += 1;
+        }
+        self.counts[into][symbol] += self.counts[later][symbol];
+    }
+    self.totals[into] += self.totals[later];
+}
+
+/// `price_counts` of the two types' counts joined, from their symbols that occur: the same sum,
+/// over fewer symbols than the alphabet's 256 (decision 66, the split's cost).
+pub fn price_joined(self: *const Split, earlier: usize, later: usize) u64 {
+    // A type the pass emptied holds no literal; two of them joined cost nothing, as in
+    // `price_counts`.
+    const total = self.totals[earlier] + self.totals[later];
+    if (total == 0) return 0;
+    const whole = log2_scaled(total);
+    var cost: u64 = level5.split_tree_cost;
+    for (self.listed[earlier][0..self.listed_len[earlier]]) |symbol| {
+        const count: u32 = @as(u32, self.counts[earlier][symbol]) + self.counts[later][symbol];
+        cost += @as(u64, count) * (whole - log2_small(count)) + level5.split_symbol_cost;
+    }
+    for (self.listed[later][0..self.listed_len[later]]) |symbol| {
+        if (self.counts[earlier][symbol] != 0) continue;
+        const count: u32 = self.counts[later][symbol];
+        cost += @as(u64, count) * (whole - log2_small(count)) + level5.split_symbol_cost;
+    }
+    return cost;
+}
+
 /// The bits a code of `counts` takes, with its description as the split prices it.
-fn price_counts(counts: *const [alphabet_len]u16) u64 {
+pub fn price_counts(counts: *const [alphabet_len]u16) u64 {
     var total: u32 = 0;
     for (counts) |count| total += count;
     if (total == 0) return 0;
@@ -358,42 +429,6 @@ fn price_one(literal_counts: *const [alphabet_len]u16) u64 {
     return price_counts(literal_counts);
 }
 
-const testing = std.testing;
-
-test "log2_scaled gives log2 in 1/64 bit" {
-    try testing.expectEqual(0, log2_scaled(1));
-    try testing.expectEqual(1 << shift, log2_scaled(2));
-    try testing.expectEqual(10 << shift, log2_scaled(1024));
-    // log2(3) is 1.585, 101 in 1/64 bit.
-    try testing.expectEqual(log2_three, log2_scaled(3));
+test {
+    _ = @import("encoder_split_test.zig");
 }
-
-/// log2(3) in 1/64 bit.
-const log2_three = 101;
-
-test "literals of one kind take one block of type 0, whatever the state held before" {
-    try @call(.never_inline, expect_one_kind, .{});
-}
-
-/// Literals of one kind in a meta-block that splits: the split must write each chunk's type, the
-/// first included, and not read what the state held (invariant 4).
-fn expect_one_kind() !void {
-    var state: Split = undefined;
-    @memset(std.mem.asBytes(&state), std.math.maxInt(u8));
-    var window: [one_kind_len]u8 = undefined;
-    var generator = @import("codec").split.Generator.init(one_kind_len);
-    for (&window) |*octet| octet.* = 'a' + @as(u8, @intCast(generator.below(one_kind_alphabet)));
-    var commands: encoder_commands.WideCommands = undefined;
-    commands.init();
-    commands.add_literals(true, &window);
-    commands.close();
-    split(true, &state, &window, 0, &commands);
-    try testing.expectEqual(1, state.types_count);
-    try testing.expectEqual(1, state.blocks_count);
-    try testing.expectEqual(0, state.block_types[0]);
-}
-
-/// Twice the fewest literals a meta-block splits, of 16 letters.
-const one_kind_len = one_kind_times * level5.split_literals_min;
-const one_kind_times = 2;
-const one_kind_alphabet = 16;
