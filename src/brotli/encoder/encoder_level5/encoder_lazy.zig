@@ -96,7 +96,8 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     weigh_hits(safety, buckets, slot, window, position, low, &pick);
     buckets.insert_at(safety, slot, position);
     var found = pick.measure_long(safety, window, position, end);
-    consider_word(safety, window, position, end, reach_len, commands, &found);
+    // The words only where the window gave no match.
+    if (found == null) consider_word(safety, window, position, end, reach_len, commands, &found);
     return found;
 }
 
