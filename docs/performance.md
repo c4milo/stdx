@@ -46,8 +46,8 @@ CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 
 ## The baselines
 
 zlib, zlib-ng, libdeflate, Wuffs, libzstd and Google's brotli, compiled into `tools/` and `bench/`
-only (decision 8). To split a baseline's time, sample its binary by function names; never read its
-source (CLAUDE.md, non-negotiable 5). Its encoder, built from its public API, makes the streams the
+only (decision 8). To split a baseline's time, sample its binary by function names, and read its
+source for its methods; copy none of its code (decision 67). Its encoder, built from its public API, makes the streams the
 M1 harnesses decode.
 
 ## What the codecs add to the method

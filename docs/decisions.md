@@ -4263,3 +4263,25 @@ small file.
     - Level 1 at WBITS 22: quality 1 gains 2% of ratio there for 11% of its speed, on the N2.
     - A second copy of the match finder in `brotli`: two copies to tune and test.
     - Two literal trees at level 1: context modeling belongs to level 5's budget.
+
+67. **The baselines' source may be read for its methods; none of it is copied.** Ruled by the owner
+    on 2026-11-08, who asked to read Google's brotli encoder to see why quality 5 was faster than
+    level 5, and widened the change to every baseline. It amends CLAUDE.md's non-negotiable 5 and
+    the method's step 2, which pepegrillo's `docs/performance.md` holds.
+
+    **Why.** Level 5 ran at 0.75 of quality 5's speed on the N2 and 0.65 on the EPYC 7763 after
+    decision 66's five parts. Profiles by function name had shown where quality 5's time went, but
+    not the choices behind it. Its source showed six methods level 5 lacked; the first one taken,
+    the dictionary searched only where the window has no match, cut level 5's instructions on
+    alice29.txt by 11%.
+
+    **The rule.** The source of zlib, zlib-ng, libdeflate, Wuffs, libzstd, Google's brotli,
+    simdjson, yyjson and simdutf may be read. No code, table, constant or comment of theirs goes into
+    stdx. A method learned from one is written again from the RFC and stdx's own measures, and its
+    design entry names the baseline it came from. The RFCs stay the specification: a baseline's
+    behavior is never a reason for stdx's where an RFC says otherwise.
+
+    The alternatives refused:
+    - Read Google's brotli encoder alone: the owner chose every baseline.
+    - Keep the clean-room rule, and study the baselines by their binaries and streams alone: that is
+      what stopped at 0.75.
