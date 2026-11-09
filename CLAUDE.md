@@ -54,10 +54,12 @@ The architecture depends on every rule in this section.
    output. An encoder's output is a pure function of its input and its parameters, byte-identical
    across hosts, build modes, and the way the caller split the input and output across calls.
    `tools/lint/determinism.zig` enforces the first two.
-5. **The RFCs, never another implementation's source.** The copies to read are in `docs/rfcs/`,
-   unmodified from rfc-editor.org, with `docs/rfcs/SHA256SUMS` to show they stay that way. Other
-   implementations are test oracles and benchmark baselines only. They are compiled in `tools/`
-   and `bench/` and never into the library, and nobody working on stdx reads their source.
+5. **The RFCs, and never another implementation's code.** The copies to read are in
+   `docs/rfcs/`, unmodified from rfc-editor.org, with `docs/rfcs/SHA256SUMS` to show they stay that
+   way. Other implementations are test oracles and benchmark baselines only. They are compiled in
+   `tools/` and `bench/` and never into the library. Their source may be read for its methods
+   (decision 67), but no code, table or comment of theirs goes into stdx: a method is written again
+   from the RFC, in stdx's own words.
 6. **Every RFC rule cited by section, in the code.** A check that exists because an RFC demands it
    carries the RFC and the section in a comment on the line that does the checking, so a reader
    can go from any refusal to the sentence that requires it. Cite the RFC that states the rule:
