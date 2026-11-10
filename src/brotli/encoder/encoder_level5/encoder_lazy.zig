@@ -90,13 +90,15 @@ pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, posit
     const low = @max(position -| reach_len, 1);
     const cost = commands.literal_cost;
     var found: ?Found = null;
+    // The bucket first, so its cache misses overlap the last distances' compares.
+    const slot = Buckets.slot_of(safety, window, position);
+    buckets.prefetch(slot);
     const head = read32(safety, window, position);
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
         if (read32(safety, window, position - distance) != head) continue;
         take(safety, window, position, position - distance, end, true, cost, &found);
     }
-    const slot = Buckets.slot_of(safety, window, position);
     probe_hits(safety, buckets, slot, window, position, end, low, cost, held, &found);
     buckets.insert_at(safety, slot, position);
     // After a word or a match of the fewest octets, the window seldom holds a match here, and a
@@ -200,6 +202,9 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     assert(position + read_len <= end and end <= window.len);
     const low = @max(position -| reach_len, 1);
     var pick: Pick = .{ .here = read64(safety, window, position), .cost = commands.literal_cost };
+    // The bucket first, so its cache misses overlap the last distances' compares.
+    const slot = Buckets.slot_of(safety, window, position);
+    buckets.prefetch(slot);
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
@@ -207,7 +212,6 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         pick.weigh(safety, window, position, position - distance, .last);
     }
     // The entries whose check matches the position's, the lowest way first.
-    const slot = Buckets.slot_of(safety, window, position);
     weigh_hits(safety, buckets, slot, window, position, low, &pick);
     buckets.insert_at(safety, slot, position);
     var found = pick.measure_long(safety, window, position, end);
