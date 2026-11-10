@@ -2,8 +2,11 @@
 //! candidate of a row interleaved in one run, the median of five runs with the spread, and the
 //! losses shown.
 //!
-//! The candidates, for the encoder and for the decoder:
-//! - Zig's std.base64, with the standard alphabet and its pad characters;
+//! The candidates, for the encoder and for the decoder, each with the standard alphabet and its pad
+//! characters:
+//! - Rust's `base64` crate 0.22.1, the one connect-rust's Buffa pins, and Go's encoding/base64,
+//!   which Go's protojson uses: the bar (decision 68);
+//! - Zig's std.base64, for reference;
 //! - stdx's `base64`, built for the architecture's baseline CPU and ReleaseSafe, as a caller
 //!   shipping one binary builds it (decision 17), a new state begun for each text;
 //! - the same with decision 16's fast path off, the checked path it is measured against.
@@ -24,8 +27,18 @@ const sizes = [_]usize{ 60, 1024, 6144, 65536, 1 << 20 };
 /// The seed of the input's octets.
 const input_seed = 0x6261736536340000;
 
-/// The candidates of each table.
-const candidates = [_][]const u8{ "std.base64", "stdx", "stdx, checked path" };
+/// The candidates of each table, in this order.
+const candidates = [_][]const u8{ "Rust base64", "Go encoding/base64", "std.base64", "stdx", "stdx, checked path" };
+const rust = 0;
+const go = 1;
+const zig_std = 2;
+const stdx = 3;
+const checked = 4;
+
+extern fn rust_base64_encode(input: [*]const u8, len: usize, output: [*]u8, room: usize) callconv(.c) usize;
+extern fn rust_base64_decode(text: [*]const u8, len: usize, output: [*]u8, room: usize) callconv(.c) usize;
+extern fn go_base64_encode(input: [*]const u8, len: usize, output: [*]u8, room: usize) callconv(.c) i64;
+extern fn go_base64_decode(text: [*]const u8, len: usize, output: [*]u8, room: usize) callconv(.c) i64;
 
 const features = codec.Features.none();
 
@@ -44,8 +57,10 @@ fn encode(kind: usize, input: []const u8, output: []u8) usize {
     var state: base64.Encoder = undefined;
     state.init(.{}, features);
     return switch (kind) {
-        0 => std.base64.standard.Encoder.encode(output, input).len,
-        1 => state.encode_with(.{}, input, output, .finish).written,
+        rust => rust_base64_encode(input.ptr, input.len, output.ptr, output.len),
+        go => @intCast(go_base64_encode(input.ptr, input.len, output.ptr, output.len)),
+        zig_std => std.base64.standard.Encoder.encode(output, input).len,
+        stdx => state.encode_with(.{}, input, output, .finish).written,
         else => state.encode_with(.{ .whole_groups = false }, input, output, .finish).written,
     };
 }
@@ -65,12 +80,22 @@ fn decode(kind: usize, text: []const u8, output: []u8) !usize {
     var state: base64.Decoder = undefined;
     state.init(.{}, features);
     return switch (kind) {
-        0 => blk: {
+        rust => blk: {
+            const len = rust_base64_decode(text.ptr, text.len, output.ptr, output.len);
+            if (len == std.math.maxInt(usize)) return error.Refused;
+            break :blk len;
+        },
+        go => blk: {
+            const len = go_base64_decode(text.ptr, text.len, output.ptr, output.len);
+            if (len < 0) return error.Refused;
+            break :blk @intCast(len);
+        },
+        zig_std => blk: {
             const len = try std.base64.standard.Decoder.calcSizeForSlice(text);
             try std.base64.standard.Decoder.decode(output[0..len], text);
             break :blk len;
         },
-        1 => (try state.decode_with(.{}, text, output, .last)).written,
+        stdx => (try state.decode_with(.{}, text, output, .last)).written,
         else => (try state.decode_with(.{ .whole_quanta = false }, text, output, .last)).written,
     };
 }
@@ -88,7 +113,8 @@ pub fn main(init: std.process.Init) !void {
     for (input) |*octet| octet.* = @truncate(generator.next());
     const text = try arena.alloc(u8, base64.Encoder.encoded_len(size_max, true));
     const letters = try arena.alloc(u8, text.len);
-    const back = try arena.alloc(u8, size_max);
+    // Go's DecodedLen counts a text's pad characters as octets, so the room holds a group more.
+    const back = try arena.alloc(u8, size_max + base64.constants.group_octets);
 
     try check_agrees(input, text, letters, back);
     try report(io, out, .encode, input, text, letters, back);
@@ -101,10 +127,16 @@ fn check_agrees(input: []const u8, text: []u8, letters: []u8, back: []u8) !void 
     for (sizes) |size| {
         const text_len = base64.Encoder.encoded_len(size, true);
         const reference = std.base64.standard.Encoder.encode(text[0..text_len], input[0..size]);
-        for (1..candidates.len) |kind| {
+        for (0..candidates.len) |kind| {
             const len = encode(kind, input[0..size], letters);
-            if (!std.mem.eql(u8, letters[0..len], reference)) return error.CandidatesDisagree;
-            const decoded = try decode(kind, reference, back);
+            if (!std.mem.eql(u8, letters[0..len], reference)) {
+                std.debug.print("bench-base64: {s} encodes {d} octets otherwise\n", .{ candidates[kind], size });
+                return error.CandidatesDisagree;
+            }
+            const decoded = decode(kind, reference, back) catch |err| {
+                std.debug.print("bench-base64: {s} refused the text of {d} octets\n", .{ candidates[kind], size });
+                return err;
+            };
             if (!std.mem.eql(u8, back[0..decoded], input[0..size])) return error.CandidatesDisagree;
         }
     }
@@ -115,8 +147,8 @@ const Direction = enum { encode, decode };
 fn report(io: std.Io, out: *std.Io.Writer, direction: Direction, input: []const u8, text: []u8, letters: []u8, back: []u8) !void {
     try out.print("## base 64 {s}, GB/s of octets\n\n| Octets |", .{@tagName(direction)});
     for (candidates) |name| try out.print(" {s} |", .{name});
-    try out.print(" stdx / std.base64 | stdx / checked path |\n|---|", .{});
-    for (0..candidates.len + 2) |_| try out.print("---|", .{});
+    try out.print(" stdx / fastest of Rust and Go | stdx / std.base64 | stdx / checked path |\n|---|", .{});
+    for (0..candidates.len + 3) |_| try out.print("---|", .{});
     try out.print("\n", .{});
     for (sizes) |size| {
         const text_len = base64.Encoder.encoded_len(size, true);
@@ -141,7 +173,8 @@ fn report(io: std.Io, out: *std.Io.Writer, direction: Direction, input: []const 
             rate.* = timing.gigabytes_per_second(size, summary.median);
             try out.print(" {d:.2} ± {d:.1}% |", .{ rate.*, summary.spread * 100 });
         }
-        try out.print(" {d:.2} | {d:.2} |\n", .{ rates[1] / rates[0], rates[1] / rates[2] });
+        const bar = @max(rates[rust], rates[go]);
+        try out.print(" {d:.2} | {d:.2} | {d:.2} |\n", .{ rates[stdx] / bar, rates[stdx] / rates[zig_std], rates[stdx] / rates[checked] });
     }
     try out.print("\n", .{});
 }

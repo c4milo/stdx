@@ -1,0 +1,20 @@
+# bench-base64's Rust baseline (decision 68): the `base64` crate at the version connect-rust's
+# Buffa pins, behind a C ABI the benchmark links. Built only with -Doracles.
+[package]
+name = "stdx-bench-base64-rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+base64 = "=0.22.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

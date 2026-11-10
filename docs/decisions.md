@@ -4265,3 +4265,8 @@ small file.
     - Whitespace skipped, as MIME's base 64 does: §3.3 lets only the referring specification ask
       for it.
     - Pad bits that are not zero taken: two texts would decode to the same octets.
+
+    **The bar, as the owner set it.** The dependent competes with Rust's connect-rust and with Go's
+    protobuf, so `bench-base64` times Rust's `base64` crate 0.22.1, which connect-rust's Buffa
+    pins, and Go's encoding/base64, which Go's protojson uses. stdx must beat the faster of the two
+    at each size. Zig's std.base64 stays a column for reference.

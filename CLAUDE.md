@@ -213,7 +213,9 @@ stdx's appendix to it.
   - the oracles and baselines of `tools/` and `bench/` (decision 8): zlib and Wuffs, added at
     design §8 step 2, and libzstd, Google's brotli, zlib-ng and libdeflate, each added in the
     commit that first uses it; simdjson and yyjson, bench-json's baselines beside Zig's std.json
-    (decision 27); and simdutf, the baseline of the `json` module's UTF-8 check (decision 38);
+    (decision 27); simdutf, the baseline of the `json` module's UTF-8 check (decision 38); and
+    Rust's `base64` crate 0.22.1 and Go's encoding/base64, bench-base64's baselines (decision 68),
+    built by cargo and go;
   - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
     fetches and checks against a pinned SHA-256 because Zig fetches archives only.
@@ -387,6 +389,11 @@ Change this section when a step adds or renames a command.
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
   fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
   and records it, and the `bench` workflow offers it.
+- base64 benchmark: `zig build bench-base64 -Doracles` times base 64 encoding and decoding by
+  stdx, with its fast paths and without, Rust's `base64` crate 0.22.1, Go's encoding/base64 and
+  Zig's std.base64, from 60 octets to 1 MiB, every candidate interleaved in one run. It needs
+  cargo and go on the path: a host without both builds every other program, and this step fails
+  and says so. The `bench` workflow offers it.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine, builds every
   program with `zig build -Doracles`, and writes the report; `.github/workflows/main.yml` runs it
   on each push to main, on Linux on x86-64 and aarch64 and on macOS on arm64 (decisions 19 and
