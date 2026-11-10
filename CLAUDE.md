@@ -3,7 +3,8 @@
 stdx is a library of compression codecs, written from the RFCs: DEFLATE with its zlib and gzip
 containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it holds a JSON
 encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and `platform`, which
-a program calls once when it starts to learn what its CPU offers (decision 40). Home:
+a program calls once when it starts to learn what its CPU offers (decision 40). It holds RFC
+4648's base 64 too, in its own module (decision 68). Home:
 github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's
 brotli and Wuffs on the workloads it measures, with no heap and no I/O.
 

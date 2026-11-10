@@ -106,6 +106,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "zstd", .module = graph.zstd },
         .{ .name = "brotli", .module = graph.brotli },
         .{ .name = "json", .module = graph.json },
+        .{ .name = "base64", .module = graph.base64 },
         .{ .name = "platform", .module = graph.platform },
     };
     for (unit_test_modules) |entry| {

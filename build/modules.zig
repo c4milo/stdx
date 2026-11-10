@@ -36,6 +36,8 @@ pub const Modules = struct {
     brotli: *std.Build.Module,
     /// JSON, RFC 8259, and JSON text sequences, RFC 7464 (decision 27).
     json: *std.Build.Module,
+    /// Base 64, RFC 4648 §4 and §5 (decision 68).
+    base64: *std.Build.Module,
     /// What the CPU a program runs on offers, probed once when the program starts: the one module
     /// that may make a syscall (decision 40). Imports nothing, and no module imports it.
     platform: *std.Build.Module,
@@ -83,6 +85,9 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
     variants.add_levels(b, json, "json", settings.target, settings.optimize, &variants.json_levels);
 
+    const base64 = library(b, "base64", settings);
+    base64.addImport("codec", codec);
+
     const platform = library(b, "platform", settings);
 
     return .{
@@ -94,6 +99,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .zstd = zstd,
         .brotli = brotli,
         .json = json,
+        .base64 = base64,
         .platform = platform,
     };
 }

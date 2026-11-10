@@ -4235,3 +4235,31 @@ small file.
     - Read Google's brotli encoder alone: the owner chose every baseline.
     - Keep the clean-room rule, and study the baselines by their binaries and streams alone: that is
       what stopped at 0.75.
+
+68. **A `base64` module: RFC 4648's base 64, an encoder and a decoder.** Ruled by the owner on
+    2026-11-09. A dependent's profile showed `std.base64`, a scalar loop of one octet a step, at 8%
+    of its JSON encode and 8% of its decode, where every octet string goes out as base 64. The
+    owner ruled that a fast codec belongs in stdx.
+    - **Where.** A module of its own, `base64`, exported by name, which imports `codec` alone
+      (design §3). No other module imports it.
+    - **The encoder.** Base 64 of RFC 4648 §4, or its URL and filename safe alphabet of §5, with the
+      pad characters or without them (§3.2). It streams, holding the one or two octets of a group
+      not yet whole. A `flush` writes the whole groups only, as a shorter group ends a text (§4).
+    - **The decoder.** It takes either alphabet in one pass and says which one a text used.
+      `DecoderOptions` can narrow it to one alphabet, and require or refuse the pad characters.
+      `Decoder.decoded_len` gives the octets of a text from its length and its pad characters, so a
+      caller sizes its room first.
+    - **What it refuses, as the owner chose.** A text that mixes the two alphabets. Any octet in
+      neither, whitespace included, as §3.3 requires when the referring specification says
+      nothing. And a final quantum whose unused bits are not zero, which §3.5 lets a decoder
+      refuse, so each octet string has one text that decodes to it, as `std.base64` holds. Each
+      cause has its own error value.
+
+    The alternatives refused:
+    - The codec inside `codec`, beside the reader and the writer: `codec` holds the contract every
+      codec shares, not a format.
+    - A base 64 token in `json` alone: other formats carry base 64 too. A token can come later, as
+      an edge from `json` to `base64`, with a ruling of its own.
+    - Whitespace skipped, as MIME's base 64 does: §3.3 lets only the referring specification ask
+      for it.
+    - Pad bits that are not zero taken: two texts would decode to the same octets.

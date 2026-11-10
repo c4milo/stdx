@@ -19,6 +19,8 @@ cd docs/rfcs && shasum -a 256 -c SHA256SUMS
   `https://www.rfc-editor.org/rfc/rfcNNNN.txt`.
 - RFC 8259, 7464 and 3629 were downloaded on 2026-09-28 from
   `https://www.rfc-editor.org/rfc/rfcNNNN.txt`, for the `json` module (decision 27).
+- RFC 4648 was downloaded on 2026-11-09 from `https://www.rfc-editor.org/rfc/rfc4648.txt`, for
+  the `base64` module (decision 68).
 
 ## Later revisions
 
@@ -28,6 +30,9 @@ another RFC in this directory, and a check that exists because of the update cit
 
 - RFC 7932 is updated by RFC 9841.
 - RFC 8878 is updated by RFC 9659. RFC 8878 obsoletes RFC 8478, which stdx never reads or cites.
+
+On 2026-11-09, `https://www.rfc-editor.org/rfc/rfc4648.json` named no RFC that obsoletes or
+updates RFC 4648. RFC 4648 obsoletes RFC 3548, which stdx never reads or cites.
 
 RFC 8259 obsoletes RFC 7159, which RFC 7464 cites for its JSON-text. stdx reads that JSON-text as
 RFC 8259 defines it.
@@ -63,6 +68,12 @@ prose on leading zeros to what its grammar already says, and
 characters, since the grammar lets an escape name a lone surrogate (§8.2), which the decoder
 refuses (decision 27). RFC 7464's are editorial, and RFC 3629 has none.
 
+RFC 4648's errata change nothing the `base64` module does, as the RFC Editor's page showed them on
+2026-11-09. Four are verified and editorial. [4889](https://www.rfc-editor.org/errata/eid4889) is
+reported against §6, base 32, which stdx does not implement.
+[8669](https://www.rfc-editor.org/errata/eid8669) is reported against §4. It states the bit order
+§4 already implies: the most significant bit of the first octet first.
+
 ## Compression
 
 | RFC | Title | What stdx uses it for |
@@ -85,3 +96,10 @@ refuses (decision 27). RFC 7464's are editorial, and RFC 3629 has none.
 
 RFC 9110 §8.4 defines the HTTP content codings these formats serve. stdx makes no check that RFC
 9110 demands, so it is not copied here; colibri keeps a copy.
+
+## Base encodings
+
+| RFC | Title | What stdx uses it for |
+|---|---|---|
+| [4648](rfc4648.txt) | The Base16, Base32, and Base64 Data Encodings | `base64`: base 64 (§4), its URL and filename safe alphabet (§5), padding (§3.2), the octets a decoder refuses (§3.3) and the canonical text (§3.5) |
+

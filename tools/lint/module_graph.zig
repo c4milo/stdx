@@ -73,6 +73,7 @@ pub const expected_graph = [_]Module{
     .{ .name = "zstd", .imports = &.{ "codec", "checksum" } },
     .{ .name = "brotli", .imports = &.{"codec"} },
     .{ .name = "json", .imports = &.{"codec"} },
+    .{ .name = "base64", .imports = &.{"codec"} },
     .{ .name = "platform", .imports = &.{} },
 };
 

@@ -66,6 +66,7 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
 | `brotli` | brotli | `codec` | 7932 |
 | `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec` | 8259, 7464, 3629 |
+| `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40) | nothing | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
