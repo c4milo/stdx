@@ -92,6 +92,13 @@ pub const Buckets = struct {
         return slot_of(safety, window, position).bucket;
     }
 
+    /// Asks the cache for `slot`'s bucket before a search reads it. The load of an entry waits
+    /// on the load of the checks, so without this the two cache misses come one after the other.
+    pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
+        @prefetch(&self.checks[slot.bucket], .{});
+        @prefetch(&self.entries[slot.bucket], .{});
+    }
+
     /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each.
     pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
         const Lanes = @Vector(ways, u8);
