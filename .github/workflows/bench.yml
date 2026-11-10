@@ -11,7 +11,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate, checksum, profile, zstd, brotli, json, base64]
+        options: [costs, deflate, checksum, profile, zstd, brotli, json, base64, cycles]
         default: deflate
       base:
         description: "A commit, branch or tag to benchmark first, in the same job; empty for none"
@@ -97,6 +97,7 @@ jobs:
             brotli) step=bench-brotli; options=-Doracles ;;
             json) step=bench-json; options=-Doracles ;;
             base64) step=bench-base64; options=-Doracles ;;
+            cycles) step=cycles; options="" ;;
             profile)
               # perf_event_open lets a process count its own events only where the kernel allows it.
               sudo sysctl -w kernel.perf_event_paranoid=1
@@ -104,10 +105,36 @@ jobs:
           esac
           echo "step=$step" >> "$GITHUB_ENV"
           echo "options=$options" >> "$GITHUB_ENV"
+      - name: Sample level 5's cycles
+        if: inputs.benchmark == 'cycles'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-tools-$(uname -r)" linux-tools-common || sudo apt-get install -y -qq linux-tools-azure linux-tools-common
+          sudo sysctl -w kernel.perf_event_paranoid=-1
+          sudo sysctl -w kernel.kptr_restrict=0
+          zig build -Doracles -Drelease corpus
+          zig build-exe -OReleaseSafe -mcpu baseline -femit-bin=l5_harness --dep brotli --dep memset -Mroot=bench/l5_cycles/harness.zig --dep codec -Mbrotli=src/brotli/brotli.zig -Mcodec=src/codec/codec.zig -Mmemset=bench/timing/memset.zig
+          PERF=$(ls /usr/lib/linux-tools/*/perf | head -1)
+          mkdir -p cycles
+          cp l5_harness cycles/
+          if [ "$(uname -m)" = x86_64 ]; then event=cpu-clock; else event=cycles; fi
+          {
+            echo "# level 5 cycles, $(uname -m), $(grep -m1 -o 'Neoverse[^ ]*\|EPYC[^ ]*\|Xeon[^ ]*' /proc/cpuinfo || true)"
+            echo '```text'
+            for row in "canterbury/ptt5 20" "canterbury/kennedy.xls 10" "silesia/nci 1" "canterbury/alice29.txt 40" "silesia/webster 1" "http/json-1m 10"; do
+              set -- $row; name=$(basename "$1")
+              "$PERF" stat -e cycles,instructions ./l5_harness 5 "zig-out/corpus/$1" 0 "$2" 2>&1 | grep -E "cycles|instructions|elapsed" || true
+              "$PERF" record -q -e "$event" -F 10000 -o "perf-$name.data" ./l5_harness 5 "zig-out/corpus/$1" 0 "$2" >/dev/null 2>&1 || true
+              "$PERF" script -i "perf-$name.data" -F ip 2>/dev/null | sort | uniq -c | sort -rn > "cycles/ips-$name.txt" || true
+              echo "$name: $(awk '{s+=$1} END {print s}' "cycles/ips-$name.txt") samples"
+            done
+            echo '```'
+          } > bench-report.md 2>&1
       - name: Measure the base
         if: inputs.base != ''
         run: cd base && bench/run.sh "$GITHUB_WORKSPACE/base-report.md" "$step" $options
       - name: Measure
+        if: inputs.benchmark != 'cycles'
         run: bench/run.sh bench-report.md "$step" $options
       - name: Summarize
         run: |
@@ -122,3 +149,4 @@ jobs:
           path: |
             bench-report.md
             base-report.md
+            cycles/
