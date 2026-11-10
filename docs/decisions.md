@@ -1684,7 +1684,11 @@ small file.
       simdjson was 4.6.11 until 2026-10-05, when the owner asked for 5.0.2; every number recorded
       before that day is against 4.6.11. On 2026-11-10 the owner asked for each baseline's latest
       release: simdjson 5.1.1, where yyjson 0.13.0 was the latest already. Every number recorded
-      from 2026-10-05 to that day is against 5.0.2.
+      from 2026-10-05 to that day is against 5.0.2. bench-json ran beside both in one job (run
+      [42766046990](https://github.com/c4milo/stdx/actions/runs/42766046990)): 5.1.1 decoded at
+      0.987 to 1.008 of 5.0.2 on the N2, median 0.992, and at 0.944 to 1.033 on an EPYC 7763,
+      median 1.003, and it encoded at a median of 0.978 and 0.994, where yyjson, which did not
+      change, moved as much. So the rows beside simdjson stand.
     - std.json comes with Zig 0.16.0, so it adds no package; the benchmark builds it for the host in
       ReleaseFast.
     - Decoding visits every value of each text: names and strings unescaped, numbers checked, and
@@ -2310,6 +2314,11 @@ small file.
       from its sources with Zig's clang as simdjson is, its AVX-512 kernel left out on an x86-64
       host without `evex512` for entry 27's reason, and absent on macOS with simdjson (entry 10).
       Its binding calls `validate_utf8` and nothing else (`bench/json/baselines/`).
+      Beside both releases in one job (run
+      [42766046990](https://github.com/c4milo/stdx/actions/runs/42766046990)), 9.3.3 validated at
+      1.025 to 1.206 of 9.2.1 on the N2, median 1.096, and at 0.959 to 1.089 on an EPYC 7763,
+      median 1.021. So on the N2 stdx's check, at 1.010 to 1.064 of 9.2.1 in that job, runs at
+      0.879 to 1.014 of 9.3.3, median 0.940, below it in 16 of 17 rows.
     - bench-json's section "UTF-8 validation against simdutf" (`bench/json/json_utf8.zig`) runs
       both over each string workload's octets, the ASCII texts and the non-ASCII one, interleaved
       in one run, the median of five with the spread, and lists the losses under entry 20's floor.
@@ -4273,7 +4282,8 @@ small file.
     protobuf, so `bench-base64` times Rust's `base64` crate, which connect-rust's Buffa uses, and
     Go's encoding/base64, which Go's protojson uses. The crate was 0.22.1, Buffa's pin, for the
     numbers below, and is 0.23.1 since 2026-11-10, when the owner asked for each baseline's latest
-    release. stdx must beat the faster of the two at each size. Zig's std.base64 stays a column for
+    release; in one job (run [42766051209](https://github.com/c4milo/stdx/actions/runs/42766051209))
+    0.23.1 ran at 0.990 to 1.056 of 0.22.1, so the numbers below stand. stdx must beat the faster of the two at each size. Zig's std.base64 stays a column for
     reference.
 
     **Measured, 2026-11-09.** `bench-base64` at f517567, three jobs on each runner (runs
