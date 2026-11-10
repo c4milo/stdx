@@ -3,7 +3,8 @@
 //! For a sequence (RFC 7464), `next_text` starts each text in turn.
 //!
 //! It holds the caller's input and storage for the length of the texts, as `codec.Reader` holds
-//! its input, and is built on the streaming call (CLAUDE.md, Non-negotiables). The input ending
+//! its input, and is built on the streaming call and on claim J8's straight line, which that call
+//! takes (CLAUDE.md, Non-negotiables; decision 69). The input ending
 //! before a text does is `error.Truncated`, and a name, a string or a number longer than the
 //! storage is `error.NoSpaceLeft`.
 
@@ -13,7 +14,9 @@ const codec = @import("codec");
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Kind = decoder_file.Kind;
+const fast = @import("decoder_fast.zig");
 const Framing = @import("../framing.zig").Framing;
+const Claims = @import("../claims.zig").Claims;
 
 pub const TextReader = struct {
     /// What `next` can fail with: a refusal of the text, or the operational errors of decision 11.
@@ -79,7 +82,28 @@ pub const TextReader = struct {
     /// The current text's next token, or null at its end.
     pub fn next(self: *TextReader) Error!?TextReader.Item {
         assert(self.started and !self.ended);
-        const progress = try self.decoder.decode(self.input[self.consumed..], self.storage, .last);
+        // Claim J8's straight line, taken here with no pass through the streaming call: the reader
+        // holds all the input and all the storage, so it pays for no slice of either, no progress
+        // and no status to read back (decision 69). A token the line leaves takes `decode`.
+        if (self.decoder.stage == .tokens and self.decoder.open == .none) {
+            var reader: codec.Reader = .{ .octets = self.input, .position = self.consumed };
+            var writer = codec.Writer.init(self.storage);
+            if (fast.token(&self.decoder, .{}, &reader, &writer)) |outcome| {
+                // The line takes whole tokens alone, and leaves the text's end to `decode`.
+                assert(outcome.status == .token);
+                self.consumed = reader.position;
+                return item(outcome.kind.?, self.storage[0..writer.position]);
+            }
+        }
+        return self.checked();
+    }
+
+    /// `next` through the streaming call, for what claim J8's line leaves: a token with an escape
+    /// or a non-ASCII octet, the text's start and end, and every refusal. `next` took the line
+    /// wherever the call takes it, so the call here goes without it: a second try reads the same
+    /// octets in the same state, and leaves them again.
+    noinline fn checked(self: *TextReader) Error!?TextReader.Item {
+        const progress = try @call(.always_inline, Decoder.decode_with, .{ &self.decoder, without_line, self.input[self.consumed..], self.storage, .last });
         self.consumed += progress.consumed;
         const octets = self.storage[0..progress.written];
         return switch (progress.status) {
@@ -98,6 +122,9 @@ pub const TextReader = struct {
         return self.consumed;
     }
 };
+
+/// The claims of `checked`'s call: every one on but claim J8's line, which `next` takes itself.
+const without_line: Claims = .{ .decoder_fast_path = false };
 
 fn item(kind: Kind, octets: []const u8) TextReader.Item {
     return switch (kind) {

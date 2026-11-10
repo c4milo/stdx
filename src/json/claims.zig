@@ -56,6 +56,11 @@ pub const Claims = struct {
     /// output slice (decision 33, encoder_loop.zig). Off, each takes the path one token a call
     /// takes.
     encoder_token_loop: bool = true,
+    /// J15: one token a call takes the step of J11's loop that writes it, when the call holds all
+    /// of the token's octets and the output has room for all it writes: the call then pays no
+    /// reader, no writer and no pass through the checked path's parts (decision 69). Off, the call
+    /// takes J9's fast path, as before.
+    encoder_token_entry: bool = true,
     /// J14: J11's loop writes a block of 16 whose octets to escape each take a letter's escape at
     /// once, each character written as its letter and a reverse solidus put before it by one lookup
     /// a half (encoder_loop_escapes.zig). Off, the walk stops at each octet to escape and scans
@@ -103,6 +108,7 @@ pub const scalar: Claims = .{
     .decoder_token_loop = false,
     .encoder_fast_path = false,
     .encoder_token_loop = false,
+    .encoder_token_entry = false,
     .decoder_escape_words = false,
     .decoder_escape_blocks = false,
     .encoder_escape_blocks = false,
@@ -119,6 +125,7 @@ pub const vector: Claims = .{
     .decoder_token_loop = true,
     .encoder_fast_path = true,
     .encoder_token_loop = true,
+    .encoder_token_entry = true,
     .decoder_escape_words = true,
     .decoder_escape_blocks = true,
     .encoder_escape_blocks = true,

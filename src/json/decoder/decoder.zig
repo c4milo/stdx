@@ -489,6 +489,7 @@ test {
     _ = @import("decoder_loop/decoder_loop_test.zig");
     _ = @import("decoder_test.zig");
     _ = @import("decoder_refusal_test.zig");
+    _ = @import("text_reader_test.zig");
     _ = @import("decoder_fuzz_test.zig");
     _ = @import("decoder_reference_test.zig");
 }

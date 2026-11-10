@@ -4303,3 +4303,49 @@ small file.
     The 60-octet rows lose on most CPUs: a call's fixed cost, about 1,244 instructions for one
     encode and one decode on aarch64, weighs most there. The owner landed the module with them
     open, in [issue 24](https://github.com/c4milo/stdx/issues/24).
+
+69. **One token a call takes the shortest path the module has.** Ruled by the owner on 2026-11-09
+    and 2026-11-10. A dependent that writes and reads its JSON a value at a time spent 70% to 80%
+    of its encoding, and about 40% of its decoding, inside `TextWriter`'s and `TextReader`'s calls.
+    The owner reopened the `json` module's speed for these calls alone; the stop of 2026-10-11
+    holds for the rest.
+
+    **What a call cost.** callgrind on aarch64, ReleaseSafe, over a record of 25 tokens: one token
+    through `TextWriter.write` took 389 instructions, and one in a batch took 83. A record through
+    `TextReader.next` took 8,796, and about 2,100 in a batch. The streaming call pays for a reader,
+    a writer, its progress and the checks of both, at every token.
+    - **Claim J15, the encoder.** `Encoder.encode` takes a whole token through the step of claim
+      J11's loop, decision 16's row for the encoder's token loop, when no token is open. It took
+      209 instructions a token. Each method of `TextWriter` (`name`, `string`, `unsigned` and the
+      others) takes the step for its own kind, which the method fixes at compile time, and writes
+      at the text's end with no slice and no progress to read back: 120 instructions a token.
+    - **`TextReader.next`.** It takes claim J8's straight line itself, and reads the reader's
+      input and writes its storage with no pass through `Decoder.decode`: 4,717 instructions a
+      record. For a token the line leaves, `next` takes the streaming call with the line off: a
+      second try reads the same octets in the same state and leaves them again. Those are the
+      claims `decode_batch` gives its own fallback, so a program that calls both links one copy
+      of the checked path.
+    - **What stays.** A token the step or the line leaves takes the streaming call, as before: an
+      escape past the room, a storage too short, the text's start and end, and every refusal, which
+      the checked path names. A batch runs the code it ran.
+    - **Non-negotiable 3.** The helpers are built on the streaming call and on the steps that call
+      takes. The streaming call is built on neither helper, so the rule's direction holds.
+    - **The checks.** `encoder_fast_test.zig` holds J15 to the checked path in lockstep, whole and
+      under seeded splits: progress, octets, error and state after every call.
+      `text_writer_test.zig` and `text_reader_test.zig` hold each method and `next` to the checked
+      path the same way, with rooms and storages that cut tokens. The commit lists the mutations.
+    - **The measure.** bench-json times a token a call through the methods and through `next`,
+      beside one token a call and the batches, and bench-profile counts them.
+
+    Cost: each method holds a copy of its kind's step. On aarch64, ReleaseSafe, `begin_object` is
+    480 octets, `unsigned` 3,828, `name` 4,580 and `string` 5,352. A program links the methods it
+    calls.
+
+    The alternatives refused:
+    - A batch of one item from each method: 244 instructions a token. The batch's own entry and
+      exit cost more than the token.
+    - `Decoder.decode` through claim J10's loop with one slot: 8,694 instructions a record against
+      8,796. The loop's first and last steps cost about 85 instructions a call, and its second
+      call site made LLVM stop inlining it into the batch, which then ran 5% more instructions.
+    - A claim for `TextReader.next`'s line: `next` takes no claims. The lockstep test holds it to
+      the checked path.

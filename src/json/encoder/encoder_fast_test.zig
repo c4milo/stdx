@@ -29,11 +29,22 @@ const split_seeds = 4;
 /// Two claims that differ in J9 alone.
 const Pair = struct { fast: claims.Claims, checked: claims.Claims };
 
-/// The pairs compared: J9 on and off with every other claim on, then with every other claim off.
+/// The pairs compared. J9 on and off, with every other claim on and then off: claim J15 stays off
+/// on both sides there, as its step would take every token J9's fast path takes. Then J15 against
+/// the checked path, which holds neither of them, with every other claim on and then off
+/// (decision 69).
 const pairs = [_]Pair{
-    .{ .fast = claims.vector, .checked = with_fast_path(claims.vector, false) },
+    .{ .fast = with_entry(claims.vector, false), .checked = with_fast_path(with_entry(claims.vector, false), false) },
     .{ .fast = with_fast_path(claims.scalar, true), .checked = claims.scalar },
+    .{ .fast = claims.vector, .checked = with_fast_path(with_entry(claims.vector, false), false) },
+    .{ .fast = with_entry(claims.scalar, true), .checked = claims.scalar },
 };
+
+fn with_entry(base: claims.Claims, on: bool) claims.Claims {
+    var changed = base;
+    changed.encoder_token_entry = on;
+    return changed;
+}
 
 fn with_fast_path(base: claims.Claims, on: bool) claims.Claims {
     var changed = base;

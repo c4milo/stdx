@@ -22,6 +22,7 @@ const wide = @import("../wide.zig");
 const content = @import("encoder_content.zig");
 const fast = @import("encoder_fast.zig");
 const batch = @import("encoder_batch.zig");
+const token_loop = @import("encoder_loop/encoder_loop.zig");
 
 /// Whether the octets of a name, a string, a hex string or a number end with a call's input.
 pub const Piece = framing_file.Piece;
@@ -147,9 +148,12 @@ pub const Encoder = struct {
         // A call after `done` or after an error, without `init`, is a programmer error.
         assert(self.part != .done and self.part != .refused);
         assert(input.len == 0 or takes_input(token));
+        if (claims.encoder_token_entry and self.part == .between_tokens) {
+            if (whole(self, claims, token, input, output)) |progress| return progress;
+        }
         var reader = codec.Reader.init(input);
         var writer = codec.Writer.init(output);
-        const status = run(self, claims, token, &reader, &writer) catch |err| {
+        const status = run(self, comptime after_entry(claims), token, &reader, &writer) catch |err| {
             self.part = .refused;
             return err;
         };
@@ -237,6 +241,25 @@ pub const Encoder = struct {
         return .needs_input;
     }
 };
+
+/// Claim J15: `token` whole through the token loop's step, with all of its octets in `input`. Null,
+/// with nothing written and the state as it was, when the loop leaves the token to the checked
+/// path: an output without the room, a token that goes on in a later call, and every refusal.
+inline fn whole(encoder: *Encoder, comptime claims: Claims, token: Token, input: []const u8, output: []u8) ?codec.Progress {
+    const item: batch.Item = .{ .token = token, .octets = input };
+    var written: usize = 0;
+    const taken = @call(.always_inline, token_loop.take, .{ encoder, claims, @as(*const [1]batch.Item, &item), output, &written });
+    if (taken == 0) return null;
+    return .{ .consumed = input.len, .written = written, .status = if (encoder.part == .done) .done else .needs_input };
+}
+
+/// The claims the checked path takes a token with once J15's step left it: the step writes every
+/// token J9's fast path writes, so J9 would only try the token again and fail.
+fn after_entry(claims: Claims) Claims {
+    var run_claims = claims;
+    if (claims.encoder_token_entry) run_claims.encoder_fast_path = false;
+    return run_claims;
+}
 
 /// The call's loop, inline in `encode_with`, its one caller. Out of line, as LLVM left it in
 /// the benchmark's build with every claim off, where it had a second caller, each token paid a
@@ -397,4 +420,5 @@ test {
     _ = @import("encoder_loop/encoder_loop_escapes_test.zig");
     _ = @import("encoder_loop/encoder_loop_plain_test.zig");
     _ = @import("encoder_fast_test.zig");
+    _ = @import("text_writer_test.zig");
 }
