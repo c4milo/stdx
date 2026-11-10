@@ -7,6 +7,9 @@
 //! stay, each on a case most rows seldom meet: a candidate out of reach, and a collision, a
 //! candidate that agrees on fewer than 4 octets.
 //!
+//! The loop's values arrive and leave in registers, not through `State` in memory: the caller's
+//! copy of the state then costs no store and no load for each search.
+//!
 //! Its reads go by address, without Zig's bounds checks. A hit's way is below 16, inside the
 //! bucket; a candidate in reach lies below the position, whose 8 octets lie before the block's end
 //! (`best`'s assertion), so each read of 8 octets stays in the window.
@@ -23,23 +26,40 @@ pub const State = assembly.State;
 
 /// Weighs the hits `state` names and stores the pick back.
 pub inline fn weigh(state: *State) void {
+    // The text spends the hits, and moves the pick and the long list's count: each is a register
+    // the text takes and gives back.
+    var hits = state.hits;
+    var saves = state.saves;
+    var candidate = state.candidate;
+    var long_count = state.long_count;
     asm volatile (text
-        :
-        : [state] "{x0}" (state),
-        : .{ .memory = true, .nzcv = true, .x1 = true, .x2 = true, .x3 = true, .x4 = true, .x5 = true, .x6 = true, .x7 = true, .x8 = true, .x9 = true, .x10 = true, .x11 = true, .x12 = true, .x13 = true, .x15 = true, .x16 = true, .x17 = true });
+        : [hits] "={x9}" (hits),
+          [saves] "={x10}" (saves),
+          [candidate] "={x11}" (candidate),
+          [long_count] "={x13}" (long_count),
+        : [window] "{x1}" (state.window),
+          [here] "{x2}" (state.here),
+          [cost] "{x3}" (state.cost),
+          [position] "{x4}" (state.position),
+          [low] "{x5}" (state.low),
+          [reach] "{x6}" (state.reach),
+          [base] "{x7}" (state.base),
+          [entries] "{x8}" (state.entries),
+          [hits_in] "{x9}" (hits),
+          [saves_in] "{x10}" (saves),
+          [candidate_in] "{x11}" (candidate),
+          [long] "{x12}" (state.long),
+          [long_count_in] "{x13}" (long_count),
+        : .{ .memory = true, .nzcv = true, .x15 = true, .x16 = true, .x17 = true });
+    state.saves = saves;
+    state.candidate = candidate;
+    state.long_count = long_count;
 }
 
 /// x1 the window, x2 the position's 8 octets, x3 a literal's cost, x4 the position, x5 the lowest
 /// position in reach, x6 the reach, x7 the stream's base, x8 the bucket's entries, x9 the hits,
 /// x10 the best saving, x11 its candidate, x12 the long list, x13 its count.
 const text = std.fmt.comptimePrint(
-    \\ ldp x1, x2, [x0]
-    \\ ldp x3, x4, [x0, #16]
-    \\ ldp x5, x6, [x0, #32]
-    \\ ldp x7, x8, [x0, #48]
-    \\ ldp x9, x10, [x0, #64]
-    \\ ldp x11, x12, [x0, #80]
-    \\ ldr x13, [x0, #96]
     \\ cbz w9, 2f
     \\1:
     // The lowest hit's way, and the hit cleared.
@@ -78,6 +98,4 @@ const text = std.fmt.comptimePrint(
     \\3:
     \\ cbnz w9, 1b
     \\2:
-    \\ stp x10, x11, [x0, #72]
-    \\ str x13, [x0, #96]
 , .{ .min_len = assembly.min_len, .read_len = assembly.read_len, .cost_bias = assembly.cost_bias });
