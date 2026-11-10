@@ -66,7 +66,12 @@ fn lazy(comptime safety: bool, buckets: *Buckets, window: []const u8, found: *Fo
         if (next_position >= search_end) break;
         probed = next_position + 1;
         const next = best(safety, buckets, window, next_position, end, reach_len, commands) orelse break;
-        if (next.saves <= found.saves) break;
+        // A match at a last distance keeps the next command's distance short; the next position must
+        // save a margin more to break that chain (decision 66, after Google's quality 5's margin).
+        // A word's distance can equal a last distance only at a stream's start, and takes no margin.
+        const keeps_distance = found.word_len == 0 and std.mem.indexOfScalar(u32, &commands.last_distances, @intCast(found.offset)) != null;
+        const margin: i64 = if (keeps_distance) constants.encoder_level5.lazy_margin else 0;
+        if (next.saves <= found.saves + margin) break;
         found.* = next;
     }
     return probed;
@@ -358,3 +363,53 @@ const collision_at = 20;
 const whole_hit_at = 40;
 /// A stream's base, as `Buckets` keeps it above every position.
 const hits_base = @as(u32, 1) << (constants.encoder_level5.window_bits + 1);
+
+test "the lazy step keeps a match at a last distance unless the next saves a margin more" {
+    try @call(.never_inline, expect_lazy_margin, .{});
+}
+
+const LazyCase = struct { offset: usize, word_len: usize, behind: i64, switches: bool };
+
+/// A window of seeded octets with one repeat: `lazy_repeat_len` octets from `lazy_source` again
+/// one past `lazy_position`, which the buckets hold. A match held at `lazy_position` saves `behind`
+/// less than that repeat; the lazy step must replace it or keep it as its distance rules.
+fn expect_lazy_margin() !void {
+    var buckets: Buckets = undefined;
+    var commands: encoder_commands.WideCommands = undefined;
+    var window: [lazy_window_len]u8 = undefined;
+    var generator = codec.testing.split.Generator.init(lazy_window_len);
+    for (&window) |*octet| octet.* = @truncate(generator.next());
+    const next_position = lazy_position + 1;
+    @memcpy(window[next_position..][0..lazy_repeat_len], window[lazy_source..][0..lazy_repeat_len]);
+    // The octets after the repeat differ, so the match ends there.
+    window[next_position + lazy_repeat_len] = ~window[lazy_source + lazy_repeat_len];
+    const next_saves = saving(lazy_repeat_len, next_position - lazy_source, false, constants.encoder_literal_cost_initial);
+    const margin = constants.encoder_level5.lazy_margin;
+    const last = constants.last_distances_initial[0];
+    const cases = [_]LazyCase{
+        // A last distance, the next within the margin: kept.
+        .{ .offset = last, .word_len = 0, .behind = margin, .switches = false },
+        // A last distance, the next past the margin: replaced.
+        .{ .offset = last, .word_len = 0, .behind = margin + 1, .switches = true },
+        // No last distance: any greater saving replaces it.
+        .{ .offset = lazy_other_offset, .word_len = 0, .behind = 1, .switches = true },
+        // A word takes no margin, whatever its distance.
+        .{ .offset = last, .word_len = constants.word_len_min, .behind = 1, .switches = true },
+    };
+    for (cases) |case| {
+        buckets.init();
+        commands.init();
+        buckets.insert(true, &window, lazy_source);
+        var found: Found = .{ .position = lazy_position, .len = constants.word_len_min, .offset = case.offset, .saves = next_saves - case.behind, .word_len = case.word_len };
+        _ = lazy(true, &buckets, &window, &found, window.len - read_len, window.len, window.len, &commands);
+        const expected: usize = if (case.switches) next_position else lazy_position;
+        try testing.expectEqual(expected, found.position);
+    }
+}
+
+const lazy_window_len = 512;
+const lazy_position = 300;
+const lazy_source = 40;
+const lazy_repeat_len = 12;
+/// A distance the ring of last distances does not hold at a stream's start.
+const lazy_other_offset = 100;

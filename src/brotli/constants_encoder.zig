@@ -102,6 +102,9 @@ pub const encoder_level5 = struct {
     pub const word_bucket_log = 14;
     pub const word_ways = 4;
     pub const word_omit_max = 9;
+    /// The saving, in eighths of a bit, by which the lazy step's next position must pass a match at
+    /// a last distance to replace it: 6 bits, about what the next command's distance then costs.
+    pub const lazy_margin = 48;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
