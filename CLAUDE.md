@@ -367,14 +367,15 @@ Change this section when a step adds or renames a command.
   them per input octet for libdeflate's and stdx's gzip encoders at levels 1, 6 and 9 too
   (`bench/profile/profile_encode.zig`), and for libzstd's and stdx's Zstandard encoders at
   levels 1 and 3 (`bench/profile/profile_zstd_encode.zig`). Last, `bench_json --profile` counts
-  them per token and per octet for the `json` module's decoder and encoder, with every claim on and every claim off, for the encoder
+  them per token and per octet for the `json` module's decoder and encoder, with every claim on and every claim off, a token a call through
+  `TextWriter`'s methods and `TextReader.next`, for the encoder
   with J11's loop unchecked, and for simdjson, yyjson and Zig's std.json, over one workload of each
   shape (`bench/json/json_profile.zig`). The `bench` workflow's `profile` option runs it on both
   hosted runners, after allowing a process to count its own events.
 - JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder,
   many tokens a call (decision 33), with every claim on, each of claims J1, J2, J3, J5, J7, J8, J9,
   J10, J11, J12, J13 and J14 off in turn, and every one off, one token a call with every claim
-  on, and the
+  on, a token a call through `TextWriter`'s methods and `TextReader.next` (decision 69), and the
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
   CLDR's JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII
   text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's

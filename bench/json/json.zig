@@ -9,6 +9,8 @@
 //! - every claim on, as `encode` and `decode` run, many tokens a call (decision 33), as every
 //!   candidate but the next calls its codec;
 //! - every claim on, one token a call, which the batches are priced against;
+//! - every claim on, a token a call through `TextWriter`'s methods and `TextReader.next`, as a
+//!   caller that writes or reads a text a value at a time calls the module (decision 69);
 //! - each claim off in turn;
 //! - every claim on, with claim J11's loop's runtime safety checks off, as a caller may choose
 //!   (decision 35); the decoder does not read the field, and its table leaves the candidate out;
@@ -59,7 +61,9 @@ const scalar_index = candidate_count - 1;
 /// Every operation a workload's run times: the candidates, many tokens a call; every claim on, one
 /// token a call, which decision 33's batches are priced against; then the baselines.
 const one_token_index = candidate_count;
-const first_baseline = candidate_count + 1;
+/// A token a call through `TextWriter`'s methods and `TextReader.next` (decision 69).
+const methods_index = candidate_count + 1;
+const first_baseline = candidate_count + 2;
 const operation_count = first_baseline + baselines.count;
 
 comptime {
@@ -111,6 +115,8 @@ fn decoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *cons
     }
     if (!std.meta.eql(calls.decode(.{}, .one_token, workload, room), reference)) return error.CandidatesDiffer;
     side.operations[one_token_index] = try decode_operation(arena, .{}, .one_token, workload, room);
+    if (!std.meta.eql(calls.decode(.{}, .methods, workload, room), reference)) return error.CandidatesDiffer;
+    side.operations[methods_index] = try decode_operation(arena, .{}, .methods, workload, room);
     side.operations[first_baseline..].* = try baselines.decode_operations(prepared, reference);
     return side;
 }
@@ -138,6 +144,9 @@ fn encoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *cons
     const len = calls.encode(.{}, .one_token, workload, output, features);
     if (!std.mem.eql(u8, reference, output[0..len])) return error.CandidatesDiffer;
     side.operations[one_token_index] = try encode_operation(arena, .{}, .one_token, workload, output, features);
+    const methods_len = calls.encode(.{}, .methods, workload, output, features);
+    if (!std.mem.eql(u8, reference, output[0..methods_len])) return error.CandidatesDiffer;
+    side.operations[methods_index] = try encode_operation(arena, .{}, .methods, workload, output, features);
     const storage = try arena.alloc(u8, output_len);
     side.operations[first_baseline..].* = try baselines.encode_operations(prepared, workload, storage);
     return side;
@@ -187,12 +196,13 @@ fn noise(rates: Rates, index: usize) f64 {
     return @max(0.05, @max(rates.spread[0], rates.spread[index]));
 }
 
-/// One workload's row: each claim off, one token a call and every claim off, over every claim on;
-/// with `unchecked_column`, J11's loop unchecked over every claim on too.
+/// One workload's row: each claim off, one token a call, a token a call through the whole-buffer
+/// helper's methods, and every claim off, over every claim on; with `unchecked_column`, J11's loop
+/// unchecked over every claim on too.
 fn report_row(out: *std.Io.Writer, workload: *const Workload, rates: Rates, claims: []const usize, octets: usize, unchecked_column: bool) !void {
     try out.print("| {s} | {d} | {d:.1} ± {d:.1}% |", .{ workload.name, octets, rates.median[0], rates.spread[0] * 100 });
     for (claims) |claim| try out.print(" {d:.3} |", .{rates.median[claim + 1] / rates.median[0]});
-    try out.print(" {d:.3} | {d:.3} |", .{ rates.median[one_token_index] / rates.median[0], rates.median[scalar_index] / rates.median[0] });
+    try out.print(" {d:.3} | {d:.3} | {d:.3} |", .{ rates.median[one_token_index] / rates.median[0], rates.median[methods_index] / rates.median[0], rates.median[scalar_index] / rates.median[0] });
     if (unchecked_column) try out.print(" {d:.3} |", .{rates.median[unchecked_index] / rates.median[0]});
     try out.print("\n", .{});
 }
@@ -208,16 +218,16 @@ fn record_losses(arena: std.mem.Allocator, losses: *std.ArrayList(Loss), workloa
     if (one_token > 1 + noise(rates, one_token_index)) try losses.append(arena, .{ .workload = workload.name, .side = side, .claim = batches_loss, .ratio = one_token });
 }
 
-fn header(out: *std.Io.Writer, title: []const u8, claims: []const usize, octets_are: []const u8, unchecked_column: bool) !void {
-    try out.print("\n## {s}\n\nEach claim's column is the throughput with the claim off over the throughput with every claim on; above 1, the claim's path lost. {s}", .{ title, octets_are });
+fn header(out: *std.Io.Writer, title: []const u8, methods: []const u8, claims: []const usize, octets_are: []const u8, unchecked_column: bool) !void {
+    try out.print("\n## {s}\n\nEach claim's column is the throughput with the claim off over the throughput with every claim on; above 1, the claim's path lost. The `{s}` column is a token a call through the whole-buffer helper, over many tokens a call (decision 69). {s}", .{ title, methods, octets_are });
     if (unchecked_column) try out.print(" The last column is the throughput with claim J11's loop's runtime safety checks off, as a caller may choose (decision 35), over every claim on; above 1, the checks cost that much.", .{});
     try out.print("\n\n| Workload | Octets | All on, MB/s |", .{});
     for (claims) |claim| try out.print(" {s} off |", .{json.claims.each_off_names[claim]});
-    try out.print(" One token a call | All off |", .{});
+    try out.print(" One token a call | {s} | All off |", .{methods});
     if (unchecked_column) try out.print(" J11 loop unchecked |", .{});
     try out.print("\n|---|---|---|", .{});
     for (claims) |_| try out.print("---|", .{});
-    try out.print("---|---|", .{});
+    try out.print("---|---|---|", .{});
     if (unchecked_column) try out.print("---|", .{});
     try out.print("\n", .{});
 }
@@ -244,7 +254,7 @@ pub fn main(init: std.process.Init) !void {
 
     const texts_note = try std.fmt.allocPrint(arena, "Octets are the text's.{s}", .{loaded.note});
     const written_note = try std.fmt.allocPrint(arena, "Octets are the ones written.{s}", .{loaded.note});
-    try header(out, "Decoding", &decoder_claims, texts_note, false);
+    try header(out, "Decoding", "TextReader.next", &decoder_claims, texts_note, false);
     for (all, decoding_rows) |*workload, *row| {
         const rates = try time(arena, io, workload, decoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
@@ -252,7 +262,7 @@ pub fn main(init: std.process.Init) !void {
         try record_losses(arena, &losses, workload, "decoding", rates, &decoder_claims);
         try out.flush();
     }
-    try header(out, "Encoding", &encoder_claims, written_note, true);
+    try header(out, "Encoding", "TextWriter's methods", &encoder_claims, written_note, true);
     for (encoded, encoding_rows, unchecked_rows) |*workload, *row, *unchecked_row| {
         const rates = try time(arena, io, workload, encoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
@@ -285,7 +295,7 @@ fn profile(arena: std.mem.Allocator, out: *std.Io.Writer, all: []const Workload)
 }
 
 fn profile_side(arena: std.mem.Allocator, out: *std.Io.Writer, open: *const timing.counters.Counters, all: []const Workload, side_name: []const u8, comptime build: Build, unchecked_place: ?usize) !void {
-    const places: json_profile.Places = .{ .all_on = 0, .one_token = one_token_index, .all_off = scalar_index, .unchecked = unchecked_place, .first_baseline = first_baseline };
+    const places: json_profile.Places = .{ .all_on = 0, .one_token = one_token_index, .methods = methods_index, .all_off = scalar_index, .unchecked = unchecked_place, .first_baseline = first_baseline };
     try json_profile.header(out, side_name);
     for (all) |*workload| {
         if (!json_profile.is_profiled(workload)) continue;

@@ -15,9 +15,10 @@ const Workload = workloads.Workload;
 /// The slots one decoded batch fills: 32 octets each, so a batch's stay in the L1 cache.
 pub const batch_slots = 256;
 
-/// How a candidate calls its codec: many tokens a call, as every claim's candidate does, or one,
-/// the candidate decision 33 is measured against.
-pub const Calls = enum { batch, one_token };
+/// How a candidate calls its codec: many tokens a call, as every claim's candidate does; one, the
+/// candidate decision 33 is measured against; or one through `TextWriter`'s methods and
+/// `TextReader.next`, as a caller that writes or reads a text a value at a time does (decision 69).
+pub const Calls = enum { batch, one_token, methods };
 
 /// What a decode needs besides the workload: the output its tokens' octets go to, the slots a
 /// batch fills, and the caller's features.
@@ -52,17 +53,41 @@ pub fn Decode(comptime claims: json.Claims, comptime calls: Calls) type {
 /// Decodes every text of `workload` and returns the tally of its tokens.
 pub fn decode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, room: DecodeRoom) abi.Tally {
     var tally: abi.Tally = .{};
+    if (calls == .methods) {
+        for (workload.texts) |text| decode_methods(workload.framing, text, room, &tally);
+        return tally;
+    }
     // One decoder for every text, as a caller keeps one: declared for each, a safe build filled
     // all of its octets for each text before `init` wrote them.
     var decoder: json.Decoder = undefined;
     for (workload.texts) |text| {
         decoder.init(workload.framing, room.features);
-        switch (calls) {
-            .batch => decode_batches(claims, &decoder, text, room, &tally),
-            .one_token => decode_tokens(claims, &decoder, text, room.output, &tally),
-        }
+        if (calls == .batch) decode_batches(claims, &decoder, text, room, &tally) else decode_tokens(claims, &decoder, text, room.output, &tally);
     }
     return tally;
+}
+
+/// One text, or one text of a sequence with its separators, through `TextReader.next`.
+inline fn decode_methods(framing: json.Framing, text: []const u8, room: DecodeRoom, tally: *abi.Tally) void {
+    var reader = json.TextReader.init(text, room.output, framing, room.features);
+    while (reader.next_text()) {
+        for (0..text.len + 1) |_| {
+            const item = (reader.next() catch unreachable) orelse break;
+            switch (item) {
+                .begin_object => baselines.count_token(tally, .begin_object, 0),
+                .end_object => baselines.count_token(tally, .end_object, 0),
+                .begin_array => baselines.count_token(tally, .begin_array, 0),
+                .end_array => baselines.count_token(tally, .end_array, 0),
+                .name => |octets| baselines.count_token(tally, .name, octets.len),
+                .string => |octets| baselines.count_token(tally, .string, octets.len),
+                .number => |octets| baselines.count_token(tally, .number, octets.len),
+                .true => baselines.count_token(tally, .true, 0),
+                .false => baselines.count_token(tally, .false, 0),
+                .null => baselines.count_token(tally, .null, 0),
+            }
+        } else unreachable;
+    }
+    std.debug.assert(reader.consumed_len() == text.len);
 }
 
 inline fn decode_batches(comptime claims: json.Claims, decoder: *json.Decoder, text: []const u8, room: DecodeRoom, tally: *abi.Tally) void {
@@ -134,23 +159,53 @@ pub fn Encode(comptime claims: json.Claims, comptime calls: Calls) type {
 /// Encodes every text of `workload` into `output`, a text a batch or a token a call, and returns
 /// how many octets it wrote.
 pub fn encode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, output: []u8, features: codec.Features) usize {
+    if (calls == .methods) {
+        var written: usize = 0;
+        for (workload.items) |items| written += encode_methods(workload.framing, items, output[written..], features);
+        return written;
+    }
+    return encode_calls(claims, calls == .batch, workload, output, features);
+}
+
+/// `encode` through the encoder's own calls: a text a batch, or a token a call.
+inline fn encode_calls(comptime claims: json.Claims, comptime batches: bool, workload: *const Workload, output: []u8, features: codec.Features) usize {
     var written: usize = 0;
     // One encoder for every text, as `decode` keeps one decoder.
     var encoder: json.Encoder = undefined;
     for (workload.items) |items| {
         encoder.init(workload.framing, features);
-        switch (calls) {
-            .batch => {
-                const batch = @call(.always_inline, json.Encoder.encode_batch_with, .{ &encoder, claims, items, output[written..] }) catch unreachable;
-                std.debug.assert(batch.status == .done and batch.items == items.len);
-                written += batch.written;
-            },
-            .one_token => for (items) |item| {
-                const progress = @call(.always_inline, json.Encoder.encode_with, .{ &encoder, claims, item.token, item.octets, output[written..] }) catch unreachable;
-                written += progress.written;
-            },
+        if (batches) {
+            const batch = @call(.always_inline, json.Encoder.encode_batch_with, .{ &encoder, claims, items, output[written..] }) catch unreachable;
+            std.debug.assert(batch.status == .done and batch.items == items.len);
+            written += batch.written;
+        } else for (items) |item| {
+            const progress = @call(.always_inline, json.Encoder.encode_with, .{ &encoder, claims, item.token, item.octets, output[written..] }) catch unreachable;
+            written += progress.written;
         }
         std.debug.assert(encoder.is_done());
     }
     return written;
+}
+
+/// One text through `TextWriter`'s methods, the method each item's token names.
+inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, output: []u8, features: codec.Features) usize {
+    var text = json.TextWriter.init(output, framing, features);
+    for (items) |item| {
+        (switch (item.token) {
+            .begin_object => text.begin_object(),
+            .end_object => text.end_object(),
+            .begin_array => text.begin_array(),
+            .end_array => text.end_array(),
+            .name => text.name(item.octets),
+            .string => text.string(item.octets),
+            .hex => text.hex(item.octets),
+            .number => text.number(item.octets),
+            .unsigned => |value| text.unsigned(value),
+            .signed => |value| text.signed(value),
+            .decimal => |value| text.decimal(value),
+            .boolean => |value| text.boolean(value),
+            .null => text.null_literal(),
+        }) catch unreachable;
+    }
+    return text.written().len;
 }
