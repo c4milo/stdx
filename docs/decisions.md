@@ -959,7 +959,7 @@ small file.
     | DEFLATE encoder's match finder, appender and symbol writer with runtime safety off, at the caller's choice (decision 49) | 9 | none: the matcher reads its own window | none: the appender's block, and the writer's 8 octets (E5) | Throughput with safety off over on in the encoder's five inner files, the probe after its base in one job, run [38172161400](https://github.com/c4milo/stdx/actions/runs/38172161400): levels 1, 6 and 9 at 1.049, 1.044 and 1.067 at the median on the N2 and at 1.044, 1.037 and 1.050 on a Xeon 8573C; since then each bench-deflate report's `stdx unchecked` column beside `stdx` |
     | JSON decoder token loop (J10) | 18 | none: it checks a token's octets are there before it reads them, and a string's a block of 16 at a time, or of 32 in the AVX2 variant object's walk (entry 47) | 16 octets, and 32 in that walk: a string's last block, stored past its end | Throughput of batches (decision 33) against every token through `run` in decoder.zig, over bench-json's workloads |
     | DEFLATE encoder's level 6 lazy loop in aarch64 assembly (decision 53) | 9 | none: every position lies below the window's end less the lookahead, and a match's compare reads inside the window | none: each symbol goes below the block's room, which the loop tests at each position | Throughput with the loop over main's without it, the change after its base in one job (entry 20), at be101d8 against 5fd03aa (runs [40261381739](https://github.com/c4milo/stdx/actions/runs/40261381739) and [40261383705](https://github.com/c4milo/stdx/actions/runs/40261383705)): level 6 at 1.064 and 1.068 at the median on the N2, 36 rows faster in both jobs and none slower |
-    | base 64 encoder's whole groups (`fast.encode_groups`, decision 68), 24 octets a vector step (`fast_vector.zig`) | none | none: it counts its groups and its steps once from the input's length | none: it counts its groups once from the output's room | Throughput against the checked path and std.base64, `bench-base64` on the runners, recorded in decision 68 when it lands |
+    | base 64 encoder's whole groups (`fast.encode_groups`, decision 68), 24 octets a vector step (`fast_vector.zig`) | none | none: it counts its groups and its steps once from the input's length | none: it counts its groups once from the output's room | Throughput against the checked path, Rust's base64 crate and Go's encoding/base64, `bench-base64` on the runners: decision 68's table |
     | base 64 decoder's whole quanta (`fast.decode_quanta`, decision 68), 32 letters a vector step (`fast_vector.zig`) | none | none: it counts its quanta and its steps once from the input's length, and stops at the first it cannot take whole | none: it counts its quanta once from the output's room | As above |
 
     The alternatives refused:
@@ -4270,3 +4270,20 @@ small file.
     protobuf, so `bench-base64` times Rust's `base64` crate 0.22.1, which connect-rust's Buffa
     pins, and Go's encoding/base64, which Go's protojson uses. stdx must beat the faster of the two
     at each size. Zig's std.base64 stays a column for reference.
+
+    **Measured, 2026-11-09.** `bench-base64` at f517567, three jobs on each runner (runs
+    [42635445234](https://github.com/c4milo/stdx/actions/runs/42635445234),
+    [42635449399](https://github.com/c4milo/stdx/actions/runs/42635449399) and
+    [42635453153](https://github.com/c4milo/stdx/actions/runs/42635453153)), stdx over Rust's crate,
+    the faster of the two baselines in every row:
+
+    | CPU | Encode, 1 KiB to 1 MiB | Decode, 1 KiB to 1 MiB | Encode, 60 octets | Decode, 60 octets |
+    |---|---|---|---|---|
+    | Neoverse N2 | 1.12 to 1.19 | 1.45 to 1.69 | 0.79 to 0.80 | 0.80 to 0.81 |
+    | Xeon Platinum 8370C | 2.23 to 2.85 | 2.84 to 4.29 | 0.94 | 0.80 |
+    | Xeon Platinum 8573C | 1.93 to 2.21 | 2.90 to 3.92 | 1.04 | 0.94 |
+    | EPYC 9V74 | 3.32 to 4.23 | 3.27 to 5.20 | 1.26 | 0.84 |
+
+    The 60-octet rows lose on most CPUs: a call's fixed cost, about 1,244 instructions for one
+    encode and one decode on aarch64, weighs most there. The owner landed the module with them
+    open, in [issue 24](https://github.com/c4milo/stdx/issues/24).
