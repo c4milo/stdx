@@ -113,19 +113,25 @@ jobs:
           sudo sysctl -w kernel.kptr_restrict=0
           zig build -Doracles -Drelease corpus
           zig build-exe -OReleaseSafe -mcpu baseline -femit-bin=l5_harness --dep brotli --dep memset -Mroot=bench/l5_cycles/harness.zig --dep codec -Mbrotli=src/brotli/brotli.zig -Mcodec=src/codec/codec.zig -Mmemset=bench/timing/memset.zig
+          brotli_c=$(dirname "$(ls -d zig-pkg/*/c/enc | head -1)")
+          zig cc -O2 -static -I"$brotli_c/include" -o q5_harness bench/l5_cycles/google5.c "$brotli_c"/common/*.c "$brotli_c"/enc/*.c
           PERF=$(ls /usr/lib/linux-tools/*/perf | head -1)
           mkdir -p cycles
-          cp l5_harness cycles/
+          cp l5_harness q5_harness cycles/
           if [ "$(uname -m)" = x86_64 ]; then event=cpu-clock; else event=cycles; fi
           {
             echo "# level 5 cycles, $(uname -m), $(grep -m1 -o 'Neoverse[^ ]*\|EPYC[^ ]*\|Xeon[^ ]*' /proc/cpuinfo || true)"
             echo '```text'
             for row in "canterbury/ptt5 20" "canterbury/kennedy.xls 10" "silesia/nci 1" "canterbury/alice29.txt 40" "silesia/webster 1" "http/json-1m 10"; do
               set -- $row; name=$(basename "$1")
-              "$PERF" stat -e cycles,instructions ./l5_harness 5 "zig-out/corpus/$1" 0 "$2" 2>&1 | grep -E "cycles|instructions|elapsed" || true
-              "$PERF" record -q -e "$event" -F 10000 -o "perf-$name.data" ./l5_harness 5 "zig-out/corpus/$1" 0 "$2" >/dev/null 2>&1 || true
-              "$PERF" script -i "perf-$name.data" -F ip 2>/dev/null | sort | uniq -c | sort -rn > "cycles/ips-$name.txt" || true
-              echo "$name: $(awk '{s+=$1} END {print s}' "cycles/ips-$name.txt") samples"
+              for program in l5 q5; do
+                if [ $program = l5 ]; then run="./l5_harness 5 zig-out/corpus/$1 0 $2"; else run="./q5_harness zig-out/corpus/$1 $2"; fi
+                echo "== $program $name"
+                "$PERF" stat -e cycles,instructions $run 2>&1 | grep -E "cycles|instructions|elapsed" || true
+                "$PERF" record -q -e "$event" -F 10000 -o "perf-$program-$name.data" $run >/dev/null 2>&1 || true
+                "$PERF" script -i "perf-$program-$name.data" -F ip 2>/dev/null | sort | uniq -c | sort -rn > "cycles/ips-$program-$name.txt" || true
+                echo "$program $name: $(awk '{s+=$1} END {print s}' "cycles/ips-$program-$name.txt") samples"
+              done
             done
             echo '```'
           } > bench-report.md 2>&1
