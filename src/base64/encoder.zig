@@ -30,6 +30,7 @@ pub const EncoderOptions = struct {
 
 pub const Encoder = struct {
     letters: *const [constants.alphabet_len]u8,
+    alphabet: Alphabet,
     pairs: *const alphabet_file.PairTable,
     padding: bool,
     /// The octets of a group not yet whole, `held_len` of them.
@@ -49,6 +50,7 @@ pub const Encoder = struct {
         _ = features;
         self.* = .{
             .letters = alphabet_file.letters(options.alphabet),
+            .alphabet = options.alphabet,
             .pairs = alphabet_file.pair_letters(options.alphabet),
             .padding = options.padding,
             .held = undefined,
@@ -152,7 +154,7 @@ pub const Encoder = struct {
     /// Decision 16's row: the whole groups that fit, through fast.zig.
     fn fast_groups(self: *Encoder, reader: *codec.Reader, writer: *codec.Writer) void {
         const rest = reader.take_partial(reader.remaining_len());
-        const count = fast.encode_groups(self.pairs, rest, writer.octets[writer.position..]);
+        const count = fast.encode_groups(self.alphabet, self.pairs, rest, writer.octets[writer.position..]);
         reader.unread(rest.len - count * constants.group_octets);
         writer.position += count * constants.quantum_letters;
     }

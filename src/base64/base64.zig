@@ -31,6 +31,7 @@ test {
     _ = encoder;
     _ = decoder;
     _ = @import("fast.zig");
+    _ = @import("fast_vector.zig");
     _ = @import("base64_test.zig");
     _ = @import("base64_fuzz_test.zig");
 }

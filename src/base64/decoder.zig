@@ -184,7 +184,7 @@ pub const Decoder = struct {
     fn quanta(self: *Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
         if (self.part != .letters or self.held_len != 0) return;
         const rest = reader.take_partial(reader.remaining_len());
-        const count = fast.decode_quanta(alphabet_file.quanta(self.seen), rest, writer.octets[writer.position..]);
+        const count = fast.decode_quanta(self.seen, rest, writer.octets[writer.position..]);
         reader.unread(rest.len - count * constants.quantum_letters);
         writer.position += count * constants.group_octets;
     }

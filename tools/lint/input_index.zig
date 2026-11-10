@@ -26,7 +26,7 @@
 //! literal decoding and backward stream of step 11, and the files of `src/brotli/decoder/decoder_fast/`
 //! but its test, the brotli command loop, its literal runs, its copies and the header's code
 //! lengths of step 12, and `src/base64/fast.zig`, base 64's whole groups and whole quanta
-//! (decision 68).
+//! (decision 68), with its vector steps in `src/base64/fast_vector.zig`.
 //! A fast path's margins, checked once per iteration, bound every index it takes, and ReleaseSafe's
 //! bounds checks stay on inside it.
 //!
