@@ -4354,6 +4354,41 @@ small file.
     number as a value, which is its only form. Go's jsontext allows a name that repeats, which no
     other candidate checks for.
 
+    **What the runners measured.** Two pairs on each hosted runner held the series and its base in
+    one job (runs 42850737740 and 42850753063). The base was the series' programs with main's
+    `src/json`. The N2 ran both jobs, and the x86-64 jobs drew an AMD EPYC 9V74 and an EPYC 7763.
+    Each figure below is the series' speed over the base's.
+    - `TextWriter`'s methods: 29 rows faster in both jobs on each runner, and none slower. CLDR's
+      texts ran at 2.84 and 2.83 on the N2, and at 2.44 and 2.54 on x86-64. qlog's records ran at
+      2.81 and 2.80, and at 2.44 and 2.59.
+    - `Encoder.encode`, one token a call: 27 rows faster in both jobs on each runner, and none
+      slower. CLDR ran at 2.14 and 2.12 on the N2, and at 1.83 and 1.82 on x86-64.
+    - `TextReader.next`: 11 rows faster in both jobs on the N2 and 9 on x86-64, and none slower.
+      CLDR ran at 1.79 in both jobs on the N2, and at 1.92 and 1.89 on x86-64. qlog ran at 1.75,
+      and at 1.93 and 1.92.
+    - Decoding one token a call: 4 rows faster in both jobs on the N2 and 7 on x86-64. On the N2,
+      mozilla as hex ran at 0.975 and 0.990. The decoder's source did not change. On main,
+      `next` called `Decoder.decode`, so the bench program kept `Decoder.step` out of line for two
+      callers. The series' `next` does not call it, and LLVM inlines `step` into the one-token
+      loop. A program that calls `Decoder.decode` alone builds to the same code at both commits.
+      The owner ruled the row placement on 2026-11-10, neither a loss nor a gain.
+    - bench-profile on the N2 (run 42850767353): a token through `next` took 194.4 instructions
+      on CLDR and 205.1 on qlog, from 293.2 and 310.3. Through the methods it took 151.5 and
+      142.5, from 452.8 and 431.8. The batches ran the same instructions.
+    - Against the bar: the methods ran ahead of serde_json and Go's jsontext in every row on each
+      runner, CLDR at 1.70 to 1.90 times serde_json's speed. `next` ran ahead of Go in every row
+      but 2 to 4 strings. It trailed serde_json on qlog, at 0.67 and 0.69 on the N2 and 0.86 on
+      x86-64, on CLDR on the N2 alone, at 0.96, and on 17 strings on each runner. Those strings
+      hold escapes or non-ASCII octets, which take the checked path.
+    - Rows slower in both jobs, each a batch row whose functions are identical apart from their
+      addresses at both commits, which decision 20 counts as placement: on the N2, qlog decoded
+      at 0.985 and 0.982, and three strings encoded at 0.955 to 0.989. On x86-64, one string
+      decoded at 0.982 and 0.961, and one encoded at 0.972 and 0.988.
+
+    What is left, in the order the owner set on 2026-11-10: short copies in `codec.Writer`, then
+    `next`'s strings with an escape or a non-ASCII octet, then `TextReader` strings given with no
+    copy, which changes its API.
+
     Cost: each method holds a copy of its kind's step. On aarch64, ReleaseSafe, `begin_object` is
     480 octets, `unsigned` 3,828, `name` 4,580 and `string` 5,352. A program links the methods it
     calls.
