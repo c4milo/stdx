@@ -13,17 +13,17 @@ const encoder_words = @import("encoder_words.zig");
 const hits_aarch64 = @import("encoder_hits_aarch64.zig");
 const hits_x86_64 = @import("encoder_hits_x86_64.zig");
 /// The assembly that weighs a bucket's hits on this target, if one takes it (decision 66, part 5).
-const hits_assembly = if (hits_aarch64.takes) hits_aarch64 else hits_x86_64;
-const hits_assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
+pub const hits_assembly = if (hits_aarch64.takes) hits_aarch64 else hits_x86_64;
+pub const hits_assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
 
 const Buckets = buckets_module.Buckets;
 
 /// A match and what it saves, in eighths of a bit, over its literals: `len` octets `offset` back, or
 /// for a static dictionary word of `word_len` octets, the `len` it writes at the distance `offset`.
-const Found = struct { position: usize, len: usize, offset: usize, saves: i64, word_len: usize = 0 };
+pub const Found = struct { position: usize, len: usize, offset: usize, saves: i64, word_len: usize = 0 };
 
 /// The octets a parse reads at a position: a match's compare reads 8 at a time.
-const read_len = codec.constants.match_read_len;
+pub const read_len = codec.constants.match_read_len;
 
 /// Parses `window[start..end]`, whose history is `window[0..start]`, into `commands`. A match
 /// reaches back `reach_len` octets at most.
@@ -58,14 +58,14 @@ pub fn parse(comptime safety: bool, buckets: *Buckets, window: []const u8, start
 
 /// The lazy step: the next position's match replaces `found` while it saves more. Returns the first
 /// position after those the probes recorded, where the covered positions start.
-fn lazy(comptime safety: bool, buckets: *Buckets, window: []const u8, found: *Found, search_end: usize, end: usize, reach_len: usize, commands: anytype) usize {
+pub fn lazy(comptime safety: bool, buckets: *Buckets, window: []const u8, found: *Found, search_end: usize, end: usize, reach_len: usize, commands: anytype) usize {
     @setRuntimeSafety(safety);
     var probed = found.position + 1;
     for (0..end - found.position) |_| {
         const next_position = found.position + 1;
         if (next_position >= search_end) break;
         probed = next_position + 1;
-        const next = best(safety, buckets, window, next_position, end, reach_len, commands) orelse break;
+        const next = probe(safety, buckets, window, next_position, end, reach_len, commands, found.*) orelse break;
         if (next.saves <= found.saves) break;
         // A match at a last distance keeps the next command's distance short; the next position must
         // save a margin more to break that chain (decision 66, after Google's quality 5's margin).
@@ -75,6 +75,110 @@ fn lazy(comptime safety: bool, buckets: *Buckets, window: []const u8, found: *Fo
         found.* = next;
     }
     return probed;
+}
+
+/// The lazy step's search at `position`, for a match that saves more than `held`, the match the
+/// step holds (decision 66, after the lazy search of Google's quality 5). It measures only:
+/// - a last distance whose first 4 octets agree, as its short code can pay for a shorter match;
+/// - a bucket's candidate that agrees on the 4 octets that end at `held`'s length, so it may be as
+///   long.
+/// One compare refuses each other candidate of the bucket. Records `position` in its bucket.
+pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype, held: Found) ?Found {
+    @setRuntimeSafety(safety);
+    assert(position > 0 and position + read_len <= end and end <= window.len);
+    assert(held.len >= min_len);
+    const low = @max(position -| reach_len, 1);
+    const cost = commands.literal_cost;
+    var found: ?Found = null;
+    const head = read32(safety, window, position);
+    for (commands.last_distances) |distance| {
+        if (distance > position - low) continue;
+        if (read32(safety, window, position - distance) != head) continue;
+        take(safety, window, position, position - distance, end, true, cost, &found);
+    }
+    const slot = Buckets.slot_of(safety, window, position);
+    probe_hits(safety, buckets, slot, window, position, end, low, cost, held, &found);
+    buckets.insert_at(safety, slot, position);
+    // After a word or a match of the fewest octets, the window seldom holds a match here, and a
+    // word may save more.
+    const after_short = held.word_len > 0 or held.len == min_len;
+    if (found == null and after_short) consider_word(safety, window, position, end, reach_len, commands, &found);
+    return found;
+}
+
+/// The probe over the hits of `slot`'s bucket: each candidate `Floor` admits is measured.
+inline fn probe_hits(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, end: usize, low: usize, cost: u32, held: Found, found: *?Found) void {
+    @setRuntimeSafety(safety);
+    const floor = Floor.of(safety, window, position, end, held, cost);
+    var hits = buckets.hits(slot);
+    for (0..buckets_module.ways) |_| {
+        if (hits == 0) break;
+        const way = @ctz(hits);
+        hits &= hits - 1;
+        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
+        if (!floor.admits(safety, window, position, candidate)) continue;
+        take(safety, window, position, candidate, end, false, cost, found);
+    }
+}
+
+/// What a bucket's candidate must agree on for the probe to measure it: the 4 octets `tail` at
+/// `at`, which end at the held match's length, or, nearer than `near`, the 4 octets one before.
+const Floor = struct {
+    at: usize,
+    tail: u32,
+    near: usize,
+    shorter_tail: u32,
+
+    inline fn of(comptime safety: bool, window: []const u8, position: usize, end: usize, held: Found, cost: u32) Floor {
+        @setRuntimeSafety(safety);
+        // Where `held`'s length passes the block's end, no candidate is as long: the first 4
+        // octets stand for the tail, and every true candidate is measured.
+        const at = if (position + held.len <= end) held.len - @sizeOf(u32) else 0;
+        return .{
+            .at = at,
+            .tail = read32(safety, window, position + at),
+            // A candidate one octet shorter agrees on the 4 octets one before the tail's; none
+            // is, where `held` has the fewest octets a match takes.
+            .near = if (at > 0) near_limit(held, cost) else 0,
+            .shorter_tail = read32(safety, window, position + at -| 1),
+        };
+    }
+
+    inline fn admits(self: Floor, comptime safety: bool, window: []const u8, position: usize, candidate: usize) bool {
+        @setRuntimeSafety(safety);
+        if (read32(safety, window, candidate + self.at) == self.tail) return true;
+        if (position - candidate >= self.near) return false;
+        return read32(safety, window, candidate + self.at - 1) == self.shorter_tail;
+    }
+};
+
+/// The distance below which a candidate one octet shorter than `held` can save more than `held`
+/// does: it saves `(held.len - 1) * cost` less a match's cost and 8 eighths for each bit of its
+/// distance's log2, as `saving` weighs it. 0 where no distance is near enough.
+pub fn near_limit(held: Found, cost: u32) usize {
+    const most: i64 = @as(i64, @intCast((held.len - 1) * cost)) - constants.encoder_match_cost_base;
+    const slack = most - held.saves;
+    if (slack <= 0) return 0;
+    const bits: usize = @intCast(@divFloor(slack + encoder_commands.eighths - 1, encoder_commands.eighths));
+    return @as(usize, 1) << @intCast(@min(bits, @bitSizeOf(usize) - 1));
+}
+
+/// `found` replaced by `candidate`'s match where it has the fewest octets a match takes and saves
+/// more.
+inline fn take(comptime safety: bool, window: []const u8, position: usize, candidate: usize, end: usize, last: bool, cost: u32, found: *?Found) void {
+    @setRuntimeSafety(safety);
+    const len = match_len(safety, window, candidate, position, end);
+    if (len < min_len) return;
+    keep(position, candidate, len, last, cost, found);
+}
+
+/// `found` replaced by `candidate`'s match of `len` octets where it saves more.
+inline fn keep(position: usize, candidate: usize, len: usize, last: bool, cost: u32, found: *?Found) void {
+    const saves = saving(len, position - candidate, last, cost);
+    if (found.*) |best_so_far| {
+        if (saves <= best_so_far.saves) return;
+    }
+    found.* = .{ .position = position, .len = len, .offset = position - candidate, .saves = saves };
 }
 
 /// Whether `found` is a match at one of the last distances, whose short code the next command's
@@ -160,7 +264,7 @@ const Source = enum { last, bucket };
 /// 2. The best saving wins, and the first of equal savings stays.
 /// 3. Each candidate that agreed on all `read_len` octets is then measured to its end, the last
 ///    distances first, and wins only by a greater saving.
-const Pick = struct {
+pub const Pick = struct {
     here: u64,
     cost: u32,
     saves: i64 = 0,
@@ -171,7 +275,7 @@ const Pick = struct {
     long: [buckets_module.ways]usize = undefined,
     long_count: usize = 0,
 
-    fn weigh(self: *Pick, comptime safety: bool, window: []const u8, position: usize, candidate: usize, comptime source: Source) void {
+    pub fn weigh(self: *Pick, comptime safety: bool, window: []const u8, position: usize, candidate: usize, comptime source: Source) void {
         @setRuntimeSafety(safety);
         const agreed: usize = @ctz(self.here ^ read64(safety, window, candidate)) / @bitSizeOf(u8);
         if (agreed < min_len) return;
@@ -196,7 +300,7 @@ const Pick = struct {
     }
 
     /// The best match by rule 3, or none that saves anything.
-    fn measure_long(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize) ?Found {
+    pub fn measure_long(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize) ?Found {
         @setRuntimeSafety(safety);
         var len: usize = @ctz(self.here ^ read64(safety, window, self.candidate)) / @bitSizeOf(u8);
         for (self.last_long[0..self.last_long_count]) |candidate| self.measure(safety, window, position, end, candidate, true, &len);
@@ -217,13 +321,13 @@ const Pick = struct {
 };
 
 /// The fewest octets a candidate must agree on: the hash's 4, which a bucket's entries share.
-const min_len = constants.encoder_level5.hash_len;
+pub const min_len = constants.encoder_level5.hash_len;
 
 /// `found` replaced by the static dictionary word the input at `position` matches, where that
 /// saves more. A word's distance is past the farthest the window reaches, by 1 and its word_id
 /// (RFC 7932 §8). The window holds the stream from its start, or 2^WBITS octets of history after a
 /// slide, past `reach_len`, so the reach is `position` or `reach_len`.
-fn consider_word(comptime safety: bool, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype, found: *?Found) void {
+inline fn consider_word(comptime safety: bool, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype, found: *?Found) void {
     @setRuntimeSafety(safety);
     if (found.*) |held| {
         if (held.len >= constants.word_len_max) return;
@@ -240,7 +344,7 @@ fn consider_word(comptime safety: bool, window: []const u8, position: usize, end
 
 /// What a match saves over its literals, in eighths of a bit, as `Commands.takes` weighs it: a
 /// last distance codes with no extra bits.
-fn saving(len: usize, offset: usize, last: bool, literal_cost: u32) i64 {
+pub fn saving(len: usize, offset: usize, last: bool, literal_cost: u32) i64 {
     const distance_bits: usize = if (last) 0 else @as(usize, std.math.log2_int(usize, offset)) * encoder_commands.eighths;
     const cost: i64 = @intCast(constants.encoder_match_cost_base + distance_bits);
     return @as(i64, @intCast(len * literal_cost)) - cost;
@@ -284,139 +388,11 @@ inline fn read32(comptime safety: bool, window: []const u8, position: usize) u32
     return std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
 }
 
-inline fn read64(comptime safety: bool, window: []const u8, position: usize) u64 {
+pub inline fn read64(comptime safety: bool, window: []const u8, position: usize) u64 {
     @setRuntimeSafety(safety);
     return std.mem.readInt(u64, window[position..][0..@sizeOf(u64)], .little);
 }
 
-const testing = std.testing;
-
-test "a candidate is weighed by the octets it agrees on, 4 at least" {
-    var window: [weigh_window_len]u8 = @splat('-');
-    const position = weigh_window_len / 2;
-    // At `short_at` 3 octets agree, at `long_at` 6 do, and at `whole_at` all 8.
-    @memcpy(window[position..][0..weigh_text.len], weigh_text);
-    // The filler after the text differs from the filler after each copy, so a match ends there.
-    window[position + weigh_text.len] = '#';
-    @memcpy(window[short_at..][0..3], weigh_text[0..3]);
-    @memcpy(window[long_at..][0..6], weigh_text[0..6]);
-    @memcpy(window[whole_at..][0..weigh_text.len], weigh_text);
-    var pick: Pick = .{ .here = read64(true, &window, position), .cost = weigh_literal_cost };
-    pick.weigh(true, &window, position, short_at, .bucket);
-    try testing.expectEqual(0, pick.saves);
-    pick.weigh(true, &window, position, long_at, .bucket);
-    try testing.expect(pick.saves > 0);
-    try testing.expectEqual(long_at, pick.candidate);
-    try testing.expectEqual(0, pick.long_count);
-    // All 8 agree: the candidate goes on the long list, measured to its end after the scan.
-    pick.weigh(true, &window, position, whole_at, .bucket);
-    try testing.expectEqual(1, pick.long_count);
-    const found = pick.measure_long(true, &window, position, window.len) orelse return error.TestNoMatch;
-    try testing.expectEqual(position - whole_at, found.offset);
-    try testing.expectEqual(weigh_text.len, found.len);
+test {
+    _ = @import("encoder_lazy_test.zig");
 }
-
-const weigh_window_len = 64;
-const weigh_text = "abcdefghij";
-const short_at = 2;
-const long_at = 8;
-const whole_at = 16;
-/// 8 bits a literal, in eighths of a bit.
-const weigh_literal_cost = 64;
-
-test "the assembly weighs a bucket's hits as the Zig loop does" {
-    if (comptime !hits_assembly_takes) return error.SkipZigTest;
-    // Two candidates of equal saving, offsets 100 and 80, both of log2 6: the first way stays. A
-    // third agrees on 3 octets only, and weighs nothing.
-    const tie = try expect_hits_equal(&.{ hits_position - tie_offset, hits_position - tie_offset_second, collision_at }, &.{ 6, 6, 3 });
-    try testing.expectEqual(hits_position - tie_offset, tie.candidate);
-    try testing.expectEqual(0, tie.long_count);
-    // A collision alone weighs nothing.
-    const collision = try expect_hits_equal(&.{collision_at}, &.{3});
-    try testing.expectEqual(0, collision.saves);
-    // A candidate that agrees on all 8 goes on the long list.
-    const long = try expect_hits_equal(&.{ collision_at, whole_hit_at }, &.{ 3, weigh_text.len });
-    try testing.expectEqual(whole_hit_at, long.candidate);
-    try testing.expectEqual(1, long.long_count);
-}
-
-/// Places `firsts`, each agreeing on its `agreeing` octets of the text at `hits_position`, in a
-/// bucket's ways, weighs them in assembly and in Zig, and requires the same pick.
-fn expect_hits_equal(firsts: []const usize, agreeing: []const usize) !hits_assembly.State {
-    var window: [hits_window_len]u8 = @splat('-');
-    @memcpy(window[hits_position..][0..weigh_text.len], weigh_text);
-    window[hits_position + weigh_text.len] = '#';
-    for (firsts, agreeing) |first, len| @memcpy(window[first..][0..len], weigh_text[0..len]);
-    var entries: [buckets_module.ways]u32 = @splat(0);
-    for (firsts, 0..) |first, way| entries[way] = hits_base + @as(u32, @intCast(first));
-    var zig_pick: Pick = .{ .here = read64(true, &window, hits_position), .cost = weigh_literal_cost };
-    for (firsts) |first| zig_pick.weigh(true, &window, hits_position, first, .bucket);
-    var long: [buckets_module.ways]usize = undefined;
-    var state: hits_assembly.State = .{ .window = &window, .here = zig_pick.here, .cost = weigh_literal_cost, .position = hits_position, .low = 1, .reach = hits_position - 1, .base = hits_base, .entries = &entries, .hits = (@as(u64, 1) << @intCast(firsts.len)) - 1, .saves = 0, .candidate = 0, .long = &long, .long_count = 0 };
-    hits_assembly.weigh(&state);
-    try testing.expectEqual(zig_pick.saves, state.saves);
-    try testing.expectEqual(zig_pick.candidate, state.candidate);
-    try testing.expectEqual(zig_pick.long_count, state.long_count);
-    try testing.expectEqualSlices(usize, zig_pick.long[0..zig_pick.long_count], long[0..state.long_count]);
-    return state;
-}
-
-const hits_window_len = 256;
-const hits_position = 200;
-const tie_offset = 100;
-const tie_offset_second = 80;
-const collision_at = 20;
-const whole_hit_at = 40;
-/// A stream's base, as `Buckets` keeps it above every position.
-const hits_base = @as(u32, 1) << (constants.encoder_level5.window_bits + 1);
-
-test "the lazy step keeps a match at a last distance unless the next saves a margin more" {
-    try @call(.never_inline, expect_lazy_margin, .{});
-}
-
-const LazyCase = struct { offset: usize, word_len: usize, behind: i64, switches: bool };
-
-/// A window of seeded octets with one repeat: `lazy_repeat_len` octets from `lazy_source` again
-/// one past `lazy_position`, which the buckets hold. A match held at `lazy_position` saves `behind`
-/// less than that repeat; the lazy step must replace it or keep it as its distance rules.
-fn expect_lazy_margin() !void {
-    var buckets: Buckets = undefined;
-    var commands: encoder_commands.WideCommands = undefined;
-    var window: [lazy_window_len]u8 = undefined;
-    var generator = codec.split.Generator.init(lazy_window_len);
-    for (&window) |*octet| octet.* = @truncate(generator.next());
-    const next_position = lazy_position + 1;
-    @memcpy(window[next_position..][0..lazy_repeat_len], window[lazy_source..][0..lazy_repeat_len]);
-    // The octets after the repeat differ, so the match ends there.
-    window[next_position + lazy_repeat_len] = ~window[lazy_source + lazy_repeat_len];
-    const next_saves = saving(lazy_repeat_len, next_position - lazy_source, false, constants.encoder_literal_cost_initial);
-    const margin = constants.encoder_level5.lazy_margin;
-    const last = constants.last_distances_initial[0];
-    const cases = [_]LazyCase{
-        // A last distance, the next within the margin: kept.
-        .{ .offset = last, .word_len = 0, .behind = margin, .switches = false },
-        // A last distance, the next past the margin: replaced.
-        .{ .offset = last, .word_len = 0, .behind = margin + 1, .switches = true },
-        // No last distance: any greater saving replaces it, and an equal one does not.
-        .{ .offset = lazy_other_offset, .word_len = 0, .behind = 1, .switches = true },
-        .{ .offset = lazy_other_offset, .word_len = 0, .behind = 0, .switches = false },
-        // A word takes no margin, whatever its distance.
-        .{ .offset = last, .word_len = constants.word_len_min, .behind = 1, .switches = true },
-    };
-    for (cases) |case| {
-        buckets.init();
-        commands.init();
-        buckets.insert(true, &window, lazy_source);
-        var found: Found = .{ .position = lazy_position, .len = constants.word_len_min, .offset = case.offset, .saves = next_saves - case.behind, .word_len = case.word_len };
-        _ = lazy(true, &buckets, &window, &found, window.len - read_len, window.len, window.len, &commands);
-        const expected: usize = if (case.switches) next_position else lazy_position;
-        try testing.expectEqual(expected, found.position);
-    }
-}
-
-const lazy_window_len = 512;
-const lazy_position = 300;
-const lazy_source = 40;
-const lazy_repeat_len = 12;
-/// A distance the ring of last distances does not hold at a stream's start.
-const lazy_other_offset = 100;
