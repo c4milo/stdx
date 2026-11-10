@@ -33,23 +33,34 @@ pub const Word = struct { written_len: usize, word_len: usize, word_id: u32 };
 
 /// The word whose first octets the most of `window[position..end]` match, 4 at least, with the
 /// transform that writes them.
-pub fn find(comptime safety: bool, window: []const u8, position: usize, end: usize) ?Word {
+pub inline fn find(comptime safety: bool, window: []const u8, position: usize, end: usize) ?Word {
     @setRuntimeSafety(safety);
     assert(position + key_len <= end and end <= window.len);
     const key = std.mem.readInt(u32, window[position..][0..key_len], .little);
     const slot = slot_of(key);
     // The frequent case, its own code (decision 66, part 3): no way's check agrees, and the
     // dictionary is not read. One read of 4 checks, in a table that stays in the first-level cache.
+    // It stays in the caller; the ways that agree go to a function of their own.
     const Checks = @Vector(ways, u8);
     const agreeing: Checks = checks[slot.bucket];
-    var hits: std.meta.Int(.unsigned, ways) = @bitCast(agreeing == @as(Checks, @splat(slot.check)));
+    const hits: Hits = @bitCast(agreeing == @as(Checks, @splat(slot.check)));
     if (hits == 0) return null;
+    return find_among(safety, window, position, end, slot.bucket, hits);
+}
+
+/// The ways of a bucket whose check agrees, a bit each.
+const Hits = std.meta.Int(.unsigned, ways);
+
+/// `find` over the ways of `bucket` that `first_hits` names.
+noinline fn find_among(comptime safety: bool, window: []const u8, position: usize, end: usize, bucket: usize, first_hits: Hits) ?Word {
+    @setRuntimeSafety(safety);
+    var hits = first_hits;
     var best: ?Word = null;
     for (0..ways) |_| {
         if (hits == 0) break;
         const way = @ctz(hits);
         hits &= hits - 1;
-        const reference = table[slot.bucket][way];
+        const reference = table[bucket][way];
         if (reference == none) continue;
         const word_len: usize = reference >> index_bits;
         const index: u32 = reference & ((1 << index_bits) - 1);
