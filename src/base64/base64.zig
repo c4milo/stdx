@@ -13,10 +13,12 @@ pub const Alphabet = alphabet.Alphabet;
 const encoder = @import("encoder.zig");
 pub const Encoder = encoder.Encoder;
 pub const EncoderOptions = encoder.EncoderOptions;
+pub const EncoderClaims = encoder.Claims;
 
 const decoder = @import("decoder.zig");
 pub const Decoder = decoder.Decoder;
 pub const DecoderOptions = decoder.DecoderOptions;
+pub const DecoderClaims = decoder.Claims;
 pub const Accept = decoder.Accept;
 pub const Padding = decoder.Padding;
 pub const Piece = decoder.Piece;
@@ -28,6 +30,7 @@ test {
     _ = alphabet;
     _ = encoder;
     _ = decoder;
+    _ = @import("fast.zig");
     _ = @import("base64_test.zig");
     _ = @import("base64_fuzz_test.zig");
 }

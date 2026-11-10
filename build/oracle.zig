@@ -41,6 +41,7 @@ const baselines = @import("baselines.zig");
 const oracle_corpus = @import("oracle_corpus.zig");
 const oracle_zstd_encode = @import("oracle_zstd_encode.zig");
 const oracle_json = @import("oracle_json.zig");
+const oracle_base64 = @import("oracle_base64.zig");
 
 /// The zlib sources the oracle compiles: the library without its gz* file layer, which would need
 /// the host's file I/O.
@@ -118,7 +119,8 @@ pub fn add(b: *std.Build, options: Options) void {
     const bench_checksum_step = b.step("bench-checksum", "Time CRC-32 and Adler-32 against the baselines (-Doracles)");
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, per gzip and Zstandard encoder, and per json token (-Doracles)");
     const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step };
+    const bench_base64_step = b.step("bench-base64", "Time base 64 encoding and decoding against std.base64 (-Doracles)");
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step, bench_base64_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
@@ -323,6 +325,7 @@ pub fn add(b: *std.Build, options: Options) void {
     const bench_checksum_run = b.addRunArtifact(bench_checksum);
     bench_checksum_run.has_side_effects = true;
     bench_checksum_step.dependOn(&bench_checksum_run.step);
+    oracle_base64.add(b, bench_base64_step, timing, graph, baseline);
 
     if (oracle_json.add_bench_json(b, timing, graph, baseline)) |bench_json| {
         bench_json_step.dependOn(&oracle_json.run(b, bench_json, corpus, .time).step);

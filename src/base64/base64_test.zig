@@ -28,6 +28,9 @@ const vectors = [_]struct { []const u8, []const u8 }{
 const sweep_octets_max = 2;
 const room_len = 64;
 
+/// The room the paths' comparison gives: a text of 512 octets decodes into it.
+const paths_room_len = 512;
+
 fn encode(input: []const u8, output: []u8, options: encoder_file.EncoderOptions) ![]const u8 {
     var state: Encoder = undefined;
     state.init(options, features);
@@ -115,9 +118,50 @@ fn expect_as_std(text: []const u8) !void {
         expected = theirs[0..len];
         break;
     }
+    try expect_paths_agree(text);
     const got = decode(text, &ours, .{}) catch return testing.expect(expected == null);
     try testing.expectEqualStrings(expected orelse return error.TestUnexpectedResult, got);
     try testing.expectEqual(got.len, try Decoder.decoded_len(text));
+}
+
+/// Decodes `text` whole with the claims given.
+fn decode_claims(comptime claims: decoder_file.Claims, text: []const u8, output: []u8) (decoder_file.Error || error{NoSpaceLeft})![]const u8 {
+    var state: Decoder = undefined;
+    state.init(.{}, features);
+    const progress = try state.decode_with(claims, text, output, .last);
+    const whole = codec.whole(progress) catch return error.NoSpaceLeft;
+    return output[0..whole.written];
+}
+
+/// Requires decision 16's fast path to give the checked path's octets and verdict for `text`.
+pub fn expect_paths_agree(text: []const u8) !void {
+    var fast_out: [paths_room_len]u8 = undefined;
+    var checked_out: [paths_room_len]u8 = undefined;
+    const checked = decode_claims(.{ .whole_quanta = false }, text, &checked_out);
+    const fast = decode_claims(.{}, text, &fast_out);
+    if (checked) |octets| {
+        try testing.expectEqualSlices(u8, octets, try fast);
+    } else |err| try testing.expectError(err, fast);
+}
+
+test "the encoder's fast path writes the checked path's letters for every length and offset" {
+    var input: [paths_room_len / 2]u8 = undefined;
+    for (&input, 0..) |*octet, index| octet.* = @truncate(index *% 2654435761 >> 7);
+    var fast_text: [paths_room_len]u8 = undefined;
+    var checked_text: [paths_room_len]u8 = undefined;
+    for (0..input.len) |len| {
+        inline for (.{ Alphabet.standard, Alphabet.url_safe }) |alphabet| {
+            var fast_state: Encoder = undefined;
+            var checked_state: Encoder = undefined;
+            fast_state.init(.{ .alphabet = alphabet }, features);
+            checked_state.init(.{ .alphabet = alphabet }, features);
+            const fast = fast_state.encode_with(.{}, input[0..len], &fast_text, .finish);
+            const checked = checked_state.encode_with(.{ .whole_groups = false }, input[0..len], &checked_text, .finish);
+            try testing.expectEqual(checked, fast);
+            try testing.expectEqualStrings(checked_text[0..checked.written], fast_text[0..fast.written]);
+            try expect_paths_agree(fast_text[0..fast.written]);
+        }
+    }
 }
 
 test "each refusal names its cause" {

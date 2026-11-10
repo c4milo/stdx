@@ -11,7 +11,7 @@ on:
       benchmark:
         description: "Which benchmark to run"
         type: choice
-        options: [costs, deflate, checksum, profile, zstd, brotli, json]
+        options: [costs, deflate, checksum, profile, zstd, brotli, json, base64]
         default: deflate
       base:
         description: "A commit, branch or tag to benchmark first, in the same job; empty for none"
@@ -96,6 +96,7 @@ jobs:
             zstd) step=bench-zstd; options=-Doracles ;;
             brotli) step=bench-brotli; options=-Doracles ;;
             json) step=bench-json; options=-Doracles ;;
+            base64) step=bench-base64; options=-Doracles ;;
             profile)
               # perf_event_open lets a process count its own events only where the kernel allows it.
               sudo sysctl -w kernel.perf_event_paranoid=1

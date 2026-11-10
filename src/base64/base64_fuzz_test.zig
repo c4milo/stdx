@@ -16,6 +16,9 @@ const features = codec.Features.none();
 const input_len_max = 512;
 const text_len_max = Encoder.encoded_len(input_len_max, true);
 
+/// The longest input the paths' comparison takes: the room of base64_test.zig's buffers.
+const paths_len_max = 512;
+
 test "fuzz base 64 against std.base64 and its own round trip" {
     try testing.fuzz({}, fuzz_one, .{ .corpus = &.{ "", "Zm9vYmFy", "Zg==", "a-b_", "a+b/", "Zh==" } });
 }
@@ -24,6 +27,7 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     var input: [input_len_max]u8 = undefined;
     const input_len = smith.slice(&input);
     try decodes_as_std(input[0..input_len]);
+    try @import("base64_test.zig").expect_paths_agree(input[0..@min(input_len, paths_len_max)]);
     try round_trips(input[0..input_len], smith.value(u64));
 }
 

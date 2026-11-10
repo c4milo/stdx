@@ -13,6 +13,13 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const alphabet_file = @import("alphabet.zig");
 const Alphabet = alphabet_file.Alphabet;
+const fast = @import("fast.zig");
+
+/// The fast path a call may take: decision 16's row for the encoder's whole groups. The checked
+/// path, with it off, is the reference.
+pub const Claims = struct {
+    whole_groups: bool = true,
+};
 
 pub const EncoderOptions = struct {
     alphabet: Alphabet = .standard,
@@ -23,6 +30,7 @@ pub const EncoderOptions = struct {
 
 pub const Encoder = struct {
     letters: *const [constants.alphabet_len]u8,
+    pairs: *const alphabet_file.PairTable,
     padding: bool,
     /// The octets of a group not yet whole, `held_len` of them.
     held: [constants.group_octets - 1]u8,
@@ -41,6 +49,7 @@ pub const Encoder = struct {
         _ = features;
         self.* = .{
             .letters = alphabet_file.letters(options.alphabet),
+            .pairs = alphabet_file.pair_letters(options.alphabet),
             .padding = options.padding,
             .held = undefined,
             .held_len = 0,
@@ -58,12 +67,17 @@ pub const Encoder = struct {
 
     /// Encodes `input` into `output` (decision 11). `finish` says no input follows this call's.
     pub fn encode(self: *Encoder, input: []const u8, output: []u8, flush: codec.Flush) codec.Progress {
+        return self.encode_with(.{}, input, output, flush);
+    }
+
+    /// `encode`, with the claims the tests switch.
+    pub fn encode_with(self: *Encoder, comptime claims: Claims, input: []const u8, output: []u8, flush: codec.Flush) codec.Progress {
         codec.check_entry(input, output);
         assert(self.part != .done);
         assert(self.part == .groups or input.len == 0);
         var reader = codec.Reader.init(input);
         var writer = codec.Writer.init(output);
-        const status = self.run(&reader, &writer, flush);
+        const status = self.run(claims, &reader, &writer, flush);
         const progress: codec.Progress = .{ .consumed = reader.consumed(), .written = writer.position, .status = status };
         codec.check_progress(input.len, output.len, progress);
         return progress;
@@ -90,11 +104,11 @@ pub const Encoder = struct {
         return whole + rest + 1;
     }
 
-    fn run(self: *Encoder, reader: *codec.Reader, writer: *codec.Writer, flush: codec.Flush) codec.Status {
+    fn run(self: *Encoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, flush: codec.Flush) codec.Status {
         if (!self.write_pending(writer)) return .needs_room;
         if (self.part == .groups) {
             if (!self.complete_held(reader, writer)) return .needs_room;
-            if (!self.write_groups(reader, writer)) return .needs_room;
+            if (!self.write_groups(claims, reader, writer)) return .needs_room;
             self.hold(reader);
             if (flush != .finish) return .needs_input;
             self.start_tail();
@@ -121,18 +135,26 @@ pub const Encoder = struct {
 
     /// Writes the whole groups of the input, the last one in part when the output has no room for
     /// all of its letters. False when the output filled first.
-    fn write_groups(self: *Encoder, reader: *codec.Reader, writer: *codec.Writer) bool {
+    fn write_groups(self: *Encoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) bool {
         if (self.held_len != 0) return true;
+        if (claims.whole_groups) self.fast_groups(reader, writer);
         const by_input = reader.remaining_len() / constants.group_octets;
         const by_room = writer.room_len() / constants.quantum_letters;
-        const count = @min(by_input, by_room);
-        for (0..count) |_| {
+        for (0..@min(by_input, by_room)) |_| {
             const group = (reader.take(constants.group_octets) catch unreachable)[0..constants.group_octets].*;
             writer.write_all(&self.quantum(group)) catch unreachable;
         }
         if (by_input <= by_room) return true;
         const group = (reader.take(constants.group_octets) catch unreachable)[0..constants.group_octets].*;
         return self.write_quantum(self.quantum(group), writer);
+    }
+
+    /// Decision 16's row: the whole groups that fit, through fast.zig.
+    fn fast_groups(self: *Encoder, reader: *codec.Reader, writer: *codec.Writer) void {
+        const rest = reader.take_partial(reader.remaining_len());
+        const count = fast.encode_groups(self.pairs, rest, writer.octets[writer.position..]);
+        reader.unread(rest.len - count * constants.group_octets);
+        writer.position += count * constants.quantum_letters;
     }
 
     /// Writes the letters of `letters` that fit, and keeps the rest pending. False when some are
@@ -179,14 +201,12 @@ pub const Encoder = struct {
         self.held_len = 0;
     }
 
-    /// The four letters of one group of three octets, most significant bit first (RFC 4648 §4).
+    /// The four letters of one group of three octets, most significant bit first (RFC 4648 §4):
+    /// two lookups of two letters each.
     fn quantum(self: *const Encoder, group: [constants.group_octets]u8) [constants.quantum_letters]u8 {
         const bits = std.mem.readInt(u24, &group, .big);
-        var result: [constants.quantum_letters]u8 = undefined;
-        inline for (0..constants.quantum_letters) |index| {
-            const shift = (constants.quantum_letters - 1 - index) * constants.letter_bits;
-            result[index] = self.letters[@as(u6, @truncate(bits >> shift))];
-        }
-        return result;
+        const high = self.pairs[bits >> alphabet_file.pair_bits];
+        const low = self.pairs[@as(u12, @truncate(bits))];
+        return high ++ low;
     }
 };

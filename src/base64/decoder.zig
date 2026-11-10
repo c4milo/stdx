@@ -14,6 +14,13 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const alphabet_file = @import("alphabet.zig");
 const Alphabet = alphabet_file.Alphabet;
+const fast = @import("fast.zig");
+
+/// The fast path a call may take: decision 16's row for the decoder's whole quanta. The checked
+/// path, with it off, is the reference.
+pub const Claims = struct {
+    whole_quanta: bool = true,
+};
 
 /// Which alphabets a text may use.
 pub const Accept = enum {
@@ -115,11 +122,16 @@ pub const Decoder = struct {
     /// Decodes `input` into `output` (decision 11). After an error the text is lost, and a new one
     /// starts with `init`.
     pub fn decode(self: *Decoder, input: []const u8, output: []u8, piece: Piece) Error!codec.Progress {
+        return self.decode_with(.{}, input, output, piece);
+    }
+
+    /// `decode`, with the claims the tests switch.
+    pub fn decode_with(self: *Decoder, comptime claims: Claims, input: []const u8, output: []u8, piece: Piece) Error!codec.Progress {
         codec.check_entry(input, output);
         assert(self.part != .done);
         var reader = codec.Reader.init(input);
         var writer = codec.Writer.init(output);
-        const status = try self.run(&reader, &writer, piece);
+        const status = try self.run(claims, &reader, &writer, piece);
         const progress: codec.Progress = .{ .consumed = reader.consumed(), .written = writer.position, .status = status };
         codec.check_progress(input.len, output.len, progress);
         return progress;
@@ -151,10 +163,12 @@ pub const Decoder = struct {
         return if (rest == 0) whole else whole + rest - 1;
     }
 
-    fn run(self: *Decoder, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!codec.Status {
+    fn run(self: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!codec.Status {
         if (!self.write_pending(writer)) return .needs_room;
         if (self.part == .tail) return self.finish();
         while (reader.remaining_len() > 0) {
+            if (claims.whole_quanta) self.quanta(reader, writer);
+            if (reader.remaining_len() == 0) break;
             try self.take(reader.take_octet() catch unreachable);
             if (!self.write_pending(writer)) return .needs_room;
         }
@@ -162,6 +176,17 @@ pub const Decoder = struct {
         try self.end();
         if (!self.write_pending(writer)) return .needs_room;
         return self.finish();
+    }
+
+    /// Decision 16's row: the whole quanta that fit, through fast.zig, while the decoder stands
+    /// between two quanta. It stops before any quantum it cannot take whole, one with a pad
+    /// character among them: `take` then takes it one octet at a time, and refuses it or goes on.
+    fn quanta(self: *Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
+        if (self.part != .letters or self.held_len != 0) return;
+        const rest = reader.take_partial(reader.remaining_len());
+        const count = fast.decode_quanta(alphabet_file.quanta(self.seen), rest, writer.octets[writer.position..]);
+        reader.unread(rest.len - count * constants.quantum_letters);
+        writer.position += count * constants.group_octets;
     }
 
     fn finish(self: *Decoder) codec.Status {
