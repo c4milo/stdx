@@ -1,6 +1,8 @@
 //! bench-json's baselines (decision 27, ruled by the owner on 2026-09-28): simdjson 5.1.1, yyjson
-//! 0.13.0 and Zig 0.16.0's std.json, timed in the same interleaved run as the claims' candidates,
-//! so stdx with every claim on is the same build in both comparisons.
+//! 0.13.0 and Zig 0.16.0's std.json, and since decision 69 serde_json 1.0.154 and Go's
+//! encoding/json/jsontext, the libraries a dependent's rivals in Rust and Go write and read JSON
+//! with. Each is timed in the same interleaved run as the claims' candidates, so stdx with every
+//! claim on is the same build in both comparisons.
 //!
 //! Each baseline does the work stdx's decoder and encoder do, through its documented API:
 //! - decoding visits every value of each text, unescapes every name and string, checks every
@@ -24,7 +26,7 @@ const std_json = @import("std_json_baseline");
 const workloads = @import("../json_workloads.zig");
 const Workload = workloads.Workload;
 
-pub const names = [_][]const u8{ "simdjson", "yyjson", "std.json" };
+pub const names = [_][]const u8{ "simdjson", "yyjson", "std.json", "serde_json", "Go jsontext" };
 pub const count = names.len;
 
 extern fn stdx_bench_simdjson_built() c_int;
@@ -38,6 +40,12 @@ extern fn stdx_bench_simdjson_builder_new(capacity: usize) ?*anyopaque;
 extern fn stdx_bench_simdjson_builder_free(builder: *anyopaque) void;
 extern fn stdx_bench_simdjson_encode(builder: *anyopaque, tokens: [*]const abi.Token, len: usize, scratch: [*]u8) usize;
 extern fn stdx_bench_simdjson_copy(builder: *anyopaque, out: [*]u8, out_len: usize) usize;
+extern fn stdx_bench_serde_built() c_int;
+extern fn stdx_bench_serde_decode(text: [*]const u8, len: usize, tally: *abi.Tally) c_int;
+extern fn stdx_bench_serde_encode(tokens: [*]const abi.Token, len: usize, out: [*]u8, out_len: usize, scratch: [*]u8) usize;
+extern fn stdx_bench_go_built() c_int;
+extern fn stdx_bench_go_decode(text: [*]const u8, len: usize, tally: *abi.Tally) c_int;
+extern fn stdx_bench_go_encode(tokens: [*]const abi.Token, len: usize, out: [*]u8, out_len: usize) usize;
 extern fn stdx_bench_yyjson_read_pool_len(text_len: usize) usize;
 extern fn stdx_bench_yyjson_decode(text: [*]const u8, len: usize, pool: [*]u8, pool_len: usize, tally: *abi.Tally) c_int;
 extern fn stdx_bench_yyjson_encode(tokens: [*]const abi.Token, len: usize, out: [*]u8, out_len: usize, pool: [*]u8, pool_len: usize, scratch: [*]u8) usize;
@@ -79,9 +87,10 @@ pub const Prepared = struct {
 };
 
 /// Which baselines this host builds: all of them but simdjson on macOS, where Zig 0.16.0 builds no
-/// libc++ (build/oracle.zig). An absent one is timed as nothing and reported as not built.
+/// libc++ (build/oracle.zig), and but serde_json and Go's jsontext on a host without cargo or go
+/// (build/oracle_json.zig). An absent one is timed as nothing and reported as not built.
 pub fn built() [count]bool {
-    return .{ stdx_bench_simdjson_built() != 0, true, true };
+    return .{ stdx_bench_simdjson_built() != 0, true, true, stdx_bench_serde_built() != 0, stdx_bench_go_built() != 0 };
 }
 
 /// Whether simdutf, the UTF-8 check's baseline (decision 38), was built: on macOS it is not, as
@@ -216,7 +225,23 @@ fn decode_std(prepared: *const Prepared) !abi.Tally {
     return tally;
 }
 
-const decoders = [count]*const fn (*const Prepared) anyerror!abi.Tally{ decode_simdjson, decode_yyjson, decode_std };
+fn decode_serde(prepared: *const Prepared) !abi.Tally {
+    var tally: abi.Tally = .{};
+    for (prepared.texts) |text| {
+        if (stdx_bench_serde_decode(text.ptr, text.len, &tally) != 0) return error.BaselineRefused;
+    }
+    return tally;
+}
+
+fn decode_go(prepared: *const Prepared) !abi.Tally {
+    var tally: abi.Tally = .{};
+    for (prepared.texts) |text| {
+        if (stdx_bench_go_decode(text.ptr, text.len, &tally) != 0) return error.BaselineRefused;
+    }
+    return tally;
+}
+
+const decoders = [count]*const fn (*const Prepared) anyerror!abi.Tally{ decode_simdjson, decode_yyjson, decode_std, decode_serde, decode_go };
 
 fn Timed(comptime decoder: *const fn (*const Prepared) anyerror!abi.Tally) type {
     return struct {
@@ -259,7 +284,17 @@ fn encode_std(prepared: *const Prepared, index: usize) usize {
     return std_json.encode(prepared.tokens[index], prepared.output, prepared.scratch) catch 0;
 }
 
-const encoders = [count]*const fn (*const Prepared, usize) usize{ encode_simdjson, encode_yyjson, encode_std };
+fn encode_serde(prepared: *const Prepared, index: usize) usize {
+    const tokens = prepared.tokens[index];
+    return stdx_bench_serde_encode(tokens.ptr, tokens.len, prepared.output.ptr, prepared.output.len, prepared.scratch.ptr);
+}
+
+fn encode_go(prepared: *const Prepared, index: usize) usize {
+    const tokens = prepared.tokens[index];
+    return stdx_bench_go_encode(tokens.ptr, tokens.len, prepared.output.ptr, prepared.output.len);
+}
+
+const encoders = [count]*const fn (*const Prepared, usize) usize{ encode_simdjson, encode_yyjson, encode_std, encode_serde, encode_go };
 
 fn Encoded(comptime encoder: *const fn (*const Prepared, usize) usize) type {
     return struct {
@@ -346,7 +381,7 @@ pub const Side = struct { title: []const u8, octets_are: []const u8, side: []con
 /// Prints each side's table and the workloads where a baseline ran faster than stdx.
 pub fn report(out: *std.Io.Writer, sides: []const Side) !void {
     try out.print("\n## Against the baselines\n\n", .{});
-    try out.print("stdx with every claim on, timed beside simdjson 5.1.1, yyjson 0.13.0 and Zig 0.16.0's std.json in the same run. Each ratio is stdx's throughput over the baseline's; below 1, the baseline is faster. stdx is built for the architecture's baseline CPU in ReleaseSafe; the baselines for this host in ReleaseFast, and simdjson picks its kernel at run time. Decoding visits every value; encoding writes each text from its tokens.\n", .{});
+    try out.print("stdx with every claim on, timed beside simdjson 5.1.1, yyjson 0.13.0, Zig 0.16.0's std.json, serde_json 1.0.154 and Go's encoding/json/jsontext in the same run. Each ratio is stdx's throughput over the baseline's; below 1, the baseline is faster. stdx is built for the architecture's baseline CPU in ReleaseSafe; the baselines for this host in ReleaseFast, and simdjson picks its kernel at run time. Decoding visits every value; encoding writes each text from its tokens.\n", .{});
     for (sides) |side| try table(out, side.title, side.octets_are, side.rows);
     try out.print("\n## Losses to the baselines\n\nEach workload where a baseline ran faster than stdx by more than the noise floor of decision 20.\n\n", .{});
     var none = true;

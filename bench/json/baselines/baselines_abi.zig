@@ -52,3 +52,11 @@ pub const Token = extern struct {
     /// A number's or a decimal's value, for a baseline that writes numbers from values.
     real: f64 = 0,
 };
+
+/// The octets of a token on a 64-bit target, which the Rust and the Go bindings' own declarations
+/// of it must equal (bench/json/rust, bench/json/go).
+pub const token_len = 48;
+
+comptime {
+    @import("std").debug.assert(@sizeOf(Token) == token_len or @sizeOf(usize) != @sizeOf(u64));
+}

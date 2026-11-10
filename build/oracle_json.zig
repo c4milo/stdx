@@ -3,6 +3,7 @@
 const std = @import("std");
 const modules = @import("modules.zig");
 const oracle_corpus = @import("oracle_corpus.zig");
+const toolchains = @import("oracle_toolchains.zig");
 
 /// `bench/json/json.zig` over the corpus files and CLDR's JSON texts: the json module's vector paths
 /// against its scalar ones (decision 27), built as the other benchmarks build stdx.
@@ -27,7 +28,14 @@ pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, graph: modules.M
     std_json.addImport("abi", abi);
     module.addImport("abi", abi);
     module.addImport("std_json_baseline", std_json);
-    module.linkLibrary(add_json_baselines(b) orelse return null);
+    // The baselines of decision 69: serde_json, built by cargo, and Go's jsontext, built by go. A
+    // host without one of them takes its absent bindings, and bench-json reports it as not built.
+    const has_cargo = toolchains.has(b, "cargo");
+    const has_go = toolchains.has(b, "go");
+    module.linkLibrary(add_json_baselines(b, has_cargo, has_go) orelse return null);
+    if (has_cargo) module.addObjectFile(toolchains.cargo_archive(b, "bench/json/rust", "libstdx_bench_json_rust.a", &.{"src/lib.rs"}));
+    if (has_go) module.addObjectFile(toolchains.go_archive(b, "bench/json/go", "go_jsontext.a", &.{ "jsontext.go", "go.mod" }));
+    if (has_cargo or has_go) toolchains.link_runtimes(module, baseline);
     const program = b.addExecutable(.{ .name = "bench_json", .root_module = module });
     b.installArtifact(program);
     return program;
@@ -49,7 +57,7 @@ pub fn run(b: *std.Build, program: *std.Build.Step.Compile, corpus: oracle_corpu
 /// simdjson, yyjson and simdutf, bench-json's C and C++ baselines, with their bindings in
 /// bench/json/baselines/. simdjson and simdutf build from their sources, whose main file includes
 /// the rest.
-fn add_json_baselines(b: *std.Build) ?*std.Build.Step.Compile {
+fn add_json_baselines(b: *std.Build, has_cargo: bool, has_go: bool) ?*std.Build.Step.Compile {
     const simdjson = b.lazyDependency("simdjson", .{}) orelse return null;
     const yyjson = b.lazyDependency("yyjson", .{}) orelse return null;
     const simdutf = b.lazyDependency("simdutf", .{}) orelse return null;
@@ -84,6 +92,8 @@ fn add_json_baselines(b: *std.Build) ?*std.Build.Step.Compile {
     root.addIncludePath(yyjson.path("src"));
     root.addCSourceFile(.{ .file = yyjson.path("src/yyjson.c") });
     root.addCSourceFile(.{ .file = b.path("bench/json/baselines/baselines_yyjson.c") });
+    if (!has_cargo) root.addCSourceFile(.{ .file = b.path("bench/json/baselines/baselines_serde_absent.c") });
+    if (!has_go) root.addCSourceFile(.{ .file = b.path("bench/json/baselines/baselines_go_absent.c") });
     return library;
 }
 

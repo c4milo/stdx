@@ -215,7 +215,8 @@ stdx's appendix to it.
     commit that first uses it; simdjson and yyjson, bench-json's baselines beside Zig's std.json
     (decision 27); simdutf, the baseline of the `json` module's UTF-8 check (decision 38); and
     Rust's `base64` crate 0.23.1 and Go's encoding/base64, bench-base64's baselines (decision 68),
-    built by cargo and go;
+    and serde_json 1.0.154 and Go's encoding/json/jsontext, bench-json's (decision 69), built by
+    cargo and go;
   - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
     fetches and checks against a pinned SHA-256 because Zig fetches archives only.
@@ -379,12 +380,13 @@ Change this section when a step adds or renames a command.
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
   CLDR's JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII
   text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's
-  slices each a text of its own, beside simdjson, yyjson and Zig's std.json: every candidate interleaved in one
+  slices each a text of its own, beside simdjson, yyjson, Zig's std.json, serde_json and Go's
+  jsontext: every candidate interleaved in one
   run, the median of five runs with the spread, and the losses listed (decision 27). It then times
   the module's `is_utf8` alone over each string workload's octets at the width the host's features
   pick, and on a host with AVX-512 with AVX2 alone, beside simdutf's `validate_utf8`, once every copy
   of the check and simdutf have judged seeded buffers alike (decisions 38 and 39). A macOS host builds it without simdjson and simdutf, as Zig 0.16.0 builds no
-  libc++ there. `bench/run.sh <report.md> bench-json -Doracles`
+  libc++ there, and a host without cargo or go builds it without serde_json or Go's jsontext. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the

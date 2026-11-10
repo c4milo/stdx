@@ -79,6 +79,18 @@ size_t stdx_bench_simdjson_encode(void *builder, const stdx_bench_token *tokens,
                                   char *scratch);
 size_t stdx_bench_simdjson_copy(void *builder, uint8_t *out, size_t out_len);
 
+/* serde_json 1.0.154 (bench/json/rust) and Go's encoding/json/jsontext (bench/json/go), the
+ * baselines of decision 69: whether each was built, its walk of one text into the tally, 0 when
+ * it took the text, and the octets it wrote for one text's tokens, 0 when it failed. */
+int stdx_bench_serde_built(void);
+int stdx_bench_serde_decode(const uint8_t *text, size_t len, stdx_bench_tally *tally);
+size_t stdx_bench_serde_encode(const stdx_bench_token *tokens, size_t count, uint8_t *out,
+                               size_t out_len, char *scratch);
+int stdx_bench_go_built(void);
+int stdx_bench_go_decode(const uint8_t *text, size_t len, stdx_bench_tally *tally);
+size_t stdx_bench_go_encode(const stdx_bench_token *tokens, size_t count, uint8_t *out,
+                            size_t out_len);
+
 size_t stdx_bench_yyjson_read_pool_len(size_t text_len);
 int stdx_bench_yyjson_decode(const uint8_t *text, size_t len, uint8_t *pool, size_t pool_len,
                              stdx_bench_tally *tally);

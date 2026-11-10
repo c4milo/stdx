@@ -251,21 +251,26 @@ pub fn main(init: std.process.Init) !void {
     const decoding_rows = try arena.alloc(baselines.Row, all.len);
     const encoding_rows = try arena.alloc(baselines.Row, encoded.len);
     const unchecked_rows = try arena.alloc(baselines.Row, encoded.len);
+    // A token a call through the whole-buffer helpers, beside the baselines (decision 69).
+    const reader_rows = try arena.alloc(baselines.Row, all.len);
+    const writer_rows = try arena.alloc(baselines.Row, encoded.len);
 
     const texts_note = try std.fmt.allocPrint(arena, "Octets are the text's.{s}", .{loaded.note});
     const written_note = try std.fmt.allocPrint(arena, "Octets are the ones written.{s}", .{loaded.note});
     try header(out, "Decoding", "TextReader.next", &decoder_claims, texts_note, false);
-    for (all, decoding_rows) |*workload, *row| {
+    for (all, decoding_rows, reader_rows) |*workload, *row, *reader_row| {
         const rates = try time(arena, io, workload, decoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
+        reader_row.* = baseline_row(workload, rates, workload.octets, methods_index);
         try report_row(out, workload, rates, &decoder_claims, workload.octets, false);
         try record_losses(arena, &losses, workload, "decoding", rates, &decoder_claims);
         try out.flush();
     }
     try header(out, "Encoding", "TextWriter's methods", &encoder_claims, written_note, true);
-    for (encoded, encoding_rows, unchecked_rows) |*workload, *row, *unchecked_row| {
+    for (encoded, encoding_rows, unchecked_rows, writer_rows) |*workload, *row, *unchecked_row, *writer_row| {
         const rates = try time(arena, io, workload, encoding);
         row.* = baseline_row(workload, rates, workload.octets, 0);
+        writer_row.* = baseline_row(workload, rates, workload.octets, methods_index);
         unchecked_row.* = baseline_row(workload, rates, workload.octets, unchecked_index);
         try report_row(out, workload, rates, &encoder_claims, workload.octets, true);
         try record_losses(arena, &losses, workload, "encoding", rates, &encoder_claims);
@@ -282,6 +287,8 @@ pub fn main(init: std.process.Init) !void {
         .{ .title = "Decoding against the baselines", .octets_are = texts_note, .side = "decoding", .rows = decoding_rows },
         .{ .title = "Encoding against the baselines", .octets_are = try std.fmt.allocPrint(arena, "Octets are the ones stdx writes.{s}", .{loaded.note}), .side = "encoding", .rows = encoding_rows },
         .{ .title = "Encoding against the baselines, J11's loop unchecked", .octets_are = try std.fmt.allocPrint(arena, "stdx's encoder with claim J11's loop's runtime safety checks off, as a caller may choose (decision 35). Octets are the ones stdx writes.{s}", .{loaded.note}), .side = "encoding with J11's loop unchecked", .rows = unchecked_rows },
+        .{ .title = "TextReader.next against the baselines", .octets_are = try std.fmt.allocPrint(arena, "stdx's decoder a token a call through `TextReader.next`, as a caller that reads a text a value at a time calls it (decision 69). Octets are the text's.{s}", .{loaded.note}), .side = "decoding through TextReader.next", .rows = reader_rows },
+        .{ .title = "TextWriter's methods against the baselines", .octets_are = try std.fmt.allocPrint(arena, "stdx's encoder a token a call through `TextWriter`'s methods, as a caller that writes a text a value at a time calls it (decision 69). Octets are the ones stdx writes.{s}", .{loaded.note}), .side = "encoding through TextWriter's methods", .rows = writer_rows },
     });
     try out.flush();
 }

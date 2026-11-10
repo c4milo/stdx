@@ -1,0 +1,22 @@
+# bench-json's Rust baseline (decision 69): serde_json, the JSON library connect-rust's Buffa
+# uses, behind the C ABI of bench/json/baselines/baselines.h. Built only with -Doracles.
+[package]
+name = "stdx-bench-json-rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+serde = "1"
+# unbounded_depth: the workloads nest deeper than serde_json's default limit of 128.
+serde_json = { version = "=1.0.154", features = ["unbounded_depth"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

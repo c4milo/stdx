@@ -4337,6 +4337,15 @@ small file.
     - **The measure.** bench-json times a token a call through the methods and through `next`,
       beside one token a call and the batches, and bench-profile counts them.
 
+    **The bar, as the owner set it.** The dependent competes with a Rust library that writes and
+    reads JSON with serde_json, and with Go's protobuf. So bench-json times serde_json 1.0.154 and
+    Go's encoding/json/jsontext, Go's reader and writer of JSON tokens, beside its other
+    baselines, and sets the methods' rows and `next`'s rows beside every baseline in tables of
+    their own. cargo and go build the two, as decision 68's baselines; a host without one reports
+    it as not built. serde_json walks a text with a visitor and builds no document, and takes each
+    number as a value, which is its only form. Go's jsontext allows a name that repeats, which no
+    other candidate checks for.
+
     Cost: each method holds a copy of its kind's step. On aarch64, ReleaseSafe, `begin_object` is
     480 octets, `unsigned` 3,828, `name` 4,580 and `string` 5,352. A program links the methods it
     calls.
