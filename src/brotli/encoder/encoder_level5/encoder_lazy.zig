@@ -66,15 +66,21 @@ fn lazy(comptime safety: bool, buckets: *Buckets, window: []const u8, found: *Fo
         if (next_position >= search_end) break;
         probed = next_position + 1;
         const next = best(safety, buckets, window, next_position, end, reach_len, commands) orelse break;
+        if (next.saves <= found.saves) break;
         // A match at a last distance keeps the next command's distance short; the next position must
         // save a margin more to break that chain (decision 66, after Google's quality 5's margin).
         // A word's distance can equal a last distance only at a stream's start, and takes no margin.
-        const keeps_distance = found.word_len == 0 and std.mem.indexOfScalar(u32, &commands.last_distances, @intCast(found.offset)) != null;
-        const margin: i64 = if (keeps_distance) constants.encoder_level5.lazy_margin else 0;
-        if (next.saves <= found.saves + margin) break;
+        // The ring is searched only here, where the next position already saves more.
+        if (next.saves <= found.saves + constants.encoder_level5.lazy_margin and keeps_distance(found.*, commands)) break;
         found.* = next;
     }
     return probed;
+}
+
+/// Whether `found` is a match at one of the last distances, whose short code the next command's
+/// distance then takes (RFC 7932 §4).
+fn keeps_distance(found: Found, commands: anytype) bool {
+    return found.word_len == 0 and std.mem.indexOfScalar(u32, &commands.last_distances, @intCast(found.offset)) != null;
 }
 
 /// The match at `position` that saves the most, or none that saves anything. Records `position` in
@@ -391,8 +397,9 @@ fn expect_lazy_margin() !void {
         .{ .offset = last, .word_len = 0, .behind = margin, .switches = false },
         // A last distance, the next past the margin: replaced.
         .{ .offset = last, .word_len = 0, .behind = margin + 1, .switches = true },
-        // No last distance: any greater saving replaces it.
+        // No last distance: any greater saving replaces it, and an equal one does not.
         .{ .offset = lazy_other_offset, .word_len = 0, .behind = 1, .switches = true },
+        .{ .offset = lazy_other_offset, .word_len = 0, .behind = 0, .switches = false },
         // A word takes no margin, whatever its distance.
         .{ .offset = last, .word_len = constants.word_len_min, .behind = 1, .switches = true },
     };
