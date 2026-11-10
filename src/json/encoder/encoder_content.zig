@@ -48,7 +48,7 @@ fn copy_run(level: wide.Level, reader: *codec.Reader, writer: *codec.Writer) voi
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
     const run = reader.take(wide.plain_len(level, window)) catch unreachable;
-    writer.write_all(run) catch unreachable;
+    writer.write_all_short(run) catch unreachable;
 }
 
 /// Takes the next octet of a string: escapes it, or checks it as UTF-8 and copies it. Returns false
@@ -84,7 +84,7 @@ fn copy_characters(reader: *codec.Reader, writer: *codec.Writer) usize {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
     const run = reader.take(scan.content_len_vector(constants.vector_len, window)) catch unreachable;
-    writer.write_all(run) catch unreachable;
+    writer.write_all_short(run) catch unreachable;
     return run.len;
 }
 

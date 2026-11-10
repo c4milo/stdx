@@ -316,7 +316,7 @@ pub fn hold(encoder: *Encoder, octets: []const u8) void {
 /// Writes what `output` takes of the held octets. Returns whether all of them are written.
 pub fn write_pending(encoder: *Encoder, writer: *codec.Writer) bool {
     assert(encoder.pending_written <= encoder.pending_len);
-    encoder.pending_written += @intCast(writer.write_partial(encoder.pending[encoder.pending_written..encoder.pending_len]));
+    encoder.pending_written += @intCast(writer.write_partial_short(encoder.pending[encoder.pending_written..encoder.pending_len]));
     if (encoder.pending_written < encoder.pending_len) return false;
     encoder.pending_len = 0;
     encoder.pending_written = 0;

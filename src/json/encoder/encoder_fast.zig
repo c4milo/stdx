@@ -182,7 +182,7 @@ inline fn ends_text_after(encoder: *const Encoder, kind: Kind) bool {
 
 inline fn write_body(comptime claims: Claims, level: wide.Level, body: Body, reader: *codec.Reader, writer: *codec.Writer) void {
     if (body.opening) |opening| writer.write_octet(opening) catch unreachable;
-    if (body.text.len > 0) writer.write_all(body.text) catch unreachable;
+    if (body.text.len > 0) writer.write_all_short(body.text) catch unreachable;
     write_content(claims, level, body, reader, writer);
     if (body.closing != .none) writer.write_octet(constants.quotation_mark) catch unreachable;
     if (body.closing == .name) writer.write_octet(constants.name_separator) catch unreachable;
@@ -194,7 +194,7 @@ inline fn write_content(comptime claims: Claims, level: wide.Level, body: Body, 
         const taken = content.hex_run(claims, level, reader, writer);
         assert(taken == body.content_len);
     } else if (body.content_len > 0) {
-        writer.write_all(reader.take(body.content_len) catch unreachable) catch unreachable;
+        writer.write_all_short(reader.take(body.content_len) catch unreachable) catch unreachable;
     }
 }
 

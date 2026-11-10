@@ -16,8 +16,9 @@
 //! other start to the checked path.
 //!
 //! It reads through the checked reader and writes through the checked writer: each octet the
-//! grammar turns on with `take_octet`, and each run counted by a scan of scan.zig or number.zig and
-//! taken with `take`. It changes the state only once the token is whole, and leaves it as the
+//! grammar turns on with `take_octet`, and each run counted by a scan of scan.zig or number.zig,
+//! taken with `take` and written with `write_first`, which moves a short run with no call
+//! (decision 70). It changes the state only once the token is whole, and leaves it as the
 //! checked path would, field for field, which decoder_fast_test.zig requires after every call.
 
 const std = @import("std");
@@ -151,10 +152,10 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
         wide.plain_len(decoder.level.with(claims), window)
     else
         scan.plain_len_scalar(window);
-    const content = reader.take(run_len) catch unreachable;
+    _ = reader.take(run_len) catch unreachable;
     const closing = reader.take_octet() catch return null;
     if (closing != constants.quotation_mark) return null;
-    writer.write_all(content) catch unreachable;
+    writer.write_first(window, run_len) catch unreachable;
     started(decoder, 1, .{});
     if (kind == .name) decoder_file.name_ended(decoder) else decoder_file.value_ended(decoder, kind);
     return .{ .status = .token, .kind = kind };
@@ -169,8 +170,8 @@ inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer
     reader.unread(window.len);
     const ended = @call(.always_inline, number_grammar.ended_in, .{window}) orelse return null;
     if (ended.len > writer.room_len()) return null;
-    const octets = @call(.always_inline, codec.Reader.take, .{ reader, ended.len }) catch unreachable;
-    @call(.always_inline, codec.Writer.write_all, .{ writer, octets }) catch unreachable;
+    _ = @call(.always_inline, codec.Reader.take, .{ reader, ended.len }) catch unreachable;
+    writer.write_first(window, ended.len) catch unreachable;
     started(decoder, 1, ended.number);
     decoder_file.value_ended(decoder, .number);
     return .{ .status = .token, .kind = .number };

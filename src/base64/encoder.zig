@@ -146,7 +146,7 @@ pub const Encoder = struct {
         const by_room = writer.room_len() / constants.quantum_letters;
         for (0..@min(by_input, by_room)) |_| {
             const group = (reader.take(constants.group_octets) catch unreachable)[0..constants.group_octets].*;
-            writer.write_all(&self.quantum(group)) catch unreachable;
+            writer.write_all_short(&self.quantum(group)) catch unreachable;
         }
         if (by_input <= by_room) return true;
         const group = (reader.take(constants.group_octets) catch unreachable)[0..constants.group_octets].*;
@@ -174,7 +174,7 @@ pub const Encoder = struct {
     /// Writes what is pending. False when the output filled first.
     fn write_pending(self: *Encoder, writer: *codec.Writer) bool {
         if (self.pending_written == self.pending_len) return true;
-        const count = writer.write_partial(self.pending[self.pending_written..self.pending_len]);
+        const count = writer.write_partial_short(self.pending[self.pending_written..self.pending_len]);
         self.pending_written += @intCast(count);
         return self.pending_written == self.pending_len;
     }

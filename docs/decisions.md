@@ -4401,3 +4401,63 @@ small file.
       call site made LLVM stop inlining it into the batch, which then ran 5% more instructions.
     - A claim for `TextReader.next`'s line: `next` takes no claims. The lockstep test holds it to
       the checked path.
+
+70. **The checked writer copies a short run with no call.** Ruled by the owner on 2026-11-09, as
+    the lever named C1, started on 2026-11-10, and its form ruled the same day. `Writer.write_all`
+    and `write_partial` copy with `@memcpy`, whose length is known only at run time, so each copy
+    is a call of `memcpy`. Claim J8's straight line wrote each name, string and number that way,
+    the json module's checked path each octet an escape stands for, and base64 each quantum and
+    each held octet.
+    - `write_all_short` and `write_partial_short` are `write_all` and `write_partial` for octets
+      that are most often short: up to 16 octets copy inline, in two moves of 8 or 4 octets that
+      overlap and stay inside both, and below 4 octets the first, the last and the middle one. A
+      longer copy takes `@memcpy`. The json module and base64 write through them, but for the
+      runs of a string between its escapes, which keep `write_all`. Every other codec keeps
+      `write_all` and `write_partial`, and builds to the same functions as before, on aarch64 and
+      x86-64.
+    - `Writer.write_first(window, len)` writes the first `len` octets of `window`. Where the
+      window and the room both hold `write_first_move_len` octets, 16, and `len` is no more, it
+      moves 16 in one load and one store. The octets past `len` land in room the writer does not
+      count as written, which decision 11 leaves to the call, and the next write goes over them.
+      Claim J8's line passes it the window it scanned, so the token's octets are its first.
+    - `writer.zig`'s tests hold the copy and `write_first` to a plain copy at every length up to
+      past 16, and with windows and rooms shorter than a move. The commit lists the mutations.
+
+    **What the runners measured.** bench-profile on the N2 (run 42879992370): a token through
+    `TextReader.next` took 179.3 instructions on CLDR and 192.0 on qlog, from 194.4 and 205.1,
+    and a token through `Decoder.decode` 223.2 and 235.2, from 239.0 and 250.2. A string with
+    escapes took 7.7% fewer instructions one token a call, on dickens, and 10.1% fewer on
+    json-1m. The decoder's batches ran the same instructions. The encoder's took 81.8 a token on
+    CLDR and 82.8 on qlog, from 81.5 and 82.5: its checked path writes through the short copy too.
+    That run measured the inline copy inside `write_all` and `write_partial` for every codec; the
+    json module and base64 build to the same functions in both forms, apart from the copy's name.
+
+    The alternatives refused:
+    - The inline copy inside `write_all` and `write_partial`, for every codec: DEFLATE ran as
+      before, and the Zstandard encoder on x86-64 lost ground to libzstd in the same job. Its
+      speed over libzstd's moved by a median of 0.977, 0.993 and 0.995 in three jobs (runs
+      42889268368, 42898534421 and 42898546832), and below 0.99 in all three on four rows:
+      alice29.txt, cp.html and grammar.lsp at level 3, and css-1m at level 1. cp.html fell to
+      0.936 in one. The fourth job, on an AMD EPYC 9V45, ran every candidate 5% faster in its
+      second phase. The owner ruled on 2026-11-10 to keep Zstandard's code as it was.
+    - The inline copy for the runs of a string between its escapes too: on an Intel Xeon 8573C,
+      with the baselines steady, 10 of 19 strings through `next` ran below 0.99 of main's speed,
+      asyoulik.txt at 0.942 (run 42879980007), and plrabn12.txt fell to 0.974 and 0.980 in both
+      jobs of a pair on x86-64 (runs 42908578129 and 42908590279). With `write_all` for the runs,
+      the strings through `next` ran at a median of 1.077 and 1.076 on the N2, and 1.058 and
+      1.052 on an AMD EPYC 9V74 and 7763, none below 1.00 (runs 42916652088 and 42916663927).
+    - `write_first` alone, with `write_all` as it was: the token rows took the same instructions,
+      and the strings with escapes gained nothing (runs 42876018467 and 42876033910).
+    - The inline copy alone: the strings took the same instructions, and decoding one token a
+      call took 4% to 6% more cycles than with `write_first` on the N2 (runs 42871744268 and
+      42879992370).
+    - The same 16-octet move in the checked path's runs of a string: callgrind counted 0.8% more
+      instructions on prose with escapes, whose runs between escapes are longer than 16.
+    - The window taken again from the reader after the scan, so it stays live across no call:
+      more instructions at every length.
+    - A second move of 32 octets in `write_first`: 42 fewer instructions a record, and 16 more on
+      every longer string.
+    - A count from a probe program alone: callgrind put the inline copy at 4.8 instructions more a
+      token of qlog's shape, where the bench program on the N2 took 13.6 fewer a token of qlog.
+      The probe has one caller, and LLVM inlined the copy another way. The runner's counters
+      decide.

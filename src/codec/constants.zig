@@ -2,6 +2,10 @@
 //! through, and the schedules the split driver draws for every codec's tests.
 const std = @import("std");
 
+/// The octets `Writer.write_first` moves in one load and one store, with no call: a token's few
+/// octets cost a call to `memcpy` more than its copy (decision 70).
+pub const write_first_move_len: usize = 2 * @sizeOf(u64);
+
 /// The width of the bit buffer. DEFLATE and brotli pack their codes least significant bit first
 /// (RFC 1951 §3.1.1, RFC 7932 §1.5.1), and a 64-bit buffer holds several codes between refills.
 pub const bit_buffer_bits: u7 = 64;

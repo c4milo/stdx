@@ -213,7 +213,7 @@ fn hold(decoder: *Decoder, octets: []const u8) void {
 /// Writes what `output` takes of the held octets. Returns whether all of them are written.
 fn write_pending(decoder: *Decoder, writer: *codec.Writer) bool {
     assert(decoder.pending_written <= decoder.pending_len);
-    decoder.pending_written += @intCast(writer.write_partial(decoder.pending[decoder.pending_written..decoder.pending_len]));
+    decoder.pending_written += @intCast(writer.write_partial_short(decoder.pending[decoder.pending_written..decoder.pending_len]));
     if (decoder.pending_written < decoder.pending_len) return false;
     decoder.pending_len = 0;
     decoder.pending_written = 0;
