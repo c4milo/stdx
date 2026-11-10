@@ -71,6 +71,8 @@ pub fn refusal(err: Error) codec.Refusal {
 pub const Decoder = struct {
     accept: Accept,
     padding: Padding,
+    /// Whether the CPU has AVX2, whose variant object's kernels the fast path then calls.
+    wide: bool,
     /// The alphabet whose letters of values 62 and 63 the text used, once one appeared.
     seen: ?Alphabet,
     /// The values of the quantum's letters so far, `held_len` of them, most significant first.
@@ -89,8 +91,8 @@ pub const Decoder = struct {
 
     /// Starts a text. The decoder copies what it keeps from `options`.
     pub fn init(self: *Decoder, options: DecoderOptions, features: codec.Features) void {
-        _ = features;
         self.* = .{
+            .wide = fast.has_kernels and features.avx2,
             .accept = options.accept,
             .padding = options.padding,
             .seen = switch (options.accept) {
@@ -181,10 +183,16 @@ pub const Decoder = struct {
     /// Decision 16's row: the whole quanta that fit, through fast.zig, while the decoder stands
     /// between two quanta. It stops before any quantum it cannot take whole, one with a pad
     /// character among them: `take` then takes it one octet at a time, and refuses it or goes on.
+    ///
+    /// Before the text has shown its alphabet, the fast path takes only the letters both share, so
+    /// it stops at the first letter of value 62 or 63. When either alphabet may come, the decoder
+    /// then takes that letter's alphabet as the text's and goes on fast: every letter before it is
+    /// shared, and a later letter of the other alphabet still stops the fast path, and `take`
+    /// refuses it.
     fn quanta(self: *Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
         if (self.part != .letters or self.held_len != 0) return;
         const rest = reader.take_partial(reader.remaining_len());
-        const count = fast.decode_quanta(self.seen, rest, writer.octets[writer.position..]);
+        const count = fast.decode_quanta_learning(&self.seen, self.accept == .either, self.wide, rest, writer.octets[writer.position..]);
         reader.unread(rest.len - count * constants.quantum_letters);
         writer.position += count * constants.group_octets;
     }

@@ -87,6 +87,8 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 
     const base64 = library(b, "base64", settings);
     base64.addImport("codec", codec);
+    // Decision 68's AVX2 kernels: the nibble tables through vpshufb, and the encoder's shuffles.
+    variants.add_levels(b, base64, "base64", settings.target, settings.optimize, &variants.base64_levels);
 
     const platform = library(b, "platform", settings);
 

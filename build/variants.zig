@@ -13,6 +13,9 @@ pub const Level = enum { x86_64_pclmul, x86_64_avx2, x86_64_vpclmul, x86_64_avx5
 /// The levels the json module builds: claim J7's AVX2, and AVX-512 for decision 39's check alone.
 pub const json_levels = [_]Level{ .x86_64_avx2, .x86_64_avx512 };
 
+/// The levels of base64's variant object (decision 68): its decoding step takes AVX2's `vpshufb`.
+pub const base64_levels = [_]Level{.x86_64_avx2};
+
 /// The levels built for a target of this architecture.
 pub fn levels_of(arch: std.Target.Cpu.Arch) []const Level {
     return switch (arch) {

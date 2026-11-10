@@ -114,6 +114,7 @@ fn letters_of(comptime alphabet: Alphabet, values: Letters) Letters {
 /// so the store is whole vectors: the caller reports the first 24 written, and the 8 after them
 /// are scratch (decision 11). Returns false, having written nothing, otherwise.
 pub fn decode_block(comptime alphabet: ?Alphabet, letters: *const [block_letters]u8, room: *[block_letters]u8) bool {
+    if (nibble_path) return decode_block_by_nibbles(alphabet, letters, room);
     const values = values_of(alphabet, letters.*) orelse return false;
     const words: Words = @bitCast(values);
     const byte_mask: Words = @splat(std.math.maxInt(u8));
@@ -145,6 +146,182 @@ pub fn decode_block(comptime alphabet: ?Alphabet, letters: *const [block_letters
     };
     const unused: @Vector(1, u8) = @splat(0);
     room.* = @shuffle(u8, source, unused, order);
+    return true;
+}
+
+/// The nibble tables of one alphabet mode, for a lookup of 16 entries by each octet's high or low
+/// four bits (`tbl` on aarch64): an octet is no letter when `by_low[low] & by_high[high]` is not
+/// zero, and a letter's value is the octet plus `offsets[high | marked]`, where `marked` is 8 for
+/// the one letter whose high nibble it shares with letters of another offset.
+const NibbleTables = struct {
+    by_low: Nibbles,
+    by_high: Nibbles,
+    offsets: Nibbles,
+    marked: u8,
+};
+
+const Nibbles = @Vector(nibble_values, u8);
+
+/// The values of four bits, and the index bit `marked` sets: one above any letter's high nibble.
+const nibble_values = 16;
+
+/// The 16-octet halves of one block, each one register.
+const halves_per_block = block_letters / nibble_values;
+
+/// The two tables `validity_tables` gives, by low nibble and by high.
+const validity_count = 2;
+
+/// The letters, and the 6-bit groups, one lane of `Pairs` holds.
+const letters_per_pair = 2;
+const nibble_bits = 4;
+const marked_bit: u8 = 1 << (nibble_bits - 1);
+
+fn nibble_tables(comptime alphabet: ?Alphabet) NibbleTables {
+    comptime {
+        const letters = @import("alphabet.zig").letters(alphabet orelse .standard);
+        const taken = if (alphabet == null) letters[0..value_62] else letters[0..];
+        const marked: u8 = if (alphabet) |known| last_letters(known)[1] else 0;
+        const validity = validity_tables(low_sets(taken));
+        return .{ .by_low = validity[0], .by_high = validity[1], .offsets = offset_table(taken, marked), .marked = marked };
+    }
+}
+
+/// Each high nibble's low nibbles that are letters, as a 16-bit set.
+fn low_sets(comptime taken: []const u8) [nibble_values]u16 {
+    var sets: [nibble_values]u16 = @splat(0);
+    for (taken) |letter| sets[letter >> nibble_bits] |= @as(u16, 1) << @intCast(letter % nibble_values);
+    return sets;
+}
+
+/// The tables by low and by high nibble: one bit for each distinct set of `sets`, which a high
+/// nibble's entry holds and each low nibble outside that set holds too.
+fn validity_tables(comptime sets: [nibble_values]u16) [validity_count][nibble_values]u8 {
+    var distinct: [constants.octet_bits]u16 = undefined;
+    var distinct_len: usize = 0;
+    var by_low: [nibble_values]u8 = @splat(0);
+    var by_high: [nibble_values]u8 = @splat(0);
+    for (sets, 0..) |set, high| {
+        const bit = std.mem.indexOfScalar(u16, distinct[0..distinct_len], set) orelse blk: {
+            std.debug.assert(distinct_len < constants.octet_bits);
+            distinct[distinct_len] = set;
+            distinct_len += 1;
+            break :blk distinct_len - 1;
+        };
+        by_high[high] = @as(u8, 1) << @intCast(bit);
+        for (0..nibble_values) |low| {
+            if (set & (@as(u16, 1) << @intCast(low)) == 0) by_low[low] |= @as(u8, 1) << @intCast(bit);
+        }
+    }
+    return .{ by_low, by_high };
+}
+
+/// The offset of each index: a letter's value less the letter, the same for every letter that
+/// shares an index.
+fn offset_table(comptime taken: []const u8, comptime marked: u8) [nibble_values]u8 {
+    var offsets: [nibble_values]u8 = @splat(0);
+    var filled: [nibble_values]bool = @splat(false);
+    for (taken, 0..) |letter, value| {
+        const index = (letter >> nibble_bits) | (if (letter == marked and marked != 0) marked_bit else 0);
+        const offset = @as(u8, @intCast(value)) -% letter;
+        std.debug.assert(!filled[index] or offsets[index] == offset);
+        offsets[index] = offset;
+        filled[index] = true;
+    }
+    return offsets;
+}
+
+/// Whether this build decodes through the nibble tables: aarch64, whose NEON `tbl` is in its
+/// baseline, and x86-64 built with AVX2, whose `vpshufb` looks up 16 entries in each 16-octet lane.
+/// The x86-64 variant object of decision 21 is such a build (variants.zig).
+const has_avx2 = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
+pub const nibble_path = builtin.cpu.arch == .aarch64 or has_avx2;
+
+/// The entry of `table` that each octet of `index` names, each 16 octets looking up the same 16
+/// entries.
+fn lookup(table: Nibbles, index: Letters) Letters {
+    if (has_avx2) {
+        const both: Letters = std.simd.join(table, table);
+        return asm ("vpshufb %[index], %[table], %[out]"
+            : [out] "=x" (-> Letters),
+            : [table] "x" (both),
+              [index] "x" (index),
+        );
+    }
+    const halves: [halves_per_block]Nibbles = @bitCast(index);
+    var result: [halves_per_block]Nibbles = undefined;
+    inline for (halves, &result) |half, *entry| entry.* = asm ("tbl %[out].16b, {%[table].16b}, %[index].16b"
+        : [out] "=w" (-> Nibbles),
+        : [table] "w" (table),
+          [index] "w" (half),
+    );
+    return @bitCast(result);
+}
+
+/// Each 16 octets of `data` in the order `order` names, an index of 16 or more giving 0.
+fn reorder(data: Letters, order: Nibbles) Letters {
+    if (has_avx2) {
+        const both: Letters = std.simd.join(order, order);
+        return asm ("vpshufb %[index], %[table], %[out]"
+            : [out] "=x" (-> Letters),
+            : [table] "x" (data),
+              [index] "x" (both),
+        );
+    }
+    const halves: [halves_per_block]Nibbles = @bitCast(data);
+    var result: [halves_per_block]Nibbles = undefined;
+    inline for (halves, &result) |half, *entry| entry.* = asm ("tbl %[out].16b, {%[table].16b}, %[index].16b"
+        : [out] "=w" (-> Nibbles),
+        : [table] "w" (half),
+          [index] "w" (order),
+    );
+    return @bitCast(result);
+}
+
+/// Each letter's 6-bit value through the nibble tables, or null when one is no letter the mode
+/// takes: three lookups each 16 letters.
+fn values_by_nibbles(comptime alphabet: ?Alphabet, letters: Letters) ?Letters {
+    const tables = comptime nibble_tables(alphabet);
+    const high = letters >> @splat(nibble_bits);
+    const low = letters & @as(Letters, @splat(nibble_values - 1));
+    const refused = lookup(tables.by_low, low) & lookup(tables.by_high, high);
+    var index = high;
+    if (tables.marked != 0) {
+        index |= @select(u8, letters == @as(Letters, @splat(tables.marked)), @as(Letters, @splat(marked_bit)), @as(Letters, @splat(0)));
+    }
+    if (@reduce(.Or, refused) != 0) return null;
+    return letters +% lookup(tables.offsets, index);
+}
+
+/// The octets of a group of four lanes, in a 16-octet half: three from each lane, most
+/// significant first, then four of no use (`tbl` gives 0 for an index past 15).
+const half_order: Nibbles = blk: {
+    var order: [nibble_values]u8 = @splat(nibble_values);
+    for (0..nibble_values / @sizeOf(u32)) |lane| {
+        for (0..constants.group_octets) |index| {
+            order[lane * constants.group_octets + index] = @intCast(lane * @sizeOf(u32) + constants.group_octets - 1 - index);
+        }
+    }
+    break :blk order;
+};
+
+/// `decode_block` on aarch64, which is little-endian: the nibble tables give the values, two
+/// letters join in each 16-bit lane and two pairs in each 32-bit lane, and one lookup a half puts
+/// each lane's three octets in order. The second half's store overwrites the first's spare four.
+fn decode_block_by_nibbles(comptime alphabet: ?Alphabet, letters: *const [block_letters]u8, room: *[block_letters]u8) bool {
+    comptime std.debug.assert(builtin.cpu.arch.endian() == .little);
+    const values = values_by_nibbles(alphabet, letters.*) orelse return false;
+    const Pairs = @Vector(block_letters / letters_per_pair, u16);
+    const pairs: Pairs = @bitCast(values);
+    // The first letter of a pair is the low octet of its lane, and holds the high six bits.
+    const joined = (pairs & @as(Pairs, @splat(constants.alphabet_len - 1))) << @splat(constants.letter_bits) | pairs >> @splat(constants.octet_bits);
+    const quads: Words = @bitCast(joined);
+    const pair_bits = letters_per_pair * constants.letter_bits;
+    const pair_mask: Words = @splat((1 << pair_bits) - 1);
+    const bits = (quads & pair_mask) << @splat(pair_bits) | quads >> @splat(@bitSizeOf(u16));
+    const ordered: [halves_per_block]Nibbles = @bitCast(reorder(@bitCast(bits), half_order));
+    const half_octets = nibble_values / @sizeOf(u32) * constants.group_octets;
+    room[0..nibble_values].* = ordered[0];
+    room[half_octets..][0..nibble_values].* = ordered[1];
     return true;
 }
 
@@ -190,5 +367,25 @@ test "a block takes every letter of its alphabet, and the shared letters with no
         var room: [block_letters]u8 = undefined;
         try std.testing.expect(decode_block(null, all[0..block_letters], &room));
         try std.testing.expect(!decode_block(null, all[block_letters..][0..block_letters], &room));
+    }
+}
+
+test "a block refuses each octet its mode does not take, at every place" {
+    const table = @import("alphabet.zig");
+    inline for (.{ @as(?Alphabet, null), @as(?Alphabet, .standard), @as(?Alphabet, .url_safe) }) |mode| {
+        const base = table.letters(mode orelse .standard)[0..block_letters];
+        for (0..std.math.maxInt(u8) + 1) |octet| {
+            const entry = table.table[octet];
+            const flags = entry & table.flags_mask;
+            const takes = entry != table.not_a_letter and
+                (flags == 0 or (mode != null and flags == table.only_flag(mode.?)));
+            if (takes) continue;
+            for (0..block_letters) |place| {
+                var block: [block_letters]u8 = base.*;
+                block[place] = @intCast(octet);
+                var room: [block_letters]u8 = undefined;
+                try std.testing.expect(!decode_block(mode, &block, &room));
+            }
+        }
     }
 }

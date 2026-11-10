@@ -13,6 +13,11 @@ const Decoder = decoder_file.Decoder;
 
 const features = codec.Features.none();
 
+/// The CPU's own features, so the fast paths reach the AVX2 variant object where the CPU has it.
+fn detected() codec.Features {
+    return codec.Features.detect();
+}
+
 /// RFC 4648 §10's vectors: each input and its base 64 text.
 const vectors = [_]struct { []const u8, []const u8 }{
     .{ "", "" },
@@ -127,7 +132,7 @@ fn expect_as_std(text: []const u8) !void {
 /// Decodes `text` whole with the claims given.
 fn decode_claims(comptime claims: decoder_file.Claims, text: []const u8, output: []u8) (decoder_file.Error || error{NoSpaceLeft})![]const u8 {
     var state: Decoder = undefined;
-    state.init(.{}, features);
+    state.init(.{}, if (claims.whole_quanta) detected() else features);
     const progress = try state.decode_with(claims, text, output, .last);
     const whole = codec.whole(progress) catch return error.NoSpaceLeft;
     return output[0..whole.written];
@@ -153,7 +158,7 @@ test "the encoder's fast path writes the checked path's letters for every length
         inline for (.{ Alphabet.standard, Alphabet.url_safe }) |alphabet| {
             var fast_state: Encoder = undefined;
             var checked_state: Encoder = undefined;
-            fast_state.init(.{ .alphabet = alphabet }, features);
+            fast_state.init(.{ .alphabet = alphabet }, detected());
             checked_state.init(.{ .alphabet = alphabet }, features);
             const fast = fast_state.encode_with(.{}, input[0..len], &fast_text, .finish);
             const checked = checked_state.encode_with(.{ .whole_groups = false }, input[0..len], &checked_text, .finish);

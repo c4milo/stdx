@@ -31,6 +31,8 @@ pub const EncoderOptions = struct {
 pub const Encoder = struct {
     letters: *const [constants.alphabet_len]u8,
     alphabet: Alphabet,
+    /// Whether the CPU has AVX2, whose variant object's kernels the fast path then calls.
+    wide: bool,
     pairs: *const alphabet_file.PairTable,
     padding: bool,
     /// The octets of a group not yet whole, `held_len` of them.
@@ -47,8 +49,8 @@ pub const Encoder = struct {
 
     /// Starts a text. The encoder copies what it keeps from `options`.
     pub fn init(self: *Encoder, options: EncoderOptions, features: codec.Features) void {
-        _ = features;
         self.* = .{
+            .wide = fast.has_kernels and features.avx2,
             .letters = alphabet_file.letters(options.alphabet),
             .alphabet = options.alphabet,
             .pairs = alphabet_file.pair_letters(options.alphabet),
@@ -154,7 +156,7 @@ pub const Encoder = struct {
     /// Decision 16's row: the whole groups that fit, through fast.zig.
     fn fast_groups(self: *Encoder, reader: *codec.Reader, writer: *codec.Writer) void {
         const rest = reader.take_partial(reader.remaining_len());
-        const count = fast.encode_groups(self.alphabet, self.pairs, rest, writer.octets[writer.position..]);
+        const count = fast.encode_groups(self.alphabet, self.wide, self.pairs, rest, writer.octets[writer.position..]);
         reader.unread(rest.len - count * constants.group_octets);
         writer.position += count * constants.quantum_letters;
     }
