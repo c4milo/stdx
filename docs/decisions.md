@@ -2317,8 +2317,9 @@ small file.
       Beside both releases in one job (run
       [42766046990](https://github.com/c4milo/stdx/actions/runs/42766046990)), 9.3.3 validated at
       1.025 to 1.206 of 9.2.1 on the N2, median 1.096, and at 0.959 to 1.089 on an EPYC 7763,
-      median 1.021. So on the N2 stdx's check, at 1.010 to 1.064 of 9.2.1 in that job, runs at
-      0.879 to 1.014 of 9.3.3, median 0.940, below it in 16 of 17 rows.
+      median 1.021. So on the N2 stdx's check, at 1.010 to 1.066 of 9.2.1 in that job, runs at
+      0.879 to 1.014 of 9.3.3, median 0.939, below it in 17 of 18 rows
+      ([issue 25](https://github.com/c4milo/stdx/issues/25)).
     - bench-json's section "UTF-8 validation against simdutf" (`bench/json/json_utf8.zig`) runs
       both over each string workload's octets, the ASCII texts and the non-ASCII one, interleaved
       in one run, the median of five with the spread, and lists the losses under entry 20's floor.
