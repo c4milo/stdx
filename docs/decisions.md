@@ -1679,10 +1679,12 @@ small file.
     and Zig's std.json time beside stdx in `bench-json`, in the same interleaved run as the claims'
     candidates. Each reaches the benchmark through its documented API alone, and nobody working on
     stdx reads its source (entry 9).
-    - simdjson 5.0.2 and yyjson 0.13.0 are lazy packages pinned by hash, compiled in `bench/` for
+    - simdjson 5.1.1 and yyjson 0.13.0 are lazy packages pinned by hash, compiled in `bench/` for
       the host in ReleaseFast, as the codecs' baselines are. simdjson picks its kernel at run time.
       simdjson was 4.6.11 until 2026-10-05, when the owner asked for 5.0.2; every number recorded
-      before that day is against 4.6.11.
+      before that day is against 4.6.11. On 2026-11-10 the owner asked for each baseline's latest
+      release: simdjson 5.1.1, where yyjson 0.13.0 was the latest already. Every number recorded
+      from 2026-10-05 to that day is against 5.0.2.
     - std.json comes with Zig 0.16.0, so it adds no package; the benchmark builds it for the host in
       ReleaseFast.
     - Decoding visits every value of each text: names and strings unescaped, numbers checked, and
@@ -2303,7 +2305,8 @@ small file.
       machine, entry 28's reference, over the character the last block cuts and the octets after
       it. It is a function of its input alone, keeps no state, and follows the module's rules: no
       heap, no I/O, a loop bounded by the input.
-    - simdutf 9.2.1 joins bench-json's baselines as a lazy package pinned by hash (entry 8), built
+    - simdutf 9.2.1, and 9.3.3 since 2026-11-10 when the owner asked for each baseline's latest
+      release, joins bench-json's baselines as a lazy package pinned by hash (entry 8), built
       from its sources with Zig's clang as simdjson is, its AVX-512 kernel left out on an x86-64
       host without `evex512` for entry 27's reason, and absent on macOS with simdjson (entry 10).
       Its binding calls `validate_utf8` and nothing else (`bench/json/baselines/`).
@@ -4267,9 +4270,11 @@ small file.
     - Pad bits that are not zero taken: two texts would decode to the same octets.
 
     **The bar, as the owner set it.** The dependent competes with Rust's connect-rust and with Go's
-    protobuf, so `bench-base64` times Rust's `base64` crate 0.22.1, which connect-rust's Buffa
-    pins, and Go's encoding/base64, which Go's protojson uses. stdx must beat the faster of the two
-    at each size. Zig's std.base64 stays a column for reference.
+    protobuf, so `bench-base64` times Rust's `base64` crate, which connect-rust's Buffa uses, and
+    Go's encoding/base64, which Go's protojson uses. The crate was 0.22.1, Buffa's pin, for the
+    numbers below, and is 0.23.1 since 2026-11-10, when the owner asked for each baseline's latest
+    release. stdx must beat the faster of the two at each size. Zig's std.base64 stays a column for
+    reference.
 
     **Measured, 2026-11-09.** `bench-base64` at f517567, three jobs on each runner (runs
     [42635445234](https://github.com/c4milo/stdx/actions/runs/42635445234),

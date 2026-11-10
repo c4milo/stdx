@@ -1,4 +1,4 @@
-// simdutf 9.2.1 as the UTF-8 check's baseline in bench-json (decision 38), through its documented
+// simdutf 9.3.3 as the UTF-8 check's baseline in bench-json (decision 38), through its documented
 // API alone: validate_utf8 over a buffer, which stdx's `is_utf8` runs beside. simdutf picks its
 // kernel at run time, as simdjson does.
 #include "baselines.h"

@@ -4,7 +4,7 @@
 //!
 //! The candidates, for the encoder and for the decoder, each with the standard alphabet and its pad
 //! characters:
-//! - Rust's `base64` crate 0.22.1, the one connect-rust's Buffa pins, and Go's encoding/base64,
+//! - Rust's `base64` crate 0.23.1, the crate connect-rust's Buffa uses, and Go's encoding/base64,
 //!   which Go's protojson uses: the bar (decision 68);
 //! - Zig's std.base64, for reference;
 //! - stdx's `base64`, built for the architecture's baseline CPU and ReleaseSafe, as a caller

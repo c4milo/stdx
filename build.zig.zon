@@ -79,10 +79,10 @@
             .hash = "N-V-__8AAJudKgCQCuIiH6MJjAiIJHfg_tT_Ew-0vZwVkCo_",
             .lazy = true,
         },
-        // The JSON baselines of decision 27, from design §8 step 16: simdjson 5.0.2.
+        // The JSON baselines of decision 27, from design §8 step 16: simdjson 5.1.1.
         .simdjson = .{
-            .url = "https://github.com/simdjson/simdjson/archive/refs/tags/v5.0.2.tar.gz",
-            .hash = "N-V-__8AAN6YPgLWQS_BuLu95R7YtWGSe1nziGjntLC3g4pe",
+            .url = "https://github.com/simdjson/simdjson/archive/refs/tags/v5.1.1.tar.gz",
+            .hash = "N-V-__8AAM0jQgJHHW_pFfW_fH5XwZU3cR2JJ5OjFq_WoOJD",
             .lazy = true,
         },
         // The JSON baselines of decision 27, from design §8 step 16: yyjson 0.13.0.
@@ -91,10 +91,10 @@
             .hash = "N-V-__8AABFlbgB11C3wOoHo9lqDatPMvTuIdHI0vwVxDpTe",
             .lazy = true,
         },
-        // The UTF-8 check's baseline of decision 38, from design §8 step 18: simdutf 9.2.1.
+        // The UTF-8 check's baseline of decision 38, from design §8 step 18: simdutf 9.3.3.
         .simdutf = .{
-            .url = "https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.1.tar.gz",
-            .hash = "N-V-__8AAAE8mgCr14BJ3sUSbvr855Du4KvLAmHxCb_adpr6",
+            .url = "https://github.com/simdutf/simdutf/archive/refs/tags/v9.3.3.tar.gz",
+            .hash = "N-V-__8AAEuWnACu_YLYnbCzGt41OTK34vylcz3Iv-gk7WsW",
             .lazy = true,
         },
     },

@@ -127,7 +127,7 @@ fn strings_of(arena: std.mem.Allocator, all: []const Workload) ![]const []const 
 /// Prints the section: every string workload's octets, the raw UTF-8 of each, validated whole.
 pub fn report(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, all: []const Workload) !void {
     try out.print("\n## UTF-8 validation against simdutf\n\n", .{});
-    try out.print("stdx's `is_utf8`, the check the loops apply to every string's octets, run alone over each string workload's octets at the width the host's features pick (16 lanes on aarch64, AVX2's 32 or AVX-512's 64 on x86-64, decision 39), beside simdutf 9.2.1's `validate_utf8` in the same run; on a host with AVX-512, again with AVX2 alone. Each ratio is stdx's throughput over the other's. simdutf picks its kernel at run time. Before timing, every copy of the check and simdutf judged {d} seeded buffers and each workload, whole and changed, alike.\n\n", .{cross_check_buffers});
+    try out.print("stdx's `is_utf8`, the check the loops apply to every string's octets, run alone over each string workload's octets at the width the host's features pick (16 lanes on aarch64, AVX2's 32 or AVX-512's 64 on x86-64, decision 39), beside simdutf 9.3.3's `validate_utf8` in the same run; on a host with AVX-512, again with AVX2 alone. Each ratio is stdx's throughput over the other's. simdutf picks its kernel at run time. Before timing, every copy of the check and simdutf judged {d} seeded buffers and each workload, whole and changed, alike.\n\n", .{cross_check_buffers});
     if (!baselines.simdutf_built()) {
         try out.print("simdutf is not built on this host (decision 10).\n", .{});
         return;
