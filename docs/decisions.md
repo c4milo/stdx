@@ -4320,20 +4320,28 @@ small file.
       others) takes the step for its own kind, which the method fixes at compile time, and writes
       at the text's end with no slice and no progress to read back: 120 instructions a token.
     - **`TextReader.next`.** It takes claim J8's straight line itself, and reads the reader's
-      input and writes its storage with no pass through `Decoder.decode`: 4,717 instructions a
-      record. For a token the line leaves, `next` takes the streaming call with the line off: a
-      second try reads the same octets in the same state and leaves them again. Those are the
-      claims `decode_batch` gives its own fallback, so a program that calls both links one copy
-      of the checked path.
+      input and writes its storage with no pass through `Decoder.decode`. For a token the line
+      leaves, `next` takes the streaming call with the line off: a second try reads the same
+      octets in the same state and leaves them again. Those are the claims `decode_batch` gives
+      its own fallback, so a program that calls both links one copy of the checked path.
+    - **A text's start.** `next_text` takes the octets before a text's first token where they
+      need no verdict: a sequence's record separators, and the look that shows no byte order mark
+      starts the text. The first token then takes the line too, and a record takes 4,516
+      instructions. A start the checked path must rule on stays as it is: a sequence's text with
+      no separator, an octet that may start a mark, and an input with no octet for the text.
+      Without this, a text paid the streaming call twice, at its start and at its end: a text of
+      one string of 16 octets took 821 instructions against 793 before the decision, and takes
+      452 with it.
     - **What stays.** A token the step or the line leaves takes the streaming call, as before: an
-      escape past the room, a storage too short, the text's start and end, and every refusal, which
-      the checked path names. A batch runs the code it ran.
+      escape past the room, a storage too short, the text's end, a start that needs a verdict,
+      and every refusal, which the checked path names. A batch runs the code it ran.
     - **Non-negotiable 3.** The helpers are built on the streaming call and on the steps that call
       takes. The streaming call is built on neither helper, so the rule's direction holds.
     - **The checks.** `encoder_fast_test.zig` holds J15 to the checked path in lockstep, whole and
       under seeded splits: progress, octets, error and state after every call.
       `text_writer_test.zig` and `text_reader_test.zig` hold each method and `next` to the checked
-      path the same way, with rooms and storages that cut tokens. The commit lists the mutations.
+      path the same way, with rooms and storages that cut tokens, in a text and across a
+      sequence's texts, with starts of both kinds. The commits list the mutations.
     - **The measure.** bench-json times a token a call through the methods and through `next`,
       beside one token a call and the batches, and bench-profile counts them.
 

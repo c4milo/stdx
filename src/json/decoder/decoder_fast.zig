@@ -11,6 +11,10 @@
 //! Every function here is inline, so the whole path compiles into the caller's loop whatever else
 //! the build calls, and the checked path stays in functions of its own.
 //!
+//! `text_start` does the same for the octets before a text's first token, for a caller that holds
+//! the text's start (decision 69): it takes them where they need no verdict, and leaves every
+//! other start to the checked path.
+//!
 //! It reads through the checked reader and writes through the checked writer: each octet the
 //! grammar turns on with `take_octet`, and each run counted by a scan of scan.zig or number.zig and
 //! taken with `take`. It changes the state only once the token is whole, and leaves it as the
@@ -30,6 +34,43 @@ const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
 const Outcome = decoder_file.Outcome;
 const Utf8 = @import("../utf8.zig").Utf8;
+
+/// Takes the octets before a text's first token, for a caller that holds the text's start
+/// (`TextReader`, decision 69): a sequence's record separators, and the look at the octet after
+/// them that shows no byte order mark starts the text. The decoder then stands between tokens, so
+/// the text's first token takes `token`. Where the start needs a verdict, it consumes nothing and
+/// leaves the state as it was, and the checked path rules: a sequence's text with no separator,
+/// an octet that may start a mark, and an input with no octet for the text.
+pub inline fn text_start(decoder: *Decoder, reader: *codec.Reader) void {
+    assert(decoder.stage == .record_separators or decoder.stage == .byte_order_mark);
+    assert(decoder.matched == 0 and decoder.open == .none);
+    const start = reader.consumed();
+    // RFC 7464 §2.1: a record separator comes before each text of a sequence, and more may follow
+    // it. A text with none is the checked path's to refuse.
+    if (decoder.stage == .record_separators and skip_record_separators(reader) == 0) return;
+    if (reader.take_octet()) |octet| {
+        reader.unread(1);
+        // RFC 8259 §8.1: no text starts with a byte order mark. An octet that may start one is
+        // the checked path's to judge.
+        if (octet != constants.byte_order_mark[0]) {
+            decoder.stage = .tokens;
+            return;
+        }
+    } else |_| {}
+    reader.unread(reader.consumed() - start);
+}
+
+/// Takes the record separators at the reader's position, and returns how many it took.
+inline fn skip_record_separators(reader: *codec.Reader) usize {
+    const len = reader.remaining_len();
+    for (0..len) |count| {
+        const octet = reader.take_octet() catch unreachable;
+        if (octet == constants.record_separator) continue;
+        reader.unread(1);
+        return count;
+    }
+    return len;
+}
 
 /// Decodes the next token, or returns null with nothing consumed and the state as it was.
 pub inline fn token(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {

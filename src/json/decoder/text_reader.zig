@@ -4,9 +4,10 @@
 //!
 //! It holds the caller's input and storage for the length of the texts, as `codec.Reader` holds
 //! its input, and is built on the streaming call and on claim J8's straight line, which that call
-//! takes (CLAUDE.md, Non-negotiables; decision 69). The input ending
-//! before a text does is `error.Truncated`, and a name, a string or a number longer than the
-//! storage is `error.NoSpaceLeft`.
+//! takes (CLAUDE.md, Non-negotiables; decision 69). `next_text` takes a text's start where it
+//! needs no verdict, so the line takes the text's first token too. The input ending before a text
+//! does is `error.Truncated`, and a name, a string or a number longer than the storage is
+//! `error.NoSpaceLeft`.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -68,14 +69,21 @@ pub const TextReader = struct {
     /// Starts the next text. Returns false when the input holds no more: after the one text of a
     /// `text`, and at the input's end in a sequence. Call it before the first `next`.
     pub fn next_text(self: *TextReader) bool {
-        if (!self.started) {
+        if (self.started) {
+            assert(self.ended);
+            if (self.framing == .text or self.consumed == self.input.len) return false;
+            self.decoder.init(self.framing, self.features);
+            self.ended = false;
+        } else {
             self.started = true;
-            return self.framing == .text or self.consumed < self.input.len;
+            if (self.framing == .sequence and self.consumed == self.input.len) return false;
         }
-        assert(self.ended);
-        if (self.framing == .text or self.consumed == self.input.len) return false;
-        self.decoder.init(self.framing, self.features);
-        self.ended = false;
+        // The text's start, taken here where it needs no verdict, so the text's first token takes
+        // claim J8's line in `next` (decision 69). A start the checked path must rule on stays as
+        // it is, and the first `next` takes it there.
+        var reader: codec.Reader = .{ .octets = self.input, .position = self.consumed };
+        fast.text_start(&self.decoder, &reader);
+        self.consumed = reader.position;
         return true;
     }
 
@@ -99,9 +107,9 @@ pub const TextReader = struct {
     }
 
     /// `next` through the streaming call, for what claim J8's line leaves: a token with an escape
-    /// or a non-ASCII octet, the text's start and end, and every refusal. `next` took the line
-    /// wherever the call takes it, so the call here goes without it: a second try reads the same
-    /// octets in the same state, and leaves them again.
+    /// or a non-ASCII octet, the text's end, a start `next_text` left, and every refusal. `next`
+    /// took the line wherever the call takes it, so the call here goes without it: a second try
+    /// reads the same octets in the same state, and leaves them again.
     noinline fn checked(self: *TextReader) Error!?TextReader.Item {
         const progress = try @call(.always_inline, Decoder.decode_with, .{ &self.decoder, without_line, self.input[self.consumed..], self.storage, .last });
         self.consumed += progress.consumed;

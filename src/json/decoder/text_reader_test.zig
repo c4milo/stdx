@@ -3,6 +3,8 @@
 //! `Decoder.decode`, so a `TextReader` and a decoder on the checked path read the same texts, and
 //! after every token the kind, the octets, the error, the octets consumed and the state must agree.
 //! A storage shorter than a token's octets shows `next` steps aside for `error.NoSpaceLeft`.
+//! `next_text` takes a text's start where it needs no verdict, so the texts hold starts of both
+//! kinds, in a text and in a sequence, and a sequence's texts are read one after another.
 
 const std = @import("std");
 const testing = std.testing;
@@ -34,10 +36,26 @@ const texts = [_][]const u8{
     "[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]",
     " 42 ",
     "\"lone\"",
+    // A byte order mark, whole and cut, which the checked path refuses (RFC 8259 §8.1).
+    "\xef\xbb\xbf[1]",
+    "\xef[1]",
+    "",
+};
+
+/// Sequences (RFC 7464): texts after one record separator and after several, a text with none, a
+/// separator with no text after it, and a byte order mark after the separator.
+const sequences = [_][]const u8{
+    "\x1e{\"n\":1}\n\x1e\x1e[2]\n\x1e\"three\"\n\x1e4\n",
+    "\x1e\x1e\x1e7\n",
+    "\x1etrue ",
+    "7\n",
+    "\x1e1\n\x1e",
+    "\x1e\xef\xbb\xbf1\n",
+    "\x1e \"caf\xc3\xa9\"\n\x1e{\"a\":\"\\n\"}\n",
 };
 
 /// The octets a flip writes, weighted toward the ones the grammar turns on.
-const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xff";
+const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xef\xff";
 
 /// The kind and the octets of the token the checked path's call gave, as `next` gives them.
 fn expected_item(progress: decoder_file.Progress, octets: []const u8) TextReader.Item {
@@ -65,44 +83,62 @@ fn expect_same_item(expected: TextReader.Item, got: TextReader.Item) !void {
     }
 }
 
-/// Reads the one text of `input` through `next` and through the checked path's call, each with
-/// `room_len` octets of storage, and requires both to agree after every token.
-fn expect_next(input: []const u8, room_len: usize) !void {
+/// Reads the texts of `input` through `next_text` and `next`, and through the checked path's
+/// call, each with `room_len` octets of storage, and requires both to agree after every token
+/// and on how many texts `input` holds.
+fn expect_next(framing: Framing, input: []const u8, room_len: usize) !void {
     var storage: [content_len_max]u8 = undefined;
-    var reference_storage: [content_len_max]u8 = undefined;
-    var reader = TextReader.init(input, storage[0..room_len], .text, codec.Features.detect());
-    try testing.expect(reader.next_text());
+    var reader = TextReader.init(input, storage[0..room_len], framing, codec.Features.detect());
     var reference: Decoder = undefined;
-    reference.init(.text, codec.Features.detect());
     var consumed: usize = 0;
+    // A text takes an octet at least, so `input` holds no more texts than octets, and one call
+    // more finds none.
+    for (0..input.len + 1) |index| {
+        const more = if (framing == .text) index == 0 else consumed < input.len;
+        try testing.expectEqual(more, reader.next_text());
+        if (!more) return;
+        reference.init(framing, codec.Features.detect());
+        if (!try expect_text(&reader, &reference, input, &consumed, room_len)) return;
+    }
+    return error.TestNoProgress;
+}
+
+/// Reads one text through `next` and through `reference`, from `consumed.*`. Returns true when
+/// both read it to its end, and false when both stopped at the same error.
+fn expect_text(reader: *TextReader, reference: *Decoder, input: []const u8, consumed: *usize, room_len: usize) !bool {
+    var reference_storage: [content_len_max]u8 = undefined;
     // A call after `error.NoSpaceLeft` goes on inside the token the storage cut, as the streaming
     // call does: `next` must leave it to that call, so the test makes one such call too.
     var room_errors: usize = 0;
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
     for (0..calls_max) |_| {
         const result = reader.next();
-        const progress = reference.decode_with(checked, input[consumed..], reference_storage[0..room_len], .last) catch |err| {
-            return testing.expectError(err, result);
+        const progress = reference.decode_with(checked, input[consumed.*..], reference_storage[0..room_len], .last) catch |err| {
+            try testing.expectError(err, result);
+            return false;
         };
-        consumed += progress.consumed;
+        consumed.* += progress.consumed;
         switch (progress.status) {
-            .needs_input => return testing.expectError(error.Truncated, result),
+            .needs_input => {
+                try testing.expectError(error.Truncated, result);
+                return false;
+            },
             .needs_room => {
                 try testing.expectError(error.NoSpaceLeft, result);
-                try expect_same_state(&reader.decoder, &reference);
+                try expect_same_state(&reader.decoder, reference);
                 room_errors += 1;
-                if (room_errors == room_errors_max) return;
+                if (room_errors == room_errors_max) return false;
             },
             .done => {
                 try testing.expectEqual(null, try result);
-                try testing.expectEqual(consumed, reader.consumed_len());
-                return;
+                try testing.expectEqual(consumed.*, reader.consumed_len());
+                return true;
             },
             .token => {
                 const got = (try result) orelse return error.TestUnexpectedResult;
                 try expect_same_item(expected_item(progress, reference_storage[0..progress.written]), got);
-                try testing.expectEqual(consumed, reader.consumed_len());
-                try expect_same_state(&reader.decoder, &reference);
+                try testing.expectEqual(consumed.*, reader.consumed_len());
+                try expect_same_state(&reader.decoder, reference);
             },
         }
     }
@@ -111,10 +147,10 @@ fn expect_next(input: []const u8, room_len: usize) !void {
 
 /// Requires the property of `input` with all the storage, and with rooms `seed` draws from 0 to 8
 /// octets, which cut its names, strings and numbers.
-fn check(input: []const u8, seed: u64) !void {
-    try expect_next(input, content_len_max);
+fn check(framing: Framing, input: []const u8, seed: u64) !void {
+    try expect_next(framing, input, content_len_max);
     var generator = codec.testing.split.Generator.init(seed);
-    for (0..short_rooms) |_| try expect_next(input, generator.below(short_room_len_max + 1));
+    for (0..short_rooms) |_| try expect_next(framing, input, generator.below(short_room_len_max + 1));
 }
 
 /// The calls that end in `error.NoSpaceLeft` a read makes before it stops.
@@ -125,20 +161,54 @@ const short_rooms = 3;
 const short_room_len_max = 8;
 
 test "next gives each token of the texts as the checked path does" {
-    for (texts, 0..) |text, index| try check(text, index);
+    for (texts, 0..) |text, index| try check(.text, text, index);
+}
+
+test "next gives each token of a sequence's texts as the checked path does (RFC 7464 §2.1)" {
+    for (sequences, 0..) |sequence, index| try check(.sequence, sequence, index);
+    // A text's octets read as a sequence, and a sequence's as a text: each start is refused.
+    for (texts, 0..) |text, index| try check(.sequence, text, index);
+    for (sequences, 0..) |sequence, index| try check(.text, sequence, index);
+}
+
+/// A start `next_text` takes, with the octets it consumes, or one it leaves to the checked path.
+const Start = struct { framing: Framing, input: []const u8, taken: bool, consumed: usize = 0 };
+
+test "next_text takes a text's start where it needs no verdict, and leaves every other start" {
+    const starts = [_]Start{
+        .{ .framing = .text, .input = "[1]", .taken = true },
+        .{ .framing = .text, .input = " 7", .taken = true },
+        .{ .framing = .sequence, .input = "\x1e7\n", .taken = true, .consumed = 1 },
+        .{ .framing = .sequence, .input = "\x1e\x1e\x1e7\n", .taken = true, .consumed = 3 },
+        // No octet, and RFC 8259 §8.1's byte order mark.
+        .{ .framing = .text, .input = "", .taken = false },
+        .{ .framing = .text, .input = "\xef\xbb\xbf1", .taken = false },
+        // RFC 7464 §2.1: no record separator, no text after one, and a mark after one.
+        .{ .framing = .sequence, .input = "7\n", .taken = false },
+        .{ .framing = .sequence, .input = "\x1e", .taken = false },
+        .{ .framing = .sequence, .input = "\x1e\xef\xbb\xbf1\n", .taken = false },
+    };
+    var storage: [short_room_len_max]u8 = undefined;
+    for (starts) |start| {
+        var reader = TextReader.init(start.input, &storage, start.framing, codec.Features.detect());
+        try testing.expect(reader.next_text());
+        try testing.expectEqual(start.taken, reader.decoder.stage == .tokens);
+        try testing.expectEqual(start.consumed, reader.consumed_len());
+    }
 }
 
 test "every seeded corruption of the texts reads alike through next and the checked path" {
     var input: [input_len_max]u8 = undefined;
     for (0..seeded_cases) |seed| {
         var generator = codec.testing.split.Generator.init(seed);
-        const text = texts[generator.below(texts.len)];
+        const framing: Framing = if (generator.below(2) == 0) .text else .sequence;
+        const text = if (framing == .text) texts[generator.below(texts.len)] else sequences[generator.below(sequences.len)];
         @memcpy(input[0..text.len], text);
         for (0..generator.below(flips_max + 1)) |_| {
-            input[generator.below(text.len)] = flip_octets[generator.below(flip_octets.len)];
+            if (text.len > 0) input[generator.below(text.len)] = flip_octets[generator.below(flip_octets.len)];
         }
         const len = if (generator.below(2) == 0) text.len else generator.below(text.len + 1);
-        try check(input[0..len], generator.next());
+        try check(framing, input[0..len], generator.next());
     }
 }
 
@@ -149,5 +219,6 @@ test "fuzz next against the checked path" {
 fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     var input: [input_len_max]u8 = undefined;
     const input_len = smith.slice(&input);
-    try check(input[0..input_len], smith.value(u64));
+    const framing: Framing = if (smith.value(u64) & 1 == 1) .sequence else .text;
+    try check(framing, input[0..input_len], smith.value(u64));
 }
