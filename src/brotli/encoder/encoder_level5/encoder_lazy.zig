@@ -315,12 +315,26 @@ pub const Pick = struct {
 
     fn measure(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize, candidate: usize, last: bool, len: *usize) void {
         @setRuntimeSafety(safety);
+        if (self.saves_no_more(safety, window, position, end, candidate, last, len.*)) return;
         const long_len = match_len(safety, window, candidate, position, end);
         const saves = saving(long_len, position - candidate, last, self.cost);
         if (saves <= self.saves) return;
         self.saves = saves;
         self.candidate = candidate;
         len.* = long_len;
+    }
+
+    /// Whether one compare shows that `candidate` saves no more than the best so far, which is
+    /// `len` octets long. `saving` grows with the length, so when a match of `len` octets at the
+    /// candidate's distance saves no more, a candidate no longer than `len` saves no more. One that
+    /// differs in the 8 octets up to octet `len` is no longer.
+    inline fn saves_no_more(self: *const Pick, comptime safety: bool, window: []const u8, position: usize, end: usize, candidate: usize, last: bool, len: usize) bool {
+        @setRuntimeSafety(safety);
+        // Each long candidate agrees on its first `read_len` octets; the compare reads to octet `len`.
+        if (len < read_len or len >= end - position) return false;
+        if (saving(len, position - candidate, last, self.cost) > self.saves) return false;
+        const at = len + 1 - read_len;
+        return read64(safety, window, candidate + at) != read64(safety, window, position + at);
     }
 };
 
