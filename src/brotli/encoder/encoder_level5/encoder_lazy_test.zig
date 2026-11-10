@@ -263,3 +263,120 @@ fn expect_probe_words() !void {
 
 const probe_word_len = 9;
 const probe_word_index = 100;
+
+test "a long candidate is measured unless one compare shows it saves no more" {
+    // The cases at the compare's limits, in the order the pick weighs them. `expected` is the
+    // index of the candidate that must win.
+    const cases = [_]MeasureCase{
+        // A farther candidate as long as the best saves no more, but a nearer and shorter one can.
+        .{ .cost = measure_cost_low, .placed = &.{ .{ .at = measure_position - 3000, .len = 40 }, .{ .at = measure_position - 100, .len = 38 } }, .expected = 1 },
+        // At a distance of the same bits, one octet longer saves more.
+        .{ .cost = weigh_literal_cost, .placed = &.{ .{ .at = measure_position - 600, .len = 30 }, .{ .at = measure_position - 700, .len = 31 } }, .expected = 1 },
+        // The best is shorter than the octets the compare reads: the long candidate is measured.
+        .{ .cost = measure_cost_short, .placed = &.{ .{ .at = measure_position - 8, .len = 6 }, .{ .at = measure_position - 2000, .len = 9 } }, .expected = 1 },
+        // The best runs to the end, past which the compare would read.
+        .{ .cost = weigh_literal_cost, .position = measure_window_len - measure_tail_len, .placed = &.{ .{ .at = measure_window_len - measure_tail_len - 100, .len = measure_tail_len }, .{ .at = measure_window_len - measure_tail_len - 1000, .len = measure_tail_len } }, .expected = 0 },
+    };
+    for (cases, 0..) |case, index| try @call(.never_inline, expect_measure_case, .{ case, index });
+    try @call(.never_inline, expect_measure_seeded, .{});
+}
+
+/// A candidate at `at`, which repeats the octets at the position for `len` octets.
+const Placed = struct { at: usize, len: usize };
+const MeasureCase = struct { cost: u32, position: usize = measure_position, placed: []const Placed, expected: usize };
+
+/// Places one case's candidates in a window of octets seeded by `index`, and requires the pick to
+/// take the expected one, as the reference does.
+fn expect_measure_case(case: MeasureCase, index: usize) !void {
+    var window: [measure_window_len]u8 = undefined;
+    var generator = codec.testing.split.Generator.init(index);
+    for (&window) |*octet| octet.* = @truncate(generator.next());
+    const position = case.position;
+    for (case.placed) |placed| place(&window, position, placed);
+    const found = measure_all(&window, position, case.cost, case.placed) orelse return error.TestNoMatch;
+    try testing.expectEqual(position - case.placed[case.expected].at, found.offset);
+    try testing.expectEqual(case.placed[case.expected].len, found.len);
+    try testing.expectEqual(reference_found(&window, position, case.cost, case.placed), found);
+}
+
+/// Seeded sets of candidates, each `measure_slot_len` octets apart, measured against the
+/// reference, which measures every long candidate to its end.
+fn expect_measure_seeded() !void {
+    var window: [measure_window_len]u8 = undefined;
+    var generator = codec.testing.split.Generator.init(measure_seed);
+    const costs = [_]u32{ measure_cost_low, measure_cost_short, weigh_literal_cost };
+    for (0..measure_rounds) |_| {
+        for (&window) |*octet| octet.* = @truncate(generator.next());
+        var placed: [buckets_module.ways]Placed = undefined;
+        const count: usize = @intCast(generator.between(measure_count_min, buckets_module.ways));
+        for (placed[0..count], 0..) |*one, index| {
+            const turn: usize = @intCast(generator.below(measure_position / measure_slot_len / buckets_module.ways));
+            one.* = .{ .at = (turn * buckets_module.ways + index) * measure_slot_len, .len = @intCast(generator.between(min_len - 1, measure_copy_max)) };
+            place(&window, measure_position, one.*);
+        }
+        const cost = costs[@intCast(generator.below(costs.len))];
+        try testing.expectEqual(reference_found(&window, measure_position, cost, placed[0..count]), measure_all(&window, measure_position, cost, placed[0..count]));
+    }
+}
+
+/// Copies the octets at `position` to `placed.at` for `placed.len` octets, then one that differs.
+fn place(window: []u8, position: usize, placed: Placed) void {
+    @memcpy(window[placed.at..][0..placed.len], window[position..][0..placed.len]);
+    if (position + placed.len < window.len) window[placed.at + placed.len] = ~window[position + placed.len];
+}
+
+/// The pick's match from the candidates, weighed in order as a bucket's, then the long ones
+/// measured.
+fn measure_all(window: []const u8, position: usize, cost: u32, placed: []const Placed) ?Found {
+    var pick: Pick = .{ .here = read64(true, window, position), .cost = cost };
+    for (placed) |one| pick.weigh(true, window, position, one.at, .bucket);
+    return pick.measure_long(true, window, position, window.len);
+}
+
+/// The pick's match with no compare before a measure: the candidates weighed by the octets they
+/// agree on, up to `read_len`, then each long one measured to its end. Each pass keeps a candidate
+/// only when it saves more than the one kept before it.
+fn reference_found(window: []const u8, position: usize, cost: u32, placed: []const Placed) ?Found {
+    var best: ?Found = null;
+    for ([_]bool{ false, true }) |measured| {
+        for (placed) |one| reference_keep(window, position, cost, one, measured, &best);
+    }
+    return best;
+}
+
+/// Keeps `one` in `best` when it saves more: weighed by the octets it agrees on, up to
+/// `read_len`, or, when `measured`, a long one measured to its end.
+fn reference_keep(window: []const u8, position: usize, cost: u32, one: Placed, measured: bool, best: *?Found) void {
+    const agreed = agreeing_len(window, position, one.at);
+    if (measured and agreed < read_len) return;
+    const len = if (measured) agreed else @min(agreed, read_len);
+    if (len < min_len) return;
+    const saves = saving(len, position - one.at, false, cost);
+    if (saves <= (if (best.*) |found| found.saves else 0)) return;
+    best.* = .{ .position = position, .len = len, .offset = position - one.at, .saves = saves };
+}
+
+/// The octets from `at` that equal those from `position`, up to the window's end.
+fn agreeing_len(window: []const u8, position: usize, at: usize) usize {
+    var len: usize = 0;
+    for (0..window.len - position) |_| {
+        if (window[at + len] != window[position + len]) break;
+        len += 1;
+    }
+    return len;
+}
+
+const measure_window_len = 4096;
+const measure_position = 3500;
+const measure_seed = 67;
+const measure_rounds = 400;
+/// The fewest candidates a seeded set holds: one to be the best, one to be measured against it.
+const measure_count_min = 2;
+/// Candidates lie this many octets apart, so a copy and the octet that ends it fit between two.
+const measure_slot_len = 72;
+const measure_copy_max = 64;
+/// The octets from the last case's position to the window's end.
+const measure_tail_len = 40;
+/// Literal costs, in eighths of a bit, where length counts less against distance.
+const measure_cost_low = 16;
+const measure_cost_short = 24;
