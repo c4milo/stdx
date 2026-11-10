@@ -236,50 +236,32 @@ fn offset_table(comptime taken: []const u8, comptime marked: u8) [nibble_values]
 const has_avx2 = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
 pub const nibble_path = builtin.cpu.arch == .aarch64 or has_avx2;
 
-/// The entry of `table` that each octet of `index` names, each 16 octets looking up the same 16
-/// entries.
+/// The entry of `table` that each octet of `index` names, each 16-octet lane looking up the same
+/// 16 entries (`vpshufb`, AVX2).
 fn lookup(table: Nibbles, index: Letters) Letters {
-    if (has_avx2) {
-        const both: Letters = std.simd.join(table, table);
-        return asm ("vpshufb %[index], %[table], %[out]"
-            : [out] "=x" (-> Letters),
-            : [table] "x" (both),
-              [index] "x" (index),
-        );
-    }
-    const halves: [halves_per_block]Nibbles = @bitCast(index);
-    var result: [halves_per_block]Nibbles = undefined;
-    inline for (halves, &result) |half, *entry| entry.* = asm ("tbl %[out].16b, {%[table].16b}, %[index].16b"
-        : [out] "=w" (-> Nibbles),
-        : [table] "w" (table),
-          [index] "w" (half),
+    const both: Letters = std.simd.join(table, table);
+    return asm ("vpshufb %[index], %[table], %[out]"
+        : [out] "=x" (-> Letters),
+        : [table] "x" (both),
+          [index] "x" (index),
     );
-    return @bitCast(result);
 }
 
-/// Each 16 octets of `data` in the order `order` names, an index of 16 or more giving 0.
+/// Each 16-octet lane of `data` in the order `order` names, an index of 16 or more giving 0
+/// (`vpshufb`, AVX2).
 fn reorder(data: Letters, order: Nibbles) Letters {
-    if (has_avx2) {
-        const both: Letters = std.simd.join(order, order);
-        return asm ("vpshufb %[index], %[table], %[out]"
-            : [out] "=x" (-> Letters),
-            : [table] "x" (data),
-              [index] "x" (both),
-        );
-    }
-    const halves: [halves_per_block]Nibbles = @bitCast(data);
-    var result: [halves_per_block]Nibbles = undefined;
-    inline for (halves, &result) |half, *entry| entry.* = asm ("tbl %[out].16b, {%[table].16b}, %[index].16b"
-        : [out] "=w" (-> Nibbles),
-        : [table] "w" (half),
-          [index] "w" (order),
+    const both: Letters = std.simd.join(order, order);
+    return asm ("vpshufb %[index], %[table], %[out]"
+        : [out] "=x" (-> Letters),
+        : [table] "x" (data),
+          [index] "x" (both),
     );
-    return @bitCast(result);
 }
 
 /// Each letter's 6-bit value through the nibble tables, or null when one is no letter the mode
 /// takes: three lookups each 16 letters.
 fn values_by_nibbles(comptime alphabet: ?Alphabet, letters: Letters) ?Letters {
+    if (!has_avx2) return values_by_nibble_halves(alphabet, letters);
     const tables = comptime nibble_tables(alphabet);
     const high = letters >> @splat(nibble_bits);
     const low = letters & @as(Letters, @splat(nibble_values - 1));
@@ -294,6 +276,35 @@ fn values_by_nibbles(comptime alphabet: ?Alphabet, letters: Letters) ?Letters {
 
 /// The octets of a group of four lanes, in a 16-octet half: three from each lane, most
 /// significant first, then four of no use (`tbl` gives 0 for an index past 15).
+/// The 16-entry lookup of aarch64's `tbl`, one register.
+fn lookup_half(table: Nibbles, index: Nibbles) Nibbles {
+    return asm ("tbl %[out].16b, {%[table].16b}, %[index].16b"
+        : [out] "=w" (-> Nibbles),
+        : [table] "w" (table),
+          [index] "w" (index),
+    );
+}
+
+/// `values_by_nibbles` on aarch64, each 16-octet half in a register of its own.
+fn values_by_nibble_halves(comptime alphabet: ?Alphabet, letters: Letters) ?Letters {
+    const tables = comptime nibble_tables(alphabet);
+    const halves: [halves_per_block]Nibbles = @bitCast(letters);
+    var values: [halves_per_block]Nibbles = undefined;
+    var refused: Nibbles = @splat(0);
+    inline for (halves, &values) |half, *value| {
+        const high = half >> @splat(nibble_bits);
+        const low = half & @as(Nibbles, @splat(nibble_values - 1));
+        refused |= lookup_half(tables.by_low, low) & lookup_half(tables.by_high, high);
+        var index = high;
+        if (tables.marked != 0) {
+            index |= @select(u8, half == @as(Nibbles, @splat(tables.marked)), @as(Nibbles, @splat(marked_bit)), @as(Nibbles, @splat(0)));
+        }
+        value.* = half +% lookup_half(tables.offsets, index);
+    }
+    if (@reduce(.Or, refused) != 0) return null;
+    return @bitCast(values);
+}
+
 const half_order: Nibbles = blk: {
     var order: [nibble_values]u8 = @splat(nibble_values);
     for (0..nibble_values / @sizeOf(u32)) |lane| {
@@ -318,10 +329,16 @@ fn decode_block_by_nibbles(comptime alphabet: ?Alphabet, letters: *const [block_
     const pair_bits = letters_per_pair * constants.letter_bits;
     const pair_mask: Words = @splat((1 << pair_bits) - 1);
     const bits = (quads & pair_mask) << @splat(pair_bits) | quads >> @splat(@bitSizeOf(u16));
-    const ordered: [halves_per_block]Nibbles = @bitCast(reorder(@bitCast(bits), half_order));
     const half_octets = nibble_values / @sizeOf(u32) * constants.group_octets;
-    room[0..nibble_values].* = ordered[0];
-    room[half_octets..][0..nibble_values].* = ordered[1];
+    if (has_avx2) {
+        const ordered: [halves_per_block]Nibbles = @bitCast(reorder(@bitCast(bits), half_order));
+        room[0..nibble_values].* = ordered[0];
+        room[half_octets..][0..nibble_values].* = ordered[1];
+    } else {
+        const halves: [halves_per_block]Nibbles = @bitCast(bits);
+        room[0..nibble_values].* = lookup_half(halves[0], half_order);
+        room[half_octets..][0..nibble_values].* = lookup_half(halves[1], half_order);
+    }
     return true;
 }
 

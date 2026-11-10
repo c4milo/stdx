@@ -54,7 +54,22 @@ pub fn encode_groups(letters_of: alphabet.Alphabet, wide: bool, pairs: *const al
         inline else => |known| encode_blocks(known, input, output),
     };
     const groups_per_block = vector.block_octets / constants.group_octets;
-    for (blocks * groups_per_block..count) |index| {
+    var done = blocks * groups_per_block;
+    // A tail after at least one block takes one more step, over the last block's worth of groups:
+    // the groups it encodes again get the same letters.
+    if (done < count and count >= groups_per_block) {
+        const start = count - groups_per_block;
+        const octets = input[start * constants.group_octets ..][0..vector.block_octets];
+        const letters = output[start * constants.quantum_letters ..][0..vector.block_letters];
+        // Through the same call as the blocks, so each step has one call site and stays inlined.
+        if (has_kernels and wide) {
+            _ = stdx_base64_encode_blocks_x86_64_avx2(@intFromEnum(letters_of), octets, vector.block_octets, letters, vector.block_letters);
+        } else switch (letters_of) {
+            inline else => |known| _ = encode_blocks(known, octets, letters),
+        }
+        done = count;
+    }
+    for (done..count) |index| {
         const group = input[index * constants.group_octets ..][0..constants.group_octets];
         const bits = std.mem.readInt(u24, group, .big);
         const letters = output[index * constants.quantum_letters ..][0..constants.quantum_letters];
@@ -76,7 +91,11 @@ pub fn decode_quanta(seen: ?alphabet.Alphabet, wide: bool, input: []const u8, ou
     else if (seen) |known| switch (known) {
         inline else => |comptime_known| decode_blocks(comptime_known, input, output),
     } else decode_blocks(null, input, output);
-    var done: usize = block * (vector.block_letters / constants.quantum_letters);
+    const quanta_per_block = vector.block_letters / constants.quantum_letters;
+    var done: usize = block * quanta_per_block;
+    // Only after the blocks ran to the input's last whole block: a block that stopped early leaves
+    // quanta before the tail that the tail's step does not cover.
+    if (done < count and count - done < quanta_per_block and decode_tail(seen, wide, input, output, count)) done = count;
     while (done < count) : (done += 1) {
         const quantum = input[done * constants.quantum_letters ..][0..constants.quantum_letters];
         var value: u32 = 0;
@@ -90,6 +109,9 @@ pub fn decode_quanta(seen: ?alphabet.Alphabet, wide: bool, input: []const u8, ou
 
 /// `decode_quanta`, which also takes the alphabet of the first letter of value 62 or 63 as the
 /// text's when `seen` is null and `either` says either alphabet may come, and goes on with it.
+/// Every letter before that one is shared, and a later letter of the other alphabet still stops
+/// the fast path, so the verdict is the checked path's. It looks only once the fast path stops:
+/// a look from the input's start cost more on short texts than it saved.
 pub fn decode_quanta_learning(seen: *?alphabet.Alphabet, either: bool, wide: bool, input: []const u8, output: []u8) usize {
     const count = decode_quanta(seen.*, wide, input, output);
     if (seen.* != null or !either) return count;
@@ -108,6 +130,28 @@ pub fn first_alphabet(input: []const u8) ?alphabet.Alphabet {
         if (entry & alphabet.url_safe_only != 0) return .url_safe;
     }
     return null;
+}
+
+/// A tail after at least one block takes one more step, over the last block's worth of `count`
+/// quanta, when the output has room for the step's whole store: the quanta it decodes again get the
+/// same octets. False, when it cannot take the tail whole, for the loop of `decode_quanta`.
+fn decode_tail(seen: ?alphabet.Alphabet, wide: bool, input: []const u8, output: []u8, count: usize) bool {
+    const quanta_per_block = vector.block_letters / constants.quantum_letters;
+    if (count < quanta_per_block) return false;
+    const start = count - quanta_per_block;
+    if (start * constants.group_octets + vector.block_letters > output.len) return false;
+    const letters = input[start * constants.quantum_letters ..][0..vector.block_letters];
+    return decode_one(seen, wide, letters, output[start * constants.group_octets ..][0..vector.block_letters]);
+}
+
+/// One vector step of `decode_quanta` this CPU takes over 32 letters, into 32 octets of room.
+fn decode_one(seen: ?alphabet.Alphabet, wide: bool, letters: *const [vector.block_letters]u8, room: *[vector.block_letters]u8) bool {
+    if (has_kernels and wide) return stdx_base64_decode_blocks_x86_64_avx2(@intFromEnum(Mode.of(seen)), letters, vector.block_letters, room, vector.block_letters) == 1;
+    // Through the same call as the blocks, so each step has one call site and stays inlined.
+    const known = seen orelse return decode_blocks(null, letters, room) == 1;
+    return switch (known) {
+        inline else => |comptime_known| decode_blocks(comptime_known, letters, room) == 1,
+    };
 }
 
 /// The vector steps of `encode_groups`, one block of `vector.block_octets` octets each, for an

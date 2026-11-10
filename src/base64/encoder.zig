@@ -173,6 +173,7 @@ pub const Encoder = struct {
 
     /// Writes what is pending. False when the output filled first.
     fn write_pending(self: *Encoder, writer: *codec.Writer) bool {
+        if (self.pending_written == self.pending_len) return true;
         const count = writer.write_partial(self.pending[self.pending_written..self.pending_len]);
         self.pending_written += @intCast(count);
         return self.pending_written == self.pending_len;
