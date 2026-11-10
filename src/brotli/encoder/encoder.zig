@@ -268,4 +268,6 @@ test {
     _ = @import("encoder_level5/encoder_buckets.zig");
     _ = @import("encoder_level5/encoder_split.zig");
     _ = @import("encoder_level5/encoder_words.zig");
+    _ = @import("encoder_level5/encoder_lazy.zig");
+    _ = @import("encoder_level5/encoder_meta_block5.zig");
 }
