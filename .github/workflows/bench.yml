@@ -123,7 +123,7 @@ jobs:
           {
             echo "# level 5 cycles, $(uname -m), $(grep -m1 -o 'Neoverse[^ ]*\|EPYC[^ ]*\|Xeon[^ ]*' /proc/cpuinfo || true)"
             echo '```text'
-            for row in "canterbury/ptt5 20" "canterbury/kennedy.xls 10" "silesia/nci 1" "canterbury/alice29.txt 40" "silesia/webster 1" "http/json-1m 10"; do
+            for row in "canterbury/ptt5 20" "canterbury/kennedy.xls 40" "silesia/nci 1" "canterbury/alice29.txt 40" "silesia/webster 1" "http/json-1m 10"; do
               set -- $row; name=$(basename "$1")
               for program in l5 q5; do
                 if [ $program = l5 ]; then run="./l5_harness 5 zig-out/corpus/$1 0 $2"; else run="./q5_harness zig-out/corpus/$1 $2"; fi
