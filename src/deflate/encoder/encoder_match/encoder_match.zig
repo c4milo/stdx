@@ -38,50 +38,12 @@ const lazy_aarch64 = @import("encoder_match_lazy_aarch64.zig");
 const lazy_x86_64 = @import("encoder_match_lazy_x86_64.zig");
 const step_greedy = greedy.step_greedy;
 
-/// A match: its length, 0 for none, and its distance.
-pub const Match = struct {
-    len: u16 = 0,
-    distance: u16 = 0,
-
-    /// The match's worth in the lazy step's comparison: its length less what its distance costs in
-    /// octets of literals, `lazy_distance_penalty_octets`, so a farther match must be longer to win.
-    pub fn score(self: Match, comptime runtime_safety: bool) i32 {
-        @setRuntimeSafety(runtime_safety);
-        return @as(i32, self.len) - penalty_by_bits[@bitSizeOf(u16) - @clz(self.distance)];
-    }
-
-    /// The match's worth where a level compares by bits (`lazy_by_bits`): `lazy_length_weight`
-    /// for each octet, less its distance's bit length.
-    pub fn bits_score(self: Match, comptime runtime_safety: bool) i32 {
-        @setRuntimeSafety(runtime_safety);
-        return @as(i32, self.len) * constants.lazy_length_weight - (@bitSizeOf(u16) - @clz(self.distance));
-    }
-};
-
-/// Whether the lazy step keeps `previous`, the match that waits, over `current`, the next
-/// position's. By `score`: when it scores as much. By bits: unless `current` is at least as long
-/// and its `bits_score` passes the waiting match's by more than `lazy_bits_margin`.
-pub inline fn keeps_waiting(comptime level: constants.Level, previous: Match, current: Match) bool {
-    @setRuntimeSafety(level.runtime_safety);
-    if (!level.lazy_by_bits) return previous.score(level.runtime_safety) >= current.score(level.runtime_safety);
-    if (current.len < previous.len) return true;
-    return current.bits_score(level.runtime_safety) <= previous.bits_score(level.runtime_safety) + constants.lazy_bits_margin;
-}
-
-/// `lazy_distance_penalty_octets` by a distance's bit length: every distance of one bit length lies
-/// between the same bounds, as each bound is a power of two. Bit length 0 is no distance.
-const penalty_by_bits: [@bitSizeOf(u16) + 1]u8 = table: {
-    var by_bits: [@bitSizeOf(u16) + 1]u8 = undefined;
-    for (&by_bits, 0..) |*penalty, bits| {
-        const distance_min: u32 = if (bits == 0) 0 else @as(u32, 1) << @intCast(bits - 1);
-        var index: usize = 0;
-        for (constants.lazy_distance_penalty_bounds) |bound| {
-            if (distance_min >= bound) index += 1;
-        }
-        penalty.* = constants.lazy_distance_penalty_octets[index];
-    }
-    break :table by_bits;
-};
+const score = @import("encoder_match_score.zig");
+pub const Match = score.Match;
+pub const keeps_waiting = score.keeps_waiting;
+const second = @import("encoder_match_second.zig");
+const window_slide = @import("encoder_match_slide.zig");
+pub const slide_positions = window_slide.slide_positions;
 
 /// A hash of `hash_bits` bits: every index of the heads and no other, so a head read by it needs no
 /// bounds check.
@@ -114,6 +76,12 @@ pub fn Matcher(comptime level: constants.Level) type {
         /// its symbol when `waiting` is set.
         previous: Match,
         waiting: bool,
+        /// At a level that holds a match (decision 72): whether `previous` held against the
+        /// position before `position` too. It then starts two positions back.
+        held: second.Held(level),
+        /// Whether this block's steps hold matches (`score.Gate`). Aligned to an octet, so that
+        /// it lies after the window and every other field keeps its place.
+        gate: second.GateOf(level) align(1),
 
         /// Starts a stream. The heads are cleared, so no position of an earlier stream becomes a
         /// candidate, and the output is a function of this stream's input alone (invariant 5).
@@ -125,6 +93,7 @@ pub fn Matcher(comptime level: constants.Level) type {
             self.position = 0;
             self.previous = .{};
             self.waiting = false;
+            second.start(level, self);
         }
 
         /// Copies what fits of `input` into the window. Returns how many octets.
@@ -144,19 +113,19 @@ pub fn Matcher(comptime level: constants.Level) type {
 
         pub fn slide(self: *Self) void {
             @setRuntimeSafety(level.runtime_safety);
-            slide_window(level, self);
+            window_slide.slide_window(level, self);
         }
 
-        /// The first position no symbol of the block covers yet: the lazy step's waiting one, or the
-        /// next.
+        /// The first position no symbol of the block covers yet: the lazy step's waiting one, the
+        /// one before it when the match is held, or the next.
         pub fn pending_start(self: *const Self) usize {
             @setRuntimeSafety(level.runtime_safety);
-            return self.position - @intFromBool(self.waiting);
+            return self.position - @intFromBool(self.waiting) - @intFromBool(second.is_held(level, self));
         }
 
         pub fn advance(self: *Self, block: *Block, ending: bool) void {
             @setRuntimeSafety(level.runtime_safety);
-            if (level.block_checks) advance_rounds(level, false, false, self, block, ending, {}) else advance_positions(level, false, false, self, block, ending, {});
+            if (level.block_checks) advance_rounds(level, false, false, self, block, ending, {}) else advance_positions(level, false, false, false, self, block, ending, {});
         }
 
         /// `advance` at level 6 on an Intel CPU, with its x86-64 assembly (decision 54): a copy of
@@ -174,7 +143,7 @@ pub fn Matcher(comptime level: constants.Level) type {
         pub fn advance_priced(self: *Self, block: *Block, ending: bool, costs: *const cost.Costs) void {
             @setRuntimeSafety(level.runtime_safety);
             comptime assert(level.chains);
-            if (level.block_checks) advance_rounds(level, true, false, self, block, ending, costs) else advance_positions(level, true, false, self, block, ending, costs);
+            if (level.block_checks) advance_rounds(level, true, false, self, block, ending, costs) else advance_positions(level, true, false, false, self, block, ending, costs);
         }
 
         /// `advance` in a block after one with dear literals, which takes matches of 3 octets
@@ -189,42 +158,15 @@ pub fn Matcher(comptime level: constants.Level) type {
         pub fn settle(self: *Self, block: *Block) bool {
             @setRuntimeSafety(level.runtime_safety);
             assert(self.position == self.filled);
+            // A held match covers the position after the one it held against, so it is decided
+            // before the input's last position.
+            assert(!second.is_held(level, self));
             if (!self.waiting) return true;
             if (block.full()) return false;
             take_previous(level, self, block);
             return true;
         }
     };
-}
-
-/// Moves the window's second half to its first, keeping 32 KiB of history, and moves every head
-/// and link with it; one that falls out of the window names none.
-fn slide_window(comptime level: constants.Level, self: *Matcher(level)) void {
-    @setRuntimeSafety(level.runtime_safety);
-    assert(self.must_slide());
-    const half: u16 = constants.window_len;
-    @memcpy(self.window[0..half], self.window[half..constants.encoder_window_len]);
-    self.filled -= constants.window_len;
-    self.position -= constants.window_len;
-    slide_positions(level.runtime_safety, &self.heads, half);
-    if (level.chains) slide_positions(level.runtime_safety, &self.chain, half);
-}
-
-/// The positions a vector op moves at once.
-const slide_vector_len = 16;
-
-/// Subtracts `half` from every position, saturating at 0, none, `slide_vector_len` positions at a
-/// time.
-pub fn slide_positions(comptime runtime_safety: bool, positions: []u16, half: u16) void {
-    @setRuntimeSafety(runtime_safety);
-    comptime assert(constants.window_len % slide_vector_len == 0);
-    assert(positions.len % slide_vector_len == 0);
-    const Vector = @Vector(slide_vector_len, u16);
-    const halves: Vector = @splat(half);
-    for (0..positions.len / slide_vector_len) |index| {
-        const chunk = positions[index * slide_vector_len ..][0..slide_vector_len];
-        chunk.* = @as(Vector, chunk.*) -| halves;
-    }
 }
 
 /// `advance_positions` in rounds that stop at the block's limit (decision 44). A round shows the
@@ -238,12 +180,15 @@ fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, comptim
     comptime assert(level.block_checks);
     const filled = self.filled;
     for (0..filled + 1) |_| {
-        // The symbols the block takes before its limit.
-        const room: usize = block.limit - block.symbol_count;
+        // The symbols the block takes before its limit. A held match may add two for one
+        // position (`score.holds`), so the round shows it one position fewer.
+        const room: usize = block.limit - block.symbol_count - @intFromBool(second.is_held(level, self));
         assert(room > 0);
         self.filled = @min(filled, self.position + room + (constants.lookahead_min - 1));
         const whole = self.filled == filled;
-        advance_positions(level, cheap, assembly, self, block, ending and whole, costs);
+        // A block whose gate holds matches, or a round that starts with a match held, runs a loop
+        // of its own (decision 72), so that every other round runs the loop it ran before.
+        if (second.gate_live(level, self) or second.is_held(level, self)) advance_positions(level, cheap, assembly, true, self, block, ending and whole, costs) else advance_positions(level, cheap, assembly, false, self, block, ending and whole, costs);
         if (whole or block.at_limit()) break;
     } else unreachable;
     self.filled = filled;
@@ -254,13 +199,19 @@ fn advance_rounds(comptime level: constants.Level, comptime cheap: bool, comptim
 /// then the rest a step at a time. Each step adds at most one symbol and moves on a position or
 /// more. `cheap` compiles in the prices of decision 42, `costs`. Never inline, so a round calls
 /// the code a call ran before the rounds.
-noinline fn advance_positions(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
+noinline fn advance_positions(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, comptime live: bool, self: *Matcher(level), block: *Block, ending: bool, costs: CostsOf(cheap)) align(constants.hot_function_alignment) void {
     @setRuntimeSafety(level.runtime_safety);
-    if (level.chains) advance_lazy(level, cheap, assembly, self, block, costs) else advance_greedy(level, self, block);
+    if (level.chains) advance_lazy(level, cheap, assembly, live, self, block, costs) else advance_greedy(level, self, block);
     for (0..self.filled + 1) |_| {
         if (block.full()) return;
         const ahead = self.filled - self.position;
         if (ahead == 0 or (!ending and ahead < constants.lookahead_min)) return;
+        // In the rounds of decision 72's loop its step decides the position. In any other, the step
+        // below does, as before decision 72: with this function its one caller, it inlines here.
+        if (live) {
+            second.step_lazy(level, cheap, self, block, ahead, costs);
+            continue;
+        }
         // The assembly's rounds call a copy of the step of their own (decision 54), so that the
         // Zig loop's step keeps its callers, and LLVM builds it as before.
         if (level.chains) step_lazy(level, cheap, assembly, self, block, ahead, costs) else step_greedy(level, self, block, ahead);
@@ -280,9 +231,13 @@ pub fn lookahead_end(comptime level: constants.Level, self: *const Matcher(level
 /// The lazy levels' positions with the whole lookahead ahead, decided until the block fills or the
 /// lookahead runs out; `step_lazy` takes the positions after them. The step's state, the position
 /// and the waiting match, lives in locals through the loop. `cheap` compiles in the prices of
-/// decision 42.
-fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
+/// decision 42. `live` runs the loop of a round whose gate holds matches or that starts with a
+/// match held (decision 72).
+fn advance_lazy(comptime level: constants.Level, comptime cheap: bool, comptime assembly: bool, comptime live: bool, self: *Matcher(level), block: *Block, costs: CostsOf(cheap)) void {
     @setRuntimeSafety(level.runtime_safety);
+    // No match is held here: `advance_rounds` runs decision 72's loop for a round that starts
+    // with one. An assertion here changes how LLVM builds the function on aarch64.
+    if (live) return second.advance_lazy(level, cheap, self, block, costs);
     if (comptime lazy_aarch64.takes(level, cheap)) return lazy_aarch64.advance(level, self, block);
     if (assembly) return lazy_x86_64.advance(level, self, block);
     advance_lazy_zig(level, cheap, self, block, costs);
@@ -357,7 +312,7 @@ fn decide_lazy(comptime level: constants.Level, comptime cheap: bool, self: *Mat
 /// Whether the lazy step may take `found`, the match waiting from the position before `position`:
 /// always, unless the block before had cheap literals, when the match must cost fewer bits than the
 /// literals it covers (decision 42).
-inline fn accepted(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), costs: CostsOf(cheap), position: usize, found: Match) bool {
+pub inline fn accepted(comptime level: constants.Level, comptime cheap: bool, self: *const Matcher(level), costs: CostsOf(cheap), position: usize, found: Match) bool {
     @setRuntimeSafety(level.runtime_safety);
     return if (cheap) cost.saves_bits(costs, self.window[position - 1 ..][0..found.len], found.distance) else true;
 }
@@ -452,7 +407,7 @@ test "lowest_of equals the saturated difference with a floor of 1 at every windo
 }
 
 /// Adds `at` to its hash's chain.
-inline fn insert(comptime level: constants.Level, self: *Matcher(level), at: usize) void {
+pub inline fn insert(comptime level: constants.Level, self: *Matcher(level), at: usize) void {
     @setRuntimeSafety(level.runtime_safety);
     const head = &self.heads[hash(level, self, at)];
     self.chain[slot(at)] = head.*;

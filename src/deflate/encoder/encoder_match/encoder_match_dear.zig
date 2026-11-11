@@ -30,6 +30,9 @@ const Match = match.Match;
 const three_module = @import("encoder_match_three.zig");
 const Three = three_module.Three;
 const dear_aarch64 = @import("encoder_match_dear_aarch64.zig");
+const score = @import("encoder_match_score.zig");
+const walk = @import("encoder_match_walk.zig");
+const second = @import("encoder_match_second.zig");
 
 /// `Matcher.advance_dear`: the positions, in rounds that stop at the block's limit as the rounds
 /// of every lazy block do (decision 44): a round shows the loops the window only as far as the
@@ -39,8 +42,9 @@ pub fn advance(comptime level: constants.Level, self: *Matcher(level), block: *B
     comptime assert(level.three and level.block_checks);
     const filled = self.filled;
     for (0..filled + 1) |_| {
-        // The symbols the block takes before its limit.
-        const room: usize = block.limit - block.symbol_count;
+        // The symbols the block takes before its limit. A match held before the block adds two
+        // for one position (decision 72), so the round shows it one position fewer.
+        const room: usize = block.limit - block.symbol_count - @intFromBool(second.is_held(level, self));
         assert(room > 0);
         self.filled = @min(filled, self.position + room + (constants.lookahead_min - 1));
         const whole = self.filled == filled;
@@ -88,6 +92,12 @@ pub fn advance_lazy_zig(comptime level: constants.Level, self: *Matcher(level), 
     const lookahead = match.lookahead_end(level, self) orelse return;
     // The end is bounded by the window too, so every position the loop inserts fits 16 bits.
     const end = @min(lookahead, constants.encoder_window_len - constants.lookahead_min + 1);
+    // A match the block before held waits for this block's first position (decision 72). These
+    // blocks hold none of their own, so the loop has none to decide.
+    if (level.second and self.held) {
+        if (self.position >= end) return;
+        step_held(level, self, block, self.filled - self.position, three);
+    }
     var state: State = .{ .position = self.position, .previous = self.previous, .waiting = self.waiting };
     const covered_from = state.position - @intFromBool(state.waiting);
     var symbols = block.appender(level.runtime_safety);
@@ -233,6 +243,7 @@ fn step(comptime level: constants.Level, self: *Matcher(level), block: *Block, a
     @setRuntimeSafety(level.runtime_safety);
     // No match waits without the lazy step's position before (`take_previous` clears it).
     assert(self.waiting or self.previous.len == 0);
+    if (level.second and self.held) return step_held(level, self, block, ahead, three);
     var current: Match = .{};
     if (ahead >= constants.hash_len) {
         const word = match.tail_octets(level.runtime_safety, &self.window, self.position);
@@ -263,6 +274,38 @@ fn take_previous(comptime level: constants.Level, self: *Matcher(level), block: 
     self.waiting = false;
     block.add_pair(level.runtime_safety, self.previous.len, self.previous.distance);
     self.position += self.previous.len - 1;
+    self.previous = .{};
+}
+
+/// Decides a match the block before held (decision 72), at the position, with `ahead` octets
+/// ahead: the search tests its guard, and the position joins the chains and the table only where
+/// its hash's octets lie in the input. When that position's match wins (`second_wins`), the two
+/// positions before it become literals and its match waits. Else the held match is taken.
+fn step_held(comptime level: constants.Level, self: *Matcher(level), block: *Block, ahead: usize, three: *Three) void {
+    @setRuntimeSafety(level.runtime_safety);
+    comptime assert(level.second);
+    assert(self.held and self.waiting and self.previous.len >= constants.match_len_taken_min);
+    if (ahead >= constants.hash_len) insert_both(level, self, three, self.position);
+    const current = walk.best_second(level, self, @min(ahead, constants.match_len_max), self.previous.len);
+    self.held = false;
+    const won = score.second_wins(level, self.previous, current);
+    self.gate.count(won);
+    if (won) {
+        block.add_literal(level.runtime_safety, self.window[self.position - score.held_back]);
+        block.add_literal(level.runtime_safety, self.window[self.position - 1]);
+        self.previous = current;
+        self.position += 1;
+        return;
+    }
+    // Every position the held match covers after this one joins the chains and the table, as a
+    // later match may start there.
+    const end = self.position - score.held_back + self.previous.len;
+    for (self.position + 1..end) |covered| {
+        if (covered + constants.hash_len <= self.filled) insert_both(level, self, three, covered);
+    }
+    self.waiting = false;
+    block.add_pair(level.runtime_safety, self.previous.len, self.previous.distance);
+    self.position += self.previous.len - score.held_back;
     self.previous = .{};
 }
 

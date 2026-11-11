@@ -224,7 +224,7 @@ test "each level's output for a seeded input is the one recorded here" {
     const recorded = [_]struct { usize, u64 }{
         .{ 49100, 0x36c0bead5df53163 },
         .{ 45802, 0xf897d0527da1bf39 },
-        .{ 45743, 0xc053fe12a5b0c891 },
+        .{ 45760, 0x13e4b710b6220ab0 },
     };
     var input: [120 * 1024]u8 = undefined;
     fill(&input, .mixed, 11);
@@ -295,7 +295,7 @@ test "each level's output for seeded DNA, whose literals cost two bits, is the o
     const recorded = [_]struct { usize, u64 }{
         .{ 30766, 0xde3d5a5c996f8b6a },
         .{ 27662, 0xfe555577f20da3a6 },
-        .{ 24878, 0x29d7a43acf09079a },
+        .{ 24878, 0xc1d3d41b9c59d19e },
     };
     var input: [dna_len]u8 = undefined;
     fill_dna(&input, 29);

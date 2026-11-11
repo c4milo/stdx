@@ -338,6 +338,9 @@ fn end_block(comptime options: EncoderOptions, self: *Encoder(options), final: b
     if (comptime constants.level(options.level).three) {
         if (!last) self.three.end_block(&self.plan, self.prices.cheap, &self.block, &self.split);
     }
+    if (comptime constants.level(options.level).second) {
+        if (!last) self.matcher.gate.end_block();
+    }
     self.emitting_final = last;
     self.emit.start();
     return null;

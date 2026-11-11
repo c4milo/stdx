@@ -61,6 +61,10 @@ pub const Level = struct {
     /// Whether the lazy step compares matches by bits (`keeps_waiting`) in place of the distance
     /// penalty: `lazy_length_weight` an octet less the distance's bit length.
     lazy_by_bits: bool,
+    /// Whether the lazy step holds a match it keeps over the next position's, and tries one
+    /// position more before it takes it (decision 72, `second_wins`), in a block its gate lets
+    /// (`Gate`). Level 9 does, and compares by bits in such a block, as `lazy_by_bits` does.
+    second: bool,
     /// What decision 12 budgets for the encoder's state at this level.
     state_budget_len: usize,
     /// Whether the level's loops run with Zig's runtime safety checks (decision 49): `Encoder`
@@ -105,6 +109,41 @@ pub const lazy_length_weight = 4;
 /// step to drop the waiting match.
 pub const lazy_bits_margin = 2;
 
+/// How far the second position's match must score past the held one's, by bits, for the lazy
+/// step to drop the held match (decision 72): two literals go before the match that wins, where
+/// the first position's rule spends one.
+pub const lazy_second_bits_margin = 6;
+
+/// The links the second position's search reads on the chain of the octets a winner must hold
+/// (decision 72, `best_second`). With 32 text retired 3% to 9% more instructions and css-1m wrote
+/// 0.1% less; with 8, css-1m wrote 1.1% more.
+pub const second_candidates_max = 16;
+
+/// A block's lazy steps hold matches while the block before, where it held some, lost at least
+/// one held match in this many to the second position's (decision 72, `Gate`). Shuffled text,
+/// DNA and osdb lose fewer than 1 in 70 and gain nothing; text, css-1m and kennedy.xls lose 1 in
+/// 22 or more.
+pub const second_win_divisor = 32;
+
+/// The held matches a block needs for that verdict: fewer tell too little.
+pub const second_holds_min = 64;
+
+/// A block stops its holds at once when its first held matches, this many, lost too few: in a
+/// block of shuffled text, each held match costs a search and none wins. With 256 css-1m wrote
+/// 0.7% more.
+pub const second_check_holds = 1024;
+
+/// The same check in a block after one that lost too few: a block of data whose held matches
+/// seldom win tells it in fewer, and on x86-64 its searches cost shuffled dickens-1m 1.4% to 3.6%
+/// of level 9's speed with 1,024.
+pub const second_retry_check_holds = 128;
+
+/// The most block ends a level waits before its steps hold matches again, after a block that
+/// lost too few: it waits one, and `second_wait_growth` times as many after each such block in
+/// a row.
+pub const second_wait_max = 64;
+pub const second_wait_growth = 2;
+
 /// The links a search reads on the chain of its match's tail to pass the candidates it has tried
 /// already, before it keeps the chain it follows instead: positions that close together say the
 /// tail's octets recur as often as the ones the search follows (`best_by_tail`, decision 46).
@@ -144,9 +183,9 @@ pub const encoder_levels = [_]u4{ 1, 6, 9 };
 /// A level's parameters.
 pub fn level(comptime number: u4) Level {
     return switch (number) {
-        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .lazy_by_bits = false, .state_budget_len = 163 * 1024 },
-        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .lazy_by_bits = true, .state_budget_len = 294 * 1024 },
-        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .lazy_by_bits = false, .state_budget_len = 293 * 1024 },
+        1 => .{ .hash_bits = 14, .chains = false, .candidates_max = 1, .nice_len = match_len_max, .lazy_len = 0, .cut_len = match_len_max, .cut_candidates_max = 1, .covered_insert_len_max = 8, .walks_inline = false, .tail_chains = false, .tail_move_candidates_min = 1, .cheap_candidates_max = 1, .block_checks = false, .three = false, .lazy_by_bits = false, .second = false, .state_budget_len = 163 * 1024 },
+        6 => .{ .hash_bits = 15, .chains = true, .candidates_max = 24, .nice_len = 128, .lazy_len = 32, .cut_len = 8, .cut_candidates_max = 8, .covered_insert_len_max = 0, .walks_inline = true, .tail_chains = true, .tail_move_candidates_min = 48, .cheap_candidates_max = 16, .block_checks = true, .three = true, .lazy_by_bits = true, .second = false, .state_budget_len = 294 * 1024 },
+        9 => .{ .hash_bits = 15, .chains = true, .candidates_max = 4096, .nice_len = match_len_max, .lazy_len = match_len_max, .cut_len = 8, .cut_candidates_max = 1024, .covered_insert_len_max = 0, .walks_inline = false, .tail_chains = true, .tail_move_candidates_min = 16, .cheap_candidates_max = 32, .block_checks = true, .three = true, .lazy_by_bits = false, .second = true, .state_budget_len = 293 * 1024 },
         else => @compileError("the DEFLATE encoder's levels are 1, 6 and 9 (decision 13)"),
     };
 }
@@ -165,5 +204,8 @@ comptime {
         // A 3-octet match comes where a lazy step's search found none, in a block the level's
         // checks price.
         assert(!chosen.three or (chosen.chains and chosen.block_checks));
+        // A held match is compared by bits, at a level whose blocks the rounds bound, and its
+        // search still tries a candidate.
+        assert(!chosen.second or (chosen.chains and chosen.block_checks));
     }
 }

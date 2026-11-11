@@ -34,27 +34,27 @@ const short_level_number = 6;
 /// do.
 const scene_len = 1_200;
 const tail_slack = 64;
-const tail_long = constants.lookahead_min + tail_slack;
+pub const tail_long = constants.lookahead_min + tail_slack;
 const tail_short = 8;
-const tails = [_]usize{ tail_long, tail_short };
-const input_len_max = scene_len + tail_long;
+pub const tails = [_]usize{ tail_long, tail_short };
+pub const input_len_max = scene_len + tail_long;
 
 /// The most pairs a scene's block holds.
-const pairs_max = 8;
+pub const pairs_max = 8;
 
 /// The seed of the scenes' octets.
 const octets_seed = 41;
 
 /// One repeat a scene plants: `text` at `at`, a copy of the octets `distance` before it, which
 /// the scene plants too.
-const Plant = struct { at: usize, text: []const u8, distance: usize };
+pub const Plant = struct { at: usize, text: []const u8, distance: usize };
 
 /// Octets a scene writes as they are, after its plants.
-const Raw = struct { at: usize, text: []const u8 };
+pub const Raw = struct { at: usize, text: []const u8 };
 
 /// Fills `input` with seeded octets, plants each repeat, source first, and writes each raw text.
 /// Octets after a planted text are flipped where they would lengthen the repeat.
-fn build(input: []u8, plants: []const Plant, raws: []const Raw) void {
+pub fn build(input: []u8, plants: []const Plant, raws: []const Raw) void {
     var generator = codec.testing.split.Generator.init(octets_seed);
     for (input) |*octet| octet.* = @truncate(generator.next());
     for (plants) |plant| {
@@ -68,7 +68,7 @@ fn build(input: []u8, plants: []const Plant, raws: []const Raw) void {
 
 /// The octets a scene uses with each tail: all of them and the long tail, or up to its last
 /// plant and the short one.
-fn used_len(plants: []const Plant, tail: usize) usize {
+pub fn used_len(plants: []const Plant, tail: usize) usize {
     if (tail == tail_long) return scene_len + tail_long;
     var end: usize = scene_len / scene_parts;
     for (plants) |plant| end = @max(end, plant.at + plant.text.len);
@@ -94,7 +94,7 @@ fn repeats(input: []const u8) usize {
 
 /// What the steps decide over `input`: the block's symbols, with `three` live from the start
 /// over a table of zeros.
-fn decide(comptime level_number: u4, input: []const u8, block: *Block, three: *Three) !void {
+pub fn decide(comptime level_number: u4, input: []const u8, block: *Block, three: *Three) !void {
     const level = comptime constants.level(level_number);
     var matcher: Matcher(level) = undefined;
     matcher.init();
@@ -109,9 +109,9 @@ fn decide(comptime level_number: u4, input: []const u8, block: *Block, three: *T
 }
 
 /// The block's pairs, in order: the octet each starts at, its length and its distance.
-const Pair = struct { at: usize, len: usize, distance: usize };
+pub const Pair = struct { at: usize, len: usize, distance: usize };
 
-fn pairs_of(block: *const Block, buffer: []Pair) []Pair {
+pub fn pairs_of(block: *const Block, buffer: []Pair) []Pair {
     var count: usize = 0;
     var at: usize = 0;
     for (block.symbols[0..block.symbol_count]) |symbol| {

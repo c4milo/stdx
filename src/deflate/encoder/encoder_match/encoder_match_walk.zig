@@ -111,6 +111,45 @@ pub inline fn best_inline(comptime level: constants.Level, comptime cheap: bool,
     return walk.found;
 }
 
+/// The search of the second position after a held match's (decision 72). Only a match at least
+/// as long as the held one, `held_len` octets, wins there (`second_wins`), and such a match holds
+/// the 4 octets that end at `held_len`. The search walks the chain of those 4 octets, the nearest
+/// first, `second_candidates_max` links at most: they recur less often than the position's first
+/// 4, which most positions of a text share with hundreds of others. A candidate whose 4 octets
+/// lie at or after the position is not on that chain yet, and is not tried.
+pub fn best_second(comptime level: constants.Level, self: *const Matcher(level), len_max: usize, held_len: u16) align(constants.hot_function_alignment) Match {
+    @setRuntimeSafety(level.runtime_safety);
+    comptime assert(level.second);
+    assert(held_len >= constants.match_len_taken_min);
+    const position = self.position;
+    if (held_len > len_max) return .{};
+    assert(position + len_max <= self.filled);
+    const later = self.window[position..][0..len_max];
+    // Where the 4 octets start that a match of `held_len` octets ends with.
+    const offset: usize = held_len - constants.match_len_taken_min;
+    const later_tail = tail_octets(level.runtime_safety, later, offset);
+    const later_head = tail_octets(level.runtime_safety, later, 0);
+    const floor = lowest_of(level.runtime_safety, position) + offset;
+    var link: usize = self.heads[match.hash_of_word(level, later_tail)];
+    var found: Match = .{};
+    var left: u16 = constants.second_candidates_max;
+    // One compare ends the walk at the reach's edge and at a chain's end.
+    while (left != 0 and link >= floor) : (left -= 1) {
+        const at = link;
+        link = self.chain[slot(at)];
+        // The position itself joined its chain before the search: it is no candidate.
+        if (at - offset >= position) continue;
+        if (tail_octets(level.runtime_safety, &self.window, at) != later_tail) continue;
+        const candidate = at - offset;
+        if (tail_octets(level.runtime_safety, &self.window, candidate) != later_head) continue;
+        const len = match_len(level.runtime_safety, self.window[candidate..][0..len_max], later);
+        if (len <= found.len) continue;
+        found = .{ .len = @intCast(len), .distance = @intCast(position - candidate) };
+        if (len >= level.nice_len or len >= len_max) break;
+    }
+    return found;
+}
+
 /// The candidates the lazy loop reads of a short chain. On the N2 a third costs the files of few
 /// matches 1% to 2% for its instructions, and one leaves a branch that mispredicts.
 const short_chain_len = 2;
