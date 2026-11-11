@@ -1622,6 +1622,7 @@ small file.
       stdx refuses; every other refusal is `Corrupt`. `refusal` gives the class (entry 11).
     - The whole-buffer helper, `TextReader`, gives each token with its octets in the caller's
       storage, and turns the operational statuses into `error.Truncated` and `error.NoSpaceLeft`.
+      Since decision 74, octets the text holds as they are stay in its input.
 
     **Text sequences.** `Framing.sequence` delimits a text as RFC 7464 does. The encoder writes a
     record separator, the text and a line feed (§2.2). The decoder reads one text per `init`: one
@@ -4649,3 +4650,51 @@ small file.
       check every octet the caller wrote. The owner ruled for base 64.
     - The URL and filename safe alphabet, or no padding, as options: no dependent asks for them.
       They can come with a ruling of their own.
+
+74. **`TextReader` leaves a token's octets in its input where the text holds them as they are.**
+    Ruled by the owner on 2026-11-09, with the change to `TextReader.Item` it makes, as the lever
+    after decision 73. `TextReader.next` copied every name, string and number into the caller's
+    storage, though its input holds most of them octet for octet.
+    - Claim J8's line takes a slice from `TextReader`. For a name, a string or a number whose
+      octets it changes none of, it gives the slice of the input that holds them, and writes
+      nothing. Where claim J16's walk changed some, it gives the octets the walk wrote into the
+      storage. `Decoder.decode` and `decode_batch` give no slice, so their code is as before.
+    - `TextReader.Item`'s octets lie in the input or in the storage, and stay there until the
+      next call, as before. A token longer than the storage is still `error.NoSpaceLeft`,
+      wherever its octets lie: the change moves where they lie, and nothing else.
+    - A `TextReader` stays a plain value. A copy reads on from where the original stood, and the
+      original reads on after it as if the copy had never read. A dependent reads ahead with such
+      a copy, and text_reader_test.zig holds both to the same tokens.
+    - callgrind on aarch64: a read of a qlog record took 4,142 instructions, from 4,536; of 16
+      strings of 60 octets, 4,736, from 5,319; of one string of 4,000 octets, 4,683, from 5,715.
+    - bench-profile on the N2 (run 42974769027): `next` took 163.0 instructions a token on CLDR,
+      from 177.7, and 179.3 on qlog, from 194.5. A hex string of dickens took 148,020 cycles,
+      from 189,330. A string with escapes took 11 to 13 instructions more, of 404,040 and more.
+    - The pairs (runs 42974751335 and 42974760619): `next` ran 39 rows faster in both jobs on the
+      N2 and 42 on x86-64, an AMD EPYC 9V74 and 7763. Its token rows ran 1.06 to 1.07 times
+      main's speed on the N2, and 1.09 to 1.17 on x86-64. Its hex rows ran at a median of 1.22 to
+      1.23 on the N2, and 2.04 to 2.05 on x86-64. On x86-64, `next` now runs at a batch's speed:
+      a median of 1.00 of it over the rows, from 0.50 to 0.55.
+    - Against the baselines, `next` trails serde_json on qlog alone, at 0.78 to 0.81 on the N2,
+      from 0.73. On x86-64 it runs level with serde_json there, at 0.997 to 1.012, from 0.91 to
+      0.93. It runs ahead of serde_json on CLDR and on every string row, and of Go's jsontext on
+      every row.
+    - Rows slower in both jobs, which decision 20 counts as placement:
+      - alice29.txt as a string through `next` on the N2, at 0.973 and 0.970. On that row the
+        batch fell as far, at 0.973 and 0.976, and the baselines did not move. The batch runs
+        functions identical at both commits.
+      - On the N2, qlog encoded in a batch. On x86-64, three hex rows decoded in a batch, one
+        encoded in a batch, and one encoded through the methods. Each of these candidates runs
+        functions identical at both commits, on aarch64 and on x86-64.
+    - The checks: decoder_fast_test.zig holds the line in place to the line that writes, token
+      for token, over the texts, seeded corruptions and short outputs. text_reader_test.zig holds
+      each token's octets to the input, among the octets its call consumed, or to the storage's
+      start. The commit lists the mutations.
+
+    The alternatives refused:
+    - Octets in place through `Decoder.decode`: its caller reads `written` octets of its output
+      (decision 11), so they stay there.
+    - No storage bound for octets that stay in the input: a plain string longer than the storage
+      would read, and the same string with one escape would not.
+    - A claim for the slice: `next` takes no claims (decision 69), and the pairs measure it
+      against main.

@@ -3,6 +3,10 @@
 //! off, decode the same input with the same pieces of input and output, and every call must give
 //! the same progress, octets and error, and leave the same state. Whole calls take the fast path's
 //! common case; seeded splits cut tokens and outputs at every octet, where it must step aside.
+//!
+//! In place, as `TextReader` takes it (decision 74), the line must take each token as it takes it
+//! into the output: the same outcome, state and octets, the octets in the input among those the
+//! token consumed, and the output written only where the walk changed them.
 
 const std = @import("std");
 const testing = std.testing;
@@ -24,6 +28,10 @@ const content_len_max = 1024;
 const seeded_cases = 1500;
 const flips_max = 4;
 const split_seeds = 4;
+
+/// The longest of the short outputs the line takes tokens in place with, which cut its names,
+/// strings and numbers.
+const short_room_len_max = 8;
 
 /// Two claims that differ in J8 alone.
 const Pair = struct { fast: claims.Claims, checked: claims.Claims };
@@ -114,8 +122,62 @@ fn check(input: []const u8, seed: u64) !void {
         for ([_]Framing{ .text, .sequence }) |framing| {
             try expect_lockstep(pair, framing, input, null);
             for (0..split_seeds) |index| try expect_lockstep(pair, framing, input, seed +% index);
+            try expect_in_place(pair.fast, framing, input, content_len_max);
+            try expect_in_place(pair.fast, framing, input, seed % (short_room_len_max + 1));
         }
     }
+}
+
+/// Requires the line to take each token of `input` in place as it takes it into an output of
+/// `room_len` octets, at every point between tokens a decode on the checked path reaches.
+fn expect_in_place(comptime line: claims.Claims, framing: Framing, input: []const u8, room_len: usize) !void {
+    var decoder: Decoder = undefined;
+    decoder.init(framing, codec.Features.detect());
+    var output: [content_len_max]u8 = undefined;
+    var consumed: usize = 0;
+    for (0..input.len + 1) |_| {
+        if (decoder.stage == .tokens and decoder.open == .none) try expect_same_take(line, &decoder, input[consumed..], room_len);
+        const progress = decoder.decode_with(with_fast_path(claims.scalar, false), input[consumed..], &output, .last) catch return;
+        consumed += progress.consumed;
+        if (progress.status != .token) return;
+    }
+    return error.TestNoProgress;
+}
+
+/// Takes the next token of `input` into the output and in place, from copies of `decoder`, and
+/// requires the same outcome, state and octets of both.
+fn expect_same_take(comptime line: claims.Claims, decoder: *const Decoder, input: []const u8, room_len: usize) !void {
+    var written_decoder = decoder.*;
+    var placed_decoder = decoder.*;
+    var written_output: [content_len_max]u8 = undefined;
+    var placed_output: [content_len_max]u8 = undefined;
+    var written_reader = codec.Reader.init(input);
+    var placed_reader = codec.Reader.init(input);
+    var written_writer = codec.Writer.init(written_output[0..room_len]);
+    var placed_writer = codec.Writer.init(placed_output[0..room_len]);
+    var octets: []const u8 = &.{};
+    const written = decoder_fast.token(&written_decoder, line, &written_reader, &written_writer, null);
+    const placed = decoder_fast.token(&placed_decoder, line, &placed_reader, &placed_writer, &octets);
+    try testing.expectEqual(written, placed);
+    try testing.expectEqual(written_reader.consumed(), placed_reader.consumed());
+    try expect_same_state(&placed_decoder, &written_decoder);
+    try testing.expectEqualSlices(u8, written_output[0..written_writer.position], octets);
+    if (placed_writer.position == 0) {
+        // The token's octets, through a reader of their own.
+        var token_reader = codec.Reader.init(input);
+        if (octets.len > 0) try expect_within(try token_reader.take(placed_reader.consumed()), octets);
+    } else {
+        // The walk changed the octets, and wrote them at the output's start.
+        try testing.expectEqual(placed_writer.position, octets.len);
+        try testing.expectEqual(@intFromPtr(&placed_output), @intFromPtr(octets.ptr));
+    }
+}
+
+/// Requires `octets` to lie inside `outer`.
+fn expect_within(outer: []const u8, octets: []const u8) !void {
+    const start = @intFromPtr(octets.ptr);
+    try testing.expect(start >= @intFromPtr(outer.ptr));
+    try testing.expect(start + octets.len <= @intFromPtr(outer.ptr) + outer.len);
 }
 
 test "the fast path takes each token of the texts as the checked path does, whole and split" {
@@ -135,7 +197,7 @@ fn tokens_taken_fast(framing: Framing, text: []const u8) !usize {
             var copy = decoder;
             var reader = codec.Reader.init(text[consumed..]);
             var writer = codec.Writer.init(&output);
-            if (decoder_fast.token(&copy, claims.vector, &reader, &writer) != null) taken += 1;
+            if (decoder_fast.token(&copy, claims.vector, &reader, &writer, null) != null) taken += 1;
         }
         const progress = try decoder.decode_with(claims.vector, text[consumed..], &output, .last);
         consumed += progress.consumed;
@@ -174,7 +236,7 @@ test "a number and a string that fill the output exactly are taken, and one octe
         const before = decoder;
         var reader = codec.Reader.init(case.text);
         var writer = codec.Writer.init(output[0..case.room]);
-        const outcome = decoder_fast.token(&decoder, claims.vector, &reader, &writer);
+        const outcome = decoder_fast.token(&decoder, claims.vector, &reader, &writer, null);
         try testing.expectEqual(case.taken, outcome != null);
         // A token taken leaves the comma that follows it; one left consumes and changes nothing.
         try testing.expectEqual(if (case.taken) case.text.len - 1 else 0, reader.consumed());

@@ -18,8 +18,11 @@
 //! It reads through the checked reader and writes through the checked writer: each octet the
 //! grammar turns on with `take_octet`, and each run counted by a scan of scan.zig or number.zig,
 //! taken with `take` and written with `write_first`, which moves a short run with no call
-//! (decision 70). It changes the state only once the token is whole, and leaves it as the
-//! checked path would, field for field, which decoder_fast_test.zig requires after every call.
+//! (decision 70). For a caller that holds all of its input, `TextReader`, it writes no octet the
+//! input already holds: a name's, a string's or a number's octets stay where they lie, unless
+//! the walk changed some (decision 74). It changes the state only once the token is whole, and
+//! leaves it as the checked path would, field for field, which decoder_fast_test.zig requires
+//! after every call.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -74,8 +77,11 @@ inline fn skip_record_separators(reader: *codec.Reader) usize {
     return len;
 }
 
-/// Decodes the next token, or returns null with nothing consumed and the state as it was.
-pub inline fn token(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+/// Decodes the next token, or returns null with nothing consumed and the state as it was. Where
+/// `in_place` is null, a name's, a string's or a number's octets go into the output. Else it gets
+/// them, and they stay in the input, or lie in the output where the walk changed some (decision
+/// 74). Either way the output must have room for them.
+pub inline fn token(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     assert(decoder.stage == .tokens and decoder.open == .none);
     // Between tokens, the UTF-8 check stands where `start_token` sets it: each continuation octet
     // resets its range, and a string ends only between characters. So a token taken here leaves it
@@ -83,14 +89,14 @@ pub inline fn token(decoder: *Decoder, comptime claims: Claims, reader: *codec.R
     assert(std.meta.eql(decoder.utf8, Utf8{}));
     const start = reader.consumed();
     const written = writer.position;
-    if (next_token(decoder, claims, reader, writer)) |outcome| return outcome;
+    if (next_token(decoder, claims, reader, writer, in_place)) |outcome| return outcome;
     // Only a token taken whole writes, and changes the state.
     assert(writer.position == written);
     reader.unread(reader.consumed() - start);
     return null;
 }
 
-inline fn next_token(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+inline fn next_token(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     _ = decoder_file.skip_whitespace(reader);
     var octet = reader.take_octet() catch return null;
     var expect = decoder.expect;
@@ -99,16 +105,16 @@ inline fn next_token(decoder: *Decoder, comptime claims: Claims, reader: *codec.
         _ = decoder_file.skip_whitespace(reader);
         octet = reader.take_octet() catch return null;
     }
-    return token_at(decoder, claims, expect, octet, reader, writer);
+    return token_at(decoder, claims, expect, octet, reader, writer, in_place);
 }
 
 /// Takes the token `octet` starts where the grammar expects `expect`.
-inline fn token_at(decoder: *Decoder, comptime claims: Claims, expect: Expect, octet: u8, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+inline fn token_at(decoder: *Decoder, comptime claims: Claims, expect: Expect, octet: u8, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     if (expect == .end_of_text) return null;
     const names = expect == .name or expect == .name_or_end_object;
-    if (octet == constants.quotation_mark) return string(decoder, claims, if (names) .name else .string, reader, writer);
+    if (octet == constants.quotation_mark) return string(decoder, claims, if (names) .name else .string, reader, writer, in_place);
     if (names) return if (octet == constants.end_object and expect == .name_or_end_object) end_container(decoder, .end_object) else null;
-    return value(decoder, expect, octet, reader, writer);
+    return value(decoder, expect, octet, reader, writer, in_place);
 }
 
 /// What the grammar expects after `octet`, when it is the separator `expect` allows, or null.
@@ -128,7 +134,7 @@ inline fn container_end(decoder: *Decoder, expect: Expect, octet: u8) ?Outcome {
 }
 
 /// Takes a value that is not a string, or the end of the array just opened.
-inline fn value(decoder: *Decoder, expect: Expect, octet: u8, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+inline fn value(decoder: *Decoder, expect: Expect, octet: u8, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     switch (octet) {
         constants.end_array => return if (expect == .value_or_end_array) end_container(decoder, .end_array) else null,
         constants.begin_object, constants.begin_array => {
@@ -141,12 +147,12 @@ inline fn value(decoder: *Decoder, expect: Expect, octet: u8, reader: *codec.Rea
     }
     if (!number_grammar.starts_number(octet)) return null;
     reader.unread(1);
-    return number(decoder, reader, writer);
+    return number(decoder, reader, writer, in_place);
 }
 
 /// Takes a name or a string whose octets are a run of plain ASCII the output has room for, and its
 /// closing quotation mark.
-inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     const window = reader.take_partial(writer.room_len());
     reader.unread(window.len);
     const run_len = if (claims.decoder_string_vectors)
@@ -158,9 +164,9 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
     if (closing != constants.quotation_mark) {
         if (!claims.decoder_line_strings or run_len == window.len) return null;
         reader.unread(run_len + 1);
-        return walked(decoder, claims, kind, reader, writer);
+        return walked(decoder, claims, kind, reader, writer, in_place);
     }
-    writer.write_first(window, run_len) catch unreachable;
+    leave(window, run_len, writer, in_place);
     return string_ended(decoder, kind);
 }
 
@@ -169,16 +175,29 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
 /// (decoder_loop_copy.zig). The walk reads the input and writes the output's room as decision 16
 /// lets J10's loop, and leaves the octets past the token's in room the call does not report. Null
 /// where the walk leaves the string to the checked path, which names every refusal.
-inline fn walked(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+inline fn walked(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     const content = reader.take_partial(reader.remaining_len());
     reader.unread(content.len);
     const room = writer.octets[writer.position..];
     const copied = loop_copy.copy_blocks(claims, decoder.level, content, room, 0) orelse return null;
     // The content and its closing quotation mark.
     _ = reader.take(copied.input_len + 1) catch unreachable;
+    const start = writer.position;
     writer.position += copied.output_len;
     assert(writer.position <= writer.octets.len);
+    if (in_place) |octets| octets.* = writer.octets[start..writer.position];
     return string_ended(decoder, kind);
+}
+
+/// Leaves the first `len` octets of `window`, a token's that the line changes none of: in the
+/// output, or, where `in_place` is not null, in the input where they lie (decision 74).
+inline fn leave(window: []const u8, len: usize, writer: *codec.Writer, in_place: ?*[]const u8) void {
+    assert(len <= window.len and len <= writer.room_len());
+    if (in_place) |octets| {
+        octets.* = window[0..len];
+    } else {
+        writer.write_first(window, len) catch unreachable;
+    }
 }
 
 /// Moves the state past a name or a string taken whole, as the checked path does.
@@ -189,7 +208,7 @@ inline fn string_ended(decoder: *Decoder, kind: Kind) Outcome {
 }
 
 /// Takes a whole number the output has room for, and leaves the octet that ends it unread.
-inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer, in_place: ?*[]const u8) ?Outcome {
     // One octet past the room, so a number that fills the output shows the octet that ends it.
     // The reader's and the writer's steps are inline here: in the caller's loop, LLVM left them
     // calls.
@@ -198,7 +217,7 @@ inline fn number(decoder: *Decoder, reader: *codec.Reader, writer: *codec.Writer
     const ended = @call(.always_inline, number_grammar.ended_in, .{window}) orelse return null;
     if (ended.len > writer.room_len()) return null;
     _ = @call(.always_inline, codec.Reader.take, .{ reader, ended.len }) catch unreachable;
-    writer.write_first(window, ended.len) catch unreachable;
+    leave(window, ended.len, writer, in_place);
     started(decoder, 1, ended.number);
     decoder_file.value_ended(decoder, .number);
     return .{ .status = .token, .kind = .number };

@@ -5,6 +5,10 @@
 //! A storage shorter than a token's octets shows `next` steps aside for `error.NoSpaceLeft`.
 //! `next_text` takes a text's start where it needs no verdict, so the texts hold starts of both
 //! kinds, in a text and in a sequence, and a sequence's texts are read one after another.
+//!
+//! A token's octets lie in the input, among the octets its call consumed, or at the storage's
+//! start (decision 74). A copy of a reader reads on as the original would, and the original reads
+//! on after it as if the copy had never read.
 
 const std = @import("std");
 const testing = std.testing;
@@ -73,6 +77,29 @@ fn expected_item(progress: decoder_file.Progress, octets: []const u8) TextReader
     };
 }
 
+/// A name's, a string's or a number's octets, and none of any other token.
+fn octets_of(got: TextReader.Item) []const u8 {
+    return switch (got) {
+        .name, .string, .number => |octets| octets,
+        else => "",
+    };
+}
+
+/// Requires a token's octets to lie in the input, among the octets from `before` that its call
+/// consumed, or at the start of the storage (decision 74).
+fn expect_placed(reader: *const TextReader, before: usize, got: TextReader.Item) !void {
+    const octets = octets_of(got);
+    if (octets.len == 0) return;
+    const start = @intFromPtr(octets.ptr);
+    const input = @intFromPtr(reader.input.ptr);
+    if (start >= input and start < input + reader.input.len) {
+        try testing.expect(start >= input + before);
+        try testing.expect(start + octets.len <= input + reader.consumed_len());
+    } else {
+        try testing.expectEqual(@intFromPtr(reader.storage.ptr), start);
+    }
+}
+
 fn expect_same_item(expected: TextReader.Item, got: TextReader.Item) !void {
     try testing.expectEqual(std.meta.activeTag(expected), std.meta.activeTag(got));
     switch (expected) {
@@ -112,6 +139,7 @@ fn expect_text(reader: *TextReader, reference: *Decoder, input: []const u8, cons
     var room_errors: usize = 0;
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
     for (0..calls_max) |_| {
+        const before = reader.consumed_len();
         const result = reader.next();
         const progress = reference.decode_with(checked, input[consumed.*..], reference_storage[0..room_len], .last) catch |err| {
             try testing.expectError(err, result);
@@ -137,6 +165,7 @@ fn expect_text(reader: *TextReader, reference: *Decoder, input: []const u8, cons
             .token => {
                 const got = (try result) orelse return error.TestUnexpectedResult;
                 try expect_same_item(expected_item(progress, reference_storage[0..progress.written]), got);
+                try expect_placed(reader, before, got);
                 try testing.expectEqual(consumed.*, reader.consumed_len());
                 try expect_same_state(&reader.decoder, reference);
             },
@@ -194,6 +223,100 @@ test "next_text takes a text's start where it needs no verdict, and leaves every
         try testing.expect(reader.next_text());
         try testing.expectEqual(start.taken, reader.decoder.stage == .tokens);
         try testing.expectEqual(start.consumed, reader.consumed_len());
+    }
+}
+
+/// An octet a test fills a storage with, to show `next` wrote none of it.
+const unwritten = 0xaa;
+
+test "next leaves a name, a string or a number in the input where the text holds it as it is" {
+    // The first three texts hold no escape and no non-ASCII octet.
+    for (texts[0..3]) |text| {
+        var storage: [content_len_max]u8 = @splat(unwritten);
+        var reader = TextReader.init(text, &storage, .text, codec.Features.detect());
+        try testing.expect(reader.next_text());
+        var placed: usize = 0;
+        for (0..text.len) |_| {
+            const octets = octets_of(try reader.next() orelse break);
+            if (octets.len == 0) continue;
+            try testing.expect(@intFromPtr(octets.ptr) >= @intFromPtr(text.ptr));
+            try testing.expect(@intFromPtr(octets.ptr) + octets.len <= @intFromPtr(text.ptr) + text.len);
+            placed += 1;
+        }
+        try testing.expect(placed > 0);
+        try testing.expect(std.mem.allEqual(u8, &storage, unwritten));
+    }
+    // An escape changes a string's octets, so they go into the storage.
+    var storage: [content_len_max]u8 = undefined;
+    var reader = TextReader.init("[\"tab\\t\"]", &storage, .text, codec.Features.detect());
+    try testing.expect(reader.next_text());
+    try testing.expectEqual(.begin_array, std.meta.activeTag((try reader.next()).?));
+    const changed = (try reader.next()).?.string;
+    try testing.expectEqualStrings("tab\t", changed);
+    try testing.expectEqual(@intFromPtr(&storage), @intFromPtr(changed.ptr));
+}
+
+/// What one call of `next` gave, kept past the next call: a token's kind and octets, a text's end,
+/// or an error.
+const Entry = struct {
+    result: TextReader.Error!?decoder_file.Kind,
+    octets: [entry_octets_max]u8 = undefined,
+    len: usize = 0,
+};
+
+/// The most octets of one token an entry keeps, and the most entries one read keeps.
+const entry_octets_max = 32;
+const entries_max = 64;
+
+/// Reads to the current text's end or to an error, and returns how many entries it kept.
+fn read_on(reader: *TextReader, entries: *[entries_max]Entry) usize {
+    for (entries, 1..) |*entry, count| {
+        const result = reader.next();
+        const got = result catch |err| {
+            entry.* = .{ .result = err };
+            return count;
+        };
+        const item = got orelse {
+            entry.* = .{ .result = null };
+            return count;
+        };
+        const octets = octets_of(item);
+        entry.* = .{ .result = std.meta.activeTag(item), .len = octets.len };
+        @memcpy(entry.octets[0..octets.len], octets);
+    }
+    return entries.len;
+}
+
+fn expect_entries(expected: []const Entry, got: []const Entry) !void {
+    try testing.expectEqual(expected.len, got.len);
+    for (expected, got) |want, have| {
+        try testing.expectEqual(want.result, have.result);
+        try testing.expectEqualSlices(u8, want.octets[0..want.len], have.octets[0..have.len]);
+    }
+}
+
+/// Requires a copy of a reader that stands `ahead` tokens into `text` to read the rest of it as
+/// `expected` holds, and the original to read the same after the copy did.
+fn expect_copy_reads_ahead(text: []const u8, ahead: usize, expected: []const Entry) !void {
+    var storage: [content_len_max]u8 = undefined;
+    var reader = TextReader.init(text, &storage, .text, codec.Features.detect());
+    try testing.expect(reader.next_text());
+    var got: [entries_max]Entry = undefined;
+    for (0..ahead) |_| _ = try reader.next();
+    var copy = reader;
+    try expect_entries(expected[ahead..], got[0..read_on(&copy, &got)]);
+    try expect_entries(expected[ahead..], got[0..read_on(&reader, &got)]);
+    try testing.expectEqual(copy.consumed_len(), reader.consumed_len());
+}
+
+test "a copy of a reader reads ahead, and the original reads on as if the copy had not" {
+    for (texts) |text| {
+        var storage: [content_len_max]u8 = undefined;
+        var whole = TextReader.init(text, &storage, .text, codec.Features.detect());
+        try testing.expect(whole.next_text());
+        var expected: [entries_max]Entry = undefined;
+        const count = read_on(&whole, &expected);
+        for (0..count) |ahead| try expect_copy_reads_ahead(text, ahead, expected[0..count]);
     }
 }
 

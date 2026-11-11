@@ -383,7 +383,7 @@ pub const Decoder = struct {
 pub inline fn run(decoder: *Decoder, comptime claims: Claims, reader: *codec.Reader, writer: *codec.Writer, piece: Piece) Error!Outcome {
     if (decoder.open != .none) return decoder.continue_token(claims, reader, writer, piece);
     if (claims.decoder_fast_path and decoder.stage == .tokens) {
-        if (fast.token(decoder, claims, reader, writer)) |outcome| return outcome;
+        if (fast.token(decoder, claims, reader, writer, null)) |outcome| return outcome;
     }
     for (0..constants.decoder_steps_max) |_| {
         if (try decoder.step(claims, reader, writer, piece)) |outcome| return outcome;

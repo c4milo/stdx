@@ -1,13 +1,18 @@
 //! The decoder's whole-buffer helper (decision 11): the tokens of a text whose octets are all in
-//! one buffer, each name's, string's and number's octets written into one buffer the caller owns.
-//! For a sequence (RFC 7464), `next_text` starts each text in turn.
+//! one buffer. Where claim J8's line takes a name, a string or a number that the text holds as it
+//! is, its octets stay in that buffer. Other octets go into a storage buffer the caller owns
+//! (decision 74). For a sequence (RFC 7464), `next_text` starts each text in turn.
 //!
 //! It holds the caller's input and storage for the length of the texts, as `codec.Reader` holds
 //! its input, and is built on the streaming call and on claim J8's straight line, which that call
 //! takes (CLAUDE.md, Non-negotiables; decision 69). `next_text` takes a text's start where it
 //! needs no verdict, so the line takes the text's first token too. The input ending before a text
 //! does is `error.Truncated`, and a name, a string or a number longer than the storage is
-//! `error.NoSpaceLeft`.
+//! `error.NoSpaceLeft`, wherever its octets lie.
+//!
+//! A `TextReader` is a plain value: a copy reads on from where the original stood, and the
+//! original reads on as if the copy had never read. Both write the one storage, so octets that
+//! lie there stay only until the next call of either.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -23,8 +28,9 @@ pub const TextReader = struct {
     /// What `next` can fail with: a refusal of the text, or the operational errors of decision 11.
     pub const Error = decoder_file.Error || codec.Incomplete;
 
-    /// A token, with a name's, a string's or a number's octets. They lie in the reader's storage
-    /// and stay there until the next call.
+    /// A token, with a name's, a string's or a number's octets. They lie in the reader's input, or
+    /// in its storage where the decoder changed them, and stay there until the next call
+    /// (decision 74).
     pub const Item = union(Kind) {
         begin_object,
         end_object,
@@ -49,8 +55,8 @@ pub const TextReader = struct {
     started: bool,
     ended: bool,
 
-    /// Reads the texts `input` holds, writing names, strings and numbers into `storage`, with the
-    /// caller's CPU features (`Decoder.init`).
+    /// Reads the texts `input` holds, with the caller's CPU features (`Decoder.init`). A name's, a
+    /// string's or a number's octets that do not stay in `input` go into `storage`.
     pub fn init(input: []const u8, storage: []u8, framing: Framing, features: codec.Features) TextReader {
         var reader: TextReader = .{
             .decoder = undefined,
@@ -96,11 +102,13 @@ pub const TextReader = struct {
         if (self.decoder.stage == .tokens and self.decoder.open == .none) {
             var reader: codec.Reader = .{ .octets = self.input, .position = self.consumed };
             var writer = codec.Writer.init(self.storage);
-            if (fast.token(&self.decoder, .{}, &reader, &writer)) |outcome| {
+            // The line leaves a token's octets in the input, and writes only those it changed.
+            var octets: []const u8 = &.{};
+            if (fast.token(&self.decoder, .{}, &reader, &writer, &octets)) |outcome| {
                 // The line takes whole tokens alone, and leaves the text's end to `decode`.
                 assert(outcome.status == .token);
                 self.consumed = reader.position;
-                return item(outcome.kind.?, self.storage[0..writer.position]);
+                return item(outcome.kind.?, octets);
             }
         }
         return self.checked();
