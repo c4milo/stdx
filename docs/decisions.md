@@ -4723,13 +4723,16 @@ small file.
       | Wuffs, gzip decoding | 0.885 on an EPYC 7763 | 0.876 |
       | zlib, CRC-32 of 1 MiB | 0.98 on an EPYC 9V45 | 0.19 |
       | Wuffs, CRC-32 of 64 octets and of 1 MiB | 0.02 and 1.00 on an EPYC 9V45 | 0.45 and 0.19 |
+      | simdjson, yyjson, simdutf and std.json | 0.987 to 1.011 on an EPYC 9V74 | 0.990 to 1.007 |
 
       Runs [43049011582](https://github.com/c4milo/stdx/actions/runs/43049011582) and
       [43082967305](https://github.com/c4milo/stdx/actions/runs/43082967305) for the brotli
       encoder, [43074477963](https://github.com/c4milo/stdx/actions/runs/43074477963) for its
       decoder, [43074464648](https://github.com/c4milo/stdx/actions/runs/43074464648) for
       libzstd, [43074450958](https://github.com/c4milo/stdx/actions/runs/43074450958) for gzip and
-      [43074492419](https://github.com/c4milo/stdx/actions/runs/43074492419) for the checksums.
+      [43074492419](https://github.com/c4milo/stdx/actions/runs/43074492419) for the checksums,
+      and [43090090627](https://github.com/c4milo/stdx/actions/runs/43090090627) for the json
+      baselines, whose reports GitHub failed to store and its log holds.
     - Quality 5's gain from the host's CPU is `lzcnt` where it makes its commands: 4.7 ns an octet
       at baseline and 2.4 with the host's instructions, on plrabn12.txt on an EPYC 7763.
     - zlib and Wuffs lose most, for two causes. A baseline aarch64 build has no CRC-32
