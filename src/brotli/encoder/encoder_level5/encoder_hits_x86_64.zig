@@ -2,8 +2,8 @@
 //! `encoder_hits_aarch64.zig`, as decision 54 ported DEFLATE's loop, with the same API.
 //!
 //! It takes an x86-64 target built by LLVM: Zig's own x86-64 backend rejects Intel syntax. It
-//! needs no instruction past the x86-64 baseline: `bsr` and `btr` take the newest hit, `bsf` counts
-//! the agreed octets, and `bsr` the distance's log2. x86-64 has fewer registers than aarch64, so
+//! needs no instruction past the x86-64 baseline: `rep bsf` takes the newest hit and counts the
+//! agreed octets, and `bsr` gives the distance's log2. x86-64 has fewer registers than aarch64, so
 //! the values the loop does not change stay in the search, read by address, and the compare at
 //! the best length starts at a least distance, which one compare tests.
 //!
@@ -34,9 +34,10 @@ pub const Search = extern struct {
     /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
     base: u64,
     entries: [*]const u32,
-    /// The bucket's ring's next way: the hit at bit b of `order` is way `b + next`, modulo 16.
-    next: u64,
-    /// The hits left, bit `31 - step` for the way written `step` inserts before the last.
+    /// The bucket's ring's next way plus 15: the way written `step` inserts before the last is
+    /// `newest - step`, modulo 16.
+    newest: u64,
+    /// The hits left, bit `step` for the way written `step` inserts before the last.
     order: u64,
     /// The best saving plus `cost_bias`, and its candidate.
     saves: i64,
@@ -53,7 +54,7 @@ pub const none = std.math.maxInt(u64);
 
 comptime {
     // The offsets the text reads.
-    assert(@offsetOf(Search, "here") == 8 and @offsetOf(Search, "next") == 6 * 8);
+    assert(@offsetOf(Search, "here") == 8 and @offsetOf(Search, "newest") == 6 * 8);
     assert(@offsetOf(Search, "tail_window") == 10 * 8 and @offsetOf(Search, "tail_from") == 12 * 8);
 }
 
@@ -75,8 +76,8 @@ pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: 
         .reach = position - low,
         .base = base,
         .entries = &buckets.entries[slot.bucket],
-        .next = next,
-        .order = @as(u32, std.math.rotr(u16, hits, next)) << @bitSizeOf(u16),
+        .newest = next + ways - 1,
+        .order = std.math.rotl(u16, @bitReverse(hits), next),
         .saves = saves + assembly.cost_bias,
         .candidate = candidate -% low,
         .tail_window = undefined,
@@ -117,8 +118,14 @@ pub inline fn consider_first(search: *Search) u64 {
 }
 
 /// rdi the search, rsi the window from `low`, r8 the bucket's entries, r9 the hits in order, r10
-/// the ring's next way, rbx the best saving plus `cost_bias`, r12 its candidate; rcx the candidate
-/// to measure, rdx its distance. The search holds the rest, at the offsets of `Search`'s fields.
+/// the newest way plus 16 less 1, rbx the best saving plus `cost_bias`, r12 its candidate; rcx the
+/// candidate to measure, rdx its distance. The search holds the rest, at the offsets of `Search`'s
+/// fields.
+///
+/// `rep bsf` counts trailing zeros of a value that is not 0: a CPU with BMI1 runs it as `tzcnt`,
+/// and any other as `bsf`, which gives the same count. `bsf` and `bsr` alone take microcode on
+/// AMD's cores before Zen 4, so the loop takes each hit with `rep bsf` and clears it with an
+/// `and`, a chain of 2 cycles a hit.
 const pick =
     \\    .intel_syntax noprefix
     \\    mov rsi, qword ptr [rdi]
@@ -131,12 +138,14 @@ const pick =
     \\    jz 8f
     \\1:
     // The newest hit's way, and the hit cleared.
-    \\    bsr ecx, r9d
-    \\    btr r9d, ecx
-    \\    add ecx, r10d
-    \\    and ecx, 15
+    \\    rep bsf ecx, r9d
+    \\    lea eax, [r9 - 1]
+    \\    and r9d, eax
+    \\    mov eax, r10d
+    \\    sub eax, ecx
+    \\    and eax, 15
     // The candidate: an entry of an earlier stream or past the position wraps past the reach.
-    \\    mov ecx, dword ptr [r8 + rcx*4]
+    \\    mov ecx, dword ptr [r8 + rax*4]
     \\    sub ecx, dword ptr [rdi + 32]
     \\    cmp ecx, dword ptr [rdi + 24]
     \\    jae 3f
@@ -168,7 +177,7 @@ const weigh =
     \\    jz 9f
     \\    test eax, eax
     \\    jnz 3f
-    \\    bsf rax, rax
+    \\    rep bsf rax, rax
     \\    shr eax, 3
     \\    imul rax, qword ptr [rdi + 16]
     \\    bsr rdx, rdx
