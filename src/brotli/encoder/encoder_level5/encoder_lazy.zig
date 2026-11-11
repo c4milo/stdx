@@ -48,6 +48,9 @@ pub fn parse(comptime safety: bool, buckets: *Buckets, window: []const u8, start
             commands.add(safety, window, anchor, taken.position, taken.len, taken.offset);
         }
         const match_end = taken.position + taken.len;
+        // The bucket the next search reads, so that its cache misses overlap the inserts. Past the
+        // last search, the bucket of the last position searched: a prefetch no search needs.
+        buckets.prefetch(Buckets.slot_of(safety, window, @min(match_end, search_end - 1)));
         const covered_end = @min(match_end, search_end);
         for (@min(probed, covered_end)..covered_end) |covered| buckets.insert(safety, window, covered);
         position = match_end;
@@ -93,6 +96,8 @@ pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, posit
     // The bucket first, so its cache misses overlap the last distances' compares.
     const slot = Buckets.slot_of(safety, window, position);
     buckets.prefetch(slot);
+    // The next position's bucket too, which the next lazy step reads.
+    buckets.prefetch(Buckets.slot_of(safety, window, position + 1));
     const head = read32(safety, window, position);
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
@@ -205,6 +210,8 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     // The bucket first, so its cache misses overlap the last distances' compares.
     const slot = Buckets.slot_of(safety, window, position);
     buckets.prefetch(slot);
+    // The next position's bucket too, which the next search or the lazy probe reads.
+    buckets.prefetch(Buckets.slot_of_word(@truncate(pick.here >> @bitSizeOf(u8))));
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
