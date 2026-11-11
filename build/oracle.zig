@@ -444,9 +444,12 @@ fn host_features(b: *std.Build) *std.Build.Step.Options {
     return options;
 }
 
-/// The `oracle` module: tools/oracle/oracle.zig over zlib, Wuffs and libzstd, compiled for the
-/// host. The C is built ReleaseFast: it is the oracles' code, not stdx's, and it runs over hundreds
-/// of megabytes. Null until the packages are fetched.
+/// The `oracle` module: tools/oracle/oracle.zig over zlib, Wuffs, libzstd and Google's brotli. The
+/// C is built ReleaseFast: it is the oracles' code, not stdx's, and it runs over hundreds of
+/// megabytes. It is built for the architecture's baseline CPU, as the benchmarks build stdx and
+/// build/baselines.zig the other baselines (decision 75): each library's own build gives it that
+/// CPU's instructions, and those it finds at run time, as Wuffs and libzstd find theirs. Null until
+/// the packages are fetched.
 fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
     const zlib = b.lazyDependency("madler_zlib", .{}) orelse return null;
     const wuffs = b.lazyDependency("wuffs", .{}) orelse return null;
@@ -456,7 +459,7 @@ fn add_oracle_module(b: *std.Build) ?*std.Build.Module {
         .name = "oracle_c",
         .linkage = .static,
         .root_module = b.createModule(.{
-            .target = b.graph.host,
+            .target = b.resolveTargetQuery(.{ .cpu_model = .baseline }),
             .optimize = .ReleaseFast,
             .link_libc = true,
         }),
