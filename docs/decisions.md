@@ -4002,7 +4002,8 @@ small file.
     matches (dickens 1.036 million literals against 0.835 million), nearer distances at an equal
     length (kennedy.xls 53,024 matches 5 to 16 octets back against 28,555), matches of 3 octets,
     and far fewer blocks (5 against 53 on kennedy.xls). These are the marks of a parse priced in
-    bits.
+    bits. Decision 72 corrects that reading: libdeflate's source shows its level 9 tries a second
+    position after a match, and no price in bits.
 
     **The model** (`pricedmodel.zig` in the records: real codes limited to 15 bits, real headers,
     the cheapest of dynamic, fixed and stored blocks). A parse of least price over runs of 8,192
@@ -4524,3 +4525,87 @@ small file.
     The alternatives refused:
     - The walk out of line, behind a call: the line kept its reader and writer in memory, and a
       record through `next` took 4,758 instructions, from 4,294 (callgrind, aarch64).
+
+72. **Level 9 holds a match for a second position, as libdeflate's level 9 does.** Proposed on
+    2026-11-09 after a reading of libdeflate's source (decision 67), which the owner chose with
+    "Read libdeflate, report", then "Level 9: second position" and "Approve as drafted". Ruled
+    on 2026-11-10 and 2026-11-11 through four choices: "Cut the cost, pair again", "Fix the rows
+    that hold nothing", "Cut the gate's cost, pair again" and "Restore main's step, pair again".
+    It amends decision 36 at level 9, and corrects decision 58's reading of libdeflate.
+
+    **What the reading found.** libdeflate 1.26's level 9 is its level 6's lazy parse with a
+    deeper search, and with a second look-ahead position. It takes a match at once only at 258
+    octets. Once a match holds against the next position's match, the parse searches the
+    position after that too, with a quarter of the links. It drops the waiting match when that
+    position's match is at least as long and scores more than 6 past it, at 4 an octet less the
+    distance's bit length.
+    - A model written from the reading gave libdeflate's level 9 symbols exactly on 9 files,
+      whole or their first 300 KiB: 951,064 symbols.
+    - Without the second position, the model's symbols cost what stdx's level 9 symbols cost:
+      1.169 and 1.167 of libdeflate's on kennedy.xls, 1.0064 and 1.0068 on dickens.
+
+    **The rule.** At level 9 (`Level.second`, `encoder_match_second.zig`):
+    - In a block whose gate lets it, a match the lazy step keeps over the next position's is held
+      (`score.holds`), when the block has room for two symbols before its limit. The lazy step
+      there compares by bits, as level 6 does (decision 52).
+    - At the second position the search walks the chain of the 4 octets a winner must end with,
+      the held match's length on, `second_candidates_max` links (16). That position's match wins
+      when it is at least as long and its bits score passes the held one's by more than
+      `lazy_second_bits_margin` (6). The two positions before it become literals.
+    - The gate (`score.Gate`): a stream's first block holds no match, so a short stream writes
+      what it wrote before. A block stops its holds once its first `second_check_holds` (1,024)
+      held matches, or `second_retry_check_holds` (128) after a block that failed, won fewer
+      than one in `second_win_divisor` (32). The next blocks then hold none for 1, 2, 4 and up to
+      `second_wait_max` (64) blocks.
+    - Blocks of 3-octet matches (decision 50) hold no match and keep decision 36's score; they
+      decide a match held before them.
+    - Every round that holds no match, and starts with none held, runs the loop of
+      `encoder_match.zig` unchanged. In bench-deflate every instance of that loop's function has
+      main's instructions on x86-64 and aarch64. So does every function of levels 1 and 6, but
+      for the nop fill in level 6's two aarch64 assembly wrappers.
+
+    **What it gives**, at 699e425 against main 57a7040, in runs
+    [42958819190](https://github.com/c4milo/stdx/actions/runs/42958819190) and
+    [42958821780](https://github.com/c4milo/stdx/actions/runs/42958821780):
+    - Output: level 9 writes 1.0021 of libdeflate's level 9 output at the geometric mean of the
+      39 rows, from 1.0080, and 29 rows larger, from 32. kennedy.xls 1.1037 becomes 1.0023,
+      css-1m 1.0277 becomes 1.0070, dickens 1.0094 becomes 1.0034. Levels 1 and 6 keep their
+      octets.
+    - Speed on the Neoverse N2, both jobs: level 9's median row runs at 0.966 of main's speed.
+      The 9 text rows run at 0.767 to 0.855, kennedy.xls at 0.805, mr at 0.908, css-1m at 0.878.
+      Over libdeflate's level 9, the median row goes from 1.74 to 1.50.
+    - On the N2 no row falls below libdeflate's speed. The 4 rows below it on main lose 0.9% at
+      most: shuffled dickens-1m, x-ray, osdb and xargs.1.
+    - Speed on x86-64, an EPYC 9V45 and an EPYC 9V74: the median row at 0.974 and 0.988, the
+      text rows at 0.777 to 0.881. Over libdeflate the median goes from 1.66 to 1.49 and from
+      1.96 to 1.67. No row falls below libdeflate's speed. The 3 rows below it on main on the
+      9V45 lose 1.5% at most, and the 9V74 has none.
+    - Levels 1 and 6: no row slower in both jobs on either runner.
+    - The M1, 39 rows against main with main and the change in turn: the text rows at 0.800 to
+      0.867. The rows near libdeflate's speed run at 0.940 to 1.054, inside the 0.917 to 1.057
+      that a copy of main gives against main.
+
+    **The forms refused.** The instruction counts are exact counts on the M1.
+    - The draft's form, a hold at every match, with a quarter of level 9's links for the second
+      position: 1.0004 of libdeflate's output, at 1.21 of main's instructions. The rows below
+      libdeflate's speed ran more: shuffled dickens-1m 1.13, osdb 1.21, x-ray 1.22.
+    - Holds in blocks of 3-octet matches: x-ray ran 19% more instructions for 0.02% of output.
+    - A second search that starts on the position's own chain, as level 9's search does
+      (decision 46): about 190 instructions a held match, at 8 links too. A filter by the held
+      length there made kennedy.xls run 3 times main's instructions.
+    - The first design, 34b652c, in runs 42771614049 and 42771617548. A stream's first block
+      held matches too, and the gate judged a block only at its end, after 64 held matches. It
+      wrote 1.0008 of libdeflate's output, but xargs.1 fell to 0.84 and 0.89 of libdeflate's
+      speed.
+    - A stop after 256 held matches: css-1m wrote 0.7% more.
+    - Shared loop code with hooks for the held matches (cc940be, e41e578, 502b750, 9698872): the
+      loop's compiled form changed, and rows that held nothing ran 1% to 5% slower. A build
+      with the same code that held no match (cc72416, runs 42932646712 and 42932650198) lost
+      1.6% and 1.8% on shuffled dickens-1m on two EPYC 7763.
+
+    **What it does not do.**
+    - It takes no more 3-octet matches: x-ray, sum, E.coli and mozilla stay larger than
+      libdeflate's, as libdeflate takes them from a stream's first block.
+    - It does not change how blocks end. stdx writes more blocks than libdeflate, 201 against 40
+      on dickens, and the 9 text rows write 1.0009 to 1.0037 of libdeflate's output, from 1.0071
+      to 1.0132.

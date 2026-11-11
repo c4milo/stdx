@@ -3327,6 +3327,25 @@ to 12 are reordered and nothing else changes.
     - Level 1 runs at 0.94 to 0.96 of libdeflate's speed on the N2 and 0.87 to 0.92 on x86-64
       (decision 55, paused). Level 9's priced parse is stopped (decision 58), and so is Intel's
       level 6.
+  - Level 9's held matches, 2026-11-09 to 11 (decision 72). `encoder_match_second.zig` holds
+    them, `score.Gate` decides which blocks hold, and `walk.best_second` searches the second
+    position; every other round runs `encoder_match.zig`'s loop unchanged.
+    - The pairs at 699e425, runs 42958819190 and 42958821780, ran main (57a7040) first, on a
+      Neoverse N2 in both and an EPYC 9V45 and 9V74. Decision 72 holds the figures, and
+      `bench/results/2026-11-11-deflate-encoder-level9-held-*` the reports.
+    - bench-deflate's object at 57a7040 against the change's on main 0dae624, one function at a
+      time, with the addresses taken out. On x86-64, 690 of 696 functions have a twin with the same
+      instructions, and the 6 others are level 9's. On aarch64, 677 of 687 have one.
+    - Of aarch64's other 10, 7 are level 9's. Level 6's two assembly wrappers differ in the nop
+      fill before their loops alone. The report's code differs in one instruction that forms a
+      string's address.
+    - `encoder_match_score_test.zig` and `encoder_match_score_gate_test.zig`: the held match
+      against the second position's, the margin, the room a hold needs, rounds that start held,
+      the gate's stops and waits, and a block of 3-octet matches that decides a held match. The
+      scenes require the block's symbols to rebuild its input.
+    - differential-encode in its ReleaseSafe and Debug builds passes with level 9's new hashes:
+      97 of its 156 level 9 checks change, and levels 1 and 6 keep every hash.
+    - Mutations: 61 of 64 CAUGHT. The 3 NOT CAUGHT change no output.
   - Open: E4 is not written, and E1's and E2's A/Bs have not run.
 
 - **Step 10: XXH64.** From xxHash's specification document, copied into `docs/specs/` with its
