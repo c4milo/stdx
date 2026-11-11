@@ -67,6 +67,11 @@ pub const encoder_level5 = struct {
     pub const bucket_log = 14;
     pub const bucket_ways = 16;
     pub const hash_len = 4;
+    /// The octets at a stream's start where a search first drops the entries of an earlier stream
+    /// with one compare of the bucket's 16, 256 KiB. After `start` most hits there are such
+    /// entries; later the stream's own entries hold most ways, and the compare costs more than it
+    /// saves (decision 66, part 6).
+    pub const reach_compare_len = 1 << 18;
     /// The positions after a miss the parse tries before it steps faster, as a log2: 2^8 literals.
     pub const skip_log = 8;
     /// The window's room past its history: the window slides once this much input has gone into
