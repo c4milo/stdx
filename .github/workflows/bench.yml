@@ -130,13 +130,17 @@ jobs:
           {
             echo "# level 5 cycles, $(uname -m), $(grep -m1 'model name' /proc/cpuinfo || true) $(grep -m1 -o 'Neoverse[^ ]*' /proc/cpuinfo || true)"
             echo '```text'
-            for row in "canterbury/kennedy.xls 40" "canterbury/alice29.txt 40" "canterbury/plrabn12.txt 20" "canterbury/ptt5 20" "canterbury-large/E.coli 2" "silesia/dickens 1" "silesia/mr 1" "silesia/samba 1" "silesia/webster 1" "silesia/x-ray 1" "silesia/nci 1" "http/json-1m 10"; do
-              set -- $row; name=$(basename "$1")
+            # Each row's rounds, timed at that count and at twice it: the difference leaves out a
+            # new process's first round, which runs on memory the kernel has not mapped yet.
+            for row in "canterbury/kennedy.xls 20" "canterbury/alice29.txt 20" "canterbury/plrabn12.txt 10" "canterbury/ptt5 10" "canterbury-large/E.coli 4" "silesia/dickens 2" "silesia/mr 2" "silesia/samba 2" "silesia/webster 1" "silesia/x-ray 2" "silesia/nci 2" "http/json-1m 10"; do
+              set -- $row; name=$(basename "$1"); twice=$(($2 * 2))
               for program in l5 l5n q5 q5b; do
                 [ -x "./${program}_harness" ] || continue
-                case $program in l5*) run="./${program}_harness 5 zig-out/corpus/$1 0 $2" ;; *) run="./${program}_harness zig-out/corpus/$1 $2" ;; esac
-                echo "== $program $name"
-                "$PERF" stat -x, -r 3 -e task-clock,cycles,instructions $run 2>&1 >/dev/null | grep -E "task-clock|cycles|instructions" || true
+                for rounds in "$2" "$twice"; do
+                  case $program in l5*) run="./${program}_harness 5 zig-out/corpus/$1 0 $rounds" ;; *) run="./${program}_harness zig-out/corpus/$1 $rounds" ;; esac
+                  echo "== $program $name $rounds"
+                  "$PERF" stat -x, -r 3 -e task-clock,cycles,instructions $run 2>&1 >/dev/null | grep -E "task-clock|cycles|instructions" || true
+                done
                 "$PERF" record -q -e "$event" -F 10000 -o "perf-$program-$name.data" $run >/dev/null 2>&1 || true
                 "$PERF" script -i "perf-$program-$name.data" -F ip 2>/dev/null | sort | uniq -c | sort -rn > "cycles/ips-$program-$name.txt" || true
                 echo "$program $name: $(awk '{s+=$1} END {print s}' "cycles/ips-$program-$name.txt") samples"
