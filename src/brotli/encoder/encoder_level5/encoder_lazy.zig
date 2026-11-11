@@ -10,12 +10,7 @@ const constants = @import("../../constants.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const buckets_module = @import("encoder_buckets.zig");
 const encoder_words = @import("encoder_words.zig");
-const hits_aarch64 = @import("encoder_hits_aarch64.zig");
-const hits_x86_64 = @import("encoder_hits_x86_64.zig");
-/// The assembly that weighs a bucket's hits on this target, if one takes it (decision 66, part 5).
-pub const hits_assembly = if (hits_aarch64.takes) hits_aarch64 else hits_x86_64;
-pub const hits_assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
-
+const lazy_hits = @import("encoder_lazy_hits.zig");
 const Buckets = buckets_module.Buckets;
 
 /// A match and what it saves, in eighths of a bit, over its literals: `len` octets `offset` back, or
@@ -216,119 +211,58 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
         if (read32(safety, window, position - distance) != @as(u32, @truncate(pick.here))) continue;
-        pick.weigh(safety, window, position, position - distance, .last);
+        pick.consider(safety, window, position, end, position - distance, .last);
     }
-    // The entries whose check matches the position's, the lowest way first.
-    weigh_hits(safety, buckets, slot, window, position, low, &pick);
+    lazy_hits.consider(safety, buckets, slot, window, position, end, low, &pick);
     buckets.insert_at(safety, slot, position);
-    var found = pick.measure_long(safety, window, position, end);
+    var found = pick.found(position);
     // The words only where the window gave no match.
     if (found == null) consider_word(safety, window, position, end, reach_len, commands, &found);
     return found;
-}
-
-/// Weighs the hits of `slot`'s bucket into `pick`: in assembly for the unchecked loop
-/// (decision 66, part 5), else in Zig, the reference the assembly makes the same choice as.
-inline fn weigh_hits(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, low: usize, pick: *Pick) void {
-    @setRuntimeSafety(safety);
-    var hits = buckets.hits(slot);
-    // Many positions of a row of literals have no hit, and then the state costs more than the scan.
-    if (hits == 0) return;
-    if (comptime hits_assembly_takes and !safety) {
-        var state: hits_assembly.State = .{
-            .window = window.ptr,
-            .here = pick.here,
-            .cost = pick.cost,
-            .position = position,
-            .low = low,
-            .reach = position - low,
-            .base = buckets.base,
-            .entries = &buckets.entries[slot.bucket],
-            .hits = hits,
-            .saves = pick.saves,
-            .candidate = pick.candidate,
-            .long = &pick.long,
-            .long_count = pick.long_count,
-        };
-        hits_assembly.weigh(&state);
-        pick.saves = state.saves;
-        pick.candidate = state.candidate;
-        pick.long_count = state.long_count;
-        return;
-    }
-    for (0..buckets_module.ways) |_| {
-        if (hits == 0) break;
-        const way = @ctz(hits);
-        hits &= hits - 1;
-        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
-        pick.weigh(safety, window, position, candidate, .bucket);
-    }
 }
 
 /// Where a candidate comes from: the ring of last distances, whose short codes take no extra bits,
 /// or the bucket.
 const Source = enum { last, bucket };
 
-/// The choice of match at a position (decision 66, part 5), which the assembly makes too:
-/// 1. Each candidate, the last distances first and then the bucket's hits by way, weighs the
-///    octets it agrees on within the first `read_len`; fewer than `min_len` weigh nothing.
+/// The choice of match at a position (decision 66, part 6), which the assembly makes too:
+/// 1. Each candidate, the last distances first and then the bucket's hits newest first, weighs the
+///    octets it agrees on within the first `read_len`; fewer than `min_len` weigh nothing. One
+///    that agrees on all `read_len` is measured to its end.
 /// 2. The best saving wins, and the first of equal savings stays.
-/// 3. Each candidate that agreed on all `read_len` octets is then measured to its end, the last
-///    distances first, and wins only by a greater saving.
+/// 3. One compare at the best length refuses a candidate that cannot save more, before its first
+///    octets are read. It refuses only what rule 2 would not keep, so the choice is the same.
 pub const Pick = struct {
     here: u64,
     cost: u32,
     saves: i64 = 0,
     candidate: usize = 0,
-    /// The candidates that agreed on all `read_len` octets, by source.
-    last_long: [constants.last_distances_count]usize = undefined,
-    last_long_count: usize = 0,
-    long: [buckets_module.ways]usize = undefined,
-    long_count: usize = 0,
+    /// The octets the best match so far agrees on.
+    len: usize = 0,
 
-    pub fn weigh(self: *Pick, comptime safety: bool, window: []const u8, position: usize, candidate: usize, comptime source: Source) void {
+    /// Weighs `candidate` by the octets it agrees on, and measures a long one to its end, unless
+    /// one compare shows it saves no more than the best so far.
+    pub fn consider(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize, candidate: usize, comptime source: Source) void {
         @setRuntimeSafety(safety);
+        const last = source == .last;
+        // The octets at the best length first: one compare there refuses most candidates, before
+        // their first octets are read.
+        if (self.saves_no_more(safety, window, position, end, candidate, last, self.len)) return;
         const agreed: usize = @ctz(self.here ^ read64(safety, window, candidate)) / @bitSizeOf(u8);
         if (agreed < min_len) return;
-        if (agreed == read_len) self.keep_long(candidate, source);
-        const saves = saving(agreed, position - candidate, source == .last, self.cost);
+        var len = agreed;
+        if (agreed == read_len) len = match_len(safety, window, candidate, position, end);
+        const saves = saving(len, position - candidate, last, self.cost);
         if (saves <= self.saves) return;
         self.saves = saves;
         self.candidate = candidate;
+        self.len = len;
     }
 
-    fn keep_long(self: *Pick, candidate: usize, comptime source: Source) void {
-        switch (source) {
-            .last => {
-                self.last_long[self.last_long_count] = candidate;
-                self.last_long_count += 1;
-            },
-            .bucket => {
-                self.long[self.long_count] = candidate;
-                self.long_count += 1;
-            },
-        }
-    }
-
-    /// The best match by rule 3, or none that saves anything.
-    pub fn measure_long(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize) ?Found {
-        @setRuntimeSafety(safety);
-        var len: usize = @ctz(self.here ^ read64(safety, window, self.candidate)) / @bitSizeOf(u8);
-        for (self.last_long[0..self.last_long_count]) |candidate| self.measure(safety, window, position, end, candidate, true, &len);
-        for (self.long[0..self.long_count]) |candidate| self.measure(safety, window, position, end, candidate, false, &len);
+    /// The best match, or none that saves anything.
+    pub fn found(self: *const Pick, position: usize) ?Found {
         if (self.saves <= 0) return null;
-        return .{ .position = position, .len = len, .offset = position - self.candidate, .saves = self.saves };
-    }
-
-    fn measure(self: *Pick, comptime safety: bool, window: []const u8, position: usize, end: usize, candidate: usize, last: bool, len: *usize) void {
-        @setRuntimeSafety(safety);
-        if (self.saves_no_more(safety, window, position, end, candidate, last, len.*)) return;
-        const long_len = match_len(safety, window, candidate, position, end);
-        const saves = saving(long_len, position - candidate, last, self.cost);
-        if (saves <= self.saves) return;
-        self.saves = saves;
-        self.candidate = candidate;
-        len.* = long_len;
+        return .{ .position = position, .len = self.len, .offset = position - self.candidate, .saves = self.saves };
     }
 
     /// Whether one compare shows that `candidate` saves no more than the best so far, which is
@@ -337,7 +271,8 @@ pub const Pick = struct {
     /// differs in the 8 octets up to octet `len` is no longer.
     inline fn saves_no_more(self: *const Pick, comptime safety: bool, window: []const u8, position: usize, end: usize, candidate: usize, last: bool, len: usize) bool {
         @setRuntimeSafety(safety);
-        // Each long candidate agrees on its first `read_len` octets; the compare reads to octet `len`.
+        // A best shorter than `read_len` octets takes no compare; one that runs to the end, none
+        // past it.
         if (len < read_len or len >= end - position) return false;
         if (saving(len, position - candidate, last, self.cost) > self.saves) return false;
         const at = len + 1 - read_len;
@@ -392,7 +327,7 @@ fn step_back(comptime safety: bool, window: []const u8, found: Found, anchor: us
 /// The octets from `candidate` and from `position` that agree, up to `end`. The caller asserts
 /// `position`'s bounds once for all its candidates (decision 66, part 4): each candidate lies
 /// below `position`, by the bucket's range test or a last distance's reach.
-fn match_len(comptime safety: bool, window: []const u8, candidate: usize, position: usize, end: usize) usize {
+pub fn match_len(comptime safety: bool, window: []const u8, candidate: usize, position: usize, end: usize) usize {
     @setRuntimeSafety(safety);
     const limit = end - position;
     var len: usize = 0;

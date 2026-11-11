@@ -1,29 +1,15 @@
-//! The state of level 5's weighing of a bucket's hits in assembly (decision 66, part 5), which
-//! `encoder_hits_aarch64.zig` and `encoder_hits_x86_64.zig` load and store, in this order.
+//! What level 5's searches of a bucket's hits in assembly share (decision 66, parts 5 and 6):
+//! `encoder_hits_aarch64.zig` and `encoder_hits_x86_64.zig` reckon a saving and refuse a
+//! candidate as `Pick.consider` does in Zig.
 
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 
-pub const State = extern struct {
-    window: [*]const u8,
-    here: u64,
-    cost: u64,
-    position: u64,
-    low: u64,
-    reach: u64,
-    base: u64,
-    entries: [*]const u32,
-    hits: u64,
-    saves: i64,
-    candidate: u64,
-    long: [*]u64,
-    long_count: u64,
-};
-
 /// The cost of a match with no distance bits less the most a distance's log2 adds, so that
-/// `cost - 8 * clz(offset)` is `encoder_match_cost_base + 8 * log2(offset)`.
+/// `cost - 8 * clz(offset)` is `encoder_match_cost_base + 8 * log2(offset)`. The loops keep each
+/// saving plus this bias: agreed octets at a literal's cost, and 8 for each leading zero.
 pub const cost_bias = constants.encoder_match_cost_base + (@bitSizeOf(u64) - 1) * encoder_commands.eighths;
 
 /// The octets a candidate must agree on, and those one read compares.
@@ -31,8 +17,8 @@ pub const min_len = constants.encoder_level5.hash_len;
 pub const read_len = @sizeOf(u64);
 
 comptime {
-    // aarch64's `sub` takes the bias as a 12-bit immediate.
-    assert(cost_bias < 1 << 12);
+    // The loops multiply a leading zero by 8 with a shift of 3.
     assert(encoder_commands.eighths == 1 << 3);
-    assert(@offsetOf(State, "here") == 8 and @offsetOf(State, "long_count") == 12 * 8);
+    // The loops take a candidate whose low 4 octets differ as a collision.
+    assert(min_len == @sizeOf(u32));
 }
