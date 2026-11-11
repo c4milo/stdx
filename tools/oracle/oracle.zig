@@ -22,6 +22,12 @@ test {
     _ = oracle_brotli;
 }
 
+/// What a table that times zlib or Wuffs says beneath its heading: both are built for the
+/// architecture's baseline CPU (decision 75), and two of their numbers come from that build.
+pub const build_note = "zlib and Wuffs are built for the architecture's baseline CPU, as every candidate is (decision 75). " ++
+    "On aarch64 that CPU has no CRC-32 instruction, and zlib and Wuffs take the instruction from the build's CPU alone. " ++
+    "On x86-64, Wuffs asks CPUID each time a decoder or a hasher starts, which takes about a microsecond on a virtual machine.";
+
 /// The three containers of the DEFLATE family.
 pub const Container = enum(c_int) { raw = 0, zlib = 1, gzip = 2 };
 

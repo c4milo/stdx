@@ -238,7 +238,7 @@ fn check_agrees(check: Check, input: []const u8) !void {
 }
 
 fn report_check(io: std.Io, out: *std.Io.Writer, check: Check, input: []const u8) !void {
-    try out.print("## {s}, GB/s\n\n| Octets |", .{check.name});
+    try out.print("## {s}, GB/s\n\n{s}\n\n| Octets |", .{ check.name, oracle.build_note });
     for (check.candidates()) |candidate| try out.print(" {s} |", .{candidate.name});
     try out.print(" {s} / fastest baseline |\n|---|", .{check.fastest});
     for (check.candidates()) |_| try out.print("---|", .{});

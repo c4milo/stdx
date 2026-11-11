@@ -214,6 +214,7 @@ fn rates_of(comptime count: usize, runs: *const [count][timing.run_count]f64, le
 
 /// The decoding table: every gzip decoder over each row.
 fn report_decodes(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, rows: []const Input) !void {
+    try out.print("{s}\n\n", .{oracle.build_note});
     try inputs.note(out, rows);
     try out.print("| File | Octets | Compressed, % | zlib, MB/s | zlib-ng, MB/s | libdeflate, MB/s | Wuffs, MB/s | stdx, MB/s | stdx / fastest |\n", .{});
     try out.print("|---|---|---|---|---|---|---|---|---|\n", .{});
