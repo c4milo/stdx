@@ -189,7 +189,8 @@ stdx's appendix to it.
   L1 hit, a cache miss, a branch mispredict, a copy of 64 octets and of 32 KiB, and a 64-bit bit
   buffer refill. Say which of them a change moves, and by how much.
 - **Report honestly.** The median of five runs with the spread, every candidate in the same
-  harness in the same run with pinned versions, and the runs where stdx loses.
+  harness in the same run with pinned versions, and the runs where stdx loses. Every candidate is
+  built for the architecture's baseline CPU, the baselines as stdx (decision 75).
 - **Cross the caller's boundary in bulk.** One call decodes as much as the caller's buffers hold.
   A per-octet entry point is a per-octet cost.
 - **The hot path allocates nothing and initialises nothing it will not read.** Starting a stream

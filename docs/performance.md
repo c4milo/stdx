@@ -46,7 +46,9 @@ CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 
 ## The baselines
 
 zlib, zlib-ng, libdeflate, Wuffs, libzstd and Google's brotli, compiled into `tools/` and `bench/`
-only (decision 8). To split a baseline's time, sample its binary by function names, and read its
+only (decision 8). Each is built ReleaseFast for the architecture's baseline CPU, as stdx is, and
+so are the json module's baselines (decision 75). A build for the runner's CPU gives a baseline
+instructions its shipped build lacks: up to 11% on quality 5's text rows on an EPYC 7763. To split a baseline's time, sample its binary by function names, and read its
 source for its methods; copy none of its code (decision 67). Its encoder, built from its public API, makes the streams the
 M1 harnesses decode.
 

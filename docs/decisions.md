@@ -4698,3 +4698,54 @@ small file.
       would read, and the same string with one escape would not.
     - A claim for the slice: `next` takes no claims (decision 69), and the pairs measure it
       against main.
+
+75. **Every baseline library is built for the architecture's baseline CPU.** Ruled by the owner on
+    2026-11-11, during the brotli encoder's work on x86-64 (design §8 step 14). The benchmarks
+    built stdx, libdeflate and zlib-ng for the architecture's baseline CPU (decision 21). They
+    built zlib, Wuffs, libzstd, Google's brotli and the json module's C and C++ baselines for the
+    build host's CPU. No decision ruled the difference, and on x86-64 it favoured the baselines.
+    - The rule: every library a benchmark links beside stdx is built ReleaseFast for the
+      architecture's baseline CPU, as its own build system builds it by default. A library that
+      picks its SIMD code at run time picks it as before. A caller that ships one binary for every
+      CPU of an architecture runs each library so.
+    - On x86-64 the target of the json baselines adds LLVM's `evex512`, which names no
+      instruction. Without it Clang does not compile the AVX-512 kernels of simdjson and simdutf.
+      The Rust and Go baselines (decision 69) were already built so.
+    - The measurement: each library built both ways in one job, the baseline build's speed over
+      the host build's at the median of the rows, with stdx's own columns at 1.00 as the control.
+
+      | Library | x86-64 | Neoverse N2 |
+      |---|---|---|
+      | Google's brotli, quality 5 encoder | 0.949 on an EPYC 7763, 0.990 on an EPYC 9V74 | 0.988 |
+      | Google's brotli, decoder | 1.000 on an EPYC 9V45 | 1.007 |
+      | libzstd | 0.981 decoding, 0.980 encoding, on an EPYC 7763 | 1.014, 1.011 |
+      | zlib, gzip decoding | 1.000 on an EPYC 7763 | 0.894 |
+      | Wuffs, gzip decoding | 0.885 on an EPYC 7763 | 0.876 |
+      | zlib, CRC-32 of 1 MiB | 0.98 on an EPYC 9V45 | 0.19 |
+      | Wuffs, CRC-32 of 64 octets and of 1 MiB | 0.02 and 1.00 on an EPYC 9V45 | 0.45 and 0.19 |
+
+      Runs [43049011582](https://github.com/c4milo/stdx/actions/runs/43049011582) and
+      [43082967305](https://github.com/c4milo/stdx/actions/runs/43082967305) for the brotli
+      encoder, [43074477963](https://github.com/c4milo/stdx/actions/runs/43074477963) for its
+      decoder, [43074464648](https://github.com/c4milo/stdx/actions/runs/43074464648) for
+      libzstd, [43074450958](https://github.com/c4milo/stdx/actions/runs/43074450958) for gzip and
+      [43074492419](https://github.com/c4milo/stdx/actions/runs/43074492419) for the checksums.
+    - Quality 5's gain from the host's CPU is `lzcnt` where it makes its commands: 4.7 ns an octet
+      at baseline and 2.4 with the host's instructions, on plrabn12.txt on an EPYC 7763.
+    - zlib and Wuffs lose most, for two causes. A baseline aarch64 build has no CRC-32
+      instruction, and zlib and Wuffs take it from the build's CPU alone, with no run-time check.
+      On x86-64 a baseline Wuffs asks CPUID each time a decoder or a hasher starts, and CPUID
+      takes about a microsecond on a virtual machine. The owner ruled a note under each table that
+      times them, and `oracle.build_note` prints it there.
+    - libdeflate and zlib-ng were built so before, and stay the fastest baselines of the DEFLATE
+      family and the checksums. No claim of stdx against them changes.
+    - A report published before 2026-11-11 compares stdx with oracles built for the host. A ratio
+      quoted from one says so, or is measured again.
+
+    The alternatives refused:
+    - Both builds in each report, the host's in a second column: more columns in the DEFLATE and
+      checksum tables, for a build no caller ships.
+    - The host's build for zlib and Wuffs alone, which have no run-time path for these
+      instructions: two rules where one serves, and a baseline faster than its shipped build.
+    - The host's build for every baseline: stdx would then race builds that use instructions its
+      own build may not, and would need run-time variants with `lzcnt` and BMI to match them.
