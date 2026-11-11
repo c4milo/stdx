@@ -18,11 +18,12 @@ pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, graph: modules.M
     module.addImport("json", graph.json);
     module.addImport("codec", graph.codec);
     // The baselines of decision 27: simdjson and yyjson from C and C++, and Zig's std.json, each
-    // built for the host in ReleaseFast, as the codecs' baselines are.
+    // built ReleaseFast for the architecture's baseline CPU, as the codecs' baselines are
+    // (decision 75).
     const abi = b.createModule(.{ .root_source_file = b.path("bench/json/baselines/baselines_abi.zig") });
     const std_json = b.createModule(.{
         .root_source_file = b.path("bench/json/baselines/baselines_std.zig"),
-        .target = b.graph.host,
+        .target = baseline,
         .optimize = .ReleaseFast,
     });
     std_json.addImport("abi", abi);
@@ -65,7 +66,7 @@ fn add_json_baselines(b: *std.Build, has_cargo: bool, has_go: bool) ?*std.Build.
         .name = "json_baselines",
         .linkage = .static,
         .root_module = b.createModule(.{
-            .target = b.graph.host,
+            .target = baseline_target(b),
             .optimize = .ReleaseFast,
             .link_libc = true,
             .link_libcpp = builds_cpp(b),
@@ -76,13 +77,13 @@ fn add_json_baselines(b: *std.Build, has_cargo: bool, has_go: bool) ?*std.Build.
     if (builds_cpp(b)) {
         root.addIncludePath(simdjson.path("include"));
         root.addIncludePath(simdjson.path("src"));
-        const flags = simdjson_flags(b);
+        const flags = &simdjson_flags;
         root.addCSourceFile(.{ .file = simdjson.path("src/simdjson.cpp"), .flags = flags });
         root.addCSourceFile(.{ .file = b.path("bench/json/baselines/baselines_simdjson.cpp"), .flags = flags });
         // simdutf, the UTF-8 check's baseline (decision 38), from its sources as simdjson.
         root.addIncludePath(simdutf.path("include"));
         root.addIncludePath(simdutf.path("src"));
-        const utf8_flags = simdutf_flags(b);
+        const utf8_flags = &simdutf_flags;
         root.addCSourceFile(.{ .file = simdutf.path("src/simdutf.cpp"), .flags = utf8_flags });
         root.addCSourceFile(.{ .file = b.path("bench/json/baselines/baselines_simdutf.cpp"), .flags = utf8_flags });
     } else {
@@ -104,30 +105,19 @@ fn builds_cpp(b: *std.Build) bool {
     return b.graph.host.result.os.tag != .macos;
 }
 
+/// The architecture's baseline CPU for the C and C++ baselines (decision 75), as build/baselines.zig
+/// builds libdeflate and zlib-ng. simdjson and simdutf pick their kernel at run time, so neither
+/// needs the host's CPU model. On x86-64 the target adds LLVM's `evex512`, which names no
+/// instruction: without it Clang does not compile their AVX-512 kernels.
+fn baseline_target(b: *std.Build) std.Build.ResolvedTarget {
+    var query: std.Target.Query = .{ .cpu_model = .baseline };
+    if (b.graph.host.result.cpu.arch == .x86_64) query.cpu_features_add.addFeatureSet(std.Target.x86.featureSet(&.{.evex512}));
+    return b.resolveTargetQuery(query);
+}
+
 /// simdjson's flags: C++20, which its string builder's `view` needs; error codes in place of
-/// exceptions; and NDEBUG, which its doc/performance.md asks of a release build. An x86-64 host
-/// without 512-bit vectors (LLVM's `evex512`) cannot compile simdjson's AVX-512 kernel, and
-/// simdjson could never pick it there, so the build leaves it out the way its
-/// doc/implementation-selection.md shows. `-mevex512` compiled it on some runners, and one runner's
-/// clang refused that flag as deprecated.
-fn simdjson_flags(b: *std.Build) []const []const u8 {
-    return if (without_avx512(b)) &simdjson_flags_without_avx512 else &simdjson_flags_common;
-}
+/// exceptions; and NDEBUG, which its doc/performance.md asks of a release build.
+const simdjson_flags = [_][]const u8{ "-std=c++20", "-DSIMDJSON_EXCEPTIONS=0", "-DNDEBUG" };
 
-const simdjson_flags_common = [_][]const u8{ "-std=c++20", "-DSIMDJSON_EXCEPTIONS=0", "-DNDEBUG" };
-const simdjson_flags_without_avx512 = simdjson_flags_common ++ [_][]const u8{"-DSIMDJSON_IMPLEMENTATION_ICELAKE=0"};
-
-/// simdutf's flags: C++17, which it needs, and NDEBUG for a release build. Its AVX-512 kernel is
-/// guarded as simdjson's is, and left out on an x86-64 host without `evex512` for the same reason.
-fn simdutf_flags(b: *std.Build) []const []const u8 {
-    return if (without_avx512(b)) &simdutf_flags_without_avx512 else &simdutf_flags_common;
-}
-
-const simdutf_flags_common = [_][]const u8{ "-std=c++17", "-DNDEBUG" };
-const simdutf_flags_without_avx512 = simdutf_flags_common ++ [_][]const u8{"-DSIMDUTF_IMPLEMENTATION_ICELAKE=0"};
-
-/// Whether the host is an x86-64 CPU without 512-bit vectors, where LLVM compiles no AVX-512 kernel.
-fn without_avx512(b: *std.Build) bool {
-    const cpu = b.graph.host.result.cpu;
-    return cpu.arch == .x86_64 and !std.Target.x86.featureSetHas(cpu.features, .evex512);
-}
+/// simdutf's flags: C++17, which it needs, and NDEBUG for a release build.
+const simdutf_flags = [_][]const u8{ "-std=c++17", "-DNDEBUG" };

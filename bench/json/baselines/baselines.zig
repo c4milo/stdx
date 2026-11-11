@@ -13,9 +13,9 @@
 //!
 //! Before anything is timed, each baseline's decoding must count what stdx's counts, and each
 //! baseline's text must decode, through stdx, to what stdx's own text decodes to. The C and C++
-//! baselines are built for the host in ReleaseFast, as the codecs' baselines are, and simdjson picks
-//! its kernel at run time; std.json is built for the host in ReleaseFast; stdx is built for the
-//! architecture's baseline CPU in ReleaseSafe (decisions 17 and 21).
+//! baselines and std.json are built ReleaseFast for the architecture's baseline CPU, as the codecs'
+//! baselines are (decision 75), and simdjson picks its kernel at run time; stdx is built for the
+//! same CPU in ReleaseSafe (decisions 17 and 21).
 
 const std = @import("std");
 const json = @import("json");
