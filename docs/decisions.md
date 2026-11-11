@@ -4423,14 +4423,26 @@ small file.
     - `writer.zig`'s tests hold the copy and `write_first` to a plain copy at every length up to
       past 16, and with windows and rooms shorter than a move. The commit lists the mutations.
 
-    **What the runners measured.** bench-profile on the N2 (run 42879992370): a token through
-    `TextReader.next` took 179.3 instructions on CLDR and 192.0 on qlog, from 194.4 and 205.1,
-    and a token through `Decoder.decode` 223.2 and 235.2, from 239.0 and 250.2. A string with
-    escapes took 7.7% fewer instructions one token a call, on dickens, and 10.1% fewer on
-    json-1m. The decoder's batches ran the same instructions. The encoder's took 81.8 a token on
-    CLDR and 82.8 on qlog, from 81.5 and 82.5: its checked path writes through the short copy too.
-    That run measured the inline copy inside `write_all` and `write_partial` for every codec; the
-    json module and base64 build to the same functions in both forms, apart from the copy's name.
+    **What the runners measured.** bench-profile on the N2 (run 42924395454): a token through
+    `TextReader.next` took 179.1 instructions on CLDR and 192.0 on qlog, from 194.4 and 205.1,
+    and a token through `Decoder.decode` 223.0 and 235.2, from 239.0 and 250.2. A string with
+    escapes took 9.0% fewer instructions one token a call on dickens, and 9.5% fewer on json-1m.
+    The decoder's batches ran the same instructions. The encoder's took 81.8 a token on CLDR and
+    82.8 on qlog, from 81.5 and 82.5: its checked path writes through the short copy too.
+    - The json pairs (runs 42916652088 and 42916663927, the runs' code and this commit's alike):
+      `TextReader.next` ran 21 rows faster in both jobs on the N2 and 11 on x86-64, an AMD EPYC
+      9V74 and 7763. CLDR through `next` ran at 1.076 and 1.066 on the N2, and 1.116 and 1.128 on
+      x86-64.
+    - base64's pairs (runs 42889295451 and 42889307788, on code alike apart from the copy's
+      name): stdx's 60-octet rows ran 4% to 15% faster, its checked path 19% to 74%.
+    - Rows slower in both jobs, each placement under decision 20 (amended 2026-10-03): the
+      functions that differ take under 1% of the row's instructions. On the N2, css-1m as a
+      string and html-1m as hex decoded in batches at 0.977 to 0.981, on the batches' same
+      instructions. xml and js-1m as hex, through `next` and one token a call, ran at 0.969 to
+      0.986: a hex text of 256 KiB took 623,253.7 instructions through `next`, from 623,231.7. On
+      x86-64, webster as hex one token a call and fields.c and js-1m as hex encoded ran at 0.970
+      to 0.988, and a hex text encoded took 426,376.7 instructions on the N2, from 426,373.7. The
+      x86-64 runners give no counters, so those counts are aarch64's.
 
     The alternatives refused:
     - The inline copy inside `write_all` and `write_partial`, for every codec: DEFLATE ran as
