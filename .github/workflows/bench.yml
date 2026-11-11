@@ -113,22 +113,30 @@ jobs:
           sudo sysctl -w kernel.perf_event_paranoid=-1
           sudo sysctl -w kernel.kptr_restrict=0
           zig build -Doracles -Drelease corpus
-          zig build-exe -OReleaseSafe -mcpu baseline -femit-bin=l5_harness --dep brotli --dep memset -Mroot=bench/l5_cycles/harness.zig --dep codec -Mbrotli=src/brotli/brotli.zig -Mcodec=src/codec/codec.zig -Mmemset=bench/timing/memset.zig
+          stdx="--dep brotli --dep memset -Mroot=bench/l5_cycles/harness.zig --dep codec -Mbrotli=src/brotli/brotli.zig -Mcodec=src/codec/codec.zig -Mmemset=bench/timing/memset.zig"
+          # stdx for the baseline CPU, as the benchmarks build it, and for the runner's CPU.
+          zig build-exe -OReleaseSafe -mcpu baseline -femit-bin=l5_harness $stdx
+          zig build-exe -OReleaseSafe -mcpu native -femit-bin=l5n_harness $stdx
           brotli_c=$(dirname "$(ls -d zig-pkg/*/c/enc | head -1)")
-          zig cc -O2 -static -I"$brotli_c/include" -o q5_harness bench/l5_cycles/google5.c "$brotli_c"/common/*.c "$brotli_c"/enc/*.c
+          google="-O2 -static -I$brotli_c/include bench/l5_cycles/google5.c $brotli_c/common/*.c $brotli_c/enc/*.c"
+          # Google's brotli for the runner's CPU, as the benchmarks build it, and for the baseline CPU.
+          zig cc -o q5_harness $google
+          zig cc -mcpu=baseline -o q5b_harness $google || echo "q5b did not build"
           PERF=$(ls /usr/lib/linux-tools/*/perf | head -1)
           mkdir -p cycles
-          cp l5_harness q5_harness cycles/
+          cp l5_harness l5n_harness q5_harness cycles/
+          cp q5b_harness cycles/ || true
           if [ "$(uname -m)" = x86_64 ]; then event=cpu-clock; else event=cycles; fi
           {
-            echo "# level 5 cycles, $(uname -m), $(grep -m1 -o 'Neoverse[^ ]*\|EPYC[^ ]*\|Xeon[^ ]*' /proc/cpuinfo || true)"
+            echo "# level 5 cycles, $(uname -m), $(grep -m1 'model name' /proc/cpuinfo || true) $(grep -m1 -o 'Neoverse[^ ]*' /proc/cpuinfo || true)"
             echo '```text'
-            for row in "canterbury/ptt5 20" "canterbury/kennedy.xls 40" "silesia/nci 1" "canterbury/alice29.txt 40" "silesia/webster 1" "http/json-1m 10"; do
+            for row in "canterbury/kennedy.xls 40" "canterbury/alice29.txt 40" "canterbury/plrabn12.txt 20" "canterbury/ptt5 20" "canterbury-large/E.coli 2" "silesia/dickens 1" "silesia/mr 1" "silesia/samba 1" "silesia/webster 1" "silesia/x-ray 1" "silesia/nci 1" "http/json-1m 10"; do
               set -- $row; name=$(basename "$1")
-              for program in l5 q5; do
-                if [ $program = l5 ]; then run="./l5_harness 5 zig-out/corpus/$1 0 $2"; else run="./q5_harness zig-out/corpus/$1 $2"; fi
+              for program in l5 l5n q5 q5b; do
+                [ -x "./${program}_harness" ] || continue
+                case $program in l5*) run="./${program}_harness 5 zig-out/corpus/$1 0 $2" ;; *) run="./${program}_harness zig-out/corpus/$1 $2" ;; esac
                 echo "== $program $name"
-                "$PERF" stat -e cycles,instructions $run 2>&1 | grep -E "cycles|instructions|elapsed" || true
+                "$PERF" stat -x, -r 3 -e task-clock,cycles,instructions $run 2>&1 >/dev/null | grep -E "task-clock|cycles|instructions" || true
                 "$PERF" record -q -e "$event" -F 10000 -o "perf-$program-$name.data" $run >/dev/null 2>&1 || true
                 "$PERF" script -i "perf-$program-$name.data" -F ip 2>/dev/null | sort | uniq -c | sort -rn > "cycles/ips-$program-$name.txt" || true
                 echo "$program $name: $(awk '{s+=$1} END {print s}' "cycles/ips-$program-$name.txt") samples"
