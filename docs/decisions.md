@@ -4389,9 +4389,26 @@ small file.
     `next`'s strings with an escape or a non-ASCII octet, then `TextReader` strings given with no
     copy, which changes its API.
 
-    Cost: each method holds a copy of its kind's step. On aarch64, ReleaseSafe, `begin_object` is
-    480 octets, `unsigned` 3,828, `name` 4,580 and `string` 5,352. A program links the methods it
-    calls.
+    **One item's step.** Added on 2026-11-10, at the owner's request. A dependent's profile put a
+    brace or a bracket at 2.3 ns and 56% of encoding a tree of objects. Each method took its token
+    through `take`, the batch's loop: the loop around one item, and a write-back that read the
+    item's kind again at run time. `take_one` takes one item whose kind the method fixes at
+    compile time: that kind's step, with the write-back's kind and number folded away.
+    - bench-profile on the N2 (run 42920501977): a token through the methods took 103.2
+      instructions on CLDR and 101.7 on qlog, from 151.5 and 142.5, and 23.4 and 22.9 cycles,
+      from 33.5 and 32.8. One token a call and the batches took the instructions they took.
+    - The pairs (runs 42920479918 and 42920490921) ran the methods' token rows at 1.43 to 1.44
+      of main's speed on the N2, and 1.53 to 1.59 on x86-64. No row of the methods fell. sao and
+      js-1m as hex decoded at 0.976 to 0.984 in both N2 jobs, on decoder functions identical at
+      both commits, which decision 20 counts as placement.
+    - Against the baselines, the methods ran 2.1 to 2.8 times serde_json's speed and 3.0 to 3.7
+      times Go's jsontext, ahead of yyjson on both token rows, and at 0.84 to 0.97 of simdjson.
+    - Refused: one function that builds the loop for `take` and `take_one` both. It returned the
+      loop by value, and a batch took 5.4% more instructions on the tree (callgrind, aarch64).
+
+    Cost: each method holds a copy of its kind's step. In an aarch64 object, ReleaseSafe, after
+    the one item's step, `begin_object` is 316 octets, `unsigned` 1,060, `name` 1,272 and `string`
+    2,280, from 492, 3,668, 8,752 and 8,752 through `take`. A program links the methods it calls.
 
     The alternatives refused:
     - A batch of one item from each method: 244 instructions a token. The batch's own entry and

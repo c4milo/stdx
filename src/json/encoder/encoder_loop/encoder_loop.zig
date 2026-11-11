@@ -62,6 +62,23 @@ pub fn take(encoder: *Encoder, comptime claims: Claims, items: []const Item, out
     return taken;
 }
 
+/// `take` for one item whose kind the caller fixes at compile time, as `TextWriter`'s methods
+/// take it (claim J15): the item's step alone, and a write-back whose kind and number are folded
+/// at compile time. Through `take`, a method's one item paid the batch's loop and a write-back that
+/// read the item's kind again at run time (decision 69).
+pub inline fn take_one(encoder: *Encoder, comptime claims: Claims, comptime kind: Kind, entry: *const Item, output: []u8, written: *usize) bool {
+    @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+    @setEvalBranchQuota(constants.token_loop_branch_quota);
+    assert(encoder.part == .between_tokens and encoder.pending_len == 0);
+    assert(written.* <= output.len and std.meta.activeTag(entry.token) == kind);
+    var loop: Loop = .{ .encoder = encoder, .output = output, .rest = output[written.*..], .position = encoder.position, .depth = encoder.depth, .sequence = encoder.framing == .sequence };
+    var buffer: format.Buffer = undefined;
+    if (!loop.item_of(claims, kind, entry, &buffer)) return false;
+    loop.write_back_of(claims, kind, entry);
+    written.* = output.len - loop.rest.len;
+    return true;
+}
+
 /// The octets an item writes around its own: the record separator that starts a sequence's text,
 /// the value separator before a value, and the line feed that ends a sequence's text. Packed into
 /// one integer, it stays in a register: as a struct of four bools, it went through the stack at
@@ -103,6 +120,14 @@ const Loop = struct {
         // A switch on the kind alone, each arm reading its own field: a switch on the token loaded
         // its value whole, in four loads, before any arm ran.
         return switch (std.meta.activeTag(entry.token)) {
+            inline else => |kind| self.item_of(claims, kind, entry, buffer),
+        };
+    }
+
+    /// `item` for an item of `kind`.
+    inline fn item_of(self: *Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item, buffer: *format.Buffer) bool {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        return switch (kind) {
             .begin_object => self.structural(claims, .begin_object, constants.begin_object, entry),
             .begin_array => self.structural(claims, .begin_array, constants.begin_array, entry),
             .end_object => self.structural(claims, .end_object, constants.end_object, entry),
@@ -201,6 +226,17 @@ const Loop = struct {
         self.encoder.kind = std.meta.activeTag(entry.token);
         self.encoder.ends_text = self.position == .text_end;
         self.encoder.number = if (entry.token == .number) number_grammar.whole_number(entry.octets).? else .{};
+        self.encoder.part = if (self.position == .text_end) .done else .between_tokens;
+    }
+
+    /// `write_back` after one item of `kind`, its kind and its number known at compile time.
+    inline fn write_back_of(self: *const Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item) void {
+        @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        self.encoder.position = self.position;
+        self.encoder.depth = self.depth;
+        self.encoder.kind = kind;
+        self.encoder.ends_text = self.position == .text_end;
+        self.encoder.number = if (kind == .number) number_grammar.whole_number(entry.octets).? else .{};
         self.encoder.part = if (self.position == .text_end) .done else .between_tokens;
     }
 

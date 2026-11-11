@@ -14,6 +14,7 @@ const codec = @import("codec");
 const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
 const Token = encoder_file.Token;
+const Kind = encoder_file.Kind;
 const token_loop = @import("encoder_loop/encoder_loop.zig");
 const Claims = @import("../claims.zig").Claims;
 const Framing = @import("../framing.zig").Framing;
@@ -57,12 +58,11 @@ pub const TextWriter = struct {
     /// One token whose kind the calling method fixes (claim J15). The token loop's step for that
     /// kind alone compiles into the method, and writes the token whole at `output[len..]`. A token
     /// the step leaves, one to escape past its room or to refuse, takes the checked path.
-    inline fn whole(self: *TextWriter, token: Token, octets: []const u8) Error!void {
+    inline fn whole(self: *TextWriter, comptime kind: Kind, token: Token, octets: []const u8) Error!void {
         if (self.encoder.part == .between_tokens) {
             const item: Encoder.Item = .{ .token = token, .octets = octets };
             var end = self.len;
-            const taken = @call(.always_inline, token_loop.take, .{ &self.encoder, Claims{}, @as(*const [1]Encoder.Item, &item), self.output, &end });
-            if (taken == 1) {
+            if (@call(.always_inline, token_loop.take_one, .{ &self.encoder, Claims{}, kind, &item, self.output, &end })) {
                 self.len = end;
                 return;
             }
@@ -79,63 +79,63 @@ pub const TextWriter = struct {
     }
 
     pub fn begin_object(self: *TextWriter) Error!void {
-        return self.whole(.begin_object, "");
+        return self.whole(.begin_object, .begin_object, "");
     }
 
     pub fn end_object(self: *TextWriter) Error!void {
-        return self.whole(.end_object, "");
+        return self.whole(.end_object, .end_object, "");
     }
 
     pub fn begin_array(self: *TextWriter) Error!void {
-        return self.whole(.begin_array, "");
+        return self.whole(.begin_array, .begin_array, "");
     }
 
     pub fn end_array(self: *TextWriter) Error!void {
-        return self.whole(.end_array, "");
+        return self.whole(.end_array, .end_array, "");
     }
 
     /// A member's name, `octets` in UTF-8 (RFC 8259 §4, §8.1).
     pub fn name(self: *TextWriter, octets: []const u8) Error!void {
-        return self.whole(.{ .name = .last }, octets);
+        return self.whole(.name, .{ .name = .last }, octets);
     }
 
     /// A string of `octets`, in UTF-8 (RFC 8259 §7, §8.1).
     pub fn string(self: *TextWriter, octets: []const u8) Error!void {
-        return self.whole(.{ .string = .last }, octets);
+        return self.whole(.string, .{ .string = .last }, octets);
     }
 
     /// A string of two lowercase hexadecimal digits for each of `octets`.
     pub fn hex(self: *TextWriter, octets: []const u8) Error!void {
-        return self.whole(.{ .hex = .last }, octets);
+        return self.whole(.hex, .{ .hex = .last }, octets);
     }
 
     /// A number whose text is `text`, which must be one number of RFC 8259 §6.
     pub fn number(self: *TextWriter, text: []const u8) Error!void {
-        return self.whole(.{ .number = .last }, text);
+        return self.whole(.number, .{ .number = .last }, text);
     }
 
     pub fn unsigned(self: *TextWriter, value: u64) Error!void {
-        return self.whole(.{ .unsigned = value }, "");
+        return self.whole(.unsigned, .{ .unsigned = value }, "");
     }
 
     pub fn signed(self: *TextWriter, value: i64) Error!void {
-        return self.whole(.{ .signed = value }, "");
+        return self.whole(.signed, .{ .signed = value }, "");
     }
 
     /// A fixed-point decimal: `1234.567` for an integer part of 1234, a fraction of 567 and 3
     /// fraction digits.
     pub fn decimal(self: *TextWriter, value: Decimal) Error!void {
-        return self.whole(.{ .decimal = value }, "");
+        return self.whole(.decimal, .{ .decimal = value }, "");
     }
 
     /// The literal name `true` or `false` (RFC 8259 §3).
     pub fn boolean(self: *TextWriter, value: bool) Error!void {
-        return self.whole(.{ .boolean = value }, "");
+        return self.whole(.boolean, .{ .boolean = value }, "");
     }
 
     /// The literal name `null` (RFC 8259 §3).
     pub fn null_literal(self: *TextWriter) Error!void {
-        return self.whole(.null, "");
+        return self.whole(.null, .null, "");
     }
 
     /// The text, once its last token is written: `output[0..len]`.
