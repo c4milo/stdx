@@ -1,5 +1,6 @@
-//! The tests of encoder_lazy.zig: how a candidate is weighed, the assembly against the Zig loop,
-//! the lazy step's margin, and what the lazy probe measures and refuses.
+//! The tests of encoder_lazy.zig and encoder_lazy_hits.zig: how a candidate is weighed, the
+//! assembly against the Zig loop, the lazy step's margin, what the lazy probe measures and
+//! refuses, and the compare at the best length.
 
 const std = @import("std");
 const testing = std.testing;
@@ -9,6 +10,7 @@ const dictionary = @import("../../dictionary.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const buckets_module = @import("encoder_buckets.zig");
 const encoder_lazy = @import("encoder_lazy.zig");
+const lazy_hits = @import("encoder_lazy_hits.zig");
 
 const Buckets = buckets_module.Buckets;
 const Found = encoder_lazy.Found;
@@ -20,8 +22,7 @@ const saving = encoder_lazy.saving;
 const read64 = encoder_lazy.read64;
 const read_len = encoder_lazy.read_len;
 const min_len = encoder_lazy.min_len;
-const hits_assembly = encoder_lazy.hits_assembly;
-const hits_assembly_takes = encoder_lazy.hits_assembly_takes;
+const ways = buckets_module.ways;
 
 test "a candidate is weighed by the octets it agrees on, 4 at least" {
     var window: [weigh_window_len]u8 = @splat('-');
@@ -34,16 +35,15 @@ test "a candidate is weighed by the octets it agrees on, 4 at least" {
     @memcpy(window[long_at..][0..6], weigh_text[0..6]);
     @memcpy(window[whole_at..][0..weigh_text.len], weigh_text);
     var pick: Pick = .{ .here = read64(true, &window, position), .cost = weigh_literal_cost };
-    pick.weigh(true, &window, position, short_at, .bucket);
+    pick.consider(true, &window, position, window.len, short_at, .bucket);
     try testing.expectEqual(0, pick.saves);
-    pick.weigh(true, &window, position, long_at, .bucket);
+    pick.consider(true, &window, position, window.len, long_at, .bucket);
     try testing.expect(pick.saves > 0);
     try testing.expectEqual(long_at, pick.candidate);
-    try testing.expectEqual(0, pick.long_count);
-    // All 8 agree: the candidate goes on the long list, measured to its end after the scan.
-    pick.weigh(true, &window, position, whole_at, .bucket);
-    try testing.expectEqual(1, pick.long_count);
-    const found = pick.measure_long(true, &window, position, window.len) orelse return error.TestNoMatch;
+    try testing.expectEqual(6, pick.len);
+    // All 8 agree: the candidate is measured to its end.
+    pick.consider(true, &window, position, window.len, whole_at, .bucket);
+    const found = pick.found(position) orelse return error.TestNoMatch;
     try testing.expectEqual(position - whole_at, found.offset);
     try testing.expectEqual(weigh_text.len, found.len);
 }
@@ -56,51 +56,142 @@ const whole_at = 16;
 /// 8 bits a literal, in eighths of a bit.
 const weigh_literal_cost = 64;
 
-test "the assembly weighs a bucket's hits as the Zig loop does" {
-    if (comptime !hits_assembly_takes) return error.SkipZigTest;
-    // Two candidates of equal saving, offsets 100 and 80, both of log2 6: the first way stays. A
-    // third agrees on 3 octets only, and weighs nothing.
-    const tie = try expect_hits_equal(&.{ hits_position - tie_offset, hits_position - tie_offset_second, collision_at }, &.{ 6, 6, 3 });
-    try testing.expectEqual(hits_position - tie_offset, tie.candidate);
-    try testing.expectEqual(0, tie.long_count);
-    // A collision alone weighs nothing.
-    const collision = try expect_hits_equal(&.{collision_at}, &.{3});
-    try testing.expectEqual(0, collision.saves);
-    // A candidate that agrees on all 8 goes on the long list.
-    const long = try expect_hits_equal(&.{ collision_at, whole_hit_at }, &.{ 3, weigh_text.len });
-    try testing.expectEqual(whole_hit_at, long.candidate);
-    try testing.expectEqual(1, long.long_count);
+test "the assembly searches a bucket's hits as the Zig loop does" {
+    if (comptime !lazy_hits.assembly_takes) return error.SkipZigTest;
+    try @call(.never_inline, expect_search_seeded, .{});
 }
 
-/// Places `firsts`, each agreeing on its `agreeing` octets of the text at `hits_position`, in a
-/// bucket's ways, weighs them in assembly and in Zig, and requires the same pick.
-fn expect_hits_equal(firsts: []const usize, agreeing: []const usize) !hits_assembly.State {
-    var window: [hits_window_len]u8 = @splat('-');
-    @memcpy(window[hits_position..][0..weigh_text.len], weigh_text);
-    window[hits_position + weigh_text.len] = '#';
-    for (firsts, agreeing) |first, len| @memcpy(window[first..][0..len], weigh_text[0..len]);
-    var entries: [buckets_module.ways]u32 = @splat(0);
-    for (firsts, 0..) |first, way| entries[way] = hits_base + @as(u32, @intCast(first));
-    var zig_pick: Pick = .{ .here = read64(true, &window, hits_position), .cost = weigh_literal_cost };
-    for (firsts) |first| zig_pick.weigh(true, &window, hits_position, first, .bucket);
-    var long: [buckets_module.ways]usize = undefined;
-    var state: hits_assembly.State = .{ .window = &window, .here = zig_pick.here, .cost = weigh_literal_cost, .position = hits_position, .low = 1, .reach = hits_position - 1, .base = hits_base, .entries = &entries, .hits = (@as(u64, 1) << @intCast(firsts.len)) - 1, .saves = 0, .candidate = 0, .long = &long, .long_count = 0 };
-    hits_assembly.weigh(&state);
-    try testing.expectEqual(zig_pick.saves, state.saves);
-    try testing.expectEqual(zig_pick.candidate, state.candidate);
-    try testing.expectEqual(zig_pick.long_count, state.long_count);
-    try testing.expectEqualSlices(usize, zig_pick.long[0..zig_pick.long_count], long[0..state.long_count]);
-    return state;
+/// Seeded buckets and windows, at a position early in a stream, at one past `reach_compare_len`,
+/// and at one whose matches may run to the end: the assembly and the Zig loop must pick alike.
+fn expect_search_seeded() !void {
+    var buckets: Buckets = undefined;
+    buckets.init();
+    // The next tag: an entry of the first is an earlier stream's.
+    buckets.start();
+    var window: [search_window_len]u8 = undefined;
+    var generator = codec.testing.split.Generator.init(search_seed);
+    for (&window) |*octet| octet.* = @truncate(generator.next());
+    const positions = [_]usize{ search_young, search_old, search_window_len - search_end_room };
+    for (0..search_rounds) |round| {
+        const position = positions[round % positions.len];
+        // Fresh octets from below the reach to past the longest copy.
+        const refill = position - search_reach - search_copy_max;
+        for (window[refill..@min(window.len, refill + search_refill_len)]) |*octet| octet.* = @truncate(generator.next());
+        try expect_search_round(&buckets, &window, position, &generator);
+    }
 }
 
-const hits_window_len = 256;
-const hits_position = 200;
-const tie_offset = 100;
-const tie_offset_second = 80;
-const collision_at = 20;
-const whole_hit_at = 40;
-/// A stream's base, as `Buckets` keeps it above every position.
-const hits_base = @as(u32, 1) << (constants.encoder_level5.window_bits + 1);
+/// Fills the position's bucket, each way empty, an earlier stream's entry, out of reach, or a
+/// candidate, and may hold a best from a last distance first. Both loops must pick alike.
+fn expect_search_round(buckets: *Buckets, window: []u8, position: usize, generator: *codec.testing.split.Generator) !void {
+    const low = position - search_reach;
+    const slot = Buckets.slot_of(true, window, position);
+    buckets.next[slot.bucket] = @truncate(generator.next());
+    for (0..ways) |way| fill_way(buckets, window, slot, position, low, way, generator);
+    const cost: u32 = @intCast(generator.between(search_cost_min, weigh_literal_cost));
+    var pick: Pick = .{ .here = read64(true, window, position), .cost = cost };
+    if (@as(u1, @truncate(generator.next())) == 0) pick.consider(true, window, position, window.len, place_seeded(window, position, low, generator), .last);
+    var zig_pick = pick;
+    var assembly_pick = pick;
+    lazy_hits.consider(true, buckets, slot, window, position, window.len, low, &zig_pick);
+    lazy_hits.consider(false, buckets, slot, window, position, window.len, low, &assembly_pick);
+    try testing.expectEqual(zig_pick.found(position), assembly_pick.found(position));
+}
+
+/// What a seeded way holds: two kinds a candidate, so half the ways are candidates.
+const WayKind = enum { empty, earlier_stream, below_reach, candidate, another_candidate };
+
+/// One way of `slot`'s bucket, as a seeded kind makes it.
+fn fill_way(buckets: *Buckets, window: []u8, slot: buckets_module.Slot, position: usize, low: usize, way: usize, generator: *codec.testing.split.Generator) void {
+    const kind: WayKind = @enumFromInt(generator.below(@typeInfo(WayKind).@"enum".fields.len));
+    buckets.checks[slot.bucket][way] = if (kind == .empty) ~slot.check else slot.check;
+    const back: u32 = @intCast(generator.between(1, low - 1));
+    buckets.entries[slot.bucket][way] = switch (kind) {
+        // An earlier stream's entry lies below the base; one below `low` lies out of reach.
+        .empty, .earlier_stream => buckets.base -% back,
+        .below_reach => buckets.base + back,
+        .candidate, .another_candidate => buckets.base + @as(u32, @intCast(place_seeded(window, position, low, generator))),
+    };
+}
+
+/// A candidate from `low` up that repeats the position's octets for a seeded length, then one
+/// that differs: fewer than 4 make a collision. Near the end a copy may run to it.
+fn place_seeded(window: []u8, position: usize, low: usize, generator: *codec.testing.split.Generator) usize {
+    const len: usize = @intCast(@min(generator.below(search_copy_max), window.len - position));
+    const at: usize = @intCast(generator.between(low, position - len - 1));
+    place(window, position, .{ .at = at, .len = len });
+    return at;
+}
+
+test "the search refuses a near collision of 3 octets and an entry at the position" {
+    try @call(.never_inline, expect_search_refusals, .{});
+}
+
+/// A bucket that holds a collision 8 octets back, which agrees on 3 octets, and the position's own
+/// entry. At 8 bits a literal and so near, the collision would save more than its literals; each
+/// loop must refuse both, early in a stream and past `reach_compare_len`.
+fn expect_search_refusals() !void {
+    var buckets: Buckets = undefined;
+    buckets.init();
+    var window: [search_window_len]u8 = undefined;
+    var generator = codec.testing.split.Generator.init(search_seed);
+    for (&window) |*octet| octet.* = @truncate(generator.next());
+    for ([_]usize{ search_young, search_old }) |position| {
+        const slot = Buckets.slot_of(true, &window, position);
+        buckets.checks[slot.bucket] = @splat(~slot.check);
+        buckets.next[slot.bucket] = 0;
+        place(&window, position, .{ .at = position - refusal_distance, .len = min_len - 1 });
+        const entries = [_]usize{ position - refusal_distance, position };
+        for (entries, 0..) |entry, way| {
+            buckets.entries[slot.bucket][way] = buckets.base + @as(u32, @intCast(entry));
+            buckets.checks[slot.bucket][way] = slot.check;
+        }
+        inline for (.{ true, false }) |safety| {
+            var pick: Pick = .{ .here = read64(true, &window, position), .cost = weigh_literal_cost };
+            lazy_hits.consider(safety, &buckets, slot, &window, position, window.len, position - search_reach, &pick);
+            try testing.expectEqual(null, pick.found(position));
+        }
+    }
+}
+
+/// A distance whose log2 of 3 bits lets 3 octets at 8 bits each pass a match's cost.
+const refusal_distance = 8;
+
+test "the compare at the best length is set only where its read stays inside the stream" {
+    const Hits = lazy_hits.Assembly;
+    var window: [guard_window_len]u8 = @splat(0);
+    const position = guard_window_len / 2;
+    const end = window.len;
+    var search: Hits.Search = undefined;
+    const cases = [_]struct { len: usize, compares: bool }{
+        // A best that runs to the end: a compare there would read past it.
+        .{ .len = end - position, .compares = false },
+        // One octet shorter: the compare reads up to the end.
+        .{ .len = end - position - 1, .compares = true },
+        // Shorter than the octets one compare reads.
+        .{ .len = read_len - 1, .compares = false },
+    };
+    for (cases) |case| {
+        const saves = saving(case.len, guard_offset, false, weigh_literal_cost);
+        lazy_hits.compare_at_len(true, Hits, &window, position, end, 1, case.len, saves, weigh_literal_cost, &search);
+        try testing.expectEqual(case.compares, Hits.compares(&search));
+    }
+}
+
+const guard_window_len = 64;
+const guard_offset = 16;
+
+const search_window_len = search_old + search_refill_len;
+const search_young = search_refill_len;
+const search_old = constants.encoder_level5.reach_compare_len + search_refill_len;
+const search_reach = 2000;
+const search_refill_len = 4096;
+const search_seed = 68;
+const search_rounds = 2000;
+const search_copy_max = 40;
+/// The octets after the last position: fewer than the longest copy, so a match runs to the end.
+const search_end_room = 24;
+const search_cost_min = 16;
 
 test "the lazy step keeps a match at a last distance unless the next saves a margin more" {
     try @call(.never_inline, expect_lazy_margin, .{});
@@ -300,7 +391,7 @@ fn expect_measure_case(case: MeasureCase, index: usize) !void {
 }
 
 /// Seeded sets of candidates, each `measure_slot_len` octets apart, measured against the
-/// reference, which measures every long candidate to its end.
+/// reference, which measures every candidate to its end.
 fn expect_measure_seeded() !void {
     var window: [measure_window_len]u8 = undefined;
     var generator = codec.testing.split.Generator.init(measure_seed);
@@ -325,35 +416,25 @@ fn place(window: []u8, position: usize, placed: Placed) void {
     if (position + placed.len < window.len) window[placed.at + placed.len] = ~window[position + placed.len];
 }
 
-/// The pick's match from the candidates, weighed in order as a bucket's, then the long ones
-/// measured.
+/// The pick's match from the candidates, considered in order as a bucket's.
 fn measure_all(window: []const u8, position: usize, cost: u32, placed: []const Placed) ?Found {
     var pick: Pick = .{ .here = read64(true, window, position), .cost = cost };
-    for (placed) |one| pick.weigh(true, window, position, one.at, .bucket);
-    return pick.measure_long(true, window, position, window.len);
+    for (placed) |one| pick.consider(true, window, position, window.len, one.at, .bucket);
+    return pick.found(position);
 }
 
-/// The pick's match with no compare before a measure: the candidates weighed by the octets they
-/// agree on, up to `read_len`, then each long one measured to its end. Each pass keeps a candidate
+/// The pick's match with no compare before a measure: each candidate measured to its end, and kept
 /// only when it saves more than the one kept before it.
 fn reference_found(window: []const u8, position: usize, cost: u32, placed: []const Placed) ?Found {
     var best: ?Found = null;
-    for ([_]bool{ false, true }) |measured| {
-        for (placed) |one| reference_keep(window, position, cost, one, measured, &best);
+    for (placed) |one| {
+        const len = agreeing_len(window, position, one.at);
+        if (len < min_len) continue;
+        const saves = saving(len, position - one.at, false, cost);
+        if (saves <= (if (best) |found| found.saves else 0)) continue;
+        best = .{ .position = position, .len = len, .offset = position - one.at, .saves = saves };
     }
     return best;
-}
-
-/// Keeps `one` in `best` when it saves more: weighed by the octets it agrees on, up to
-/// `read_len`, or, when `measured`, a long one measured to its end.
-fn reference_keep(window: []const u8, position: usize, cost: u32, one: Placed, measured: bool, best: *?Found) void {
-    const agreed = agreeing_len(window, position, one.at);
-    if (measured and agreed < read_len) return;
-    const len = if (measured) agreed else @min(agreed, read_len);
-    if (len < min_len) return;
-    const saves = saving(len, position - one.at, false, cost);
-    if (saves <= (if (best.*) |found| found.saves else 0)) return;
-    best.* = .{ .position = position, .len = len, .offset = position - one.at, .saves = saves };
 }
 
 /// The octets from `at` that equal those from `position`, up to the window's end.

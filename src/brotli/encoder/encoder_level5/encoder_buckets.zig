@@ -98,16 +98,55 @@ pub const Buckets = struct {
 
     /// Asks the cache for `slot`'s bucket before a search reads it. The load of an entry waits
     /// on the load of the checks, so without this the two cache misses come one after the other.
+    /// The ring's next way too, which orders the hits.
     pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
         @prefetch(&self.checks[slot.bucket], .{});
         @prefetch(&self.entries[slot.bucket], .{});
+        @prefetch(&self.next[slot.bucket], .{});
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each.
     pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
+        return @bitCast(self.check_lanes(slot));
+    }
+
+    /// The entries of `slot`'s bucket whose check is `slot`'s, 4 bits each: way w's are bits 4w to
+    /// 4w + 3. One narrowing shift makes it from the compare of 16 lanes.
+    pub inline fn hit_nibbles(self: *const Buckets, slot: Slot) u64 {
+        return nibbles(self.check_lanes(slot));
+    }
+
+    /// The entries of `slot`'s bucket in reach, a bit each as `hits` sets them: an entry less
+    /// `base` is in reach when it is below `reach`. An entry of an earlier stream wraps past it.
+    pub inline fn reach_bits(self: *const Buckets, slot: Slot, base: u32, reach: u32) u16 {
+        return @bitCast(self.reach_lanes(slot, base, reach));
+    }
+
+    /// The entries of `slot`'s bucket in reach, 4 bits each as `hit_nibbles` sets them.
+    pub inline fn reach_nibbles(self: *const Buckets, slot: Slot, base: u32, reach: u32) u64 {
+        return nibbles(self.reach_lanes(slot, base, reach));
+    }
+
+    inline fn check_lanes(self: *const Buckets, slot: Slot) @Vector(ways, bool) {
         const Lanes = @Vector(ways, u8);
         const lanes: Lanes = self.checks[slot.bucket];
-        return @bitCast(lanes == @as(Lanes, @splat(slot.check)));
+        return lanes == @as(Lanes, @splat(slot.check));
+    }
+
+    inline fn reach_lanes(self: *const Buckets, slot: Slot, base: u32, reach: u32) @Vector(ways, bool) {
+        const Entries = @Vector(ways, u32);
+        const entries: Entries = self.entries[slot.bucket];
+        return entries -% @as(Entries, @splat(base)) < @as(Entries, @splat(reach));
+    }
+
+    /// 4 bits for each lane: each pair of 8-bit lanes, shifted right by 4 and narrowed to 8 bits,
+    /// keeps the low lane's high half and the high lane's low half.
+    inline fn nibbles(lanes: @Vector(ways, bool)) u64 {
+        const Lanes = @Vector(ways, u8);
+        const pair_count = ways / @sizeOf(u16);
+        const octets: Lanes = @select(u8, lanes, @as(Lanes, @splat(std.math.maxInt(u8))), @as(Lanes, @splat(0)));
+        const pairs: @Vector(pair_count, u16) = @bitCast(octets);
+        return @bitCast(@as(@Vector(pair_count, u8), @truncate(pairs >> @splat(@bitSizeOf(u4)))));
     }
 
     /// Records `position` in its bucket, over the oldest entry.
@@ -189,3 +228,56 @@ fn expect_bucket() !void {
     }
     try testing.expectEqual(1, kept);
 }
+
+test "a bucket's masks set a way where `candidate` names a position, a bit or 4 bits each" {
+    try @call(.never_inline, expect_masks, .{});
+}
+
+/// Entries in one bucket: this stream's in reach, below the reach or past the position, and an
+/// earlier stream's, the first ways at each edge and the rest seeded. The reach masks must set a
+/// way where `candidate` names a position, and the nibble masks spread the bit masks 4 bits a way.
+fn expect_masks() !void {
+    var buckets_state: Buckets = undefined;
+    const buckets = &buckets_state;
+    buckets.init();
+    // The next tag: an entry just below the base is an earlier stream's.
+    buckets.start();
+    var generator = codec.testing.split.Generator.init(mask_seed);
+    const slot: Slot = .{ .bucket = 0, .check = mask_check };
+    // The position, the last in reach, the lowest, the one below it, the earlier stream's last,
+    // and the stream's position 0.
+    const edges = [_]u32{ buckets.base + mask_position, buckets.base + mask_position - 1, buckets.base + mask_low, buckets.base + mask_low - 1, buckets.base -% 1, buckets.base };
+    for (0..mask_rounds) |_| {
+        var expected: u16 = 0;
+        for (0..ways) |way| {
+            const seeded = buckets.base -% mask_span +% @as(u32, @intCast(generator.below(mask_spans * mask_span)));
+            const entry = if (way < edges.len) edges[way] else seeded;
+            buckets.entries[0][way] = entry;
+            buckets.checks[0][way] = if (@as(u1, @truncate(generator.next())) == 0) mask_check else ~mask_check;
+            if (buckets.candidate(entry, mask_low, mask_position) != null) expected |= @as(u16, 1) << @intCast(way);
+        }
+        const base = buckets.base + mask_low;
+        try testing.expectEqual(expected, buckets.reach_bits(slot, base, mask_position - mask_low));
+        try testing.expectEqual(spread(expected), buckets.reach_nibbles(slot, base, mask_position - mask_low));
+        try testing.expectEqual(spread(buckets.hits(slot)), buckets.hit_nibbles(slot));
+    }
+}
+
+/// Each bit of `bits` as the 4 bits of way's nibble.
+fn spread(bits: u16) u64 {
+    var nibbles: u64 = 0;
+    for (0..ways) |way| {
+        if (bits >> @intCast(way) & 1 != 0) nibbles |= @as(u64, std.math.maxInt(u4)) << @intCast(way * @bitSizeOf(u4));
+    }
+    return nibbles;
+}
+
+const mask_seed = 69;
+const mask_rounds = 200;
+/// Entries from `mask_span` below the base to twice it above: an earlier stream's, below the
+/// reach, in it, and past the position.
+const mask_span = 4096;
+const mask_spans = 3;
+const mask_low = 1000;
+const mask_position = 3000;
+const mask_check: u8 = 0x5a;

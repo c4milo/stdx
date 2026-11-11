@@ -1,101 +1,240 @@
-//! Level 5's weighing of a bucket's hits in aarch64 assembly (decision 66, part 5, which amends
-//! decision 16 for this loop): each hit's candidate weighed by the octets it agrees on within the
-//! first 8, and kept by a select, as `Pick.weigh` does in Zig. It writes the pick and the list of
-//! long candidates the Zig loop writes.
+//! Level 5's search of a bucket's hits in aarch64 assembly (decision 66, part 6, which amends
+//! decision 16 for this loop): the hits newest first, each refused by one compare at the best
+//! length where it cannot save more, else weighed by the octets it agrees on within the first 8
+//! and kept by a select, as `Pick.consider` does in Zig. A hit that agrees on all 8 goes back to
+//! the caller, which measures it to its end and enters the loop again with the hits left.
 //!
-//! It takes an aarch64 target built by LLVM; every other target runs the Zig loop. Two branches
-//! stay, each on a case most rows seldom meet: a candidate out of reach, and a collision, a
-//! candidate that agrees on fewer than 4 octets.
+//! It takes an aarch64 target built by LLVM; every other target runs another loop. Its branches
+//! each refuse a candidate: out of reach, refused by the compare, or a collision, which agrees on
+//! fewer than 4 octets.
 //!
-//! The loop's values arrive and leave in registers, not through `State` in memory: the caller's
-//! copy of the state then costs no store and no load for each search.
+//! The loop's values arrive and leave in registers, not through memory: the caller's copy of the
+//! search then costs no store and no load for each call. A search with no compare set runs a loop
+//! without the compare's three registers, which the caller then keeps its own values in.
 //!
 //! Its reads go by address, without Zig's bounds checks. A hit's way is below 16, inside the
 //! bucket; a candidate in reach lies below the position, whose 8 octets lie before the block's end
-//! (`best`'s assertion), so each read of 8 octets stays in the window.
+//! (`best`'s assertion), so each read of 8 octets stays in the window, and so does the compare's
+//! read, which ends at the best length, inside the stream.
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const constants = @import("../../constants.zig");
 const assembly = @import("encoder_hits_assembly.zig");
+const buckets_module = @import("encoder_buckets.zig");
 
-/// Whether the assembly weighs the hits: an aarch64 target built by LLVM.
+const Buckets = buckets_module.Buckets;
+const ways = buckets_module.ways;
+
+/// Whether the assembly searches the hits: an aarch64 target built by LLVM.
 pub const takes = builtin.cpu.arch == .aarch64 and builtin.zig_backend == .stage2_llvm;
 
-pub const State = assembly.State;
+/// The search's values, each in a register of `consider`'s text. A candidate is its position less
+/// `low`, the lowest position in reach.
+pub const Search = struct {
+    /// The window from `low`.
+    window: [*]const u8,
+    here: u64,
+    cost: u64,
+    /// The bits `consider` clears for a hit: bits 60 to 63.
+    top: u64 = std.math.maxInt(u4) << (@bitSizeOf(u64) - @bitSizeOf(u4)),
+    /// `position - low`: a candidate in reach lies below it, and its distance is the reach less it.
+    reach: u64,
+    /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
+    base: u64,
+    entries: [*]const u32,
+    /// The bucket's ring's next way plus 15: the way written `step` inserts before the last is
+    /// `newest - step`, modulo 16.
+    newest: u64,
+    /// The hits left, bits `60 - 4 * step` to `63 - 4 * step` for the way written `step` inserts
+    /// before the last.
+    order: u64,
+    /// The best saving plus `cost_bias`, and its candidate.
+    saves: i64,
+    candidate: u64,
+    /// The compare at the best length: the window from `low + at`, the 8 octets from `at` at the
+    /// position, and the most leading zeros of a distance whose candidate the compare may refuse;
+    /// -1 for none.
+    tail_window: [*]const u8,
+    tail: u64,
+    clz_max: i64,
+};
 
-/// Weighs the hits `state` names and stores the pick back.
-pub inline fn weigh(state: *State) void {
-    // The text spends the hits, and moves the pick and the long list's count: each is a register
-    // the text takes and gives back.
-    var hits = state.hits;
-    var saves = state.saves;
-    var candidate = state.candidate;
-    var long_count = state.long_count;
-    asm volatile (text
-        : [hits] "={x9}" (hits),
-          [saves] "={x10}" (saves),
-          [candidate] "={x11}" (candidate),
-          [long_count] "={x13}" (long_count),
-        : [window] "{x1}" (state.window),
-          [here] "{x2}" (state.here),
-          [cost] "{x3}" (state.cost),
-          [position] "{x4}" (state.position),
-          [low] "{x5}" (state.low),
-          [reach] "{x6}" (state.reach),
-          [base] "{x7}" (state.base),
-          [entries] "{x8}" (state.entries),
-          [hits_in] "{x9}" (hits),
-          [saves_in] "{x10}" (saves),
-          [candidate_in] "{x11}" (candidate),
-          [long] "{x12}" (state.long),
-          [long_count_in] "{x13}" (long_count),
-        : .{ .memory = true, .nzcv = true, .x15 = true, .x16 = true, .x17 = true });
-    state.saves = saves;
-    state.candidate = candidate;
-    state.long_count = long_count;
+/// What `consider` returns when no hit is left.
+pub const none = std.math.maxInt(u64);
+
+/// The search of `slot`'s hits at `position`, the best so far `saves` and `candidate`, or none
+/// when no hit lies in reach. Early in a stream begun with `start`, most hits are entries of an
+/// earlier stream: one compare of the bucket's 16 entries against the reach drops them first.
+pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
+    var hits = buckets.hit_nibbles(slot);
+    // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
+    if (hits == 0) return null;
+    const base = buckets.base +% @as(u32, @truncate(low));
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
+        if (hits == 0) return null;
+    }
+    const next: u64 = buckets.next[slot.bucket] % ways;
+    return .{
+        .window = window + low,
+        .here = here,
+        .cost = cost,
+        .reach = position - low,
+        .base = base,
+        .entries = &buckets.entries[slot.bucket],
+        .newest = next + ways - 1,
+        .order = std.math.rotr(u64, hits, next * @bitSizeOf(u4)),
+        .saves = saves + assembly.cost_bias,
+        .candidate = candidate -% low,
+        .tail_window = undefined,
+        .tail = undefined,
+        .clz_max = -1,
+    };
 }
 
-/// x1 the window, x2 the position's 8 octets, x3 a literal's cost, x4 the position, x5 the lowest
-/// position in reach, x6 the reach, x7 the stream's base, x8 the bucket's entries, x9 the hits,
-/// x10 the best saving, x11 its candidate, x12 the long list, x13 its count.
-const text = std.fmt.comptimePrint(
-    \\ cbz w9, 2f
+/// Sets the compare at the best length, or none for a `clz_max` of -1.
+pub inline fn set_compare(search: *Search, tail_window: [*]const u8, tail: u64, clz_max: i64) void {
+    search.tail_window = tail_window;
+    search.tail = tail;
+    search.clz_max = clz_max;
+}
+
+/// Whether a compare at the best length is set.
+pub inline fn compares(search: *const Search) bool {
+    return search.clz_max >= 0;
+}
+
+/// Considers the hits `search.order` names, the newest first, until one agrees on all 8 octets:
+/// returns it, for the caller to measure, or `none` when no hit is left.
+pub inline fn consider(search: *Search) u64 {
+    var order = search.order;
+    var saves = search.saves;
+    var candidate = search.candidate;
+    var pending: u64 = undefined;
+    asm volatile (consider_text
+        : [order] "={x9}" (order),
+          [saves] "={x10}" (saves),
+          [candidate] "={x11}" (candidate),
+          [pending] "={x15}" (pending),
+        : [newest] "{x0}" (search.newest),
+          [window] "{x1}" (search.window),
+          [here] "{x2}" (search.here),
+          [cost] "{x3}" (search.cost),
+          [top] "{x4}" (search.top),
+          [reach] "{x6}" (search.reach),
+          [base] "{x7}" (search.base),
+          [entries] "{x8}" (search.entries),
+          [order_in] "{x9}" (order),
+          [saves_in] "{x10}" (saves),
+          [candidate_in] "{x11}" (candidate),
+          [tail_window] "{x12}" (search.tail_window),
+          [tail] "{x13}" (search.tail),
+          [clz_max] "{x14}" (search.clz_max),
+        : .{ .memory = true, .nzcv = true, .x16 = true, .x17 = true });
+    search.order = order;
+    search.saves = saves;
+    search.candidate = candidate;
+    return pending;
+}
+
+/// `consider` while no compare at the best length is set.
+pub inline fn consider_first(search: *Search) u64 {
+    var order = search.order;
+    var saves = search.saves;
+    var candidate = search.candidate;
+    var pending: u64 = undefined;
+    asm volatile (consider_first_text
+        : [order] "={x9}" (order),
+          [saves] "={x10}" (saves),
+          [candidate] "={x11}" (candidate),
+          [pending] "={x15}" (pending),
+        : [newest] "{x0}" (search.newest),
+          [window] "{x1}" (search.window),
+          [here] "{x2}" (search.here),
+          [cost] "{x3}" (search.cost),
+          [top] "{x4}" (search.top),
+          [reach] "{x6}" (search.reach),
+          [base] "{x7}" (search.base),
+          [entries] "{x8}" (search.entries),
+          [order_in] "{x9}" (order),
+          [saves_in] "{x10}" (saves),
+          [candidate_in] "{x11}" (candidate),
+        : .{ .memory = true, .nzcv = true, .x16 = true, .x17 = true });
+    search.order = order;
+    search.saves = saves;
+    search.candidate = candidate;
+    return pending;
+}
+
+/// x0 the newest way plus 16 less 1, x1 the window from the lowest position in reach, x2 the
+/// position's 8 octets, x3 a literal's cost, x4 bits 60 to 63, x6 the reach, x7 the stream's base
+/// plus the lowest position, x8 the bucket's entries, x9 the hits in order, x10 the best saving
+/// plus `cost_bias`, x11 its candidate, x12 to x14 the compare at the best length; x15 the
+/// candidate to measure. A candidate's distance's leading zeros go in x17.
+const pick =
+    \\ cbz x9, 8f
     \\1:
-    // The lowest hit's way, and the hit cleared.
-    \\ rbit w15, w9
-    \\ clz w15, w15
-    \\ sub w16, w9, #1
-    \\ and w9, w9, w16
-    // The entry's position: an entry of an earlier stream wraps past the reach.
+    // The newest hit's way, and the hit cleared: 4 bits a way.
+    \\ clz x15, x9
+    \\ lsr x16, x4, x15
+    \\ bic x9, x9, x16
+    \\ sub w15, w0, w15, lsr #2
+    \\ and w15, w15, #15
+    // The candidate: an entry of an earlier stream or past the position wraps past the reach.
     \\ ldr w15, [x8, w15, uxtw #2]
     \\ sub w15, w15, w7
-    \\ sub w16, w15, w5
-    \\ cmp w16, w6
+    \\ cmp w15, w6
     \\ b.hs 3f
-    // The octets that agree within the first 8.
+    \\
+;
+
+const distance =
+    \\ sub x17, x6, x15
+    \\ clz x17, x17
+    \\
+;
+
+/// A candidate no nearer than the best saves more only when it is longer: 8 octets that differ up
+/// to the best length refuse it. A best that a shorter match took since saves more, so the compare
+/// still refuses only what saves no more.
+const compare =
+    \\ cmp x17, x14
+    \\ b.gt 2f
+    \\ ldr x16, [x12, x15]
+    \\ cmp x16, x13
+    \\ b.ne 3f
+    \\2:
+    \\
+;
+
+/// All 8 octets agree: the caller measures the candidate. Fewer than the first 4: a collision.
+const agree =
     \\ ldr x16, [x1, x15]
     \\ eor x16, x16, x2
+    \\ cbz x16, 9f
+    \\ cbnz w16, 3f
+    \\
+;
+
+/// The saving plus `cost_bias`: agreed octets at a literal's cost, and 8 for each leading zero of
+/// the distance. The best saving wins, and the first of equal savings stays.
+const weigh =
     \\ rbit x16, x16
     \\ clz x16, x16
     \\ lsr x16, x16, #3
-    \\ cmp x16, #{[min_len]d}
-    \\ b.lo 3f
-    // A candidate that agrees on all 8 goes on the long list.
-    \\ str x15, [x12, x13, lsl #3]
-    \\ cmp x16, #{[read_len]d}
-    \\ cinc x13, x13, eq
-    // The saving: agreed octets at a literal's cost, less the match's cost and its offset's log2.
-    \\ sub x17, x4, x15
-    \\ clz x17, x17
     \\ mul x16, x16, x3
     \\ add x16, x16, x17, lsl #3
-    \\ sub x16, x16, #{[cost_bias]d}
-    // The best saving wins, and the first of equal savings stays.
     \\ cmp x16, x10
     \\ csel x10, x16, x10, gt
     \\ csel x11, x15, x11, gt
     \\3:
-    \\ cbnz w9, 1b
-    \\2:
-, .{ .min_len = assembly.min_len, .read_len = assembly.read_len, .cost_bias = assembly.cost_bias });
+    \\ cbnz x9, 1b
+    \\8:
+    \\ mov x15, #-1
+    \\9:
+;
+
+const consider_text = pick ++ distance ++ compare ++ agree ++ weigh;
+// With no compare, the distance waits until a candidate agrees.
+const consider_first_text = pick ++ agree ++ distance ++ weigh;
