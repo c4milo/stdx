@@ -35,6 +35,10 @@ pub const Claims = struct {
     /// J8: the decoder takes the next token in one straight line when the input holds all of it and
     /// the output has room for its octets (decision 31). Off, every token takes the checked path.
     decoder_fast_path: bool = true,
+    /// J16: J8's line takes a name or a string whose plain run stops at an escape or a non-ASCII
+    /// octet through J10's walk (decoder_loop_copy.zig's `copy_blocks`), when the input holds all
+    /// of it and the output has room for it. Off, the line leaves it to the checked path.
+    decoder_line_strings: bool = true,
     /// J10: a batch takes its tokens in decision 16's JSON decoder token loop, straight from the
     /// input slice into the output slice (decision 33, decoder_loop.zig). Off, each takes the path
     /// one token a call takes.
@@ -105,6 +109,7 @@ pub const scalar: Claims = .{
     .utf8_vectors = false,
     .wide_vectors = false,
     .decoder_fast_path = false,
+    .decoder_line_strings = false,
     .decoder_token_loop = false,
     .encoder_fast_path = false,
     .encoder_token_loop = false,
@@ -122,6 +127,7 @@ pub const vector: Claims = .{
     .utf8_vectors = true,
     .wide_vectors = true,
     .decoder_fast_path = true,
+    .decoder_line_strings = true,
     .decoder_token_loop = true,
     .encoder_fast_path = true,
     .encoder_token_loop = true,

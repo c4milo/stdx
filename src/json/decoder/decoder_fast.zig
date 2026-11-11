@@ -35,6 +35,7 @@ const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
 const Outcome = decoder_file.Outcome;
 const Utf8 = @import("../utf8.zig").Utf8;
+const loop_copy = @import("decoder_loop/decoder_loop_copy.zig");
 
 /// Takes the octets before a text's first token, for a caller that holds the text's start
 /// (`TextReader`, decision 69): a sequence's record separators, and the look at the octet after
@@ -154,8 +155,34 @@ inline fn string(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader:
         scan.plain_len_scalar(window);
     _ = reader.take(run_len) catch unreachable;
     const closing = reader.take_octet() catch return null;
-    if (closing != constants.quotation_mark) return null;
+    if (closing != constants.quotation_mark) {
+        if (!claims.decoder_line_strings or run_len == window.len) return null;
+        reader.unread(run_len + 1);
+        return walked(decoder, claims, kind, reader, writer);
+    }
     writer.write_first(window, run_len) catch unreachable;
+    return string_ended(decoder, kind);
+}
+
+/// Claim J16: a name or a string whose plain run stopped at an escape or a non-ASCII octet, its
+/// content at the reader's position, through J10's walk, which takes its escapes and its UTF-8
+/// (decoder_loop_copy.zig). The walk reads the input and writes the output's room as decision 16
+/// lets J10's loop, and leaves the octets past the token's in room the call does not report. Null
+/// where the walk leaves the string to the checked path, which names every refusal.
+inline fn walked(decoder: *Decoder, comptime claims: Claims, kind: Kind, reader: *codec.Reader, writer: *codec.Writer) ?Outcome {
+    const content = reader.take_partial(reader.remaining_len());
+    reader.unread(content.len);
+    const room = writer.octets[writer.position..];
+    const copied = loop_copy.copy_blocks(claims, decoder.level, content, room, 0) orelse return null;
+    // The content and its closing quotation mark.
+    _ = reader.take(copied.input_len + 1) catch unreachable;
+    writer.position += copied.output_len;
+    assert(writer.position <= writer.octets.len);
+    return string_ended(decoder, kind);
+}
+
+/// Moves the state past a name or a string taken whole, as the checked path does.
+inline fn string_ended(decoder: *Decoder, kind: Kind) Outcome {
     started(decoder, 1, .{});
     if (kind == .name) decoder_file.name_ended(decoder) else decoder_file.value_ended(decoder, kind);
     return .{ .status = .token, .kind = kind };

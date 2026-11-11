@@ -4490,3 +4490,37 @@ small file.
       token of qlog's shape, where the bench program on the N2 took 13.6 fewer a token of qlog.
       The probe has one caller, and LLVM inlined the copy another way. The runner's counters
       decide.
+
+71. **Claim J8's line takes a string with escapes through J10's walk.** Ruled by the owner on
+    2026-11-10, as the lever after decision 70. Claim J8's straight line scans a name's or a
+    string's plain run. A run that stopped at an escape or a non-ASCII octet went to the checked
+    path, an octet at a time. Through `TextReader.next`, a string of prose then ran at about a
+    fifth of a batch's speed, and 17 string rows trailed serde_json.
+    - Claim J16: at that stop, the line hands the token's content to `copy_blocks`, the walk that
+      claim J10's loop takes such a string with (decoder_loop_copy.zig). The walk takes the
+      escapes and the UTF-8, and writes into the output's room as decision 16 lets J10's loop.
+      Where it does not take the string whole, the checked path takes it and names every refusal.
+      A batch turns J8's line off, so its code is unchanged.
+    - bench-profile on the N2 (run 42951744892): a string through `next` took a batch's
+      instructions. dickens took 404,040, from 2,503,705, beside 403,846 in a batch, and json-1m
+      4,799,855, from 56,816,486. CLDR took 177.7 a token, from 179.1, and qlog 194.5, from 192.0.
+    - The pairs (runs 42951727476 and 42951736432): `next` ran 20 rows faster in both jobs on the
+      N2 and 18 on x86-64, an AMD EPYC 9V74 and 7763, and none slower. Its string rows ran at a
+      median of 5.06 times main's speed on the N2 and 5.5 to 5.8 on x86-64, up to 15.9.
+    - Against the baselines, `next` ran ahead of serde_json on every string row, by 1.37 at the
+      least on the N2 and 1.69 on x86-64. It ran ahead on CLDR too, at 1.06 to 1.07 on the N2 and
+      1.39 to 1.40 on x86-64. It trails serde_json on qlog's records alone, at 0.73 on the N2 and
+      0.91 to 0.92 on x86-64. It ran ahead of Go's jsontext on every row.
+    - Rows slower in both jobs: osdb as hex decoded in batches on the N2, at 0.988 and 0.983,
+      and lcet10.txt as hex encoded on x86-64, at 0.950 to 0.977. Each runs functions identical
+      at both commits on aarch64 and x86-64, which decision 20 counts as placement.
+    - One token a call through `Decoder.decode` gains nothing on a text that is one string. Its
+      first token takes the checked path, which takes the text's start; `TextReader.next_text`
+      takes the start itself (decision 69).
+    - The checks: decoder_fast_test.zig and text_reader_test.zig hold J8's line, J16 with it, to
+      the checked path in lockstep, over strings with escapes, `\u` pairs and UTF-8, whole, under
+      seeded splits and under seeded corruptions. The commit lists the mutations.
+
+    The alternatives refused:
+    - The walk out of line, behind a call: the line kept its reader and writer in memory, and a
+      record through `next` took 4,758 instructions, from 4,294 (callgrind, aarch64).
