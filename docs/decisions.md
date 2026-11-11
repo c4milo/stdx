@@ -4609,3 +4609,43 @@ small file.
     - It does not change how blocks end. stdx writes more blocks than libdeflate, 201 against 40
       on dickens, and the 9 text rows write 1.0009 to 1.0037 of libdeflate's output, from 1.0071
       to 1.0132.
+
+73. **`TextWriter` writes a base 64 value.** Ruled by the owner on 2026-11-10, with the edge from
+    `json` to `base64` that decision 68 left to a ruling of its own. A dependent wrote each base 64
+    value as a string, through a buffer of 60 letters the base 64 encoder filled. `TextWriter`
+    took each buffer as a piece of the string, and each piece went through the checked path's
+    scan for octets to escape.
+    - `TextWriter.base64(octets)` writes a string of RFC 4648 §4's letters, in the standard
+      alphabet, its last quantum padded. The text holds an ordinary string: a reader decodes its
+      letters with the base64 module's decoder.
+    - Where the output has room for the whole string, a step of claim J11's loop writes it: a
+      string's separators and quotation marks, and between them the letters of the base64
+      module's `encode_all` (encoder_loop_base64.zig). It leaves the state the checked path leaves
+      after a string of these letters.
+    - Where the room is short, the method writes the letters of 45 octets at a time as the pieces
+      of one string through the checked path. It writes what that path writes for the string,
+      and stops where it stops, with `error.NoSpaceLeft`.
+    - The encoder gains no token and no state, so its batches and one token a call build as
+      before. The base 64 encoder takes AVX2 where the JSON encoder's level does, and both decide
+      it alike.
+    - The graph: `json` imports `base64` (design §3), and `tools/lint/module_graph.zig` pins the
+      edge.
+    - callgrind on aarch64, ReleaseSafe, an object of one member whose value is base 64: 45
+      octets took 619 instructions through `TextWriter.base64`, against 806 through the buffer.
+      300 octets took 1,235 against 6,689, and 3,000 took 7,448 against 60,269: 2.5 instructions
+      an octet against 20.1. A record with no base 64 took the instructions it took before,
+      through the methods, one token a call and a batch.
+    - The checks: text_writer_test.zig writes RFC 4648 §10's vectors. It holds the method to the
+      checked path writing a string of the same letters, in both framings, at a text's start, as
+      a member and as an array's elements, in every room up to the whole text. The commit lists
+      the mutations.
+
+    The alternatives refused:
+    - A token kind, `Token.base64`, on every path of the encoder, with a base 64 encoder in the
+      state for the token's pieces. The state grew from 192 octets to 232. On a record with no
+      base 64 in it, one token a call took 2% more instructions, and 7.5% with the token's step in
+      the loop's switch over every kind.
+    - A `TextWriter` call that lends a slice of its output inside a string: `TextWriter` would then
+      check every octet the caller wrote. The owner ruled for base 64.
+    - The URL and filename safe alphabet, or no padding, as options: no dependent asks for them.
+      They can come with a ruling of their own.

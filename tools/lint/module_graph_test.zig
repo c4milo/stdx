@@ -29,10 +29,11 @@ const passing_build: [:0]const u8 =
     \\    zstd.addImport("checksum", checksum);
     \\    const brotli = library(b, "brotli", target, optimize);
     \\    brotli.addImport("codec", codec);
-    \\    const json = library(b, "json", target, optimize);
-    \\    json.addImport("codec", codec);
     \\    const base64 = library(b, "base64", target, optimize);
     \\    base64.addImport("codec", codec);
+    \\    const json = library(b, "json", target, optimize);
+    \\    json.addImport("codec", codec);
+    \\    json.addImport("base64", base64);
     \\    const platform = library(b, "platform", target, optimize);
     \\}
 ;
@@ -175,7 +176,7 @@ test "module-graph reads the created modules and the edges of every receiver" {
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
     try testing.expectEqual(10, calls.modules.len);
-    try testing.expectEqual(12, calls.edges.len);
+    try testing.expectEqual(13, calls.edges.len);
     try testing.expectEqualStrings("deflate", calls.edges[0].module);
     try testing.expectEqualStrings("codec", calls.edges[0].name);
     try testing.expectEqualStrings("brotli", calls.edges[9].module);
@@ -216,6 +217,7 @@ test "the expected graph is design §3's table" {
         .{ "zstd", "checksum" },
         .{ "brotli", "codec" },
         .{ "json", "codec" },
+        .{ "json", "base64" },
         .{ "base64", "codec" },
     };
     var edge_count: usize = 0;

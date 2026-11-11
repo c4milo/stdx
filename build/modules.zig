@@ -80,15 +80,17 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     const brotli = library(b, "brotli", settings);
     brotli.addImport("codec", codec);
 
-    const json = library(b, "json", settings);
-    json.addImport("codec", codec);
-    // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
-    variants.add_levels(b, json, "json", settings.target, settings.optimize, &variants.json_levels);
-
     const base64 = library(b, "base64", settings);
     base64.addImport("codec", codec);
     // Decision 68's AVX2 kernels: the nibble tables through vpshufb, and the encoder's shuffles.
     variants.add_levels(b, base64, "base64", settings.target, settings.optimize, &variants.base64_levels);
+
+    const json = library(b, "json", settings);
+    json.addImport("codec", codec);
+    // `TextWriter.base64`'s letters (decision 73).
+    json.addImport("base64", base64);
+    // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
+    variants.add_levels(b, json, "json", settings.target, settings.optimize, &variants.json_levels);
 
     const platform = library(b, "platform", settings);
 

@@ -65,12 +65,13 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `gzip` | The gzip container | `codec`, `checksum`, `deflate` | 1952 |
 | `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
 | `brotli` | brotli | `codec` | 7932 |
-| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec` | 8259, 7464, 3629 |
+| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64` | 8259, 7464, 3629 |
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40) | nothing | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
-and none reaches `json`. No module reaches `platform`.
+and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision 73).
+No module reaches `platform`.
 No library module receives a package: pepegrillo, the oracles and the corpora are requested by
 `build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
 

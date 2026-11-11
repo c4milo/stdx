@@ -262,6 +262,12 @@ pub const number_text_len_max = 1 + unsigned_digits_max + 1 + fraction_digits_ma
 /// separator, a value separator, and the longest number or literal name.
 pub const pending_len_max = 1 + 1 + number_text_len_max;
 
+/// The octets `TextWriter.base64` takes a piece where the output has no room for the whole value,
+/// and the letters they become: 15 groups of RFC 4648 §4, whole, so no piece but the last holds a
+/// pad (decision 73).
+pub const base64_piece_octets: usize = 45;
+pub const base64_piece_letters: usize = 60;
+
 /// The parts of one token the encoder writes in turn: its opening, its content and its closing.
 pub const token_parts = 3;
 

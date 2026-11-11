@@ -16,6 +16,9 @@ const Encoder = encoder_file.Encoder;
 const Token = encoder_file.Token;
 const Kind = encoder_file.Kind;
 const token_loop = @import("encoder_loop/encoder_loop.zig");
+const loop_base64 = @import("encoder_loop/encoder_loop_base64.zig");
+const base64_module = @import("base64");
+const constants = @import("../constants.zig");
 const Claims = @import("../claims.zig").Claims;
 const Framing = @import("../framing.zig").Framing;
 const Decimal = @import("../format.zig").Decimal;
@@ -107,6 +110,43 @@ pub const TextWriter = struct {
     /// A string of two lowercase hexadecimal digits for each of `octets`.
     pub fn hex(self: *TextWriter, octets: []const u8) Error!void {
         return self.whole(.hex, .{ .hex = .last }, octets);
+    }
+
+    /// A string of RFC 4648 §4's base 64 letters for `octets`, its last quantum padded (decision
+    /// 73). The base64 module's encoder writes them straight into the text, which holds an
+    /// ordinary string: a reader decodes its letters with that module's decoder.
+    pub fn base64(self: *TextWriter, octets: []const u8) Error!void {
+        if (self.encoder.part == .between_tokens) {
+            var end = self.len;
+            if (@call(.always_inline, loop_base64.take_letters, .{ &self.encoder, Claims{}, octets, self.output, &end })) {
+                self.len = end;
+                return;
+            }
+        }
+        return self.letters_in_pieces(octets);
+    }
+
+    /// `base64` through the checked path, where the output has no room for the whole string: the
+    /// letters of `constants.base64_piece_octets` octets at a time, each a piece of one string. The
+    /// output then holds what the checked path writes for a string of all the letters, up to the
+    /// octet where it stops with `error.NoSpaceLeft`.
+    noinline fn letters_in_pieces(self: *TextWriter, octets: []const u8) Error!void {
+        var letters: base64_module.Encoder = undefined;
+        letters.init(.{}, loop_base64.features_of(self.encoder.level));
+        var buffer: [constants.base64_piece_letters]u8 = undefined;
+        var consumed: usize = 0;
+        for (0..octets.len / constants.base64_piece_octets + 1) |_| {
+            const rest = octets[consumed..];
+            const piece = rest[0..@min(rest.len, constants.base64_piece_octets)];
+            const last = piece.len == rest.len;
+            const progress = letters.encode(piece, &buffer, if (last) .finish else .none);
+            assert(progress.consumed == piece.len and progress.status != .needs_room);
+            consumed += piece.len;
+            try self.write(if (last) .{ .string = .last } else .{ .string = .more }, buffer[0..progress.written]);
+            if (last) return;
+        }
+        // Each pass takes a whole piece, and the last pass the rest.
+        unreachable;
     }
 
     /// A number whose text is `text`, which must be one number of RFC 8259 §6.

@@ -61,8 +61,8 @@ pub const Module = struct {
     imports: []const []const u8,
 };
 
-/// The graph of docs/design.md §3, with `codec` as decision 11 rules it, `json` as decision 27
-/// does and `platform` as decision 40 does. No module imports `platform`, the one module that may
+/// The graph of docs/design.md §3, with `codec` as decision 11 rules it, `json` as decisions 27 and
+/// 73 do and `platform` as decision 40 does. No module imports `platform`, the one module that may
 /// make a syscall.
 pub const expected_graph = [_]Module{
     .{ .name = "codec", .imports = &.{} },
@@ -72,7 +72,7 @@ pub const expected_graph = [_]Module{
     .{ .name = "gzip", .imports = &.{ "codec", "checksum", "deflate" } },
     .{ .name = "zstd", .imports = &.{ "codec", "checksum" } },
     .{ .name = "brotli", .imports = &.{"codec"} },
-    .{ .name = "json", .imports = &.{"codec"} },
+    .{ .name = "json", .imports = &.{ "codec", "base64" } },
     .{ .name = "base64", .imports = &.{"codec"} },
     .{ .name = "platform", .imports = &.{} },
 };

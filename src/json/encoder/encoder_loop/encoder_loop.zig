@@ -83,7 +83,7 @@ pub inline fn take_one(encoder: *Encoder, comptime claims: Claims, comptime kind
 /// the value separator before a value, and the line feed that ends a sequence's text. Packed into
 /// one integer, it stays in a register: as a struct of four bools, it went through the stack at
 /// every item.
-const Frame = packed struct(u8) {
+pub const Frame = packed struct(u8) {
     record_separator: bool,
     value_separator: bool,
     line_feed: bool,
@@ -100,7 +100,7 @@ const Frame = packed struct(u8) {
 /// every item, they took loads and stores the checked path reads only once the batch is over. Every
 /// value an item keeps live across its octets costs registers the loop runs short of, so the last
 /// item's kind and number are found again from the item, once.
-const Loop = struct {
+pub const Loop = struct {
     encoder: *Encoder,
     /// The batch's whole output, which each item's octets must not overlap.
     output: []u8,
@@ -179,7 +179,7 @@ const Loop = struct {
     /// once, it is checked once, and the stores into it at fixed offsets need no check of their own.
     /// Stored an octet at a time into the output, each reloaded the output's length, which the loop
     /// keeps in memory, for a check of its own.
-    inline fn open_body(self: *Loop, comptime claims: Claims, frame: Frame, len: usize) ?[]u8 {
+    pub inline fn open_body(self: *Loop, comptime claims: Claims, frame: Frame, len: usize) ?[]u8 {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (!self.open(claims, frame, len)) return null;
         const body = self.rest[0..len];
@@ -190,7 +190,7 @@ const Loop = struct {
     /// The octets around an item of `kind` at the loop's position. Only a value can start a text
     /// or end one at depth 0, and only at the text's start; a name follows a value separator after
     /// a member, and any other value after an element.
-    inline fn frame_of(self: *const Loop, comptime claims: Claims, comptime kind: Kind) Frame {
+    pub inline fn frame_of(self: *const Loop, comptime claims: Claims, comptime kind: Kind) Frame {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         self.check_item(claims, kind, null);
         const position = self.position;
@@ -207,7 +207,7 @@ const Loop = struct {
 
     /// Writes the line feed after an item that ends a sequence's text, and moves the grammar past
     /// the item as `encoder_file.run` does.
-    inline fn close(self: *Loop, comptime claims: Claims, comptime kind: Kind, ends_text: bool) void {
+    pub inline fn close(self: *Loop, comptime claims: Claims, comptime kind: Kind, ends_text: bool) void {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         if (ends_text and self.sequence) self.put(claims, constants.line_feed);
         encoder_file.advance_with(&self.position, &self.depth, &self.encoder.containers, kind);
@@ -230,7 +230,7 @@ const Loop = struct {
     }
 
     /// `write_back` after one item of `kind`, its kind and its number known at compile time.
-    inline fn write_back_of(self: *const Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item) void {
+    pub inline fn write_back_of(self: *const Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item) void {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         self.encoder.position = self.position;
         self.encoder.depth = self.depth;

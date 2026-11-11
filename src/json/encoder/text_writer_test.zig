@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const base64 = @import("base64");
 const claims = @import("../claims.zig");
 const Framing = @import("../framing.zig").Framing;
 const encoder_file = @import("encoder.zig");
@@ -154,4 +155,95 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     var program: round_trip.Program = .{};
     round_trip.Draw.value(&choices, &program, 0);
     try check(program.items[0..program.count], smith.value(u64));
+}
+
+/// A token of a lockstep run, or a base 64 value: `octets` through `TextWriter.base64`, and their
+/// letters as a string through the checked path (decision 73).
+const Step = struct { item: Item, base64: bool = false };
+
+/// The longest base 64 value the tests write, and its letters.
+const base64_octets_max = 160;
+const base64_letters_max = base64.Encoder.encoded_len(base64_octets_max, true);
+
+/// The letters of `octets` from the base64 module's encoder, which RFC 4648 §10's vectors check.
+fn letters_of(octets: []const u8, buffer: *[base64_letters_max]u8) []const u8 {
+    var encoder: base64.Encoder = undefined;
+    encoder.init(.{}, codec.Features.detect());
+    return buffer[0 .. encoder.encode_all(octets, buffer) catch unreachable];
+}
+
+/// `expect_methods` over `steps`, a base 64 value's step through `TextWriter.base64`.
+fn expect_steps(framing: Framing, steps: []const Step, room_len: usize) !?usize {
+    var output: [text_len_max]u8 = undefined;
+    var reference_output: [text_len_max]u8 = undefined;
+    var letters_buffer: [base64_letters_max]u8 = undefined;
+    var text = TextWriter.init(output[0..room_len], framing, codec.Features.detect());
+    var reference: Encoder = undefined;
+    reference.init(framing, codec.Features.detect());
+    var written: usize = 0;
+    for (steps) |step| {
+        const result = if (step.base64) text.base64(step.item.octets) else call(&text, step.item);
+        const octets = if (step.base64) letters_of(step.item.octets, &letters_buffer) else step.item.octets;
+        const progress = reference.encode_with(checked, step.item.token, octets, reference_output[written..room_len]) catch |err| {
+            try testing.expectError(err, result);
+            return null;
+        };
+        written += progress.written;
+        try testing.expectEqualSlices(u8, reference_output[0..written], output[0..text.len]);
+        if (progress.status == .needs_room) {
+            try testing.expectError(error.NoSpaceLeft, result);
+            return null;
+        }
+        try result;
+        try expect_same_state(&text.encoder, &reference);
+        if (progress.status == .done) return written;
+    }
+    return written;
+}
+
+test "base64 writes RFC 4648 §10's letters, its last quantum padded" {
+    const vectors = [_][2][]const u8{
+        .{ "", "\"\"" },
+        .{ "f", "\"Zg==\"" },
+        .{ "fo", "\"Zm8=\"" },
+        .{ "foo", "\"Zm9v\"" },
+        .{ "foob", "\"Zm9vYg==\"" },
+        .{ "fooba", "\"Zm9vYmE=\"" },
+        .{ "foobar", "\"Zm9vYmFy\"" },
+    };
+    var output: [text_len_max]u8 = undefined;
+    for (vectors) |vector| {
+        var text = TextWriter.init(&output, .text, codec.Features.detect());
+        try text.base64(vector[0]);
+        try testing.expectEqualStrings(vector[1], text.written());
+    }
+}
+
+test "base64 writes the string the checked path writes for its letters, in every room" {
+    var octets: [base64_octets_max]u8 = undefined;
+    var generator = codec.testing.split.Generator.init(0);
+    for (&octets) |*octet| octet.* = @intCast(generator.below(std.math.maxInt(u8) + 1));
+    // Every length below a few groups, and lengths past a piece of the fallback, whose pieces
+    // then join.
+    const lengths = [_]usize{ 0, 1, 2, 3, 4, 5, 44, 45, 46, 90, 91, base64_octets_max };
+    for (lengths) |len| {
+        const value: Step = .{ .item = with(.string, octets[0..len]), .base64 = true };
+        const steps = [_]Step{
+            .{ .item = .{ .token = .begin_object } },
+            .{ .item = with(.name, "data") },
+            value,
+            .{ .item = with(.name, "list") },
+            .{ .item = .{ .token = .begin_array } },
+            value,
+            value,
+            .{ .item = .{ .token = .end_array } },
+            .{ .item = .{ .token = .end_object } },
+        };
+        for ([_]Framing{ .text, .sequence }) |framing| {
+            const whole = (try expect_steps(framing, &steps, text_len_max)).?;
+            for (0..whole) |room_len| try testing.expectEqual(null, try expect_steps(framing, &steps, room_len));
+            // A value that is the whole text.
+            _ = (try expect_steps(framing, &.{value}, text_len_max)).?;
+        }
+    }
 }
