@@ -82,7 +82,11 @@ pub const Buckets = struct {
     /// The bucket and check of the 4 octets at `position`.
     pub inline fn slot_of(comptime safety: bool, window: []const u8, position: usize) Slot {
         @setRuntimeSafety(safety);
-        const word = std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
+        return slot_of_word(std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little));
+    }
+
+    /// The bucket and check of a position whose 4 octets are `word`, least significant first.
+    pub inline fn slot_of_word(word: u32) Slot {
         const product = @as(u64, word) *% codec.constants.match_hash_multiplier;
         return .{ .bucket = @intCast(product >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log)), .check = @truncate(product >> check_shift) };
     }
