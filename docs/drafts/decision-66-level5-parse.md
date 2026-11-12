@@ -368,3 +368,17 @@ against the landed loop, it gave nothing on the CPU it was for: median 1.000 raw
 quality 5 as the control on an EPYC 7763 (run 43073213845), and 0.989 raw and 1.001 on an EPYC
 9V74 (run 43073226142). With the landed loop it had run +6.1% against 554b48a on an EPYC 7763 (run
 43060838806), so that gain is the landed loop's. The `bsr` that weighs a candidate stays.
+
+### The search on the rows that trail quality 5 (2026-11-12)
+
+A sampling run (43156192035) split the gap on kennedy.xls, ptt5 and json-1m, with both encoders
+built for the baseline CPU. The search was most of it, and inside the search the lazy probe cost
+about 2.4 ns an octet on kennedy.xls, as much as the first search. The owner chose the probe first.
+
+- Landed (d74ff34): the probe through an assembly loop on each architecture, in way order, each hit
+  admitted by `Floor`'s compare and measured in Zig; early in a stream, the reach filter. Same
+  octets; callgrind on aarch64: kennedy.xls -4.0%, json-1m -3.7%, alice29.txt -4.0%, ptt5 -1.9%,
+  dickens -4.4%. Mutations of both loops: 9 of 9 CAUGHT.
+- Refuted: each position's slot kept in the buckets for the next search. On aarch64 it added 6.8
+  instructions an octet on kennedy.xls and saved 0.4 in the hash: the check and the two stores,
+  and LLVM's code around the buckets, which the parse now wrote through memory.
