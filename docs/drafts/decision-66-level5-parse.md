@@ -491,3 +491,41 @@ What the streams show:
    name 0.2% of quality 5's commands on dickens, 1.2% on world192.txt and 2.4% on xml. css-1m's
    distance extra bits cost 4.1% of its stream more than quality 5's, and the cause is not found
    yet.
+
+### The finder's forms, measured (2026-11-12)
+
+The owner chose the finder first. Each form below is a scratch build: its sizes are level 5's
+output against quality 5's over the 39 rows, and its speed is one runner pair against d7d1c41, as
+the median of level 5's rows against their base. No form is in the tree yet.
+
+| Form | Median size | Rows larger than quality 5 | Speed, N2 | Speed, x86-64 | State |
+| --- | --- | --- | --- | --- | --- |
+| Today: a hash of 4 octets, 2^14 buckets | 1.0080 | 27 | 1 | 1 | 7,726,472 |
+| A hash of 5 octets | 1.0127 | 31 | 1.042 | 1.069 (EPYC 9V74) | 7,726,472 |
+| 2^15 buckets | 1.0060 | 24 | 0.937 | 0.970 (EPYC 7763) | 9,053,576 |
+| 5 octets, and a side table weighed on a miss | 1.0053 | 24 | 0.995 | 1.002 (EPYC 7763) | 7,742,856 |
+| The same with 2^15 buckets | 0.9996 | 18 | 0.928 | 0.985 (EPYC 7763) | 9,069,960 |
+
+- **A hash of 5 octets** is faster and smaller on text: dickens runs 18% faster on the N2 and is
+  1.018 of quality 5 (from 1.047). It loses the matches of exactly 4 octets, which the rows of
+  64 KiB or less and the binary rows need: 31 rows are larger than quality 5's.
+- **The side table** gives those matches back. It holds the newest position of each hash of 4
+  octets, 2^12 entries in 16 KiB, and a search weighs its candidate only where the last distances
+  and the bucket gave no match. A table of 128 KiB weighed at every search gave sizes within
+  0.6% of these, and ran 5% to 8% slower than this form (runs 43283912745, 43283927048 and
+  43295179970). Storing only the searched positions in it lost the small bodies.
+- **2^15 buckets** hold twice the history, and with them dickens, bible.txt and nci are at or
+  under quality 5's size. They cost speed, 2% to 7% at the median: the entries grow
+  from 1 MiB to 2 MiB, past the L2 cache. A cache model with 1 MiB of last-level cache counts 0.63
+  misses an octet there on world192.txt today and 1.00 with 2^15 buckets. The state then passes
+  decision 12's 8 MiB for level 5 by 681,352 octets.
+- **Refused: a switch by stream position.** A stream that hashes 4 octets up to 64 KiB, 256 KiB
+  or 1 MiB and 5 octets after gave medians of 1.0013 to 1.0029 and 21 to 24 rows larger, and made
+  mozilla and ooffice larger than today.
+
+With the hash of 5 octets and the side table at 2^14 buckets, level 5 against quality 5 is 1.19
+at the median on the N2 and 1.16 on an EPYC 7763 (run 43308621972). Four rows trail on each:
+kennedy.xls 0.88 and 0.81, ptt5 0.92 and 0.94, json-1m 0.94 and 0.95, and css-1m 0.98 and 0.94,
+which is new. The bodies of 1 KiB and 16 KiB run 5% to 8% slower than today on the N2, and stay
+1.01 to 1.57 times quality 5's speed. With 2^15 buckets too (run 43308635669), the median is 1.09
+and 1.14, and 9 and 7 rows trail.
