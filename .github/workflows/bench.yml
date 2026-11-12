@@ -132,7 +132,7 @@ jobs:
             echo '```text'
             # Each row's rounds, timed at that count and at twice it: the difference leaves out a
             # new process's first round, which runs on memory the kernel has not mapped yet.
-            for row in "canterbury/kennedy.xls 20" "canterbury/alice29.txt 20" "canterbury/plrabn12.txt 10" "canterbury/ptt5 10" "canterbury-large/E.coli 4" "silesia/dickens 2" "silesia/mr 2" "silesia/samba 2" "silesia/webster 1" "silesia/x-ray 2" "silesia/nci 2" "http/json-1m 10"; do
+            for row in "canterbury/kennedy.xls 40" "canterbury/ptt5 40" "http/json-1m 20" "canterbury/alice29.txt 20" "silesia/dickens 2"; do
               set -- $row; name=$(basename "$1"); twice=$(($2 * 2))
               for program in l5 l5n q5 q5b; do
                 [ -x "./${program}_harness" ] || continue
