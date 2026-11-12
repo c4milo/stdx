@@ -74,7 +74,7 @@ pub inline fn take_one(encoder: *Encoder, comptime claims: Claims, comptime kind
     var loop: Loop = .{ .encoder = encoder, .output = output, .rest = output[written.*..], .position = encoder.position, .depth = encoder.depth, .sequence = encoder.framing == .sequence };
     var buffer: format.Buffer = undefined;
     if (!loop.item_of(claims, kind, entry, &buffer)) return false;
-    loop.write_back_of(claims, kind, entry);
+    loop.write_back_of(claims);
     written.* = output.len - loop.rest.len;
     return true;
 }
@@ -229,15 +229,17 @@ pub const Loop = struct {
         self.encoder.part = if (self.position == .text_end) .done else .between_tokens;
     }
 
-    /// `write_back` after one item of `kind`, its kind and its number known at compile time.
-    pub inline fn write_back_of(self: *const Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item) void {
+    /// `write_back` after one item, for a method: the position and the depth, and the part where
+    /// the item ends the text. A later call reads no other field between tokens or at the text's
+    /// end: `Encoder.open` sets `kind`, `ends_text` and `number` at a token's start, and the checked
+    /// path reads them only inside the token. Written after every item, they took about a tenth
+    /// of a tree of small objects (decision 77).
+    pub inline fn write_back_of(self: *const Loop, comptime claims: Claims) void {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
+        assert(self.encoder.part == .between_tokens);
         self.encoder.position = self.position;
         self.encoder.depth = self.depth;
-        self.encoder.kind = kind;
-        self.encoder.ends_text = self.position == .text_end;
-        self.encoder.number = if (kind == .number) number_grammar.whole_number(entry.octets).? else .{};
-        self.encoder.part = if (self.position == .text_end) .done else .between_tokens;
+        if (self.position == .text_end) self.encoder.part = .done;
     }
 
     inline fn structural(self: *Loop, comptime claims: Claims, comptime kind: Kind, octet: u8, entry: *const Item) bool {

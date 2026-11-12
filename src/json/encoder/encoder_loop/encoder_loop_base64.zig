@@ -13,7 +13,6 @@ const claims_file = @import("../../claims.zig");
 const Claims = claims_file.Claims;
 const runtime_safety_kept = claims_file.runtime_safety_kept;
 const Encoder = @import("../encoder.zig").Encoder;
-const Item = @import("../encoder_batch.zig").Item;
 const encoder_loop = @import("encoder_loop.zig");
 const Loop = encoder_loop.Loop;
 
@@ -40,9 +39,7 @@ pub inline fn take_letters(encoder: *Encoder, comptime claims: Claims, octets: [
     assert(letters_whole(encoder.level, octets, body[1..][0..letters_len]) == letters_len);
     body[body.len - 1] = constants.quotation_mark;
     loop.close(claims, .string, frame.ends_text);
-    // A string leaves no number's state, so the write-back reads no octets of the item.
-    const item: Item = .{ .token = .{ .string = .last } };
-    loop.write_back_of(claims, .string, &item);
+    loop.write_back_of(claims);
     written.* = output.len - loop.rest.len;
     return true;
 }

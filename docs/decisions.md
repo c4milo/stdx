@@ -4811,3 +4811,46 @@ small file.
       (callgrind, aarch64), and 0.8% of CLDR's strings are not ASCII.
     - Small cuts inside claim J8's line: about 20 to 25 instructions a token, too few to pass
       serde_json on the N2.
+
+77. **A `TextWriter` method writes back only the position and the depth.** Ruled by the owner on
+    2026-11-12, after a profile of a dependent's encode shapes through `TextWriter`'s methods. A
+    tree of 341 small objects took 75.8 instructions a token, and a message of 50 nested levels
+    88.0 (callgrind, aarch64). The method's step paid for its assertions, the frame, the containers
+    bit, the wrapper, and six fields of state written back after every token.
+    - After one item, `Loop.write_back_of` now writes the encoder's position and depth, and its
+      part where the item ends the text. `Encoder.open` sets `kind`, `ends_text` and `number` at a
+      token's start, and the checked path reads them only inside a token, so no later call reads
+      what the method leaves there. The base 64 step writes back the same way.
+    - encoder_fast_test.zig's `expect_same_state`, which the lockstep tests share, compares
+      `kind`, `ends_text` and `number` only where a token is in progress, and every other field
+      as before.
+    - callgrind on aarch64, through the methods: the tree took 73,208 instructions, from 77,642,
+      and the nested message 29,587, from 30,989. A batch took what it took.
+    - bench-profile on the N2 (run 43215850776): through the methods, CLDR took 100.4 instructions
+      and 22.7 cycles a token, from 103.2 and 23.2; qlog 99.5 and 21.8, from 101.7 and 22.9.
+    - The pairs (runs 43215825470 and 43215838205): through the methods, CLDR ran 1.02 to 1.03
+      times main's speed on the N2 and qlog 1.05. On x86-64, CLDR ran 1.03 on an AMD EPYC 9V74 and
+      1.09 on a 9V45, and qlog 1.01 and 1.05. No row of the methods ran slower in both jobs. Two
+      rows of a batch's decoding did: silesia/samba as hex on the N2, at 0.971 and 0.986, and
+      silesia/x-ray as hex on x86-64, at 0.968 and 0.867. Every candidate but the methods runs
+      functions identical at both commits on aarch64 and x86-64, which decision 20 counts as
+      placement.
+    - The checks: the lockstep tests of `TextWriter`'s methods against the checked path, as
+      before. The commit lists the mutations.
+
+    What the profile found:
+    - A writer written only for the test, with the methods' contract (the grammar's order
+      asserted, the depth limit refused, the containers bit, separators, output bounds), took
+      75,933 instructions on the tree against `TextWriter`'s 77,642. A brace costs what that
+      contract and a call cost, whatever shape the state takes. On the nested message it took
+      22,710 against 30,988, a gain spread thin over the steps of names, strings and numbers.
+
+    The alternatives refused:
+    - Each method's step compiled for each framing, chosen by one test: the tree took 9.8% fewer
+      instructions, but the nested message 0.5% more, CLDR ran 0.986 of main's speed on an Intel
+      Xeon 6973P-C, and every method's step was compiled twice (runs 43215787282 and
+      43215800478).
+    - A state for the methods alone, packed in one word: the test writer above showed no state
+      would bring a brace near the twofold gain first estimated.
+    - A call for a name known at compile time: a name's escape scan was 2.5% of the nested
+      message.

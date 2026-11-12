@@ -59,12 +59,17 @@ const bad_number = [_]Item{ .{ .token = .begin_array }, with(.number, "1"), with
 const lone_number = [_]Item{with(.number, "-0.5")};
 
 /// Requires two encoders to agree in every field a later call reads. The octets of `pending`
-/// past `pending_len` are never read.
+/// past `pending_len` are never read. Between tokens and at the text's end, no call reads `kind`,
+/// `ends_text` or `number`: `Encoder.open` sets them at a token's start, and `TextWriter`'s methods
+/// leave them as they were (decision 77).
 pub fn expect_same_state(fast: *const Encoder, checked: *const Encoder) !void {
     try testing.expect(fast.containers.eql(&checked.containers));
+    try testing.expectEqual(checked.part, fast.part);
+    const between = checked.part == .between_tokens or checked.part == .done;
     inline for (@typeInfo(Encoder).@"struct".fields) |field| {
         const skipped = comptime std.mem.eql(u8, field.name, "containers") or std.mem.eql(u8, field.name, "pending");
-        if (!skipped) try testing.expectEqual(@field(checked, field.name), @field(fast, field.name));
+        const token_state = comptime std.mem.eql(u8, field.name, "kind") or std.mem.eql(u8, field.name, "ends_text") or std.mem.eql(u8, field.name, "number");
+        if (!skipped and !(token_state and between)) try testing.expectEqual(@field(checked, field.name), @field(fast, field.name));
     }
     try testing.expectEqualSlices(u8, checked.pending[0..checked.pending_len], fast.pending[0..fast.pending_len]);
 }
