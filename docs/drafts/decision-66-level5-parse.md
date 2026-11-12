@@ -382,3 +382,16 @@ about 2.4 ns an octet on kennedy.xls, as much as the first search. The owner cho
 - Refuted: each position's slot kept in the buckets for the next search. On aarch64 it added 6.8
   instructions an octet on kennedy.xls and saved 0.4 in the hash: the check and the two stores,
   and LLVM's code around the buckets, which the parse now wrote through memory.
+
+### kennedy.xls's block (2026-11-12)
+
+After the probe, kennedy.xls's block cost about 1.2 ns an octet more than quality 5's on both CPUs.
+Most of that is the literal split: `cheapest` about 0.47 ns an octet, `rebuild_costs` with
+`log2_small` about 0.4, and `add_chunk` with `price_counts` about 0.3. The owner chose the block.
+
+- Landed: each type keeps its total and a mask of the symbols whose counts changed since its last
+  rebuild. A rebuild writes the type's whole and the terms of those symbols, and `cheapest` prices
+  a literal as the whole less its term. A new type starts with no symbol in its mask, because
+  `clear_group` zeroed its terms and a count of zero has a term of zero. Same octets; callgrind on
+  aarch64 against d74ff34: kennedy.xls -3.0%, ptt5 -1.0%, json-1m -1.0%, dickens -0.5%,
+  alice29.txt -0.3%. Mutations: 17 of 17 CAUGHT.
