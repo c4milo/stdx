@@ -458,7 +458,7 @@ What the streams show:
 1. **The finder.** On dickens, quality 5 codes 333,153 literals against level 5's 754,513, in
    about as many commands, and 946 copies of 4 octets against 29,640. On each of the 21 inputs
    of 1,029,744 octets or more that were counted, a copy of 4 octets is under 3% of its commands,
-   and under 0.5% on 16 of them. On each of the 6 inputs of 513,216 octets or less it is 11% to
+   and under 0.5% on 17 of them. On each of the 6 inputs of 513,216 octets or less it is 11% to
    20%. That fits a finder that hashes 5 octets on a long input: a bucket's 16 ways then hold
    positions that agree on 5 octets, where a hash of 4 octets fills them with the newest of a
    common 4 octets. A scratch build that hashes 5 octets
