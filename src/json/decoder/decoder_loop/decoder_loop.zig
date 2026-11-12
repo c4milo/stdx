@@ -22,6 +22,7 @@ const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
 const scan = @import("../../scan.zig");
 const number_grammar = @import("../../number.zig");
+const wide = @import("../../wide.zig");
 const Claims = @import("../../claims.zig").Claims;
 const decoder_file = @import("../decoder.zig");
 const Decoder = decoder_file.Decoder;
@@ -29,6 +30,7 @@ const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
 const Piece = @import("../../framing.zig").Piece;
 const Slot = @import("../decoder_batch.zig").Slot;
+const Item = @import("../decoder_batch.zig").Item;
 const Copied = @import("decoder_loop_string.zig").Copied;
 const copy = @import("decoder_loop_copy.zig");
 const grammar = @import("decoder_loop_grammar.zig");
@@ -89,6 +91,70 @@ pub fn take(decoder: *Decoder, comptime claims: Claims, input: []const u8, outpu
     return filled;
 }
 
+/// The slot the loop fills: a batch's `Slot`, or in place the token's `Item`, its octets in the
+/// input, which `TextReader`'s queue hands out as it is (decision 76).
+pub fn SlotOf(comptime claims: Claims) type {
+    return if (claims.decoder_loop_in_place) Item else Slot;
+}
+
+/// `take` in place, for `TextReader`'s queue (decision 76): each slot is the token's item, a
+/// name's, a string's or a number's octets in `input`. `output` only bounds each token, as the
+/// storage bounds it on the checked path, and the loop writes nothing there. It stops at a name or
+/// a string that is not plain ASCII up to its closing quotation mark, which claim J8's line or the
+/// checked path takes. A function of its own, beside `take`: a batch's `take` keeps its code.
+pub fn take_in_place(decoder: *Decoder, comptime claims: Claims, input: []const u8, output: []u8, piece: Piece, cursor: *Cursor, slots: []Item) usize {
+    @setEvalBranchQuota(constants.token_loop_branch_quota);
+    comptime assert(claims.decoder_loop_in_place);
+    assert(decoder.stage != .done and decoder.stage != .refused);
+    assert(decoder.open == .none and decoder.pending_len == 0);
+    assert(cursor.consumed <= input.len and cursor.written == 0);
+    var loop: Loop = .{
+        .decoder = decoder,
+        .in = input[cursor.consumed..],
+        .out = output,
+        .expect = decoder.expect,
+        .depth = decoder.depth,
+        .in_object = decoder.depth > 0 and decoder.containers.is_object(decoder.depth - 1),
+    };
+    if (decoder.stage != .tokens and !loop.text_start()) return 0;
+    // Between the walk's runs, each string past its first two blocks, taken outside the walk, as
+    // `take` copies one. Each pass fills a slot at least, or ends.
+    var filled: usize = 0;
+    while (filled < slots.len) {
+        filled = grammar.fill(&loop, claims, slots, filled, input);
+        const long = loop.long_string orelse break;
+        loop.long_string = null;
+        slots[filled] = loop.take_long_in_place(claims, long, input) orelse break;
+        filled += 1;
+        if (loop.expect == .end_of_text) break;
+    }
+    assert(loop.out.len == output.len);
+    if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
+    decoder.expect = loop.expect;
+    decoder.depth = loop.depth;
+    if (last_item(slots[0..filled])) |last| {
+        decoder.matched = last.matched;
+        decoder.number = last.number;
+    }
+    cursor.consumed = input.len - loop.in.len;
+    return filled;
+}
+
+/// `last_value` for the items the loop in place filled.
+fn last_item(items: []const Item) ?Last {
+    for (0..items.len) |back| {
+        switch (items[items.len - 1 - back]) {
+            .begin_object, .end_object, .begin_array, .end_array => {},
+            .name, .string => return .{ .matched = 1, .number = .{} },
+            .number => |octets| return .{ .matched = 1, .number = number_grammar.whole_number(octets).? },
+            .true => return .{ .matched = constants.literal_true.len, .number = .{} },
+            .false => return .{ .matched = constants.literal_false.len, .number = .{} },
+            .null => return .{ .matched = constants.literal_null.len, .number = .{} },
+        }
+    }
+    return null;
+}
+
 /// What `Decoder.start_token` and the token's end leave in the state, for the last name, string,
 /// number or literal name the loop took: `matched` counts a literal name's letters, and `number`
 /// holds a number's last state.
@@ -133,6 +199,11 @@ pub const Loop = struct {
     /// `output`, which the loop only moves past its start, so the difference never wraps.
     pub inline fn written(self: *const Loop, output: []const u8) usize {
         return output.len -% self.out.len;
+    }
+
+    /// In place (decision 76): the octets of `input` before `in`, where the next token's lie.
+    pub inline fn taken(self: *const Loop, input: []const u8) usize {
+        return input.len -% self.in.len;
     }
 
     /// Takes the record separator that starts a sequence's text (RFC 7464 §2.1) and passes the check
@@ -256,6 +327,36 @@ pub const Loop = struct {
         scan.copy(self.out[0..len], self.in[0..len]);
         self.in = self.in[len..];
         self.out = self.out[len..];
+        return len;
+    }
+
+    /// In place (decision 76): the item of the name or string at the start of `in` past its first
+    /// `head_len` octets of plain ASCII, which the walk left: plain ASCII up to its closing
+    /// quotation mark and no longer than the room, its octets left in `input`. Else null, and
+    /// claim J8's line or the checked path takes it.
+    fn take_long_in_place(self: *Loop, comptime claims: Claims, long: LongString, input: []const u8) ?Item {
+        const content = self.in[1..];
+        const window = content[0..@min(content.len, self.out.len)];
+        const len = long.head_len + wide.plain_len(self.decoder.level.with(claims), window[long.head_len..]);
+        if (len == window.len or window[len] != constants.quotation_mark) return null;
+        const start = self.taken(input) + 1;
+        self.in = content[len + 1 ..];
+        const octets = input[start..][0..len];
+        if (long.kind == .name) {
+            self.expect = .name_separator;
+            return .{ .name = octets };
+        }
+        self.value_ended(.string);
+        return .{ .string = octets };
+    }
+
+    /// In place (decision 76): `number` with the octets left in the input. The room still bounds
+    /// the number, as the checked path refuses one longer than its output.
+    pub inline fn number_in_place(self: *Loop) ?usize {
+        const len = @call(.always_inline, number_grammar.plain_len, .{self.in}) orelse
+            (@call(.always_inline, number_grammar.ended_in, .{self.in}) orelse return null).len;
+        if (self.out.len < len) return null;
+        self.in = self.in[len..];
         return len;
     }
 

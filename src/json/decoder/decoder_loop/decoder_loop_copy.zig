@@ -46,6 +46,45 @@ pub inline fn string(loop: *Loop, comptime claims: Claims, comptime kind: Kind) 
 /// The quotation marks around a string's content, which the loop moves past with it.
 const quotation_marks = 2;
 
+/// In place (decision 76): takes a name or a string whose content is plain ASCII up to its
+/// closing quotation mark, and no longer than the loop's room, with that mark, and returns the
+/// content's length. Its octets stay in the input. It reads the content as `string` does, a block
+/// of 16 at a time for two blocks, with no store and no call. A string past two blocks it leaves
+/// to `Loop.take_long_in_place`, outside the walk. Else it returns null and takes nothing, and
+/// claim J8's line or the checked path takes the string: an escape, a non-ASCII octet, the
+/// input's end, or a string longer than the room, which the checked path refuses.
+pub inline fn string_in_place(loop: *Loop, comptime claims: Claims, comptime kind: Kind) ?usize {
+    const content = loop.in[1..];
+    if (!claims.decoder_string_vectors or loop.in.len <= constants.vector_len or loop.out.len < constants.vector_len) return short_in_place(loop, content);
+    const block: @Vector(constants.vector_len, u8) = loop.in[1..][0..constants.vector_len].*;
+    const lane = scan.plain_stop(block) orelse return second_block_in_place(loop, kind, content);
+    if (!scan.is_quotation_mark(block, lane)) return null;
+    loop.in = loop.in[lane + quotation_marks ..];
+    return lane;
+}
+
+/// `string_in_place` past its first block of plain ASCII, for the second block.
+inline fn second_block_in_place(loop: *Loop, comptime kind: Kind, content: []const u8) ?usize {
+    const blocks_len = constants.loop_string_blocks * constants.vector_len;
+    if (content.len < blocks_len or loop.out.len < blocks_len) return null;
+    const block: @Vector(constants.vector_len, u8) = content[constants.vector_len..blocks_len].*;
+    const lane = scan.plain_stop(block) orelse return leave_long(loop, kind, blocks_len);
+    if (!scan.is_quotation_mark(block, lane)) return null;
+    const len = constants.vector_len + lane;
+    loop.in = content[len + 1 ..];
+    return len;
+}
+
+/// `string_in_place` an octet at a time: with claim J3 off, and where fewer than 16 octets of input
+/// or of room are left.
+inline fn short_in_place(loop: *Loop, content: []const u8) ?usize {
+    const window = content[0..@min(content.len, loop.out.len)];
+    const len = @call(.always_inline, scan.plain_len_scalar, .{window});
+    if (len == window.len or window[len] != constants.quotation_mark) return null;
+    loop.in = content[len + 1 ..];
+    return len;
+}
+
 /// `string` on past its first block of plain ASCII, for the second block: qlog's records hold
 /// two strings of 16 to 31 octets each, and left to the out-of-line copy they and CLDR's took 3
 /// to 8 instructions a token more (design §8 step 18).

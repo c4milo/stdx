@@ -79,6 +79,10 @@ pub const Claims = struct {
     /// keep the checks whatever it says.
     /// The caller's choice, and not a claim: every A/B keeps it true.
     encoder_token_loop_runtime_safety: bool = true,
+    /// J10's loop leaves a name's, a string's or a number's octets where they lie in the input,
+    /// and stops at one it would change: `TextReader`'s queue (decision 76). Each slot is then the
+    /// token's item. `TextReader`'s choice, and not a claim: a batch keeps it false.
+    decoder_loop_in_place: bool = false,
 };
 
 /// Whether a build keeps runtime safety on whatever a caller chose: a test build, the fuzzer's

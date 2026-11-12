@@ -1,13 +1,15 @@
 //! `TextReader.next`'s property (decision 69): it gives each token as the streaming call on the
-//! checked path gives it. `next` takes claim J8's straight line itself, with no pass through
-//! `Decoder.decode`, so a `TextReader` and a decoder on the checked path read the same texts, and
-//! after every token the kind, the octets, the error, the octets consumed and the state must agree.
+//! checked path gives it. `next` takes claim J10's loop in place and claim J8's straight line
+//! itself, with no pass through `Decoder.decode`, so a `TextReader` and a decoder on the checked
+//! path read the same texts, and after every token the kind, the octets and the error must agree.
+//! The reader's queue takes tokens ahead (decision 76), so its state and the octets it consumed
+//! must agree at each text's end and at each error, where its queue is empty.
 //! A storage shorter than a token's octets shows `next` steps aside for `error.NoSpaceLeft`.
 //! `next_text` takes a text's start where it needs no verdict, so the texts hold starts of both
 //! kinds, in a text and in a sequence, and a sequence's texts are read one after another.
 //!
-//! A token's octets lie in the input, among the octets its call consumed, or at the storage's
-//! start (decision 74). A copy of a reader reads on as the original would, and the original reads
+//! A token's octets lie in the input, among the octets the reader consumed, past the octets of
+//! the token before them, or at the storage's start (decisions 74 and 76). A copy of a reader reads on as the original would, and the original reads
 //! on after it as if the copy had never read.
 
 const std = @import("std");
@@ -85,16 +87,18 @@ fn octets_of(got: TextReader.Item) []const u8 {
     };
 }
 
-/// Requires a token's octets to lie in the input, among the octets from `before` that its call
-/// consumed, or at the start of the storage (decision 74).
-fn expect_placed(reader: *const TextReader, before: usize, got: TextReader.Item) !void {
+/// Requires a token's octets to lie in the input, past `after.*`, the end of the octets of the
+/// token before them there, and among the octets the reader consumed; or at the start of the
+/// storage (decisions 74 and 76). Moves `after.*` past octets in the input.
+fn expect_placed(reader: *const TextReader, after: *usize, got: TextReader.Item) !void {
     const octets = octets_of(got);
     if (octets.len == 0) return;
     const start = @intFromPtr(octets.ptr);
     const input = @intFromPtr(reader.input.ptr);
     if (start >= input and start < input + reader.input.len) {
-        try testing.expect(start >= input + before);
+        try testing.expect(start >= input + after.*);
         try testing.expect(start + octets.len <= input + reader.consumed_len());
+        after.* = start + octets.len - input;
     } else {
         try testing.expectEqual(@intFromPtr(reader.storage.ptr), start);
     }
@@ -138,11 +142,12 @@ fn expect_text(reader: *TextReader, reference: *Decoder, input: []const u8, cons
     // call does: `next` must leave it to that call, so the test makes one such call too.
     var room_errors: usize = 0;
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
+    var after: usize = consumed.*;
     for (0..calls_max) |_| {
-        const before = reader.consumed_len();
         const result = reader.next();
         const progress = reference.decode_with(checked, input[consumed.*..], reference_storage[0..room_len], .last) catch |err| {
             try testing.expectError(err, result);
+            try expect_same_state(&reader.decoder, reference);
             return false;
         };
         consumed.* += progress.consumed;
@@ -160,14 +165,13 @@ fn expect_text(reader: *TextReader, reference: *Decoder, input: []const u8, cons
             .done => {
                 try testing.expectEqual(null, try result);
                 try testing.expectEqual(consumed.*, reader.consumed_len());
+                try expect_same_state(&reader.decoder, reference);
                 return true;
             },
             .token => {
                 const got = (try result) orelse return error.TestUnexpectedResult;
                 try expect_same_item(expected_item(progress, reference_storage[0..progress.written]), got);
-                try expect_placed(reader, before, got);
-                try testing.expectEqual(consumed.*, reader.consumed_len());
-                try expect_same_state(&reader.decoder, reference);
+                try expect_placed(reader, &after, got);
             },
         }
     }
@@ -180,6 +184,7 @@ fn check(framing: Framing, input: []const u8, seed: u64) !void {
     try expect_next(framing, input, content_len_max);
     var generator = codec.testing.split.Generator.init(seed);
     for (0..short_rooms) |_| try expect_next(framing, input, generator.below(short_room_len_max + 1));
+    try expect_next(framing, input, block_room_len);
 }
 
 /// The calls that end in `error.NoSpaceLeft` a read makes before it stops.
@@ -188,6 +193,10 @@ const room_errors_max = 2;
 /// The shorter storages each text is read into, and the longest of them.
 const short_rooms = 3;
 const short_room_len_max = 8;
+
+/// A storage longer than one block of 16 and shorter than two, which cuts a string the queue's
+/// loop reads in its second block (decision 76).
+const block_room_len = 20;
 
 test "next gives each token of the texts as the checked path does" {
     for (texts, 0..) |text, index| try check(.text, text, index);

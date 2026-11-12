@@ -487,6 +487,7 @@ test {
     _ = @import("decoder_loop/decoder_loop_escapes_test.zig");
     _ = @import("decoder_loop/decoder_loop_looks_test.zig");
     _ = @import("decoder_loop/decoder_loop_test.zig");
+    _ = @import("decoder_loop/decoder_loop_place_test.zig");
     _ = @import("decoder_test.zig");
     _ = @import("decoder_refusal_test.zig");
     _ = @import("text_reader_test.zig");

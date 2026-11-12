@@ -4752,3 +4752,62 @@ small file.
       instructions: two rules where one serves, and a baseline faster than its shipped build.
     - The host's build for every baseline: stdx would then race builds that use instructions its
       own build may not, and would need run-time variants with `lzcnt` and BMI to match them.
+
+76. **`TextReader.next` hands out tokens that claim J10's loop took ahead, in place.** Ruled by
+    the owner on 2026-11-11, after a profile of qlog's records through `next`. There `next` took
+    179 instructions and 42 cycles a token on the N2, against serde_json's 145 and 33 and a
+    batch's 90 and 27. Each token paid for the grammar's state in memory and the checked reader's
+    tests, and each text's end took the checked path.
+    - `TextReader` holds a queue of `reader_queue_len` items, 64. When it is empty, `next` fills
+      it through claim J10's loop, then hands out one item a call. A token the loop leaves takes
+      claim J8's line, then the checked path, as before. `next` holds the queue's path alone, so a
+      caller's loop takes it inline, and the rest is a function of its own.
+    - The loop runs in place: `take_in_place`, with `Claims.decoder_loop_in_place`, `TextReader`'s
+      choice and not a claim. Each slot is the token's `Item`, its octets in the input, built with
+      no branch on the kind. The loop stops at a name or a string that is not plain ASCII, which
+      claim J16's walk writes into the storage. The storage still bounds every token, so
+      `error.NoSpaceLeft` comes where it came. A batch's `take` keeps the code it had.
+    - Only octets in the input wait in the queue, so a copy that reads ahead stays safe: the
+      storage holds only the octets of the token a call hands out.
+    - `TextReader.decoder` and `consumed_len` now stand past the queue's last token between a
+      text's tokens. The lockstep test compares them at each text's end and at each error, where
+      the queue is empty, and each token's kind, octets and error as before.
+    - The owner's two rulings: `TextReader` grows by the queue, 1.5 KiB. `TextReader.init` runs with
+      runtime safety off, which skips a safe build's 0xaa fill of the queue's `undefined` octets: a
+      memset call of about 1,700 instructions a reader (callgrind, aarch64). `init` checks nothing
+      else.
+    - callgrind on aarch64: a qlog record through `next` took 3,593 instructions, from 6,718. On
+      x86-64, under emulation, bench-json's `next` took 113.1 instructions a CLDR token, from
+      166.4.
+    - bench-profile on the N2 (run 43144950644): `next` took 99.4 instructions and 29.3 cycles a
+      qlog token, from 179.3 and 42.5, against serde_json's 144.5 and 32.1. On CLDR it took 96.1
+      and 30.7, from 163.0 and 37.3. Its branch misses on CLDR rose to 0.164 a token, from 0.069;
+      the batch's loop misses 0.121 there.
+    - The pairs (runs 43133562714, 43133571491 and 43133580925): on the N2, qlog through `next` ran
+      1.42 times main's speed and CLDR 1.22, in each job. On x86-64, qlog ran 1.17 to 1.29 times
+      main's speed. CLDR ran 1.01 on an AMD EPYC 9V74, 0.97 on a 7763 and 0.94 on a 9V45, one job
+      each, and 1.12 on an Intel Xeon 8573C (run 43127476217, the form before long strings).
+    - Against serde_json, `next` now runs ahead on every row in every job, by 1.09 at the least. On
+      qlog it runs at 1.09 to 1.12 on the N2 and 1.18 to 1.27 on x86-64.
+    - No row of `next` ran slower in every job. Rows slower in every job, each a candidate whose
+      functions are identical at both commits on aarch64 and x86-64, which decision 20 counts as
+      placement. On the N2, http/css-1m encoded in a batch and through the methods. On x86-64,
+      silesia/webster as hex decoded in a batch, and http/json-1m encoded through the methods.
+    - The checks: decoder_loop_place_test.zig holds the loop in place to the checked path over the
+      loop's texts, seeded corruptions and rooms of 0 to 8, 20, 40 and 2,048 octets. It requires
+      the loop into the output to take no token past where the loop in place stopped but a name
+      or a string. text_reader_test.zig holds `next` to the checked path as above, and a copy that
+      reads ahead. The commit lists the mutations.
+
+    The alternatives refused:
+    - Slots that count octets, from which `next` built each item: a slice, two bounds checks and a
+      switch on the kind. CLDR ran 0.92 to 0.94 of main's speed on an AMD EPYC 9V74 and 7763 (runs
+      43100828178 and 43100839327).
+    - A queue whose octets lie in the storage, as a batch writes them: a copy that reads ahead
+      would write over octets the original has yet to hand out.
+    - 16 slots, with `init` checked: `next` trailed serde_json on qlog on the N2, at 0.94 to 0.97
+      (runs 43109546543 and 43109559604).
+    - UTF-8 strings in place, inside the walk: qlog's records took 294 instructions more each
+      (callgrind, aarch64), and 0.8% of CLDR's strings are not ASCII.
+    - Small cuts inside claim J8's line: about 20 to 25 instructions a token, too few to pass
+      serde_json on the N2.

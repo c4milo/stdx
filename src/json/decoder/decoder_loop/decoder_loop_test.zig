@@ -43,7 +43,7 @@ fn with_loop(base: claims.Claims, on: bool) claims.Claims {
 }
 
 /// Texts of every token the loop takes, of the cases it leaves, and of long strings.
-const texts = [_][]const u8{
+pub const texts = [_][]const u8{
     "{\"a\":[1,-0,2.5e-3,true,false,null,\"x\",{},[]],\"b\":{\"c\":\"\"}}                ",
     "{\n  \"version\": \"47\",\n  \"list\": [\n    10,\n    -2.25E+2\n  ]\n}\n",
     "\x1e{\"time\":1234.567,\"name\":\"transport:packet_sent\",\"data\":{\"dcid\":\"00ff\",\"fin\":false}}\n\x1e[1,2]\n",
@@ -103,7 +103,7 @@ const texts = [_][]const u8{
 const escaped_text = 9;
 
 /// The octets a flip writes, weighted toward the ones the grammar turns on.
-const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xff";
+pub const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xff";
 
 /// Where a lockstep decode stands.
 const Lockstep = struct {

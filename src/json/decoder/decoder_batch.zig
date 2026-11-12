@@ -27,6 +27,21 @@ pub const Slot = struct {
     len: usize,
 };
 
+/// A token, with a name's, a string's or a number's octets: `TextReader.Item`, and the slot of
+/// claim J10's loop in place, which `TextReader`'s queue hands out as it is (decision 76).
+pub const Item = union(Kind) {
+    begin_object,
+    end_object,
+    begin_array,
+    end_array,
+    name: []const u8,
+    string: []const u8,
+    number: []const u8,
+    true,
+    false,
+    null,
+};
+
 /// How a batch ended.
 pub const Status = enum {
     /// The call took all of its input and the text is not finished. With `Piece.last`, the text

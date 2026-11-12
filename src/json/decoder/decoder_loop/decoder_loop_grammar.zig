@@ -26,54 +26,72 @@ const Step = enum { value, ended, stop };
 /// grammar's state in `Run.stop`.
 const Value = enum { ended, object, array, stop };
 
-/// What `tokens` keeps from one step to the next.
-const Run = struct {
-    /// The next slot to fill, the end of the slots, and the slot the walk began at. A token writes
-    /// its slot only where `has_slot` found one left, which `put` asserts. As an index into the
-    /// slots with the slot's address beside it, they took four of the loop's values where these
-    /// take two: 2 to 3 instructions a token more on aarch64 (design §8 step 18).
-    slot: [*]Slot,
-    slots_end: [*]Slot,
-    first: [*]Slot,
-    /// The first octet of the value or of the name a step goes on from.
-    octet: u8 = undefined,
-    /// Whether the value at hand is an array's first element, whose state also takes the array's
-    /// end.
-    first_element: bool = false,
-    /// The grammar's state where the loop stopped.
-    stop: Expect = undefined,
+/// What `tokens` keeps from one step to the next, for slots of type `S`: a batch's `Slot`, or in
+/// place an `Item` (decision 76).
+fn Run(comptime S: type) type {
+    return struct {
+        const Self = @This();
 
-    /// Whether a slot is left for the next token.
-    inline fn has_slot(run: *const Run) bool {
-        return run.slot != run.slots_end;
-    }
+        /// The next slot to fill, the end of the slots, and the slot the walk began at. A token
+        /// writes its slot only where `has_slot` found one left, which `put` asserts. As an index
+        /// into the slots with the slot's address beside it, they took four of the loop's values
+        /// where these take two: 2 to 3 instructions a token more on aarch64 (design §8 step 18).
+        slot: [*]S,
+        slots_end: [*]S,
+        first: [*]S,
+        /// The first octet of the value or of the name a step goes on from.
+        octet: u8 = undefined,
+        /// Whether the value at hand is an array's first element, whose state also takes the
+        /// array's end.
+        first_element: bool = false,
+        /// The grammar's state where the loop stopped.
+        stop: Expect = undefined,
 
-    /// Writes the next slot for a token of `kind` whose octets are `output[start..][0..len]`, and
-    /// moves past it.
-    inline fn put(run: *Run, kind: Kind, start: usize, len: usize) void {
-        assert(run.has_slot());
-        run.slot[0] = .{ .kind = kind, .ended = true, .start = start, .len = len };
-        run.slot += 1;
-    }
+        /// Whether a slot is left for the next token.
+        inline fn has_slot(run: *const Self) bool {
+            return run.slot != run.slots_end;
+        }
 
-    /// Stops the loop in `expect`.
-    inline fn stopped(run: *Run, expect: Expect) Step {
-        run.stop = expect;
-        return .stop;
-    }
+        /// Writes the next slot for a token of `kind` whose octets are `output[start..][0..len]`,
+        /// and moves past it. In place, the slot is the token's item, its octets in the input that
+        /// `output` names then, built with no branch on the kind (decision 76).
+        inline fn put(run: *Self, comptime kind: Kind, output: []const u8, start: usize, len: usize) void {
+            assert(run.has_slot());
+            if (S == Slot) {
+                run.slot[0] = .{ .kind = kind, .ended = true, .start = start, .len = len };
+            } else {
+                const name = @tagName(kind);
+                run.slot[0] = @unionInit(S, name, if (@FieldType(S, name) == void) {} else output[start..][0..len]);
+            }
+            run.slot += 1;
+        }
 
-    /// Stops the loop at a value it does not take, an array's `first` element or another.
-    inline fn stopped_value(run: *Run, first: bool) Value {
-        run.stop = if (first) .value_or_end_array else .value;
-        return .stop;
-    }
-};
+        /// The kind of the last slot written.
+        inline fn last_kind(run: *const Self) Kind {
+            const last = (run.slot - 1)[0];
+            return if (S == Slot) last.kind else std.meta.activeTag(last);
+        }
+
+        /// Stops the loop in `expect`.
+        inline fn stopped(run: *Self, expect: Expect) Step {
+            run.stop = expect;
+            return .stop;
+        }
+
+        /// Stops the loop at a value it does not take, an array's `first` element or another.
+        inline fn stopped_value(run: *Self, first: bool) Value {
+            run.stop = if (first) .value_or_end_array else .value;
+            return .stop;
+        }
+    };
+}
 
 /// Fills `slots` from `first` on, where a slot is left, and returns the slots filled, up to the
-/// token that stopped it, with `expect` the grammar's state there and nothing to put back.
-pub inline fn fill(loop: *Loop, comptime claims: Claims, slots: []Slot, first: usize, output: []const u8) usize {
+/// token that stopped it, with `expect` the grammar's state there and nothing to put back. In
+/// place, `output` is the input, which the slots count octets in (decision 76).
+pub inline fn fill(loop: *Loop, comptime claims: Claims, slots: []token_loop.SlotOf(claims), first: usize, output: []const u8) usize {
     assert(first < slots.len);
-    var run: Run = .{ .slot = slots.ptr + first, .slots_end = slots.ptr + slots.len, .first = slots.ptr + first };
+    var run: Run(token_loop.SlotOf(claims)) = .{ .slot = slots.ptr + first, .slots_end = slots.ptr + slots.len, .first = slots.ptr + first };
     loop.expect = tokens(loop, claims, &run, output);
     return run.slot - slots.ptr;
 }
@@ -83,7 +101,7 @@ pub inline fn fill(loop: *Loop, comptime claims: Claims, slots: []Slot, first: u
 /// the state between two tokens is the place in the loops, and no token tests it. With a function
 /// a state that returned the next state to one switch, qlog's records and CLDR's texts took 16 to
 /// 21 instructions a token more (design §8 step 18).
-inline fn tokens(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Expect {
+inline fn tokens(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Expect {
     switch (enter(loop, claims, run, output)) {
         .stop => return run.stop,
         .value => {},
@@ -112,7 +130,7 @@ inline fn tokens(loop: *Loop, comptime claims: Claims, run: *Run, output: []cons
 }
 
 /// Goes on from the state the loop begins in, to a value's first octet or to a value's end.
-inline fn enter(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Step {
+inline fn enter(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Step {
     return switch (loop.expect) {
         .value => value_first(loop, run),
         .value_or_end_array => array_first(loop, run, output),
@@ -125,13 +143,13 @@ inline fn enter(loop: *Loop, comptime claims: Claims, run: *Run, output: []const
 }
 
 /// A value's first octet, where the text begins or the batch does.
-inline fn value_first(loop: *Loop, run: *Run) Step {
+inline fn value_first(loop: *Loop, run: anytype) Step {
     run.octet = loop.next_octet() orelse return run.stopped(.value);
     return .value;
 }
 
 /// After `[`: the array's first element, or `]` (RFC 8259 §5).
-inline fn array_first(loop: *Loop, run: *Run, output: []const u8) Step {
+inline fn array_first(loop: *Loop, run: anytype, output: []const u8) Step {
     if (!run.has_slot()) return run.stopped(.value_or_end_array);
     run.octet = loop.next_octet() orelse return run.stopped(.value_or_end_array);
     if (run.octet == constants.end_array) return close(loop, run, .end_array, output);
@@ -140,7 +158,7 @@ inline fn array_first(loop: *Loop, run: *Run, output: []const u8) Step {
 }
 
 /// After `{`: the object's first member, up to its value, or `}` (RFC 8259 §4).
-inline fn object_first(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Step {
+inline fn object_first(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Step {
     if (!run.has_slot()) return run.stopped(.name_or_end_object);
     run.octet = loop.next_octet() orelse return run.stopped(.name_or_end_object);
     if (run.octet == constants.end_object) return close(loop, run, .end_object, output);
@@ -148,14 +166,14 @@ inline fn object_first(loop: *Loop, comptime claims: Claims, run: *Run, output: 
 }
 
 /// A value, from its first octet (RFC 8259 §3): a scalar, taken whole, or a container's start.
-inline fn value(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Value {
+inline fn value(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Value {
     const first = run.first_element;
     run.first_element = false;
     switch (run.octet) {
         constants.quotation_mark => {
-            const start = loop.written(output);
-            const len = copy.string(loop, claims, .string) orelse return run.stopped_value(first);
-            run.put(.string, start, len);
+            const start = content_start(loop, claims, output, 1);
+            const len = string(loop, claims, .string) orelse return run.stopped_value(first);
+            run.put(.string, output, start, len);
             return .ended;
         },
         constants.begin_object => return open(loop, run, true, output, first),
@@ -165,25 +183,25 @@ inline fn value(loop: *Loop, comptime claims: Claims, run: *Run, output: []const
         constants.literal_null[0] => return literal_value(loop, run, .null, constants.literal_null, output, first),
         else => {
             if (!number_grammar.starts_number(run.octet)) return run.stopped_value(first);
-            const start = loop.written(output);
-            const len = loop.number() orelse return run.stopped_value(first);
-            run.put(.number, start, len);
+            const start = content_start(loop, claims, output, 0);
+            const len = (if (claims.decoder_loop_in_place) loop.number_in_place() else loop.number()) orelse return run.stopped_value(first);
+            run.put(.number, output, start, len);
             return .ended;
         },
     }
 }
 
 /// An object's or an array's start, as a value.
-inline fn open(loop: *Loop, run: *Run, comptime object: bool, output: []const u8, first: bool) Value {
+inline fn open(loop: *Loop, run: anytype, comptime object: bool, output: []const u8, first: bool) Value {
     if (!loop.begin(object)) return run.stopped_value(first);
-    run.put(if (object) .begin_object else .begin_array, loop.written(output), 0);
+    run.put(if (object) .begin_object else .begin_array, output, loop.written(output), 0);
     return if (object) .object else .array;
 }
 
 /// The literal name `text`, a value of `kind`.
-inline fn literal_value(loop: *Loop, run: *Run, comptime kind: Kind, comptime text: []const u8, output: []const u8, first: bool) Value {
+inline fn literal_value(loop: *Loop, run: anytype, comptime kind: Kind, comptime text: []const u8, output: []const u8, first: bool) Value {
     if (!loop.literal(text)) return run.stopped_value(first);
-    run.put(kind, loop.written(output), 0);
+    run.put(kind, output, loop.written(output), 0);
     return .ended;
 }
 
@@ -191,7 +209,7 @@ inline fn literal_value(loop: *Loop, run: *Run, comptime kind: Kind, comptime te
 /// object, the next member's name and name separator, or the text's end at depth 0, as
 /// `decoder_file.value_ended` finds it. True at the next value's first octet, and false where the
 /// loop stops. Each pass closes a container: the depth bounds the loop.
-inline fn after_values(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) bool {
+inline fn after_values(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) bool {
     while (loop.depth > 0) {
         switch (after_value(loop, claims, run, output)) {
             .stop => return false,
@@ -201,20 +219,20 @@ inline fn after_values(loop: *Loop, comptime claims: Claims, run: *Run, output: 
     }
     // The text's value just ended, in a slot this walk filled.
     assert(run.slot != run.first);
-    loop.decoder.value_delimited = token_loop.is_delimited((run.slot - 1)[0].kind);
+    loop.decoder.value_delimited = token_loop.is_delimited(run.last_kind());
     run.stop = .end_of_text;
     return false;
 }
 
 /// After one value in a container: the container's end, or its next member or element (RFC
 /// 8259 §4, §5).
-inline fn after_value(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Step {
+inline fn after_value(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Step {
     if (!run.has_slot()) return run.stopped(.separator_or_end);
     return if (loop.in_object) after_member(loop, claims, run, output) else after_element(loop, run, output);
 }
 
 /// After a member's value: a value separator and the next member, up to its value, or `}`.
-inline fn after_member(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Step {
+inline fn after_member(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Step {
     if (loop.separator_pair(constants.value_separator)) |octet| {
         run.octet = octet;
     } else {
@@ -228,7 +246,7 @@ inline fn after_member(loop: *Loop, comptime claims: Claims, run: *Run, output: 
 }
 
 /// After an element: a value separator and the next element's first octet, or `]`.
-inline fn after_element(loop: *Loop, run: *Run, output: []const u8) Step {
+inline fn after_element(loop: *Loop, run: anytype, output: []const u8) Step {
     if (loop.separator_pair(constants.value_separator)) |octet| {
         run.octet = octet;
         return .value;
@@ -243,24 +261,24 @@ inline fn after_element(loop: *Loop, run: *Run, output: []const u8) Step {
 
 /// A member past its value separator, with a slot found: its name's first octet, past
 /// whitespace, and the member up to its value.
-inline fn name_next(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8) Step {
+inline fn name_next(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8) Step {
     run.octet = loop.next_octet() orelse return run.stopped(.name);
     return member(loop, claims, run, output, .name);
 }
 
 /// A member, from its name's first octet up to its value's (RFC 8259 §4). Where it takes no
 /// name, the loop stops in `at`.
-inline fn member(loop: *Loop, comptime claims: Claims, run: *Run, output: []const u8, comptime at: Expect) Step {
+inline fn member(loop: *Loop, comptime claims: Claims, run: anytype, output: []const u8, comptime at: Expect) Step {
     if (run.octet != constants.quotation_mark) return run.stopped(at);
-    const start = loop.written(output);
-    const len = copy.string(loop, claims, .name) orelse return run.stopped(at);
-    run.put(.name, start, len);
+    const start = content_start(loop, claims, output, 1);
+    const len = string(loop, claims, .name) orelse return run.stopped(at);
+    run.put(.name, output, start, len);
     return name_separator(loop, run);
 }
 
 /// After a name: a slot for the member's value, its name separator, and the value's first
 /// octet (RFC 8259 §4).
-inline fn name_separator(loop: *Loop, run: *Run) Step {
+inline fn name_separator(loop: *Loop, run: anytype) Step {
     if (!run.has_slot()) return run.stopped(.name_separator);
     if (loop.separator_pair(constants.name_separator)) |octet| {
         run.octet = octet;
@@ -273,9 +291,20 @@ inline fn name_separator(loop: *Loop, run: *Run) Step {
     return .value;
 }
 
+/// Where the octets of the name, string or number at the loop's input go: in `output`, or in
+/// place in the input `output` names then, past the `opening` octets before them (decision 76).
+inline fn content_start(loop: *const Loop, comptime claims: Claims, output: []const u8, comptime opening: usize) usize {
+    return if (claims.decoder_loop_in_place) loop.taken(output) + opening else loop.written(output);
+}
+
+/// A name or a string, copied into the output, or in place (decision 76).
+inline fn string(loop: *Loop, comptime claims: Claims, comptime kind: Kind) ?usize {
+    return if (claims.decoder_loop_in_place) copy.string_in_place(loop, claims, kind) else copy.string(loop, claims, kind);
+}
+
 /// A container's end, a token of `kind`.
-inline fn close(loop: *Loop, run: *Run, comptime kind: Kind, output: []const u8) Step {
+inline fn close(loop: *Loop, run: anytype, comptime kind: Kind, output: []const u8) Step {
     loop.end(kind);
-    run.put(kind, loop.written(output), 0);
+    run.put(kind, output, loop.written(output), 0);
     return .ended;
 }

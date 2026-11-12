@@ -276,6 +276,12 @@ pub const token_parts = 3;
 /// with the whitespace before it.
 pub const decoder_steps_max = 4;
 
+/// The tokens `TextReader` takes ahead through claim J10's loop and hands out one a call
+/// (decision 76): 64 items of 24 octets, 1.5 KiB of the reader, which a caller may copy by value.
+/// With 16, the loop's start and end each 16 tokens left `next` behind serde_json on qlog's
+/// records on the N2.
+pub const reader_queue_len = 64;
+
 comptime {
     assert(depth_max % @bitSizeOf(u8) == 0);
     assert(vector_len >= utf8_len_max);
