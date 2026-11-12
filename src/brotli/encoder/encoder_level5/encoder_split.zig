@@ -47,7 +47,7 @@ pub fn log2_scaled(x: u32) u32 {
 }
 
 /// `log2_scaled` of the counts below `small_len`, which most of a meta-block's costs take.
-inline fn log2_small(x: u32) u32 {
+pub inline fn log2_small(x: u32) u32 {
     if (x < small_len) return small_table[x];
     return log2_scaled(x);
 }
@@ -71,6 +71,9 @@ const fraction_table = table: {
     break :table entries;
 };
 
+/// The words of a type's mask of symbols, a bit each.
+const dirty_words = alphabet_len / @bitSizeOf(u64);
+
 pub const Split = struct {
     /// The meta-block's literals in order.
     literals: [len_max]u8,
@@ -81,10 +84,14 @@ pub const Split = struct {
     block_types: [chunks_max]u8,
     block_lens: [chunks_max]u16,
     blocks_count: usize,
-    /// Each type's literal counts, and each octet's cost under each type in 1/64 bit, the types
-    /// side by side so one vector add prices a literal under 16 of them.
+    /// Each type's literal counts, and each octet's term of its cost under each type in 1/64 bit,
+    /// the types side by side so one vector add prices a literal under 16 of them. A literal's
+    /// cost is its type's whole less its term.
     counts: [types_max][alphabet_len]u16,
     costs: [alphabet_len][types_max]u16,
+    wholes: [types_max]u16,
+    /// Each type's symbols whose counts changed since its costs were last rebuilt.
+    dirty: [types_max][dirty_words]u64,
     /// For the merge: each type's symbols that occur, how many, and its literals.
     listed: [types_max][alphabet_len]u8,
     listed_len: [types_max]u16,
@@ -140,9 +147,9 @@ fn gather(comptime safety: bool, self: *Split, window: []const u8, start: usize,
 }
 
 /// The first pass: each chunk to the cheapest type so far, or to a new type of its own.
-fn seed(self: *Split) void {
+pub fn seed(self: *Split) void {
     clear_group(self, 0);
-    self.counts[0] = @splat(0);
+    start_type(self, 0);
     self.chunk_types[0] = 0;
     add_chunk(self, 0, self.chunk(0));
     rebuild_costs(self, 0);
@@ -163,7 +170,7 @@ fn seed(self: *Split) void {
             chosen = self.types_count;
             if (chosen % lanes == 0) clear_group(self, chosen);
             self.types_count += 1;
-            self.counts[chosen] = @splat(0);
+            start_type(self, chosen);
             since_rebuild[chosen] = level5.split_refresh_chunks;
             held[chosen] = 0;
         }
@@ -178,33 +185,39 @@ fn seed(self: *Split) void {
     }
 }
 
-/// Zeroes the costs of the 16 types from `first`, so the lanes past the last type add no stale
-/// cost: `cheapest` sums every lane of a group.
+/// Zeroes the costs and wholes of the 16 types from `first`, so the lanes past the last type add
+/// no stale cost: `cheapest` sums and multiplies every lane of a group.
 fn clear_group(self: *Split, first: usize) void {
     for (&self.costs) |*row| row[first..][0..lanes].* = @splat(0);
+    self.wholes[first..][0..lanes].* = @splat(0);
 }
 
 /// A later pass: each chunk to the type that takes it and its switch in the fewest bits.
-fn move_chunks(self: *Split) void {
+pub fn move_chunks(self: *Split) void {
     for (0..self.types_count) |type_index| rebuild_costs(self, type_index);
     for (0..self.chunks_count()) |index| {
         const previous: ?usize = if (index == 0) null else self.chunk_types[index - 1];
         const moved = cheapest(self, self.chunk(index), previous).type_index;
         const held = self.chunk_types[index];
         if (moved == held) continue;
-        for (self.chunk(index)) |octet| {
+        const piece = self.chunk(index);
+        for (piece) |octet| {
             self.counts[held][octet] -= 1;
             self.counts[moved][octet] += 1;
+            mark(self, held, octet);
+            mark(self, moved, octet);
         }
+        self.totals[held] -= @intCast(piece.len);
+        self.totals[moved] += @intCast(piece.len);
         self.chunk_types[index] = @intCast(moved);
     }
 }
 
-const Choice = struct { type_index: usize, cost: u32 };
+pub const Choice = struct { type_index: usize, cost: u32 };
 
 /// The type whose costs take `piece` in the fewest bits, a type other than `previous` paying a
 /// switch.
-fn cheapest(self: *const Split, piece: []const u8, previous: ?usize) Choice {
+pub fn cheapest(self: *const Split, piece: []const u8, previous: ?usize) Choice {
     const groups = std.math.divCeil(usize, self.types_count, lanes) catch unreachable;
     var sums: [types_max / lanes]Lanes = @splat(@splat(0));
     for (piece) |octet| {
@@ -212,9 +225,12 @@ fn cheapest(self: *const Split, piece: []const u8, previous: ?usize) Choice {
         for (sums[0..groups], 0..) |*sum, group| sum.* += row[group * lanes ..][0..lanes].*;
     }
     var best: Choice = .{ .type_index = 0, .cost = std.math.maxInt(u32) };
+    const len: Lanes = @splat(@intCast(piece.len));
     for (sums[0..groups], 0..) |sum, group| {
         const first = group * lanes;
-        var priced = sum;
+        // Each literal's cost is its type's whole less its term; no term passes its whole.
+        const wholes: Lanes = self.wholes[first..][0..lanes].*;
+        var priced = len * wholes - sum;
         if (previous) |kept| priced += switch_costs(first, kept);
         // The lanes past the last type take no chunk.
         const index: Lanes = std.simd.iota(u16, lanes) + @as(Lanes, @splat(@intCast(first)));
@@ -245,20 +261,46 @@ fn own_cost(piece: []const u8) u32 {
     return cost;
 }
 
+/// Begins `type_index` with no literal. `clear_group` zeroed its terms and whole in this split, and
+/// a count of zero has a term of zero, so no symbol waits for a rebuild.
+fn start_type(self: *Split, type_index: usize) void {
+    comptime assert(log2_scaled(doubled * 0 + 1) == 0);
+    assert(self.wholes[type_index] == 0);
+    self.counts[type_index] = @splat(0);
+    self.totals[type_index] = 0;
+    self.dirty[type_index] = @splat(0);
+}
+
 fn add_chunk(self: *Split, type_index: usize, piece: []const u8) void {
-    for (piece) |octet| self.counts[type_index][octet] += 1;
+    for (piece) |octet| {
+        self.counts[type_index][octet] += 1;
+        mark(self, type_index, octet);
+    }
+    self.totals[type_index] += @intCast(piece.len);
+}
+
+/// Marks `octet`'s count under `type_index` changed since its costs were rebuilt.
+inline fn mark(self: *Split, type_index: usize, octet: u8) void {
+    self.dirty[type_index][octet / @bitSizeOf(u64)] |= @as(u64, 1) << @truncate(octet);
 }
 
 /// Each symbol's cost under `type_index`'s counts, one half added to each so no cost is endless:
 /// counts and total are doubled, so the half is an integer.
 const doubled = 2;
 
-fn rebuild_costs(self: *Split, type_index: usize) void {
-    var total: u32 = 0;
-    for (self.counts[type_index]) |count| total += count;
-    const whole = log2_scaled(doubled * total + doubled);
-    for (&self.costs, self.counts[type_index]) |*row, count| {
-        row[type_index] = @intCast(whole - log2_small(doubled * @as(u32, count) + 1));
+/// The whole of `type_index`'s costs from its total, and the term of each symbol whose count
+/// changed since the last rebuild: the others' counts, and so their terms, stand.
+pub fn rebuild_costs(self: *Split, type_index: usize) void {
+    self.wholes[type_index] = @intCast(log2_scaled(doubled * self.totals[type_index] + doubled));
+    for (&self.dirty[type_index], 0..) |*word, index| {
+        var bits = word.*;
+        word.* = 0;
+        for (0..@bitSizeOf(u64)) |_| {
+            if (bits == 0) break;
+            const symbol = index * @bitSizeOf(u64) + @ctz(bits);
+            bits &= bits - 1;
+            self.costs[symbol][type_index] = @intCast(log2_small(doubled * @as(u32, self.counts[type_index][symbol]) + 1));
+        }
     }
 }
 
