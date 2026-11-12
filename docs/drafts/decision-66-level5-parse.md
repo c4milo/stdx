@@ -389,9 +389,15 @@ After the probe, kennedy.xls's block cost about 1.2 ns an octet more than qualit
 Most of that is the literal split: `cheapest` about 0.47 ns an octet, `rebuild_costs` with
 `log2_small` about 0.4, and `add_chunk` with `price_counts` about 0.3. The owner chose the block.
 
-- Landed: each type keeps its total and a mask of the symbols whose counts changed since its last
-  rebuild. A rebuild writes the type's whole and the terms of those symbols, and `cheapest` prices
-  a literal as the whole less its term. A new type starts with no symbol in its mask, because
-  `clear_group` zeroed its terms and a count of zero has a term of zero. Same octets; callgrind on
-  aarch64 against d74ff34: kennedy.xls -3.0%, ptt5 -1.0%, json-1m -1.0%, dickens -0.5%,
-  alice29.txt -0.3%. Mutations: 17 of 17 CAUGHT.
+- Landed: each type keeps its total, its whole, its whole for a full chunk of 32 literals, and a
+  copy of its counts from its last rebuild. A rebuild compares the counts with the copy, 16 at a
+  time, and writes the terms of the symbols that differ. `cheapest` prices a literal as its type's
+  whole less its term, and only a meta-block's last chunk, which can be shorter, multiplies. A new
+  type starts with a copy of zeros, because `clear_group` zeroed its terms and a count of zero has
+  a term of zero. Same octets; callgrind on aarch64 against d74ff34: kennedy.xls -3.3%, E.coli
+  -2.9%, ptt5 -1.7%, json-1m -1.4%, alice29.txt -0.8%. Mutations: 20 of 21 CAUGHT; the one left
+  makes every chunk multiply, which gives the same price.
+- Refuted: a mask of the symbols each type's counts changed, marked at each literal (37ee877). It
+  cost 5 instructions a literal, more than the rebuild saved where the literals take few symbols.
+  Against c3a4a67 (runs 43225303725 and 43225317219), kennedy.xls ran 2.5% and 2.7% faster on the
+  N2 and 4.1% faster on an EPYC 7763, but E.coli ran 8.1% and 8.0% slower on the N2.
