@@ -410,3 +410,22 @@ Most of that is the literal split: `cheapest` about 0.47 ns an octet, `rebuild_c
   aarch64 against the copy form: E.coli -13.8%, x-ray -4.7%, kennedy.xls -2.0%, json-1m -1.5%,
   ptt5 -1.4%. Mutations: 23 of 23 CAUGHT.
 - Entry 17. Its list of wrapping operators gains `cheapest`'s sums, with the bound above.
+
+The pairs, each step alone against the commit before it, both encoders at the baseline CPU:
+
+- The copy of the counts against f25f82e (runs 43247734879 and 43247751248): kennedy.xls +2.3% and
+  +3.2% on the N2, +2.1% on an EPYC 9V45 and +2.7% on an EPYC 9V74. E.coli, which the mask cost
+  8%, ran +1.7% and +1.9% on the N2. The medians moved +0.4% to +1.2%.
+- The sums in registers against f1fa1dc (runs 43256866595 and 43256882844): E.coli +29.6% and
+  +29.9% on the N2, +33.7% on an EPYC 7763 and +39.6% on an EPYC 9V74. sao ran +8.5% to +10.3%,
+  x-ray +5.9% to +8.9%, and kennedy.xls +2.6% to +4.6%. The medians moved +0.4% to +1.1%.
+- No row fell below 0.99 of its base on the N2 in the four jobs. On x86-64, 12 rows did in the
+  four jobs, the lowest dickens at 0.970 on the EPYC 7763; each sits within its spread or moved as
+  quality 5 did in the same job, and none fell in both jobs of one step.
+
+Level 5 against quality 5 after both steps, in the last two runs. On the N2 the median is 1.21
+and 1.16, and three rows trail: ptt5 0.92 and 0.93, kennedy.xls 0.95 and 0.96, json-1m 0.98 and
+0.97. On the EPYC 7763 the median is 1.13 and five rows trail: kennedy.xls 0.89, ptt5 0.95, and
+json-1m, x-ray and mozilla at 0.99 to 1.00. On the EPYC 9V74 the median is 1.08 and seven rows
+trail: kennedy.xls 0.86, ptt5 0.91, x-ray 0.93, ooffice 0.96, mozilla 0.97, and json-1m and
+plrabn12.txt at 0.99.
