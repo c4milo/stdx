@@ -16,6 +16,7 @@ const hits_assembly = @import("encoder_hits_assembly.zig");
 
 const Buckets = buckets_module.Buckets;
 const Pick = encoder_lazy.Pick;
+const Found = encoder_lazy.Found;
 const ways = buckets_module.ways;
 const read_len = encoder_lazy.read_len;
 const read64 = encoder_lazy.read64;
@@ -91,4 +92,66 @@ pub fn compare_at_len(comptime safety: bool, comptime Hits: type, window: []cons
     const bound = saves + cost_bias - @as(i64, @intCast(len * cost));
     const clz_max = if (bound < 0) -1 else @divFloor(bound, encoder_commands.eighths);
     Hits.set_compare(search, window.ptr + low + at, read64(safety, window, position + at), clz_max);
+}
+
+/// The lazy step's probe over the hits of `slot`'s bucket, the lowest way first: each candidate
+/// `Floor` admits is measured. In assembly for the unchecked loop, else in Zig.
+pub inline fn probe(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, end: usize, low: usize, cost: u32, held: Found, found: *?Found) void {
+    @setRuntimeSafety(safety);
+    const floor = Floor.of(safety, window, position, end, held, cost);
+    if (comptime assembly_takes and !safety) return probe_assembly(safety, Assembly, buckets, slot, window, position, end, low, cost, floor, found);
+    var hits = buckets.hits(slot);
+    for (0..buckets_module.ways) |_| {
+        if (hits == 0) break;
+        const way = @ctz(hits);
+        hits &= hits - 1;
+        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
+        if (!floor.admits(safety, window, position, candidate)) continue;
+        encoder_lazy.take(safety, window, position, candidate, end, false, cost, found);
+    }
+}
+
+/// What a bucket's candidate must agree on for the probe to measure it: the 4 octets `tail` at
+/// `at`, which end at the held match's length, or, nearer than `near`, the 4 octets one before.
+pub const Floor = struct {
+    at: usize,
+    tail: u32,
+    near: usize,
+    shorter_tail: u32,
+
+    inline fn of(comptime safety: bool, window: []const u8, position: usize, end: usize, held: Found, cost: u32) Floor {
+        @setRuntimeSafety(safety);
+        // Where `held`'s length passes the block's end, no candidate is as long: the first 4
+        // octets stand for the tail, and every true candidate is measured.
+        const at = if (position + held.len <= end) held.len - @sizeOf(u32) else 0;
+        return .{
+            .at = at,
+            .tail = encoder_lazy.read32(safety, window, position + at),
+            // A candidate one octet shorter agrees on the 4 octets one before the tail's; none
+            // is, where `held` has the fewest octets a match takes.
+            .near = if (at > 0) encoder_lazy.near_limit(held, cost) else 0,
+            .shorter_tail = encoder_lazy.read32(safety, window, position + at -| 1),
+        };
+    }
+
+    inline fn admits(self: Floor, comptime safety: bool, window: []const u8, position: usize, candidate: usize) bool {
+        @setRuntimeSafety(safety);
+        if (encoder_lazy.read32(safety, window, candidate + self.at) == self.tail) return true;
+        if (position - candidate >= self.near) return false;
+        return encoder_lazy.read32(safety, window, candidate + self.at - 1) == self.shorter_tail;
+    }
+};
+
+/// `probe` in `Hits`'s assembly: the loop returns each hit the floor admits, and this measures it
+/// and enters the loop again with the hits left.
+inline fn probe_assembly(comptime safety: bool, comptime Hits: type, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, end: usize, low: usize, cost: u32, floor: Floor, found: *?Found) void {
+    @setRuntimeSafety(safety);
+    var search = Hits.probe_begin(buckets, slot, window.ptr, position, low, floor.at, floor.tail, floor.near, floor.shorter_tail) orelse return;
+    // Each pass takes one hit at least.
+    for (0..ways) |_| {
+        const pending = Hits.probe(&search);
+        if (pending == Hits.none) break;
+        encoder_lazy.take(safety, window, position, pending + low, end, false, cost, found);
+        if (search.order == 0) break;
+    }
 }

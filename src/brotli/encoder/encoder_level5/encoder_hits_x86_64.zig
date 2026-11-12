@@ -200,3 +200,100 @@ const weigh =
 
 const consider_text = pick ++ compare ++ weigh;
 const consider_first_text = pick ++ weigh;
+
+/// The lazy step's probe of a bucket's hits, which `probe`'s text reads by address at these
+/// offsets: the hits in way order, each admitted by `Floor`'s compare. A candidate is its position
+/// less `low`.
+pub const Probe = extern struct {
+    /// The window from `low` and the floor's offset, and from one octet before it.
+    tail_window: [*]const u8,
+    shorter_window: [*]const u8,
+    reach: u64,
+    /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
+    base: u64,
+    entries: [*]const u32,
+    /// The hits left, bit w for way w.
+    order: u64,
+    /// The floor: the 4 octets at its offset, and nearer than `near`, the 4 octets one before.
+    near: u64,
+    tail: u64,
+    shorter_tail: u64,
+};
+
+comptime {
+    assert(@offsetOf(Probe, "order") == 5 * 8 and @offsetOf(Probe, "shorter_tail") == 8 * 8);
+}
+
+/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
+/// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
+pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
+    var hits = buckets.hits(slot);
+    if (hits == 0) return null;
+    const base = buckets.base +% @as(u32, @truncate(low));
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
+        if (hits == 0) return null;
+    }
+    return .{
+        .tail_window = window + low + at,
+        .shorter_window = window + low + at - 1,
+        .reach = position - low,
+        .base = base,
+        .entries = &buckets.entries[slot.bucket],
+        .order = hits,
+        .near = near,
+        .tail = tail,
+        .shorter_tail = shorter_tail,
+    };
+}
+
+/// Takes the hits `probe.order` names, the lowest way first, until the floor admits one: returns
+/// it, for the caller to measure, or `none` when no hit is left.
+pub inline fn probe(search: *Probe) u64 {
+    return asm volatile (probe_text
+        : [pending] "={rcx}" (-> u64),
+        : [search] "{rdi}" (search),
+        : .{ .memory = true, .cc = true, .rax = true, .rdx = true, .rsi = true, .r8 = true, .r9 = true, .r10 = true });
+}
+
+/// rdi the probe, rsi and r10 the floor's two windows, r8 the bucket's entries, r9 the hits; rcx
+/// the candidate to measure. The probe holds the rest, at the offsets of `Probe`'s fields.
+const probe_text =
+    \\    .intel_syntax noprefix
+    \\    mov rsi, qword ptr [rdi]
+    \\    mov r10, qword ptr [rdi + 8]
+    \\    mov r8, qword ptr [rdi + 32]
+    \\    mov r9, qword ptr [rdi + 40]
+    \\    test r9d, r9d
+    \\    jz 8f
+    \\1:
+    // The lowest way's hit, and the hit cleared.
+    \\    rep bsf ecx, r9d
+    \\    lea eax, [r9 - 1]
+    \\    and r9d, eax
+    // The candidate: an entry of an earlier stream or past the position wraps past the reach.
+    \\    mov ecx, dword ptr [r8 + rcx*4]
+    \\    sub ecx, dword ptr [rdi + 24]
+    \\    cmp ecx, dword ptr [rdi + 16]
+    \\    jae 3f
+    // The floor: the 4 octets that end at the held match's length, or, for a candidate nearer
+    // than `near`, the 4 octets one before.
+    \\    mov eax, dword ptr [rsi + rcx]
+    \\    cmp eax, dword ptr [rdi + 56]
+    \\    je 9f
+    \\    mov rdx, qword ptr [rdi + 16]
+    \\    sub rdx, rcx
+    \\    cmp rdx, qword ptr [rdi + 48]
+    \\    jae 3f
+    \\    mov eax, dword ptr [r10 + rcx]
+    \\    cmp eax, dword ptr [rdi + 64]
+    \\    je 9f
+    \\3:
+    \\    test r9d, r9d
+    \\    jnz 1b
+    \\8:
+    \\    mov rcx, -1
+    \\9:
+    \\    mov qword ptr [rdi + 40], r9
+    \\    .att_syntax prefix
+;
