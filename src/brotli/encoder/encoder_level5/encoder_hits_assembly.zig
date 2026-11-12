@@ -13,7 +13,7 @@ const encoder_commands = @import("../encoder_commands.zig");
 pub const cost_bias = constants.encoder_match_cost_base + (@bitSizeOf(u64) - 1) * encoder_commands.eighths;
 
 /// The octets a candidate must agree on, and those one read compares.
-pub const min_len = constants.encoder_level5.hash_len;
+pub const min_len = constants.encoder_level5.match_len_min;
 pub const read_len = @sizeOf(u64);
 
 comptime {

@@ -1,6 +1,8 @@
-//! Level 5's match finder (decision 62, as the owner's ruling of 2026-11-07 amends it): 2^14
-//! buckets, each holding the last 16 positions whose first 4 octets hash to it, written in a ring.
-//! A position finds its candidates among its bucket's 16, from the whole window.
+//! Level 5's match finder (decision 62, as the owner's rulings of 2026-11-07 and 2026-11-12 amend
+//! it): 2^14 buckets, each holding the last 16 positions whose first 5 octets hash to it, written
+//! in a ring. A position finds its candidates among its bucket's 16, from the whole window. A side
+//! table holds the newest position of each hash of 4 octets, for a match the buckets' 5 octets
+//! miss (decision 66, the finder's forms).
 //!
 //! An entry holds a window position, and above it the tag of the stream that stored it, as codec's
 //! match_finder.zig keeps its tables: the stream's base, its tag shifted above every position, plus
@@ -30,8 +32,19 @@ comptime {
 }
 
 /// A position's bucket, and its check: the 8 bits of its hash below the bucket's, which the bucket
-/// keeps beside each entry, so one compare of 16 lanes finds the entries worth reading.
-pub const Slot = struct { bucket: usize, check: u8 };
+/// keeps beside each entry, so one compare of 16 lanes finds the entries worth reading. And its
+/// place in the side table.
+pub const Slot = struct { bucket: usize, check: u8, side: usize };
+
+const side_count = @as(usize, 1) << constants.encoder_level5.side_log;
+/// The bits of a word of 8 octets the buckets' hash leaves out: its last 3 octets.
+const unhashed_bits = (@sizeOf(u64) - constants.encoder_level5.hash_len) * @bitSizeOf(u8);
+
+comptime {
+    // The side table's hash takes the 4 octets a match needs at least, a word's low half.
+    assert(constants.encoder_level5.match_len_min == @sizeOf(u32));
+    assert(constants.encoder_level5.hash_len > constants.encoder_level5.match_len_min and constants.encoder_level5.hash_len < @sizeOf(u64));
+}
 
 /// The hash's bits below the bucket's that make a check.
 const check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
@@ -41,6 +54,8 @@ pub const Buckets = struct {
     checks: [bucket_count][ways]u8,
     /// Each bucket's next slot in its ring.
     next: [bucket_count]u8,
+    /// The newest position of each hash of 4 octets, held as an entry is.
+    side: [side_count]u32,
     /// The stream's tag, from 1 up, and its base: the tag above every position.
     tag: u32,
     base: u32,
@@ -66,6 +81,7 @@ pub const Buckets = struct {
         for (&self.entries) |*bucket| bucket.* = @splat(0);
         for (&self.checks) |*bucket| bucket.* = @splat(0);
         self.next = @splat(0);
+        self.side = @splat(0);
         self.tag = 1;
         self.base = @as(u32, 1) << position_bits;
     }
@@ -77,21 +93,29 @@ pub const Buckets = struct {
         for (&self.entries) |*bucket| {
             for (bucket) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
         }
+        for (&self.side) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
     }
 
-    /// The bucket and check of the 4 octets at `position`.
+    /// The slot of `position`, whose 8 octets the window holds: the bucket and check of its first
+    /// 5 octets, and the side table's place of its first 4.
     pub inline fn slot_of(comptime safety: bool, window: []const u8, position: usize) Slot {
         @setRuntimeSafety(safety);
-        return slot_of_word(std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little));
+        return slot_of_word(std.mem.readInt(u64, window[position..][0..@sizeOf(u64)], .little));
     }
 
-    /// The bucket and check of a position whose 4 octets are `word`, least significant first.
-    pub inline fn slot_of_word(word: u32) Slot {
-        const product = @as(u64, word) *% codec.constants.match_hash_multiplier;
-        return .{ .bucket = @intCast(product >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log)), .check = @truncate(product >> check_shift) };
+    /// The slot of a position whose octets are `word`, least significant first. The shift drops
+    /// the octets past the fifth, and the side table's hash takes the first 4.
+    pub inline fn slot_of_word(word: u64) Slot {
+        const product = (word << unhashed_bits) *% codec.constants.match_hash_multiplier;
+        const short = @as(u64, @as(u32, @truncate(word))) *% codec.constants.match_hash_multiplier;
+        return .{
+            .bucket = @intCast(product >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log)),
+            .check = @truncate(product >> check_shift),
+            .side = @intCast(short >> (@bitSizeOf(u64) - constants.encoder_level5.side_log)),
+        };
     }
 
-    /// The bucket of the 4 octets at `position`.
+    /// The bucket of the 5 octets at `position`.
     pub inline fn bucket_of(comptime safety: bool, window: []const u8, position: usize) usize {
         return slot_of(safety, window, position).bucket;
     }
@@ -155,13 +179,22 @@ pub const Buckets = struct {
         self.insert_at(safety, slot_of(safety, window, position), position);
     }
 
-    /// Records `position` in `slot`, its bucket and check, over the oldest entry.
+    /// Records `position` in `slot`: in its bucket with its check, over the oldest entry, and in
+    /// the side table, over the position its 4 octets named before.
     pub inline fn insert_at(self: *Buckets, comptime safety: bool, slot: Slot, position: usize) void {
         @setRuntimeSafety(safety);
         const way = self.next[slot.bucket] % ways;
-        self.entries[slot.bucket][way] = self.base +% @as(u32, @truncate(position));
+        const entry = self.base +% @as(u32, @truncate(position));
+        self.entries[slot.bucket][way] = entry;
         self.checks[slot.bucket][way] = slot.check;
         self.next[slot.bucket] = @truncate(way + 1);
+        self.side[slot.side] = entry;
+    }
+
+    /// The position the side table names for `slot`, when it lies in this stream from `low` up and
+    /// before `position`: the newest whose 4 octets hash as `slot`'s do.
+    pub inline fn side_candidate(self: *const Buckets, slot: Slot, low: usize, position: usize) ?usize {
+        return self.candidate(self.side[slot.side], low, position);
     }
 
     /// The position `entry` names when it lies in this stream from `low` up and before `position`.
@@ -189,6 +222,8 @@ const before_slide = 1024;
 const after_slide = 2048;
 const slide_by = 1536;
 const kept_at = after_slide - slide_by;
+/// A position between two repeats, whose octets no other position stored has.
+const lone_position = 100;
 /// The inserts into one bucket: its ways twice over, so the ring writes over the first half.
 const rounds = 2;
 
@@ -198,8 +233,11 @@ fn expect_bucket() !void {
     var buckets_state: Buckets = undefined;
     var window_octets: [test_window_len]u8 = undefined;
     const buckets = &buckets_state;
+    // A side table that names a position before `init`: `init` must empty it.
+    buckets.side = @splat((@as(u32, 1) << position_bits) + repeat_step);
     buckets.init();
-    // The same 4 octets every `repeat_step`: one bucket fills, its ring keeping the last `ways`.
+    for (buckets.side) |entry| try testing.expectEqual(null, buckets.candidate(entry, 1, test_end));
+    // The same 5 octets every `repeat_step`: one bucket fills, its ring keeping the last `ways`.
     for (&window_octets, 0..) |*octet, index| {
         octet.* = if (index % repeat_step < constants.encoder_level5.hash_len) 'a' else @truncate(index);
     }
@@ -212,13 +250,24 @@ fn expect_bucket() !void {
         named += 1;
     }
     try testing.expectEqual(ways, named);
+    // The side table names the newest of them.
+    const slot = Buckets.slot_of(true, &window_octets, repeat_step);
+    try testing.expectEqual(rounds * ways * repeat_step, buckets.side_candidate(slot, 1, test_end));
     // A new stream's tag names none of them.
     buckets.start();
     for (buckets.entries[bucket]) |entry| try testing.expectEqual(null, buckets.candidate(entry, 1, test_end));
+    try testing.expectEqual(null, buckets.side_candidate(slot, 1, test_end));
     // A slide moves this stream's entries down and empties those that slid out.
     buckets.insert(true, &window_octets, before_slide);
     buckets.insert(true, &window_octets, after_slide);
+    // Other octets below the slide, which the side table names until then.
+    const lone = Buckets.slot_of(true, &window_octets, lone_position);
+    try testing.expect(lone.side != slot.side);
+    buckets.insert(true, &window_octets, lone_position);
+    try testing.expectEqual(lone_position, buckets.side_candidate(lone, 1, test_end));
     buckets.slide(slide_by);
+    try testing.expectEqual(kept_at, buckets.side_candidate(slot, 1, test_end));
+    try testing.expectEqual(null, buckets.side_candidate(lone, 1, test_end));
     var kept: usize = 0;
     for (buckets.entries[bucket]) |entry| {
         if (buckets.candidate(entry, 1, test_end)) |position| {
@@ -228,6 +277,29 @@ fn expect_bucket() !void {
     }
     try testing.expectEqual(1, kept);
 }
+
+test "a slot takes 5 octets for its bucket and check, and the first 4 for the side table" {
+    var generator = codec.testing.split.Generator.init(slot_seed);
+    for (0..slot_rounds) |_| {
+        const word = generator.next();
+        const slot = Buckets.slot_of_word(word);
+        // The sixth octet changes nothing.
+        const sixth = Buckets.slot_of_word(word ^ (@as(u64, slot_flip) << (constants.encoder_level5.hash_len * @bitSizeOf(u8))));
+        try testing.expectEqual(slot, sixth);
+        // The fifth changes the bucket or the check, and leaves the side table's place.
+        const fifth = Buckets.slot_of_word(word ^ (@as(u64, slot_flip) << (constants.encoder_level5.match_len_min * @bitSizeOf(u8))));
+        try testing.expect(fifth.bucket != slot.bucket or fifth.check != slot.check);
+        try testing.expectEqual(slot.side, fifth.side);
+        // The fourth changes the side table's place.
+        const fourth = Buckets.slot_of_word(word ^ (@as(u64, slot_flip) << ((constants.encoder_level5.match_len_min - 1) * @bitSizeOf(u8))));
+        try testing.expect(fourth.side != slot.side);
+    }
+}
+
+/// Seeded words, and the bit the test flips in one octet of each.
+const slot_seed = 77;
+const slot_rounds = 64;
+const slot_flip = 0x10;
 
 test "a bucket's masks set a way where `candidate` names a position, a bit or 4 bits each" {
     try @call(.never_inline, expect_masks, .{});
@@ -243,7 +315,7 @@ fn expect_masks() !void {
     // The next tag: an entry just below the base is an earlier stream's.
     buckets.start();
     var generator = codec.testing.split.Generator.init(mask_seed);
-    const slot: Slot = .{ .bucket = 0, .check = mask_check };
+    const slot: Slot = .{ .bucket = 0, .check = mask_check, .side = 0 };
     // The position, the last in reach, the lowest, the one below it, the earlier stream's last,
     // and the stream's position 0.
     const edges = [_]u32{ buckets.base + mask_position, buckets.base + mask_position - 1, buckets.base + mask_low, buckets.base + mask_low - 1, buckets.base -% 1, buckets.base };
