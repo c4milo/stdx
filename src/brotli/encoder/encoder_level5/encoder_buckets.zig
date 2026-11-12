@@ -50,10 +50,10 @@ comptime {
 const check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
 
 pub const Buckets = struct {
-    entries: [bucket_count][ways]u32,
-    checks: [bucket_count][ways]u8,
-    /// Each bucket's next slot in its ring.
-    next: [bucket_count]u8,
+    entries: [bucket_count][ways]u32 align(64),
+    /// Each bucket's stream epoch above its next slot in its ring.
+    meta: [bucket_count]u16,
+    epoch: u16,
     /// The newest position of each hash of 4 octets, held as an entry is.
     side: [side_count]u32,
     /// The stream's tag, from 1 up, and its base: the tag above every position.
@@ -71,16 +71,38 @@ pub const Buckets = struct {
     /// fills the ways in the order a stream after `init` does: the parse tries them in that order,
     /// and the first of two equal matches wins (invariant 5). That clears 16 KiB, a constant.
     pub fn start(self: *Buckets) void {
-        self.next = @splat(0);
         self.tag += 1;
-        if (self.tag == @as(u64, 1) << tag_bits) return self.clear();
+        self.epoch += 1;
+        if (self.tag == @as(u64, 1) << tag_bits or self.epoch == 1 << 12) return self.clear();
         self.base = self.tag << position_bits;
+    }
+
+    pub inline fn base_of(self: *const Buckets, slot: Slot) u32 {
+        _ = self;
+        return @as(u32, slot.check) << 24;
+    }
+
+    pub inline fn live(self: *const Buckets, slot: Slot) bool {
+        return self.meta[slot.bucket] >> 4 == self.epoch;
+    }
+
+    pub inline fn next_of(self: *const Buckets, slot: Slot) u8 {
+        const meta = self.meta[slot.bucket];
+        return if (meta >> 4 == self.epoch) @truncate(meta & 15) else 0;
+    }
+
+    pub inline fn bucket_candidate(self: *const Buckets, slot: Slot, entry: u32, low: usize, position: usize) ?usize {
+        const base = self.base_of(slot);
+        const lowest = base +% @as(u32, @truncate(low));
+        const own = base +% @as(u32, @truncate(position));
+        if (entry < lowest or entry >= own) return null;
+        return entry - base;
     }
 
     fn clear(self: *Buckets) void {
         for (&self.entries) |*bucket| bucket.* = @splat(0);
-        for (&self.checks) |*bucket| bucket.* = @splat(0);
-        self.next = @splat(0);
+        self.meta = @splat(0);
+        self.epoch = 1;
         self.side = @splat(0);
         self.tag = 1;
         self.base = @as(u32, 1) << position_bits;
@@ -90,8 +112,9 @@ pub const Buckets = struct {
     /// much. A position that slid out, and every earlier stream's, becomes 0.
     pub fn slide(self: *Buckets, shift: u32) void {
         const kept_min = self.base + shift;
-        for (&self.entries) |*bucket| {
-            for (bucket) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
+        for (&self.entries, self.meta) |*bucket, meta| {
+            if (meta >> 4 != self.epoch) continue;
+            for (bucket) |*entry| entry.* = if (entry.* & 0x7fffff > shift) entry.* - shift else 0;
         }
         for (&self.side) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
     }
@@ -124,19 +147,20 @@ pub const Buckets = struct {
     /// on the load of the checks, so without this the two cache misses come one after the other.
     /// The ring's next way too, which orders the hits.
     pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
-        @prefetch(&self.checks[slot.bucket], .{});
         @prefetch(&self.entries[slot.bucket], .{});
-        @prefetch(&self.next[slot.bucket], .{});
+        @prefetch(&self.meta[slot.bucket], .{});
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each.
     pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
+        if (!self.live(slot)) return 0;
         return @bitCast(self.check_lanes(slot));
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, 4 bits each: way w's are bits 4w to
     /// 4w + 3. One narrowing shift makes it from the compare of 16 lanes.
     pub inline fn hit_nibbles(self: *const Buckets, slot: Slot) u64 {
+        if (!self.live(slot)) return 0;
         return nibbles(self.check_lanes(slot));
     }
 
@@ -152,9 +176,9 @@ pub const Buckets = struct {
     }
 
     inline fn check_lanes(self: *const Buckets, slot: Slot) @Vector(ways, bool) {
-        const Lanes = @Vector(ways, u8);
-        const lanes: Lanes = self.checks[slot.bucket];
-        return lanes == @as(Lanes, @splat(slot.check));
+        const Entries = @Vector(ways, u32);
+        const entries: Entries = self.entries[slot.bucket];
+        return entries >> @as(@Vector(ways, u5), @splat(24)) == @as(Entries, @splat(slot.check));
     }
 
     inline fn reach_lanes(self: *const Buckets, slot: Slot, base: u32, reach: u32) @Vector(ways, bool) {
@@ -183,12 +207,15 @@ pub const Buckets = struct {
     /// the side table, over the position its 4 octets named before.
     pub inline fn insert_at(self: *Buckets, comptime safety: bool, slot: Slot, position: usize) void {
         @setRuntimeSafety(safety);
-        const way = self.next[slot.bucket] % ways;
-        const entry = self.base +% @as(u32, @truncate(position));
-        self.entries[slot.bucket][way] = entry;
-        self.checks[slot.bucket][way] = slot.check;
-        self.next[slot.bucket] = @truncate(way + 1);
-        self.side[slot.side] = entry;
+        const meta = self.meta[slot.bucket];
+        var way: u16 = meta & 15;
+        if (meta >> 4 != self.epoch) {
+            self.entries[slot.bucket] = @splat(0);
+            way = 0;
+        }
+        self.entries[slot.bucket][way] = (@as(u32, slot.check) << 24) | @as(u32, @truncate(position));
+        self.meta[slot.bucket] = (self.epoch << 4) | ((way + 1) & 15);
+        self.side[slot.side] = self.base +% @as(u32, @truncate(position));
     }
 
     /// The position the side table names for `slot`, when it lies in this stream from `low` up and

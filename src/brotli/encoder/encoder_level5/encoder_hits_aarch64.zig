@@ -70,12 +70,12 @@ pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: 
     var hits = buckets.hit_nibbles(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
-    const base = buckets.base +% @as(u32, @truncate(low));
+    const base = buckets.base_of(slot) +% @as(u32, @truncate(low));
     if (position < constants.encoder_level5.reach_compare_len) {
         hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
         if (hits == 0) return null;
     }
-    const next: u64 = buckets.next[slot.bucket] % ways;
+    const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
         .here = here,
@@ -265,7 +265,7 @@ const way_bits = std.math.maxInt(u64) / std.math.maxInt(u4);
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
     var hits = buckets.hit_nibbles(slot);
     if (hits == 0) return null;
-    const base = buckets.base +% @as(u32, @truncate(low));
+    const base = buckets.base_of(slot) +% @as(u32, @truncate(low));
     if (position < constants.encoder_level5.reach_compare_len) {
         hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
         if (hits == 0) return null;

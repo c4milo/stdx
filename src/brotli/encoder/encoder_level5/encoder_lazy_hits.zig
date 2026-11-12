@@ -36,10 +36,10 @@ pub inline fn consider(comptime safety: bool, buckets: *const Buckets, slot: buc
     if (hits == 0) return;
     // Early in a stream begun with `start`, most hits are entries of an earlier stream.
     if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_bits(slot, buckets.base +% @as(u32, @truncate(low)), @intCast(position - low));
+        hits &= buckets.reach_bits(slot, buckets.base_of(slot) +% @as(u32, @truncate(low)), @intCast(position - low));
         if (hits == 0) return;
     }
-    const next = buckets.next[slot.bucket] % ways;
+    const next = buckets.next_of(slot);
     // Bit j of `order` is the way written j inserts before the last.
     var order = std.math.rotl(u16, @bitReverse(hits), next);
     for (0..ways) |_| {
@@ -47,7 +47,7 @@ pub inline fn consider(comptime safety: bool, buckets: *const Buckets, slot: buc
         const step = @ctz(order);
         order &= order - 1;
         const way = (next + ways - 1 - step) % ways;
-        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
+        const candidate = buckets.bucket_candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
         pick.consider(safety, window, position, end, candidate, .bucket);
     }
 }
@@ -105,7 +105,7 @@ pub inline fn probe(comptime safety: bool, buckets: *const Buckets, slot: bucket
         if (hits == 0) break;
         const way = @ctz(hits);
         hits &= hits - 1;
-        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
+        const candidate = buckets.bucket_candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
         if (!floor.admits(safety, window, position, candidate)) continue;
         encoder_lazy.take(safety, window, position, candidate, end, false, cost, found);
     }
