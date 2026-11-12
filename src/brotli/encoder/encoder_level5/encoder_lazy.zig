@@ -100,6 +100,10 @@ pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, posit
         take(safety, window, position, position - distance, end, true, cost, &found);
     }
     lazy_hits.probe(safety, buckets, slot, window, position, end, low, cost, held, &found);
+    {
+        const near = &buckets.near[Buckets.near_slot(head)];
+        near.* = buckets.base +% @as(u32, @truncate(position));
+    }
     buckets.insert_at(safety, slot, position);
     // After a word or a match of the fewest octets, the window seldom holds a match here, and a
     // word may save more.
@@ -160,7 +164,7 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     const slot = Buckets.slot_of(safety, window, position);
     buckets.prefetch(slot);
     // The next position's bucket too, which the next search or the lazy probe reads.
-    buckets.prefetch(Buckets.slot_of_word(@truncate(pick.here >> @bitSizeOf(u8))));
+    buckets.prefetch(Buckets.slot_of_word(pick.here >> @bitSizeOf(u8)));
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
@@ -168,6 +172,15 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         pick.consider(safety, window, position, end, position - distance, .last);
     }
     lazy_hits.consider(safety, buckets, slot, window, position, end, low, &pick);
+    {
+        const near = &buckets.near[Buckets.near_slot(@truncate(pick.here))];
+        if (pick.saves <= 0) {
+            if (buckets.candidate(near.*, low, position)) |near_candidate| {
+                if (read32(safety, window, near_candidate) == @as(u32, @truncate(pick.here))) pick.consider(safety, window, position, end, near_candidate, .bucket);
+            }
+        }
+        near.* = buckets.base +% @as(u32, @truncate(position));
+    }
     buckets.insert_at(safety, slot, position);
     var found = pick.found(position);
     // The words only where the window gave no match.
