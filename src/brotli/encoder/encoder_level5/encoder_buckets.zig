@@ -41,6 +41,7 @@ pub const Buckets = struct {
     checks: [bucket_count][ways]u8,
     /// Each bucket's next slot in its ring.
     next: [bucket_count]u8,
+    near: [1 << 15]u32,
     /// The stream's tag, from 1 up, and its base: the tag above every position.
     tag: u32,
     base: u32,
@@ -66,6 +67,7 @@ pub const Buckets = struct {
         for (&self.entries) |*bucket| bucket.* = @splat(0);
         for (&self.checks) |*bucket| bucket.* = @splat(0);
         self.next = @splat(0);
+        self.near = @splat(0);
         self.tag = 1;
         self.base = @as(u32, 1) << position_bits;
     }
@@ -82,12 +84,16 @@ pub const Buckets = struct {
     /// The bucket and check of the 4 octets at `position`.
     pub inline fn slot_of(comptime safety: bool, window: []const u8, position: usize) Slot {
         @setRuntimeSafety(safety);
-        return slot_of_word(std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little));
+        return slot_of_word(std.mem.readInt(u64, window[position..][0..@sizeOf(u64)], .little));
     }
 
     /// The bucket and check of a position whose 4 octets are `word`, least significant first.
-    pub inline fn slot_of_word(word: u32) Slot {
-        const product = @as(u64, word) *% codec.constants.match_hash_multiplier;
+    pub inline fn near_slot(word: u32) usize {
+        return @intCast((@as(u64, word) *% codec.constants.match_hash_multiplier) >> (64 - 15));
+    }
+
+    pub inline fn slot_of_word(word: u64) Slot {
+        const product = (word << 24) *% codec.constants.match_hash_multiplier;
         return .{ .bucket = @intCast(product >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log)), .check = @truncate(product >> check_shift) };
     }
 
@@ -153,6 +159,7 @@ pub const Buckets = struct {
     pub inline fn insert(self: *Buckets, comptime safety: bool, window: []const u8, position: usize) void {
         @setRuntimeSafety(safety);
         self.insert_at(safety, slot_of(safety, window, position), position);
+        self.near[near_slot(std.mem.readInt(u32, window[position..][0..4], .little))] = self.base +% @as(u32, @truncate(position));
     }
 
     /// Records `position` in `slot`, its bucket and check, over the oldest entry.
