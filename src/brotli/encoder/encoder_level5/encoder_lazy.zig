@@ -88,12 +88,13 @@ pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, posit
     const low = @max(position -| reach_len, 1);
     const cost = commands.literal_cost;
     var found: ?Found = null;
+    const here = read64(safety, window, position);
     // The bucket first, so its cache misses overlap the last distances' compares.
-    const slot = Buckets.slot_of(safety, window, position);
+    const slot = Buckets.slot_of_word(here);
     buckets.prefetch(slot);
-    // The next position's bucket too, which the next lazy step reads.
-    buckets.prefetch(Buckets.slot_of(safety, window, position + 1));
-    const head = read32(safety, window, position);
+    // The next position's bucket too, which the next lazy step reads: its 5 octets are in `here`.
+    buckets.prefetch(Buckets.slot_of_word(here >> @bitSizeOf(u8)));
+    const head: u32 = @truncate(here);
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
         if (read32(safety, window, position - distance) != head) continue;
@@ -145,7 +146,7 @@ fn keeps_distance(found: Found, commands: anytype) bool {
 
 /// The match at `position` that saves the most, or none that saves anything. Records `position` in
 /// its bucket.
-fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype) ?Found {
+pub fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype) ?Found {
     @setRuntimeSafety(safety);
     // Position 0 names no candidate: no octet lies before it.
     if (position == 0) {
@@ -157,10 +158,10 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     const low = @max(position -| reach_len, 1);
     var pick: Pick = .{ .here = read64(safety, window, position), .cost = commands.literal_cost };
     // The bucket first, so its cache misses overlap the last distances' compares.
-    const slot = Buckets.slot_of(safety, window, position);
+    const slot = Buckets.slot_of_word(pick.here);
     buckets.prefetch(slot);
     // The next position's bucket too, which the next search or the lazy probe reads.
-    buckets.prefetch(Buckets.slot_of_word(@truncate(pick.here >> @bitSizeOf(u8))));
+    buckets.prefetch(Buckets.slot_of_word(pick.here >> @bitSizeOf(u8)));
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
@@ -168,6 +169,11 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
         pick.consider(safety, window, position, end, position - distance, .last);
     }
     lazy_hits.consider(safety, buckets, slot, window, position, end, low, &pick);
+    // The side table's candidate only where the last distances and the bucket gave no match: it
+    // agrees on 4 octets, and the bucket's candidates on 5 (decision 66, the finder's forms).
+    if (pick.saves <= 0) {
+        if (buckets.side_candidate(slot, low, position)) |candidate| pick.consider(safety, window, position, end, candidate, .bucket);
+    }
     buckets.insert_at(safety, slot, position);
     var found = pick.found(position);
     // The words only where the window gave no match.
@@ -235,7 +241,7 @@ pub const Pick = struct {
 };
 
 /// The fewest octets a candidate must agree on: the hash's 4, which a bucket's entries share.
-pub const min_len = constants.encoder_level5.hash_len;
+pub const min_len = constants.encoder_level5.match_len_min;
 
 /// `found` replaced by the static dictionary word the input at `position` matches, where that
 /// saves more. A word's distance is past the farthest the window reaches, by 1 and its word_id
@@ -309,4 +315,5 @@ pub inline fn read64(comptime safety: bool, window: []const u8, position: usize)
 
 test {
     _ = @import("encoder_lazy_test.zig");
+    _ = @import("encoder_side_test.zig");
 }

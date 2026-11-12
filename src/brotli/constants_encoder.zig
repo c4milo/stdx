@@ -62,11 +62,19 @@ pub const encoder_level5 = struct {
     pub const number = 5;
     /// WBITS (decision 12): a window of 2^22 octets.
     pub const window_bits = 22;
-    /// The match finder, the owner's ruling of 2026-11-07: 2^14 buckets, each the last 16
-    /// positions whose first 4 octets hash to it, 1 MiB in all.
+    /// The match finder, the owner's rulings of 2026-11-07 and 2026-11-12: 2^14 buckets, each the
+    /// last 16 positions whose first 5 octets hash to it, 1 MiB in all. A hash of 5 octets keeps
+    /// a bucket's ways for positions that agree on 5, where a hash of 4 fills them with the
+    /// newest of a common 4 (decision 66, the finder's forms).
     pub const bucket_log = 14;
     pub const bucket_ways = 16;
-    pub const hash_len = 4;
+    pub const hash_len = 5;
+    /// The fewest octets a match copies.
+    pub const match_len_min = 4;
+    /// The side table, for the matches of `match_len_min` octets the buckets no longer find: the
+    /// newest position of each hash of that many octets, 2^12 entries. Its 16 KiB stay in the L1
+    /// cache.
+    pub const side_log = 12;
     /// The octets at a stream's start where a search first drops the entries of an earlier stream
     /// with one compare of the bucket's 16, 256 KiB. After `start` most hits there are such
     /// entries; later the stream's own entries hold most ways, and the compare costs more than it
