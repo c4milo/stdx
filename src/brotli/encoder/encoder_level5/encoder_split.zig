@@ -220,16 +220,31 @@ pub const Choice = struct { type_index: usize, cost: u32 };
 /// The type whose costs take `piece` in the fewest bits, a type other than `previous` paying a
 /// switch.
 pub fn cheapest(self: *const Split, piece: []const u8, previous: ?usize) Choice {
+    assert(piece.len > 0 and piece.len <= chunk_len);
     const groups = std.math.divCeil(usize, self.types_count, lanes) catch unreachable;
-    var sums: [types_max / lanes]Lanes = @splat(@splat(0));
+    assert(groups > 0 and groups <= groups_max);
+    // A loop for each count of groups keeps the sums in registers.
+    return switch (groups) {
+        inline 1...groups_max => |count| cheapest_of(count, self, piece, previous),
+        else => unreachable,
+    };
+}
+
+/// The groups of `lanes` types side by side.
+const groups_max = types_max / lanes;
+
+fn cheapest_of(comptime groups: usize, self: *const Split, piece: []const u8, previous: ?usize) Choice {
+    var sums: [groups]Lanes = @splat(@splat(0));
     for (piece) |octet| {
         const row = &self.costs[octet];
-        for (sums[0..groups], 0..) |*sum, group| sum.* += row[group * lanes ..][0..lanes].*;
+        // No lane wraps: a chunk's terms sum to less than `cost_none`, by the comptime assert on
+        // `chunk_len`, and `cheapest` takes no piece longer (decision 17).
+        inline for (&sums, 0..) |*sum, group| sum.* +%= row[group * lanes ..][0..lanes].*;
     }
     var best: Choice = .{ .type_index = 0, .cost = std.math.maxInt(u32) };
     const len: Lanes = @splat(@intCast(piece.len));
     const full = piece.len == chunk_len;
-    for (sums[0..groups], 0..) |sum, group| {
+    for (sums, 0..) |sum, group| {
         const first = group * lanes;
         // Each literal's cost is its type's whole less its term; no term passes its whole.
         const wholes: Lanes = if (full) self.chunk_wholes[first..][0..lanes].* else len * @as(Lanes, self.wholes[first..][0..lanes].*);

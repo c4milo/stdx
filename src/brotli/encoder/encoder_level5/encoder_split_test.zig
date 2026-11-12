@@ -176,9 +176,10 @@ test "a type begun again takes the terms of its counts, whatever an earlier spli
 
 /// Each chunk of four symbols of its own, so each starts a type that holds it alone. Run twice on
 /// one state, each type's counts at the second run's rebuilds equal its copy from the first run's,
-/// and only a fresh start shows its terms stale.
+/// and only a fresh start shows its terms stale. Its 64 types fill four groups of `cheapest`.
 fn expect_begun_again() !void {
     var state: Split = undefined;
+    var generator = @import("codec").testing.split.Generator.init(begun_runs);
     @memset(std.mem.asBytes(&state), std.math.maxInt(u8));
     const len = level5.split_literals_min;
     for (state.literals[0..len], 0..) |*octet, index| {
@@ -190,6 +191,7 @@ fn expect_begun_again() !void {
         encoder_split.seed(&state);
         try testing.expectEqual(len / level5.split_chunk_len, state.types_count);
         try expect_terms(&state);
+        try expect_cheapest(&state, &generator);
     }
 }
 
