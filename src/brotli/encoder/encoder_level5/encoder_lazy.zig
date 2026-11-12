@@ -160,7 +160,7 @@ fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: 
     const slot = Buckets.slot_of(safety, window, position);
     buckets.prefetch(slot);
     // The next position's bucket too, which the next search or the lazy probe reads.
-    buckets.prefetch(Buckets.slot_of_word(@truncate(pick.here >> @bitSizeOf(u8))));
+    buckets.prefetch(Buckets.slot_of_word(pick.here >> @bitSizeOf(u8)));
     // The last distances first: a short code, with no extra bits (RFC 7932 §4).
     for (commands.last_distances) |distance| {
         if (distance > position - low) continue;
