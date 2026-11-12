@@ -17,6 +17,7 @@ const Token = encoder_file.Token;
 const Kind = encoder_file.Kind;
 const token_loop = @import("encoder_loop/encoder_loop.zig");
 const loop_base64 = @import("encoder_loop/encoder_loop_base64.zig");
+const loop_member = @import("encoder_loop/encoder_loop_member.zig");
 const base64_module = @import("base64");
 const constants = @import("../constants.zig");
 const Claims = @import("../claims.zig").Claims;
@@ -176,6 +177,89 @@ pub const TextWriter = struct {
     /// The literal name `null` (RFC 8259 §3).
     pub fn null_literal(self: *TextWriter) Error!void {
         return self.whole(.null, .null, "");
+    }
+
+    /// A member's name and its value in one call (decision 78): `name_octets` as `name` takes
+    /// them, then the token `token` of `kind` as its own method takes it. One step of the token
+    /// loop writes both, and a member it leaves takes the checked path, which names every refusal.
+    inline fn member(self: *TextWriter, comptime kind: Kind, name_octets: []const u8, token: Token, octets: []const u8) Error!void {
+        if (self.encoder.part == .between_tokens) {
+            const name_item: Encoder.Item = .{ .token = .{ .name = .last }, .octets = name_octets };
+            const item: Encoder.Item = .{ .token = token, .octets = octets };
+            var end = self.len;
+            if (@call(.always_inline, loop_member.take_member, .{ &self.encoder, Claims{}, kind, &name_item, &item, self.output, &end })) {
+                self.len = end;
+                return;
+            }
+        }
+        return self.member_checked(name_octets, token, octets);
+    }
+
+    /// `member` on the checked path alone: the name, then the value.
+    noinline fn member_checked(self: *TextWriter, name_octets: []const u8, token: Token, octets: []const u8) Error!void {
+        try self.checked(.{ .name = .last }, name_octets);
+        return self.checked(token, octets);
+    }
+
+    /// A member whose value is an object: its name, then `{` (RFC 8259 §4).
+    pub fn member_begin_object(self: *TextWriter, name_octets: []const u8) Error!void {
+        return self.member(.begin_object, name_octets, .begin_object, "");
+    }
+
+    /// A member whose value is an array: its name, then `[`.
+    pub fn member_begin_array(self: *TextWriter, name_octets: []const u8) Error!void {
+        return self.member(.begin_array, name_octets, .begin_array, "");
+    }
+
+    /// A member whose value is a string of `octets`, as `string` writes it.
+    pub fn member_string(self: *TextWriter, name_octets: []const u8, octets: []const u8) Error!void {
+        return self.member(.string, name_octets, .{ .string = .last }, octets);
+    }
+
+    /// A member whose value is a string of hexadecimal digits, as `hex` writes it.
+    pub fn member_hex(self: *TextWriter, name_octets: []const u8, octets: []const u8) Error!void {
+        return self.member(.hex, name_octets, .{ .hex = .last }, octets);
+    }
+
+    /// A member whose value is a string of base 64 letters, as `base64` writes it.
+    pub fn member_base64(self: *TextWriter, name_octets: []const u8, octets: []const u8) Error!void {
+        if (self.encoder.part == .between_tokens) {
+            const name_item: Encoder.Item = .{ .token = .{ .name = .last }, .octets = name_octets };
+            var end = self.len;
+            if (@call(.always_inline, loop_base64.take_member_letters, .{ &self.encoder, Claims{}, &name_item, octets, self.output, &end })) {
+                self.len = end;
+                return;
+            }
+        }
+        try self.checked(.{ .name = .last }, name_octets);
+        return self.letters_in_pieces(octets);
+    }
+
+    /// A member whose value is a number of the text `text`, as `number` writes it.
+    pub fn member_number(self: *TextWriter, name_octets: []const u8, text: []const u8) Error!void {
+        return self.member(.number, name_octets, .{ .number = .last }, text);
+    }
+
+    pub fn member_unsigned(self: *TextWriter, name_octets: []const u8, value: u64) Error!void {
+        return self.member(.unsigned, name_octets, .{ .unsigned = value }, "");
+    }
+
+    pub fn member_signed(self: *TextWriter, name_octets: []const u8, value: i64) Error!void {
+        return self.member(.signed, name_octets, .{ .signed = value }, "");
+    }
+
+    /// A member whose value is a fixed-point decimal, as `decimal` writes it.
+    pub fn member_decimal(self: *TextWriter, name_octets: []const u8, value: Decimal) Error!void {
+        return self.member(.decimal, name_octets, .{ .decimal = value }, "");
+    }
+
+    pub fn member_boolean(self: *TextWriter, name_octets: []const u8, value: bool) Error!void {
+        return self.member(.boolean, name_octets, .{ .boolean = value }, "");
+    }
+
+    /// A member whose value is the literal name `null`.
+    pub fn member_null(self: *TextWriter, name_octets: []const u8) Error!void {
+        return self.member(.null, name_octets, .null, "");
     }
 
     /// The text, once its last token is written: `output[0..len]`.

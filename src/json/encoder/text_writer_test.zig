@@ -30,7 +30,7 @@ const short_rooms = 3;
 const checked: claims.Claims = .{ .encoder_token_entry = false, .encoder_fast_path = false, .encoder_token_loop = false };
 
 /// Calls the method of `text` that writes `item`, whose token holds all of its octets.
-fn call(text: *TextWriter, item: Item) TextWriter.Error!void {
+pub fn call(text: *TextWriter, item: Item) TextWriter.Error!void {
     return switch (item.token) {
         .begin_object => text.begin_object(),
         .end_object => text.end_object(),

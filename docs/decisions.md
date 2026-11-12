@@ -4877,3 +4877,52 @@ small file.
       would bring a brace near the twofold gain first estimated.
     - A call for a name known at compile time: a name's escape scan was 2.5% of the nested
       message.
+
+78. **`TextWriter` writes a member's name and its value in one call.** Ruled by the owner on
+    2026-11-12, after decision 77's profile. A test writer there showed that a token costs what
+    the methods' contract and a call cost, so the way left to fewer instructions was fewer calls.
+    - `TextWriter` gains a `member_*` twin of each value method, eleven in all:
+      `member_begin_object`, `member_begin_array`, `member_string`, `member_hex`, `member_base64`,
+      `member_number`, `member_unsigned`, `member_signed`, `member_decimal`, `member_boolean` and
+      `member_null`. Each takes the name's octets as `name` takes them, and then what the value's
+      method takes. Each is a plain function, as the value's method is.
+    - One step of claim J11's loop writes both (encoder_loop_member.zig): the name's step and the
+      value's in one loop, with one write-back. After a name the grammar's position is known, so
+      the compiler folds the value's test for a separator. Where either does not go whole, the
+      step changes nothing, and the checked path takes the name and then the value, and names
+      every refusal.
+    - What a member saves depends on the caller. Where its calls stay out of line, as at a caller
+      with many call sites, a member saves a call and the second step's setup and write-back:
+      about 63 instructions. Where the compiler takes each method inline, as it does in
+      bench-json's driver, a member saves the setup and the write-back alone: 13 to 19.
+    - callgrind on aarch64, a dependent's shapes with each call out of line: a message of 50
+      nested levels took 22,462 instructions, from 31,910 through `name` and the value's method,
+      and a tree of 341 small objects 66,480, from 75,488. A batch of the message's items took
+      28,391.
+    - bench-json's methods candidate now writes each member through its `member_*` method, as a
+      caller that knows its members does. callgrind on aarch64: CLDR took 93.1 instructions a
+      token, from 100.1, and qlog 94.2, from 99.4. bench-profile on the N2 (run 43301240988)
+      agrees: 93.4 and 21.2 cycles a token on CLDR, from 100.4 and 22.9, and 94.2 and 22.2 on
+      qlog, from 99.5 and 22.0.
+    - The pairs (runs 43301207778 and 43301225829), through the methods: CLDR ran 1.07 times
+      main's speed on the N2, and 1.11 on an AMD EPYC 9V74 and a 7763. qlog ran level on the N2,
+      at 1.00, and 1.15 and 1.13 on x86-64. Against simdjson, the methods on CLDR now run at 1.08
+      on the N2, from 1.01, and at 0.95 and 1.02 on x86-64, from 0.84 and 0.91.
+    - Rows slower in both jobs through the methods: http/json-1m as a string on the N2, at 0.972
+      and 0.973, silesia/webster as hex there, at 0.987 and 0.983, and silesia/mozilla as hex on
+      x86-64, at 0.985 and 0.925. Each is a text of one token, and a batch and one token a call
+      fell as far on each row in the same jobs. Their functions are identical at both commits on
+      aarch64 and x86-64, which decision 20 counts as placement.
+    - Cost: each method holds the name's step and its value's. In an aarch64 object, ReleaseSafe,
+      they are 1,308 octets (`member_null`) to 2,212 (`member_string`), beside `name`'s 1,256 and
+      `string`'s 2,288. A program links the methods it calls.
+    - The checks: text_writer_member_test.zig holds each method to the checked path's name and
+      value, in every room, over a record with a member of every kind, base 64 values, the depth
+      limit, refusals and seeded lists. It requires the step to take each member whole, and to
+      change nothing where the room is one octet short. The commit lists the mutations.
+
+    The alternatives refused:
+    - One `member(name, token, octets)` for every kind, inline, its kind folded where the call
+      names it: a smaller surface, but an inline generic beside plain methods.
+    - Twins for the commonest kinds alone: a caller would write a name and its value apart for
+      the others.

@@ -10,7 +10,8 @@
 //!   candidate but the next calls its codec;
 //! - every claim on, one token a call, which the batches are priced against;
 //! - every claim on, a token a call through `TextWriter`'s methods and `TextReader.next`, as a
-//!   caller that writes or reads a text a value at a time calls the module (decision 69);
+//!   caller that writes or reads a text a value at a time calls the module (decision 69), a
+//!   member's name and its value in one `member_*` call (decision 78);
 //! - each claim off in turn;
 //! - every claim on, with claim J11's loop's runtime safety checks off, as a caller may choose
 //!   (decision 35); the decoder does not read the field, and its table leaves the candidate out;

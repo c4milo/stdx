@@ -18,7 +18,7 @@ const decoder_test = @import("decoder/decoder_test.zig");
 const reference = @import("decoder/decoder_reference_test.zig");
 
 /// The most tokens and octets one list holds, and the longest text it encodes to.
-const items_max = 96;
+pub const items_max = 96;
 pub const storage_len_max = 2048;
 const text_len_max = 8192;
 

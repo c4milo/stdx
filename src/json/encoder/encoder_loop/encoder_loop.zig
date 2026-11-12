@@ -125,7 +125,7 @@ pub const Loop = struct {
     }
 
     /// `item` for an item of `kind`.
-    inline fn item_of(self: *Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item, buffer: *format.Buffer) bool {
+    pub inline fn item_of(self: *Loop, comptime claims: Claims, comptime kind: Kind, entry: *const Item, buffer: *format.Buffer) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         return switch (kind) {
             .begin_object => self.structural(claims, .begin_object, constants.begin_object, entry),

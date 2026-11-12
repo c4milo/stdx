@@ -377,7 +377,8 @@ Change this section when a step adds or renames a command.
 - JSON benchmark: `zig build bench-json -Doracles` times the `json` module's encoder and decoder,
   many tokens a call (decision 33), with every claim on, each of claims J1, J2, J3, J5, J7, J8, J9,
   J10, J11, J12, J13 and J14 off in turn, and every one off, one token a call with every claim
-  on, a token a call through `TextWriter`'s methods and `TextReader.next` (decision 69), and the
+  on, a token a call through `TextWriter`'s methods and `TextReader.next` (decision 69), a member's
+  name and its value in one `member_*` call (decision 78), and the
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
   CLDR's JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII
   text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's

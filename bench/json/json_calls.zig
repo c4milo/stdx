@@ -187,25 +187,60 @@ inline fn encode_calls(comptime claims: json.Claims, comptime batches: bool, wor
     return written;
 }
 
-/// One text through `TextWriter`'s methods, the method each item's token names.
+/// One text through `TextWriter`'s methods, as a caller that knows its members writes it: a
+/// member's name with its value in one `member_*` call (decision 78), and every other token
+/// through the method its token names.
 inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, output: []u8, features: codec.Features) usize {
     var text = json.TextWriter.init(output, framing, features);
-    for (items) |item| {
-        (switch (item.token) {
-            .begin_object => text.begin_object(),
-            .end_object => text.end_object(),
-            .begin_array => text.begin_array(),
-            .end_array => text.end_array(),
-            .name => text.name(item.octets),
-            .string => text.string(item.octets),
-            .hex => text.hex(item.octets),
-            .number => text.number(item.octets),
-            .unsigned => |value| text.unsigned(value),
-            .signed => |value| text.signed(value),
-            .decimal => |value| text.decimal(value),
-            .boolean => |value| text.boolean(value),
-            .null => text.null_literal(),
-        }) catch unreachable;
+    var index: usize = 0;
+    // Each pass writes an item at least.
+    for (0..items.len) |_| {
+        if (index == items.len) break;
+        const item = items[index];
+        index += 1;
+        if (item.token == .name and index < items.len) {
+            write_member(&text, item.octets, items[index]);
+            index += 1;
+        } else {
+            write_token(&text, item);
+        }
     }
     return text.written().len;
+}
+
+/// A member's name and its value, through the value's `member_*` method.
+inline fn write_member(text: *json.TextWriter, name_octets: []const u8, item: workloads.Item) void {
+    (switch (item.token) {
+        .begin_object => text.member_begin_object(name_octets),
+        .begin_array => text.member_begin_array(name_octets),
+        .string => text.member_string(name_octets, item.octets),
+        .hex => text.member_hex(name_octets, item.octets),
+        .number => text.member_number(name_octets, item.octets),
+        .unsigned => |value| text.member_unsigned(name_octets, value),
+        .signed => |value| text.member_signed(name_octets, value),
+        .decimal => |value| text.member_decimal(name_octets, value),
+        .boolean => |value| text.member_boolean(name_octets, value),
+        .null => text.member_null(name_octets),
+        // RFC 8259 §4: a value follows a member's name.
+        .name, .end_object, .end_array => unreachable,
+    }) catch unreachable;
+}
+
+/// One token, through the method its token names.
+inline fn write_token(text: *json.TextWriter, item: workloads.Item) void {
+    (switch (item.token) {
+        .begin_object => text.begin_object(),
+        .end_object => text.end_object(),
+        .begin_array => text.begin_array(),
+        .end_array => text.end_array(),
+        .name => text.name(item.octets),
+        .string => text.string(item.octets),
+        .hex => text.hex(item.octets),
+        .number => text.number(item.octets),
+        .unsigned => |value| text.unsigned(value),
+        .signed => |value| text.signed(value),
+        .decimal => |value| text.decimal(value),
+        .boolean => |value| text.boolean(value),
+        .null => text.null_literal(),
+    }) catch unreachable;
 }
