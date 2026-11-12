@@ -170,14 +170,43 @@ fn chunks_of(len: usize) usize {
     return std.math.divCeil(usize, len, level5.split_chunk_len) catch unreachable;
 }
 
+test "a type begun again takes the terms of its counts, whatever an earlier split left" {
+    try @call(.never_inline, expect_begun_again, .{});
+}
+
+/// Each chunk of four symbols of its own, so each starts a type that holds it alone. Run twice on
+/// one state, each type's counts at the second run's rebuilds equal its copy from the first run's,
+/// and only a fresh start shows its terms stale.
+fn expect_begun_again() !void {
+    var state: Split = undefined;
+    @memset(std.mem.asBytes(&state), std.math.maxInt(u8));
+    const len = level5.split_literals_min;
+    for (state.literals[0..len], 0..) |*octet, index| {
+        octet.* = @intCast(index / level5.split_chunk_len * own_symbols + index % own_symbols);
+    }
+    state.literals_len = len;
+    for (0..begun_runs) |_| {
+        state.types_count = 1;
+        encoder_split.seed(&state);
+        try testing.expectEqual(len / level5.split_chunk_len, state.types_count);
+        try expect_terms(&state);
+    }
+}
+
+/// Each chunk's symbols: 64 chunks of four take the alphabet's 256.
+const own_symbols = 4;
+const begun_runs = 2;
+
 /// Seeded pieces of the literals, after a switch or none: `cheapest` must give the type and the
 /// cost a price from each type's counts gives, the lowest type on a tie.
 fn expect_cheapest(state: *const Split, generator: anytype) !void {
     for (0..rebuilt_pieces) |_| {
-        const len: usize = @intCast(generator.between(1, level5.split_chunk_len));
+        // Half the pieces are full chunks, as all but a meta-block's last are.
+        const full = generator.below(rebuilt_one_in) == 0;
+        const len: usize = if (full) level5.split_chunk_len else @intCast(generator.between(1, level5.split_chunk_len));
         const start: usize = @intCast(generator.below(state.literals_len - len + 1));
         const piece = state.literals[start..][0..len];
-        const switched = generator.below(rebuilt_doubled) == 0;
+        const switched = generator.below(rebuilt_one_in) == 0;
         const previous: ?usize = if (switched) @intCast(generator.below(state.types_count)) else null;
         var best: encoder_split.Choice = .{ .type_index = 0, .cost = std.math.maxInt(u32) };
         for (0..state.types_count) |type_index| {
@@ -197,7 +226,9 @@ fn expect_terms(state: *Split) !void {
         var total: u32 = 0;
         for (state.counts[type_index]) |count| total += count;
         try testing.expectEqual(total, state.totals[type_index]);
-        try testing.expectEqual(log2_scaled(rebuilt_doubled * total + rebuilt_doubled), state.wholes[type_index]);
+        const whole = log2_scaled(rebuilt_doubled * total + rebuilt_doubled);
+        try testing.expectEqual(whole, state.wholes[type_index]);
+        try testing.expectEqual(whole * level5.split_chunk_len, state.chunk_wholes[type_index]);
         for (state.counts[type_index], 0..) |count, symbol| {
             try testing.expectEqual(encoder_split.log2_small(rebuilt_doubled * @as(u32, count) + 1), state.costs[symbol][type_index]);
         }
@@ -233,5 +264,7 @@ const rebuilt_kind_span = rebuilt_kind_steps * rebuilt_kind_step;
 const rebuilt_kind_steps = 3;
 /// The seeded rounds move 26 chunks in all.
 const rebuilt_moved_min = 8;
+/// One piece in this many is a full chunk, and one in this many follows a switch.
+const rebuilt_one_in = 2;
 /// As `rebuild_costs` doubles each count and total.
 const rebuilt_doubled = 2;
