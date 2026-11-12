@@ -4798,8 +4798,31 @@ small file.
       the loop into the output to take no token past where the loop in place stopped but a name
       or a string. text_reader_test.zig holds `next` to the checked path as above, and a copy that
       reads ahead. The commit lists the mutations.
+    - Amended by the owner on 2026-11-12, after three draws of the x86-64 runner's CPU priced CLDR
+      through `next` (runs 43274251342, 43279406110 and 43285796952). Each job measured the base
+      (9e5d87d) and the forms on one machine, over CLDR's texts and qlog's records alone, in
+      three rounds, from a branch that never landed. The ratios below are of the base's speed.
+      - On an AMD EPYC 9V45, the queue loses on CLDR: 0.909 to 0.938 in six jobs. A null build
+        holds the queue behind a test that never holds. It ran at 0.995 and 0.973 there, so
+        decision 20 does not count the row as placement. qlog gains there, at 1.13 to 1.20.
+      - On an AMD EPYC 7763, CLDR ran at 0.978 to 0.997 in 13 jobs, and the null build at 0.947 to
+        0.955 in seven. Decision 20 counts that row as placement.
+      - CLDR gains on the other CPUs drawn: 1.015 to 1.019 on an AMD EPYC 9V74 in four jobs, and
+        1.12 to 1.13 on an Intel Xeon 8573C, 6975P-C and 8370C in five.
+      - The likely cause on the 9V45: a caller branches on each token's kind up to 64 tokens after
+        the loop branched on it, so the predictor meets one sequence of kinds twice. On the N2,
+        CLDR's branch misses rose to 0.164 a token, from 0.069, and qlog's fell to 0.011, from
+        0.071 (run 43144950644). The x86-64 runners expose no counters.
+      - The ruling: the queue keeps 64 items, and the 9V45's CLDR row is a loss on record.
 
     The alternatives refused:
+    - A shorter queue (runs 43279406110 and 43285796952). With 8 items, CLDR held on the 9V45, at
+      1.01 to 1.02 of the base's speed in four jobs, but ran at 0.948 to 0.959 on the 7763 in six.
+      qlog's gain fell to 1.14 to 1.15 on the 7763, from 1.28 to 1.29, and to 1.30 on the N2, from
+      1.43. On the N2, `next` then only ties serde_json on qlog, at 1.00 to 1.01. With 16 and with
+      32 items, CLDR lost on the 9V45 too, at 0.95 to 0.96 and 0.91 to 0.92. A refill costs about
+      146 instructions beside its tokens (callgrind, aarch64), and a short queue pays them more
+      often.
     - Slots that count octets, from which `next` built each item: a slice, two bounds checks and a
       switch on the kind. CLDR ran 0.92 to 0.94 of main's speed on an AMD EPYC 9V74 and 7763 (runs
       43100828178 and 43100839327).
