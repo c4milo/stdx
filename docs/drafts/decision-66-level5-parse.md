@@ -429,3 +429,65 @@ and 1.16, and three rows trail: ptt5 0.92 and 0.93, kennedy.xls 0.95 and 0.96, j
 json-1m, x-ray and mozilla at 0.99 to 1.00. On the EPYC 9V74 the median is 1.08 and seven rows
 trail: kennedy.xls 0.86, ptt5 0.91, x-ray 0.93, ooffice 0.96, mozilla 0.97, and json-1m and
 plrabn12.txt at 0.99.
+
+## Level 5's output size (2026-11-12)
+
+The owner chose output size next. Level 5's output is larger than quality 5's on 27 of 39 rows:
+the median row is 0.8% larger, and world192.txt is 5.9% larger. This section holds the measure and
+the forms it points to. No form is built yet.
+
+**The measure.** A scratch copy of stdx's checked decoder counts the bits each stream spends by
+kind: literal symbols, insert-and-copy symbols, distance symbols, extra bits, block switches, and
+each part of a meta-block's header. It decodes quality 5's streams and level 5's for the same
+input. Google's encoder is built from the pinned package and run as a program. The table gives
+level 5's size against quality 5's, and the difference by kind as a share of quality 5's size.
+
+| Row | Level 5 / quality 5 | Literals | Insert-and-copy | Distances with extra bits | The three codes' descriptions |
+| --- | --- | --- | --- | --- | --- |
+| world192.txt | 1.059 | +5.5% | +0.9% | -1.2% | +0.7% |
+| dickens | 1.047 | +8.2% | +2.1% | -6.1% | +0.5% |
+| reymont | 1.043 | +4.9% | +1.9% | -3.1% | +0.5% |
+| xml | 1.039 | +6.5% | +0.8% | -4.1% | +0.8% |
+| bible.txt | 1.037 | +5.2% | +1.8% | -4.0% | +0.6% |
+| mr | 1.026 | +11.6% | -0.8% | -8.6% | +0.4% |
+| osdb | 1.028 | +2.1% | -1.4% | +1.5% | +0.6% |
+| json-1m in 1 KiB bodies | 1.031 | -0.3% | -2.2% | +1.0% | +4.6% |
+
+What the streams show:
+
+1. **The finder.** On dickens, quality 5 codes 333,153 literals against level 5's 754,513, in
+   about as many commands, and 946 copies of 4 octets against 29,640. On each of the 21 inputs
+   of 1,029,744 octets or more that were counted, a copy of 4 octets is under 3% of its commands,
+   and under 0.5% on 16 of them. On each of the 6 inputs of 513,216 octets or less it is 11% to
+   20%. That fits a finder that hashes 5 octets on a long input: a bucket's 16 ways then hold
+   positions that agree on 5 octets, where a hash of 4 octets fills them with the newest of a
+   common 4 octets. A scratch build that hashes 5 octets
+   into 2^15 buckets gives dickens 0.999 of quality 5 (from 1.047), bible.txt 0.996, nci 1.000,
+   reymont 1.002, webster 1.002, mr 1.005, xml 1.007 and world192.txt 1.024. It costs the rows
+   whose matches are short: sum 1.035 (from 1.016), kennedy.xls 0.947 (from 0.929), ooffice 1.015
+   (from 1.007), and the bodies of 1 KiB and 16 KiB by up to 1.6%. 2^15 buckets with the hash
+   of 4 octets move no row of 64 KiB or less by more than 0.02%, and give mozilla 1.009 (from
+   1.020), ooffice 0.997 and samba 0.997. So the form needs a rule that says where a stream
+   hashes 5 octets. Lowering a match's fixed cost from 12 bits to 9, 6 or 3 moved no row by more
+   than 0.6%, and nci up.
+2. **Literal context modeling** (RFC 7932 §7.1). Quality 5 gives a block type several codes,
+   chosen by the two octets before a literal: 130 codes for 10 types on world192.txt, in UTF8
+   mode. Level 5 gives a type one code. With the scratch finder, a literal still costs 5.68 bits
+   against 4.71 on world192.txt, 5.52 against 4.92 on html-1m, 5.75 against 5.07 on js-1m, and
+   5.14 against 4.73 on dickens. At level 5's counts of literals that is 3.2% of world192.txt's
+   stream, 1.8% of js-1m's, 1.5% of html-1m's, xml's and reymont's, and 0.8% of dickens's.
+3. **Longer meta-blocks.** Quality 5 writes world192.txt as 1 meta-block and dickens as 2. Level 5
+   writes 38 and 156, and describes three codes in each. The descriptions cost 0.5% to 0.8% of a
+   text row's stream more than quality 5's, and 2.5% of nci's. The owner allowed meta-blocks past
+   64 KiB for level 5 on 2026-11-07.
+4. **Copies of 2 and 3 octets.** Quality 5 codes 388,377 of them on mozilla, 109,421 on osdb,
+   105,065 on sao and 69,682 on ooffice, against 2,086 on dickens. Level 5 codes none. The
+   owner allowed them on 2026-11-07. Their worth is not measured yet; osdb's literals cost 2.1%
+   of its stream more than quality 5's.
+5. **A small body's code descriptions.** On the 1 KiB bodies of json-1m, the literal code's
+   description costs 3.9% of the stream more than quality 5's, and on those of js-1m 3.0%, with
+   the insert-and-copy code's 3.1%.
+6. **Not measured yet.** Distance short codes 4 to 15, which the owner allowed on 2026-11-07,
+   name 0.2% of quality 5's commands on dickens, 1.2% on world192.txt and 2.4% on xml. css-1m's
+   distance extra bits cost 4.1% of its stream more than quality 5's, and the cause is not found
+   yet.
