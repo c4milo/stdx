@@ -64,7 +64,7 @@ pub const encoder_level5 = struct {
     pub const window_bits = 22;
     /// The match finder, the owner's ruling of 2026-11-07: 2^14 buckets, each the last 16
     /// positions whose first 4 octets hash to it, 1 MiB in all.
-    pub const bucket_log = 14;
+    pub const bucket_log = 15;
     pub const bucket_ways = 16;
     pub const hash_len = 4;
     /// The octets at a stream's start where a search first drops the entries of an earlier stream
