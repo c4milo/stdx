@@ -66,7 +66,7 @@ pub const encoder_level5 = struct {
     /// last 16 positions whose first 5 octets hash to it, 1 MiB in all. A hash of 5 octets keeps
     /// a bucket's ways for positions that agree on 5, where a hash of 4 fills them with the
     /// newest of a common 4 (decision 66, the finder's forms).
-    pub const bucket_log = 14;
+    pub const bucket_log = 15;
     pub const bucket_ways = 16;
     pub const hash_len = 5;
     /// The fewest octets a match copies.
