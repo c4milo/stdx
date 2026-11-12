@@ -99,7 +99,7 @@ pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, posit
         if (read32(safety, window, position - distance) != head) continue;
         take(safety, window, position, position - distance, end, true, cost, &found);
     }
-    probe_hits(safety, buckets, slot, window, position, end, low, cost, held, &found);
+    lazy_hits.probe(safety, buckets, slot, window, position, end, low, cost, held, &found);
     buckets.insert_at(safety, slot, position);
     // After a word or a match of the fewest octets, the window seldom holds a match here, and a
     // word may save more.
@@ -107,52 +107,6 @@ pub fn probe(comptime safety: bool, buckets: *Buckets, window: []const u8, posit
     if (found == null and after_short) consider_word(safety, window, position, end, reach_len, commands, &found);
     return found;
 }
-
-/// The probe over the hits of `slot`'s bucket: each candidate `Floor` admits is measured.
-inline fn probe_hits(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, end: usize, low: usize, cost: u32, held: Found, found: *?Found) void {
-    @setRuntimeSafety(safety);
-    const floor = Floor.of(safety, window, position, end, held, cost);
-    var hits = buckets.hits(slot);
-    for (0..buckets_module.ways) |_| {
-        if (hits == 0) break;
-        const way = @ctz(hits);
-        hits &= hits - 1;
-        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
-        if (!floor.admits(safety, window, position, candidate)) continue;
-        take(safety, window, position, candidate, end, false, cost, found);
-    }
-}
-
-/// What a bucket's candidate must agree on for the probe to measure it: the 4 octets `tail` at
-/// `at`, which end at the held match's length, or, nearer than `near`, the 4 octets one before.
-const Floor = struct {
-    at: usize,
-    tail: u32,
-    near: usize,
-    shorter_tail: u32,
-
-    inline fn of(comptime safety: bool, window: []const u8, position: usize, end: usize, held: Found, cost: u32) Floor {
-        @setRuntimeSafety(safety);
-        // Where `held`'s length passes the block's end, no candidate is as long: the first 4
-        // octets stand for the tail, and every true candidate is measured.
-        const at = if (position + held.len <= end) held.len - @sizeOf(u32) else 0;
-        return .{
-            .at = at,
-            .tail = read32(safety, window, position + at),
-            // A candidate one octet shorter agrees on the 4 octets one before the tail's; none
-            // is, where `held` has the fewest octets a match takes.
-            .near = if (at > 0) near_limit(held, cost) else 0,
-            .shorter_tail = read32(safety, window, position + at -| 1),
-        };
-    }
-
-    inline fn admits(self: Floor, comptime safety: bool, window: []const u8, position: usize, candidate: usize) bool {
-        @setRuntimeSafety(safety);
-        if (read32(safety, window, candidate + self.at) == self.tail) return true;
-        if (position - candidate >= self.near) return false;
-        return read32(safety, window, candidate + self.at - 1) == self.shorter_tail;
-    }
-};
 
 /// The distance below which a candidate one octet shorter than `held` can save more than `held`
 /// does: it saves `(held.len - 1) * cost` less a match's cost and 8 eighths for each bit of its
@@ -167,7 +121,7 @@ pub fn near_limit(held: Found, cost: u32) usize {
 
 /// `found` replaced by `candidate`'s match where it has the fewest octets a match takes and saves
 /// more.
-inline fn take(comptime safety: bool, window: []const u8, position: usize, candidate: usize, end: usize, last: bool, cost: u32, found: *?Found) void {
+pub inline fn take(comptime safety: bool, window: []const u8, position: usize, candidate: usize, end: usize, last: bool, cost: u32, found: *?Found) void {
     @setRuntimeSafety(safety);
     const len = match_len(safety, window, candidate, position, end);
     if (len < min_len) return;
@@ -343,7 +297,7 @@ pub fn match_len(comptime safety: bool, window: []const u8, candidate: usize, po
     return len;
 }
 
-inline fn read32(comptime safety: bool, window: []const u8, position: usize) u32 {
+pub inline fn read32(comptime safety: bool, window: []const u8, position: usize) u32 {
     @setRuntimeSafety(safety);
     return std.mem.readInt(u32, window[position..][0..@sizeOf(u32)], .little);
 }
