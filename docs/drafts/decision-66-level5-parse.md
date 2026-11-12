@@ -401,3 +401,12 @@ Most of that is the literal split: `cheapest` about 0.47 ns an octet, `rebuild_c
   cost 5 instructions a literal, more than the rebuild saved where the literals take few symbols.
   Against c3a4a67 (runs 43225303725 and 43225317219), kennedy.xls ran 2.5% and 2.7% faster on the
   N2 and 4.1% faster on an EPYC 7763, but E.coli ran 8.1% and 8.0% slower on the N2.
+- Landed: `cheapest` keeps its sums in registers. Its count of groups of 16 types is known only at
+  run time, so its sums lived on the stack, and each vector add carried an overflow check: 16
+  instructions a group a literal. A loop for each count from 1 to 16 keeps the sums in registers,
+  and its adds wrap. The sums take a chunk's terms, which the comptime assert on `chunk_len` bounds
+  below `cost_none`, and `cheapest` asserts no piece is longer than a chunk. x-ray spends 52 of its
+  234 instructions an octet in the split, 36 of them in `cheapest`. Same octets; callgrind on
+  aarch64 against the copy form: E.coli -13.8%, x-ray -4.7%, kennedy.xls -2.0%, json-1m -1.5%,
+  ptt5 -1.4%. Mutations: 23 of 23 CAUGHT.
+- Entry 17. Its list of wrapping operators gains `cheapest`'s sums, with the bound above.
