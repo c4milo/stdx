@@ -18,7 +18,7 @@ pub const pins = [_]pepegrillo.checkfree.Pin{
     .{ .symbol = "stdx_json_plain_len_x86_64_avx2", .sites = 4 },
     .{ .symbol = "stdx_json_copy_plain_x86_64_avx2", .sites = 3 },
     .{ .symbol = "stdx_json_hex_len_x86_64_avx2", .sites = 10 },
-    .{ .symbol = "stdx_json_copy_rest_x86_64_avx2", .sites = 54 },
+    .{ .symbol = "stdx_json_copy_rest_x86_64_avx2", .sites = 55 },
     .{ .symbol = "stdx_json_copy_escaped_x86_64_avx2", .sites = 35 },
     .{ .symbol = "stdx_json_copy_escaped_unchecked_x86_64_avx2", .sites = 29 },
     .{ .symbol = "stdx_json_is_utf8_x86_64_avx512", .sites = 6 },

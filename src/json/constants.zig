@@ -37,10 +37,10 @@ pub const avx2_vector_len: usize = 32;
 pub const ascii_pass_len: usize = 2 * avx2_vector_len;
 
 /// The octets of the block the walk's ASCII loop tests before its passes of `ascii_pass_len`, in
-/// the AVX2 variant object: a run that ends in it pays one block and one load, as in the
-/// 16-octet loop. Restarted at each escape, the passes alone decoded text of short runs, such as
+/// the AVX2 variant object: one of AVX2's blocks, so a run that ends in it pays one load and one
+/// test. Restarted at each escape, the passes alone decoded text of short runs, such as
 /// silesia/nci and http/json-1m, 6% to 16% slower than the 16-octet loop (decision 80).
-pub const ascii_first_len: usize = vector_len;
+pub const ascii_first_len: usize = avx2_vector_len;
 
 /// The octets `is_utf8`'s check takes at once on x86-64 with AVX-512: 64, in the variant object's
 /// AVX-512 level, which the module calls when the caller's features name AVX-512 (decision 39). The
