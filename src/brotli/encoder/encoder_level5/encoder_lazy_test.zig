@@ -70,10 +70,12 @@ test "the assembly probes a bucket's hits as the Zig loop does" {
 const Round = fn (*Buckets, []u8, usize, *codec.testing.split.Generator) anyerror!void;
 
 /// Seeded buckets and windows, at a position early in the window and at one whose matches may
-/// run to the end: the assembly and the Zig loop must pick alike.
+/// run to the end: the assembly and the Zig loop must pick alike. A first stream ends before
+/// the rounds, so a way may hold its entry.
 fn expect_search_seeded(comptime round_of: Round) !void {
     var buckets: Buckets = undefined;
     buckets.init();
+    buckets.start(search_window_len);
     var window: [search_window_len]u8 = undefined;
     var generator = codec.testing.split.Generator.init(search_seed);
     for (&window) |*octet| octet.* = @truncate(generator.next());
@@ -87,14 +89,12 @@ fn expect_search_seeded(comptime round_of: Round) !void {
     }
 }
 
-/// Fills the position's bucket, each way empty, another check's entry, out of reach, or a
-/// candidate, and may hold a best from a last distance first. Both loops must pick alike, and
-/// take nothing from a bucket an earlier stream wrote last.
+/// Fills the position's bucket, and may hold a best from a last distance first. Both loops must
+/// pick alike, and as the Zig loop picks with the first stream's ways empty.
 fn expect_search_round(buckets: *Buckets, window: []u8, position: usize, generator: *codec.testing.split.Generator) !void {
     const low = position - search_reach;
     const slot = Buckets.slot_of(true, window, position);
-    for (0..ways) |way| fill_way(buckets, window, slot, position, low, way, generator);
-    const stale = mark_seeded(buckets, slot, generator);
+    const first_stream = fill_seeded(buckets, window, slot, position, low, generator);
     const cost: u32 = @intCast(generator.between(search_cost_min, weigh_literal_cost));
     var pick: Pick = .{ .here = read64(true, window, position), .cost = cost };
     if (@as(u1, @truncate(generator.next())) == 0) pick.consider(true, window, position, window.len, place_seeded(window, position, low, generator), .last);
@@ -103,51 +103,73 @@ fn expect_search_round(buckets: *Buckets, window: []u8, position: usize, generat
     lazy_hits.consider(true, buckets, slot, window, position, window.len, low, &zig_pick);
     lazy_hits.consider(false, buckets, slot, window, position, window.len, low, &assembly_pick);
     try testing.expectEqual(zig_pick.found(position), assembly_pick.found(position));
-    if (stale) try testing.expectEqual(pick.found(position), zig_pick.found(position));
+    const kept = empty_ways(buckets, slot, first_stream);
+    lazy_hits.consider(true, buckets, slot, window, position, window.len, low, &pick);
+    buckets.entries[slot.bucket] = kept;
+    try testing.expectEqual(pick.found(position), zig_pick.found(position));
 }
 
-/// Marks `slot`'s bucket as this stream's, its ring's next way seeded. One time in
-/// `search_stale_one_in` the next stream then begins: returns whether an earlier stream wrote it.
-fn mark_seeded(buckets: *Buckets, slot: buckets_module.Slot, generator: *codec.testing.split.Generator) bool {
-    buckets.marks[slot.bucket] = buckets.mark_of(@intCast(generator.below(ways)));
-    const stale = generator.below(search_stale_one_in) == 0;
-    if (stale) buckets.start();
-    return stale;
+/// Fills `slot`'s bucket with seeded ways, all of them the first stream's one round in
+/// `search_first_one_in`, and seeds its ring's next way. Returns the first stream's ways.
+fn fill_seeded(buckets: *Buckets, window: []u8, slot: buckets_module.Slot, position: usize, low: usize, generator: *codec.testing.split.Generator) u16 {
+    const all_first = generator.below(search_first_one_in) == 0;
+    var first_stream: u16 = 0;
+    for (0..ways) |way| {
+        const kind: WayKind = if (all_first) .first_stream else @enumFromInt(generator.below(@typeInfo(WayKind).@"enum".fields.len));
+        buckets.entries[slot.bucket][way] = way_entry(buckets, window, slot, position, low, kind, generator);
+        if (kind == .first_stream) first_stream |= @as(u16, 1) << @intCast(way);
+    }
+    buckets.next[slot.bucket] = @truncate(generator.next());
+    return first_stream;
+}
+
+/// Empties the ways `which` names in `slot`'s bucket, and returns the bucket as it was.
+fn empty_ways(buckets: *Buckets, slot: buckets_module.Slot, which: u16) [ways]u32 {
+    const kept = buckets.entries[slot.bucket];
+    for (0..ways) |way| {
+        if (which >> @intCast(way) & 1 != 0) buckets.entries[slot.bucket][way] = 0;
+    }
+    return kept;
 }
 
 /// What a seeded way holds: two kinds a candidate, so most ways are candidates.
-const WayKind = enum { empty, other_check, below_reach, at_position, candidate, another_candidate };
+const WayKind = enum { empty, other_check, below_reach, at_position, first_stream, candidate, another_candidate };
 
 /// Fills the position's bucket as `expect_search_round` does, and holds a seeded match, as the lazy
-/// step does before its probe: both loops must admit and measure alike.
+/// step does before its probe: both loops must admit and measure alike, and as the Zig loop does
+/// with the first stream's ways empty.
 fn expect_probe_round(buckets: *Buckets, window: []u8, position: usize, generator: *codec.testing.split.Generator) !void {
     const low = position - search_reach;
     const slot = Buckets.slot_of(true, window, position);
-    for (0..ways) |way| fill_way(buckets, window, slot, position, low, way, generator);
-    const stale = mark_seeded(buckets, slot, generator);
+    const first_stream = fill_seeded(buckets, window, slot, position, low, generator);
     const cost: u32 = @intCast(generator.between(search_cost_min, weigh_literal_cost));
     const len: usize = @intCast(generator.between(min_len, search_copy_max));
     const held: Found = .{ .position = position - 1, .len = len, .offset = lazy_other_offset, .saves = @intCast(generator.below(len * cost)) };
     var zig_found: ?Found = null;
     var assembly_found: ?Found = null;
+    var found: ?Found = null;
     lazy_hits.probe(true, buckets, slot, window, position, window.len, low, cost, held, &zig_found);
     lazy_hits.probe(false, buckets, slot, window, position, window.len, low, cost, held, &assembly_found);
     try testing.expectEqual(zig_found, assembly_found);
-    if (stale) try testing.expectEqual(null, zig_found);
+    const kept = empty_ways(buckets, slot, first_stream);
+    lazy_hits.probe(true, buckets, slot, window, position, window.len, low, cost, held, &found);
+    buckets.entries[slot.bucket] = kept;
+    try testing.expectEqual(found, zig_found);
 }
 
-/// One way of `slot`'s bucket, as a seeded kind makes it.
-fn fill_way(buckets: *Buckets, window: []u8, slot: buckets_module.Slot, position: usize, low: usize, way: usize, generator: *codec.testing.split.Generator) void {
-    const kind: WayKind = @enumFromInt(generator.below(@typeInfo(WayKind).@"enum".fields.len));
-    buckets.entries[slot.bucket][way] = switch (kind) {
+/// One way of `slot`'s bucket, as `kind` makes it.
+fn way_entry(buckets: *const Buckets, window: []u8, slot: buckets_module.Slot, position: usize, low: usize, kind: WayKind, generator: *codec.testing.split.Generator) u32 {
+    return switch (kind) {
         .empty => 0,
         // A check one bit from the slot's, with a position in reach.
-        .other_check => Buckets.entry_of(slot.check ^ 1, low),
+        .other_check => buckets.entry_at(slot.check ^ 1, low),
         // A position below `low` lies out of reach.
-        .below_reach => Buckets.entry_of(slot.check, @intCast(generator.between(1, low - 1))),
+        .below_reach => buckets.entry_at(slot.check, @intCast(generator.between(1, low - 1))),
         // The position's own entry, which no search may take.
-        .at_position => Buckets.entry_of(slot.check, position),
-        .candidate, .another_candidate => Buckets.entry_of(slot.check, place_seeded(window, position, low, generator)),
+        .at_position => buckets.entry_at(slot.check, position),
+        // A candidate the first stream recorded, at its offset of 1, which no search may take.
+        .first_stream => Buckets.entry_of(slot.check, 1 + place_seeded(window, position, low, generator)),
+        .candidate, .another_candidate => buckets.entry_at(slot.check, place_seeded(window, position, low, generator)),
     };
 }
 
@@ -178,8 +200,8 @@ fn expect_search_refusals() !void {
         place(&window, position, .{ .at = position - refusal_distance, .len = min_len - 1 });
         const entries = [_]usize{ position - refusal_distance, position };
         buckets.entries[slot.bucket] = @splat(0);
-        for (entries, 0..) |entry, way| buckets.entries[slot.bucket][way] = Buckets.entry_of(slot.check, entry);
-        buckets.marks[slot.bucket] = buckets.mark_of(entries.len);
+        for (entries, 0..) |entry, way| buckets.entries[slot.bucket][way] = buckets.entry_at(slot.check, entry);
+        buckets.next[slot.bucket] = entries.len;
         inline for (.{ true, false }) |safety| {
             var pick: Pick = .{ .here = read64(true, &window, position), .cost = weigh_literal_cost };
             lazy_hits.consider(safety, &buckets, slot, &window, position, window.len, position - search_reach, &pick);
@@ -191,36 +213,12 @@ fn expect_search_refusals() !void {
 /// A distance whose log2 of 3 bits lets 3 octets at 8 bits each pass a match's cost.
 const refusal_distance = 8;
 
-test "the compare at the best length is set only where its read stays inside the stream" {
-    const Hits = lazy_hits.Assembly;
-    var window: [guard_window_len]u8 = @splat(0);
-    const position = guard_window_len / 2;
-    const end = window.len;
-    var search: Hits.Search = undefined;
-    const cases = [_]struct { len: usize, compares: bool }{
-        // A best that runs to the end: a compare there would read past it.
-        .{ .len = end - position, .compares = false },
-        // One octet shorter: the compare reads up to the end.
-        .{ .len = end - position - 1, .compares = true },
-        // Shorter than the octets one compare reads.
-        .{ .len = read_len - 1, .compares = false },
-    };
-    for (cases) |case| {
-        const saves = saving(case.len, guard_offset, false, weigh_literal_cost);
-        lazy_hits.compare_at_len(true, Hits, &window, position, end, 1, case.len, saves, weigh_literal_cost, &search);
-        try testing.expectEqual(case.compares, Hits.compares(&search));
-    }
-}
-
-const guard_window_len = 64;
-const guard_offset = 16;
-
 /// The window, in refills: its last position lies far from the first.
 const search_window_refills = 16;
 const search_window_len = search_window_refills * search_refill_len;
 const search_young = search_refill_len;
-/// One search in this many reads a bucket an earlier stream wrote last.
-const search_stale_one_in = 8;
+/// One search in this many reads a bucket the first stream wrote last.
+const search_first_one_in = 8;
 const search_reach = 2000;
 const search_refill_len = 4096;
 const search_seed = 68;

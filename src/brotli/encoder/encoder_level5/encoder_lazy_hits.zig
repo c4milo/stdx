@@ -149,3 +149,30 @@ inline fn probe_assembly(comptime safety: bool, comptime Hits: type, buckets: *c
         if (search.order == 0) break;
     }
 }
+
+const testing = std.testing;
+
+test "the compare at the best length is set only where its read stays inside the stream" {
+    var window: [guard_window_len]u8 = @splat(0);
+    const position = guard_window_len / 2;
+    const end = window.len;
+    var search: Assembly.Search = undefined;
+    const cases = [_]struct { len: usize, compares: bool }{
+        // A best that runs to the end: a compare there would read past it.
+        .{ .len = end - position, .compares = false },
+        // One octet shorter: the compare reads up to the end.
+        .{ .len = end - position - 1, .compares = true },
+        // Shorter than the octets one compare reads.
+        .{ .len = read_len - 1, .compares = false },
+    };
+    for (cases) |case| {
+        const saves = encoder_lazy.saving(case.len, guard_offset, false, guard_literal_cost);
+        compare_at_len(true, Assembly, &window, position, end, 1, case.len, saves, guard_literal_cost, &search);
+        try testing.expectEqual(case.compares, Assembly.compares(&search));
+    }
+}
+
+const guard_window_len = 64;
+const guard_offset = 16;
+/// 8 bits a literal, in eighths of a bit.
+const guard_literal_cost = 64;

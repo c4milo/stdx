@@ -9,6 +9,7 @@ const codec = @import("codec");
 const constants = @import("../../constants.zig");
 const decoder_module = @import("../../decoder/decoder.zig");
 const encoder = @import("../encoder.zig");
+const buckets_module = @import("encoder_buckets.zig");
 
 const small_window_bits = constants.encoder_window_bits_min;
 const Small = encoder.Encoder(.{ .level = constants.encoder_level5.number, .window_bits = small_window_bits });
@@ -230,11 +231,27 @@ fn expect_start_equals_init() !void {
         small.init();
         _ = try small.encode_all(input_of(.alphabets), &coded);
         small.start();
+        try expect_no_earlier_entry(&small.matcher, small.window.len);
         const plain = input_of(case);
         const started = try small.encode_all(plain, &coded);
         small.init();
         const fresh = try small.encode_all(plain, &reference);
         try testing.expectEqualSlices(u8, reference[0..fresh], coded[0..started]);
+    }
+}
+
+/// After `start`, no entry of a bucket or of the side table names a candidate before
+/// `window_len`: the earlier stream's entries lie below the offset.
+fn expect_no_earlier_entry(buckets: *const buckets_module.Buckets, window_len: usize) !void {
+    for (buckets.entries, 0..) |bucket, index| {
+        for (bucket) |entry| {
+            const check: u8 = @truncate(entry >> (@bitSizeOf(u32) - @bitSizeOf(u8)));
+            const slot: buckets_module.Slot = .{ .bucket = index, .check = check, .side = 0 };
+            try testing.expectEqual(null, buckets.candidate(slot, entry, 1, window_len));
+        }
+    }
+    for (0..buckets.side.len) |place| {
+        try testing.expectEqual(null, buckets.side_candidate(.{ .bucket = 0, .check = 0, .side = place }, 1, window_len));
     }
 }
 
