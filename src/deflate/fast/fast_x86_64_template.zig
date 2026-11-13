@@ -204,14 +204,12 @@ pub const plain =
     \\    movzx ecx, cx
     \\    add rax, rcx
     \\    // RFC 1951 §3.2.5: 258 has code 285 alone, so 258 from a base and extra bits goes to the
-    \\    // checked path, which refuses it. rcx the length where its entry takes extra bits and 0
-    \\    // where it takes none, by a select: a block's lengths mix both, so a branch on the
-    \\    // entry's bit mispredicts on about a third of a short stream's matches.
-    \\    mov ecx, r12d
-    \\    and ecx, {[extra_bit]}
-    \\    cmovnz ecx, r15d
-    \\    cmp ecx, {[match_len_max]}
-    \\    je 90f
+    \\    // checked path, which refuses it. The branch is on the length, which is seldom 258, and
+    \\    // 42 tests the entry there. A branch on the entry's extra bit is taken for a length of 11
+    \\    // or more and not below, so it mispredicts on about a third of a short stream's matches.
+    \\    cmp r15, {[match_len_max]}
+    \\    je 42f
+    \\41:
     \\    mov rbx, rdx
     \\    sub rbx, rax
     \\    jb 68f
@@ -224,6 +222,11 @@ pub const plain =
     \\    sub r9d, r12d
     \\    sub r9d, r14d
     \\    jmp 6b
+    \\42:
+    \\    // A length of 258: code 285's goes on, and one from a base and extra bits leaves.
+    \\    test r12d, {[extra_bit]}
+    \\    jz 41b
+    \\    jmp 90f
 ;
 
 /// A match's other cases: the window, a distance past the stream's window, and a distance below a
