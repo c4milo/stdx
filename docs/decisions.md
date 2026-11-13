@@ -5060,7 +5060,30 @@ small file.
       report's ratios against them are no evidence.
     - Four hex rows of 1 KiB texts fell on the N2: http/js-1k at 0.870 and 0.860, http/css-1k at
       0.897 and 0.883, http/html-1k at 0.968 and 0.868, and http/json-1k at 0.963 and 0.869. Each
-      text is one string, which takes 5 instructions more by the count above.
+      text is one string, which takes 5 instructions more by the count above. In the form that
+      landed they did not fall, as the next list shows.
+
+    The form that landed ran next, at ffd8215, in two pairs whose jobs ran main (f494022) first
+    (runs 43362896179 and 43362898828). A report of ffd8215 holds `next_items` beside `next`, so
+    each figure below is `next_items`' speed over `next`'s in one report.
+    - CLDR ran at 1.082 and 1.079 on the N2, at 1.137 on an Intel Xeon 8573C and at 1.190 on an
+      AMD EPYC 9V74. qlog ran at 1.076 and 1.084 on the N2, and at 1.131 and 1.216 on x86-64.
+    - No row ran below 0.98 in any of the four jobs. The four hex rows of 1 KiB texts ran at 0.991
+      to 1.015 on the N2 and at 0.987 to 1.019 on x86-64, so the probe's fall was its placement.
+    - Against the baselines through `next_items`: on the N2, CLDR ran at 1.087 and 1.108 of
+      simdjson and at 0.993 and 1.005 of yyjson. On the 9V74, CLDR ran at 0.937 of simdjson and
+      1.044 of yyjson, and qlog at 1.101 and 1.029. On the Xeon, CLDR ran at 0.841 of simdjson,
+      where a batch runs at 0.873, and qlog at 0.909 of simdjson and 0.990 of yyjson.
+    - bench-profile on the N2 (run 43362901192): a CLDR token took 80.8 instructions and 28.4
+      cycles through `next_items`, and 96.1 and 30.6 through `next`. A qlog token took 84.2 and
+      27.3, and 99.4 and 29.4.
+    - Main's candidates against main: through `next`, no row moved in both jobs on the N2. Rows
+      of other candidates moved in both jobs there: reymont as a string encoded at 0.959 to 0.979,
+      bible.txt at 0.990, and http/css-1m as hex decoded one token a call at 0.973 and 0.960. On
+      x86-64, with one job a CPU, a batch decoded CLDR at 0.949 on the Xeon and 0.917 on the 9V74,
+      and qlog at 0.945 and 0.957, and the encoder's string rows fell as far as 0.76 on the Xeon.
+      Each function those candidates reach has the same body at both commits, as above, which
+      decision 20 counts as placement.
 
     The checks: text_reader_items_test.zig reads each input through `next` and through
     `next_items`, with a reader and a storage each. It requires the same tokens, the same error,
