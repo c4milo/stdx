@@ -4,12 +4,21 @@
 //! table holds the newest position of each hash of 4 octets, for a match the buckets' 5 octets
 //! miss (decision 66, the finder's forms).
 //!
-//! An entry holds a window position, and above it the tag of the stream that stored it, as codec's
-//! match_finder.zig keeps its tables: the stream's base, its tag shifted above every position, plus
-//! the position. Tags only grow between clears, so an entry of an earlier stream lies below the
-//! base, and one range check finds an entry of this stream the window still reaches. An entry of
-//! position 0 names no candidate. `init` clears the buckets once; `start` begins the next stream
-//! with the next tag, and clears them again only when the tags run out.
+//! A bucket is one cache line of 64 octets: 16 entries of 4 octets. An entry holds a window position, and
+//! above it the position's check, the 8 bits of its hash below the bucket's. One compare of the
+//! bucket's 16 checks finds the entries worth reading. An entry of 0 names no candidate: a search
+//! reaches no further back than position 1.
+//!
+//! A bucket's mark, in a table of its own, holds the tag of the stream that wrote the bucket
+//! last, below the ring's next way. `start` begins the next stream with the next tag and clears
+//! nothing: a bucket whose mark holds another tag has no entry for a search, and the stream's
+//! first insert there empties it. `init` clears the marks alone, so no entry of uninitialized
+//! memory is read. The next way takes a mark's top bits, so one wrapping add steps the ring.
+//!
+//! The side table keeps its entries as codec's match_finder.zig keeps its tables: the stream's
+//! base, its tag shifted above every position, plus the position. Tags only grow between clears,
+//! so an entry of an earlier stream lies below the base, and one range check finds an entry of
+//! this stream the window still reaches.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,19 +30,34 @@ pub const ways = constants.encoder_level5.bucket_ways;
 
 /// The bits a position takes: a window of 2^22 and its slack are less than 2^23.
 const position_bits = constants.encoder_level5.window_bits + 1;
-/// The bits above the position, which hold the stream's tag.
+/// The bits above the position, which hold the stream's tag in the side table.
 const tag_bits = @bitSizeOf(u32) - position_bits;
+/// Where an entry's check starts, above its position, and the bits below it.
+const check_shift = @bitSizeOf(u32) - @bitSizeOf(u8);
+const position_mask = (@as(u32, 1) << check_shift) - 1;
+/// Where a mark's next way starts, above the stream's tag: the top bits of its 16, so that a
+/// wrapping add of `way_step` steps the ring and leaves the tag.
+const way_shift = @bitSizeOf(u16) - std.math.log2(ways);
+const way_step = @as(u16, 1) << way_shift;
+const mark_tag_mask = way_step - 1;
+/// The octets of a bucket, which is also its alignment: a bucket lies in one cache line of 64
+/// octets or more.
+const bucket_len = @sizeOf([ways]u32);
 
 comptime {
     assert(std.math.isPowerOfTwo(ways) and ways <= std.math.maxInt(u8) + 1);
     // `hits` takes the bucket's checks as one mask of 16 bits.
     assert(ways == @bitSizeOf(u16));
     assert((@as(usize, 1) << constants.encoder_level5.window_bits) + constants.encoder_level5.slack_len < @as(usize, 1) << position_bits);
+    // A position lies below an entry's check, and a tag above a way fits a mark.
+    assert(position_bits <= check_shift);
+    assert(tag_bits <= way_shift);
+    assert(std.math.isPowerOfTwo(bucket_len));
 }
 
 /// A position's bucket, and its check: the 8 bits of its hash below the bucket's, which the bucket
-/// keeps beside each entry, so one compare of 16 lanes finds the entries worth reading. And its
-/// place in the side table.
+/// keeps above each entry's position, so one compare of 16 lanes finds the entries worth reading.
+/// And its place in the side table.
 pub const Slot = struct { bucket: usize, check: u8, side: usize };
 
 const side_count = @as(usize, 1) << constants.encoder_level5.side_log;
@@ -47,51 +71,52 @@ comptime {
 }
 
 /// The hash's bits below the bucket's that make a check.
-const check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
+const hash_check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
 
 pub const Buckets = struct {
-    entries: [bucket_count][ways]u32,
-    checks: [bucket_count][ways]u8,
-    /// Each bucket's next slot in its ring.
-    next: [bucket_count]u8,
-    /// The newest position of each hash of 4 octets, held as an entry is.
+    /// Each bucket's 16 entries, one cache line: a position below its check.
+    entries: [bucket_count][ways]u32 align(bucket_len),
+    /// Each bucket's mark: the tag of the stream that wrote it last, below its ring's next way.
+    marks: [bucket_count]u16,
+    /// The newest position of each hash of 4 octets, the stream's base plus the position.
     side: [side_count]u32,
     /// The stream's tag, from 1 up, and its base: the tag above every position.
     tag: u32,
     base: u32,
 
     /// Empties the buckets, so no position of an earlier stream or of uninitialized memory names a
-    /// candidate (invariant 4), and starts the first stream's tag.
+    /// candidate (invariant 4), and starts the first stream's tag. It writes no entry: a mark of
+    /// 0 holds no stream's tag, so a search reads no entry before an insert empties its bucket.
     pub fn init(self: *Buckets) void {
         self.clear();
     }
 
-    /// Begins the next stream of buckets `init` started: the next tag, which no entry holds, or a
-    /// clear when the tags ran out. Each bucket's ring starts again at its first way, so the stream
-    /// fills the ways in the order a stream after `init` does: the parse tries them in that order,
-    /// and the first of two equal matches wins (invariant 5). That clears 16 KiB, a constant.
+    /// Begins the next stream of buckets `init` started: the next tag, which no mark and no entry
+    /// of the side table holds, or a clear when the tags ran out. It clears nothing else, a
+    /// constant cost: each bucket's first insert of the stream empties it and starts its ring at
+    /// its first way, so the stream fills the ways in the order a stream after `init` does. The
+    /// parse tries them in that order, and the first of two equal matches wins (invariant 5).
     pub fn start(self: *Buckets) void {
-        self.next = @splat(0);
         self.tag += 1;
-        if (self.tag == @as(u64, 1) << tag_bits) return self.clear();
+        if (self.tag == @as(u32, 1) << tag_bits) return self.clear();
         self.base = self.tag << position_bits;
     }
 
     fn clear(self: *Buckets) void {
-        for (&self.entries) |*bucket| bucket.* = @splat(0);
-        for (&self.checks) |*bucket| bucket.* = @splat(0);
-        self.next = @splat(0);
+        self.marks = @splat(0);
         self.side = @splat(0);
         self.tag = 1;
         self.base = @as(u32, 1) << position_bits;
     }
 
     /// Moves every position of this stream `shift` octets down, after the window slid by that
-    /// much. A position that slid out, and every earlier stream's, becomes 0.
+    /// much. A position that slid out becomes 0, and so does every earlier stream's in the side
+    /// table; a bucket an earlier stream wrote last holds no entry, and stays as it is.
     pub fn slide(self: *Buckets, shift: u32) void {
         const kept_min = self.base + shift;
-        for (&self.entries) |*bucket| {
-            for (bucket) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
+        for (&self.entries, &self.marks) |*bucket, mark| {
+            if (!self.wrote(mark)) continue;
+            for (bucket) |*entry| entry.* = if (entry.* & position_mask > shift) entry.* - shift else 0;
         }
         for (&self.side) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
     }
@@ -110,7 +135,7 @@ pub const Buckets = struct {
         const short = @as(u64, @as(u32, @truncate(word))) *% codec.constants.match_hash_multiplier;
         return .{
             .bucket = @intCast(product >> (@bitSizeOf(u64) - constants.encoder_level5.bucket_log)),
-            .check = @truncate(product >> check_shift),
+            .check = @truncate(product >> hash_check_shift),
             .side = @intCast(short >> (@bitSizeOf(u64) - constants.encoder_level5.side_log)),
         };
     }
@@ -120,47 +145,53 @@ pub const Buckets = struct {
         return slot_of(safety, window, position).bucket;
     }
 
-    /// Asks the cache for `slot`'s bucket before a search reads it. The load of an entry waits
-    /// on the load of the checks, so without this the two cache misses come one after the other.
-    /// The ring's next way too, which orders the hits.
+    /// Asks the cache for `slot`'s bucket and its mark before a search reads them.
     pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
-        @prefetch(&self.checks[slot.bucket], .{});
         @prefetch(&self.entries[slot.bucket], .{});
-        @prefetch(&self.next[slot.bucket], .{});
+        @prefetch(&self.marks[slot.bucket], .{});
     }
 
-    /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each.
+    /// The entry of `position` in a bucket: the position below `check`.
+    pub inline fn entry_of(check: u8, position: usize) u32 {
+        return @as(u32, check) << check_shift | @as(u32, @truncate(position));
+    }
+
+    /// The mark of a bucket this stream wrote last, whose ring's next way is `next`.
+    pub inline fn mark_of(self: *const Buckets, next: usize) u16 {
+        return @as(u16, @truncate(self.tag)) | @as(u16, @truncate(next)) << way_shift;
+    }
+
+    /// Whether this stream wrote the bucket `mark` belongs to: else the bucket holds no entry.
+    inline fn wrote(self: *const Buckets, mark: u16) bool {
+        return (mark ^ @as(u16, @truncate(self.tag))) & mark_tag_mask == 0;
+    }
+
+    /// The ring's next way of `slot`'s bucket, which this stream wrote: a search reads it after
+    /// a hit, and only such a bucket has one.
+    pub inline fn next_of(self: *const Buckets, slot: Slot) usize {
+        return self.marks[slot.bucket] >> way_shift;
+    }
+
+    /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each: none where an earlier
+    /// stream wrote the bucket last.
     pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
+        if (!self.wrote(self.marks[slot.bucket])) return 0;
         return @bitCast(self.check_lanes(slot));
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, 4 bits each: way w's are bits 4w to
     /// 4w + 3. One narrowing shift makes it from the compare of 16 lanes.
     pub inline fn hit_nibbles(self: *const Buckets, slot: Slot) u64 {
+        if (!self.wrote(self.marks[slot.bucket])) return 0;
         return nibbles(self.check_lanes(slot));
     }
 
-    /// The entries of `slot`'s bucket in reach, a bit each as `hits` sets them: an entry less
-    /// `base` is in reach when it is below `reach`. An entry of an earlier stream wraps past it.
-    pub inline fn reach_bits(self: *const Buckets, slot: Slot, base: u32, reach: u32) u16 {
-        return @bitCast(self.reach_lanes(slot, base, reach));
-    }
-
-    /// The entries of `slot`'s bucket in reach, 4 bits each as `hit_nibbles` sets them.
-    pub inline fn reach_nibbles(self: *const Buckets, slot: Slot, base: u32, reach: u32) u64 {
-        return nibbles(self.reach_lanes(slot, base, reach));
-    }
-
     inline fn check_lanes(self: *const Buckets, slot: Slot) @Vector(ways, bool) {
-        const Lanes = @Vector(ways, u8);
-        const lanes: Lanes = self.checks[slot.bucket];
-        return lanes == @as(Lanes, @splat(slot.check));
-    }
-
-    inline fn reach_lanes(self: *const Buckets, slot: Slot, base: u32, reach: u32) @Vector(ways, bool) {
         const Entries = @Vector(ways, u32);
+        const Checks = @Vector(ways, u8);
         const entries: Entries = self.entries[slot.bucket];
-        return entries -% @as(Entries, @splat(base)) < @as(Entries, @splat(reach));
+        const entry_checks: Checks = @truncate(entries >> @as(@Vector(ways, std.math.Log2Int(u32)), @splat(check_shift)));
+        return entry_checks == @as(Checks, @splat(slot.check));
     }
 
     /// 4 bits for each lane: each pair of 8-bit lanes, shifted right by 4 and narrowed to 8 bits,
@@ -179,26 +210,34 @@ pub const Buckets = struct {
         self.insert_at(safety, slot_of(safety, window, position), position);
     }
 
-    /// Records `position` in `slot`: in its bucket with its check, over the oldest entry, and in
-    /// the side table, over the position its 4 octets named before.
+    /// Records `position` in `slot`: in its bucket below its check, over the oldest entry, and in
+    /// the side table, over the position its 4 octets named before. The stream's first insert in
+    /// a bucket empties it first, and starts its ring. The stream's values are read before the
+    /// first store, which the compiler cannot show leaves them.
     pub inline fn insert_at(self: *Buckets, comptime safety: bool, slot: Slot, position: usize) void {
         @setRuntimeSafety(safety);
-        const way = self.next[slot.bucket] % ways;
-        const entry = self.base +% @as(u32, @truncate(position));
-        self.entries[slot.bucket][way] = entry;
-        self.checks[slot.bucket][way] = slot.check;
-        self.next[slot.bucket] = @truncate(way + 1);
-        self.side[slot.side] = entry;
+        const side_entry = self.base +% @as(u32, @truncate(position));
+        const mark = self.marks[slot.bucket];
+        const kept = self.wrote(mark);
+        const stream_mark: u16 = if (kept) mark else @truncate(self.tag);
+        if (!kept) self.entries[slot.bucket] = @splat(0);
+        self.entries[slot.bucket][stream_mark >> way_shift] = entry_of(slot.check, position);
+        self.marks[slot.bucket] = stream_mark +% way_step;
+        self.side[slot.side] = side_entry;
+    }
+
+    /// The position `entry` of `slot`'s bucket names, when it holds `slot`'s check and lies from
+    /// `low` up and before `position`. `low` is 1 at least, so an entry of 0 names none.
+    pub inline fn candidate(slot: Slot, entry: u32, low: usize, position: usize) ?usize {
+        const lowest = entry_of(slot.check, low);
+        if (entry < lowest or entry >= entry_of(slot.check, position)) return null;
+        return entry & position_mask;
     }
 
     /// The position the side table names for `slot`, when it lies in this stream from `low` up and
     /// before `position`: the newest whose 4 octets hash as `slot`'s do.
     pub inline fn side_candidate(self: *const Buckets, slot: Slot, low: usize, position: usize) ?usize {
-        return self.candidate(self.side[slot.side], low, position);
-    }
-
-    /// The position `entry` names when it lies in this stream from `low` up and before `position`.
-    pub inline fn candidate(self: *const Buckets, entry: u32, low: usize, position: usize) ?usize {
+        const entry = self.side[slot.side];
         const lowest = self.base +% @as(u32, @truncate(low));
         const own = self.base +% @as(u32, @truncate(position));
         if (entry < lowest or entry >= own) return null;
@@ -224,8 +263,12 @@ const slide_by = 1536;
 const kept_at = after_slide - slide_by;
 /// A position between two repeats, whose octets no other position stored has.
 const lone_position = 100;
-/// The inserts into one bucket: its ways twice over, so the ring writes over the first half.
+/// The inserts into one bucket: its ways twice over, so the ring writes over them once, and one
+/// more, so the ring's next way is not its first when the stream ends.
 const rounds = 2;
+const fill_count = rounds * ways + 1;
+/// The hits of a bucket whose first two ways alone hold the slot's check.
+const first_two_ways: u16 = 0b11;
 
 /// The buckets live on the stack of a function the compiler may not inline: 1 MiB of thread-local
 /// state would add to every test's, past aarch64's offsets.
@@ -233,49 +276,87 @@ fn expect_bucket() !void {
     var buckets_state: Buckets = undefined;
     var window_octets: [test_window_len]u8 = undefined;
     const buckets = &buckets_state;
-    // A side table that names a position before `init`: `init` must empty it.
-    buckets.side = @splat((@as(u32, 1) << position_bits) + repeat_step);
-    buckets.init();
-    for (buckets.side) |entry| try testing.expectEqual(null, buckets.candidate(entry, 1, test_end));
     // The same 5 octets every `repeat_step`: one bucket fills, its ring keeping the last `ways`.
     for (&window_octets, 0..) |*octet, index| {
         octet.* = if (index % repeat_step < constants.encoder_level5.hash_len) 'a' else @truncate(index);
     }
-    const bucket = Buckets.bucket_of(true, &window_octets, repeat_step);
-    for (1..rounds * ways + 1) |index| buckets.insert(true, &window_octets, index * repeat_step);
+    const slot = Buckets.slot_of(true, &window_octets, repeat_step);
+    // An empty way's check is 0: the counts of hits below take another check.
+    try testing.expect(slot.check != 0);
+    // A side table, a bucket and its mark that name a position before `init`, as memory a caller
+    // did not clear may: `init` must leave none a search takes.
+    buckets.side = @splat((@as(u32, 1) << position_bits) + repeat_step);
+    buckets.entries[slot.bucket] = @splat(Buckets.entry_of(slot.check, repeat_step));
+    buckets.tag = 1;
+    buckets.marks[slot.bucket] = buckets.mark_of(0);
+    buckets.init();
+    try testing.expectEqual(0, buckets.hits(slot));
+    try testing.expectEqual(0, buckets.hit_nibbles(slot));
+    for (0..side_count) |place| try testing.expectEqual(null, buckets.side_candidate(.{ .bucket = 0, .check = 0, .side = place }, 1, test_end));
+    for (1..fill_count + 1) |index| buckets.insert(true, &window_octets, index * repeat_step);
     var named: usize = 0;
-    for (buckets.entries[bucket]) |entry| {
-        const position = buckets.candidate(entry, 1, test_end) orelse continue;
-        try testing.expect(position > ways * repeat_step and position <= rounds * ways * repeat_step);
+    for (buckets.entries[slot.bucket]) |entry| {
+        const position = Buckets.candidate(slot, entry, 1, test_end) orelse continue;
+        try testing.expect(position > (fill_count - ways) * repeat_step and position <= fill_count * repeat_step);
         named += 1;
     }
     try testing.expectEqual(ways, named);
+    try testing.expectEqual(std.math.maxInt(u16), buckets.hits(slot));
+    try testing.expectEqual(fill_count % ways, buckets.next_of(slot));
     // The side table names the newest of them.
-    const slot = Buckets.slot_of(true, &window_octets, repeat_step);
-    try testing.expectEqual(rounds * ways * repeat_step, buckets.side_candidate(slot, 1, test_end));
-    // A new stream's tag names none of them.
+    try testing.expectEqual(fill_count * repeat_step, buckets.side_candidate(slot, 1, test_end));
+    // A new stream finds none of them, and its first insert empties the bucket and starts its
+    // ring at the first way.
     buckets.start();
-    for (buckets.entries[bucket]) |entry| try testing.expectEqual(null, buckets.candidate(entry, 1, test_end));
+    try testing.expectEqual(0, buckets.hits(slot));
     try testing.expectEqual(null, buckets.side_candidate(slot, 1, test_end));
-    // A slide moves this stream's entries down and empties those that slid out.
     buckets.insert(true, &window_octets, before_slide);
+    try testing.expectEqual(1, buckets.hits(slot));
+    try testing.expectEqual(1, buckets.next_of(slot));
+    try testing.expectEqual(before_slide, Buckets.candidate(slot, buckets.entries[slot.bucket][0], 1, test_end));
     buckets.insert(true, &window_octets, after_slide);
+    try testing.expectEqual(first_two_ways, buckets.hits(slot));
+    try testing.expectEqual(@popCount(first_two_ways), buckets.next_of(slot));
+    try expect_slide(buckets, &window_octets, slot);
+}
+
+/// A slide moves this stream's entries down and empties those that slid out. A bucket an earlier
+/// stream wrote last holds no entry, and the slide leaves it as it is.
+fn expect_slide(buckets: *Buckets, window_octets: []const u8, slot: Slot) !void {
     // Other octets below the slide, which the side table names until then.
-    const lone = Buckets.slot_of(true, &window_octets, lone_position);
-    try testing.expect(lone.side != slot.side);
-    buckets.insert(true, &window_octets, lone_position);
+    const lone = Buckets.slot_of(true, window_octets, lone_position);
+    try testing.expect(lone.side != slot.side and lone.bucket != slot.bucket);
+    buckets.insert(true, window_octets, lone_position);
     try testing.expectEqual(lone_position, buckets.side_candidate(lone, 1, test_end));
+    // A bucket this stream has not written, which holds an earlier stream's entries.
+    const stale = for (0..bucket_count) |bucket| {
+        if (bucket != slot.bucket and bucket != lone.bucket) break bucket;
+    } else unreachable;
+    const stale_entry = Buckets.entry_of(slot.check, after_slide);
+    buckets.entries[stale] = @splat(stale_entry);
+    buckets.marks[stale] = buckets.mark_of(0) - 1;
+    try testing.expectEqual(before_slide, buckets.entries[slot.bucket][0] & position_mask);
     buckets.slide(slide_by);
     try testing.expectEqual(kept_at, buckets.side_candidate(slot, 1, test_end));
     try testing.expectEqual(null, buckets.side_candidate(lone, 1, test_end));
     var kept: usize = 0;
-    for (buckets.entries[bucket]) |entry| {
-        if (buckets.candidate(entry, 1, test_end)) |position| {
+    for (buckets.entries[slot.bucket]) |entry| {
+        if (Buckets.candidate(slot, entry, 1, test_end)) |position| {
             try testing.expectEqual(kept_at, position);
             kept += 1;
         }
     }
     try testing.expectEqual(1, kept);
+    // The position that slid out left no entry, and the earlier stream's bucket is as it was.
+    try testing.expectEqual(0, buckets.entries[slot.bucket][0]);
+    for (buckets.entries[stale]) |entry| try testing.expectEqual(stale_entry, entry);
+    // The tags run out, and a later stream takes this stream's tag again: no stream finds one
+    // of its entries.
+    for (0..@as(usize, 1) << tag_bits) |_| {
+        buckets.start();
+        try testing.expectEqual(0, buckets.hits(slot));
+        try testing.expectEqual(null, buckets.side_candidate(slot, 1, test_end));
+    }
 }
 
 test "a slot takes 5 octets for its bucket and check, and the first 4 for the side table" {
@@ -301,39 +382,47 @@ const slot_seed = 77;
 const slot_rounds = 64;
 const slot_flip = 0x10;
 
-test "a bucket's masks set a way where `candidate` names a position, a bit or 4 bits each" {
+test "a bucket's masks set a way whose check is the slot's, a bit or 4 bits each" {
     try @call(.never_inline, expect_masks, .{});
 }
 
-/// Entries in one bucket: this stream's in reach, below the reach or past the position, and an
-/// earlier stream's, the first ways at each edge and the rest seeded. The reach masks must set a
-/// way where `candidate` names a position, and the nibble masks spread the bit masks 4 bits a way.
+/// Entries in one bucket, each with the slot's check, with a check one bit from it, or with a
+/// seeded one, and a seeded next way in its mark. The masks must set the ways whose check is the
+/// slot's, 4 bits a way in the nibble mask, and none under the mark of an earlier stream.
 fn expect_masks() !void {
     var buckets_state: Buckets = undefined;
     const buckets = &buckets_state;
     buckets.init();
-    // The next tag: an entry just below the base is an earlier stream's.
+    // The next tag: a mark of the first is an earlier stream's.
     buckets.start();
     var generator = codec.testing.split.Generator.init(mask_seed);
     const slot: Slot = .{ .bucket = 0, .check = mask_check, .side = 0 };
-    // The position, the last in reach, the lowest, the one below it, the earlier stream's last,
-    // and the stream's position 0.
-    const edges = [_]u32{ buckets.base + mask_position, buckets.base + mask_position - 1, buckets.base + mask_low, buckets.base + mask_low - 1, buckets.base -% 1, buckets.base };
     for (0..mask_rounds) |_| {
         var expected: u16 = 0;
         for (0..ways) |way| {
-            const seeded = buckets.base -% mask_span +% @as(u32, @intCast(generator.below(mask_spans * mask_span)));
-            const entry = if (way < edges.len) edges[way] else seeded;
-            buckets.entries[0][way] = entry;
-            buckets.checks[0][way] = if (@as(u1, @truncate(generator.next())) == 0) mask_check else ~mask_check;
-            if (buckets.candidate(entry, mask_low, mask_position) != null) expected |= @as(u16, 1) << @intCast(way);
+            const kind: CheckKind = @enumFromInt(generator.below(@typeInfo(CheckKind).@"enum".fields.len));
+            const check: u8 = switch (kind) {
+                .equal => mask_check,
+                .low_bit => mask_check ^ 1,
+                .top_bit => mask_check ^ (1 << (@bitSizeOf(u8) - 1)),
+                .seeded => @truncate(generator.next()),
+            };
+            buckets.entries[0][way] = Buckets.entry_of(check, @intCast(generator.below(mask_position)));
+            if (check == mask_check) expected |= @as(u16, 1) << @intCast(way);
         }
-        const base = buckets.base + mask_low;
-        try testing.expectEqual(expected, buckets.reach_bits(slot, base, mask_position - mask_low));
-        try testing.expectEqual(spread(expected), buckets.reach_nibbles(slot, base, mask_position - mask_low));
-        try testing.expectEqual(spread(buckets.hits(slot)), buckets.hit_nibbles(slot));
+        const next: usize = @intCast(generator.below(ways));
+        buckets.marks[0] = buckets.mark_of(next);
+        try testing.expectEqual(expected, buckets.hits(slot));
+        try testing.expectEqual(spread(expected), buckets.hit_nibbles(slot));
+        try testing.expectEqual(next, buckets.next_of(slot));
+        buckets.marks[0] -= 1;
+        try testing.expectEqual(0, buckets.hits(slot));
+        try testing.expectEqual(0, buckets.hit_nibbles(slot));
     }
 }
+
+/// What a way's check is in the masks' test.
+const CheckKind = enum { equal, low_bit, top_bit, seeded };
 
 /// Each bit of `bits` as the 4 bits of way's nibble.
 fn spread(bits: u16) u64 {
@@ -346,10 +435,25 @@ fn spread(bits: u16) u64 {
 
 const mask_seed = 69;
 const mask_rounds = 200;
-/// Entries from `mask_span` below the base to twice it above: an earlier stream's, below the
-/// reach, in it, and past the position.
-const mask_span = 4096;
-const mask_spans = 3;
 const mask_low = 1000;
 const mask_position = 3000;
 const mask_check: u8 = 0x5a;
+
+test "an entry names a candidate with the slot's check, from the lowest position to the one before" {
+    const slot: Slot = .{ .bucket = 0, .check = mask_check, .side = 0 };
+    const cases = [_]struct { check: u8, position: usize, named: ?usize }{
+        // The position's own entry, the last in reach, the lowest, and the one below it.
+        .{ .check = mask_check, .position = mask_position, .named = null },
+        .{ .check = mask_check, .position = mask_position - 1, .named = mask_position - 1 },
+        .{ .check = mask_check, .position = mask_low, .named = mask_low },
+        .{ .check = mask_check, .position = mask_low - 1, .named = null },
+        // A check below the slot's and one above it, each with a position in reach.
+        .{ .check = mask_check - 1, .position = mask_low, .named = null },
+        .{ .check = mask_check + 1, .position = mask_low, .named = null },
+    };
+    for (cases) |case| {
+        try testing.expectEqual(case.named, Buckets.candidate(slot, Buckets.entry_of(case.check, case.position), mask_low, mask_position));
+    }
+    // An empty entry names none, for a slot whose check is 0 too.
+    try testing.expectEqual(null, Buckets.candidate(.{ .bucket = 0, .check = 0, .side = 0 }, 0, 1, mask_position));
+}

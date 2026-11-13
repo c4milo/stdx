@@ -19,7 +19,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const constants = @import("../../constants.zig");
 const assembly = @import("encoder_hits_assembly.zig");
 const buckets_module = @import("encoder_buckets.zig");
 
@@ -40,7 +39,7 @@ pub const Search = struct {
     top: u64 = std.math.maxInt(u4) << (@bitSizeOf(u64) - @bitSizeOf(u4)),
     /// `position - low`: a candidate in reach lies below it, and its distance is the reach less it.
     reach: u64,
-    /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
+    /// The entry of `low` with the slot's check: an entry less it is the candidate.
     base: u64,
     entries: [*]const u32,
     /// The bucket's ring's next way plus 15: the way written `step` inserts before the last is
@@ -64,24 +63,18 @@ pub const Search = struct {
 pub const none = std.math.maxInt(u64);
 
 /// The search of `slot`'s hits at `position`, the best so far `saves` and `candidate`, or none
-/// when no hit lies in reach. Early in a stream begun with `start`, most hits are entries of an
-/// earlier stream: one compare of the bucket's 16 entries against the reach drops them first.
+/// when the bucket has no hit. A bucket an earlier stream wrote last has none.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
-    var hits = buckets.hit_nibbles(slot);
+    const hits = buckets.hit_nibbles(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
-    const base = buckets.base +% @as(u32, @truncate(low));
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
-    const next: u64 = buckets.next[slot.bucket] % ways;
+    const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
         .here = here,
         .cost = cost,
         .reach = position - low,
-        .base = base,
+        .base = Buckets.entry_of(slot.check, low),
         .entries = &buckets.entries[slot.bucket],
         .newest = next + ways - 1,
         .order = std.math.rotr(u64, hits, next * @bitSizeOf(u4)),
@@ -168,8 +161,8 @@ pub inline fn consider_first(search: *Search) u64 {
 }
 
 /// x0 the newest way plus 16 less 1, x1 the window from the lowest position in reach, x2 the
-/// position's 8 octets, x3 a literal's cost, x4 bits 60 to 63, x6 the reach, x7 the stream's base
-/// plus the lowest position, x8 the bucket's entries, x9 the hits in order, x10 the best saving
+/// position's 8 octets, x3 a literal's cost, x4 bits 60 to 63, x6 the reach, x7 the entry of
+/// the lowest position, x8 the bucket's entries, x9 the hits in order, x10 the best saving
 /// plus `cost_bias`, x11 its candidate, x12 to x14 the compare at the best length; x15 the
 /// candidate to measure. A candidate's distance's leading zeros go in x17.
 const pick =
@@ -181,7 +174,8 @@ const pick =
     \\ bic x9, x9, x16
     \\ sub w15, w0, w15, lsr #2
     \\ and w15, w15, #15
-    // The candidate: an entry of an earlier stream or past the position wraps past the reach.
+    // The candidate: an entry with another check, below `low` or past the position wraps past
+    // the reach.
     \\ ldr w15, [x8, w15, uxtw #2]
     \\ sub w15, w15, w7
     \\ cmp w15, w6
@@ -246,7 +240,7 @@ pub const Probe = struct {
     tail_window: [*]const u8,
     shorter_window: [*]const u8,
     reach: u64,
-    /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
+    /// The entry of `low` with the slot's check: an entry less it is the candidate.
     base: u64,
     entries: [*]const u32,
     /// The hits left, bit 4w for way w.
@@ -260,21 +254,16 @@ pub const Probe = struct {
 /// One bit of each way's 4 in a mask of `hit_nibbles`, so a cleared bit clears its way.
 const way_bits = std.math.maxInt(u64) / std.math.maxInt(u4);
 
-/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
-/// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
+/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when the bucket has
+/// none. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
-    var hits = buckets.hit_nibbles(slot);
+    const hits = buckets.hit_nibbles(slot);
     if (hits == 0) return null;
-    const base = buckets.base +% @as(u32, @truncate(low));
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
     return .{
         .tail_window = window + low + at,
         .shorter_window = window + low + at - 1,
         .reach = position - low,
-        .base = base,
+        .base = Buckets.entry_of(slot.check, low),
         .entries = &buckets.entries[slot.bucket],
         .order = hits & way_bits,
         .near = near,
@@ -305,7 +294,7 @@ pub inline fn probe(search: *Probe) u64 {
     return pending;
 }
 
-/// x6 the reach, x7 the stream's base plus the lowest position, x8 the bucket's entries, x9 the
+/// x6 the reach, x7 the entry of the lowest position, x8 the bucket's entries, x9 the
 /// hits, x10 to x14 the floor; x15 the candidate to measure. The lowest way first: its bit, the
 /// way's 4 bits' lowest, cleared.
 const probe_text =
@@ -316,7 +305,8 @@ const probe_text =
     \\ sub x16, x9, #1
     \\ and x9, x9, x16
     \\ lsr w15, w15, #2
-    // The candidate: an entry of an earlier stream or past the position wraps past the reach.
+    // The candidate: an entry with another check, below `low` or past the position wraps past
+    // the reach.
     \\ ldr w15, [x8, w15, uxtw #2]
     \\ sub w15, w15, w7
     \\ cmp w15, w6
