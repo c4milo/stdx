@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const constants = @import("../../constants.zig");
 const assembly = @import("encoder_hits_assembly.zig");
 const buckets_module = @import("encoder_buckets.zig");
 
@@ -63,18 +64,24 @@ pub const Search = struct {
 pub const none = std.math.maxInt(u64);
 
 /// The search of `slot`'s hits at `position`, the best so far `saves` and `candidate`, or none
-/// when the bucket has no hit. A bucket an earlier stream wrote last has none.
+/// when no hit lies in reach. Early in a stream begun with `start`, most hits are entries of an
+/// earlier stream: one compare of the bucket's 16 entries against the reach drops them first.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
-    const hits = buckets.hit_nibbles(slot);
+    var hits = buckets.hit_nibbles(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
+    const base = buckets.entry_at(slot.check, low);
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
+        if (hits == 0) return null;
+    }
     const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
         .here = here,
         .cost = cost,
         .reach = position - low,
-        .base = buckets.entry_at(slot.check, low),
+        .base = base,
         .entries = &buckets.entries[slot.bucket],
         .newest = next + ways - 1,
         .order = std.math.rotr(u64, hits, next * @bitSizeOf(u4)),
@@ -254,16 +261,21 @@ pub const Probe = struct {
 /// One bit of each way's 4 in a mask of `hit_nibbles`, so a cleared bit clears its way.
 const way_bits = std.math.maxInt(u64) / std.math.maxInt(u4);
 
-/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when the bucket has
-/// none. `at`, `tail`, `near` and `shorter_tail` are the floor's.
+/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
+/// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
-    const hits = buckets.hit_nibbles(slot);
+    var hits = buckets.hit_nibbles(slot);
     if (hits == 0) return null;
+    const base = buckets.entry_at(slot.check, low);
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
+        if (hits == 0) return null;
+    }
     return .{
         .tail_window = window + low + at,
         .shorter_window = window + low + at - 1,
         .reach = position - low,
-        .base = buckets.entry_at(slot.check, low),
+        .base = base,
         .entries = &buckets.entries[slot.bucket],
         .order = hits & way_bits,
         .near = near,

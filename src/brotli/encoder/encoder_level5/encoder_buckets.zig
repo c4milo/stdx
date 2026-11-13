@@ -164,6 +164,24 @@ pub const Buckets = struct {
         return nibbles(self.check_lanes(slot));
     }
 
+    /// The ways of `slot`'s bucket in reach, a bit each as `hits` sets them: an entry less `base`,
+    /// the entry of the lowest position with the slot's check, is in reach below `reach`. Among
+    /// the hits, an earlier stream's entry wraps past it.
+    pub inline fn reach_bits(self: *const Buckets, slot: Slot, base: u32, reach: u32) u16 {
+        return @bitCast(self.reach_lanes(slot, base, reach));
+    }
+
+    /// The ways of `slot`'s bucket in reach, 4 bits each as `hit_nibbles` sets them.
+    pub inline fn reach_nibbles(self: *const Buckets, slot: Slot, base: u32, reach: u32) u64 {
+        return nibbles(self.reach_lanes(slot, base, reach));
+    }
+
+    inline fn reach_lanes(self: *const Buckets, slot: Slot, base: u32, reach: u32) @Vector(ways, bool) {
+        const Entries = @Vector(ways, u32);
+        const entries: Entries = self.entries[slot.bucket];
+        return entries -% @as(Entries, @splat(base)) < @as(Entries, @splat(reach));
+    }
+
     inline fn check_lanes(self: *const Buckets, slot: Slot) @Vector(ways, bool) {
         const Entries = @Vector(ways, u32);
         const Checks = @Vector(ways, u8);
@@ -236,6 +254,8 @@ const lone_position = 100;
 /// more, so the ring's next way is not its first when the stream ends.
 const rounds = 2;
 const fill_count = rounds * ways + 1;
+/// The inserts of the second stream before its slide: its first ways.
+const second_stream_ways = 2;
 
 /// The buckets live on the stack of a function the compiler may not inline: 1 MiB of thread-local
 /// state would add to every test's, past aarch64's offsets.
@@ -273,7 +293,7 @@ fn expect_bucket() !void {
     try testing.expectEqual(1, buckets.next_of(slot));
     try testing.expectEqual(before_slide, buckets.candidate(slot, buckets.entries[slot.bucket][0], 1, test_end));
     buckets.insert(true, &window_octets, after_slide);
-    try expect_named(buckets, slot, before_slide - 1, 2);
+    try expect_named(buckets, slot, before_slide - 1, second_stream_ways);
     try expect_slide(buckets, &window_octets, slot);
 }
 
@@ -297,8 +317,8 @@ fn expect_slide(buckets: *Buckets, window_octets: []const u8, slot: Slot) !void 
     try testing.expect(lone.side != slot.side and lone.bucket != slot.bucket);
     buckets.insert(true, window_octets, lone_position);
     try testing.expectEqual(lone_position, buckets.side_candidate(lone, 1, test_end));
-    // The ways past the stream's two hold the earlier stream's entries.
-    const earlier_ways = buckets.entries[slot.bucket][2..];
+    // The ways past the stream's own hold the earlier stream's entries.
+    const earlier_ways = buckets.entries[slot.bucket][second_stream_ways..];
     for (earlier_ways) |entry| try testing.expect(entry != 0);
     try testing.expectEqual(buckets.offset + before_slide, buckets.entries[slot.bucket][0] & position_mask);
     buckets.slide(slide_by);
@@ -361,21 +381,31 @@ const slot_seed = 77;
 const slot_rounds = 64;
 const slot_flip = 0x10;
 
-test "a bucket's masks set a way whose check is the slot's, a bit or 4 bits each" {
+test "a bucket's masks set a way with the slot's check, and among them one in reach" {
     try @call(.never_inline, expect_masks, .{});
 }
 
-/// Entries in one bucket, each with the slot's check, with a check one bit from it, or with a
-/// seeded one, and a seeded ring. The masks must set the ways whose check is the slot's, 4 bits
-/// a way in the nibble mask.
+/// Entries in one bucket: this stream's in reach, below the reach or past the position, and a
+/// first stream's, the first ways at each edge and the rest seeded, each with the slot's check, a
+/// check one bit from it, or a seeded one, in a seeded ring. The check masks must set the ways
+/// with the slot's check, and among them the reach masks those where `candidate` names a
+/// position. The nibble masks spread the bit masks 4 bits a way.
 fn expect_masks() !void {
     var buckets_state: Buckets = undefined;
     const buckets = &buckets_state;
     buckets.init();
+    // A first stream: an entry just below the offset is its.
+    buckets.start(mask_position);
     var generator = codec.testing.split.Generator.init(mask_seed);
     const slot: Slot = .{ .bucket = 0, .check = mask_check, .side = 0 };
+    // The position, the last in reach, the lowest, the one below it, the first stream's last, and
+    // the stream's position 0.
+    const offset = buckets.offset;
+    const edges = [_]u32{ offset + mask_position, offset + mask_position - 1, offset + mask_low, offset + mask_low - 1, offset - 1, offset };
+    const base = buckets.entry_at(mask_check, mask_low);
     for (0..mask_rounds) |_| {
-        var expected: u16 = 0;
+        var hits: u16 = 0;
+        var in_reach: u16 = 0;
         for (0..ways) |way| {
             const kind: CheckKind = @enumFromInt(generator.below(@typeInfo(CheckKind).@"enum".fields.len));
             const check: u8 = switch (kind) {
@@ -384,12 +414,17 @@ fn expect_masks() !void {
                 .top_bit => mask_check ^ (1 << (@bitSizeOf(u8) - 1)),
                 .seeded => @truncate(generator.next()),
             };
-            buckets.entries[0][way] = buckets.entry_at(check, @intCast(generator.below(mask_position)));
-            if (check == mask_check) expected |= @as(u16, 1) << @intCast(way);
+            const seeded: u32 = @intCast(generator.below(offset + mask_position));
+            const entry = Buckets.entry_of(check, if (way < edges.len) edges[way] else seeded);
+            buckets.entries[0][way] = entry;
+            if (check == mask_check) hits |= @as(u16, 1) << @intCast(way);
+            if (buckets.candidate(slot, entry, mask_low, mask_position) != null) in_reach |= @as(u16, 1) << @intCast(way);
         }
         buckets.next[0] = @truncate(generator.next());
-        try testing.expectEqual(expected, buckets.hits(slot));
-        try testing.expectEqual(spread(expected), buckets.hit_nibbles(slot));
+        try testing.expectEqual(hits, buckets.hits(slot));
+        try testing.expectEqual(spread(hits), buckets.hit_nibbles(slot));
+        try testing.expectEqual(in_reach, buckets.reach_bits(slot, base, mask_position - mask_low) & hits);
+        try testing.expectEqual(spread(in_reach), buckets.reach_nibbles(slot, base, mask_position - mask_low) & spread(hits));
         try testing.expectEqual(buckets.next[0] % ways, buckets.next_of(slot));
     }
 }

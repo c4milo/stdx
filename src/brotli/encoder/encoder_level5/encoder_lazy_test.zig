@@ -69,9 +69,9 @@ test "the assembly probes a bucket's hits as the Zig loop does" {
 /// The rounds of one seeded search: a bucket filled at a position, then both loops compared.
 const Round = fn (*Buckets, []u8, usize, *codec.testing.split.Generator) anyerror!void;
 
-/// Seeded buckets and windows, at a position early in the window and at one whose matches may
-/// run to the end: the assembly and the Zig loop must pick alike. A first stream ends before
-/// the rounds, so a way may hold its entry.
+/// Seeded buckets and windows, at a position early in a stream, at one past `reach_compare_len`,
+/// and at one whose matches may run to the end: the assembly and the Zig loop must pick alike. A
+/// first stream ends before the rounds, so a way may hold its entry.
 fn expect_search_seeded(comptime round_of: Round) !void {
     var buckets: Buckets = undefined;
     buckets.init();
@@ -79,7 +79,7 @@ fn expect_search_seeded(comptime round_of: Round) !void {
     var window: [search_window_len]u8 = undefined;
     var generator = codec.testing.split.Generator.init(search_seed);
     for (&window) |*octet| octet.* = @truncate(generator.next());
-    const positions = [_]usize{ search_young, search_window_len - search_end_room };
+    const positions = [_]usize{ search_young, search_old, search_window_len - search_end_room };
     for (0..search_rounds) |round| {
         const position = positions[round % positions.len];
         // Fresh octets from below the reach to past the longest copy.
@@ -188,14 +188,14 @@ test "the search refuses a near collision of 3 octets and an entry at the positi
 
 /// A bucket that holds a collision 8 octets back, which agrees on 3 octets, and the position's own
 /// entry. At 8 bits a literal and so near, the collision would save more than its literals; each
-/// loop must refuse both, at a position early in the window and at one near its end.
+/// loop must refuse both, early in a stream and past `reach_compare_len`.
 fn expect_search_refusals() !void {
     var buckets: Buckets = undefined;
     buckets.init();
     var window: [search_window_len]u8 = undefined;
     var generator = codec.testing.split.Generator.init(search_seed);
     for (&window) |*octet| octet.* = @truncate(generator.next());
-    for ([_]usize{ search_young, search_window_len - search_end_room }) |position| {
+    for ([_]usize{ search_young, search_old }) |position| {
         const slot = Buckets.slot_of(true, &window, position);
         place(&window, position, .{ .at = position - refusal_distance, .len = min_len - 1 });
         const entries = [_]usize{ position - refusal_distance, position };
@@ -213,10 +213,9 @@ fn expect_search_refusals() !void {
 /// A distance whose log2 of 3 bits lets 3 octets at 8 bits each pass a match's cost.
 const refusal_distance = 8;
 
-/// The window, in refills: its last position lies far from the first.
-const search_window_refills = 16;
-const search_window_len = search_window_refills * search_refill_len;
+const search_window_len = search_old + search_refill_len;
 const search_young = search_refill_len;
+const search_old = constants.encoder_level5.reach_compare_len + search_refill_len;
 /// One search in this many reads a bucket the first stream wrote last.
 const search_first_one_in = 8;
 const search_reach = 2000;

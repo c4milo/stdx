@@ -12,6 +12,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const constants = @import("../../constants.zig");
 const assembly = @import("encoder_hits_assembly.zig");
 const buckets_module = @import("encoder_buckets.zig");
 
@@ -59,16 +60,21 @@ comptime {
 
 /// The search of `slot`'s hits at `position`, as `encoder_hits_aarch64.begin` makes it.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
-    const hits = buckets.hits(slot);
+    var hits = buckets.hits(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
+    const base = buckets.entry_at(slot.check, low);
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
+        if (hits == 0) return null;
+    }
     const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
         .here = here,
         .cost = cost,
         .reach = position - low,
-        .base = buckets.entry_at(slot.check, low),
+        .base = base,
         .entries = &buckets.entries[slot.bucket],
         .newest = next + ways - 1,
         .order = std.math.rotl(u16, @bitReverse(hits), next),
@@ -219,16 +225,21 @@ comptime {
     assert(@offsetOf(Probe, "order") == 5 * 8 and @offsetOf(Probe, "shorter_tail") == 8 * 8);
 }
 
-/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when the bucket has
-/// none. `at`, `tail`, `near` and `shorter_tail` are the floor's.
+/// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
+/// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
-    const hits = buckets.hits(slot);
+    var hits = buckets.hits(slot);
     if (hits == 0) return null;
+    const base = buckets.entry_at(slot.check, low);
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
+        if (hits == 0) return null;
+    }
     return .{
         .tail_window = window + low + at,
         .shorter_window = window + low + at - 1,
         .reach = position - low,
-        .base = buckets.entry_at(slot.check, low),
+        .base = base,
         .entries = &buckets.entries[slot.bucket],
         .order = hits,
         .near = near,

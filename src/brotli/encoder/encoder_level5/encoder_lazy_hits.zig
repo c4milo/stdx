@@ -6,6 +6,7 @@
 //! choice they make.
 
 const std = @import("std");
+const constants = @import("../../constants.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const buckets_module = @import("encoder_buckets.zig");
 const encoder_lazy = @import("encoder_lazy.zig");
@@ -30,9 +31,14 @@ pub const assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
 pub inline fn consider(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, end: usize, low: usize, pick: *Pick) void {
     @setRuntimeSafety(safety);
     if (comptime assembly_takes and !safety) return consider_assembly(safety, Assembly, buckets, slot, window, position, end, low, pick);
-    const hits = buckets.hits(slot);
+    var hits = buckets.hits(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return;
+    // Early in a stream begun with `start`, most hits are entries of an earlier stream.
+    if (position < constants.encoder_level5.reach_compare_len) {
+        hits &= buckets.reach_bits(slot, buckets.entry_at(slot.check, low), @intCast(position - low));
+        if (hits == 0) return;
+    }
     const next = buckets.next_of(slot);
     // Bit j of `order` is the way written j inserts before the last.
     var order = std.math.rotl(u16, @bitReverse(hits), next);
