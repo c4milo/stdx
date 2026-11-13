@@ -55,6 +55,8 @@ pub const Walk = struct {
     /// takes 64 octets a pass first (decision 80).
     inline fn take_ascii(self: *Walk, comptime block_len: usize, input_len: usize) AsciiStop {
         if (block_len == wide_walk.block_len) {
+            const first = self.take_ascii_first();
+            if (first != .short) return first;
             const stop = self.take_ascii_passes(input_len);
             if (stop != .short) return stop;
         }
@@ -73,6 +75,36 @@ pub const Walk = struct {
             return .non_ascii;
         }
         unreachable;
+    }
+
+    /// `take_ascii`'s first block, of `constants.ascii_first_len` octets, before its passes in the
+    /// AVX2 variant object: stored as it is, then classified into a word of the lanes that end the
+    /// run. Returns `.short` where the block holds no stop, or where fewer octets than a block's
+    /// are left, for the passes and then the 16-octet loop to go on (decision 80).
+    inline fn take_ascii_first(self: *Walk) AsciiStop {
+        const len = constants.ascii_first_len;
+        if (self.input.len < len or self.output.len < len) return .short;
+        const block: @Vector(len, u8) = self.input[0..len].*;
+        self.output[0..len].* = block;
+        const first = first_stop(len, block);
+        if (first == len) {
+            self.advance(len);
+            return .short;
+        }
+        self.advance(first);
+        if (self.input[0] < constants.non_ascii_min) return .octet;
+        self.ascii_so_far = false;
+        return .non_ascii;
+    }
+
+    /// The first lane of `block` that ends a run, or `len` where none does: at 16 lanes through
+    /// `scan`'s word, which holds four bits a lane on aarch64, and at 32 through AVX2's one bit.
+    inline fn first_stop(comptime len: usize, block: @Vector(len, u8)) usize {
+        if (len == constants.vector_len) {
+            const stops = scan.ascii_stops(block);
+            return if (stops == 0) len else scan.word_first(stops);
+        }
+        return @ctz(wide_walk.ascii_stops(block));
     }
 
     /// `take_ascii` a pass of two blocks of 32 at a time, while the input and the output hold one:
@@ -209,4 +241,16 @@ pub inline fn run_of(comptime claims: Claims, level: wide.Level, window: []const
     if (plain_len == window.len or window[plain_len] < constants.non_ascii_min) return plain_len;
     const rest = window[plain_len..];
     return plain_len + if (claims.utf8_vectors) scan.content_len_vector(constants.vector_len, rest) else scan.content_len_scalar(rest);
+}
+
+test "take_ascii's first block moves past all its octets where none ends the run" {
+    const len = constants.ascii_first_len;
+    var input: [len + 1]u8 = @splat('a');
+    input[len] = constants.quotation_mark;
+    var output: [len + 1]u8 = undefined;
+    var walk: Walk = .{ .input = &input, .output = &output };
+    try std.testing.expectEqual(Walk.AsciiStop.short, walk.take_ascii_first());
+    try std.testing.expectEqual(1, walk.input.len);
+    try std.testing.expectEqual(1, walk.output.len);
+    try std.testing.expectEqualSlices(u8, input[0..len], output[0..len]);
 }

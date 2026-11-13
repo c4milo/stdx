@@ -124,12 +124,13 @@ test "the encoder writes seeded text with runs of every length alike at both wid
     }
 }
 
-/// A run of plain ASCII past 64 passes, closed by a quotation mark: the walk's passes over it are
-/// counted, so a pass that took fewer octets than it loaded would run out of passes.
-const long_passes = pass_len + 1;
+/// A run of plain ASCII of 257 passes, closed by a quotation mark: the walk's passes over it are
+/// counted, so a pass that took one octet fewer than it loaded would run out of passes. Past the
+/// first block's octets, such a walk needs a run of about 9,100 octets to run out.
+const long_passes = 257;
 const long_len = long_passes * pass_len;
 
-test "a run of plain ASCII past 64 passes copies alike at both widths" {
+test "a run of plain ASCII of 257 passes copies alike at both widths" {
     const level = wide.Level.of(codec.Features.detect());
     var storage: [long_len + 1]u8 = undefined;
     const string = ascii_string(&storage, long_len, 'l');
