@@ -381,7 +381,7 @@ pub const Side = struct { title: []const u8, octets_are: []const u8, side: []con
 /// Prints each side's table and the workloads where a baseline ran faster than stdx.
 pub fn report(out: *std.Io.Writer, sides: []const Side) !void {
     try out.print("\n## Against the baselines\n\n", .{});
-    try out.print("stdx with every claim on, timed beside simdjson 5.1.1, yyjson 0.13.0, Zig 0.16.0's std.json, serde_json 1.0.154 and Go's encoding/json/jsontext in the same run. Each ratio is stdx's throughput over the baseline's; below 1, the baseline is faster. stdx is built for the architecture's baseline CPU in ReleaseSafe; the baselines for this host in ReleaseFast, and simdjson picks its kernel at run time. Decoding visits every value; encoding writes each text from its tokens.\n", .{});
+    try out.print("stdx with every claim on, timed beside simdjson 5.1.1, yyjson 0.13.0, Zig 0.16.0's std.json, serde_json 1.0.154 and Go's encoding/json/jsontext in the same run. Each ratio is stdx's throughput over the baseline's; below 1, the baseline is faster. stdx is built for the architecture's baseline CPU in ReleaseSafe. Each baseline is built for the same CPU, the C, C++ and Zig ones in ReleaseFast (decision 75), and simdjson picks its kernel at run time. Decoding visits every value; encoding writes each text from its tokens.\n", .{});
     for (sides) |side| try table(out, side.title, side.octets_are, side.rows);
     try out.print("\n## Losses to the baselines\n\nEach workload where a baseline ran faster than stdx by more than the noise floor of decision 20.\n\n", .{});
     var none = true;
