@@ -55,7 +55,8 @@ pub const Walk = struct {
     /// takes 64 octets a pass first (decision 80).
     inline fn take_ascii(self: *Walk, comptime block_len: usize, input_len: usize) AsciiStop {
         if (block_len == wide_walk.block_len) {
-            if (self.take_ascii_passes(input_len)) |stop| return stop;
+            const stop = self.take_ascii_passes(input_len);
+            if (stop != .short) return stop;
         }
         for (0..input_len / constants.vector_len + 1) |_| {
             if (self.input.len < constants.vector_len or self.output.len < constants.vector_len) return .short;
@@ -76,12 +77,13 @@ pub const Walk = struct {
 
     /// `take_ascii` a pass of two blocks of 32 at a time, while the input and the output hold one:
     /// each pass stored as it is, then its blocks classified into one word of 64 lanes, one test
-    /// and one branch for 64 octets (decision 80). Returns null where fewer octets are left, for
-    /// the 16-octet loop to take the rest.
-    inline fn take_ascii_passes(self: *Walk, input_len: usize) ?AsciiStop {
+    /// and one branch for 64 octets (decision 80). Returns `.short` where fewer octets are left,
+    /// for the 16-octet loop to take the rest. The result is an enum, not an optional: an optional
+    /// came back through constants in memory and a jump table at each stop.
+    inline fn take_ascii_passes(self: *Walk, input_len: usize) AsciiStop {
         const half = wide_walk.block_len;
         for (0..input_len / constants.ascii_pass_len + 1) |_| {
-            if (self.input.len < constants.ascii_pass_len or self.output.len < constants.ascii_pass_len) return null;
+            if (self.input.len < constants.ascii_pass_len or self.output.len < constants.ascii_pass_len) return .short;
             const low: @Vector(half, u8) = self.input[0..half].*;
             const high: @Vector(half, u8) = self.input[half..constants.ascii_pass_len].*;
             self.output[0..half].* = low;
