@@ -204,12 +204,14 @@ pub const plain =
     \\    movzx ecx, cx
     \\    add rax, rcx
     \\    // RFC 1951 §3.2.5: 258 has code 285 alone, so 258 from a base and extra bits goes to the
-    \\    // checked path, which refuses it.
-    \\    test r12d, {[extra_bit]}
-    \\    jz 41f
-    \\    cmp r15, {[match_len_max]}
+    \\    // checked path, which refuses it. rcx the length where its entry takes extra bits and 0
+    \\    // where it takes none, by a select: a block's lengths mix both, so a branch on the
+    \\    // entry's bit mispredicts on about a third of a short stream's matches.
+    \\    mov ecx, r12d
+    \\    and ecx, {[extra_bit]}
+    \\    cmovnz ecx, r15d
+    \\    cmp ecx, {[match_len_max]}
     \\    je 90f
-    \\41:
     \\    mov rbx, rdx
     \\    sub rbx, rax
     \\    jb 68f
