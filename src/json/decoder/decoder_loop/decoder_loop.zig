@@ -97,12 +97,19 @@ pub fn SlotOf(comptime claims: Claims) type {
     return if (claims.decoder_loop_in_place) Item else Slot;
 }
 
+/// Which call holds a copy of the loop in place: `TextReader.next` or `TextReader.next_items`. The
+/// loop reads no value of it. Each value gives its call a copy of the loop and of the loop's
+/// helpers, so the compiler takes into each call what it takes into a program with that one
+/// call. With one copy for both calls, the compiler left the helpers out of line, and each call
+/// paid for a long string and for a refill what a program with one call does not (decision 79).
+pub const Holder = enum { next, next_items };
+
 /// `take` in place, for `TextReader`'s queue (decision 76): each slot is the token's item, a
 /// name's, a string's or a number's octets in `input`. `output` only bounds each token, as the
 /// storage bounds it on the checked path, and the loop writes nothing there. It stops at a name or
 /// a string that is not plain ASCII up to its closing quotation mark, which claim J8's line or the
 /// checked path takes. A function of its own, beside `take`: a batch's `take` keeps its code.
-pub fn take_in_place(decoder: *Decoder, comptime claims: Claims, input: []const u8, output: []u8, piece: Piece, cursor: *Cursor, slots: []Item) usize {
+pub fn take_in_place(decoder: *Decoder, comptime claims: Claims, comptime holder: Holder, input: []const u8, output: []u8, piece: Piece, cursor: *Cursor, slots: []Item) usize {
     @setEvalBranchQuota(constants.token_loop_branch_quota);
     comptime assert(claims.decoder_loop_in_place);
     assert(decoder.stage != .done and decoder.stage != .refused);
@@ -124,7 +131,7 @@ pub fn take_in_place(decoder: *Decoder, comptime claims: Claims, input: []const 
         filled = grammar.fill(&loop, claims, slots, filled, input);
         const long = loop.long_string orelse break;
         loop.long_string = null;
-        slots[filled] = loop.take_long_in_place(claims, long, input) orelse break;
+        slots[filled] = loop.take_long_in_place(claims, holder, long, input) orelse break;
         filled += 1;
         if (loop.expect == .end_of_text) break;
     }
@@ -132,7 +139,7 @@ pub fn take_in_place(decoder: *Decoder, comptime claims: Claims, input: []const 
     if (filled < slots.len and loop.expect == .end_of_text) loop.text_end(piece);
     decoder.expect = loop.expect;
     decoder.depth = loop.depth;
-    if (last_item(slots[0..filled])) |last| {
+    if (last_item(holder, slots[0..filled])) |last| {
         decoder.matched = last.matched;
         decoder.number = last.number;
     }
@@ -140,8 +147,9 @@ pub fn take_in_place(decoder: *Decoder, comptime claims: Claims, input: []const 
     return filled;
 }
 
-/// `last_value` for the items the loop in place filled.
-fn last_item(items: []const Item) ?Last {
+/// `last_value` for the items the loop in place filled, in the copy `holder` names.
+fn last_item(comptime holder: Holder, items: []const Item) ?Last {
+    _ = holder;
     for (0..items.len) |back| {
         switch (items[items.len - 1 - back]) {
             .begin_object, .end_object, .begin_array, .end_array => {},
@@ -334,7 +342,8 @@ pub const Loop = struct {
     /// `head_len` octets of plain ASCII, which the walk left: plain ASCII up to its closing
     /// quotation mark and no longer than the room, its octets left in `input`. Else null, and
     /// claim J8's line or the checked path takes it.
-    fn take_long_in_place(self: *Loop, comptime claims: Claims, long: LongString, input: []const u8) ?Item {
+    fn take_long_in_place(self: *Loop, comptime claims: Claims, comptime holder: Holder, long: LongString, input: []const u8) ?Item {
+        _ = holder;
         const content = self.in[1..];
         const window = content[0..@min(content.len, self.out.len)];
         const len = long.head_len + wide.plain_len(self.decoder.level.with(claims), window[long.head_len..]);

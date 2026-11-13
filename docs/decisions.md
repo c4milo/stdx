@@ -5005,3 +5005,75 @@ small file.
       names it: a smaller surface, but an inline generic beside plain methods.
     - Twins for the commonest kinds alone: a caller would write a name and its value apart for
       the others.
+
+79. **`TextReader` hands out the tokens its queue holds in one call.** Ruled by the owner on
+    2026-11-12, from the rows still below simdjson and yyjson at d6f5d48
+    ([issue 17](https://github.com/c4milo/stdx/issues/17#issuecomment-6841084711)). With many
+    tokens a call, the decoder ran at 1.00 to 1.21 of both baselines on CLDR's texts and qlog's
+    records on the N2, an AMD EPYC 9V74 and a 7763. Through `TextReader.next` it ran at 0.79 to
+    0.95 of them on those x86-64 CPUs, and at 0.92 of yyjson on CLDR on the N2.
+    - What `next` costs past a batch is the handing out. bench-profile on the N2 (run
+      43301240988): a CLDR token took 96.1 instructions and 30.6 cycles through `next`, and 74.2
+      and 25.5 in a batch. In a caller's loop on aarch64 a `next` is 29 to 31 instructions: two
+      assertions, the queue's two counts read from the reader, one of them written back, a bounds
+      check, the item's octets, and the caller's switch. The count that one call writes the next
+      call reads, so each token waits on a store and a load.
+    - `next_items` returns `Error!?[]const Item`: all the tokens the queue holds, one at least, or
+      null at the text's end, as `next` returns null there. A caller writes `while (try
+      reader.next_items()) |items|` and a loop over `items`, 13 to 15 instructions a token on
+      aarch64. The slice lies in the reader, and it stays until the next call, as an item's octets
+      in the storage do.
+    - A token the queue's loop leaves (decision 76) is handed out alone. The queue is empty then,
+      so its first place holds the token, and the queue counts it as handed out: its octets may
+      lie in the storage, and a copy of the reader must never hand it out again.
+    - `next` stays, and the two calls may take turns: `next_items` hands out what `next` left.
+    - Each call holds a copy of claim J10's loop in place and of the loop's two helpers. A
+      comptime `Holder` names the copy, and the loop reads no value of it. With one copy for both
+      calls, the compiler left the helpers out of line in a program that makes both calls. Each
+      call then paid for a long string and for a refill what a program with one call does not.
+    - `next_items` has a text of its own for a token the loop leaves, `left`, which repeats the
+      end of `next`'s out-of-line part. Where `next` took that function too, the compiler gave
+      `next`'s part other code.
+    - So `next`'s code is main's. In bench-json's program, 834 of main's 841 functions on aarch64
+      and 1,699 of its 1,708 on x86-64 have an instance with the same body. The others build and
+      print the report, and no timed candidate reaches them. `next`'s out-of-line part is 3,545
+      instructions on aarch64 at both commits, and `next_items`' is 3,558.
+    - callgrind on aarch64, with no vector path, a program a call, each loop out of line. CLDR's
+      34 texts took 17,226,873 instructions through `next_items` and 18,819,668 through `next`:
+      14.6 fewer a token. A text of one string took 5 more through `next_items`: 571 against 566
+      at 100 octets, and 2,645 against 2,640 at 2,048. `next` took the same counts at main and at
+      this commit.
+
+    **What the runners measured.** A probe came first, at 308faec on a branch: the call with an
+    empty slice for a text's end, and bench-json's reader loop over it in place of `next`. Each
+    job ran main (39b6cf9) first. Each figure is the probe's speed over main's `next`.
+    - The pairs (runs 43348518545 and 43348522361): CLDR ran at 1.080 and 1.081 on the N2, and
+      qlog at 1.082 and 1.063. On x86-64, CLDR ran at 1.203 on an AMD EPYC 9V74 and a 9V45, and
+      qlog at 1.223 and 1.177.
+    - bench-profile on the N2 (run 43348526005): a CLDR token took 80.7 instructions and 28.3
+      cycles, from 96.1 and 30.7, and a qlog token 84.2 and 27.6, from 99.4 and 29.4.
+    - Against the baselines on the N2, CLDR came level with yyjson, at 0.995 and 0.998 from
+      0.923, and qlog passed simdjson, at 1.025 from 0.946 and 0.962. On the 9V45, CLDR stayed at
+      0.742 of simdjson and 0.917 of yyjson, since a batch runs below both there.
+    - In the 9V74 job's report of the probe, simdjson and yyjson ran CLDR and qlog at 0.60 to
+      0.75 of their own speed in that job's report of main, on code no commit changed. That
+      report's ratios against them are no evidence.
+    - Four hex rows of 1 KiB texts fell on the N2: http/js-1k at 0.870 and 0.860, http/css-1k at
+      0.897 and 0.883, http/html-1k at 0.968 and 0.868, and http/json-1k at 0.963 and 0.869. Each
+      text is one string, which takes 5 instructions more by the count above.
+
+    The checks: text_reader_items_test.zig reads each input through `next` and through
+    `next_items`, with a reader and a storage each. It requires the same tokens, the same error,
+    the same texts and the same octets consumed, over the reader's texts and sequences, 1,500
+    seeded corruptions, storages of 0 to 8, 20, 40 and 1,024 octets, and every input the fuzzer
+    draws. It requires each token's octets where decisions 74 and 76 place them, a turn of each
+    call after the other, and a copy that reads on after a token the loop left. The commit lists
+    the mutations.
+
+    The alternatives refused:
+    - An empty slice at a text's end: one type less to unwrap, but a caller tests a length where
+      `next` gives null.
+    - Cuts inside `next`, not built: its assertions and its bounds check are 9 of its 29 to 31
+      instructions, and the store and the load a token stay.
+    - The loop inline by name in `refill`, in place of a copy for each call: `next`'s out-of-line
+      part came to 3,617 instructions on aarch64, from 3,545, and its code was no longer main's.

@@ -68,6 +68,7 @@ test {
     _ = @import("encoder/text_writer.zig");
     _ = decoder;
     _ = text_reader;
+    _ = @import("decoder/text_reader_items_test.zig");
     _ = @import("round_trip_test.zig");
     _ = @import("value/value_type.zig");
     _ = value_encoder;

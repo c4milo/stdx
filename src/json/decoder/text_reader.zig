@@ -7,15 +7,16 @@
 //! It holds the caller's input and storage for the length of the texts, as `codec.Reader` holds
 //! its input. It is built on the streaming call and on the paths that call takes (CLAUDE.md,
 //! Non-negotiables). Claim J10's loop takes tokens ahead into a queue of items, their octets in
-//! place, and `next` hands them out one a call (decision 76). A token the loop leaves takes claim
-//! J8's straight line, then the checked path (decision 69). `next_text` takes a text's start where
+//! place. `next` hands them out one a call (decision 76), and `next_items` hands out all the queue
+//! holds in one call (decision 79). A token the loop leaves takes claim J8's straight line, then
+//! the checked path (decision 69). `next_text` takes a text's start where
 //! it needs no verdict. The input ending before a text does is `error.Truncated`, and a name, a
 //! string or a number longer than the storage is `error.NoSpaceLeft`, wherever its octets lie.
 //!
 //! A `TextReader` is a plain value: a copy reads on from where the original stood, and the
-//! original reads on as if the copy had never read. The queue holds only octets that lie in the
-//! input. Both write the one storage, so octets that lie there stay only until the next call of
-//! either.
+//! original reads on as if the copy had never read. The tokens the queue has yet to hand out hold
+//! only octets that lie in the input. Both write the one storage, so octets that lie there stay
+//! only until the next call of either.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -48,9 +49,9 @@ pub const TextReader = struct {
     /// Whether a text has started, and whether the current one has ended.
     started: bool,
     ended: bool,
-    /// The tokens claim J10's loop took ahead, their octets in place in the input: `next` hands out
-    /// `queue[handed..queued]` before it decodes again (decision 76). `decoder` and `consumed`
-    /// stand past the last of them.
+    /// The tokens claim J10's loop took ahead, their octets in place in the input: `next` and
+    /// `next_items` hand out `queue[handed..queued]` before they decode again (decisions 76 and
+    /// 79). `decoder` and `consumed` stand past the last of them.
     queue: [constants.reader_queue_len]TextReader.Item,
     queued: u8,
     handed: u8,
@@ -109,9 +110,47 @@ pub const TextReader = struct {
         return self.next_unqueued();
     }
 
+    /// The current text's next tokens, one at least, or null at its end: all the tokens the queue
+    /// holds, in the one call (decision 79). A caller's loop over them pays no call and no write
+    /// to the reader for each token. The slice lies in this reader, and it stays until the next
+    /// call, as an item's octets in the storage do. `next` and `next_items` may take turns.
+    pub fn next_items(self: *TextReader) Error!?[]const TextReader.Item {
+        assert(self.started and !self.ended);
+        assert(self.handed <= self.queued);
+        if (self.handed < self.queued) {
+            const items = self.queue[self.handed..self.queued];
+            self.handed = self.queued;
+            return items;
+        }
+        return self.items_unqueued();
+    }
+
+    /// `next_items` when the queue is empty: the text's end, the queue filled again and handed out
+    /// whole, or the one token the loop leaves.
+    noinline fn items_unqueued(self: *TextReader) Error!?[]const TextReader.Item {
+        assert(self.handed == self.queued);
+        if (self.decoder.stage == .done) {
+            self.ended = true;
+            return null;
+        }
+        if (self.decoder.stage == .tokens and self.decoder.open == .none and self.refill(.next_items)) {
+            assert(self.queued > 0);
+            self.handed = self.queued;
+            return self.queue[0..self.queued];
+        }
+        // A token the loop leaves. The queue is empty, so its first place holds the token for the
+        // caller. The token's octets may lie in the storage, so the queue counts it as handed out,
+        // and a copy of the reader never hands it out again.
+        self.queue[0] = (try self.left()) orelse return null;
+        self.queued = 1;
+        self.handed = 1;
+        return self.queue[0..1];
+    }
+
     /// `next` when the queue is empty: the text's end, the queue filled again, or a token the loop
     /// leaves. Out of line: inside `next`, LLVM took `next` out of the caller's loop, and each
-    /// token paid a call and its item's return through memory (decision 76).
+    /// token paid a call and its item's return through memory (decision 76). Its text past the
+    /// refill is `left`'s.
     noinline fn next_unqueued(self: *TextReader) Error!?TextReader.Item {
         assert(self.handed == self.queued);
         if (self.decoder.stage == .done) {
@@ -120,7 +159,35 @@ pub const TextReader = struct {
         }
         // Claim J10's loop, in place: tokens a batch at a time, for `next` to hand out one a call
         // (decision 76). A token it leaves takes claim J8's line, then the checked path.
-        if (self.decoder.stage == .tokens and self.decoder.open == .none and self.refill()) return self.pop();
+        if (self.decoder.stage == .tokens and self.decoder.open == .none and self.refill(.next)) return self.pop();
+        if (self.decoder.stage == .done) {
+            self.ended = true;
+            return null;
+        }
+        // Claim J8's straight line, taken here with no pass through the streaming call: the reader
+        // holds all the input and all the storage, so it pays for no slice of either, no progress
+        // and no status to read back (decision 69). A token the line leaves takes `decode`.
+        if (self.decoder.stage == .tokens and self.decoder.open == .none) {
+            var reader: codec.Reader = .{ .octets = self.input, .position = self.consumed };
+            var writer = codec.Writer.init(self.storage);
+            // The line leaves a token's octets in the input, and writes only those it changed.
+            var octets: []const u8 = &.{};
+            if (fast.token(&self.decoder, .{}, &reader, &writer, &octets)) |outcome| {
+                // The line takes whole tokens alone, and leaves the text's end to `decode`.
+                assert(outcome.status == .token);
+                self.consumed = reader.position;
+                return item(outcome.kind.?, octets);
+            }
+        }
+        return self.checked();
+    }
+
+    /// A token the queue's loop leaves, or null at the text's end, which the loop may have taken:
+    /// for `next_items`, what the end of `next_unqueued` is for `next`. The two hold the same text,
+    /// and the tests hold them to the same tokens. `next_unqueued` keeps its own: where it took
+    /// this function, the compiler gave all of it other code, and `next`'s rows would need their
+    /// measure again (decision 79).
+    inline fn left(self: *TextReader) Error!?TextReader.Item {
         if (self.decoder.stage == .done) {
             self.ended = true;
             return null;
@@ -144,10 +211,11 @@ pub const TextReader = struct {
     }
 
     /// Takes tokens ahead into the queue through claim J10's loop in place, and returns whether it
-    /// took one. The loop also takes the text's end, which leaves the decoder done.
-    inline fn refill(self: *TextReader) bool {
+    /// took one. The loop also takes the text's end, which leaves the decoder done. `holder` names
+    /// the call, which holds a copy of the loop of its own (decision 79).
+    inline fn refill(self: *TextReader, comptime holder: token_loop.Holder) bool {
         var cursor: token_loop.Cursor = .{ .consumed = self.consumed, .written = 0 };
-        const filled = token_loop.take_in_place(&self.decoder, in_place, self.input, self.storage, .last, &cursor, &self.queue);
+        const filled = token_loop.take_in_place(&self.decoder, in_place, holder, self.input, self.storage, .last, &cursor, &self.queue);
         assert(cursor.written == 0);
         self.consumed = cursor.consumed;
         self.queued = @intCast(filled);

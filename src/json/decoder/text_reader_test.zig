@@ -34,7 +34,7 @@ const flips_max = 4;
 const checked: claims.Claims = .{ .decoder_fast_path = false, .decoder_token_loop = false };
 
 /// Texts of every token the straight line takes, and of the cases it leaves to the checked path.
-const texts = [_][]const u8{
+pub const texts = [_][]const u8{
     "{\"a\":[1,-0,2.5e-3,true,false,null,\"x\",{},[]],\"b\":{\"c\":\"\"}}",
     "{\n  \"version\": \"47\",\n  \"list\": [\n    10,\n    -2.25E+2\n  ]\n}\n",
     "{\"time\":1234.567,\"name\":\"transport:packet_sent\",\"data\":{\"dcid\":\"00ff\",\"fin\":false}}",
@@ -50,7 +50,7 @@ const texts = [_][]const u8{
 
 /// Sequences (RFC 7464): texts after one record separator and after several, a text with none, a
 /// separator with no text after it, and a byte order mark after the separator.
-const sequences = [_][]const u8{
+pub const sequences = [_][]const u8{
     "\x1e{\"n\":1}\n\x1e\x1e[2]\n\x1e\"three\"\n\x1e4\n",
     "\x1e\x1e\x1e7\n",
     "\x1etrue ",
@@ -61,7 +61,7 @@ const sequences = [_][]const u8{
 };
 
 /// The octets a flip writes, weighted toward the ones the grammar turns on.
-const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xef\xff";
+pub const flip_octets = "{}[]:,\"\\ \t\n\x1e0-.eEtfnu\x00\x1f\x80\xc3\xef\xff";
 
 /// The kind and the octets of the token the checked path's call gave, as `next` gives them.
 fn expected_item(progress: decoder_file.Progress, octets: []const u8) TextReader.Item {
@@ -90,7 +90,7 @@ fn octets_of(got: TextReader.Item) []const u8 {
 /// Requires a token's octets to lie in the input, past `after.*`, the end of the octets of the
 /// token before them there, and among the octets the reader consumed; or at the start of the
 /// storage (decisions 74 and 76). Moves `after.*` past octets in the input.
-fn expect_placed(reader: *const TextReader, after: *usize, got: TextReader.Item) !void {
+pub fn expect_placed(reader: *const TextReader, after: *usize, got: TextReader.Item) !void {
     const octets = octets_of(got);
     if (octets.len == 0) return;
     const start = @intFromPtr(octets.ptr);
@@ -104,7 +104,7 @@ fn expect_placed(reader: *const TextReader, after: *usize, got: TextReader.Item)
     }
 }
 
-fn expect_same_item(expected: TextReader.Item, got: TextReader.Item) !void {
+pub fn expect_same_item(expected: TextReader.Item, got: TextReader.Item) !void {
     try testing.expectEqual(std.meta.activeTag(expected), std.meta.activeTag(got));
     switch (expected) {
         .name => |octets| try testing.expectEqualSlices(u8, octets, got.name),

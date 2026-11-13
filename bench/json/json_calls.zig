@@ -16,9 +16,11 @@ const Workload = workloads.Workload;
 pub const batch_slots = 256;
 
 /// How a candidate calls its codec: many tokens a call, as every claim's candidate does; one, the
-/// candidate decision 33 is measured against; or one through `TextWriter`'s methods and
-/// `TextReader.next`, as a caller that writes or reads a text a value at a time does (decision 69).
-pub const Calls = enum { batch, one_token, methods };
+/// candidate decision 33 is measured against; one through `TextWriter`'s methods and
+/// `TextReader.next`, as a caller that writes or reads a text a value at a time does (decision 69);
+/// or, for a decode alone, the reader's queued tokens a slice a call through
+/// `TextReader.next_items` (decision 79).
+pub const Calls = enum { batch, one_token, methods, items };
 
 /// What a decode needs besides the workload: the output its tokens' octets go to, the slots a
 /// batch fills, and the caller's features.
@@ -57,6 +59,10 @@ pub fn decode(comptime claims: json.Claims, comptime calls: Calls, workload: *co
         for (workload.texts) |text| decode_methods(workload.framing, text, room, &tally);
         return tally;
     }
+    if (calls == .items) {
+        for (workload.texts) |text| decode_items(workload.framing, text, room, &tally);
+        return tally;
+    }
     // One decoder for every text, as a caller keeps one: declared for each, a safe build filled
     // all of its octets for each text before `init` wrote them.
     var decoder: json.Decoder = undefined;
@@ -88,6 +94,38 @@ inline fn decode_methods(framing: json.Framing, text: []const u8, room: DecodeRo
         } else unreachable;
     }
     std.debug.assert(reader.consumed_len() == text.len);
+}
+
+/// One text, or one text of a sequence with its separators, through `TextReader.next_items`: a
+/// slice of tokens a call, and a loop over each slice.
+inline fn decode_items(framing: json.Framing, text: []const u8, room: DecodeRoom, tally: *abi.Tally) void {
+    var reader = json.TextReader.init(text, room.output, framing, room.features);
+    // `next_text` inline by name: with a second caller left to the compiler, `decode_methods`
+    // paid a call a text that main's program does not.
+    while (@call(.always_inline, json.TextReader.next_text, .{&reader})) {
+        // A call hands out a token at least, and a text holds no more tokens than octets.
+        for (0..text.len + 1) |_| {
+            const items = (reader.next_items() catch unreachable) orelse break;
+            for (items) |*item| count_item(tally, item);
+        } else unreachable;
+    }
+    std.debug.assert(reader.consumed_len() == text.len);
+}
+
+/// Counts one token a reader handed out.
+inline fn count_item(tally: *abi.Tally, item: *const json.TextReader.Item) void {
+    switch (item.*) {
+        .begin_object => baselines.count_token(tally, .begin_object, 0),
+        .end_object => baselines.count_token(tally, .end_object, 0),
+        .begin_array => baselines.count_token(tally, .begin_array, 0),
+        .end_array => baselines.count_token(tally, .end_array, 0),
+        .name => |octets| baselines.count_token(tally, .name, octets.len),
+        .string => |octets| baselines.count_token(tally, .string, octets.len),
+        .number => |octets| baselines.count_token(tally, .number, octets.len),
+        .true => baselines.count_token(tally, .true, 0),
+        .false => baselines.count_token(tally, .false, 0),
+        .null => baselines.count_token(tally, .null, 0),
+    }
 }
 
 inline fn decode_batches(comptime claims: json.Claims, decoder: *json.Decoder, text: []const u8, room: DecodeRoom, tally: *abi.Tally) void {
@@ -159,6 +197,8 @@ pub fn Encode(comptime claims: json.Claims, comptime calls: Calls) type {
 /// Encodes every text of `workload` into `output`, a text a batch or a token a call, and returns
 /// how many octets it wrote.
 pub fn encode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, output: []u8, features: codec.Features) usize {
+    // A decode alone takes a slice of tokens a call.
+    comptime std.debug.assert(calls != .items);
     if (calls == .methods) {
         var written: usize = 0;
         for (workload.items) |items| written += encode_methods(workload.framing, items, output[written..], features);

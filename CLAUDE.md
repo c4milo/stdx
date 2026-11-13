@@ -380,7 +380,8 @@ Change this section when a step adds or renames a command.
   quality 1 and stdx's at level 1, and at quality 5 and level 5
   (`bench/profile/profile_brotli_encode.zig`). Last, `bench_json --profile` counts
   them per token and per octet for the `json` module's decoder and encoder, with every claim on and every claim off, a token a call through
-  `TextWriter`'s methods and `TextReader.next`, for the encoder
+  `TextWriter`'s methods and `TextReader.next`, the reader's queued tokens a slice a call through
+  `TextReader.next_items`, for the encoder
   with J11's loop unchecked, and for simdjson, yyjson and Zig's std.json, over one workload of each
   shape (`bench/json/json_profile.zig`). The `bench` workflow's `profile` option runs it on both
   hosted runners, after allowing a process to count its own events.
@@ -388,7 +389,8 @@ Change this section when a step adds or renames a command.
   many tokens a call (decision 33), with every claim on, each of claims J1, J2, J3, J5, J7, J8, J9,
   J10, J11, J12, J13 and J14 off in turn, and every one off, one token a call with every claim
   on, a token a call through `TextWriter`'s methods and `TextReader.next` (decision 69), a member's
-  name and its value in one `member_*` call (decision 78), and the
+  name and its value in one `member_*` call (decision 78), the reader's queued tokens a slice a
+  call through `TextReader.next_items` (decision 79), and the
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
   CLDR's JSON texts, a log of qlog-shaped records, the corpus's text files as strings, a non-ASCII
   text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's

@@ -32,10 +32,11 @@ const profiled = [_][]const u8{
 
 /// Where the operations the profile counts stand in a side's operations: stdx with every claim
 /// on, many tokens a call, one token a call and a token a call through `TextWriter`'s methods or
-/// `TextReader.next` (decision 69), stdx with every claim off, stdx's encoder with
-/// claim J11's loop unchecked (decision 35), which the decoding side leaves out, and the first
-/// baseline, which the others follow in `baselines.names` order.
-pub const Places = struct { all_on: usize, one_token: usize, methods: usize, all_off: usize, unchecked: ?usize, first_baseline: usize };
+/// `TextReader.next` (decision 69), the reader's queued tokens a slice a call through
+/// `TextReader.next_items` (decision 79), which the encoding side leaves out, stdx with every claim
+/// off, stdx's encoder with claim J11's loop unchecked (decision 35), which the decoding side
+/// leaves out, and the first baseline, which the others follow in `baselines.names` order.
+pub const Places = struct { all_on: usize, one_token: usize, methods: usize, items: ?usize, all_off: usize, unchecked: ?usize, first_baseline: usize };
 
 /// Whether the profile counts `workload`.
 pub fn is_profiled(workload: *const Workload) bool {
@@ -71,6 +72,7 @@ pub fn rows(out: *std.Io.Writer, open: *const counters.Counters, workload: *cons
     try row(out, open, workload, operations[places.all_on], octets, "stdx, every claim on");
     try row(out, open, workload, operations[places.one_token], octets, "stdx, one token a call");
     try row(out, open, workload, operations[places.methods], octets, "stdx, TextWriter's methods or TextReader.next");
+    if (places.items) |items| try row(out, open, workload, operations[items], octets, "stdx, TextReader.next_items");
     try row(out, open, workload, operations[places.all_off], octets, "stdx, every claim off");
     if (places.unchecked) |unchecked| try row(out, open, workload, operations[unchecked], octets, "stdx, J11's loop unchecked");
     for (baselines.names, baselines.built(), 0..) |name, is_built, index| {

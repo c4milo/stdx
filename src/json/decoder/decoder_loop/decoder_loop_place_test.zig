@@ -73,7 +73,7 @@ const Placed = struct {
         var items: [slots_max]Item = undefined;
         var room: [room_len_max]u8 = undefined;
         var cursor: token_loop.Cursor = .{ .consumed = self.consumed, .written = 0 };
-        const filled = token_loop.take_in_place(&self.decoder, in_place(base), self.input, room[0..self.room_len], .last, &cursor, items[0..self.count]);
+        const filled = token_loop.take_in_place(&self.decoder, in_place(base), .next, self.input, room[0..self.room_len], .last, &cursor, items[0..self.count]);
         try testing.expectEqual(0, cursor.written);
         for (items[0..filled]) |item| try self.expect_reference_token(item);
         try self.expect_stop_at_string(base, &before, filled);
@@ -195,7 +195,7 @@ test "the loop in place leaves a text's names, strings and numbers in the input,
     var items: [slots_max]Item = undefined;
     var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
     // `{`, three names, three values and `}`.
-    try testing.expectEqual(8, token_loop.take_in_place(&decoder, in_place(claims.vector), text, &room, .last, &cursor, &items));
+    try testing.expectEqual(8, token_loop.take_in_place(&decoder, in_place(claims.vector), .next, text, &room, .last, &cursor, &items));
     try testing.expectEqualStrings("1234.567", items[2].number);
     try testing.expectEqualStrings("transport:packet_sent", items[4].string);
     try expect_within(text, items[4].string);
@@ -213,7 +213,7 @@ test "the loop in place stops at a string of UTF-8 and at one with an escape" {
             var items: [slots_max]Item = undefined;
             var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
             // `[` and the first string, up to the second, which the checked path writes.
-            try testing.expectEqual(2, token_loop.take_in_place(&decoder, in_place(base), text, &room, .last, &cursor, &items));
+            try testing.expectEqual(2, token_loop.take_in_place(&decoder, in_place(base), .next, text, &room, .last, &cursor, &items));
             try testing.expectEqualStrings("ok", items[1].string);
             try testing.expect(std.mem.allEqual(u8, &room, 0xaa));
         }
