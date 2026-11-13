@@ -407,13 +407,7 @@ fn expect_masks() !void {
         var hits: u16 = 0;
         var in_reach: u16 = 0;
         for (0..ways) |way| {
-            const kind: CheckKind = @enumFromInt(generator.below(@typeInfo(CheckKind).@"enum".fields.len));
-            const check: u8 = switch (kind) {
-                .equal => mask_check,
-                .low_bit => mask_check ^ 1,
-                .top_bit => mask_check ^ (1 << (@bitSizeOf(u8) - 1)),
-                .seeded => @truncate(generator.next()),
-            };
+            const check = check_seeded(&generator);
             const seeded: u32 = @intCast(generator.below(offset + mask_position));
             const entry = Buckets.entry_of(check, if (way < edges.len) edges[way] else seeded);
             buckets.entries[0][way] = entry;
@@ -431,6 +425,17 @@ fn expect_masks() !void {
 
 /// What a way's check is in the masks' test.
 const CheckKind = enum { equal, low_bit, top_bit, seeded };
+
+/// A way's check, of a seeded kind.
+fn check_seeded(generator: *codec.testing.split.Generator) u8 {
+    const kind: CheckKind = @enumFromInt(generator.below(@typeInfo(CheckKind).@"enum".fields.len));
+    return switch (kind) {
+        .equal => mask_check,
+        .low_bit => mask_check ^ 1,
+        .top_bit => mask_check ^ (1 << (@bitSizeOf(u8) - 1)),
+        .seeded => @truncate(generator.next()),
+    };
+}
 
 /// Each bit of `bits` as the 4 bits of way's nibble.
 fn spread(bits: u16) u64 {
