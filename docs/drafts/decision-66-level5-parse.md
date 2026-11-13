@@ -529,3 +529,15 @@ kennedy.xls 0.88 and 0.81, ptt5 0.92 and 0.94, json-1m 0.94 and 0.95, and css-1m
 which is new. The bodies of 1 KiB and 16 KiB run 5% to 8% slower than today on the N2, and stay
 1.01 to 1.57 times quality 5's speed. With 2^15 buckets too (run 43308635669), the median is 1.09
 and 1.14, and 9 and 7 rows trail.
+
+**Landed: the hash of 5 octets with the side table, at 2^14 buckets** (the owner's ruling of
+2026-11-12). The build in the tree gives the scratch form's octets on every input the window
+holds whole. On mr and ooffice it differs by 2 and 14 octets: the scratch form did not slide its
+side table. Against the commit before it (runs 43328886401 and 43328896736), level 5's median row
+runs at 0.996 and 0.998 on the N2, 1.027 on an EPYC 9V45 and 1.006 on an EPYC 9V74. Its output is
+1.0050 of quality 5's at the median of the 39 rows, from 1.0081, and larger on 24 rows, from 27.
+Mutations: 16 of 16 CAUGHT.
+
+Level 5 against quality 5 after it: 1.20 and 1.22 at the median on the N2, with 3 rows slower
+(kennedy.xls 0.89 and 0.90, ptt5 0.91 and 0.93, json-1m 0.94); 1.07 on the EPYC 9V45, with 10
+rows slower; and 1.14 on the EPYC 9V74, with 7.
