@@ -35,10 +35,13 @@ const tag_bits = @bitSizeOf(u32) - position_bits;
 /// Where an entry's check starts, above its position, and the bits below it.
 const check_shift = @bitSizeOf(u32) - @bitSizeOf(u8);
 const position_mask = (@as(u32, 1) << check_shift) - 1;
-/// Where a mark's next way starts, above the stream's tag: the top bits of its 16, so that a
-/// wrapping add of `way_step` steps the ring and leaves the tag.
-const way_shift = @bitSizeOf(u16) - std.math.log2(ways);
+/// A mark's top bit says the ring has filled. Below it the ring's next way, then the stream's
+/// tag: a wrapping add of `way_step` steps the ring, and its carry out of the last way sets the
+/// top bit.
+const full_bit: u16 = 1 << (@bitSizeOf(u16) - 1);
+const way_shift = @bitSizeOf(u16) - 1 - std.math.log2(ways);
 const way_step = @as(u16, 1) << way_shift;
+const way_mask = ways - 1;
 const mark_tag_mask = way_step - 1;
 /// The octets of a bucket, which is also its alignment: a bucket lies in one cache line of 64
 /// octets or more.
@@ -103,6 +106,7 @@ pub const Buckets = struct {
     }
 
     fn clear(self: *Buckets) void {
+        for (&self.entries) |*bucket| bucket.* = @splat(0);
         self.marks = @splat(0);
         self.side = @splat(0);
         self.tag = 1;
@@ -161,6 +165,20 @@ pub const Buckets = struct {
         return @as(u16, @truncate(self.tag)) | @as(u16, @truncate(next)) << way_shift;
     }
 
+    /// The ways of the bucket `mark` belongs to that this stream wrote, a bit each: every way
+    /// once the ring filled, else those below its next way, and none for another stream's bucket.
+    inline fn written_ways(self: *const Buckets, mark: u16) u16 {
+        return @truncate(self.written_bits(mark, 1));
+    }
+
+    /// `written_ways` with `width` bits a way, way w's from bit `width * w` up.
+    inline fn written_bits(self: *const Buckets, mark: u16, comptime width: u6) u64 {
+        const live: u64 = 0 -% @as(u64, @intFromBool(self.wrote(mark)));
+        const next: u6 = @as(u4, @truncate(mark >> way_shift));
+        const filled = (@as(u64, 1) << (next * width)) -% 1 | (0 -% @as(u64, mark >> (@bitSizeOf(u16) - 1)));
+        return live & filled;
+    }
+
     /// Whether this stream wrote the bucket `mark` belongs to: else the bucket holds no entry.
     inline fn wrote(self: *const Buckets, mark: u16) bool {
         return (mark ^ @as(u16, @truncate(self.tag))) & mark_tag_mask == 0;
@@ -169,21 +187,20 @@ pub const Buckets = struct {
     /// The ring's next way of `slot`'s bucket, which this stream wrote: a search reads it after
     /// a hit, and only such a bucket has one.
     pub inline fn next_of(self: *const Buckets, slot: Slot) usize {
-        return self.marks[slot.bucket] >> way_shift;
+        return (self.marks[slot.bucket] >> way_shift) & way_mask;
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each: none where an earlier
     /// stream wrote the bucket last.
     pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
-        if (!self.wrote(self.marks[slot.bucket])) return 0;
-        return @bitCast(self.check_lanes(slot));
+        const lanes: u16 = @bitCast(self.check_lanes(slot));
+        return lanes & self.written_ways(self.marks[slot.bucket]);
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, 4 bits each: way w's are bits 4w to
     /// 4w + 3. One narrowing shift makes it from the compare of 16 lanes.
     pub inline fn hit_nibbles(self: *const Buckets, slot: Slot) u64 {
-        if (!self.wrote(self.marks[slot.bucket])) return 0;
-        return nibbles(self.check_lanes(slot));
+        return nibbles(self.check_lanes(slot)) & self.written_bits(self.marks[slot.bucket], @bitSizeOf(u4));
     }
 
     inline fn check_lanes(self: *const Buckets, slot: Slot) @Vector(ways, bool) {
@@ -218,11 +235,9 @@ pub const Buckets = struct {
         @setRuntimeSafety(safety);
         const side_entry = self.base +% @as(u32, @truncate(position));
         const mark = self.marks[slot.bucket];
-        const kept = self.wrote(mark);
-        const stream_mark: u16 = if (kept) mark else @truncate(self.tag);
-        if (!kept) self.entries[slot.bucket] = @splat(0);
-        self.entries[slot.bucket][stream_mark >> way_shift] = entry_of(slot.check, position);
-        self.marks[slot.bucket] = stream_mark +% way_step;
+        const stream_mark: u16 = if (self.wrote(mark)) mark else @truncate(self.tag);
+        self.entries[slot.bucket][(stream_mark >> way_shift) & way_mask] = entry_of(slot.check, position);
+        self.marks[slot.bucket] = (stream_mark +% way_step) | (stream_mark & full_bit);
         self.side[slot.side] = side_entry;
     }
 
