@@ -51,7 +51,12 @@ pub const Walk = struct {
     /// transfer from a vector to a word where a test for ASCII and a test for a stop paid two. A
     /// block with no stop is taken by a stride the word does not decide, so the next block's
     /// address waits on no transfer and the loop runs at the vectors' pace (design §8 step 18).
-    inline fn take_ascii(self: *Walk, input_len: usize) AsciiStop {
+    /// Where the walk's blocks are the wide ones, in the AVX2 variant object, `take_ascii_passes`
+    /// takes 64 octets a pass first (decision 80).
+    inline fn take_ascii(self: *Walk, comptime block_len: usize, input_len: usize) AsciiStop {
+        if (block_len == wide_walk.block_len) {
+            if (self.take_ascii_passes(input_len)) |stop| return stop;
+        }
         for (0..input_len / constants.vector_len + 1) |_| {
             if (self.input.len < constants.vector_len or self.output.len < constants.vector_len) return .short;
             const block: @Vector(constants.vector_len, u8) = self.input[0..constants.vector_len].*;
@@ -68,6 +73,34 @@ pub const Walk = struct {
         }
         unreachable;
     }
+
+    /// `take_ascii` a pass of two blocks of 32 at a time, while the input and the output hold one:
+    /// each pass stored as it is, then its blocks classified into one word of 64 lanes, one test
+    /// and one branch for 64 octets (decision 80). Returns null where fewer octets are left, for
+    /// the 16-octet loop to take the rest.
+    inline fn take_ascii_passes(self: *Walk, input_len: usize) ?AsciiStop {
+        const half = wide_walk.block_len;
+        for (0..input_len / constants.ascii_pass_len + 1) |_| {
+            if (self.input.len < constants.ascii_pass_len or self.output.len < constants.ascii_pass_len) return null;
+            const low: @Vector(half, u8) = self.input[0..half].*;
+            const high: @Vector(half, u8) = self.input[half..constants.ascii_pass_len].*;
+            self.output[0..half].* = low;
+            self.output[half..constants.ascii_pass_len].* = high;
+            const stops = @as(PassWord, wide_walk.ascii_stops(high)) << half | wide_walk.ascii_stops(low);
+            if (stops == 0) {
+                self.advance(constants.ascii_pass_len);
+                continue;
+            }
+            self.advance(@ctz(stops));
+            if (self.input[0] < constants.non_ascii_min) return .octet;
+            self.ascii_so_far = false;
+            return .non_ascii;
+        }
+        unreachable;
+    }
+
+    /// The lanes of a pass of `take_ascii_passes`, one bit a lane.
+    const PassWord = std.meta.Int(.unsigned, constants.ascii_pass_len);
 
     inline fn advance(self: *Walk, len: usize) void {
         self.input = self.input[len..];
@@ -115,7 +148,7 @@ pub const Walk = struct {
         // A run that starts with a non-ASCII octet goes straight to the UTF-8 walk.
         if (claims.utf8_vectors and self.ascii_so_far and self.input.len > 0 and self.input[0] >= constants.non_ascii_min) self.ascii_so_far = false;
         if (claims.utf8_vectors and self.ascii_so_far and two_loops) {
-            switch (self.take_ascii(input.len)) {
+            switch (self.take_ascii(block_len, input.len)) {
                 .octet => return true,
                 .short => {
                     self.take_run(claims, level);

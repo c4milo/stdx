@@ -30,6 +30,12 @@ pub const utf8_group_len: usize = utf8_group_blocks * vector_len;
 /// (string_walk_wide.zig).
 pub const avx2_vector_len: usize = 32;
 
+/// The octets the walk's ASCII loop takes a pass in the AVX2 variant object: two of AVX2's blocks
+/// under one test, so a run of plain ASCII shorter than 64 octets ends in the pass that loads it.
+/// The 16-octet loop took a branch every 16 octets, and the count of its passes to a stop varied
+/// from one run to the next in text like silesia/reymont's (decision 80).
+pub const ascii_pass_len: usize = 2 * avx2_vector_len;
+
 /// The octets `is_utf8`'s check takes at once on x86-64 with AVX-512: 64, in the variant object's
 /// AVX-512 level, which the module calls when the caller's features name AVX-512 (decision 39). The
 /// loops keep AVX2's 32 on such a CPU (decision 30, wide.zig).

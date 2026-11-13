@@ -27,6 +27,24 @@ const Block = @Vector(block_len, u8);
 /// 39), and by the compares on every other target, where the tests run the walk at this width.
 const form: scan_utf8.Form = if (builtin.cpu.arch == .x86_64 and scan_utf8.has_lookup) .lookup else .compares;
 
+/// The lanes of `block` that end a run of plain ASCII, one bit a lane, the lowest lane lowest:
+/// `scan.ascii_stops` at 32 lanes, for `Walk.take_ascii`'s passes of two blocks. An octet a string
+/// must escape (RFC 8259 §7), or one from 0x80 up, which UTF-8 judges (RFC 3629 §4). Read as
+/// signed octets, a control character and an octet from 0x80 up are both below 0x20.
+pub inline fn ascii_stops(block: Block) std.meta.Int(.unsigned, block_len) {
+    const signed: @Vector(block_len, i8) = @bitCast(block);
+    const outside = signed < @as(@Vector(block_len, i8), @splat(constants.unescaped_min));
+    const quotation_mark = block == @as(Block, @splat(constants.quotation_mark));
+    const reverse_solidus = block == @as(Block, @splat(constants.reverse_solidus));
+    const lanes = outside | quotation_mark | reverse_solidus;
+    if (comptime builtin.cpu.arch.endian() == .little) return @bitCast(lanes);
+    // As in `scan.first_lane`: Zig's own x86-64 backend indexes a vector at comptime-known lanes
+    // alone.
+    var word: std.meta.Int(.unsigned, block_len) = 0;
+    inline for (0..block_len) |lane| word |= @as(std.meta.Int(.unsigned, block_len), @intFromBool(lanes[lane])) << lane;
+    return word;
+}
+
 /// What `take_blocks` took: the octets the walk then moves past, the same in the input and in
 /// the output since the blocks copy them as they are, and how the blocks stopped.
 pub const Taken = struct { len: usize, stop: Stop };
