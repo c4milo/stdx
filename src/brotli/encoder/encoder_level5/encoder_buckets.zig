@@ -54,6 +54,9 @@ pub const Buckets = struct {
     /// Each bucket's stream epoch above its next slot in its ring.
     meta: [bucket_count]u16,
     epoch: u16,
+    /// Scratch: stand-ins so the tests of the old layout still compile. No test of them is run.
+    checks: [bucket_count][ways]u8 = undefined,
+    next: [bucket_count]u8 = undefined,
     /// The newest position of each hash of 4 octets, held as an entry is.
     side: [side_count]u32,
     /// The stream's tag, from 1 up, and its base: the tag above every position.
