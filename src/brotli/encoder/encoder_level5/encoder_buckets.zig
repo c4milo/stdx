@@ -30,16 +30,11 @@ pub const ways = constants.encoder_level5.bucket_ways;
 
 /// The bits a position takes: a window of 2^22 and its slack are less than 2^23.
 const position_bits = constants.encoder_level5.window_bits + 1;
-/// The bits above the position, which hold the stream's tag in the side table.
-const tag_bits = @bitSizeOf(u32) - position_bits;
 /// Where an entry's check starts, above its position, and the bits below it.
 const check_shift = @bitSizeOf(u32) - @bitSizeOf(u8);
 const position_mask = (@as(u32, 1) << check_shift) - 1;
-/// Where a mark's next way starts, above the stream's tag: the top bits of its 16, so that a
-/// wrapping add of `way_step` steps the ring and leaves the tag.
-const way_shift = @bitSizeOf(u16) - std.math.log2(ways);
-const way_step = @as(u16, 1) << way_shift;
-const mark_tag_mask = way_step - 1;
+/// The most a stream's offset may be: its window's positions stay below the check.
+const offset_max = position_mask + 1 - (@as(u32, 1) << position_bits);
 /// The octets of a bucket, which is also its alignment: a bucket lies in one cache line of 64
 /// octets or more.
 const bucket_len = @sizeOf([ways]u32);
@@ -49,9 +44,8 @@ comptime {
     // `hits` takes the bucket's checks as one mask of 16 bits.
     assert(ways == @bitSizeOf(u16));
     assert((@as(usize, 1) << constants.encoder_level5.window_bits) + constants.encoder_level5.slack_len < @as(usize, 1) << position_bits);
-    // A position lies below an entry's check, and a tag above a way fits a mark.
-    assert(position_bits <= check_shift);
-    assert(tag_bits <= way_shift);
+    // An offset and a position lie below an entry's check.
+    assert(position_bits < check_shift);
     assert(std.math.isPowerOfTwo(bucket_len));
 }
 
@@ -74,51 +68,50 @@ comptime {
 const hash_check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
 
 pub const Buckets = struct {
-    /// Each bucket's 16 entries, one cache line: a position below its check.
+    /// Each bucket's 16 entries, one cache line: the stream's offset plus a position, below its
+    /// check.
     entries: [bucket_count][ways]u32 align(bucket_len),
-    /// Each bucket's mark: the tag of the stream that wrote it last, below its ring's next way.
-    marks: [bucket_count]u16,
-    /// The newest position of each hash of 4 octets, the stream's base plus the position.
+    /// Each bucket's ring: the way its next insert writes, modulo 16.
+    next: [bucket_count]u8,
+    /// The newest position of each hash of 4 octets, the stream's offset plus the position.
     side: [side_count]u32,
-    /// The stream's tag, from 1 up, and its base: the tag above every position.
-    tag: u32,
-    base: u32,
+    /// What the stream adds to each position it records: the sum of the earlier streams' window
+    /// ends since the last clear, 1 at least. An earlier stream's entry lies below it.
+    offset: u32,
 
-    /// Empties the buckets, so no position of an earlier stream or of uninitialized memory names a
-    /// candidate (invariant 4), and starts the first stream's tag. It writes no entry: a mark of
-    /// 0 holds no stream's tag, so a search reads no entry before an insert empties its bucket.
+    /// Empties the buckets, so no position of uninitialized memory names a candidate (invariant
+    /// 4), and starts the first stream.
     pub fn init(self: *Buckets) void {
         self.clear();
     }
 
-    /// Begins the next stream of buckets `init` started: the next tag, which no mark and no entry
-    /// of the side table holds, or a clear when the tags ran out. It clears nothing else, a
-    /// constant cost: each bucket's first insert of the stream empties it and starts its ring at
-    /// its first way, so the stream fills the ways in the order a stream after `init` does. The
+    /// Begins the next stream, after one whose window ended at `window_end`: an offset past
+    /// every entry, or a clear when the offsets ran out. Each bucket's ring starts again at its
+    /// first way, so the stream fills the ways in the order a stream after `init` does: the
     /// parse tries them in that order, and the first of two equal matches wins (invariant 5).
-    pub fn start(self: *Buckets) void {
-        self.tag += 1;
-        if (self.tag == @as(u32, 1) << tag_bits) return self.clear();
-        self.base = self.tag << position_bits;
+    /// That clears 16 KiB, a constant.
+    pub fn start(self: *Buckets, window_end: usize) void {
+        assert(window_end < @as(usize, 1) << position_bits);
+        self.next = @splat(0);
+        self.offset += @intCast(window_end);
+        if (self.offset > offset_max) self.clear();
     }
 
     fn clear(self: *Buckets) void {
-        self.marks = @splat(0);
+        for (&self.entries) |*bucket| bucket.* = @splat(0);
+        self.next = @splat(0);
         self.side = @splat(0);
-        self.tag = 1;
-        self.base = @as(u32, 1) << position_bits;
+        self.offset = 1;
     }
 
     /// Moves every position of this stream `shift` octets down, after the window slid by that
-    /// much. A position that slid out becomes 0, and so does every earlier stream's in the side
-    /// table; a bucket an earlier stream wrote last holds no entry, and stays as it is.
+    /// much. A position that slid out becomes 0, and so does every earlier stream's.
     pub fn slide(self: *Buckets, shift: u32) void {
-        const kept_min = self.base + shift;
-        for (&self.entries, &self.marks) |*bucket, mark| {
-            if (!self.wrote(mark)) continue;
-            for (bucket) |*entry| entry.* = if (entry.* & position_mask > shift) entry.* - shift else 0;
+        const kept_min = self.offset + shift;
+        for (&self.entries) |*bucket| {
+            for (bucket) |*entry| entry.* = if (entry.* & position_mask >= kept_min) entry.* - shift else 0;
         }
-        for (&self.side) |*entry| entry.* = if (entry.* > kept_min) entry.* - shift else 0;
+        for (&self.side) |*entry| entry.* = if (entry.* >= kept_min) entry.* - shift else 0;
     }
 
     /// The slot of `position`, whose 8 octets the window holds: the bucket and check of its first
@@ -148,7 +141,7 @@ pub const Buckets = struct {
     /// Asks the cache for `slot`'s bucket and its mark before a search reads them.
     pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
         @prefetch(&self.entries[slot.bucket], .{});
-        @prefetch(&self.marks[slot.bucket], .{});
+        @prefetch(&self.next[slot.bucket], .{});
     }
 
     /// The entry of `position` in a bucket: the position below `check`.
@@ -156,33 +149,24 @@ pub const Buckets = struct {
         return @as(u32, check) << check_shift | @as(u32, @truncate(position));
     }
 
-    /// The mark of a bucket this stream wrote last, whose ring's next way is `next`.
-    pub inline fn mark_of(self: *const Buckets, next: usize) u16 {
-        return @as(u16, @truncate(self.tag)) | @as(u16, @truncate(next)) << way_shift;
+    /// The entry of `position` in this stream, below `check`.
+    pub inline fn entry_at(self: *const Buckets, check: u8, position: usize) u32 {
+        return entry_of(check, self.offset + @as(u32, @truncate(position)));
     }
 
-    /// Whether this stream wrote the bucket `mark` belongs to: else the bucket holds no entry.
-    inline fn wrote(self: *const Buckets, mark: u16) bool {
-        return (mark ^ @as(u16, @truncate(self.tag))) & mark_tag_mask == 0;
-    }
-
-    /// The ring's next way of `slot`'s bucket, which this stream wrote: a search reads it after
-    /// a hit, and only such a bucket has one.
+    /// The ring's next way of `slot`'s bucket.
     pub inline fn next_of(self: *const Buckets, slot: Slot) usize {
-        return self.marks[slot.bucket] >> way_shift;
+        return self.next[slot.bucket] % ways;
     }
 
-    /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each: none where an earlier
-    /// stream wrote the bucket last.
+    /// The entries of `slot`'s bucket whose check is `slot`'s, a bit each.
     pub inline fn hits(self: *const Buckets, slot: Slot) u16 {
-        if (!self.wrote(self.marks[slot.bucket])) return 0;
         return @bitCast(self.check_lanes(slot));
     }
 
     /// The entries of `slot`'s bucket whose check is `slot`'s, 4 bits each: way w's are bits 4w to
     /// 4w + 3. One narrowing shift makes it from the compare of 16 lanes.
     pub inline fn hit_nibbles(self: *const Buckets, slot: Slot) u64 {
-        if (!self.wrote(self.marks[slot.bucket])) return 0;
         return nibbles(self.check_lanes(slot));
     }
 
@@ -211,41 +195,34 @@ pub const Buckets = struct {
     }
 
     /// Records `position` in `slot`: in its bucket below its check, over the oldest entry, and in
-    /// the side table, over the position its 4 octets named before. The stream's first insert in
-    /// a bucket empties it first, and starts its ring. The stream's values are read before the
-    /// first store, which the compiler cannot show leaves them.
+    /// the side table, over the position its 4 octets named before.
     pub inline fn insert_at(self: *Buckets, comptime safety: bool, slot: Slot, position: usize) void {
         @setRuntimeSafety(safety);
-        const side_entry = self.base +% @as(u32, @truncate(position));
-        const mark = self.marks[slot.bucket];
-        const kept = self.wrote(mark);
-        const stream_mark: u16 = if (kept) mark else @truncate(self.tag);
-        if (!kept) self.entries[slot.bucket] = @splat(0);
-        self.entries[slot.bucket][stream_mark >> way_shift] = entry_of(slot.check, position);
-        self.marks[slot.bucket] = stream_mark +% way_step;
-        self.side[slot.side] = side_entry;
+        const way = self.next[slot.bucket] % ways;
+        self.entries[slot.bucket][way] = self.entry_at(slot.check, position);
+        self.next[slot.bucket] = @intCast(way + 1);
+        self.side[slot.side] = self.offset + @as(u32, @truncate(position));
     }
 
-    /// The position `entry` of `slot`'s bucket names, when it holds `slot`'s check and lies from
-    /// `low` up and before `position`. `low` is 1 at least, so an entry of 0 names none.
-    pub inline fn candidate(slot: Slot, entry: u32, low: usize, position: usize) ?usize {
-        const lowest = entry_of(slot.check, low);
-        if (entry < lowest or entry >= entry_of(slot.check, position)) return null;
-        return entry & position_mask;
+    /// The position `entry` of `slot`'s bucket names, when it holds `slot`'s check and lies in
+    /// this stream from `low` up and before `position`.
+    pub inline fn candidate(self: *const Buckets, slot: Slot, entry: u32, low: usize, position: usize) ?usize {
+        if (entry < self.entry_at(slot.check, low) or entry >= self.entry_at(slot.check, position)) return null;
+        return (entry & position_mask) - self.offset;
     }
 
     /// The position the side table names for `slot`, when it lies in this stream from `low` up and
     /// before `position`: the newest whose 4 octets hash as `slot`'s do.
     pub inline fn side_candidate(self: *const Buckets, slot: Slot, low: usize, position: usize) ?usize {
         const entry = self.side[slot.side];
-        const lowest = self.base +% @as(u32, @truncate(low));
-        const own = self.base +% @as(u32, @truncate(position));
-        if (entry < lowest or entry >= own) return null;
-        return entry - self.base;
+        if (entry < self.offset + @as(u32, @truncate(low)) or entry >= self.offset + @as(u32, @truncate(position))) return null;
+        return entry - self.offset;
     }
 };
 
 const testing = std.testing;
+// Prototype: the tests below still name the one-line form's tags and marks.
+const tag_bits = @bitSizeOf(u32) - position_bits;
 
 test "a bucket keeps its last positions, a stream's own, and slides them" {
     try @call(.never_inline, expect_bucket, .{});

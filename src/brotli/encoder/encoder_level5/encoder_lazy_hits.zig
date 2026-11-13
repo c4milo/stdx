@@ -41,7 +41,7 @@ pub inline fn consider(comptime safety: bool, buckets: *const Buckets, slot: buc
         const step = @ctz(order);
         order &= order - 1;
         const way = (next + ways - 1 - step) % ways;
-        const candidate = Buckets.candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
+        const candidate = buckets.candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
         pick.consider(safety, window, position, end, candidate, .bucket);
     }
 }
@@ -99,7 +99,7 @@ pub inline fn probe(comptime safety: bool, buckets: *const Buckets, slot: bucket
         if (hits == 0) break;
         const way = @ctz(hits);
         hits &= hits - 1;
-        const candidate = Buckets.candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
+        const candidate = buckets.candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
         if (!floor.admits(safety, window, position, candidate)) continue;
         encoder_lazy.take(safety, window, position, candidate, end, false, cost, found);
     }
