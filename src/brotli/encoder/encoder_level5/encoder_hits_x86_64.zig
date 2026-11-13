@@ -60,14 +60,10 @@ comptime {
 
 /// The search of `slot`'s hits at `position`, as `encoder_hits_aarch64.begin` makes it.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
-    var hits = buckets.hits(slot);
+    const base = buckets.entry_at(slot.check, low);
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_bits(slot, base, @intCast(position - low)) else buckets.hits(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
-    const base = buckets.entry_at(slot.check, low);
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
     const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
@@ -228,13 +224,9 @@ comptime {
 /// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
 /// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
-    var hits = buckets.hits(slot);
-    if (hits == 0) return null;
     const base = buckets.entry_at(slot.check, low);
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_bits(slot, base, @intCast(position - low)) else buckets.hits(slot);
+    if (hits == 0) return null;
     return .{
         .tail_window = window + low + at,
         .shorter_window = window + low + at - 1,

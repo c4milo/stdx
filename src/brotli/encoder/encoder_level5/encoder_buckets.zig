@@ -165,8 +165,10 @@ pub const Buckets = struct {
     }
 
     /// The ways of `slot`'s bucket in reach, a bit each as `hits` sets them: an entry less `base`,
-    /// the entry of the lowest position with the slot's check, is in reach below `reach`. Among
-    /// the hits, an earlier stream's entry wraps past it.
+    /// the entry of the lowest position with the slot's check, is in reach below `reach`. These
+    /// are hits too. An earlier stream's entry wraps past the reach. So does an entry with
+    /// another check: `base` plus `reach` is at most 2^24, as no offset plus a position passes
+    /// the check.
     pub inline fn reach_bits(self: *const Buckets, slot: Slot, base: u32, reach: u32) u16 {
         return @bitCast(self.reach_lanes(slot, base, reach));
     }
@@ -338,6 +340,8 @@ test "a stream's offset keeps the window's last position below its entry's check
 /// the check that a carry out of the position before it would change.
 const last_position = (@as(usize, 1) << position_bits) - 1;
 const top_check = std.math.maxInt(u8);
+/// The way of the widest reach's own entry.
+const own_way = 1;
 
 /// The offset may reach `offset_max` and no further: the next `start` clears the buckets.
 fn expect_offsets() !void {
@@ -352,6 +356,13 @@ fn expect_offsets() !void {
     try testing.expectEqual(1, buckets.hits(slot));
     try testing.expectEqual(last_position - 1, buckets.candidate(slot, buckets.entries[0][0], 1, last_position));
     try testing.expectEqual(last_position - 1, buckets.side_candidate(slot, 1, last_position));
+    // The widest reach at the largest offset: an entry whose check is one above the slot's, at
+    // position 0 of an earlier stream, lies just past it. The slot's own entry lies in it.
+    const below: Slot = .{ .bucket = 0, .check = top_check - 1, .side = 0 };
+    buckets.entries[0][0] = Buckets.entry_of(top_check, 0);
+    buckets.entries[0][own_way] = buckets.entry_at(below.check, 1);
+    const reach_widest: u32 = last_position - 1;
+    try testing.expectEqual(@as(u16, 1) << own_way, buckets.reach_bits(below, buckets.entry_at(below.check, 1), reach_widest));
     buckets.start(1);
     try testing.expectEqual(1, buckets.offset);
     try testing.expectEqual(0, buckets.hits(slot));
@@ -388,8 +399,8 @@ test "a bucket's masks set a way with the slot's check, and among them one in re
 /// Entries in one bucket: this stream's in reach, below the reach or past the position, and a
 /// first stream's, the first ways at each edge and the rest seeded, each with the slot's check, a
 /// check one bit from it, or a seeded one, in a seeded ring. The check masks must set the ways
-/// with the slot's check, and among them the reach masks those where `candidate` names a
-/// position. The nibble masks spread the bit masks 4 bits a way.
+/// with the slot's check, and the reach masks those where `candidate` names a position. The
+/// nibble masks spread the bit masks 4 bits a way.
 fn expect_masks() !void {
     var buckets_state: Buckets = undefined;
     const buckets = &buckets_state;
@@ -417,8 +428,8 @@ fn expect_masks() !void {
         buckets.next[0] = @truncate(generator.next());
         try testing.expectEqual(hits, buckets.hits(slot));
         try testing.expectEqual(spread(hits), buckets.hit_nibbles(slot));
-        try testing.expectEqual(in_reach, buckets.reach_bits(slot, base, mask_position - mask_low) & hits);
-        try testing.expectEqual(spread(in_reach), buckets.reach_nibbles(slot, base, mask_position - mask_low) & spread(hits));
+        try testing.expectEqual(in_reach, buckets.reach_bits(slot, base, mask_position - mask_low));
+        try testing.expectEqual(spread(in_reach), buckets.reach_nibbles(slot, base, mask_position - mask_low));
         try testing.expectEqual(buckets.next[0] % ways, buckets.next_of(slot));
     }
 }

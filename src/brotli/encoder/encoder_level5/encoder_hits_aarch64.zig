@@ -65,16 +65,13 @@ pub const none = std.math.maxInt(u64);
 
 /// The search of `slot`'s hits at `position`, the best so far `saves` and `candidate`, or none
 /// when no hit lies in reach. Early in a stream begun with `start`, most hits are entries of an
-/// earlier stream: one compare of the bucket's 16 entries against the reach drops them first.
+/// earlier stream: there one compare of the bucket's 16 entries against the reach takes the hits,
+/// and drops those.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
-    var hits = buckets.hit_nibbles(slot);
+    const base = buckets.entry_at(slot.check, low);
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_nibbles(slot, base, @intCast(position - low)) else buckets.hit_nibbles(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
-    const base = buckets.entry_at(slot.check, low);
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
     const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
@@ -264,13 +261,9 @@ const way_bits = std.math.maxInt(u64) / std.math.maxInt(u4);
 /// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
 /// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
-    var hits = buckets.hit_nibbles(slot);
-    if (hits == 0) return null;
     const base = buckets.entry_at(slot.check, low);
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_nibbles(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_nibbles(slot, base, @intCast(position - low)) else buckets.hit_nibbles(slot);
+    if (hits == 0) return null;
     return .{
         .tail_window = window + low + at,
         .shorter_window = window + low + at - 1,
