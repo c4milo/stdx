@@ -21,6 +21,7 @@
 //! this stream the window still reaches.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
 const constants = @import("../../constants.zig");
@@ -73,7 +74,13 @@ comptime {
 /// The hash's bits below the bucket's that make a check.
 const hash_check_shift = @bitSizeOf(u64) - constants.encoder_level5.bucket_log - @bitSizeOf(u8);
 
+/// Scratch: x86-64 keeps a copy of each entry's check in a table of 16 octets a bucket, which a
+/// search compares before it reads the bucket's line.
+const check_copies = builtin.cpu.arch == .x86_64;
+const check_copy_count = if (check_copies) bucket_count else 0;
+
 pub const Buckets = struct {
+    checks: [check_copy_count][ways]u8,
     /// Each bucket's 16 entries, one cache line: a position below its check.
     entries: [bucket_count][ways]u32 align(bucket_len),
     /// Each bucket's mark: the tag of the stream that wrote it last, below its ring's next way.
@@ -147,6 +154,7 @@ pub const Buckets = struct {
 
     /// Asks the cache for `slot`'s bucket and its mark before a search reads them.
     pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
+        if (check_copies) @prefetch(&self.checks[slot.bucket], .{});
         @prefetch(&self.entries[slot.bucket], .{});
         @prefetch(&self.marks[slot.bucket], .{});
     }
@@ -187,6 +195,11 @@ pub const Buckets = struct {
     }
 
     inline fn check_lanes(self: *const Buckets, slot: Slot) @Vector(ways, bool) {
+        if (check_copies) {
+            const Copies = @Vector(ways, u8);
+            const copies: Copies = self.checks[slot.bucket];
+            return copies == @as(Copies, @splat(slot.check));
+        }
         const Entries = @Vector(ways, u32);
         const Checks = @Vector(ways, u8);
         const entries: Entries = self.entries[slot.bucket];
@@ -221,6 +234,8 @@ pub const Buckets = struct {
         const kept = self.wrote(mark);
         const stream_mark: u16 = if (kept) mark else @truncate(self.tag);
         if (!kept) self.entries[slot.bucket] = @splat(0);
+        if (check_copies and !kept) self.checks[slot.bucket] = @splat(0);
+        if (check_copies) self.checks[slot.bucket][stream_mark >> way_shift] = slot.check;
         self.entries[slot.bucket][stream_mark >> way_shift] = entry_of(slot.check, position);
         self.marks[slot.bucket] = stream_mark +% way_step;
         self.side[slot.side] = side_entry;
