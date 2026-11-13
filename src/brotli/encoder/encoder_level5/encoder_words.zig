@@ -41,15 +41,35 @@ pub inline fn find(comptime safety: bool, window: []const u8, position: usize, e
     // The frequent case, its own code (decision 66, part 3): no way's check agrees, and the
     // dictionary is not read. One read of 4 checks, in a table that stays in the first-level cache.
     // It stays in the caller; the ways that agree go to a function of their own.
-    const Checks = @Vector(ways, u8);
-    const agreeing: Checks = checks[slot.bucket];
-    const hits: Hits = @bitCast(agreeing == @as(Checks, @splat(slot.check)));
+    const hits = agreeing(std.mem.readInt(Hits, &checks[slot.bucket], .little), slot.check);
     if (hits == 0) return null;
     return find_among(safety, window, position, end, slot.bucket, hits);
 }
 
-/// The ways of a bucket whose check agrees, a bit each.
-const Hits = std.meta.Int(.unsigned, ways);
+/// The ways of a bucket whose check agrees: the top bit of way w's octet, in a word of the
+/// bucket's 4 checks, the first way's least significant.
+const Hits = u32;
+
+/// 1 in each octet of a word, and the bits of each octet below its top bit.
+const octet_ones: Hits = std.math.maxInt(Hits) / std.math.maxInt(u8);
+const octet_low_bits: Hits = octet_ones * (std.math.maxInt(u8) >> 1);
+
+comptime {
+    // One word holds a bucket's checks, an octet each.
+    assert(ways == @sizeOf(Hits));
+}
+
+/// The top bit of each octet of `word` that equals `check`, and no other bit. The sum takes each
+/// octet's low 7 bits, so no carry leaves an octet, and it sets the top bit where one of the 7
+/// differs.
+///
+/// A compare of 4 lanes says the same, and Zig 0.16.0's own x86-64 backend, which builds a
+/// caller's Debug program on x86-64 Linux, leaves bits above the fourth in that compare's mask.
+/// These are operations on one integer, which every backend computes alike.
+inline fn agreeing(word: Hits, check: u8) Hits {
+    const differing = word ^ (octet_ones * check);
+    return ~(((differing & octet_low_bits) + octet_low_bits) | differing | octet_low_bits);
+}
 
 /// `find` over the ways of `bucket` that `first_hits` names.
 noinline fn find_among(comptime safety: bool, window: []const u8, position: usize, end: usize, bucket: usize, first_hits: Hits) ?Word {
@@ -58,7 +78,7 @@ noinline fn find_among(comptime safety: bool, window: []const u8, position: usiz
     var best: ?Word = null;
     for (0..ways) |_| {
         if (hits == 0) break;
-        const way = @ctz(hits);
+        const way = @ctz(hits) / @bitSizeOf(u8);
         hits &= hits - 1;
         const reference = table[bucket][way];
         if (reference == none) continue;
@@ -174,3 +194,47 @@ const test_word_len = 9;
 const test_word_index = 100;
 const test_window_len = 64;
 const test_at = 8;
+
+test "the agreeing ways are the octets equal to the check, and no other" {
+    var generator = codec.testing.split.Generator.init(agreeing_seed);
+    for (0..agreeing_rounds) |_| {
+        const check: u8 = @truncate(generator.next());
+        var octets: [ways]u8 = undefined;
+        var expected: Hits = 0;
+        for (&octets, 0..) |*octet, way| {
+            const kind: OctetKind = @enumFromInt(generator.below(@typeInfo(OctetKind).@"enum".fields.len));
+            octet.* = switch (kind) {
+                .equal => check,
+                .top_bit => check ^ top_bit,
+                .low_bit => check ^ 1,
+                .every_bit => ~check,
+                .seeded => @truncate(generator.next()),
+            };
+            if (octet.* == check) expected |= @as(Hits, top_bit) << @intCast(way * @bitSizeOf(u8));
+        }
+        try testing.expectEqual(expected, agreeing(std.mem.readInt(Hits, &octets, .little), check));
+    }
+}
+
+/// What an octet of the test's word holds: the check, the check with its top bit, its low bit or
+/// every bit changed, or a seeded octet.
+const OctetKind = enum { equal, top_bit, low_bit, every_bit, seeded };
+const top_bit: u8 = 1 << (@bitSizeOf(u8) - 1);
+const agreeing_seed = 52;
+const agreeing_rounds = 4096;
+
+test "a word is found from each way of its bucket" {
+    // A bucket whose 4 ways each hold a word, and no way the check of the way opposite: the ways
+    // read in the other order would then name another word for each.
+    const bucket = for (table, checks, 0..) |references, way_checks, index| {
+        if (std.mem.indexOfScalar(u16, &references, none) != null) continue;
+        if (way_checks[0] != way_checks[ways - 1] and way_checks[1] != way_checks[ways - 1 - 1]) break index;
+    } else return error.TestNoMixedBucket;
+    for (table[bucket]) |reference| {
+        const word = dictionary.word(reference >> index_bits, reference & ((1 << index_bits) - 1));
+        var window: [test_window_len]u8 = @splat('#');
+        @memcpy(window[test_at..][0..word.len], word);
+        const found = find(true, &window, test_at, window.len) orelse return error.TestNotFound;
+        try testing.expectEqual(word.len, found.written_len);
+    }
+}
