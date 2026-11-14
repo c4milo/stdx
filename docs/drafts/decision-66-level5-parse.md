@@ -541,3 +541,25 @@ Mutations: 16 of 16 CAUGHT.
 Level 5 against quality 5 after it: 1.20 and 1.22 at the median on the N2, with 3 rows slower
 (kennedy.xls 0.89 and 0.90, ptt5 0.91 and 0.93, json-1m 0.94); 1.07 on the EPYC 9V45, with 10
 rows slower; and 1.14 on the EPYC 9V74, with 7.
+
+### The bucket in one cache line (2026-11-12)
+
+The owner asked for a scratch test of a bucket laid out in one cache line, and of 2^15 buckets
+in that layout. The scratch form kept each entry's check in the entry's top octet, and a mark of
+2 octets for each bucket: the stream's tag above the ring's next way. The assembly loops did not
+change. Each figure is level 5's median row against the landed finder (f5836ba), with quality 5
+as the control.
+
+| Form | N2 | x86-64 | State |
+| --- | --- | --- | --- |
+| One line, 2^14 buckets (run 43337207709) | 1.077, 4 rows below 0.99 | 1.025, 12 rows below 0.99 (Xeon 8573C) | 7,497,096 |
+| One line, 2^15 buckets (run 43337218182) | 1.047, 8 rows below 0.99 | 0.969, 28 rows below 0.99 (EPYC 9V74) | 8,578,440 |
+
+- **2^14 buckets** give the landed finder's octets. The text rows of the Canterbury and Silesia
+  corpora gain 8% to 15% on the N2. The rows that lose most there are sao 0.960, mozilla 0.962,
+  fields.c 0.970 and ooffice 0.975. On the Xeon they are sum 0.929, cp.html 0.945, fields.c 0.953
+  and mozilla 0.956.
+- **2^15 buckets do not hold their speed.** On the N2 that form runs at 0.960 of the form with
+  2^14 buckets at the median, and slower on 30 of the 39 rows: 2 MiB of entries do not fit a
+  cache of 1 MiB. Its state passes decision 12's 8 MiB by 189,832 octets. The owner ruled 2^14
+  buckets (2026-11-12).

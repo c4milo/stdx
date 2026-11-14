@@ -31,15 +31,12 @@ pub const assembly_takes = hits_aarch64.takes or hits_x86_64.takes;
 pub inline fn consider(comptime safety: bool, buckets: *const Buckets, slot: buckets_module.Slot, window: []const u8, position: usize, end: usize, low: usize, pick: *Pick) void {
     @setRuntimeSafety(safety);
     if (comptime assembly_takes and !safety) return consider_assembly(safety, Assembly, buckets, slot, window, position, end, low, pick);
-    var hits = buckets.hits(slot);
+    // Early in a stream begun with `start`, most hits are entries of an earlier stream: the
+    // compare against the reach drops them.
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_bits(slot, buckets.entry_at(slot.check, low), @intCast(position - low)) else buckets.hits(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return;
-    // Early in a stream begun with `start`, most hits are entries of an earlier stream.
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_bits(slot, buckets.base +% @as(u32, @truncate(low)), @intCast(position - low));
-        if (hits == 0) return;
-    }
-    const next = buckets.next[slot.bucket] % ways;
+    const next = buckets.next_of(slot);
     // Bit j of `order` is the way written j inserts before the last.
     var order = std.math.rotl(u16, @bitReverse(hits), next);
     for (0..ways) |_| {
@@ -47,7 +44,7 @@ pub inline fn consider(comptime safety: bool, buckets: *const Buckets, slot: buc
         const step = @ctz(order);
         order &= order - 1;
         const way = (next + ways - 1 - step) % ways;
-        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
+        const candidate = buckets.candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
         pick.consider(safety, window, position, end, candidate, .bucket);
     }
 }
@@ -105,7 +102,7 @@ pub inline fn probe(comptime safety: bool, buckets: *const Buckets, slot: bucket
         if (hits == 0) break;
         const way = @ctz(hits);
         hits &= hits - 1;
-        const candidate = buckets.candidate(buckets.entries[slot.bucket][way], low, position) orelse continue;
+        const candidate = buckets.candidate(slot, buckets.entries[slot.bucket][way], low, position) orelse continue;
         if (!floor.admits(safety, window, position, candidate)) continue;
         encoder_lazy.take(safety, window, position, candidate, end, false, cost, found);
     }
@@ -155,3 +152,30 @@ inline fn probe_assembly(comptime safety: bool, comptime Hits: type, buckets: *c
         if (search.order == 0) break;
     }
 }
+
+const testing = std.testing;
+
+test "the compare at the best length is set only where its read stays inside the stream" {
+    var window: [guard_window_len]u8 = @splat(0);
+    const position = guard_window_len / 2;
+    const end = window.len;
+    var search: Assembly.Search = undefined;
+    const cases = [_]struct { len: usize, compares: bool }{
+        // A best that runs to the end: a compare there would read past it.
+        .{ .len = end - position, .compares = false },
+        // One octet shorter: the compare reads up to the end.
+        .{ .len = end - position - 1, .compares = true },
+        // Shorter than the octets one compare reads.
+        .{ .len = read_len - 1, .compares = false },
+    };
+    for (cases) |case| {
+        const saves = encoder_lazy.saving(case.len, guard_offset, false, guard_literal_cost);
+        compare_at_len(true, Assembly, &window, position, end, 1, case.len, saves, guard_literal_cost, &search);
+        try testing.expectEqual(case.compares, Assembly.compares(&search));
+    }
+}
+
+const guard_window_len = 64;
+const guard_offset = 16;
+/// 8 bits a literal, in eighths of a bit.
+const guard_literal_cost = 64;
