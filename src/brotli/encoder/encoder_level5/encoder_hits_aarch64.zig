@@ -60,6 +60,31 @@ pub const Search = struct {
     clz_max: i64,
 };
 
+/// The ways of a bucket whose entry holds `check`, 4 bits a way as `Buckets.hit_nibbles` sets
+/// them: the top octet of each of the 16 entries, compared in one vector, narrowed to 4 bits a
+/// lane. The compiler adds two instructions to the same compare.
+inline fn check_nibbles(entries: *const [ways]u32, check: u8) u64 {
+    return asm (check_nibbles_text
+        : [hits] "={x9}" (-> u64),
+        : [entries] "{x8}" (entries),
+          [check] "{x9}" (@as(u64, check)),
+        : .{ .memory = true, .v0 = true, .v1 = true, .v2 = true, .v3 = true, .v4 = true });
+}
+
+/// x8 the bucket's entries, x9 the check; x9 the hits.
+const check_nibbles_text =
+    \\ ldp q0, q1, [x8]
+    \\ ldp q2, q3, [x8, #32]
+    \\ dup v4.16b, w9
+    // The top 16 bits of each entry, then the top octet of those.
+    \\ uzp2 v0.8h, v0.8h, v1.8h
+    \\ uzp2 v2.8h, v2.8h, v3.8h
+    \\ uzp2 v0.16b, v0.16b, v2.16b
+    \\ cmeq v0.16b, v0.16b, v4.16b
+    \\ shrn v0.8b, v0.8h, #4
+    \\ fmov x9, d0
+;
+
 /// What `consider` returns when no hit is left.
 pub const none = std.math.maxInt(u64);
 
@@ -69,7 +94,7 @@ pub const none = std.math.maxInt(u64);
 /// and drops those.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
     const base = buckets.entry_at(slot.check, low);
-    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_nibbles(slot, base, @intCast(position - low)) else buckets.hit_nibbles(slot);
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_nibbles(slot, base, @intCast(position - low)) else check_nibbles(&buckets.entries[slot.bucket], slot.check);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
     const next: u64 = buckets.next_of(slot);
@@ -262,7 +287,7 @@ const way_bits = std.math.maxInt(u64) / std.math.maxInt(u4);
 /// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
     const base = buckets.entry_at(slot.check, low);
-    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_nibbles(slot, base, @intCast(position - low)) else buckets.hit_nibbles(slot);
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_nibbles(slot, base, @intCast(position - low)) else check_nibbles(&buckets.entries[slot.bucket], slot.check);
     if (hits == 0) return null;
     return .{
         .tail_window = window + low + at,
