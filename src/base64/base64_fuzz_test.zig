@@ -1,5 +1,6 @@
 //! The fuzzer's test of base 64: each input, read as a text, decodes as one of std.base64's four
-//! decoders decodes it, or is refused by all of them; and each input, read as octets, encodes in
+//! decoders decodes it, or is refused by all of them, and decodes with `pad_bits` at `.drop` as
+//! base64_test.zig's `expect_drop_agrees` requires; and each input, read as octets, encodes in
 //! both alphabets, with and without pad characters, to a text that decodes back to it, whole and
 //! under a seeded split (invariant 5).
 
@@ -20,7 +21,7 @@ const text_len_max = Encoder.encoded_len(input_len_max, true);
 const paths_len_max = 512;
 
 test "fuzz base 64 against std.base64 and its own round trip" {
-    try testing.fuzz({}, fuzz_one, .{ .corpus = &.{ "", "Zm9vYmFy", "Zg==", "a-b_", "a+b/", "Zh==" } });
+    try testing.fuzz({}, fuzz_one, .{ .corpus = &.{ "", "Zm9vYmFy", "Zg==", "a-b_", "a+b/", "Zh==", "-_" } });
 }
 
 fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
@@ -28,6 +29,7 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     const input_len = smith.slice(&input);
     try decodes_as_std(input[0..input_len]);
     try @import("base64_test.zig").expect_paths_agree(input[0..@min(input_len, paths_len_max)]);
+    try @import("base64_test.zig").expect_drop_agrees(input[0..@min(input_len, paths_len_max)]);
     try round_trips(input[0..input_len], smith.value(u64));
 }
 

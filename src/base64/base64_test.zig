@@ -193,6 +193,70 @@ test "each refusal names its cause" {
     try testing.expectError(error.NoSpaceLeft, decode("Zm9vYmFy", octets[0..5], .{}));
 }
 
+test "pad_bits .drop takes a final quantum whose unused bits are set, and clears them" {
+    var octets: [room_len]u8 = undefined;
+    const cases = [_]struct { []const u8, []const u8 }{
+        .{ "Zh==", "f" },
+        .{ "Zm9=", "fo" },
+        .{ "Zh", "f" },
+        .{ "Zm9vYh==", "foob" },
+        .{ "-_", "\xfb" },
+        .{ "Zg==", "f" },
+    };
+    for (cases) |case| try testing.expectEqualSlices(u8, case[1], try decode(case[0], &octets, .{ .pad_bits = .drop }));
+    // Every other refusal stays.
+    try testing.expectError(error.InvalidLength, decode("Zm9vY", &octets, .{ .pad_bits = .drop }));
+    try testing.expectError(error.InvalidCharacter, decode("Zh =", &octets, .{ .pad_bits = .drop }));
+    try testing.expectError(error.MixedAlphabets, decode("a+b_", &octets, .{ .pad_bits = .drop }));
+    try testing.expectError(error.InvalidPadding, decode("Zh=", &octets, .{ .pad_bits = .drop }));
+    try testing.expectError(error.InvalidPadding, decode("Zh", &octets, .{ .pad_bits = .drop, .padding = .required }));
+}
+
+/// The letters of both alphabets, for the sweep of final quanta.
+const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/-_";
+
+test "pad_bits .drop agrees with the default on every final quantum of two or three letters" {
+    var text: [constants.quantum_letters]u8 = undefined;
+    for (letters) |first| for (letters) |second| {
+        text[0] = first;
+        text[1] = second;
+        try expect_drop_agrees(text[0..2]);
+        text[2] = constants.pad;
+        text[3] = constants.pad;
+        try expect_drop_agrees(&text);
+        for (letters) |third| {
+            text[2] = third;
+            try expect_drop_agrees(text[0..3]);
+        }
+    };
+}
+
+/// `pad_bits` at `.drop` against the default on `text`: where the default takes the text, both give
+/// the same octets; where it refuses the text for any cause but its pad bits, both refuse it so.
+/// Where the default refuses the pad bits, `.drop` takes the text, and its octets encode back to the
+/// text in every letter but the final quantum's last.
+pub fn expect_drop_agrees(text: []const u8) !void {
+    var strict_out: [paths_room_len]u8 = undefined;
+    var drop_out: [paths_room_len]u8 = undefined;
+    var dropping: Decoder = undefined;
+    dropping.init(.{ .pad_bits = .drop }, features);
+    const strict = decode(text, &strict_out, .{});
+    const dropped = dropping.decode_all(text, &drop_out);
+    const strict_octets = strict catch |err| {
+        if (err != error.NonCanonical) return testing.expectError(err, dropped);
+        const octets = drop_out[0..try dropped];
+        const padding = text[text.len - 1] == constants.pad;
+        var back: [paths_room_len]u8 = undefined;
+        const encoded = try encode(octets, &back, .{ .alphabet = dropping.alphabet() orelse .standard, .padding = padding });
+        try testing.expectEqual(text.len, encoded.len);
+        const last = std.mem.lastIndexOfNone(u8, text, &.{constants.pad}).?;
+        try testing.expectEqualStrings(text[0..last], encoded[0..last]);
+        try testing.expectEqualStrings(text[last + 1 ..], encoded[last + 1 ..]);
+        return testing.expect(text[last] != encoded[last]);
+    };
+    try testing.expectEqualSlices(u8, strict_octets, drop_out[0..try dropped]);
+}
+
 test "decoded_len refuses the lengths no text has" {
     try testing.expectError(error.InvalidPadding, Decoder.decoded_len("Zg="));
     try testing.expectError(error.InvalidPadding, Decoder.decoded_len("Zm9vY="));

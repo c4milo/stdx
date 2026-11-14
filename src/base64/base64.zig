@@ -2,8 +2,9 @@
 //! and a decoder (decision 68, design §3).
 //!
 //! The decoder takes either alphabet in one pass and says which one a text used. It refuses a text
-//! that mixes them, any octet outside them, and any final quantum whose unused bits are not zero, so
-//! each octet string has one text that decodes to it.
+//! that mixes them and any octet outside them. By default it refuses any final quantum whose unused
+//! bits are not zero, so each octet string has one text that decodes to it; `pad_bits` can drop
+//! them.
 
 pub const constants = @import("constants.zig");
 
@@ -21,6 +22,7 @@ pub const DecoderOptions = decoder.DecoderOptions;
 pub const DecoderClaims = decoder.Claims;
 pub const Accept = decoder.Accept;
 pub const Padding = decoder.Padding;
+pub const PadBits = decoder.PadBits;
 pub const Piece = decoder.Piece;
 pub const Error = decoder.Error;
 pub const refusal = decoder.refusal;

@@ -4358,7 +4358,8 @@ small file.
       an edge from `json` to `base64`, with a ruling of its own.
     - Whitespace skipped, as MIME's base 64 does: §3.3 lets only the referring specification ask
       for it.
-    - Pad bits that are not zero taken: two texts would decode to the same octets.
+    - Pad bits that are not zero taken by default: two texts would decode to the same octets. The
+      amendment below lets a caller ask for them.
 
     **The bar, as the owner set it.** The dependent competes with Rust's connect-rust and with Go's
     protobuf, so `bench-base64` times Rust's `base64` crate, which connect-rust's Buffa uses, and
@@ -4384,6 +4385,22 @@ small file.
     The 60-octet rows lose on most CPUs: a call's fixed cost, about 1,244 instructions for one
     encode and one decode on aarch64, weighs most there. The owner landed the module with them
     open, in [issue 24](https://github.com/c4milo/stdx/issues/24).
+
+    **Amended on 2026-11-14: pad bits that are not zero, taken where a caller asks.** The
+    dependent asked for it. protobuf's conformance suite, at v37.0-rc1, requires the JSON text
+    "-_" to decode to the octet 0xfb, in its case BytesFieldBase64Url. protobuf's own parsers read
+    such a final quantum and drop its set bits. The owner ruled an opt-in option, and the default
+    stays as above.
+    - `DecoderOptions.pad_bits` is `.refuse` by default. With `.drop`, a final quantum of two or
+      three letters decodes with its unused bits cleared, as RFC 4648 §3.5 lets a decoder do.
+      Every other refusal stays.
+    - The test is on the path that ends a text, in `form_tail`, so no loop over whole quanta reads
+      the option.
+    - The checks: base64_test.zig requires `.drop` to agree with the default on every final
+      quantum of two or three letters, in both alphabets, and the fuzzer requires it on each input.
+      Where the default takes a text, both give the same octets. Where it refuses one for another
+      cause, both give the same error. Where it refuses the pad bits, `.drop`'s octets encode back
+      to the text in every letter but the final quantum's last. The commit lists the mutations.
 
 69. **One token a call takes the shortest path the module has.** Ruled by the owner on 2026-11-09
     and 2026-11-10. A dependent that writes and reads its JSON a value at a time spent 70% to 80%

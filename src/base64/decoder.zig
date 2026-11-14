@@ -1,8 +1,9 @@
 //! The base 64 decoder of RFC 4648 §4 and §5. It takes either alphabet in one pass, says which one
 //! the text used, and refuses a text that mixes them. It takes a final quantum with its pad
 //! characters or without them (RFC 4648 §3.2), and refuses any octet outside the alphabets,
-//! whitespace included (RFC 4648 §3.3), and any final quantum whose unused bits are not zero (RFC
-//! 4648 §3.5), so each octet string has one text that decodes to it.
+//! whitespace included (RFC 4648 §3.3). By default it refuses any final quantum whose unused bits
+//! are not zero (RFC 4648 §3.5), so each octet string has one text that decodes to it; with
+//! `pad_bits` at `.drop` it clears those bits.
 //!
 //! It streams (decision 11): a call takes the letters the caller has and writes the octets that
 //! fit. Base 64 marks no end of its own, so `piece` says whether `input` holds the text's last
@@ -40,9 +41,19 @@ pub const Padding = enum {
     refused,
 };
 
+/// What the decoder does with a final quantum whose unused bits are not zero (RFC 4648 §3.5).
+pub const PadBits = enum {
+    /// Refuses it, so each octet string has one text that decodes to it (decision 68).
+    refuse,
+    /// Takes it and clears the bits, as RFC 4648 §3.5 lets a decoder do where a referring
+    /// specification reads such texts. Every other refusal stays.
+    drop,
+};
+
 pub const DecoderOptions = struct {
     accept: Accept = .either,
     padding: Padding = .optional,
+    pad_bits: PadBits = .refuse,
 };
 
 /// Whether `input` holds the text's last letters.
@@ -58,7 +69,8 @@ pub const Error = error{
     InvalidPadding,
     /// A text whose final quantum holds one letter, which no octet takes (RFC 4648 §4).
     InvalidLength,
-    /// A final quantum whose unused bits are not zero (RFC 4648 §3.5).
+    /// A final quantum whose unused bits are not zero, where `pad_bits` refuses it (RFC 4648
+    /// §3.5).
     NonCanonical,
 };
 
@@ -71,6 +83,7 @@ pub fn refusal(err: Error) codec.Refusal {
 pub const Decoder = struct {
     accept: Accept,
     padding: Padding,
+    pad_bits: PadBits,
     /// Whether the CPU has AVX2, whose variant object's kernels the fast path then calls.
     wide: bool,
     /// The alphabet whose letters of values 62 and 63 the text used, once one appeared.
@@ -95,6 +108,7 @@ pub const Decoder = struct {
             .wide = fast.has_kernels and features.avx2,
             .accept = options.accept,
             .padding = options.padding,
+            .pad_bits = options.pad_bits,
             .seen = switch (options.accept) {
                 .either => null,
                 .standard => .standard,
@@ -293,8 +307,9 @@ pub const Decoder = struct {
         const bits_len = self.held_len * constants.letter_bits;
         const octets = bits_len / constants.octet_bits;
         const unused = bits_len % constants.octet_bits;
-        // RFC 4648 §3.5: the bits after the last octet's are zero in the one canonical text.
-        if (self.bits & ((@as(u32, 1) << @intCast(unused)) - 1) != 0) return error.NonCanonical;
+        // RFC 4648 §3.5: the bits after the last octet's are zero in the one canonical text, and a
+        // decoder may refuse a text where they are not. The shift below drops them.
+        if (self.pad_bits == .refuse and self.bits & ((@as(u32, 1) << @intCast(unused)) - 1) != 0) return error.NonCanonical;
         const value = self.bits >> @intCast(unused);
         assert(self.pending_written == self.pending_len);
         for (0..octets) |index| {
