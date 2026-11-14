@@ -29,7 +29,7 @@ fn level_here() wide.Level {
 
 /// Requires `copy_rest` to copy `rest` alike at both widths into `room_len` octets: the same
 /// octets taken and written, or the string left to the checked path at both.
-fn expect_same_copy(rest: []const u8, room_len: usize) !void {
+pub fn expect_same_copy(rest: []const u8, room_len: usize) !void {
     var narrow_room: [string_len_max]u8 = undefined;
     var wide_room: [string_len_max]u8 = undefined;
     const level = level_here();
@@ -50,7 +50,7 @@ fn led_string(storage: []u8, len: usize, filler: u8) []u8 {
 }
 
 /// What stops a run, or ends it with the string: each must stop both walks at the same octet.
-const stops = [_][]const u8{
+pub const stops = [_][]const u8{
     "\"",           "\\n",          "\\u0436",          "\\\\",
     "\x00",         "\x1f",         "\x80",             "\xbf",
     "\xc0\x80",     "\xc1\xbf",     "\xf5\x80\x80\x80", "\xff",
@@ -88,7 +88,7 @@ test "a character across a wide block's edge is judged alike at both widths" {
 
 /// Requires the walk to stop alike at both widths over `stretch`, whether or not a quotation mark
 /// closes it: where it stopped, and the octets it wrote.
-fn expect_same_walk(stretch: []const u8, room_len: usize) !void {
+pub fn expect_same_walk(stretch: []const u8, room_len: usize) !void {
     var narrow_room: [string_len_max]u8 = undefined;
     var wide_room: [string_len_max]u8 = undefined;
     const level = level_here();
@@ -159,7 +159,7 @@ const escaped_len_max = (constants.control_escape_prefix.len + constants.hex_dig
 
 /// Requires `copy_escaped` to write `octets` alike at both widths into `room_len` octets: the same
 /// octets, or the string left to the checked path at both.
-fn expect_same_escape(octets: []const u8, room_len: usize) !void {
+pub fn expect_same_escape(octets: []const u8, room_len: usize) !void {
     const level = level_here();
     inline for (encoder_claims) |run| {
         var narrow_room: [escaped_len_max]u8 = undefined;
@@ -173,7 +173,7 @@ fn expect_same_escape(octets: []const u8, room_len: usize) !void {
 
 /// What ends a run in a string's content: an octet a string must escape, by a letter or by
 /// `\u00` and two digits, and octets UTF-8 rules out there.
-const raw_stops = [_][]const u8{
+pub const raw_stops = [_][]const u8{
     "\"",           "\\",           "\n",               "\t",
     "\x00",         "\x01",         "\x1f",             "\x80",
     "\xbf",         "\xc0\x80",     "\xf5\x80\x80\x80", "\xff",

@@ -151,7 +151,7 @@ pub fn walk_stretch(comptime claims: Claims, comptime block_len: usize, level: w
         // An escape that follows an escape is taken at once, with no block walked to find it: a text
         // of lines that end in a carriage return and a line feed has two at each line's end.
         if (walk.input.len == 0 or walk.input[0] != constants.reverse_solidus) {
-            if (!walk.take_to_stop(claims, two_loops, block_len, level, stretch, room)) return walked_of(&walk, false);
+            if (!walk.take_to_stop(claims, two_loops, block_len, block_len != constants.vector_len, level, stretch, room)) return walked_of(&walk, false);
             if (walk.input.len == 0) return walked_of(&walk, false);
         }
         switch (walk.input[0]) {

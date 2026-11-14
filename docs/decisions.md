@@ -5100,3 +5100,82 @@ small file.
       instructions, and the store and the load a token stay.
     - The loop inline by name in `refill`, in place of a copy for each call: `next`'s out-of-line
       part came to 3,617 instructions on aarch64, from 3,545, and its code was no longer main's.
+
+80. **The decoder's walk takes plain ASCII 64 octets a pass on AVX2, after one block of 32.**
+    Ruled by the owner on 2026-11-13, as a probe, from the table at ffd8215
+    ([issue 17](https://github.com/c4milo/stdx/issues/17#issuecomment-6852289034)). On 2026-11-14
+    the owner ruled that the decoder's walk alone takes it. silesia/reymont as a string decoded at
+    0.69 to 0.76 of simdjson's speed on AMD Zen 4 and Zen 5. It decoded at 0.87 to 0.90 on both
+    Xeons drawn. It reopens decision 39's refused "The walk at the wider widths too" for this one
+    loop, as decision 47 did for the UTF-8 blocks.
+    - Why reymont. In bench-json's string, the walk restarts 26,582 times, once after each escape,
+      about as often as on silesia/nci (26,533). reymont's runs between escapes vary more: the
+      count of 16-octet blocks before a stop has 2.50 bits of entropy, against 1.64 for nci. nci's
+      count matches the run before 89% of the time, and reymont's 22%.
+    - On an EPYC 9V45, simdjson built without its AVX-512 kernel ran reymont at 0.56 to 0.61 of its
+      own speed (draw of 2026-10-10). stdx then ran at 1.07 to 1.09 of it. So the lead was
+      simdjson's 64 octets a block.
+    - The loop. One block of 32 is stored as it is and classified into a word of 32 lanes. Past
+      it, each pass loads two blocks of 32 and stores them. It classifies both into one word of 64
+      lanes: one test and one branch for 64 octets. Where fewer octets of input or room are left,
+      the 16-octet loop takes the rest.
+    - The first block. With the passes alone, text of short runs decoded slower than main on a
+      Xeon 6975P-C and an EPYC 7763 (runs 43464690664, 43464704827). nci ran at 0.84 to 0.86,
+      canterbury/asyoulik.txt at 0.85 to 0.90, and http/css-1m at 0.89. The null build moved none
+      of those rows as far (43464717657, 43464730913). With the first block, a run that ends in
+      its first 32 octets pays one load and one test.
+    - A first block of 16 was drawn twice, on a Xeon 8573C (43483791171, 43483803369). It decoded
+      nci at 0.92, asyoulik.txt at 0.89 to 0.90, and canterbury-large/E.coli at 0.89 to 0.96. No
+      job drew both first blocks on one CPU.
+    - The decoder alone. The passes gave the encoder's walks nothing on reymont: 0.97 to 1.02 of
+      main. They wrote http/js-1m at 0.79 to 0.95 on an EPYC 9V74 (43487612295, 43616673315,
+      43616687779). `Walk.take_to_stop` names the passes at compile time. The encoder's walks
+      pass false and compile to main's instructions.
+    - The passes return an enum. With an optional, LLVM read the result from constants in memory
+      and took a jump table at each stop, in every walk.
+
+    What it gave, a batch's decode over main's, in nine runs whose jobs ran main first:
+    - EPYC 9V74, four jobs (43487612295, 43616673315, 43616687779, 43625746162): reymont 1.82 to
+      1.87, bible.txt 1.74 to 1.77, http/html-1m 1.25 to 1.26, world192.txt 1.22 to 1.23,
+      http/js-1m 1.18 to 1.19.
+    - EPYC 7763, three jobs (43487600712, 43625761107, 43625768273): reymont 1.18 to 1.19,
+      bible.txt 1.45 to 1.46, html-1m 1.26 to 1.29, js-1m 1.18, silesia/dickens 1.14,
+      silesia/webster 1.11 to 1.12.
+    - Xeon 6975P-C, two jobs (43616680590, 43625753773): reymont 1.14 to 1.16, html-1m 1.18 to
+      1.21, js-1m 1.10 to 1.11, bible.txt 1.10.
+    - `TextReader.next` moved as a batch did on each string row, since it takes the same walk.
+    - reymont leaves every table's list of losses to the baselines on the three CPUs. Over
+      simdjson, it decodes at 1.34 to 1.37 on the 9V74, from 0.73 to 0.74. It decodes at 1.03 to
+      1.04 on the 6975P, from 0.90, and at 1.49 to 1.51 on the 7763, from 1.27.
+
+    What it costs, the rows below main in every job of a CPU:
+    - 9V74: asyoulik.txt 0.87 to 0.88, css-1m 0.88 to 0.89, plrabn12.txt and dickens 0.92 to 0.93,
+      json-1m 0.93 to 0.97, alice29.txt 0.94, nci 0.95, samba 0.97. The null build's one job there
+      put those rows at 0.97 to 1.01 (43625781498).
+    - 7763: asyoulik.txt 0.94 to 0.98 and nci 0.97 to 0.98. The null build put them at 0.93 to 0.94
+      and 0.98 (43616695085, 43625788040).
+    - 6975P-C: asyoulik.txt 0.90, lcet10.txt 0.91 to 0.92, dickens 0.92 to 0.93, samba and json-1m
+      0.94 to 0.95, css-1m 0.95 to 0.96, alice29.txt and nci 0.96 to 0.97. The null build's one job
+      put them at 0.97 to 1.06, and css-1m at 0.91 (43616701751).
+    - On the 6975P the hex rows moved both ways in a batch, 0.76 to 1.36. Through
+      `TextReader.next`, which takes the same walk, they stayed at 0.97 to 1.01.
+    - Each row that falls against main still leads every baseline. In the decoder-only form's four
+      jobs, the least lead is samba's over simdjson on the 6975P: 1.06.
+    - The null build's job on an EPYC 9V45 put the string rows at 0.91 to 0.96, and bible.txt at
+      1.08, on code that never runs (43625774871). So it says nothing about placement. No job drew
+      the 32-octet form on a 9V45 or a Xeon 8573C.
+    - On aarch64 the bench program's 845 functions are main's, each at its offset in its 64-octet
+      line. Only the decoder's walk in the AVX2 variant object names the passes. Every other
+      target, every x86-64 CPU without AVX2 and every encoder walk keep the 16-octet loop.
+
+    The checks: string_walk_ascii_test.zig requires the 16-octet and the 32-octet walks to give the
+    same octets and stops. It tries a stop at every lane of three passes, and inputs and rooms
+    around a pass's edge. It tries seeded runs between escapes, and a run of 257 passes. A test in
+    string_walk.zig requires the first block to move past all its octets where none ends the run.
+    The commit lists the mutations.
+
+    The alternatives refused:
+    - The passes alone: the text rows above.
+    - A first block of 16: its 8573C rows above.
+    - The passes in the encoder's walks: no gain on reymont, and js-1m fell.
+    - An optional result: a jump table at each stop.

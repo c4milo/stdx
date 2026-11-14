@@ -106,7 +106,7 @@ pub fn copy_escaped(comptime claims: Claims, comptime block_len: usize, level: w
         // find it: a text of lines that end in a carriage return and a line feed has two at each
         // line's end.
         if (walk.input.len == 0 or escape_letters[walk.input[0]] == 0) {
-            if (!walk.take_to_stop(claims, comptime ascii_loop(block_len), block_len, level, octets, room)) return null;
+            if (!walk.take_to_stop(claims, comptime ascii_loop(block_len), block_len, false, level, octets, room)) return null;
             if (walk.input.len == 0) return room.len - walk.output.len;
             hand.ascii = walk.ascii_so_far;
         }

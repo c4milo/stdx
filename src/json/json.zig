@@ -60,6 +60,7 @@ test {
     _ = @import("scan.zig");
     _ = @import("plain_copy.zig");
     _ = @import("string_walk_wide_test.zig");
+    _ = @import("string_walk_ascii_test.zig");
     _ = wide;
     _ = @import("number.zig");
     _ = @import("containers.zig");
