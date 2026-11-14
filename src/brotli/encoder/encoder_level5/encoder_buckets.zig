@@ -30,7 +30,7 @@ const position_bits = constants.encoder_level5.window_bits + 1;
 /// Where an entry's check starts, above its position, and the bits below it.
 const check_shift = @bitSizeOf(u32) - @bitSizeOf(u8);
 const position_mask = (@as(u32, 1) << check_shift) - 1;
-/// The most a stream's offset may be: its window's positions stay below the check.
+/// The most a stream's offset may be: plus any position, it stays below the check.
 const offset_max = position_mask + 1 - (@as(u32, 1) << position_bits);
 /// The octets of a bucket, which is also its alignment: a bucket lies in one cache line of 64
 /// octets or more.
@@ -41,7 +41,7 @@ comptime {
     // `hits` takes the bucket's checks as one mask of 16 bits.
     assert(ways == @bitSizeOf(u16));
     assert((@as(usize, 1) << constants.encoder_level5.window_bits) + constants.encoder_level5.slack_len < @as(usize, 1) << position_bits);
-    // An offset and a position lie below an entry's check.
+    // A position lies below an entry's check with room for an offset: `offset_max` is 1 at least.
     assert(position_bits < check_shift);
     assert(std.math.isPowerOfTwo(bucket_len));
 }
@@ -130,11 +130,6 @@ pub const Buckets = struct {
         };
     }
 
-    /// The bucket of the 5 octets at `position`.
-    pub inline fn bucket_of(comptime safety: bool, window: []const u8, position: usize) usize {
-        return slot_of(safety, window, position).bucket;
-    }
-
     /// Asks the cache for `slot`'s bucket and its ring's next way before a search reads them.
     pub inline fn prefetch(self: *const Buckets, slot: Slot) void {
         @prefetch(&self.entries[slot.bucket], .{});
@@ -146,9 +141,15 @@ pub const Buckets = struct {
         return @as(u32, check) << check_shift | @as(u32, @truncate(position));
     }
 
+    /// The stream's offset plus `position`. The sum cannot wrap: the offset is `offset_max` at
+    /// most and a position lies below 2^23, so it stays below an entry's check (decision 17).
+    inline fn placed(self: *const Buckets, position: usize) u32 {
+        return self.offset +% @as(u32, @truncate(position));
+    }
+
     /// The entry of `position` in this stream, below `check`.
     pub inline fn entry_at(self: *const Buckets, check: u8, position: usize) u32 {
-        return entry_of(check, self.offset + @as(u32, @truncate(position)));
+        return entry_of(check, self.placed(position));
     }
 
     /// The ring's next way of `slot`'s bucket.
@@ -218,7 +219,7 @@ pub const Buckets = struct {
         const way = self.next[slot.bucket] % ways;
         self.entries[slot.bucket][way] = self.entry_at(slot.check, position);
         self.next[slot.bucket] = @intCast(way + 1);
-        self.side[slot.side] = self.offset + @as(u32, @truncate(position));
+        self.side[slot.side] = self.placed(position);
     }
 
     /// The position `entry` of `slot`'s bucket names, when it holds `slot`'s check and lies in
@@ -232,7 +233,7 @@ pub const Buckets = struct {
     /// before `position`: the newest whose 4 octets hash as `slot`'s do.
     pub inline fn side_candidate(self: *const Buckets, slot: Slot, low: usize, position: usize) ?usize {
         const entry = self.side[slot.side];
-        if (entry < self.offset + @as(u32, @truncate(low)) or entry >= self.offset + @as(u32, @truncate(position))) return null;
+        if (entry < self.placed(low) or entry >= self.placed(position)) return null;
         return entry - self.offset;
     }
 };
@@ -262,8 +263,8 @@ const fill_count = rounds * ways + 1;
 /// The inserts of the second stream before its slide: its first ways.
 const second_stream_ways = 2;
 
-/// The buckets live on the stack of a function the compiler may not inline: 1 MiB of thread-local
-/// state would add to every test's, past aarch64's offsets.
+/// The buckets live on the stack of a function the compiler may not inline: 1 MiB of state would
+/// add to every test's, past aarch64's offsets.
 fn expect_bucket() !void {
     var buckets_state: Buckets = undefined;
     var window_octets: [test_window_len]u8 = undefined;
