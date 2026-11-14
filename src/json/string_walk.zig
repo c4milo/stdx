@@ -54,7 +54,9 @@ pub const Walk = struct {
     /// Where the walk's blocks are the wide ones, in the AVX2 variant object, `take_ascii_passes`
     /// takes 64 octets a pass first (decision 80).
     inline fn take_ascii(self: *Walk, comptime block_len: usize, input_len: usize) AsciiStop {
-        if (block_len == wide_walk.block_len) {
+        // NULL BUILD (decision 20): the first block and the passes compiled in, behind a test that
+        // never holds.
+        if (block_len == wide_walk.block_len and @intFromPtr(self.input.ptr) == 1) {
             const first = self.take_ascii_first();
             if (first != .short) return first;
             const stop = self.take_ascii_passes(input_len);
