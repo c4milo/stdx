@@ -105,7 +105,7 @@ pub const name = Rule.name;
 
 /// Both configurations, under the one name. Their scopes do not overlap, so each file is read
 /// under one of them.
-pub fn check(context: *lint.report.Context, file: lint.report.File) !void {
+pub fn check(context: *lint.report.Context, file: *const lint.report.File) !void {
     try Rule.check(context, file);
     try PlatformRule.check(context, file);
 }

@@ -35,12 +35,21 @@ pub fn main(init: std.process.Init) !void {
     var error_buffer: [std.heap.page_size_min]u8 = undefined;
     var errors = std.Io.File.stderr().writerStreaming(init.io, &error_buffer);
     defer errors.interface.flush() catch {};
-    const built = try pepegrillo.lean.run(arena, init.io, init.environ_map, proofs, &errors.interface);
+    // The engine writes its own lines to `errors` and nothing to `out`. lake's output goes to the
+    // terminal.
+    const context: pepegrillo.Context = .{
+        .arena = arena,
+        .io = init.io,
+        .environ = init.environ_map,
+        .out = &errors.interface,
+        .errors = &errors.interface,
+    };
+    const built = try pepegrillo.lean.run(&context, proofs, &.{});
     if (built != 0) std.process.exit(built);
     const vectors = if (write)
-        try pepegrillo.lean.run(arena, init.io, init.environ_map, write_vectors, &errors.interface)
+        try pepegrillo.lean.run(&context, write_vectors, &.{})
     else
-        try pepegrillo.lean.run(arena, init.io, init.environ_map, check_vectors, &errors.interface);
+        try pepegrillo.lean.run(&context, check_vectors, &.{});
     errors.interface.flush() catch {};
     std.process.exit(vectors);
 }
