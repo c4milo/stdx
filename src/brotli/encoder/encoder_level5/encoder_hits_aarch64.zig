@@ -73,16 +73,12 @@ inline fn check_nibbles(entries: *const [ways]u32, check: u8) u64 {
 
 /// x8 the bucket's entries, x9 the check; x9 the hits.
 const check_nibbles_text =
-    \\ ldp q0, q1, [x8]
-    \\ ldp q2, q3, [x8, #32]
+    // Each entry's 4 octets go to 4 registers: v3 takes the top octets, the checks.
+    \\ ld4 { v0.16b, v1.16b, v2.16b, v3.16b }, [x8]
     \\ dup v4.16b, w9
-    // The top 16 bits of each entry, then the top octet of those.
-    \\ uzp2 v0.8h, v0.8h, v1.8h
-    \\ uzp2 v2.8h, v2.8h, v3.8h
-    \\ uzp2 v0.16b, v0.16b, v2.16b
-    \\ cmeq v0.16b, v0.16b, v4.16b
-    \\ shrn v0.8b, v0.8h, #4
-    \\ fmov x9, d0
+    \\ cmeq v3.16b, v3.16b, v4.16b
+    \\ shrn v3.8b, v3.8h, #4
+    \\ fmov x9, d3
 ;
 
 /// What `consider` returns when no hit is left.
