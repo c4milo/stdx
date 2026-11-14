@@ -19,7 +19,8 @@
 //! refill leaves at least, a chunk of 16 octets (a shift of 4), the low bit of `other` (0x40), and
 //! the fields of a length's codes, 2 octets each. One compare checks a distance
 //! against both its bounds, a chunk and the stream's window: the distance less a chunk, unsigned,
-//! against `distance_span`. The numbered labels are those of the aarch64 text.
+//! against `distance_span`. The numbered labels are those of the aarch64 text, but 42: the aarch64
+//! text checks a length of 258 with no branch, and this text branches to 42 on that length.
 
 /// The prologue: the state, a refill, and the first symbol's entry.
 pub const prologue =
@@ -204,11 +205,11 @@ pub const plain =
     \\    movzx ecx, cx
     \\    add rax, rcx
     \\    // RFC 1951 §3.2.5: 258 has code 285 alone, so 258 from a base and extra bits goes to the
-    \\    // checked path, which refuses it.
-    \\    test r12d, {[extra_bit]}
-    \\    jz 41f
+    \\    // checked path, which refuses it. The branch is on the length, which is seldom 258, and
+    \\    // 42 tests the entry there. A branch on the entry's extra bit is taken for a length of 11
+    \\    // or more and not below, so it mispredicts on about a third of a short stream's matches.
     \\    cmp r15, {[match_len_max]}
-    \\    je 90f
+    \\    je 42f
     \\41:
     \\    mov rbx, rdx
     \\    sub rbx, rax
@@ -222,6 +223,11 @@ pub const plain =
     \\    sub r9d, r12d
     \\    sub r9d, r14d
     \\    jmp 6b
+    \\42:
+    \\    // A length of 258: code 285's goes on, and one from a base and extra bits leaves.
+    \\    test r12d, {[extra_bit]}
+    \\    jz 41b
+    \\    jmp 90f
 ;
 
 /// A match's other cases: the window, a distance past the stream's window, and a distance below a
