@@ -31,7 +31,7 @@ pub const Search = extern struct {
     cost: u64,
     /// `position - low`: a candidate in reach lies below it, and its distance is the reach less it.
     reach: u64,
-    /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
+    /// The entry of `low` with the slot's check: an entry less it is the candidate.
     base: u64,
     entries: [*]const u32,
     /// The bucket's ring's next way plus 15: the way written `step` inserts before the last is
@@ -60,15 +60,11 @@ comptime {
 
 /// The search of `slot`'s hits at `position`, as `encoder_hits_aarch64.begin` makes it.
 pub inline fn begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, here: u64, cost: u32, saves: i64, candidate: usize) ?Search {
-    var hits = buckets.hits(slot);
+    const base = buckets.entry_at(slot.check, low);
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_bits(slot, base, @intCast(position - low)) else buckets.hits(slot);
     // Many positions of a row of literals have no hit, and then the setup costs more than the scan.
     if (hits == 0) return null;
-    const base = buckets.base +% @as(u32, @truncate(low));
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
-    const next: u64 = buckets.next[slot.bucket] % ways;
+    const next: u64 = buckets.next_of(slot);
     return .{
         .window = window + low,
         .here = here,
@@ -144,7 +140,8 @@ const pick =
     \\    mov eax, r10d
     \\    sub eax, ecx
     \\    and eax, 15
-    // The candidate: an entry of an earlier stream or past the position wraps past the reach.
+    // The candidate: an entry with another check, below `low` or past the position wraps past
+    // the reach.
     \\    mov ecx, dword ptr [r8 + rax*4]
     \\    sub ecx, dword ptr [rdi + 32]
     \\    cmp ecx, dword ptr [rdi + 24]
@@ -209,7 +206,7 @@ pub const Probe = extern struct {
     tail_window: [*]const u8,
     shorter_window: [*]const u8,
     reach: u64,
-    /// The stream's base plus `low`, modulo 2^32: an entry less it is the candidate.
+    /// The entry of `low` with the slot's check: an entry less it is the candidate.
     base: u64,
     entries: [*]const u32,
     /// The hits left, bit w for way w.
@@ -227,13 +224,9 @@ comptime {
 /// The probe of `slot`'s hits at `position`, as `begin` finds them, or none when no hit lies in
 /// reach. `at`, `tail`, `near` and `shorter_tail` are the floor's.
 pub inline fn probe_begin(buckets: *const Buckets, slot: buckets_module.Slot, window: [*]const u8, position: usize, low: usize, at: usize, tail: u32, near: usize, shorter_tail: u32) ?Probe {
-    var hits = buckets.hits(slot);
+    const base = buckets.entry_at(slot.check, low);
+    const hits = if (position < constants.encoder_level5.reach_compare_len) buckets.reach_bits(slot, base, @intCast(position - low)) else buckets.hits(slot);
     if (hits == 0) return null;
-    const base = buckets.base +% @as(u32, @truncate(low));
-    if (position < constants.encoder_level5.reach_compare_len) {
-        hits &= buckets.reach_bits(slot, base, @intCast(position - low));
-        if (hits == 0) return null;
-    }
     return .{
         .tail_window = window + low + at,
         .shorter_window = window + low + at - 1,
@@ -271,7 +264,8 @@ const probe_text =
     \\    rep bsf ecx, r9d
     \\    lea eax, [r9 - 1]
     \\    and r9d, eax
-    // The candidate: an entry of an earlier stream or past the position wraps past the reach.
+    // The candidate: an entry with another check, below `low` or past the position wraps past
+    // the reach.
     \\    mov ecx, dword ptr [r8 + rcx*4]
     \\    sub ecx, dword ptr [rdi + 24]
     \\    cmp ecx, dword ptr [rdi + 16]

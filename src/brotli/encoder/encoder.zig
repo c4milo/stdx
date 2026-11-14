@@ -132,7 +132,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         /// Starts the next stream of an encoder `init` started. It clears no table, so it costs a
         /// constant where `init` costs the tables (decision 60).
         pub fn start(self: *Self) void {
-            self.matcher.start();
+            if (level_five) self.matcher.start(self.filled_end) else self.matcher.start();
             self.begin_stream();
         }
 
