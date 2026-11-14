@@ -1,10 +1,11 @@
 # Performance work in stdx
 
-The method every performance change follows is pepegrillo's `docs/performance.md`: `zig build guide`
-installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md` (its
-[copy on GitHub](https://github.com/c4milo/pepegrillo/blob/main/docs/performance.md) is the current
-one); read it first. This appendix is what that method leaves to the project:
-stdx's instruments, its admission rule, its baselines, its costs, and the pitfalls it has paid for.
+The method every performance change follows is pepegrillo's `docs/performance/`: `zig build guide`
+installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance/` (its
+[copy on GitHub](https://github.com/c4milo/pepegrillo/blob/main/docs/performance/performance.md)
+is the current one); read `performance.md` there first. This appendix is what that method leaves
+to the project: stdx's instruments, its admission rule, its baselines, its costs, and the pitfalls
+it has paid for.
 CLAUDE.md's Performance section states the rules; decisions 10, 14, 16, 17, 20, 23, 24, 29, 32 and
 45 hold the rulings, and [costs.md](costs.md) the prices.
 

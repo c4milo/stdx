@@ -75,7 +75,7 @@ fn expect_findings(text: []const u8, expected: []const []const u8) !void {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var findings: commit.Findings = .{ .arena = arena, .max_findings = config.max_findings };
+    var findings: commit.Findings = .{ .arena = arena, .findings_max = config.findings_max };
     try commit.lint_message_text(arena, config, &findings, "message", text);
     try testing.expectEqual(expected.len, findings.items.items.len);
     for (findings.items.items, expected) |finding, wanted| {
@@ -108,7 +108,7 @@ test "a well-formed scope the graph does not name draws a warning" {
 
 test "a scope with a digit is refused, because no scope stdx names holds one" {
     try expect_findings("feat(zstd2): add the frame reader\n", &.{
-        "violation: subject-format: the scope holds a byte that is not a lowercase letter or a " ++
+        "error: subject-format: the scope holds a byte that is not a lowercase letter or a " ++
             "hyphen: \"feat(zstd2): add the frame reader\"",
     });
 }
@@ -116,7 +116,7 @@ test "a scope with a digit is refused, because no scope stdx names holds one" {
 test "a subject over 72 columns is refused" {
     const subject = "feat(deflate): " ++ "a" ** 58;
     try expect_findings(subject ++ "\n", &.{
-        "violation: subject-length: the subject is 73 columns, over the 72-column limit",
+        "error: subject-length: the subject is 73 columns, over the 72-column limit",
     });
 }
 
@@ -133,7 +133,7 @@ test "every third-person form is refused" {
         const text = try std.fmt.bufPrint(&buffer, "feat: {s} the frame reader\n", .{form});
         const wanted = try std.fmt.bufPrint(
             &wanted_buffer,
-            "violation: subject-description: \"{s}\" is a third-person form, not imperative",
+            "error: subject-description: \"{s}\" is a third-person form, not imperative",
             .{form},
         );
         try expect_findings(text, &.{wanted});

@@ -115,17 +115,17 @@ pub fn applies(path: []const u8) bool {
     return paths.ends_with_path(path, build_modules_path);
 }
 
-pub fn check(context: *report.Context, file: report.File) !void {
+pub fn check(context: *report.Context, file: *const report.File) !void {
     if (!applies(file.path)) return;
     const tree = file.tree orelse return;
     var path_buffer: [max_path_bytes]u8 = undefined;
     const check_path = try check_path_beside(&path_buffer, file.path);
-    const check_source = context.read_file(check_path) orelse {
+    const check_source = context.read_file(check_path) catch {
         return context.findings.add(
-            name,
             check_path,
             file_line,
             1,
+            name,
             "cannot read {s}; its {s} list is what the graph check compiles against (invariant 14)",
             .{ check_path, check_list_name },
         );
@@ -134,7 +134,7 @@ pub fn check(context: *report.Context, file: report.File) !void {
     defer check_tree.deinit(context.arena);
     if (check_tree.errors.len != 0) {
         const message = "{s} does not parse";
-        return context.findings.add(name, check_path, file_line, 1, message, .{check_path});
+        return context.findings.add(check_path, file_line, 1, name, message, .{check_path});
     }
     try compare(
         context.arena,
@@ -160,10 +160,10 @@ pub fn compare(arena: Allocator, findings: *report.Findings, build: Source, tool
 
     const tool_imports = try collect_tool_imports(arena, tool.tree) orelse {
         return findings.add(
-            name,
             tool.path,
             file_line,
             1,
+            name,
             "{s} declares no {s} list; the check cannot state the graph it proves (invariant 14)",
             .{ tool.path, check_list_name },
         );
@@ -172,12 +172,12 @@ pub fn compare(arena: Allocator, findings: *report.Findings, build: Source, tool
     for (tool_imports) |entry| {
         if (holds(built, entry.name)) continue;
         const arguments = .{ check_list_name, entry.name, checked_module };
-        try findings.add(name, tool.path, entry.line, entry.column, messages.check_extra, arguments);
+        try findings.add(tool.path, entry.line, entry.column, name, messages.check_extra, arguments);
     }
     for (built) |module| {
         if (holds_entry(tool_imports, module)) continue;
         const arguments = .{ check_list_name, module, checked_module };
-        try findings.add(name, tool.path, file_line, 1, messages.check_absent, arguments);
+        try findings.add(tool.path, file_line, 1, name, messages.check_absent, arguments);
     }
 }
 
@@ -206,7 +206,7 @@ const CallCollector = struct {
     pub fn child(self: *CallCollector, node: Node.Index) void {
         self.depth += 1;
         defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
+        std.debug.assert(self.depth <= ast.tree_depth_max);
         self.visit(node) catch |failure| {
             self.failure = failure;
         };
@@ -217,7 +217,7 @@ const CallCollector = struct {
         if (!ast.is_call(self.tree.nodeTag(node))) return;
         var call_buffer: [1]Node.Index = undefined;
         const call = self.tree.fullCall(&call_buffer, node).?;
-        var chain_buffer: [ast.max_chain_bytes]u8 = undefined;
+        var chain_buffer: [ast.chain_len_max]u8 = undefined;
         const chain = ast.chain_text(self.tree, call.ast.fn_expr, &chain_buffer) orelse return;
         if (std.mem.eql(u8, chain, library_function)) {
             // `library(b, "<name>", target, optimize)`: the name is the second argument.
@@ -253,11 +253,11 @@ const CallCollector = struct {
 fn report_modules(findings: *report.Findings, path: []const u8, modules: []const Entry) !void {
     for (modules) |entry| {
         if (expected_module(entry.name) != null) continue;
-        try findings.add(name, path, entry.line, entry.column, messages.module_extra, .{entry.name});
+        try findings.add(path, entry.line, entry.column, name, messages.module_extra, .{entry.name});
     }
     for (expected_graph) |module| {
         if (holds_entry(modules, module.name)) continue;
-        try findings.add(name, path, file_line, 1, messages.module_absent, .{module.name});
+        try findings.add(path, file_line, 1, name, messages.module_absent, .{module.name});
     }
 }
 
@@ -265,18 +265,18 @@ fn report_modules(findings: *report.Findings, path: []const u8, modules: []const
 fn report_edges(findings: *report.Findings, path: []const u8, edges: []const Entry) !void {
     for (edges) |entry| {
         const module = expected_module(entry.module) orelse {
-            try findings.add(name, path, entry.line, entry.column, messages.receiver, .{entry.module});
+            try findings.add(path, entry.line, entry.column, name, messages.receiver, .{entry.module});
             continue;
         };
         if (holds(module.imports, entry.name)) continue;
         const arguments = .{ entry.module, entry.name };
-        try findings.add(name, path, entry.line, entry.column, messages.edge_extra, arguments);
+        try findings.add(path, entry.line, entry.column, name, messages.edge_extra, arguments);
     }
     for (expected_graph) |module| {
         for (module.imports) |import| {
             if (holds_edge(edges, module.name, import)) continue;
             const arguments = .{ module.name, import };
-            try findings.add(name, path, file_line, 1, messages.edge_absent, arguments);
+            try findings.add(path, file_line, 1, name, messages.edge_absent, arguments);
         }
     }
 }

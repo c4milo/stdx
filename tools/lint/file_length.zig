@@ -27,7 +27,7 @@ pub const config: file_length.Config = .{
         .extensions = &.{ ".zig", ".sh" },
         .include_directories = &.{ "src", "tools", "build", "bench" },
     },
-    .max_lines = max_lines,
+    .lines_max = max_lines,
     .message_suffix = "; split the file",
 };
 
