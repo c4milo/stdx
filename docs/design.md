@@ -1167,6 +1167,76 @@ to 12 are reordered and nothing else changes.
     probes and of the tail's Xeon job are not filed in `bench/results/`; the runs linked in the
     entries above hold them.
 
+  **The length's branch in the x86-64 loop, 2026-11-13.** The owner ruled on 2026-11-12 that the
+  decoder's rows below libdeflate come next, and x86-64's rows of 16 KiB slices first
+  (https://github.com/c4milo/stdx/issues/18). One branch of the x86-64 loop's plain path is the
+  first cause found.
+  - A 16 KiB slice reaches neither threshold of S11. Its stream holds 12.8% to 24.4% of its
+    octets at the mean of a row, which is fewer than `combine_bits_min` bits, and its call holds
+    fewer than `combine_input_min` octets of input. So its matches take the plain path, which
+    reads a length's entry and a distance's entry.
+  - RFC 1951 §3.2.5 gives 258 the code 285 alone, so the loop sends 258 from a base and extra
+    bits to the checked path, which refuses it. The x86-64 text found that case with two
+    branches: one on the entry's extra bit, then one on the length. The aarch64 text finds it
+    with no branch, in the compare chain of its match's checks.
+  - An entry has extra bits for a length of 11 to 257, and none for 3 to 10 or for 258. A model
+    ran that branch over the streams zlib's level 6 gives each row: a 2-bit counter, then 2-bit
+    counters under a history of the branch's last 12 outcomes. The two miss on 29% to 37% of the
+    matches of html's, js's and css's 16 KiB slices, 239 to 418 a slice, and on 19% to 27% of
+    json's, 128 to 185 a slice.
+  - The loop now branches on the length alone, and label 42 tests the entry's extra bit out of
+    line for a length of 258. The 2-bit counter misses that branch on 0.94% of the matches of
+    xml's first 2 MiB, the most of any corpus file.
+  - A first form (55d209e on `perf-deflate-190`) kept the entry's test and selected the length
+    with CMOVNZ: five instructions where the form that lands has two. Its pairs against main's
+    39b6cf9 are runs [43353506809](https://github.com/c4milo/stdx/actions/runs/43353506809), an
+    EPYC 7763, and [43353509853](https://github.com/c4milo/stdx/actions/runs/43353509853), an
+    EPYC 9V74, whose reports stay with the runs. Beside the baselines its 16 KiB rows read 1.062
+    to 1.087 for html, js and css and 1.008 and 1.012 for json.
+  - The form that lands is af8a671 on `perf-deflate-191`, measured after main's 39b6cf9 in the
+    same job in three runs: [43361830519](https://github.com/c4milo/stdx/actions/runs/43361830519)
+    and [43361833045](https://github.com/c4milo/stdx/actions/runs/43361833045), an EPYC 9V45 in
+    both, and [43361835649](https://github.com/c4milo/stdx/actions/runs/43361835649), an EPYC
+    7763; a Neoverse N2 in all three. Main's commit differs from af8a671 in a comment alone, and
+    no code the benchmark builds changed on main between the two. The reports are in
+    `bench/results/`, dated 2026-11-13, "decoder-length-258".
+  - The baselines first. Of their 156 cells, 2 moved in the EPYC 7763's job, by 2.3% and 2.4%.
+    In the EPYC 9V45's first job 52 fell, by 2.6% to 7.6%, and in its second 91 rose, by 4.4% to
+    11.7%: each job's second program ran every decoder at another speed. On the N2 11, 6 and 2
+    moved, by 1.0% to 4.1%. So the table reads stdx beside a control, the mean of the middle two
+    of the four baselines' changes on the same row.
+  - x86-64's rows of 16 KiB slices: stdx's speed, change over base, beside the control; then stdx
+    over libdeflate, base to change.
+
+    | Row | EPYC 9V45 | EPYC 9V45, second | EPYC 7763 |
+    |---|---|---|---|
+    | html | 1.124; 0.877 to 0.940 | 1.127; 0.792 to 0.889 | 1.088; 0.875 to 0.953 |
+    | json | 1.063; 0.931 to 0.986 | 1.021; 0.919 to 0.934 | 1.022; 0.960 to 0.982 |
+    | js | 1.131; 0.838 to 0.939 | 1.121; 0.802 to 0.886 | 1.080; 0.885 to 0.950 |
+    | css | 1.131; 0.767 to 0.858 | 1.121; 0.761 to 0.847 | 1.075; 0.882 to 0.950 |
+
+    By decision 20's rule alone, with no control, the four rows rose in the EPYC 7763's job, by
+    1.021 to 1.088, and html's and css's in both of the EPYC 9V45's, by 1.065 to 1.214. The rows
+    of 1 KiB slices read 1.004 to 1.059 beside the control.
+  - No row fell beside its control past its bar in an x86-64 job. The lowest cells are dickens at
+    0.989 with a bar of 1.3% on the EPYC 7763, and xargs.1 at 0.984 with a bar of 3.8% and
+    dickens-1m at 0.963 with a bar of 7.4% on the EPYC 9V45.
+  - On the N2, whose text did not change, no row moved in the first and the third job. In the
+    second, plrabn12.txt read 0.988; it read 1.008 and 0.993 in the other two.
+  - Mutations, 7, with `zig build test-deflate -Dtarget=x86_64-macos -Dcpu=x86_64_v3 -frosetta` on
+    an M1 Pro: 7 CAUGHT, each by a failed test. Five fail "RFC 1951 section 3.2.5: 258 from code
+    284 is refused where the fast path meets it": the compare against 257, the branch removed,
+    the test at 42 inverted, a refused 258 that never leaves, and the bit above the extra bit.
+    Two fail "the assembly decodes each literal and length whose code is longer than the table":
+    a valid 258 that always leaves, and the bit below the extra bit.
+  - Checks at 005c881, the commit that lands: the same x86-64 tests under Rosetta,
+    `zig build test-deflate`, `test-self-hosted` and `test-avx512` on the M1 Pro, and
+    `tools/ci.sh` on the three runners (CI run
+    [43623215007](https://github.com/c4milo/stdx/actions/runs/43623215007)).
+  - What stays open: the four rows are still below libdeflate on both CPUs, at 0.847 to 0.986.
+    The x86-64 copy still branches on a length over 32 for its third chunk, where the aarch64
+    text stores three chunks and branches at 48 alone. That is the next thing to measure.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
