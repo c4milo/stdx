@@ -541,3 +541,142 @@ Mutations: 16 of 16 CAUGHT.
 Level 5 against quality 5 after it: 1.20 and 1.22 at the median on the N2, with 3 rows slower
 (kennedy.xls 0.89 and 0.90, ptt5 0.91 and 0.93, json-1m 0.94); 1.07 on the EPYC 9V45, with 10
 rows slower; and 1.14 on the EPYC 9V74, with 7.
+
+### The bucket in one cache line (2026-11-12)
+
+The owner asked for a scratch test of a bucket laid out in one cache line, and of 2^15 buckets
+in that layout. The scratch form kept each entry's check in the entry's top octet, and a mark of
+2 octets for each bucket: the stream's tag above the ring's next way. The assembly loops did not
+change. Each figure is level 5's median row against the landed finder (f5836ba), with quality 5
+as the control.
+
+| Form | N2 | x86-64 | State |
+| --- | --- | --- | --- |
+| One line, 2^14 buckets (run 43337207709) | 1.077, 4 rows below 0.99 | 1.025, 12 rows below 0.99 (Xeon 8573C) | 7,497,096 |
+| One line, 2^15 buckets (run 43337218182) | 1.047, 8 rows below 0.99 | 0.969, 28 rows below 0.99 (EPYC 9V74) | 8,578,440 |
+
+- **2^14 buckets** give the landed finder's octets. The text rows of the Canterbury and Silesia
+  corpora gain 8% to 15% on the N2. The rows that lose most there are sao 0.960, mozilla 0.962,
+  fields.c 0.970 and ooffice 0.975. On the Xeon they are sum 0.929, cp.html 0.945, fields.c 0.953
+  and mozilla 0.956.
+- **2^15 buckets do not hold their speed.** On the N2 that form runs at 0.960 of the form with
+  2^14 buckets at the median, and slower on 30 of the 39 rows: 2 MiB of entries do not fit a
+  cache of 1 MiB. Its state passes decision 12's 8 MiB by 189,832 octets. The owner ruled 2^14
+  buckets (2026-11-12).
+
+### The bucket in one cache line, built (2026-11-14)
+
+The owner ruled the one-line bucket at 2^14 buckets (2026-11-12). An entry holds its check in its
+top octet, above 24 bits of position, so a search reads one cache line where it read two. Level
+5's state is 7,480,768 octets, from 7,742,856: the 256 KiB of checks are gone.
+
+What had to be settled was how a search tells an earlier stream's entry from its own. The landed
+finder gave each stream a tag above its positions, and 32 bits held both. With the check in the
+entry, 24 bits are left. Five forms were built. Each writes the landed finder's octets, on aarch64
+and on x86-64, over runs of 3 streams. Each figure is level 5's median row against main (ffd8215)
+in one job, with quality 5 as the control, and in parentheses the rows below 0.99 in that job.
+
+| Form | N2 | x86-64 |
+| --- | --- | --- |
+| A mark for each bucket: the stream's tag and the ring's next way | 1.112 (1), 1.108 (1) | EPYC 9V45 0.984 (21), EPYC 7763 0.997 (16) |
+| The mark with a bit that says the ring filled, no branch | 1.091 (3), 1.082 (3), 1.075 (5) | EPYC 7763 1.018 (13), Xeon 6975P-C 1.038 (7), EPYC 9V45 1.006 (11) |
+| An offset for each stream, no compare against the reach | 1.061 (9), 1.060 (10), 1.068 (11) | EPYC 7763 1.002 (16), EPYC 9V45 0.945 (30) and 0.996 (17) |
+| The offset, with the check compare and the reach compare | 1.097 (2), 1.104 (0), 1.090 (5), 1.108 (0), 1.110 (0), 1.086 (1) | EPYC 9V74 1.054 (0), Xeon 8573C 1.024 (7), Xeon 6975P-C 1.034 (1) and 1.033 (1), EPYC 7763 1.071 (0), EPYC 9V45 1.004 (14) |
+| The offset, with the reach compare alone at a stream's start | 1.105 (1), 1.118 (0), 1.096 (2), 1.100 (2), 1.095 (2), 1.094 (2) | EPYC 9V45 1.052 (0), EPYC 9V74 1.044 (2) and 1.058 (0), Xeon 8573C 1.054 (2), Xeon 6973P-C 1.034 (9), EPYC 7763 1.057 (0) |
+
+The runs, in the table's order: 43366213694 and 43366216645; 43385960859, 43385964625 and
+43385967391; 43424616488, 43424625554 and 43424634729; 43439600059, 43439608876, 43439618513,
+43454577566, 43454588530 and 43454598927; 43474199499, 43474211168, 43474220936, 43482575938,
+43482587109 and 43482599431.
+
+- **A mark for each bucket** held the tag of the stream that wrote the bucket last. A stream's
+  first insert in a bucket emptied it, behind a branch that a small file gives no pattern. A
+  branch model counted 1.30 misses an octet on cp.html against main's 1.02, and 1.47 on sum
+  against 1.19.
+- **The mark without the branch** masked the ways the stream had not written. Its insert took 26
+  instructions where main's takes 20, and xml's first MiB took 83.8 instructions an octet against
+  76.4.
+- **An offset for each stream** needs no mark. A stream adds its offset to each position it
+  records: 1 after `init`, then the sum of the earlier streams' window ends. An earlier stream's
+  entry lies below the offset, and the range check that refuses an entry out of reach refuses it.
+  `start` clears each bucket's ring as main does, 16 KiB. It clears the entries only when the
+  offsets run out, once in 2^23 octets of window ends: each 8192nd stream of 1 KiB, or each
+  second stream of 4 MiB or more. Main cleared them each 512th stream.
+- **Without the compare against the reach** the bodies of 1 KiB lost 10% to 20%. A stream that
+  follows a stream of like content finds an earlier entry with its own check in most buckets, and
+  the loop refuses them one at a time. Main drops them with one compare of the bucket's 16 entries
+  in a stream's first 256 KiB. One stream of a file does not show this cost: the instruments now
+  count 4 streams of a small file, and a body's slices.
+- **The reach compare alone** takes the hits there. The entries in reach run from the entry of
+  the lowest position to the entry of the position. Both hold the slot's check, because the
+  offset plus a position stays below 2^24, so no entry with another check lies between them. The
+  check compare runs past 256 KiB, where the stream's own entries hold most ways.
+- **The sums of an offset and a position wrap**, as main's sums of a base and a position do. A
+  checked sum kept a branch that never fires in each insert: 22 instructions where main's insert
+  takes 20. The offset is `offset_max` at most and a position lies below 2^23, so the sum stays
+  below 2^24.
+
+Instructions an octet on aarch64, by callgrind:
+
+| Input | Main | The offset, checked sums | The offset, as landed |
+| --- | --- | --- | --- |
+| cp.html, 4 streams | 130.2 | 130.7 | 128.7 |
+| html-1m's slices of 1 KiB | 169.0 | 169.0 | 167.4 |
+| xml, the first MiB | 76.4 | 79.0 | 76.9 |
+| mozilla, the first 4 MiB | 164.8 | 168.2 | 166.8 |
+
+A cache model with 64 KiB of L1 and 1 MiB of last level counts fewer misses for the one-line
+bucket: on mozilla's first 4 MiB, 3.14 L1 misses an octet against main's 3.70, and 0.29
+last-level misses against 0.40.
+
+**Landed: the offset, with the reach compare alone at a stream's start and the sums wrapping.**
+Against main (ffd8215), level 5's median row and the rows below 0.99 in each job:
+
+| Run | N2 | x86-64 |
+| --- | --- | --- |
+| 43618931448 | 1.113 (0) | Xeon 6975P-C 1.060 (1) |
+| 43618936891 | 1.108 (0) | EPYC 9V74 1.033 (0) |
+| 43618942250 | 1.123 (0) | Xeon 6975P-C 1.049 (0) |
+| 43626470590 | 1.105 (0) | EPYC 9V74 1.045 (0) |
+| 43626476039 | 1.105 (1) | EPYC 9V45 1.058 (2) |
+| 43626482098 | 1.108 (2) | EPYC 7763 1.043 (6) |
+
+- No row reads below 0.99 in every N2 job. Over the six jobs, the slowest rows at their median are
+  mozilla 0.993 and sao 0.995 on the N2, and mozilla 0.995 on x86-64.
+- The bodies of 1 KiB run 7% to 11% faster on the N2, and 5% to 7% on x86-64.
+- The rows below 0.99 in the two EPYC jobs are quality 5's drift. On the EPYC 9V45, quality 5
+  moved 1.157 on mr, where level 5 ran at 1.036 of main's speed. On the EPYC 7763, quality 5
+  moved 1.047 at the median and 1.231 on bible.txt, and no row of level 5 ran below 1.028 of
+  main's speed.
+
+**What identical code reads on x86-64.** The two assembly forms below change no x86-64 code, so
+their four x86-64 halves pair identical code (an EPYC 7763, an EPYC 9V74 and two Xeon 6975P-C).
+In each, 2 to 8 rows read below 0.99. The rows read from 0.957 to 1.111, and nci alone from 0.998
+to 1.111. A count of rows below 0.99 in one x86-64 job is within that.
+
+Refused, each measured:
+- **A prefetch 2 or 3 positions ahead.** The rows nearest main are mozilla and sao. The cache
+  model counts fewer misses there than main's, and more instructions, so no prefetch was paired.
+- **The check compare in assembly on aarch64.** The compiler writes it in 11 instructions, 2 of
+  them needless. A form of 9 instructions ran at 1.004 and 1.009 of the offset form's speed at
+  the N2's median, and a form of 5 with `ld4` at 1.003 and 1.007 (runs 43618280802, 43618285937,
+  43618291175 and 43618296516, against the form with checked sums). Identical code reads as far
+  from 1.
+
+**The M1 Pro.** A pass of the form with checked sums, at a load of 7 to 9, ran at 1.010 of main's
+speed at the median. Four rows read below 0.99 in both of its runs: E.coli 0.983 and 0.948,
+grammar.lsp 0.955 and 0.964, mozilla 0.969 and 0.968, and ooffice 0.980 and 0.973. Main against a
+copy of itself read 0.982 at its slowest row in that pass. The landed form waits for a quiet
+laptop to be timed.
+
+Mutations: 35 of 35 CAUGHT, 31 in Zig and at the aarch64 assembly's sites on the M1, and 4 at the
+x86-64 sites under Rosetta. Two of them first left a parameter unused and did not compile; written
+to keep it, both were caught. One more is equivalent and not counted: the checked search with the
+check compare in place of the reach compare early in a stream writes the same octets, as its range
+check refuses the same entries.
+
+The entries it touches:
+- Entry 17. Its list of wrapping operators gains `Buckets.placed`, the sum of a stream's offset
+  and a position, with the bound above.
+- Entry 60's tags, as level 5 kept them. Level 5 tags no entry: its `start` clears the entries
+  when the offsets run out, not each 512th stream.
