@@ -661,13 +661,15 @@ Refused, each measured:
   them needless. A form of 9 instructions ran at 1.004 and 1.009 of the offset form's speed at
   the N2's median, and a form of 5 with `ld4` at 1.003 and 1.007 (runs 43618280802, 43618285937,
   43618291175 and 43618296516, against the form with checked sums). Identical code reads as far
-  from 1.
+  from 1. On the M1 Pro the form of 5, over the landed form, read 0.999 at the median of ten rows,
+  and 0.996 on x-ray.
 
-**The M1 Pro.** A pass of the form with checked sums, at a load of 7 to 9, ran at 1.010 of main's
-speed at the median. Four rows read below 0.99 in both of its runs: E.coli 0.983 and 0.948,
-grammar.lsp 0.955 and 0.964, mozilla 0.969 and 0.968, and ooffice 0.980 and 0.973. Main against a
-copy of itself read 0.982 at its slowest row in that pass. The landed form waits for a quiet
-laptop to be timed.
+**The M1 Pro.** Two passes of the landed form, at a load of 5 to 10, ran at 1.028 of main's speed
+at the median, each a time. Main against a copy of itself read 0.998 and 1.000, and 0.980 at its
+slowest row after each pass measured its slow rows again. One row read below 0.99 in both
+passes: x-ray, 0.974 and 0.966. Five more runs of x-ray alone read 0.995 to 1.441 against main,
+at a median of 1.019, while main against itself read 1.006 to 1.151, at 1.027: x-ray moves as
+much against itself. mozilla read 1.020 and 1.043, where the form with checked sums read 0.968.
 
 Mutations: 35 of 35 CAUGHT, 31 in Zig and at the aarch64 assembly's sites on the M1, and 4 at the
 x86-64 sites under Rosetta. Two of them first left a parameter unused and did not compile; written
