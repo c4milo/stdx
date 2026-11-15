@@ -102,8 +102,11 @@ pub const Decoder = struct {
 
     const Part = enum(u8) { letters, padding, after_padding, tail, done };
 
-    /// Starts a text. The decoder copies what it keeps from `options`.
-    pub fn init(self: *Decoder, options: DecoderOptions, features: codec.Features) void {
+    /// Starts a text. The decoder copies what it keeps from `options`. Inline, so options known at
+    /// compile time are constants: as a call, it read them from memory, and a decode with
+    /// `pad_bits` at `.drop` took 11 instructions more on aarch64 than with the default (decision
+    /// 68).
+    pub inline fn init(self: *Decoder, options: DecoderOptions, features: codec.Features) void {
         self.* = .{
             .wide = fast.has_kernels and features.avx2,
             .accept = options.accept,

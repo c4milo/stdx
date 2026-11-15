@@ -4443,6 +4443,13 @@ small file.
       Where the default takes a text, both give the same octets. Where it refuses one for another
       cause, both give the same error. Where it refuses the pad bits, `.drop`'s octets encode back
       to the text in every letter but the final quantum's last. The commit lists the mutations.
+    - The option's cost. A dependent measured `.drop` at 18 instructions more a field on x86-64,
+      on canonical texts, and kept its own fallback. A decode of 128 octets took 1,165
+      instructions with `.drop` and 1,154 with the default on aarch64, and 1,623 and 1,620 on
+      x86-64-v2 (callgrind, ReleaseSafe). `Decoder.init` was a call, so it read the caller's
+      options from memory. As an `inline fn` it takes options known at compile time as
+      constants. `.drop` then took 1,151 instructions and 1,616, and the default kept 1,154 and
+      1,620.
 
 69. **One token a call takes the shortest path the module has.** Ruled by the owner on 2026-11-09
     and 2026-11-10. A dependent that writes and reads its JSON a value at a time spent 70% to 80%
