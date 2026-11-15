@@ -20,10 +20,12 @@ const mebibyte = 1 << 20;
 const counted_len_min = 16 * mebibyte;
 
 /// The workloads the profile counts, by the start of their names: CLDR's texts, the qlog-shaped
-/// log, an English text as a string, a JSON text as a string, the non-ASCII text and a hex string.
+/// log, the two message shapes of decision 81, an English text as a string, a JSON text as a
+/// string, the non-ASCII text and a hex string.
 const profiled = [_][]const u8{
     "CLDR",
     "qlog",
+    "messages",
     "string: silesia/dickens",
     "string: http/json-1m",
     "string: dickens as",

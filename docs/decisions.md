@@ -5196,3 +5196,29 @@ small file.
     - A first block of 16: its 8573C rows above.
     - The passes in the encoder's walks: no gain on reymont, and js-1m fell.
     - An optional result: a jump table at each stop.
+
+81. **bench-json times a dependent's two message shapes, and serde_json writing them from Rust
+    types.** Ruled by the owner on 2026-11-14 ("Short strings first", then "Add a Buffa-shaped
+    baseline" and "Land them"). On a Neoverse N2, a dependent's JSON encode trailed Buffa's on
+    objects of short string members, at 0.89 of its speed, with 12% to 17% of its cycles stalled
+    in the back end. Its samples put the cycles in `TextWriter`'s token step.
+    - The workloads. "messages: 11 string members" holds 4,000 objects of 11 short string
+      members. "messages: 50 nested objects" holds 400 objects nested 50 deep, each with a label,
+      a value and a child. bench-json and its profile take both, and `TextWriter`'s methods write a
+      member's name and its value in one `member_*` call.
+    - The typed table. bench-json's serde_json baseline writes from tokens, a cost a typed caller
+      does not pay. Buffa serializes Rust types. So a last table, "Messages against serde_json's
+      typed code", times `TextWriter`'s methods beside serde_json 1.0.154 writing the same messages
+      from Rust structs. It uses `serialize_struct` and one `serialize_field` a field, as serde's
+      derive generates. Both must write the same octets.
+    - What it showed (runs 43654495501, 43654501495). On the N2, the methods wrote the strings
+      shape at 1.55 to 1.60 times typed serde_json's speed, and the deep shape at 1.56 to 1.62. On a
+      Xeon 6975P-C they wrote them at 1.59 to 1.60 and 1.71 to 1.74. Against the token baseline,
+      the methods ran at 2.82 to 2.98 times serde_json on the strings shape and 2.35 to 2.78 on
+      the deep one. So stdx's share of a message costs less than Buffa's whole serialization.
+    - The rows are new in the loss lists: through `TextWriter`'s methods, the deep shape ran at
+      0.90 to 0.91 of simdjson on the 6975P.
+    - A probe of the suspected cause: each method loaded `output.len` and `len` as one load pair,
+      where the method before stored `len` alone. With `len` read alone, the methods' rows moved
+      1.4% to 2.3% on the N2 (runs 43648394226, 43648402113), not past the spread in both jobs, and
+      the N2's counters moved no more (43648383354, 43648388947). It does not land.

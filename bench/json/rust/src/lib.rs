@@ -228,3 +228,182 @@ pub unsafe extern "C" fn stdx_bench_serde_encode(tokens: *const Token, len: usiz
     }
     out_len - room.len()
 }
+
+// A dependent's two message shapes as Buffa writes them: typed fields, serialized by code of the
+// form serde's derive generates (`serialize_struct` and one `serialize_field` a field), not from
+// tokens. bench-json times it beside `TextWriter`'s methods on the workloads named `messages:`
+// (json_typed.zig; decision 81).
+
+use serde::ser::SerializeStruct;
+
+const NAME: u8 = 4;
+const NULL: u8 = 13;
+/// The members of a strings message, and the levels of a deep one.
+const STRINGS_MEMBERS: usize = 11;
+const DEEP_LEVELS: usize = 50;
+/// The tokens of each level of a deep message: a label's name and string, a value's name and
+/// number, and a child's name and its object or null.
+const DEEP_TOKENS_PER_LEVEL: usize = 6;
+
+pub struct StringsMessage {
+    id: String,
+    name: String,
+    email: String,
+    phone: String,
+    address: String,
+    city: String,
+    country: String,
+    postal_code: String,
+    company: String,
+    title: String,
+    note: String,
+}
+
+impl Serialize for StringsMessage {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut message = serializer.serialize_struct("StringsMessage", STRINGS_MEMBERS)?;
+        message.serialize_field("id", &self.id)?;
+        message.serialize_field("name", &self.name)?;
+        message.serialize_field("email", &self.email)?;
+        message.serialize_field("phone", &self.phone)?;
+        message.serialize_field("address", &self.address)?;
+        message.serialize_field("city", &self.city)?;
+        message.serialize_field("country", &self.country)?;
+        message.serialize_field("postal_code", &self.postal_code)?;
+        message.serialize_field("company", &self.company)?;
+        message.serialize_field("title", &self.title)?;
+        message.serialize_field("note", &self.note)?;
+        message.end()
+    }
+}
+
+pub struct DeepMessage {
+    label: String,
+    value: i64,
+    child: Option<Box<DeepMessage>>,
+}
+
+impl Serialize for DeepMessage {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut message = serializer.serialize_struct("DeepMessage", 3)?;
+        message.serialize_field("label", &self.label)?;
+        message.serialize_field("value", &self.value)?;
+        message.serialize_field("child", &self.child)?;
+        message.end()
+    }
+}
+
+/// The messages of one workload, built from its tokens before anything is timed.
+pub enum Typed {
+    Empty,
+    Strings(Vec<StringsMessage>),
+    Deep(Vec<DeepMessage>),
+}
+
+fn owned(token: &Token) -> Option<String> {
+    let octets = unsafe { std::slice::from_raw_parts(token.octets, token.len) };
+    std::str::from_utf8(octets).ok().map(str::to_owned)
+}
+
+fn strings_message(tokens: &[Token]) -> Option<StringsMessage> {
+    if tokens.len() != 2 * STRINGS_MEMBERS + 2 || tokens[0].kind != BEGIN_OBJECT {
+        return None;
+    }
+    let value = |index: usize| -> Option<String> {
+        let name = &tokens[1 + 2 * index];
+        let string = &tokens[2 + 2 * index];
+        if name.kind != NAME || string.kind != STRING {
+            return None;
+        }
+        owned(string)
+    };
+    Some(StringsMessage {
+        id: value(0)?,
+        name: value(1)?,
+        email: value(2)?,
+        phone: value(3)?,
+        address: value(4)?,
+        city: value(5)?,
+        country: value(6)?,
+        postal_code: value(7)?,
+        company: value(8)?,
+        title: value(9)?,
+        note: value(10)?,
+    })
+}
+
+fn deep_message(tokens: &[Token]) -> Option<DeepMessage> {
+    if tokens.len() != 1 + DEEP_TOKENS_PER_LEVEL * DEEP_LEVELS + DEEP_LEVELS || tokens[0].kind != BEGIN_OBJECT {
+        return None;
+    }
+    let mut child: Option<Box<DeepMessage>> = None;
+    for level in (0..DEEP_LEVELS).rev() {
+        let at = &tokens[1 + DEEP_TOKENS_PER_LEVEL * level..][..DEEP_TOKENS_PER_LEVEL];
+        if at[3].kind != SIGNED || (level + 1 == DEEP_LEVELS) != (at[5].kind == NULL) {
+            return None;
+        }
+        child = Some(Box::new(DeepMessage { label: owned(&at[1])?, value: at[3].integer as i64, child }));
+    }
+    child.map(|message| *message)
+}
+
+/// A new, empty set of messages.
+#[no_mangle]
+pub extern "C" fn stdx_bench_serde_typed_new() -> *mut Typed {
+    Box::into_raw(Box::new(Typed::Empty))
+}
+
+/// Adds the message of one text of `len` tokens at `tokens`; 0 when it took it, 1 when the text
+/// is of neither shape or of the other shape than the messages before it.
+///
+/// # Safety
+/// `typed` comes from `stdx_bench_serde_typed_new`, and `tokens` holds `len` tokens.
+#[no_mangle]
+pub unsafe extern "C" fn stdx_bench_serde_typed_add(typed: *mut Typed, tokens: *const Token, len: usize) -> i32 {
+    let tokens = std::slice::from_raw_parts(tokens, len);
+    let typed = &mut *typed;
+    if let Typed::Empty = typed {
+        *typed = if tokens.len() == 2 * STRINGS_MEMBERS + 2 { Typed::Strings(Vec::new()) } else { Typed::Deep(Vec::new()) };
+    }
+    match typed {
+        Typed::Strings(messages) => match strings_message(tokens) {
+            Some(message) => messages.push(message),
+            None => return 1,
+        },
+        Typed::Deep(messages) => match deep_message(tokens) {
+            Some(message) => messages.push(message),
+            None => return 1,
+        },
+        Typed::Empty => return 1,
+    }
+    0
+}
+
+/// Writes every message, one text after another, into `out`. Returns the octets written, or 0
+/// when serde_json fails or `out` is too short.
+///
+/// # Safety
+/// `typed` comes from `stdx_bench_serde_typed_new`, and `out` holds `out_len` octets.
+#[no_mangle]
+pub unsafe extern "C" fn stdx_bench_serde_typed_encode(typed: *const Typed, out: *mut u8, out_len: usize) -> usize {
+    let mut room: &mut [u8] = std::slice::from_raw_parts_mut(out, out_len);
+    let written = match &*typed {
+        Typed::Strings(messages) => messages.iter().all(|message| serde_json::to_writer(&mut room, message).is_ok()),
+        Typed::Deep(messages) => messages.iter().all(|message| serde_json::to_writer(&mut room, message).is_ok()),
+        Typed::Empty => false,
+    };
+    if written {
+        out_len - room.len()
+    } else {
+        0
+    }
+}
+
+/// Frees the messages.
+///
+/// # Safety
+/// `typed` comes from `stdx_bench_serde_typed_new` and is not used after.
+#[no_mangle]
+pub unsafe extern "C" fn stdx_bench_serde_typed_free(typed: *mut Typed) {
+    drop(Box::from_raw(typed));
+}

@@ -48,6 +48,7 @@ const baselines = @import("baselines/baselines.zig");
 const json_profile = @import("json_profile.zig");
 const json_utf8 = @import("json_utf8.zig");
 const calls = @import("json_calls.zig");
+const json_typed = @import("json_typed.zig");
 const Item = workloads.Item;
 const Workload = workloads.Workload;
 
@@ -309,6 +310,7 @@ pub fn main(init: std.process.Init) !void {
         try out.print("- {s}, {s}: {s} off runs at {d:.3} of all on.\n", .{ loss.workload, loss.side, name, loss.ratio });
     }
     try json_utf8.report(arena, io, out, all);
+    try json_typed.report(arena, io, out, encoded);
     try baselines.report(out, &.{
         .{ .title = "Decoding against the baselines", .octets_are = texts_note, .side = "decoding", .rows = decoding_rows },
         .{ .title = "Encoding against the baselines", .octets_are = try std.fmt.allocPrint(arena, "Octets are the ones stdx writes.{s}", .{loaded.note}), .side = "encoding", .rows = encoding_rows },
@@ -377,6 +379,8 @@ fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) !Loade
     var all: std.ArrayList(Workload) = .empty;
     try all.append(arena, try workloads.cldr(arena, cldr.items));
     try all.append(arena, try workloads.qlog(arena));
+    try all.append(arena, try workloads.messages_strings(arena));
+    try all.append(arena, try workloads.messages_deep(arena));
     try all.appendSlice(arena, try workloads.strings(arena, files.items));
     for (files.items) |file| {
         if (!std.mem.eql(u8, file.name, "silesia/dickens")) continue;

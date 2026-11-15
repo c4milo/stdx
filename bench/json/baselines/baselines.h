@@ -86,6 +86,12 @@ int stdx_bench_serde_built(void);
 int stdx_bench_serde_decode(const uint8_t *text, size_t len, stdx_bench_tally *tally);
 size_t stdx_bench_serde_encode(const stdx_bench_token *tokens, size_t count, uint8_t *out,
                                size_t out_len, char *scratch);
+/* serde_json's typed messages (json_typed.zig): a new set, a text's message added to it (0 when it
+ * took it), every message written one after another (0 when it failed), and the set freed. */
+void *stdx_bench_serde_typed_new(void);
+int stdx_bench_serde_typed_add(void *typed, const stdx_bench_token *tokens, size_t len);
+size_t stdx_bench_serde_typed_encode(const void *typed, uint8_t *out, size_t out_len);
+void stdx_bench_serde_typed_free(void *typed);
 int stdx_bench_go_built(void);
 int stdx_bench_go_decode(const uint8_t *text, size_t len, stdx_bench_tally *tally);
 size_t stdx_bench_go_encode(const stdx_bench_token *tokens, size_t count, uint8_t *out,

@@ -12,3 +12,13 @@ size_t stdx_bench_serde_encode(const stdx_bench_token *tokens, size_t count, uin
     (void)tokens, (void)count, (void)out, (void)out_len, (void)scratch;
     return 0;
 }
+void *stdx_bench_serde_typed_new(void) { return 0; }
+int stdx_bench_serde_typed_add(void *typed, const stdx_bench_token *tokens, size_t len) {
+    (void)typed, (void)tokens, (void)len;
+    return 1;
+}
+size_t stdx_bench_serde_typed_encode(const void *typed, uint8_t *out, size_t out_len) {
+    (void)typed, (void)out, (void)out_len;
+    return 0;
+}
+void stdx_bench_serde_typed_free(void *typed) { (void)typed; }

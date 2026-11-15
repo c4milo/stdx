@@ -123,6 +123,52 @@ fn item_of(arena: std.mem.Allocator, kind: json.Kind, octets: []const u8) !Item 
     };
 }
 
+/// A dependent's two message shapes, as its generated code writes them (decision 81): objects of
+/// 11 short string members, and objects nested 50 deep, each of a label, a value and a child.
+const message_count = 4000;
+const deep_message_count = 400;
+const message_depth = 50;
+const message_seed = 0x6d_73_67;
+const message_names = [_][]const u8{ "id", "name", "email", "phone", "address", "city", "country", "postal_code", "company", "title", "note" };
+const message_words = [_][]const u8{ "u-8812", "Ada Lovelace", "ada@example.org", "+44 20 7946 0958", "12 St James's Square", "London", "United Kingdom", "SW1Y 4JH", "Analytical Engines", "Mathematician", "first program", "x", "", "a note of some length" };
+
+/// Objects of 11 string members, the values drawn from short words.
+pub fn messages_strings(arena: std.mem.Allocator) !Workload {
+    var random = std.Random.SplitMix64.init(message_seed);
+    var texts: std.ArrayList([]const Item) = .empty;
+    for (0..message_count) |_| {
+        var items: std.ArrayList(Item) = .empty;
+        try items.append(arena, .{ .token = .begin_object });
+        for (message_names) |name| {
+            try items.append(arena, .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, name) });
+            try items.append(arena, .{ .token = .{ .string = .last }, .octets = try arena.dupe(u8, message_words[random.next() % message_words.len]) });
+        }
+        try items.append(arena, .{ .token = .end_object });
+        try texts.append(arena, try items.toOwnedSlice(arena));
+    }
+    return finish(arena, "messages: 11 string members", .text, try texts.toOwnedSlice(arena), 64);
+}
+
+/// Objects nested 50 deep, each of a label, a value and a child.
+pub fn messages_deep(arena: std.mem.Allocator) !Workload {
+    var texts: std.ArrayList([]const Item) = .empty;
+    for (0..deep_message_count) |_| {
+        var items: std.ArrayList(Item) = .empty;
+        try items.append(arena, .{ .token = .begin_object });
+        for (0..message_depth) |level| {
+            try items.append(arena, .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, "label") });
+            try items.append(arena, .{ .token = .{ .string = .last }, .octets = try arena.dupe(u8, "level of the message") });
+            try items.append(arena, .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, "value") });
+            try items.append(arena, .{ .token = .{ .signed = -12345 - @as(i64, @intCast(level)) } });
+            try items.append(arena, .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, "child") });
+            try items.append(arena, if (level + 1 < message_depth) .{ .token = .begin_object } else .{ .token = .null });
+        }
+        for (0..message_depth) |_| try items.append(arena, .{ .token = .end_object });
+        try texts.append(arena, try items.toOwnedSlice(arena));
+    }
+    return finish(arena, "messages: 50 nested objects", .text, try texts.toOwnedSlice(arena), 64);
+}
+
 /// A log of qlog-shaped records, each a text of a sequence.
 pub fn qlog(arena: std.mem.Allocator) !Workload {
     var random = std.Random.SplitMix64.init(qlog_seed);
