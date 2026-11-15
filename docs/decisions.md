@@ -4317,7 +4317,9 @@ small file.
     0.1.0, a dependent pins stdx by hash alone. This entry states what a number promises. The owner
     ruled on 2026-11-15 that 0.1.0 goes on, as main then held both.
     - **The number.** A release is `MAJOR.MINOR.PATCH`, as SemVer 2.0.0 defines it.
-      `build.zig.zon`'s `.version` holds it, and the tag names the commit that changes it.
+      `build.zig.zon`'s `.version` holds it, and the tag names a commit of main whose `.version`
+      holds it. For 0.1.0 that is the README's update after the number, as the owner ruled on
+      2026-11-15.
     - **Before 1.0.0.** SemVer's item 4 lets a 0.y.z release change anything. stdx narrows that
       rule, so a dependent can read the number:
       - MINOR goes up when a dependent can see the change. A public name is added, removed or
