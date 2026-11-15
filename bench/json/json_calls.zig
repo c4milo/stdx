@@ -241,25 +241,11 @@ inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, o
         if (item.token == .name and index < items.len) {
             write_member(&text, item.octets, items[index]);
             index += 1;
-        } else if (empty_at(items, index)) |is_object| {
-            (if (is_object) text.empty_object() else text.empty_array()) catch unreachable;
-            index += 1;
         } else {
-            write_token(&text, item);
+            index += write_tokens(&text, items[index - 1 ..]) - 1;
         }
     }
     return text.written().len;
-}
-
-/// Whether the item before `index` opens a container that the item at `index` ends, so the two
-/// are one empty container: true for an object, false for an array, and null for neither.
-fn empty_at(items: []const workloads.Item, index: usize) ?bool {
-    if (index == 0 or index == items.len) return null;
-    const opening = items[index - 1].token;
-    const end = items[index].token;
-    if (opening == .begin_object and end == .end_object) return true;
-    if (opening == .begin_array and end == .end_array) return false;
-    return null;
 }
 
 /// A member's name and its value, through the value's `member_*` method.
@@ -278,6 +264,25 @@ inline fn write_member(text: *json.TextWriter, name_octets: []const u8, item: wo
         // RFC 8259 §4: a value follows a member's name.
         .name, .end_object, .end_array => unreachable,
     }) catch unreachable;
+}
+
+/// The token `items` starts with, through the method its token names, or an empty container in
+/// one `empty_*` call, where the token after an opening is its end (decision 82). Returns the
+/// tokens it wrote. Only an opening's arm reads the next token, so no other token pays for it.
+inline fn write_tokens(text: *json.TextWriter, items: []const workloads.Item) usize {
+    switch (items[0].token) {
+        .begin_object => if (items.len > 1 and items[1].token == .end_object) {
+            text.empty_object() catch unreachable;
+            return 2;
+        },
+        .begin_array => if (items.len > 1 and items[1].token == .end_array) {
+            text.empty_array() catch unreachable;
+            return 2;
+        },
+        else => {},
+    }
+    write_token(text, items[0]);
+    return 1;
 }
 
 /// One token, through the method its token names.
