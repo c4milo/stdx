@@ -169,6 +169,38 @@ pub fn messages_deep(arena: std.mem.Allocator) !Workload {
     return finish(arena, "messages: 50 nested objects", .text, try texts.toOwnedSlice(arena), 64);
 }
 
+/// The objects of a tree message, the children each inner object holds, and the trees the
+/// workload holds (decision 82): a tree of depth five, node `i`'s children at 4i+1 to 4i+4, so 85
+/// objects hold children and 256 are empty.
+const tree_nodes = 341;
+const tree_arity = 4;
+const tree_count = 300;
+
+/// Trees of 341 objects, each of a member "children" holding its children, or empty at a leaf,
+/// as a message's repeated field that a writer leaves out when it is empty.
+pub fn messages_tree(arena: std.mem.Allocator) !Workload {
+    var texts: std.ArrayList([]const Item) = .empty;
+    for (0..tree_count) |_| {
+        var items: std.ArrayList(Item) = .empty;
+        try tree_node(arena, &items, 0);
+        try texts.append(arena, try items.toOwnedSlice(arena));
+    }
+    return finish(arena, "messages: a tree of 341 objects", .text, try texts.toOwnedSlice(arena), 64);
+}
+
+fn tree_node(arena: std.mem.Allocator, items: *std.ArrayList(Item), index: usize) !void {
+    try items.append(arena, .{ .token = .begin_object });
+    if (tree_arity * index + 1 < tree_nodes) {
+        try items.append(arena, .{ .token = .{ .name = .last }, .octets = try arena.dupe(u8, "children") });
+        try items.append(arena, .{ .token = .begin_array });
+        for (1..tree_arity + 1) |child| {
+            if (tree_arity * index + child < tree_nodes) try tree_node(arena, items, tree_arity * index + child);
+        }
+        try items.append(arena, .{ .token = .end_array });
+    }
+    try items.append(arena, .{ .token = .end_object });
+}
+
 /// A log of qlog-shaped records, each a text of a sequence.
 pub fn qlog(arena: std.mem.Allocator) !Workload {
     var random = std.Random.SplitMix64.init(qlog_seed);

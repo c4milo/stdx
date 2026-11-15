@@ -392,7 +392,7 @@ Change this section when a step adds or renames a command.
   name and its value in one `member_*` call (decision 78), the reader's queued tokens a slice a
   call through `TextReader.next_items` (decision 79), and the
   encoder with J11's loop's runtime safety checks off as a caller may choose (decision 35), over
-  CLDR's JSON texts, a log of qlog-shaped records, a dependent's two message shapes (decision 81),
+  CLDR's JSON texts, a log of qlog-shaped records, a dependent's three message shapes (decisions 81 and 82),
   the corpus's text files as strings, a non-ASCII
   text, decoded also with its characters as `\u` escapes, and hex strings, a small HTTP body's
   slices each a text of its own, beside simdjson, yyjson, Zig's std.json, serde_json and Go's
@@ -401,7 +401,7 @@ Change this section when a step adds or renames a command.
   the module's `is_utf8` alone over each string workload's octets at the width the host's features
   pick, and on a host with AVX-512 with AVX2 alone, beside simdutf's `validate_utf8`, once every copy
   of the check and simdutf have judged seeded buffers alike (decisions 38 and 39). Last, it times the
-  two message shapes through `TextWriter`'s methods beside serde_json writing the same messages from
+  three message shapes through `TextWriter`'s methods beside serde_json writing the same messages from
   Rust types, as serde's derive does (decision 81). A macOS host builds it without simdjson and simdutf, as Zig 0.16.0 builds no
   libc++ there, and a host without cargo or go builds it without serde_json or Go's jsontext. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.

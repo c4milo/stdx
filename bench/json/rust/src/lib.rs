@@ -229,7 +229,7 @@ pub unsafe extern "C" fn stdx_bench_serde_encode(tokens: *const Token, len: usiz
     out_len - room.len()
 }
 
-// A dependent's two message shapes as Buffa writes them: typed fields, serialized by code of the
+// A dependent's message shapes as Buffa writes them: typed fields, serialized by code of the
 // form serde's derive generates (`serialize_struct` and one `serialize_field` a field), not from
 // tokens. bench-json times it beside `TextWriter`'s methods on the workloads named `messages:`
 // (json_typed.zig; decision 81).
@@ -293,11 +293,55 @@ impl Serialize for DeepMessage {
     }
 }
 
+/// A tree message: its children, a repeated field left out when it is empty, as serde's derive
+/// writes a field marked `skip_serializing_if = "Vec::is_empty"`.
+pub struct TreeMessage {
+    children: Vec<TreeMessage>,
+}
+
+impl Serialize for TreeMessage {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let len = usize::from(!self.children.is_empty());
+        let mut message = serializer.serialize_struct("TreeMessage", len)?;
+        if self.children.is_empty() {
+            message.skip_field("children")?;
+        } else {
+            message.serialize_field("children", &self.children)?;
+        }
+        message.end()
+    }
+}
+
 /// The messages of one workload, built from its tokens before anything is timed.
 pub enum Typed {
     Empty,
     Strings(Vec<StringsMessage>),
     Deep(Vec<DeepMessage>),
+    Tree(Vec<TreeMessage>),
+}
+
+/// The tree message whose object starts at `tokens[*next]`, with `*next` moved past it.
+fn tree_message(tokens: &[Token], next: &mut usize) -> Option<TreeMessage> {
+    if tokens.get(*next)?.kind != BEGIN_OBJECT {
+        return None;
+    }
+    *next += 1;
+    let mut children = Vec::new();
+    if tokens.get(*next)?.kind == NAME {
+        if owned(&tokens[*next])? != "children" || tokens.get(*next + 1)?.kind != BEGIN_ARRAY {
+            return None;
+        }
+        *next += 2;
+        while tokens.get(*next)?.kind != END_ARRAY {
+            children.push(tree_message(tokens, next)?);
+        }
+        *next += 1;
+    }
+    if tokens.get(*next)?.kind != END_OBJECT {
+        return None;
+    }
+    *next += 1;
+    Some(TreeMessage { children })
 }
 
 fn owned(token: &Token) -> Option<String> {
@@ -363,7 +407,13 @@ pub unsafe extern "C" fn stdx_bench_serde_typed_add(typed: *mut Typed, tokens: *
     let tokens = std::slice::from_raw_parts(tokens, len);
     let typed = &mut *typed;
     if let Typed::Empty = typed {
-        *typed = if tokens.len() == 2 * STRINGS_MEMBERS + 2 { Typed::Strings(Vec::new()) } else { Typed::Deep(Vec::new()) };
+        *typed = if tokens.len() == 2 * STRINGS_MEMBERS + 2 {
+            Typed::Strings(Vec::new())
+        } else if tokens.len() == 1 + DEEP_TOKENS_PER_LEVEL * DEEP_LEVELS + DEEP_LEVELS {
+            Typed::Deep(Vec::new())
+        } else {
+            Typed::Tree(Vec::new())
+        };
     }
     match typed {
         Typed::Strings(messages) => match strings_message(tokens) {
@@ -374,6 +424,13 @@ pub unsafe extern "C" fn stdx_bench_serde_typed_add(typed: *mut Typed, tokens: *
             Some(message) => messages.push(message),
             None => return 1,
         },
+        Typed::Tree(messages) => {
+            let mut next = 0;
+            match tree_message(tokens, &mut next) {
+                Some(message) if next == tokens.len() => messages.push(message),
+                _ => return 1,
+            }
+        }
         Typed::Empty => return 1,
     }
     0
@@ -390,6 +447,7 @@ pub unsafe extern "C" fn stdx_bench_serde_typed_encode(typed: *const Typed, out:
     let written = match &*typed {
         Typed::Strings(messages) => messages.iter().all(|message| serde_json::to_writer(&mut room, message).is_ok()),
         Typed::Deep(messages) => messages.iter().all(|message| serde_json::to_writer(&mut room, message).is_ok()),
+        Typed::Tree(messages) => messages.iter().all(|message| serde_json::to_writer(&mut room, message).is_ok()),
         Typed::Empty => false,
     };
     if written {

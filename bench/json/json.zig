@@ -381,6 +381,7 @@ fn load(arena: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) !Loade
     try all.append(arena, try workloads.qlog(arena));
     try all.append(arena, try workloads.messages_strings(arena));
     try all.append(arena, try workloads.messages_deep(arena));
+    try all.append(arena, try workloads.messages_tree(arena));
     try all.appendSlice(arena, try workloads.strings(arena, files.items));
     for (files.items) |file| {
         if (!std.mem.eql(u8, file.name, "silesia/dickens")) continue;

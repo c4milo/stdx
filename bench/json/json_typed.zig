@@ -1,4 +1,4 @@
-//! bench-json's table of a dependent's two message shapes, the workloads named `messages:`,
+//! bench-json's table of a dependent's message shapes, the workloads named `messages:`,
 //! through `TextWriter`'s methods against serde_json's typed code: the messages' fields as Rust
 //! types, serialized by code of the form serde's derive generates, as Buffa writes them
 //! (bench/json/rust; decision 81). The token baselines of baselines.zig drive
