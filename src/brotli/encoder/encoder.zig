@@ -123,8 +123,10 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         done: bool,
 
         /// Starts a stream and clears the match finder's tables. Writes no octet of the window
-        /// (decision 11).
-        pub fn init(self: *Self) void {
+        /// (decision 11). `features` are the CPU's, which every stdx codec's `init` takes; the
+        /// brotli encoder reads none of them.
+        pub fn init(self: *Self, features: codec.Features) void {
+            _ = features;
             self.matcher.init();
             self.begin_stream();
         }

@@ -107,7 +107,7 @@ fn expect_streams() !void {
     var state: Encoder = undefined;
     for (cases) |case| {
         const plain = input_of(case);
-        state.init();
+        state.init(.{});
         const written = try state.encode_all(plain, &coded);
         try testing.expect(written <= Encoder.encoded_len_max(plain.len));
         try expect_decodes(coded[0..written], plain);
@@ -139,7 +139,7 @@ fn expect_splits(generator: *codec.testing.split.Generator, plain: []const u8) !
     const reference_len = try encode_at_points(&states[0], plain, points[0..point_count]);
     try expect_decodes(reference[0..reference_len], plain);
     for (0..split_seeds) |seed| {
-        states[0].init();
+        states[0].init(.{});
         const outcome = try codec.testing.split.drive_encoder(Encoder, &states, step, plain, &coded, points[0..point_count], seed);
         try testing.expectEqual(.done, outcome.status);
         try testing.expectEqualSlices(u8, reference[0..reference_len], coded[0..outcome.written]);
@@ -149,7 +149,7 @@ fn expect_splits(generator: *codec.testing.split.Generator, plain: []const u8) !
 /// Encodes `plain` into `reference` in one call per flush point and one for the end, each with all
 /// the room. Returns the octets written.
 fn encode_at_points(state: *Encoder, plain: []const u8, points: []const usize) !usize {
-    state.init();
+    state.init(.{});
     var written: usize = 0;
     var start: usize = 0;
     for (points) |point| {
@@ -185,7 +185,7 @@ fn expect_flush_decodes() !void {
 
 /// Flushes `plain` as a stream's first input, and requires every octet of it to decode.
 fn expect_flush_at(state: *Encoder, plain: []const u8) !void {
-    state.init();
+    state.init(.{});
     const progress = state.encode(plain, &coded, .flush);
     try testing.expectEqual(.needs_input, progress.status);
     // RFC 7932 §9.2: the flush ends on an octet boundary, so no bit waits.
@@ -215,7 +215,7 @@ fn expect_reach_kept() !void {
     // Repeats in the second meta-block of the first's octets, where a parse starts again.
     const first = constants.encoder_meta_block_len_max + reach_probe_short;
     @memcpy(input[first..][0..reach_probe_len], input[first - distance ..][0..reach_probe_len]);
-    state.init();
+    state.init(.{});
     const written = try state.encode_all(input[0..len], &coded);
     try expect_decodes(coded[0..written], input[0..len]);
 }
@@ -261,11 +261,11 @@ fn expect_reach_taken() !void {
     const distance = (1 << test_window_bits) - constants.window_len_gap;
     const len = constants.encoder_meta_block_len_max * reach_take_blocks;
     for (input[0..len]) |*octet| octet.* = @truncate(generator.next());
-    state.init();
+    state.init(.{});
     const without = try state.encode_all(input[0..len], &reference);
     const first = constants.encoder_meta_block_len_max + reach_take_into;
     @memcpy(input[first..][0..reach_take_len], input[first - distance ..][0..reach_take_len]);
-    state.init();
+    state.init(.{});
     const with = try state.encode_all(input[0..len], &coded);
     try expect_decodes(coded[0..with], input[0..len]);
     // Random octets code to no fewer octets, so only the match makes the stream shorter.
@@ -300,7 +300,7 @@ fn expect_distances_restored() !void {
     var generator = codec.testing.split.Generator.init(restore_seed);
     for (input[0..restore_len]) |*octet| octet.* = @truncate(generator.next());
     for (restore_repeats) |repeat| @memcpy(input[repeat.to..][0..repeat.len], input[repeat.from..][0..repeat.len]);
-    state.init();
+    state.init(.{});
     const first = state.encode(input[0..restore_flush], &coded, .flush);
     try testing.expectEqual(.needs_input, first.status);
     try testing.expect(state.commands.count > 0);
@@ -316,13 +316,13 @@ test "a stream begun with start writes the octets of one begun with init" {
 
 fn expect_start_equals_init() !void {
     var started: Encoder = undefined;
-    started.init();
+    started.init(.{});
     for ([_]Case{ .long, .whole, .whole, .medium, .run, .mixed, .short }, 0..) |case, index| {
         if (index > 0) started.start();
         const plain = input_of(case);
         const written = try started.encode_all(plain, &coded);
         var fresh: Encoder = undefined;
-        fresh.init();
+        fresh.init(.{});
         const fresh_written = try fresh.encode_all(plain, &reference);
         try testing.expectEqualSlices(u8, reference[0..fresh_written], coded[0..written]);
     }
@@ -342,7 +342,7 @@ fn expect_literal_cost() !void {
     var state: Encoder = undefined;
     var generator = codec.testing.split.Generator.init(bases_seed);
     for (input[0..constants.encoder_meta_block_len_max]) |*octet| octet.* = bases[generator.below(bases.len)];
-    state.init();
+    state.init(.{});
     const progress = state.encode(input[0..constants.encoder_meta_block_len_max], &coded, .flush);
     try testing.expectEqual(.needs_input, progress.status);
     try testing.expectEqual(bases_literal_cost, state.commands.literal_cost);
@@ -359,9 +359,9 @@ fn expect_unchecked_equal() !void {
     var unchecked: Encoder = undefined;
     for (cases) |case| {
         const plain = input_of(case);
-        checked.init();
+        checked.init(.{});
         const checked_len = try checked.encode_all(plain, &reference);
-        unchecked.init();
+        unchecked.init(.{});
         const unchecked_len = try unchecked.encode_all(plain, &coded);
         try testing.expectEqualSlices(u8, reference[0..checked_len], coded[0..unchecked_len]);
     }
@@ -378,9 +378,9 @@ fn expect_lean_equal() !void {
     var reference_state: ReferenceEncoder = undefined;
     for (cases) |case| {
         const plain = input_of(case);
-        reference_state.init();
+        reference_state.init(.{});
         const reference_len = try reference_state.encode_all(plain, &reference);
-        lean.init();
+        lean.init(.{});
         const lean_len = try lean.encode_all(plain, &coded);
         try testing.expectEqualSlices(u8, reference[0..reference_len], coded[0..lean_len]);
     }

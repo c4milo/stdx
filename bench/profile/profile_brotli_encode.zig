@@ -13,6 +13,7 @@
 const std = @import("std");
 const oracle = @import("oracle");
 const brotli = @import("brotli");
+const codec = @import("codec");
 const timing = @import("timing");
 const Counters = timing.counters.Counters;
 const inputs = timing.inputs;
@@ -71,8 +72,8 @@ fn report_row(arena: std.mem.Allocator, out: *std.Io.Writer, counters: *const Co
     const stdx1: Stdx1 = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx1.Encoder) };
     const google5: Google(level5, level5_window_bits) = .{ .output = try arena.alloc(u8, output_len) };
     const stdx5: Stdx5 = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx5.Encoder) };
-    stdx1.encoder.init();
-    stdx5.encoder.init();
+    stdx1.encoder.init(codec.Features.detect());
+    stdx5.encoder.init(codec.Features.detect());
     const decoded = try arena.alloc(u8, input.part_len);
     const rounds = @max(1, encoded_input_len_min / @max(1, input.len()));
     inline for (.{ google1, stdx1, google5, stdx5 }, .{ "Google q1", "stdx 1", "Google q5", "stdx 5" }) |candidate, name| {

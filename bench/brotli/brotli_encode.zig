@@ -19,6 +19,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
 const brotli = @import("brotli");
+const codec = @import("codec");
 const inputs = timing.inputs;
 const Input = inputs.Input;
 
@@ -157,9 +158,9 @@ fn measure_pair(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow(lev
     const output_len = @max(oracle.brotli_bound(input.part_len), Unchecked.Encoder.encoded_len_max(input.part_len));
     const google: GoogleEncode = .{ .output = try arena.alloc(u8, output_len), .setting = level1_rival };
     const stdx: Unchecked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Unchecked.Encoder) };
-    stdx.encoder.init();
+    stdx.encoder.init(codec.Features.detect());
     const checked: Checked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Checked.Encoder) };
-    checked.encoder.init();
+    checked.encoder.init(codec.Features.detect());
     return time_pair(level1_names.len, arena, io, input, .{ google, stdx, checked });
 }
 
@@ -168,7 +169,7 @@ fn measure_level5(arena: std.mem.Allocator, io: std.Io, input: Input) !PairRow(l
     const output_len = @max(oracle.brotli_bound(input.part_len), Level5Encode.Encoder.encoded_len_max(input.part_len));
     const google: GoogleEncode = .{ .output = try arena.alloc(u8, output_len), .setting = level5_rival };
     const stdx: Level5Encode = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Level5Encode.Encoder) };
-    stdx.encoder.init();
+    stdx.encoder.init(codec.Features.detect());
     return time_pair(level5_names.len, arena, io, input, .{ google, stdx });
 }
 

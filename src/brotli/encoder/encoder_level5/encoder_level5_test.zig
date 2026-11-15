@@ -126,7 +126,7 @@ fn expect_streams() !void {
     var small: [1]Small = undefined;
     for (std.enums.values(Case)) |case| {
         const plain = input_of(case);
-        small[0].init();
+        small[0].init(.{});
         const written = try small[0].encode_all(plain, &coded);
         try testing.expect(written <= Small.encoded_len_max(plain.len));
         try expect_decodes(coded[0..written], plain);
@@ -169,7 +169,7 @@ fn expect_splits() !void {
         const reference_len = try encode_at_points(&small[0], plain, points[0..count]);
         try expect_decodes(reference[0..reference_len], plain);
         for (0..split_seeds) |seed| {
-            small[0].init();
+            small[0].init(.{});
             const outcome = try codec.testing.split.drive_encoder(Small, &small, step, plain, &coded, points[0..count], seed);
             try testing.expectEqual(.done, outcome.status);
             try testing.expectEqualSlices(u8, reference[0..reference_len], coded[0..outcome.written]);
@@ -178,7 +178,7 @@ fn expect_splits() !void {
 }
 
 fn encode_at_points(state: *Small, plain: []const u8, points: []const usize) !usize {
-    state.init();
+    state.init(.{});
     var written: usize = 0;
     var start: usize = 0;
     for (points) |point| {
@@ -204,10 +204,10 @@ fn expect_far_copy() !void {
     for (input[0..far_len]) |*octet| octet.* = @truncate(generator.next());
     @memset(input[far_len..far_distance], run_octet);
     for (input[far_distance..far_input_len]) |*octet| octet.* = @truncate(generator.next());
-    large.init();
+    large.init(.{});
     const without = try large.encode_all(input[0..far_input_len], &reference);
     @memcpy(input[far_distance..][0..far_len], input[0..far_len]);
-    large.init();
+    large.init(.{});
     const with = try large.encode_all(input[0..far_input_len], &coded);
     try expect_decodes(coded[0..with], input[0..far_input_len]);
     try testing.expect(with + far_saved_min < without);
@@ -228,13 +228,13 @@ test "a stream begun with start writes the octets of one begun with init" {
 fn expect_start_equals_init() !void {
     var small: Small = undefined;
     for (std.enums.values(Case)) |case| {
-        small.init();
+        small.init(.{});
         _ = try small.encode_all(input_of(.alphabets), &coded);
         small.start();
         try expect_no_earlier_entry(&small.matcher, small.window.len);
         const plain = input_of(case);
         const started = try small.encode_all(plain, &coded);
-        small.init();
+        small.init(.{});
         const fresh = try small.encode_all(plain, &reference);
         try testing.expectEqualSlices(u8, reference[0..fresh], coded[0..started]);
     }
@@ -267,9 +267,9 @@ fn expect_memory_unread() !void {
     for (&states, state_fills) |*state, fill| @memset(std.mem.asBytes(state), fill);
     for ([_]Case{ .long, .mixed, .alphabets }) |case| {
         const plain = input_of(case);
-        states[0].init();
+        states[0].init(.{});
         const first = try states[0].encode_all(plain, &reference);
-        states[1].init();
+        states[1].init(.{});
         const second = try states[1].encode_all(plain, &coded);
         try testing.expectEqualSlices(u8, reference[0..first], coded[0..second]);
     }
@@ -289,9 +289,9 @@ fn expect_checked_equal() !void {
     var checked: Checked = undefined;
     for (std.enums.values(Case)) |case| {
         const plain = input_of(case);
-        unchecked.init();
+        unchecked.init(.{});
         const fast = try unchecked.encode_all(plain, &coded);
-        checked.init();
+        checked.init(.{});
         const slow = try checked.encode_all(plain, &reference);
         try testing.expectEqualSlices(u8, reference[0..slow], coded[0..fast]);
     }
