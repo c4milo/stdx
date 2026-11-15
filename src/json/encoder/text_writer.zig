@@ -18,6 +18,7 @@ const Kind = encoder_file.Kind;
 const token_loop = @import("encoder_loop/encoder_loop.zig");
 const loop_base64 = @import("encoder_loop/encoder_loop_base64.zig");
 const loop_member = @import("encoder_loop/encoder_loop_member.zig");
+const loop_empty = @import("encoder_loop/encoder_loop_empty.zig");
 const base64_module = @import("base64");
 const constants = @import("../constants.zig");
 const Claims = @import("../claims.zig").Claims;
@@ -96,6 +97,32 @@ pub const TextWriter = struct {
 
     pub fn end_array(self: *TextWriter) Error!void {
         return self.whole(.end_array, .end_array, "");
+    }
+
+    /// An object with no member, `{}` (RFC 8259 §4), in one call where `begin_object` and
+    /// `end_object` take two, at any place a value goes (decision 82).
+    pub fn empty_object(self: *TextWriter) Error!void {
+        return self.empty(&loop_empty.empty_object, .begin_object, .end_object);
+    }
+
+    /// An array with no element, `[]` (RFC 8259 §5), in one call where `begin_array` and
+    /// `end_array` take two, at any place a value goes (decision 82).
+    pub fn empty_array(self: *TextWriter) Error!void {
+        return self.empty(&loop_empty.empty_array, .begin_array, .end_array);
+    }
+
+    /// An empty container's `octets` as one value. One the token loop's step leaves, past the
+    /// output's room or the depth limit, takes the checked path as its opening and its end.
+    inline fn empty(self: *TextWriter, comptime octets: []const u8, comptime opening: Token, comptime closing: Token) Error!void {
+        if (self.encoder.part == .between_tokens) {
+            var end = self.len;
+            if (@call(.always_inline, loop_empty.take_empty, .{ &self.encoder, Claims{}, octets, self.output, &end })) {
+                self.len = end;
+                return;
+            }
+        }
+        try self.checked(opening, "");
+        return self.checked(closing, "");
     }
 
     /// A member's name, `octets` in UTF-8 (RFC 8259 §4, §8.1).

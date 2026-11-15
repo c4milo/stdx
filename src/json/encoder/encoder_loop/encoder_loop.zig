@@ -388,7 +388,7 @@ pub const Loop = struct {
         return self.text_at(claims, kind, octets, entry);
     }
 
-    inline fn text_at(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, entry: *const Item) bool {
+    pub inline fn text_at(self: *Loop, comptime claims: Claims, comptime kind: Kind, octets: []const u8, entry: *const Item) bool {
         @setRuntimeSafety(claims.encoder_token_loop_runtime_safety or runtime_safety_kept);
         self.check_item(claims, kind, entry);
         const frame = self.frame_of(claims, kind);

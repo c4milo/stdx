@@ -422,4 +422,5 @@ test {
     _ = @import("encoder_fast_test.zig");
     _ = @import("text_writer_test.zig");
     _ = @import("text_writer_member_test.zig");
+    _ = @import("text_writer_empty_test.zig");
 }

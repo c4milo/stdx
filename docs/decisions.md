@@ -5226,3 +5226,40 @@ small file.
       845 functions are main's, 569 of them at another offset in their 64-octet line. The six
       others are the harness's, and no library function is among them. So a row that moved in both
       jobs, such as samba as a string one token a call on the N2 at 0.91, moved with placement.
+
+82. **`TextWriter` writes an empty object or array in one call.** Ruled by the owner on
+    2026-11-15 ("Price the tree", "empty_object alone", then "Keep them"). It reopens the owner's
+    ruling of 2026-11-11 that braces stay. A dependent's tree message is 341 objects, of which 256
+    are empty, and it encoded at 0.48 of Buffa's speed. In bench-json's typed table (decision 81),
+    `TextWriter`'s methods wrote the tree at 0.84 to 0.96 of serde_json's typed code on the
+    Neoverse N2, and at 0.90 to 0.93 on an EPYC 9V74 (runs 43667096477, 43667102743).
+    - The workload. "messages: a tree of 341 objects" holds 300 trees of depth five, node `i`'s
+      children at 4i+1 to 4i+4. serde_json's typed code leaves an empty repeated field out, as
+      serde's derive does for a field marked `skip_serializing_if`.
+    - Why a call less. A method call took about 70 instructions on the tree, nearly all of it the
+      token's contract: the grammar's place, the depth limit, the separators, the room and the
+      write-back. With claim J11's runtime safety checks off, the tree took 3% to 4% fewer
+      instructions on aarch64, so the checks are not the cost. The number of calls is.
+    - The calls. `empty_object` and `empty_array` write `{}` or `[]` as one value, at any place a
+      value goes (RFC 8259 §4, §5). The token loop's step writes the two octets as the literal path
+      writes `null`, and opens no container, so it writes no bit of the container stack. Past the
+      output's room or at the depth limit, the checked path writes the opening and its end, so a
+      refusal or `error.NoSpaceLeft` is the one the two calls give.
+    - The price on aarch64 (callgrind, ReleaseSafe): the tree took 46,382 instructions an encode,
+      from 59,503 through `begin_object` and `end_object`.
+    - bench-json's methods candidate writes each empty container in one call, as a caller that
+      knows it is empty writes it.
+
+    The checks: text_writer_empty_test.zig writes each text through the methods, each empty
+    container in one call, and through the checked path, in both framings and in every room. After
+    each call it requires the same octets, the same error and the same state, the container stack
+    compared below the depth. It runs fixed texts, a container at the depth limit, 300 seeded
+    texts and every text the fuzzer draws.
+
+    The alternatives refused:
+    - Each method's step compiled for each framing, chosen by one test: 5% fewer instructions on
+      the tree, but the deep shape wrote at 0.96 of its speed on the N2 in both jobs, and the
+      strings shape at 0.97 to 0.98 on x86-64 (runs 43668082750, 43668089875).
+    - The step's runtime safety checks off for `TextWriter`: 3% to 4% on the tree, against decision
+      17.
+    - No new call, the tree at the speed above: the owner kept the calls.

@@ -228,8 +228,8 @@ inline fn encode_calls(comptime claims: json.Claims, comptime batches: bool, wor
 }
 
 /// One text through `TextWriter`'s methods, as a caller that knows its members writes it: a
-/// member's name with its value in one `member_*` call (decision 78), and every other token
-/// through the method its token names.
+/// member's name with its value in one `member_*` call (decision 78), an empty object or array in
+/// one `empty_*` call (decision 82), and every other token through the method its token names.
 inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, output: []u8, features: codec.Features) usize {
     var text = json.TextWriter.init(output, framing, features);
     var index: usize = 0;
@@ -241,11 +241,25 @@ inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, o
         if (item.token == .name and index < items.len) {
             write_member(&text, item.octets, items[index]);
             index += 1;
+        } else if (empty_at(items, index)) |is_object| {
+            (if (is_object) text.empty_object() else text.empty_array()) catch unreachable;
+            index += 1;
         } else {
             write_token(&text, item);
         }
     }
     return text.written().len;
+}
+
+/// Whether the item before `index` opens a container that the item at `index` ends, so the two
+/// are one empty container: true for an object, false for an array, and null for neither.
+fn empty_at(items: []const workloads.Item, index: usize) ?bool {
+    if (index == 0 or index == items.len) return null;
+    const opening = items[index - 1].token;
+    const end = items[index].token;
+    if (opening == .begin_object and end == .end_object) return true;
+    if (opening == .begin_array and end == .end_array) return false;
+    return null;
 }
 
 /// A member's name and its value, through the value's `member_*` method.
