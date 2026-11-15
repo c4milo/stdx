@@ -5250,6 +5250,21 @@ small file.
     - bench-json's methods candidate writes each empty container in one call, as a caller that
       knows it is empty writes it.
 
+    What it gave, against the tree's commit before it (runs 43678680847, 43678686331):
+    - Through `TextWriter`'s methods, the tree wrote at 1.26 to 1.29 of its speed on the N2, and
+      at 1.39 to 1.41 on an EPYC 9V74 and a 7763.
+    - Against serde_json's typed code, the tree wrote at 1.14 to 1.18 of its speed on the N2, at
+      1.16 on the 9V74 and at 1.24 on the 7763.
+    - On the N2, CLDR's texts through the methods wrote at 1.03 to 1.04, and qlog's records at
+      1.02, in both jobs. On x86-64 no other row moved past its spread in both jobs.
+    - On aarch64, 852 of the bench program's 853 functions are the base's, and the one other is
+      the bench's methods loop. So silesia/reymont as a string through the methods, at 0.96 to 0.98
+      on the N2, moved with that loop's placement.
+    - The first pairs (43674612420, 43674617437) had the methods loop test every token for an
+      empty container. CLDR and qlog then wrote at 0.95 to 0.99 of the base on the N2 and a Xeon
+      6975P-C, with every library function the base's. Only an opening's arm now reads the next
+      token.
+
     The checks: text_writer_empty_test.zig writes each text through the methods, each empty
     container in one call, and through the checked path, in both framings and in every room. After
     each call it requires the same octets, the same error and the same state, the container stack
