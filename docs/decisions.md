@@ -5222,3 +5222,7 @@ small file.
       where the method before stored `len` alone. With `len` read alone, the methods' rows moved
       1.4% to 2.3% on the N2 (runs 43648394226, 43648402113), not past the spread in both jobs, and
       the N2's counters moved no more (43648383354, 43648388947). It does not land.
+    - The pairs against main (43657147834, 43657154259): on aarch64, 839 of the bench program's
+      845 functions are main's, 569 of them at another offset in their 64-octet line. The six
+      others are the harness's, and no library function is among them. So a row that moved in both
+      jobs, such as samba as a string one token a call on the N2 at 0.91, moved with placement.
