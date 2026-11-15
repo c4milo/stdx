@@ -28,6 +28,7 @@ pub const EncoderOptions = encoder.EncoderOptions;
 const io = @import("io.zig");
 pub const IoReader = io.IoReader;
 pub const HttpIoReader = io.HttpIoReader;
+pub const IoWriter = io.IoWriter;
 
 test {
     _ = io;
