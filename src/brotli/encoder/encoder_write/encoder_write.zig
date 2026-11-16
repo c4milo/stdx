@@ -16,6 +16,7 @@ const encoder_commands = @import("../encoder_commands.zig");
 const encoder_prefix = @import("../encoder_prefix.zig");
 const aarch64 = @import("encoder_write_aarch64.zig");
 const x86_64 = @import("encoder_write_x86_64.zig");
+const encoder_context = @import("../encoder_level5/encoder_context.zig");
 
 pub const Error = encoder_prefix.Error;
 
@@ -87,6 +88,48 @@ pub const Blocks = struct {
     switch_lens: []const u8,
     count: usize,
 };
+
+/// Level 5's commands, whose literals go through the code of the class of the octet before each
+/// (encoder_context.zig): `before` is the octet before the meta-block.
+pub fn write_classes(comptime safety: bool, writer: *codec.BitWriter, input: []const u8, commands: anytype, codes: anytype, before: u8) Error!void {
+    var literals: ClassCodes(@TypeOf(&codes.classes.codes)) = .{ .codes = &codes.classes.codes, .start = input.ptr, .before = before };
+    return write_loop(safety, writer, input, commands, codes, &literals);
+}
+
+fn ClassCodes(comptime Codes: type) type {
+    return struct {
+        codes: Codes,
+        /// The meta-block's first octet, and the octet before it.
+        start: [*]const u8,
+        before: u8,
+
+        inline fn put(self: *@This(), comptime safety: bool, bits: *Bits, literals: []const u8) Error!void {
+            @setRuntimeSafety(safety);
+            if (literals.len == 0) return;
+            // Literals follow the meta-block's start, or an octet of the input before them.
+            var previous: u8 = if (literals.ptr == self.start) self.before else (literals.ptr - 1)[0];
+            var rest = literals;
+            for (0..std.math.divCeil(usize, literals.len, constants.encoder_literal_chunk_len) catch unreachable) |_| {
+                const chunk = rest[0..@min(rest.len, constants.encoder_literal_chunk_len)];
+                try bits.check(safety, chunk.len * constants.code_len_max + constants.encoder_command_bits_max);
+                var value: u64 = 0;
+                var count: usize = 0;
+                for (chunk, 0..) |octet, index| {
+                    const code = &self.codes[encoder_context.class_of[previous]];
+                    value |= @as(u64, code.codes[octet]) << @intCast(count);
+                    count += code.lengths[octet];
+                    previous = octet;
+                    if (index % constants.encoder_literals_per_put != constants.encoder_literals_per_put - 1) continue;
+                    bits.put(safety, value, count);
+                    value = 0;
+                    count = 0;
+                }
+                if (count > 0) bits.put(safety, value, count);
+                rest = rest[chunk.len..];
+            }
+        }
+    };
+}
 
 fn OneCode(comptime Code: type) type {
     return struct {
