@@ -130,6 +130,15 @@ pub const encoder_level5 = struct {
     pub const class_shift = 2;
     /// RLEMAX of the class map (RFC 7932 §7.3): run codes of 1 and 2 take its runs of 3 and 4 zeros.
     pub const class_map_run_codes = 2;
+    /// Smoothed counts (encoder_smooth.zig): a code of `smooth_symbols_min` symbols or more is
+    /// built a second time from counts where each stride of `smooth_stride_min` neighbours or more,
+    /// each within `smooth_tolerance` of the stride's mean, takes the mean. Runs a repeat code
+    /// takes as they are stay: `smooth_zero_run_min` zeros, or `smooth_equal_run_min` equal counts.
+    pub const smooth_symbols_min = 16;
+    pub const smooth_stride_min = 4;
+    pub const smooth_tolerance = 4;
+    pub const smooth_zero_run_min = 5;
+    pub const smooth_equal_run_min = 7;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;

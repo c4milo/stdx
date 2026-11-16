@@ -14,6 +14,7 @@ const constants = @import("../../constants.zig");
 const context = @import("../../context.zig");
 const encoder_prefix = @import("../encoder_prefix.zig");
 const encoder_commands = @import("../encoder_commands.zig");
+const encoder_smooth = @import("encoder_smooth.zig");
 
 pub const Error = encoder_prefix.Error;
 
@@ -101,7 +102,7 @@ pub const Classes = struct {
             // A code needs a symbol; a class with no literals codes one it never uses.
             const empty = std.mem.allEqual(u16, counts, 0);
             if (empty) counts[0] = 1;
-            encoder_prefix.build(alphabet_len, counts, code);
+            encoder_smooth.build(alphabet_len, counts, code, constants.literal_alphabet_bits);
             if (empty) counts[0] = 0;
             bits += encoder_prefix.description_bits(alphabet_len, code, constants.literal_alphabet_bits);
             for (counts, code.lengths) |literals, len| bits += @as(u64, literals) * len;
