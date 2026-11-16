@@ -24,7 +24,7 @@ pub const Claims = struct {
 };
 
 /// Which alphabets a text may use.
-pub const Accept = enum {
+pub const Accept = enum(u8) {
     /// Either alphabet, but one alone in a text.
     either,
     standard,
@@ -32,7 +32,7 @@ pub const Accept = enum {
 };
 
 /// Whether a text's final quantum carries its pad characters.
-pub const Padding = enum {
+pub const Padding = enum(u8) {
     /// With them or without them (RFC 4648 §3.2 lets the referring specification decide).
     optional,
     /// With them, as RFC 4648 §3.2 requires when no specification says otherwise.
@@ -42,7 +42,7 @@ pub const Padding = enum {
 };
 
 /// What the decoder does with a final quantum whose unused bits are not zero (RFC 4648 §3.5).
-pub const PadBits = enum {
+pub const PadBits = enum(u8) {
     /// Refuses it, so each octet string has one text that decodes to it (decision 68).
     refuse,
     /// Takes it and clears the bits, as RFC 4648 §3.5 lets a decoder do where a referring
@@ -84,8 +84,8 @@ pub const Decoder = struct {
     accept: Accept,
     padding: Padding,
     pad_bits: PadBits,
-    /// Whether the CPU has AVX2, whose variant object's kernels the fast path then calls.
-    wide: bool,
+    /// The kernels the fast path calls: the variant object's, where the CPU has AVX2.
+    kernels: Kernels,
     /// The alphabet whose letters of values 62 and 63 the text used, once one appeared.
     seen: ?Alphabet,
     /// The values of the quantum's letters so far, `held_len` of them, most significant first.
@@ -101,6 +101,15 @@ pub const Decoder = struct {
     part: Part,
 
     const Part = enum(u8) { letters, padding, after_padding, tail, done };
+    const Kernels = enum(u8) { portable, avx2 };
+
+    // Each field that `init` sets from the caller's options and features is a whole octet
+    // (decision 68). Zig 0.16 stores a field of fewer bits as an integer of that width, but loads
+    // it as an octet, and LLVM forwards no such store to a load. A decode then read its options
+    // from memory unless every one of them was zero.
+    comptime {
+        for ([_]type{ Accept, Padding, PadBits, Kernels }) |T| assert(@bitSizeOf(T) == 8);
+    }
 
     /// Starts a text. The decoder copies what it keeps from `options`. Inline, so options known at
     /// compile time are constants: as a call, it read them from memory, and a decode with
@@ -108,7 +117,7 @@ pub const Decoder = struct {
     /// 68).
     pub inline fn init(self: *Decoder, options: DecoderOptions, features: codec.Features) void {
         self.* = .{
-            .wide = fast.has_kernels and features.avx2,
+            .kernels = if (fast.has_kernels and features.avx2) .avx2 else .portable,
             .accept = options.accept,
             .padding = options.padding,
             .pad_bits = options.pad_bits,
@@ -209,7 +218,7 @@ pub const Decoder = struct {
     fn quanta(self: *Decoder, reader: *codec.Reader, writer: *codec.Writer) void {
         if (self.part != .letters or self.held_len != 0) return;
         const rest = reader.take_partial(reader.remaining_len());
-        const count = fast.decode_quanta_learning(&self.seen, self.accept == .either, self.wide, rest, writer.octets[writer.position..]);
+        const count = fast.decode_quanta_learning(&self.seen, self.accept == .either, self.kernels == .avx2, rest, writer.octets[writer.position..]);
         reader.unread(rest.len - count * constants.quantum_letters);
         writer.position += count * constants.group_octets;
     }

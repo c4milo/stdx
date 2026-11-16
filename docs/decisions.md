@@ -4451,6 +4451,30 @@ small file.
       constants. `.drop` then took 1,151 instructions and 1,616, and the default kept 1,154 and
       1,620.
 
+    **Amended on 2026-11-16: the decoder keeps its options as whole octets.** The dependent
+    counted `.drop` again at its own call site, on v0.1.1 in ReleaseFast. It took 9 to 12
+    instructions a text more than `.refuse`, on x86-64-v2 and aarch64.
+    - The cause. Zig 0.16 stores a field of fewer bits than an octet as an integer of that width,
+      but loads it as an octet. LLVM forwards no such store to a load. `Accept` and `Padding` took
+      two bits, and `PadBits` and the flag for the AVX2 kernels one bit each.
+    - With `.refuse`, every value that `init` stores is zero. LLVM merges the stores into one fill
+      of zeros, which it forwards, so the options become constants. With `.drop`, the decode read
+      `accept`, `padding` and `pad_bits` back from memory and tested each.
+    - The change. The three enums take a `u8` tag, and the decoder keeps its kernels as an enum
+      of one octet. A comptime assert in decoder.zig holds each of the four at eight bits.
+    - The cost after the change, from callgrind over a probe of the dependent's call: one text of
+      128 octets, 172 letters with one pad character, `Features.target()`. Instructions a decode,
+      `.refuse` then `.drop`:
+
+      | Build | aarch64, before | aarch64, after | x86-64-v2, before | x86-64-v2, after |
+      |---|---|---|---|---|
+      | ReleaseFast, call inlined | 934, 950 | 934, 933 | 1,406, 1,407 | 1,403, 1,395 |
+      | ReleaseFast, call kept | 948, 941 | 948, 944 | 1,432, 1,426 | 1,434, 1,430 |
+      | ReleaseSafe, call inlined | 1,166, 1,163 | 1,164, 1,163 | 1,617, 1,613 | 1,619, 1,615 |
+
+      Where the call is inlined in ReleaseFast, the dependent's build, `.drop` now costs less than
+      `.refuse`. Every other cell moves by 4 instructions or fewer.
+
 69. **One token a call takes the shortest path the module has.** Ruled by the owner on 2026-11-09
     and 2026-11-10. A dependent that writes and reads its JSON a value at a time spent 70% to 80%
     of its encoding, and about 40% of its decoding, inside `TextWriter`'s and `TextReader`'s calls.
