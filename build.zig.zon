@@ -7,8 +7,8 @@
         // Developer tooling only, never linked into the library (decision 7). Lazy, and requested
         // only when stdx is the root build, so a project that depends on stdx never fetches it.
         .pepegrillo = .{
-            .url = "git+https://github.com/c4milo/pepegrillo#298ffbe3cdb01ad55e096fdaad790956a9e94ccd",
-            .hash = "pepegrillo-0.0.0-axiFUCONDADyCG6fXZaoy4oIevu3RiG1oy1kaAIrqD-d",
+            .url = "git+https://github.com/c4milo/pepegrillo#10841b3e4a7050730334a03fd8fa3ea8cbe8b23c",
+            .hash = "pepegrillo-0.0.0-axiFUAQ9DQDyuz8t0MXI7z-d_B9u6EB3JeryxYFZ6_fS",
             .lazy = true,
         },
         // The oracles of decision 8, compiled in tools/ and bench/ only and never into the library.
