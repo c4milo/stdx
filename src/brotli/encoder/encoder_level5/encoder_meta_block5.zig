@@ -16,6 +16,7 @@ const encoder_commands = @import("../encoder_commands.zig");
 const encoder_write = @import("../encoder_write/encoder_write.zig");
 const encoder_split = @import("encoder_split.zig");
 const encoder_near = @import("encoder_near.zig");
+const encoder_context = @import("encoder_context.zig");
 const context = @import("../../context.zig");
 
 pub const Error = encoder_prefix.Error;
@@ -42,6 +43,10 @@ pub const Codes = struct {
     split: encoder_split.Split,
     switch_values: [encoder_split.chunks_max]u64,
     switch_lens: [encoder_split.chunks_max]u8,
+    /// The literals by the class of the octet before each, and whether the meta-block codes them
+    /// so (encoder_context.zig).
+    classes: encoder_context.Classes,
+    by_class: bool,
 };
 
 /// Writes the commands of `input`, the meta-block of `window[start..]`, as a compressed
@@ -50,6 +55,8 @@ pub fn write_compressed(comptime safety: bool, writer: *codec.BitWriter, window:
     assert(input.len > 0 and input.len <= constants.encoder_meta_block_len_max);
     encoder_split.split(safety, &codes.split, window, start, commands);
     build_codes(commands, codes);
+    codes.by_class = takes_classes(safety, window, start, input, commands, codes);
+    if (codes.by_class) return write_by_class(safety, writer, window, start, input, commands, codes, last);
     const types_count = codes.split.types_count;
     try encoder_meta_block.write_header(writer, input.len, last, false);
     try write_count(writer, types_count);
@@ -89,6 +96,37 @@ pub fn weigh_literals(commands: anytype, codes: *const Codes) void {
         if (count > 0) bits += @as(u64, count) * (whole - encoder_split.log2_scaled(count));
     }
     commands.literal_cost = @intCast((bits * encoder_commands.eighths >> constants.encoder_level5.split_cost_shift) / len);
+}
+
+/// Whether the meta-block's literals take fewer bits by class than in the split's blocks, or in one
+/// block: a meta-block of few literals keeps its blocks, as it keeps one code below
+/// `split_literals_min`.
+fn takes_classes(comptime safety: bool, window: []const u8, start: usize, input: []const u8, commands: anytype, codes: *Codes) bool {
+    if (commands.literals_len < constants.encoder_level5.split_literals_min) return false;
+    codes.classes.count(safety, window, start, input, commands);
+    const by_class = codes.classes.build();
+    const split = &codes.split;
+    const blocks = if (split.types_count > 1) split_bits(codes) else blk: {
+        const code = &codes.literals[0];
+        const one = encoder_prefix.description_bits(constants.literal_alphabet_len, code, constants.literal_alphabet_bits) + literal_bits(&split.counts[0], code);
+        break :blk one + constants.context_mode_bits + encoder_context.count_bits(1);
+    };
+    return by_class + encoder_context.count_bits(1) < blocks + encoder_context.count_bits(split.types_count);
+}
+
+/// The meta-block with its literals in one block type, coded by class.
+fn write_by_class(comptime safety: bool, writer: *codec.BitWriter, window: []const u8, start: usize, input: []const u8, commands: anytype, codes: *Codes, last: bool) Error!void {
+    try encoder_meta_block.write_header(writer, input.len, last, false);
+    // RFC 7932 §9.2: NBLTYPESL, NBLTYPESI and NBLTYPESD of 1, then NPOSTFIX and NDIRECT 0.
+    try put(writer, 0, constants.encoder_count_one_bits * constants.block_categories);
+    try put(writer, 0, constants.postfix_field_bits + constants.direct_field_bits);
+    try codes.classes.write_map(writer);
+    // NTREESD of 1.
+    try put(writer, 0, constants.encoder_count_one_bits);
+    try codes.classes.write_codes(writer);
+    try encoder_prefix.write(constants.insert_copy_alphabet_len, writer, &codes.command, constants.insert_copy_alphabet_bits);
+    try encoder_prefix.write(constants.encoder_distance_alphabet_len, writer, &codes.distance, constants.encoder_distance_alphabet_bits);
+    try encoder_write.write_classes(safety, writer, input, commands, codes, encoder_context.octet_before(window, start));
 }
 
 fn build_codes(commands: anytype, codes: *Codes) void {
@@ -268,6 +306,10 @@ fn put(writer: *codec.BitWriter, value: u64, count: u7) Error!void {
 }
 
 const testing = std.testing;
+
+test {
+    _ = @import("encoder_context.zig");
+}
 
 test "a block count takes the code whose range holds it" {
     for (constants.block_count_codes, 0..) |code, index| {

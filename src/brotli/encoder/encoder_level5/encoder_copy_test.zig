@@ -29,7 +29,7 @@ fn expect_last_copy() !void {
     // rest.
     for (0..min_len + 2) |agreed| {
         seed_window(&window);
-        agree(&window, agreed);
+        agree(&window, copy_position, copy_distance, agreed);
         const found = last_copy(true, &window, copy_position, copy_window_len, &commands);
         if (agreed < copy_len_min) {
             try testing.expectEqual(null, found);
@@ -44,9 +44,9 @@ fn expect_last_copy() !void {
     // At 5 bits a literal, 2 octets save less than a command costs, and 3 more.
     commands.literal_cost = cheap_literal_cost;
     seed_window(&window);
-    agree(&window, copy_len_min);
+    agree(&window, copy_position, copy_distance, copy_len_min);
     try testing.expectEqual(null, last_copy(true, &window, copy_position, copy_window_len, &commands));
-    agree(&window, min_len - 1);
+    agree(&window, copy_position, copy_distance, min_len - 1);
     try testing.expectEqual(min_len - 1, last_copy(true, &window, copy_position, copy_window_len, &commands).?.len);
     // A reach one octet short, and a distance to position 0, name no copy.
     try testing.expectEqual(null, last_copy(true, &window, copy_position, copy_distance - 1, &commands));
@@ -59,16 +59,16 @@ test "the parse codes a copy of 2 octets at the last distance where no match is 
     try @call(.never_inline, expect_parsed_copy, .{});
 }
 
-/// A match of `match_len` octets `copy_distance` back sets the last distance; then, after
-/// `gap_len` literals, 2 octets agree at that distance and the third does not.
+/// A match of `match_len` octets `parse_distance` back sets the last distance; then, after
+/// `gap_len` literals, 2 octets agree at that distance and the third does not. All of it lies in
+/// the first 2^`skip_log` octets, where the parse searches every position.
 fn expect_parsed_copy() !void {
     var buckets: Buckets = undefined;
     var commands: encoder_commands.WideCommands = undefined;
     var window: [copy_window_len]u8 = undefined;
     seed_window(&window);
-    const match_at = copy_position - gap_len - match_len;
-    @memcpy(window[match_at..][0..match_len], window[match_at - copy_distance ..][0..match_len]);
-    agree(&window, copy_len_min);
+    @memcpy(window[parse_match_at..][0..match_len], window[parse_match_at - parse_distance ..][0..match_len]);
+    agree(&window, parse_copy_at, parse_distance, copy_len_min);
     buckets.init();
     commands.init();
     encoder_lazy.parse(true, &buckets, &window, 0, window.len, window.len, &commands);
@@ -76,7 +76,7 @@ fn expect_parsed_copy() !void {
     var position: usize = 0;
     for (commands.commands[0..commands.count]) |command| {
         position += command.insert_len;
-        if (position == copy_position) {
+        if (position == parse_copy_at) {
             try testing.expectEqual(copy_len_min, command.copy_len);
             try testing.expectEqual(0, command.distance_code());
             return;
@@ -86,11 +86,11 @@ fn expect_parsed_copy() !void {
     return error.TestExpectedCopy;
 }
 
-/// The `agreed` octets at `copy_position` copy those `copy_distance` back, and the next differs.
-fn agree(window: []u8, agreed: usize) void {
-    const source = copy_position - copy_distance;
-    @memcpy(window[copy_position..][0..agreed], window[source..][0..agreed]);
-    window[copy_position + agreed] = ~window[source + agreed];
+/// The `agreed` octets at `position` copy those `distance` back, and the next differs.
+fn agree(window: []u8, position: usize, distance: usize, agreed: usize) void {
+    const source = position - distance;
+    @memcpy(window[position..][0..agreed], window[source..][0..agreed]);
+    window[position + agreed] = ~window[source + agreed];
 }
 
 /// Seeded octets: none of 2 or more agree by chance at the last distance.
@@ -104,5 +104,12 @@ const copy_position = 3000;
 const copy_distance = 700;
 const match_len = 32;
 const gap_len = 5;
+const parse_distance = 90;
+const parse_match_at = 100;
+const parse_copy_at = parse_match_at + match_len + gap_len;
+
+comptime {
+    std.debug.assert(parse_copy_at + min_len < 1 << constants.encoder_level5.skip_log);
+}
 /// 5 bits a literal, in eighths.
 const cheap_literal_cost = 40;

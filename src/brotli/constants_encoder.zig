@@ -123,6 +123,13 @@ pub const encoder_level5 = struct {
     /// the field of its extra bits (encoder_near.zig). A distance in the window takes 21 extra bits
     /// at most at WBITS 22, and a code takes 6 bits, so 26 leaves both room in 32.
     pub const near_fallback_shift = 26;
+    /// Literal context modeling (RFC 7932 §7.1; decision 62): a meta-block may code its literals in
+    /// one block type of UTF8 mode, with a tree for each class of the octet before a literal. A
+    /// class is the UTF8 context ID less its low `class_shift` bits, which the octet before that
+    /// one sets: 16 classes.
+    pub const class_shift = 2;
+    /// RLEMAX of the class map (RFC 7932 §7.3): run codes of 1 and 2 take its runs of 3 and 4 zeros.
+    pub const class_map_run_codes = 2;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;

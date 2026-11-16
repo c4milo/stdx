@@ -296,3 +296,41 @@ fn expect_checked_equal() !void {
         try testing.expectEqualSlices(u8, reference[0..slow], coded[0..fast]);
     }
 }
+
+test "a meta-block codes its literals by class where the octet before predicts them" {
+    try @call(.never_inline, expect_by_class, .{});
+}
+
+/// Octets whose alphabet the octet before picks: after a small letter a digit, after a digit a
+/// capital, after a capital a small letter, each of 16 at random. One code takes 5.6 bits a
+/// literal and blocks cannot follow a change at each octet; a code for each class takes 4 bits.
+/// Random octets gain nothing by class, and keep their blocks.
+fn expect_by_class() !void {
+    var small: [1]Small = undefined;
+    var generator = codec.testing.split.Generator.init(class_input_len);
+    const plain = input[0..class_input_len];
+    var first: u8 = 'a';
+    for (plain) |*octet| {
+        octet.* = first + @as(u8, @intCast(generator.below(alphabet_len)));
+        first = switch (first) {
+            'a' => '0',
+            '0' => 'A',
+            else => 'a',
+        };
+    }
+    small[0].init(.{});
+    const written = try small[0].encode_all(plain, &coded);
+    try testing.expect(small[0].codes.by_class);
+    try testing.expect(written * @bitSizeOf(u8) < plain.len * class_bits_max);
+    try expect_decodes(coded[0..written], plain);
+    for (plain) |*octet| octet.* = @truncate(generator.next());
+    small[0].init(.{});
+    const random_written = try small[0].encode_all(plain, &coded);
+    try testing.expect(!small[0].codes.by_class);
+    try expect_decodes(coded[0..random_written], plain);
+}
+
+const class_input_len = 60_000;
+/// The bits a literal of the classes' input takes at most: 4 in its class's code, and a part of a
+/// bit for the codes' descriptions.
+const class_bits_max = 5;
