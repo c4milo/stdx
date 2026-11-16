@@ -17,6 +17,7 @@ const encoder_write = @import("../encoder_write/encoder_write.zig");
 const encoder_split = @import("encoder_split.zig");
 const encoder_near = @import("encoder_near.zig");
 const encoder_context = @import("encoder_context.zig");
+const encoder_smooth = @import("encoder_smooth.zig");
 const context = @import("../../context.zig");
 
 pub const Error = encoder_prefix.Error;
@@ -147,8 +148,8 @@ fn build_codes(commands: anytype, codes: *Codes) void {
     }
     var distance_counts = commands.distance_counts;
     distance_counts[0] += 1;
-    encoder_prefix.build(constants.insert_copy_alphabet_len, &commands.command_counts, &codes.command);
-    encoder_prefix.build(constants.encoder_distance_alphabet_len, &distance_counts, &codes.distance);
+    encoder_smooth.build(constants.insert_copy_alphabet_len, &commands.command_counts, &codes.command);
+    encoder_smooth.build(constants.encoder_distance_alphabet_len, &distance_counts, &codes.distance);
     encoder_near.choose(commands, &distance_counts, &codes.distance);
 }
 
@@ -157,7 +158,7 @@ fn build_literal_codes(codes: *Codes) void {
     for (split.counts[0..split.types_count], codes.literals[0..split.types_count]) |*counts, *code| {
         // A code needs a symbol; a meta-block of no literals codes one it never uses.
         if (split.literals_len == 0) counts[0] = 1;
-        encoder_prefix.build(constants.literal_alphabet_len, counts, code);
+        encoder_smooth.build(constants.literal_alphabet_len, counts, code);
     }
 }
 
@@ -311,6 +312,7 @@ const testing = std.testing;
 
 test {
     _ = @import("encoder_context.zig");
+    _ = @import("encoder_smooth.zig");
 }
 
 test "a block count takes the code whose range holds it" {
