@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
+const encoder_near = @import("encoder_level5/encoder_near.zig");
 
 comptime {
     assert(constants.encoder_meta_block_len_max <= std.math.maxInt(u16));
@@ -95,6 +96,8 @@ pub const Coded = struct {
 pub fn CommandsOf(comptime Record: type) type {
     return struct {
         const Self = @This();
+        /// Level 5's records take the short codes of 4 to 15 too (encoder_near.zig).
+        const near_codes = Record == WideCommand;
         commands: [constants.encoder_commands_max]Record,
         count: usize,
         literal_counts: [constants.literal_alphabet_len]u16,
@@ -109,6 +112,8 @@ pub fn CommandsOf(comptime Record: type) type {
         /// A literal's mean cost in eighths of a bit under the last meta-block's literal code, which
         /// `takes` weighs a match against.
         literal_cost: u32,
+        /// Level 5's commands at codes of 4 to 15, which the meta-block keeps or gives back.
+        near: if (near_codes) encoder_near.Tally else void,
 
         pub fn init(self: *Self) void {
             // RFC 7932 §4: the last distance 4, then 11, 15 and 16, at the stream's start.
@@ -125,6 +130,7 @@ pub fn CommandsOf(comptime Record: type) type {
             self.literal_counts = @splat(0);
             self.command_counts = @splat(0);
             self.distance_counts = @splat(0);
+            if (near_codes) self.near.reset();
         }
 
         /// The finder's sink: the literals from `anchor` to `position`, then a match of `len` octets
@@ -134,7 +140,16 @@ pub fn CommandsOf(comptime Record: type) type {
             assert(len >= constants.copy_length_codes[0].base and distance > 0 and self.count < self.commands.len);
             const insert_len = position - anchor;
             self.add_literals(safety, window[anchor..position]);
-            const code = self.distance_code(safety, @intCast(distance));
+            var code = self.distance_code(safety, @intCast(distance));
+            // Level 5: a code with extra bits gives way to a code of 4 to 15 where one names the
+            // distance, and the record keeps the first until the meta-block's end.
+            if (near_codes and code.extra_bits > 0) {
+                if (encoder_near.code_of(&self.last_distances, @intCast(distance))) |near| {
+                    // The note reads `code` before the near code takes its place.
+                    const kept = self.near.note(safety, code.code, code.extra, code.extra_bits);
+                    code = .{ .code = near, .extra = kept, .extra_bits = 0 };
+                }
+            }
             self.record(safety, @intCast(insert_len), @intCast(len), code.code, @intCast(code.extra));
             self.inserted += insert_len;
             if (code.code != 0) self.push_distance(safety, @intCast(distance));
@@ -435,57 +450,6 @@ inline fn distance_code_of(comptime safety: bool, distance: u32) DistanceCode {
     };
 }
 
-test "a distance the ring holds takes its short code, and code 0 moves no distance" {
-    // RFC 7932 §4: the ring starts 4, 11, 15, 16. Distance 4 is code 0 and stays; 15 is code 2 and
-    // goes first; 100 takes code 25, as 103 is 0b1100111, and goes first.
-    var commands: Commands = undefined;
-    commands.init();
-    const window = [_]u8{0} ** 64;
-    commands.add(true, &window, 0, 0, 4, 4);
-    try std.testing.expectEqualSlices(u32, &constants.last_distances_initial, &commands.last_distances);
-    commands.add(true, &window, 4, 8, 4, 15);
-    commands.add(true, &window, 12, 12, 4, 100);
-    try std.testing.expectEqualSlices(u32, &.{ 100, 15, 4, 11 }, &commands.last_distances);
-    const codes = [_]u8{ commands.commands[0].distance_code(), commands.commands[1].distance_code(), commands.commands[2].distance_code() };
-    try std.testing.expectEqualSlices(u8, &.{ 0, 2, 25 }, &codes);
-    // RFC 7932 §5: no insert and a copy of 4 with distance code 0 is symbol 2, of the cell that
-    // leaves the distance out; 4 inserted and 4 copied with another code is 128 + 34.
-    try std.testing.expectEqual(2, coded_of(true, commands.commands[0]).symbol);
-    try std.testing.expectEqual(162, coded_of(true, commands.commands[1]).symbol);
-    try std.testing.expectEqual(1, commands.command_counts[2]);
-    try std.testing.expectEqual(0, commands.distance_counts[0]);
-    try std.testing.expectEqual(1, commands.distance_counts[2]);
-    try std.testing.expectEqual(1, commands.distance_counts[25]);
-    const extra = coded_of(true, commands.commands[2]);
-    try std.testing.expectEqual(5, extra.distance_extra_bits);
-    try std.testing.expectEqual(103 - 96, extra.distance_extra);
-}
-
-test "a match is taken when the literals it replaces cost more than it" {
-    // At 2 bits a literal, a match 1000 back costs 12 bits and 9 of distance, 168 eighths: 10
-    // literals save 160 and 11 save 176.
-    var commands: Commands = undefined;
-    commands.init();
-    commands.literal_cost = 16;
-    try std.testing.expect(!commands.takes(true, 10, 1000));
-    try std.testing.expect(commands.takes(true, 11, 1000));
-    // Nearer, a shorter match pays: 1 back costs 96 eighths, which 7 literals pass.
-    try std.testing.expect(!commands.takes(true, 6, 1));
-    try std.testing.expect(commands.takes(true, 7, 1));
-}
-
-test "a literal's cost is the mean length of the code its meta-block built" {
-    var commands: Commands = undefined;
-    commands.init();
-    try std.testing.expectEqual(constants.encoder_literal_cost_initial, commands.literal_cost);
-    // The last octet value too, which the weighing's last group of lanes holds.
-    const window = "aaab\xff\xff\xff\xff";
-    commands.add_literals(true, window);
-    var lengths: [constants.literal_alphabet_len]u8 = @splat(0);
-    lengths['a'] = 1;
-    lengths['b'] = 3;
-    lengths[0xff] = 5;
-    commands.weigh_literals(&lengths);
-    // Three literals of 1 bit, one of 3 and four of 5: 26 bits over 8, 26 eighths.
-    try std.testing.expectEqual(26, commands.literal_cost);
+test {
+    _ = @import("encoder_commands_test.zig");
 }

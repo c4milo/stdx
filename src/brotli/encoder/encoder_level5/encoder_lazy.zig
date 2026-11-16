@@ -1,7 +1,8 @@
 //! Level 5's parse (decision 62): at each position the four last distances and the 16 candidates
 //! of its bucket, each match weighed by what it saves over its literals (`Commands.takes`'s cost),
 //! and a lazy step: a match is held while the next position's saves more. A match then extends back
-//! over the literals before it, and every position it covers joins the buckets.
+//! over the literals before it, and every position it covers joins the buckets. Where a position
+//! has no match, a copy of 2 or 3 octets at the last distance may take its place (`last_copy`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -31,6 +32,14 @@ pub fn parse(comptime safety: bool, buckets: *Buckets, window: []const u8, start
     for (0..end - start) |_| {
         if (position >= search_end) break;
         var found = best(safety, buckets, window, position, end, reach_len, commands) orelse {
+            if (last_copy(safety, window, position, reach_len, commands)) |copy| {
+                commands.add(safety, window, anchor, position, copy.len, copy.offset);
+                const copy_end = position + copy.len;
+                for (position + 1..@min(copy_end, search_end)) |covered| buckets.insert(safety, window, covered);
+                position = copy_end;
+                anchor = copy_end;
+                continue;
+            }
             position += 1 + ((position - anchor) >> constants.encoder_level5.skip_log);
             continue;
         };
@@ -136,6 +145,29 @@ inline fn keep(position: usize, candidate: usize, len: usize, last: bool, cost: 
         if (saves <= best_so_far.saves) return;
     }
     found.* = .{ .position = position, .len = len, .offset = position - candidate, .saves = saves };
+}
+
+/// The fewest octets a copy takes (RFC 7932 §5: copy length code 0 copies 2).
+pub const copy_len_min = constants.copy_length_codes[0].base;
+
+/// A copy of 2 or 3 octets at the last distance, for a position where `best` found no match, where
+/// it saves more than its literals cost (the owner's ruling of 2026-11-07; decision 66, output
+/// size). Its distance code is 0, which a short insert-and-copy symbol leaves out of the stream
+/// (RFC 7932 §5). The other last distances are left out: their codes and the ring's change cost
+/// more than such a copy saves, as kennedy.xls showed.
+pub fn last_copy(comptime safety: bool, window: []const u8, position: usize, reach_len: usize, commands: anytype) ?Found {
+    @setRuntimeSafety(safety);
+    assert(position + @sizeOf(u32) <= window.len);
+    // As in `best`, a candidate lies within `reach_len` and at position 1 or later.
+    if (position == 0) return null;
+    const distance = commands.last_distances[0];
+    if (distance > position - @max(position -| reach_len, 1)) return null;
+    const agreed: usize = @ctz(read32(safety, window, position) ^ read32(safety, window, position - distance)) / @bitSizeOf(u8);
+    const len = @min(agreed, min_len - 1);
+    if (len < copy_len_min) return null;
+    const saves = saving(len, distance, true, commands.literal_cost);
+    if (saves <= 0) return null;
+    return .{ .position = position, .len = len, .offset = distance, .saves = saves };
 }
 
 /// Whether `found` is a match at one of the last distances, whose short code the next command's
@@ -316,4 +348,5 @@ pub inline fn read64(comptime safety: bool, window: []const u8, position: usize)
 test {
     _ = @import("encoder_lazy_test.zig");
     _ = @import("encoder_side_test.zig");
+    _ = @import("encoder_copy_test.zig");
 }

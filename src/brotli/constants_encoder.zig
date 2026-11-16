@@ -118,6 +118,11 @@ pub const encoder_level5 = struct {
     /// The saving, in eighths of a bit, by which the lazy step's next position must pass a match at
     /// a last distance to replace it: 6 bits, about what the next command's distance then costs.
     pub const lazy_margin = 48;
+    /// Where a command at a short distance code of 4 to 15 keeps, until its meta-block's end, the
+    /// code with extra bits its distance takes otherwise: that code above the code's extra bits, in
+    /// the field of its extra bits (encoder_near.zig). A distance in the window takes 21 extra bits
+    /// at most at WBITS 22, and a code takes 6 bits, so 26 leaves both room in 32.
+    pub const near_fallback_shift = 26;
 };
 /// A literal's cost in eighths of a bit before the first meta-block's code: 8 bits.
 pub const encoder_literal_cost_initial = 64;
