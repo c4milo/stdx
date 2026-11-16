@@ -1,7 +1,9 @@
 //! Level 5's parse (decision 62): at each position the four last distances and the 16 candidates
 //! of its bucket, each match weighed by what it saves over its literals (`Commands.takes`'s cost),
 //! and a lazy step: a match is held while the next position's saves more. A match then extends back
-//! over the literals before it, and every position it covers joins the buckets.
+//! over the literals before it, and every position it covers joins the buckets. Where a position
+//! has no match, a copy of 2 or 3 octets at the last distance may take its place (`last_copy`),
+//! with no lazy step and no extension back.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -34,6 +36,14 @@ pub fn parse(comptime safety: bool, buckets: *Buckets, window: []const u8, start
             position += 1 + ((position - anchor) >> constants.encoder_level5.skip_log);
             continue;
         };
+        if (found.len < min_len) {
+            commands.add(safety, window, anchor, position, found.len, found.offset);
+            const copy_end = position + found.len;
+            for (position + 1..@min(copy_end, search_end)) |covered| buckets.insert(safety, window, covered);
+            position = copy_end;
+            anchor = copy_end;
+            continue;
+        }
         const probed = lazy(safety, buckets, window, &found, search_end, end, reach_len, commands);
         // A word's start is the word's own first octet, so a word does not extend back.
         const taken = if (found.word_len > 0) found else step_back(safety, window, found, anchor);
@@ -138,14 +148,33 @@ inline fn keep(position: usize, candidate: usize, len: usize, last: bool, cost: 
     found.* = .{ .position = position, .len = len, .offset = position - candidate, .saves = saves };
 }
 
+/// The fewest octets a copy takes (RFC 7932 §5: copy length code 0 copies 2).
+pub const copy_len_min = constants.copy_length_codes[0].base;
+
+/// A copy of 2 or 3 octets at the last distance, for a position where `best` found no match, where
+/// it saves more than its literals cost (the owner's ruling of 2026-11-07; decision 66, output
+/// size). `agreed` is the octets that agree there, fewer than a match's 4, which `best` counted
+/// as it compared the last distances. The copy's distance code is 0, which a short
+/// insert-and-copy symbol leaves out of the stream (RFC 7932 §5). The other last distances are
+/// left out: their codes and the ring's change cost more than such a copy saves, as kennedy.xls
+/// showed.
+pub fn last_copy(agreed: usize, position: usize, commands: anytype) ?Found {
+    assert(agreed < min_len);
+    if (agreed < copy_len_min) return null;
+    const distance = commands.last_distances[0];
+    const saves = saving(agreed, distance, true, commands.literal_cost);
+    if (saves <= 0) return null;
+    return .{ .position = position, .len = agreed, .offset = distance, .saves = saves };
+}
+
 /// Whether `found` is a match at one of the last distances, whose short code the next command's
 /// distance then takes (RFC 7932 §4).
 fn keeps_distance(found: Found, commands: anytype) bool {
     return found.word_len == 0 and std.mem.indexOfScalar(u32, &commands.last_distances, @intCast(found.offset)) != null;
 }
 
-/// The match at `position` that saves the most, or none that saves anything. Records `position` in
-/// its bucket.
+/// The match at `position` that saves the most, else a copy at the last distance that saves
+/// (`last_copy`), or none. Records `position` in its bucket.
 pub fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, position: usize, end: usize, reach_len: usize, commands: anytype) ?Found {
     @setRuntimeSafety(safety);
     // Position 0 names no candidate: no octet lies before it.
@@ -162,11 +191,19 @@ pub fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, positi
     buckets.prefetch(slot);
     // The next position's bucket too, which the next search or the lazy probe reads.
     buckets.prefetch(Buckets.slot_of_word(pick.here >> @bitSizeOf(u8)));
-    // The last distances first: a short code, with no extra bits (RFC 7932 §4).
-    for (commands.last_distances) |distance| {
-        if (distance > position - low) continue;
-        if (read32(safety, window, position - distance) != @as(u32, @truncate(pick.here))) continue;
-        pick.consider(safety, window, position, end, position - distance, .last);
+    // The last distances first: a short code, with no extra bits (RFC 7932 §4). Where the last
+    // distance agrees on fewer than 4 octets, `copy_agreed` keeps how many, for `last_copy`.
+    var copy_agreed: usize = 0;
+    inline for (0..constants.last_distances_count) |index| {
+        const distance = commands.last_distances[index];
+        if (distance <= position - low) {
+            const differ = read32(safety, window, position - distance) ^ @as(u32, @truncate(pick.here));
+            if (differ == 0) {
+                pick.consider(safety, window, position, end, position - distance, .last);
+            } else if (index == 0) {
+                copy_agreed = @ctz(differ) / @bitSizeOf(u8);
+            }
+        }
     }
     lazy_hits.consider(safety, buckets, slot, window, position, end, low, &pick);
     // The side table's candidate only where the last distances and the bucket gave no match: it
@@ -176,8 +213,9 @@ pub fn best(comptime safety: bool, buckets: *Buckets, window: []const u8, positi
     }
     buckets.insert_at(safety, slot, position);
     var found = pick.found(position);
-    // The words only where the window gave no match.
+    // The words only where the window gave no match, then a copy at the last distance.
     if (found == null) consider_word(safety, window, position, end, reach_len, commands, &found);
+    if (found == null) found = last_copy(copy_agreed, position, commands);
     return found;
 }
 
@@ -316,4 +354,5 @@ pub inline fn read64(comptime safety: bool, window: []const u8, position: usize)
 test {
     _ = @import("encoder_lazy_test.zig");
     _ = @import("encoder_side_test.zig");
+    _ = @import("encoder_copy_test.zig");
 }

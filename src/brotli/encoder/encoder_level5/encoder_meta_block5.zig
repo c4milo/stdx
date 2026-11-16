@@ -15,6 +15,7 @@ const encoder_meta_block = @import("../encoder_meta_block.zig");
 const encoder_commands = @import("../encoder_commands.zig");
 const encoder_write = @import("../encoder_write/encoder_write.zig");
 const encoder_split = @import("encoder_split.zig");
+const encoder_near = @import("encoder_near.zig");
 const context = @import("../../context.zig");
 
 pub const Error = encoder_prefix.Error;
@@ -108,6 +109,7 @@ fn build_codes(commands: anytype, codes: *Codes) void {
     distance_counts[0] += 1;
     encoder_prefix.build(constants.insert_copy_alphabet_len, &commands.command_counts, &codes.command);
     encoder_prefix.build(constants.encoder_distance_alphabet_len, &distance_counts, &codes.distance);
+    encoder_near.choose(commands, &distance_counts, &codes.distance);
 }
 
 fn build_literal_codes(codes: *Codes) void {
