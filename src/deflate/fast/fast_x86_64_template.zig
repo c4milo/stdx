@@ -222,7 +222,18 @@ pub const plain =
     \\    shrx r8, r13, r14
     \\    sub r9d, r12d
     \\    sub r9d, r14d
-    \\    jmp 6b
+    \\    // A plain entry's length is any, so its copy takes three chunks, then the rest past 48 at
+    \\    // 75, as the aarch64 text does. A combined entry's length is short, as its code, its extra
+    \\    // bits and a distance's code fit the table: its copy at 6 branches on 32.
+    \\    movdqu xmm0, xmmword ptr [rbx]
+    \\    movdqu xmmword ptr [rdx], xmm0
+    \\    movdqu xmm1, xmmword ptr [rbx + {[chunk]}]
+    \\    movdqu xmmword ptr [rdx + {[chunk]}], xmm1
+    \\    movdqu xmm2, xmmword ptr [rbx + {[third_chunk_at]}]
+    \\    movdqu xmmword ptr [rdx + {[third_chunk_at]}], xmm2
+    \\    cmp r15, {[chunks_len]}
+    \\    jbe 7b
+    \\    jmp 75f
     \\42:
     \\    // A length of 258: code 285's goes on, and one from a base and extra bits leaves.
     \\    test r12d, {[extra_bit]}
