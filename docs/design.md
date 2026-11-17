@@ -1237,6 +1237,90 @@ to 12 are reordered and nothing else changes.
     The x86-64 copy still branches on a length over 32 for its third chunk, where the aarch64
     text stores three chunks and branches at 48 alone. That is the next thing to measure.
 
+  **The third chunk of a plain match's copy on x86-64, 2026-11-17.** The next step under the
+  owner's ruling of 2026-11-12. The x86-64 copy stored two chunks, branched on a length over 32,
+  and stored the third out of line. The aarch64 text stores three chunks and branches on 48 alone.
+  No entry gives a reason for the difference: 5f263d6 moved the third chunk out of line, and its
+  record measures the whole commit.
+  - A model ran the copy's branches over the streams zlib's level 6 gives each row, with 2-bit
+    counters. On the 16 KiB slices of html, js, css and json, the two branches miss 170, 97, 153
+    and 122 times a slice. With three chunks first, the branch on 48 misses 56, 38, 54 and 78
+    times. A third chunk also loads more octets that a recent store holds in part, and
+    such a load waits. Over the last 6 stores, 3 to 32 more matches a slice wait.
+  - A first form, c588174 on `perf-deflate-192`, stored three chunks for every match. Its pairs
+    against main's f45a045 are runs
+    [43993669131](https://github.com/c4milo/stdx/actions/runs/43993669131) and
+    [43993676092](https://github.com/c4milo/stdx/actions/runs/43993676092), an EPYC 9V74 in both,
+    and [43993672545](https://github.com/c4milo/stdx/actions/runs/43993672545), a Xeon 8573C.
+    Their reports stay with the runs. Beside the control, its 16 KiB rows of html and css read
+    1.028 to 1.073. But in both 9V74 jobs six rows fell past their bars, to 0.953 to 0.982:
+    css-1m, lcet10.txt, asyoulik.txt, E.coli, kennedy.xls and dickens.
+  - Most matches of those files use S11's combined entries. A combined entry joins a length and a
+    distance's code in the table's 11 bits. So its length is short, and its branch on 32 seldom
+    misses. In the model, 94% to 99% of the matches of dickens, lcet10.txt, asyoulik.txt, E.coli,
+    kennedy.xls, sao and x-ray use combined entries. For css-1m, 78% do. The text files paid
+    for the third load and store and saved few misses. The model gives css-1m no added cost, so it
+    does not explain that row's loss. A 16 KiB slice uses no combined entry.
+  - The form that lands, 7acc3c8 on `perf-deflate-193`, stores the three chunks at the end of the
+    plain path and branches on 48 there. The combined path keeps its copy at 6, with the branch on
+    32.
+  - Its pairs against main's f45a045 are nine runs:
+    [44003196163](https://github.com/c4milo/stdx/actions/runs/44003196163),
+    [44003199545](https://github.com/c4milo/stdx/actions/runs/44003199545),
+    [44003202665](https://github.com/c4milo/stdx/actions/runs/44003202665),
+    [44010528602](https://github.com/c4milo/stdx/actions/runs/44010528602),
+    [44010531748](https://github.com/c4milo/stdx/actions/runs/44010531748),
+    [44010534829](https://github.com/c4milo/stdx/actions/runs/44010534829),
+    [44018747763](https://github.com/c4milo/stdx/actions/runs/44018747763),
+    [44018750857](https://github.com/c4milo/stdx/actions/runs/44018750857) and
+    [44018754018](https://github.com/c4milo/stdx/actions/runs/44018754018). `bench/results/` holds
+    the reports of the first job of each CPU model, dated 2026-11-17, "decoder-plain-copy". The
+    other four stay with the runs.
+  - The baselines first. In eight jobs, 1 to 16 of their 156 cells moved, by 1.0% to 5.7%. In
+    44018750857, 87 cells rose, by 1.3% to 5.7%. So the table reads stdx beside the control, as
+    before.
+  - x86-64's rows of 16 KiB slices: stdx's speed, change over base, beside the control; then stdx
+    over libdeflate, base to change. A ratio to libdeflate also moves with libdeflate's own speed:
+    in the 9V74's job, js went from 0.937 to 0.997 on a change of 1.007.
+
+    | Run | CPU | html | json | js | css |
+    |---|---|---|---|---|---|
+    | 44003196163 | Xeon 6975P-C | 1.025; 0.914 to 0.934 | 1.006; 0.951 to 0.949 | 1.009; 0.914 to 0.916 | 1.034; 0.900 to 0.923 |
+    | 44003199545 | Xeon 6975P-C | 1.024; 0.910 to 0.935 | 1.010; 0.941 to 0.952 | 1.009; 0.907 to 0.917 | 1.035; 0.891 to 0.923 |
+    | 44003202665 | Xeon 8573C | 1.048; 0.894 to 0.936 | 1.016; 0.934 to 0.955 | 1.023; 0.907 to 0.924 | 1.073; 0.858 to 0.920 |
+    | 44010528602 | Xeon 6975P-C | 1.028; 0.915 to 0.933 | 1.007; 0.948 to 0.951 | 1.009; 0.911 to 0.917 | 1.036; 0.896 to 0.926 |
+    | 44010531748 | EPYC 9V45 | 1.018; 0.932 to 0.916 | 1.019; 0.966 to 0.959 | 0.992; 0.927 to 0.903 | 1.017; 0.858 to 0.864 |
+    | 44010534829 | Xeon 8370C | 1.038; 0.915 to 0.954 | 1.010; 0.957 to 0.976 | 1.016; 0.907 to 0.924 | 1.037; 0.915 to 0.953 |
+    | 44018747763 | Xeon 6975P-C | 1.029; 0.907 to 0.936 | 1.008; 0.940 to 0.954 | 1.016; 0.903 to 0.916 | 1.039; 0.887 to 0.923 |
+    | 44018750857 | Xeon 8573C | 1.041; 0.896 to 0.932 | 1.006; 0.945 to 0.955 | 1.014; 0.908 to 0.919 | 1.062; 0.863 to 0.918 |
+    | 44018754018 | EPYC 9V74 | 1.023; 0.937 to 0.956 | 1.009; 0.963 to 0.963 | 1.007; 0.937 to 0.997 | 1.027; 0.807 to 0.820 |
+
+  - Beside the control, html-1m rose 1.7% to 4.9% in every job and js-1m 1.0% to 4.5%. css-1m
+    rose 2.2% to 4.9% in every job but the 9V74's. The median of the 39 rows read 0.997 to 1.009.
+  - The losses. In the four 6975P-C jobs and the two 8573C jobs, no row fell beside the control
+    past the larger of its spread and 1%. In the one 8370C job, fields.c read 0.987. In the one
+    9V74 job, grammar.lsp read 0.984 and css-1m 0.990. The 9V45's job measured spreads of up to
+    58%, and no row fell past them.
+  - grammar.lsp holds 3,721 octets, so it never combines, and both forms run the same copy on it.
+    On the 9V74 it read 0.990, 0.981 and 0.984 in the three jobs of both forms, two of them past
+    its bar. So decision 20 counts it as a loss on that CPU. The benchmark repeats the file, and
+    the predictor learns its branches. On fresh data the model gives it 35 fewer misses and 70
+    more waits per 16 KiB. The owner ruled on 2026-11-17 to land the change with this loss, over
+    more 9V74 jobs and over a search for another form.
+  - The N2's text did not change. Its medians read 0.998 to 1.001. samba and E.coli each fell past
+    their bars beside the control in two of the nine jobs, on code the change did not touch.
+  - Mutations, 9, with the command of the previous entry: 6 CAUGHT, each by 10 to 20 failed tests,
+    the fast path's tail tests among them. The six: no first store, no third store, the third load
+    at 16, the third store at 16, no jump to the rest, and a compare with 64. Three leave the
+    output as it is and pass: a compare with 32, `jb`, and no branch to 7. Without that branch, the
+    loop at 75 writes past 48, inside the room.
+  - Checks at 7acc3c8: `zig fmt --check`, the x86-64 tests under Rosetta, `zig build lint`,
+    `test-deflate`, `test-self-hosted` and `test-avx512` on the M1 Pro, and `tools/ci.sh` on the
+    three runners (CI run [44077960368](https://github.com/c4milo/stdx/actions/runs/44077960368)).
+  - What stays open: the four rows are still below libdeflate on every x86-64 CPU drawn, at 0.820
+    to 0.997. grammar.lsp's loss on the 9V74 stays. The next rows under the ruling are nci, mozilla
+    and ooffice.
+
 - **Step 8: stdx issue 1 closes.** The whole-buffer helpers of decision 11, and each item of
   https://github.com/c4milo/stdx/issues/1 checked off with its evidence.
   **Check:** issue 1's list, each item pointing at the entry of step 4, 5, 6 or 7 that proves it.
