@@ -1293,6 +1293,18 @@ small file.
       repeated one file. A small-body row of a report published before it compares with none
       after it, and the rule still reads the rows of the seven files of 256 KiB or less that a
       row repeats.
+    - Amended by the owner on 2026-11-19, when asked which versions the README's charts compare:
+      - Each report names the version of every baseline it times, beside the record above.
+        `bench/run.sh` reads each from what builds the baseline: the URL `build.zig.zon` pins, the
+        crate's `Cargo.lock`, and the rustc and the Go that build it. A chart reads the versions
+        from its report.
+      - The Rust and Go baselines build with pinned toolchains, so a new runner image cannot move
+        them. Each crate's `rust-toolchain.toml` names its Rust release, and each Go module's
+        `toolchain` line names its Go release. Before, the image gave rustc 1.100.0 on
+        `ubuntu-24.04-arm` and 1.99.1 on the other images. It gave encoding/base64's baseline Go
+        1.24.13 on `ubuntu-24.04` and 1.26.11 on the others.
+      - The alternatives refused: a table of versions in the README, which can differ from the
+        runs after a pin changes; and the image's toolchains, which a new image moves.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,

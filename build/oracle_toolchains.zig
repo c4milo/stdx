@@ -12,18 +12,22 @@ pub fn has(b: *std.Build, program: []const u8) bool {
 }
 
 /// The static library `archive` of the crate in `directory`, built in release with its Cargo.lock
-/// as it stands. `sources` are the crate's files beside its manifest, which the build watches.
+/// as it stands, by the Rust release its rust-toolchain.toml names. cargo runs in `directory`,
+/// where rustup reads that file. `sources` are the crate's files beside its manifest, which the
+/// build watches.
 pub fn cargo_archive(b: *std.Build, directory: []const u8, archive: []const u8, sources: []const []const u8) std.Build.LazyPath {
-    const cargo = b.addSystemCommand(&.{ "cargo", "build", "--release", "--locked", "--manifest-path" });
-    cargo.addFileArg(b.path(b.pathJoin(&.{ directory, "Cargo.toml" })));
+    const cargo = b.addSystemCommand(&.{ "cargo", "build", "--release", "--locked", "--manifest-path", "Cargo.toml" });
+    cargo.setCwd(b.path(directory));
     const target_dir = cargo.addPrefixedOutputDirectoryArg("--target-dir=", "cargo-target");
-    cargo.addFileInput(b.path(b.pathJoin(&.{ directory, "Cargo.lock" })));
+    for ([_][]const u8{ "Cargo.toml", "Cargo.lock", "rust-toolchain.toml" }) |file| {
+        cargo.addFileInput(b.path(b.pathJoin(&.{ directory, file })));
+    }
     for (sources) |source| cargo.addFileInput(b.path(b.pathJoin(&.{ directory, source })));
     return target_dir.path(b, b.pathJoin(&.{ "release", archive }));
 }
 
-/// The c-archive of the Go package in `directory`. `sources` are the package's files, which the
-/// build watches.
+/// The c-archive of the Go package in `directory`, built by the Go release its go.mod's
+/// `toolchain` line names. `sources` are the package's files, which the build watches.
 pub fn go_archive(b: *std.Build, directory: []const u8, archive: []const u8, sources: []const []const u8) std.Build.LazyPath {
     const go = b.addSystemCommand(&.{ "go", "build", "-buildmode=c-archive", "-trimpath", "-o" });
     go.setCwd(b.path(directory));
