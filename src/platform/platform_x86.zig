@@ -95,10 +95,13 @@ pub fn from_x86(reading: X86) Cpu {
         .sha256 = answer(reading.leaf_7_ebx & constants.leaf_7_ebx_sha != 0),
         .sha512 = answer(avx_saved and reading.leaf_7_1_eax & constants.leaf_7_1_eax_sha512 != 0),
         .sha3 = .no,
+        // SVE2 and MIDR_EL1 are Arm's.
+        .sve2 = .no,
         .ssse3 = answer(reading.leaf_1_ecx & constants.ecx_ssse3 != 0),
         .sse4_1 = answer(reading.leaf_1_ecx & constants.ecx_sse4_1 != 0),
         .avx2 = answer(avx2),
         .vaes = answer(avx2 and reading.leaf_7_ecx & vaes_vpclmulqdq == vaes_vpclmulqdq),
+        .midr = null,
     };
 }
 
@@ -147,7 +150,7 @@ test "CPUID leaf 7 answers sha256 from EBX bit 29, sha512 from subleaf 1 EAX bit
     const avx_ecx: u32 = 1 << 28 | 1 << 27;
     const avx_xcr0: u64 = 1 << 1 | 1 << 2;
     const sha = from_x86(.{ .leaf_1_ecx = avx_ecx, .leaf_7_ebx = 1 << 29, .leaf_7_ecx = 0, .leaf_7_1_eax = 1 << 0, .xcr0 = avx_xcr0 });
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .yes, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no }, sha);
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .yes, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, sha);
     const no_sha256 = from_x86(.{ .leaf_1_ecx = avx_ecx, .leaf_7_ebx = ~@as(u32, 1 << 29), .leaf_7_ecx = 0, .leaf_7_1_eax = 1 << 0, .xcr0 = avx_xcr0 });
     try testing.expectEqual(Answer.no, no_sha256.sha256);
     try testing.expectEqual(Answer.yes, no_sha256.sha512);
@@ -171,7 +174,7 @@ test "CPUID leaf 7 answers avx2 from EBX bit 5 and vaes from ECX bits 9 and 10, 
         }
     };
     const every = at.of(avx_ecx, 1 << 5, 1 << 9 | 1 << 10, avx_xcr0);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .yes, .vaes = .yes }, every);
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .yes, .vaes = .yes, .midr = null }, every);
     const avx2_alone = at.of(avx_ecx, 1 << 5, ~@as(u32, 1 << 9 | 1 << 10), avx_xcr0);
     try testing.expectEqual(Answer.yes, avx2_alone.avx2);
     try testing.expectEqual(Answer.no, avx2_alone.vaes);

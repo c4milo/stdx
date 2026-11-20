@@ -12,13 +12,15 @@
 //! - x86-64, on every system: CPUID leaves 1 and 7, and XCR0 through XGETBV when the system has
 //!   enabled XSAVE. `dit` is `not_known`: x86-64's mode for data-independent timing, DOITM, is one
 //!   the operating system sets, and user code cannot read it. `sha3` is `no`: x86-64 has no SHA-3
-//!   instructions.
+//!   instructions. `sve2` is `no`, and `midr` is null: MIDR_EL1 is Arm's register.
 //!   platform_x86.zig holds this probe.
 //! - aarch64, on every system: `ssse3`, `sse4_1`, `avx2` and `vaes` are `no`, as they are x86-64
 //!   instructions.
-//! - aarch64 Linux: the AT_HWCAP word, through `getauxval`, which reads the auxiliary vector the
-//!   kernel wrote into the process's memory at start. No syscall.
-//! - aarch64 macOS: `sysctlbyname`, a syscall, one for each feature.
+//! - aarch64 Linux: the AT_HWCAP and AT_HWCAP2 words, through `getauxval`, which reads the
+//!   auxiliary vector the kernel wrote into the process's memory at start. No syscall. Where
+//!   AT_HWCAP has HWCAP_CPUID, `mrs` reads MIDR_EL1, an instruction the kernel emulates.
+//! - aarch64 macOS: `sysctlbyname`, a syscall, one for each feature. `midr` is null: macOS gives
+//!   a program no read of MIDR_EL1.
 //! - Any other aarch64 system, and an answer the system's source does not give: `yes` for a feature
 //!   the build target guarantees, and `not_known` otherwise.
 //! - Any other architecture: `not_known`.
@@ -34,8 +36,10 @@ const assert = std.debug.assert;
 
 pub const constants = @import("constants.zig");
 const platform_x86 = @import("platform_x86.zig");
-const answer = @import("platform_answer.zig").answer;
-const both = @import("platform_answer.zig").both;
+const platform_linux = @import("platform_linux.zig");
+const answer_file = @import("platform_answer.zig");
+const both = answer_file.both;
+const unanswered = answer_file.unanswered;
 
 /// One answer about the CPU.
 pub const Answer = enum {
@@ -45,6 +49,21 @@ pub const Answer = enum {
     no,
     /// Nothing the program can read says whether the CPU has the feature.
     not_known,
+};
+
+/// The fields of Arm's MIDR_EL1, the Main ID Register, as Arm's Architecture Reference Manual names
+/// them. A program tells one core from another by its implementer and part.
+pub const Midr = struct {
+    /// The code Arm assigns the core's maker: 0x41 is Arm, and 0x61 is Apple.
+    implementer: u8,
+    /// The part's major revision.
+    variant: u4,
+    /// 0xf on every core that states its features in the ID registers, as arm64 Linux requires.
+    architecture: u4,
+    /// The maker's number for the core.
+    part: u12,
+    /// The part's minor revision.
+    revision: u4,
 };
 
 /// Every answer `probe` gives.
@@ -62,6 +81,9 @@ pub const Cpu = struct {
     sha512: Answer,
     /// The SHA-3 instructions: Arm's FEAT_SHA3 (EOR3, RAX1, XAR and BCAX). `no` on x86-64.
     sha3: Answer,
+    /// Arm's FEAT_SVE2, the second Scalable Vector Extension, whose XAR rotates the XOR of two
+    /// vectors. `no` on x86-64.
+    sve2: Answer,
     /// x86-64's SSSE3, the supplemental SSE3 instructions, which the x86-64 baseline does not
     /// hold. Code for the SHA extensions uses them beside the SHA-256 instructions. `no` on
     /// aarch64.
@@ -74,10 +96,11 @@ pub const Cpu = struct {
     /// x86-64's VAES and VPCLMULQDQ, the AES rounds and the carry-less multiply on YMM registers.
     /// `yes` only when the CPU has both and `avx2` is `yes`. `no` on aarch64.
     vaes: Answer,
+    /// MIDR_EL1 of the core the probe ran on. On a system with cores of more than one kind, a
+    /// thread may run on another kind after the probe. null where the system gives a program no
+    /// read of it: x86-64, macOS, and Linux without HWCAP_CPUID.
+    midr: ?Midr,
 };
-
-/// The answers of a source that gives none.
-const unanswered: Cpu = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known };
 
 /// The answers about the CPU this runs on, read from the source its system offers.
 pub fn probe() Cpu {
@@ -86,8 +109,9 @@ pub fn probe() Cpu {
         .aarch64 => without_x86(probe_aarch64()),
         else => unanswered,
     };
-    // x86-64 has no DIT bit a program can read, and no SHA-3 instructions.
+    // x86-64 has no DIT bit a program can read, no SHA-3 instructions, no SVE2 and no MIDR_EL1.
     if (builtin.cpu.arch == .x86_64) assert(cpu.dit == .not_known and cpu.sha3 == .no);
+    if (builtin.cpu.arch == .x86_64) assert(cpu.sve2 == .no and cpu.midr == null);
     if (builtin.cpu.arch == .x86_64) assert(cpu.vaes != .yes or cpu.avx2 == .yes);
     if (builtin.cpu.arch == .aarch64) assert(cpu.ssse3 == .no and cpu.sse4_1 == .no and cpu.avx2 == .no and cpu.vaes == .no);
     return cpu;
@@ -107,7 +131,7 @@ fn without_x86(cpu: Cpu) Cpu {
 fn probe_aarch64() Cpu {
     comptime assert(builtin.cpu.arch == .aarch64);
     const reading: Reading = switch (builtin.os.tag) {
-        .linux => .{ .hwcap = hwcap_word() },
+        .linux => .{ .hwcap = platform_linux.read() },
         .macos => .{ .sysctl = .{
             .aes = sysctl_flag(constants.sysctl_aes),
             .pmull = sysctl_flag(constants.sysctl_pmull),
@@ -115,59 +139,32 @@ fn probe_aarch64() Cpu {
             .sha256 = sysctl_flag(constants.sysctl_sha256),
             .sha512 = sysctl_flag(constants.sysctl_sha512),
             .sha3 = sysctl_flag(constants.sysctl_sha3),
+            .sve2 = sysctl_flag(constants.sysctl_sve2),
         } },
         else => .none,
     };
     return from_reading(reading, from_target(builtin.cpu));
 }
 
-/// What an aarch64 system's source gave: Linux's AT_HWCAP word, macOS's sysctl values, or
+/// What an aarch64 system's source gave: Linux's words and MIDR_EL1, macOS's sysctl values, or
 /// nothing, on a system `probe` has no source for.
 const Reading = union(enum) {
-    hwcap: usize,
+    hwcap: platform_linux.Hwcap,
     sysctl: Sysctl,
     none,
 };
 
 /// macOS's values, one for each sysctl name `probe` reads.
-const Sysctl = struct { aes: Answer, pmull: Answer, dit: Answer, sha256: Answer, sha512: Answer, sha3: Answer };
+const Sysctl = struct { aes: Answer, pmull: Answer, dit: Answer, sha256: Answer, sha512: Answer, sha3: Answer, sve2: Answer };
 
 /// The answers of what the source gave, with the target's in place of each it does not give.
 fn from_reading(reading: Reading, target: Cpu) Cpu {
     const system = switch (reading) {
-        .hwcap => |word| from_hwcap(word),
+        .hwcap => |linux| platform_linux.from_linux(linux),
         .sysctl => |values| from_sysctl(values),
         .none => unanswered,
     };
     return with_target(system, target);
-}
-
-/// Linux's AT_HWCAP word. A program that links libc starts in libc, which keeps the auxiliary
-/// vector itself, so Zig's reader finds nothing there; libc's `getauxval` reads the same memory.
-fn hwcap_word() usize {
-    if (builtin.link_libc) return std.c.getauxval(std.elf.AT_HWCAP);
-    return std.os.linux.getauxval(std.elf.AT_HWCAP);
-}
-
-/// The answers of Linux's AT_HWCAP word, bits 3, 4, 24, 6, 21 and 17. `getauxval` returns 0 when it finds no
-/// AT_HWCAP entry, as Zig's reader does in a program that starts in libc but whose Zig code was
-/// built without it. A word of 0 is also a CPU with none of the features Linux reports, and
-/// `not_known` is true of both.
-fn from_hwcap(word: usize) Cpu {
-    if (word == 0) return unanswered;
-    const aes = answer(word & constants.hwcap_aes != 0);
-    const pmull = answer(word & constants.hwcap_pmull != 0);
-    return .{
-        .aes_clmul = both(aes, pmull),
-        .dit = answer(word & constants.hwcap_dit != 0),
-        .sha256 = answer(word & constants.hwcap_sha2 != 0),
-        .sha512 = answer(word & constants.hwcap_sha512 != 0),
-        .sha3 = answer(word & constants.hwcap_sha3 != 0),
-        .ssse3 = .not_known,
-        .sse4_1 = .not_known,
-        .avx2 = .not_known,
-        .vaes = .not_known,
-    };
 }
 
 /// The answer of one of macOS's sysctl names, read as a 32-bit integer.
@@ -190,31 +187,35 @@ fn from_flag(value: i32) Answer {
     };
 }
 
-/// The answers of macOS's FEAT_AES, FEAT_PMULL, FEAT_DIT, FEAT_SHA256, FEAT_SHA512 and FEAT_SHA3.
+/// The answers of macOS's FEAT_AES, FEAT_PMULL, FEAT_DIT, FEAT_SHA256, FEAT_SHA512, FEAT_SHA3 and
+/// FEAT_SVE2.
 fn from_sysctl(values: Sysctl) Cpu {
-    return .{ .aes_clmul = both(values.aes, values.pmull), .dit = values.dit, .sha256 = values.sha256, .sha512 = values.sha512, .sha3 = values.sha3, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known };
+    return .{ .aes_clmul = both(values.aes, values.pmull), .dit = values.dit, .sha256 = values.sha256, .sha512 = values.sha512, .sha3 = values.sha3, .sve2 = values.sve2, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known, .midr = null };
 }
 
 /// What the build target guarantees on aarch64: `yes` for a feature its CPU model has, since a
 /// program built for the model runs only on a CPU that has it, and `not_known` for the rest. Zig's
 /// `aes` feature holds both the AES instructions and PMULL, and its `sha3` both FEAT_SHA512 and
-/// FEAT_SHA3.
+/// FEAT_SHA3. A target names no core, so `midr` is null.
 fn from_target(cpu: std.Target.Cpu) Cpu {
     const guaranteed = cpu.arch == .aarch64;
     const has_aes = guaranteed and std.Target.aarch64.featureSetHas(cpu.features, .aes);
     const has_dit = guaranteed and std.Target.aarch64.featureSetHas(cpu.features, .dit);
     const has_sha2 = guaranteed and std.Target.aarch64.featureSetHas(cpu.features, .sha2);
     const has_sha3 = guaranteed and std.Target.aarch64.featureSetHas(cpu.features, .sha3);
+    const has_sve2 = guaranteed and std.Target.aarch64.featureSetHas(cpu.features, .sve2);
     return .{
         .aes_clmul = guarantee(has_aes),
         .dit = guarantee(has_dit),
         .sha256 = guarantee(has_sha2),
         .sha512 = guarantee(has_sha3),
         .sha3 = guarantee(has_sha3),
+        .sve2 = guarantee(has_sve2),
         .ssse3 = .not_known,
         .sse4_1 = .not_known,
         .avx2 = .not_known,
         .vaes = .not_known,
+        .midr = null,
     };
 }
 
@@ -223,10 +224,14 @@ fn guarantee(has: bool) Answer {
     return if (has) .yes else .not_known;
 }
 
-/// The system's answers, with the target's in place of each the system does not give.
+/// The system's answers, with the target's in place of each the system does not give. `midr` is
+/// the system's alone.
 fn with_target(system: Cpu, target: Cpu) Cpu {
-    var cpu: Cpu = undefined;
-    inline for (std.meta.fields(Cpu)) |field| @field(cpu, field.name) = or_target(@field(system, field.name), @field(target, field.name));
+    assert(target.midr == null);
+    var cpu = system;
+    inline for (std.meta.fields(Cpu)) |field| {
+        if (field.type == Answer) @field(cpu, field.name) = or_target(@field(system, field.name), @field(target, field.name));
+    }
     return cpu;
 }
 
@@ -242,11 +247,19 @@ const testing = std.testing;
 
 test {
     _ = platform_x86;
+    _ = platform_linux;
 }
 
 /// A `Cpu` with every SHA answer `sha`: the tests of `aes_clmul` and `dit` vary those alone.
 fn cpu_of(aes_clmul: Answer, dit: Answer, sha: Answer) Cpu {
-    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known };
+    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha, .sve2 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known, .midr = null };
+}
+
+/// `cpu` with `sve2` as given.
+fn with_sve2(cpu: Cpu, sve2: Answer) Cpu {
+    var answers = cpu;
+    answers.sve2 = sve2;
+    return answers;
 }
 
 test "an aarch64 CPU answers no for the x86-64 instructions, whatever its source said" {
@@ -258,36 +271,14 @@ test "an aarch64 CPU answers no for the x86-64 instructions, whatever its source
     try testing.expectEqual(Answer.not_known, answers.sha256);
 }
 
-test "the AT_HWCAP word answers aes_clmul from bits 3 and 4, and dit from bit 24" {
-    const every: usize = 1 << 3 | 1 << 4 | 1 << 24;
-    try testing.expectEqual(cpu_of(.yes, .yes, .no), from_hwcap(every));
-    try testing.expectEqual(cpu_of(.yes, .no, .no), from_hwcap(1 << 3 | 1 << 4));
-    try testing.expectEqual(cpu_of(.no, .yes, .no), from_hwcap(1 << 4 | 1 << 24));
-    try testing.expectEqual(cpu_of(.no, .yes, .no), from_hwcap(1 << 3 | 1 << 24));
-    try testing.expectEqual(cpu_of(.no, .no, .no), from_hwcap(1 << 5));
-    try testing.expectEqual(unanswered, from_hwcap(0));
-}
-
-test "the AT_HWCAP word answers sha256 from bit 6, sha512 from bit 21 and sha3 from bit 17" {
-    const shas: usize = 1 << 6 | 1 << 21 | 1 << 17;
-    try testing.expectEqual(cpu_of(.no, .no, .yes), from_hwcap(shas));
-    try testing.expectEqual(cpu_of(.yes, .yes, .no), from_hwcap(~shas));
-    const sha256 = from_hwcap(1 << 6);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, sha256);
-    const sha512 = from_hwcap(1 << 21);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .no, .sha512 = .yes, .sha3 = .no, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, sha512);
-    const sha3 = from_hwcap(1 << 17);
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .no, .sha512 = .no, .sha3 = .yes, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, sha3);
-}
-
 test "a sysctl value of 1 is yes, 0 is no, and anything else says nothing" {
     try testing.expectEqual(Answer.yes, from_flag(1));
     try testing.expectEqual(Answer.no, from_flag(0));
     try testing.expectEqual(Answer.not_known, from_flag(2));
     try testing.expectEqual(Answer.not_known, from_flag(-1));
-    const values: Sysctl = .{ .aes = .yes, .pmull = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known };
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, from_sysctl(values));
-    const older: Sysctl = .{ .aes = .not_known, .pmull = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known };
+    const values: Sysctl = .{ .aes = .yes, .pmull = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known, .sve2 = .yes };
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .not_known, .sve2 = .yes, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known, .midr = null }, from_sysctl(values));
+    const older: Sysctl = .{ .aes = .not_known, .pmull = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .sve2 = .not_known };
     try testing.expectEqual(cpu_of(.not_known, .yes, .not_known), from_sysctl(older));
 }
 
@@ -306,8 +297,8 @@ test "two features together are no when either is absent, and yes only when both
 test "the target guarantees each aarch64 feature its CPU model has, and nothing else" {
     const models = [_]struct { model: *const std.Target.Cpu.Model, want: Cpu }{
         .{ .model = &std.Target.aarch64.cpu.apple_m1, .want = cpu_of(.yes, .yes, .yes) },
-        .{ .model = &std.Target.aarch64.cpu.neoverse_n1, .want = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known } },
-        .{ .model = &std.Target.aarch64.cpu.neoverse_n2, .want = cpu_of(.not_known, .yes, .not_known) },
+        .{ .model = &std.Target.aarch64.cpu.neoverse_n1, .want = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .not_known, .sha3 = .not_known, .sve2 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known, .midr = null } },
+        .{ .model = &std.Target.aarch64.cpu.neoverse_n2, .want = with_sve2(cpu_of(.not_known, .yes, .not_known), .yes) },
         .{ .model = &std.Target.aarch64.cpu.generic, .want = unanswered },
     };
     for (models) |entry| try testing.expectEqual(entry.want, from_target(entry.model.toCpu(.aarch64)));
@@ -322,6 +313,18 @@ test "the target fills only the answers the system does not give" {
     try testing.expectEqual(cpu_of(.yes, .no, .yes), with_target(cpu_of(.not_known, .no, .not_known), target));
 }
 
+test "the target fills sve2 where the system says nothing, and the MIDR stays the system's" {
+    const n2: Midr = .{ .implementer = 0x41, .variant = 0, .architecture = 0xf, .part = 0xd49, .revision = 0 };
+    var system = cpu_of(.yes, .yes, .yes);
+    system.midr = n2;
+    const target = with_sve2(cpu_of(.not_known, .not_known, .not_known), .yes);
+    const cpu = with_target(system, target);
+    try testing.expectEqual(Answer.yes, cpu.sve2);
+    try testing.expectEqual(n2, cpu.midr.?);
+    try testing.expectEqual(Answer.no, with_target(with_sve2(system, .no), target).sve2);
+    try testing.expectEqual(null, with_target(cpu_of(.yes, .yes, .yes), target).midr);
+}
+
 test "an aarch64 reading answers from its source, and from the target where the source gives nothing" {
     const m1 = from_target(std.Target.aarch64.cpu.apple_m1.toCpu(.aarch64));
     const n1 = from_target(std.Target.aarch64.cpu.neoverse_n1.toCpu(.aarch64));
@@ -329,9 +332,10 @@ test "an aarch64 reading answers from its source, and from the target where the 
     try testing.expectEqual(m1, from_reading(.none, m1));
     try testing.expectEqual(n1, from_reading(.none, n1));
     // A word of 0 is no word.
-    try testing.expectEqual(n1, from_reading(.{ .hwcap = 0 }, n1));
-    try testing.expectEqual(cpu_of(.no, .yes, .no), from_reading(.{ .hwcap = 1 << 3 | 1 << 24 }, cpu_of(.not_known, .not_known, .not_known)));
-    const older_macos: Reading = .{ .sysctl = .{ .aes = .yes, .pmull = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known } };
+    try testing.expectEqual(n1, from_reading(.{ .hwcap = .{ .word = 0, .word2 = 0, .midr = null } }, n1));
+    // An AT_HWCAP word beside an AT_HWCAP2 of 0 is a CPU without SVE2.
+    try testing.expectEqual(with_sve2(cpu_of(.no, .yes, .no), .no), from_reading(.{ .hwcap = .{ .word = 1 << 3 | 1 << 24, .word2 = 0, .midr = null } }, cpu_of(.not_known, .not_known, .not_known)));
+    const older_macos: Reading = .{ .sysctl = .{ .aes = .yes, .pmull = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .sve2 = .not_known } };
     try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_reading(older_macos, m1));
     try testing.expectEqual(n1, from_reading(older_macos, n1));
 }
@@ -339,22 +343,44 @@ test "an aarch64 reading answers from its source, and from the target where the 
 test "the probe on this host answers from its system's source, and holds what the target guarantees" {
     const cpu = probe();
     const target = from_target(builtin.cpu);
+    try expect_target_held(cpu, target);
+    switch (builtin.cpu.arch) {
+        .x86_64 => try expect_x86_host(cpu),
+        .aarch64 => try expect_aarch64_host(cpu, target),
+        else => try testing.expectEqual(unanswered, cpu),
+    }
+}
+
+/// Each feature the target guarantees, `cpu` has.
+fn expect_target_held(cpu: Cpu, target: Cpu) !void {
     inline for (std.meta.fields(Cpu)) |field| {
+        if (field.type != Answer) continue;
         if (@field(target, field.name) == .yes) try testing.expectEqual(Answer.yes, @field(cpu, field.name));
     }
-    switch (builtin.cpu.arch) {
-        .x86_64 => {
-            try testing.expect(cpu.aes_clmul != .not_known and cpu.sha256 != .not_known and cpu.sha512 != .not_known);
-            try testing.expectEqual(Answer.not_known, cpu.dit);
-            try testing.expectEqual(Answer.no, cpu.sha3);
-            try testing.expect(cpu.ssse3 != .not_known and cpu.sse4_1 != .not_known);
-            try testing.expect(cpu.avx2 != .not_known and cpu.vaes != .not_known);
+}
+
+/// An x86-64 host answers each feature but DIT, which no program reads there.
+fn expect_x86_host(cpu: Cpu) !void {
+    try testing.expect(cpu.aes_clmul != .not_known and cpu.sha256 != .not_known and cpu.sha512 != .not_known);
+    try testing.expectEqual(Answer.not_known, cpu.dit);
+    try testing.expectEqual(Answer.no, cpu.sha3);
+    try testing.expect(cpu.ssse3 != .not_known and cpu.sse4_1 != .not_known);
+    try testing.expect(cpu.avx2 != .not_known and cpu.vaes != .not_known);
+    try testing.expectEqual(Answer.no, cpu.sve2);
+    try testing.expectEqual(null, cpu.midr);
+}
+
+/// Linux answers every feature on aarch64, macOS those its sysctl names give, and any other
+/// system what the target guarantees.
+fn expect_aarch64_host(cpu: Cpu, target: Cpu) !void {
+    switch (builtin.os.tag) {
+        .linux => inline for (std.meta.fields(Cpu)) |field| {
+            if (field.type == Answer) try testing.expect(@field(cpu, field.name) != .not_known);
         },
-        .aarch64 => switch (builtin.os.tag) {
-            .linux => inline for (std.meta.fields(Cpu)) |field| try testing.expect(@field(cpu, field.name) != .not_known),
-            .macos => try testing.expect(cpu.aes_clmul != .not_known and cpu.dit != .not_known and cpu.ssse3 == .no and cpu.sse4_1 == .no and cpu.avx2 == .no and cpu.vaes == .no),
-            else => try testing.expectEqual(without_x86(target), cpu),
+        .macos => {
+            try testing.expect(cpu.aes_clmul != .not_known and cpu.dit != .not_known and cpu.ssse3 == .no and cpu.sse4_1 == .no and cpu.avx2 == .no and cpu.vaes == .no);
+            try testing.expectEqual(null, cpu.midr);
         },
-        else => try testing.expectEqual(unanswered, cpu),
+        else => try testing.expectEqual(without_x86(target), cpu),
     }
 }

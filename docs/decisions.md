@@ -2630,6 +2630,51 @@ small file.
       with `machdep.cpu.leaf7_features`' `AVX2`, `VAES` and `VPCLMULQDQ` on an Intel Mac.
     - Not in this amendment: a call that sets PSTATE.DIT. `probe` still changes no CPU state.
 
+    **Amended on 2026-11-19: SVE2 and the core's MIDR_EL1.** colibri asked for two answers for
+    chapulin v0.10.0, and the owner confirmed the work and ruled each point below on 2026-11-19,
+    through the question prompt. chapulin's new `CH_CPU_SVE2` bit runs ChaCha20 on SVE2's XAR. Its
+    decision 240 asks a caller to leave `CH_CPU_CONSTANT_TIME_SHA3` clear on Arm's Neoverse N2
+    (implementer 0x41, part 0xd49), where the SHA-3 instructions run Keccak 1.8 times slower.
+
+    ```zig
+    pub const Midr = struct { implementer: u8, variant: u4, architecture: u4, part: u12, revision: u4 };
+    pub const Cpu = struct { ..., sha3: Answer, sve2: Answer, ..., vaes: Answer, midr: ?Midr };
+    ```
+
+    - `sve2` says whether the CPU has Arm's FEAT_SVE2. aarch64 Linux: AT_HWCAP2 bit 1
+      (HWCAP2_SVE2). Where an AT_HWCAP word came, an AT_HWCAP2 of 0 is a CPU without SVE2.
+      aarch64 macOS: `sysctlbyname` of `hw.optional.arm.FEAT_SVE2`. macOS 26 does not define the
+      name, so a Mac answers `not_known`. x86-64: `no`.
+    - `midr` holds MIDR_EL1's five fields, where Arm's Architecture Reference Manual places them.
+      A caller tells a core by its implementer and part, so stdx keeps no list of cores. It is null
+      on x86-64, on macOS, and on Linux without HWCAP_CPUID.
+    - **MIDR_EL1 with no I/O.** On aarch64 Linux the probe runs `mrs` on MIDR_EL1 where AT_HWCAP
+      has HWCAP_CPUID, bit 11. Without the bit, the read raises SIGILL. The kernel traps the read,
+      emulates it, and returns the value of the core where the read ran (the kernel's
+      Documentation/arch/arm64/cpu-feature-registers.rst, sections 2 and 4). So the probe opens no
+      file and makes no syscall.
+    - On a system with cores of more than one kind, a thread may move to another kind after the
+      probe. The field names the core where the probe ran.
+    - A target guarantees features and names no core. So where the system gives nothing, the
+      target's answer fills `sve2`, and `midr` stays the system's.
+    - Linux's reading moves to `src/platform/platform_linux.zig`, to keep `platform.zig` under 500
+      lines. Its read takes the MIDR's reader as a parameter, so a unit test shows that a word
+      without HWCAP_CPUID reads no MIDR.
+    - **The check.** /proc/cpuinfo's `Features` line answers `sve2`. Where it names `cpuid`, the
+      MIDR is the one that a core's `CPU implementer`, `CPU variant`, `CPU part` and `CPU
+      revision` lines give: the core whose values match the probe's, or the first core. Linux
+      prints `CPU architecture: 8` for every core, which stands for MIDR_EL1's 0xf. On macOS,
+      `sysctl hw.optional.arm`'s `FEAT_SVE2` answers `sve2`. In a Linux container on the owner's
+      M1 Pro, the probe and /proc/cpuinfo both gave implementer 0x61 and part 0, without libc and
+      with it.
+    - The alternatives refused:
+      - A `core` enum of named cores. stdx would keep a list of cores and add one for each caller.
+      - A `neoverse_n2` answer. It names one core for one caller's rule.
+      - A read of `/sys/devices/system/cpu/cpu0/regs/identification/midr_el1`, as chapulin's
+        `examples/cpu_probe.c` does. It is a file read, which non-negotiable 1 refuses.
+      - `no` for SVE2 on macOS. It states an answer that the probe did not read.
+    - A new field of `Cpu` changes the public API, so the next release is a MINOR one (decision 65).
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves

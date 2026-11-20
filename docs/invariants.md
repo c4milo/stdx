@@ -38,7 +38,9 @@ check lands with its step.
 
 - **Claim.** No code under `src/` opens, reads, writes or polls anything, starts a thread, or
   prints. The one exception is `src/platform/`, whose probe a program calls once when it starts:
-  it may make one syscall, macOS's `sysctlbyname`, and nothing else (decision 40).
+  it may make one syscall, macOS's `sysctlbyname`, and nothing else (decision 40). On aarch64
+  Linux it also runs `mrs` on MIDR_EL1, an instruction that the kernel traps and emulates, where
+  AT_HWCAP says that the kernel does.
 - **Mechanism.** No source names `std.posix`, `std.os`, `std.c`, `std.fs`, `std.net`,
   `std.Thread`, `std.Io`, `std.process`, `std.log` or `std.debug.print` (decision 2), but for
   `getauxval`, which reads memory (decision 21), and `sysctlbyname` in `src/platform/`. No module

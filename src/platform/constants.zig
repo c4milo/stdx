@@ -1,6 +1,7 @@
 //! The bits and names the `platform` module reads (decision 40): CPUID's as the Intel and AMD
-//! manuals number them, Linux's arm64 hardware capability word's as the kernel numbers it, and
-//! macOS's sysctl names as the system spells them.
+//! manuals number them, Linux's arm64 hardware capability words' as the kernel numbers them,
+//! MIDR_EL1's fields as Arm's Architecture Reference Manual places them, and macOS's sysctl names
+//! as the system spells them.
 
 /// The CPUID leaf whose ECX holds the feature bits `probe` reads on x86-64.
 pub const cpuid_leaf_features: u32 = 1;
@@ -63,6 +64,24 @@ pub const hwcap_sha512: usize = 1 << 21;
 /// AT_HWCAP bit 24: HWCAP_DIT, Arm's FEAT_DIT.
 pub const hwcap_dit: usize = 1 << 24;
 
+/// AT_HWCAP bit 11: HWCAP_CPUID. Linux emulates a read of MIDR_EL1 by user code, and returns the
+/// value of the core the read ran on, as sections 2 and 4 of the kernel's
+/// Documentation/arch/arm64/cpu-feature-registers.rst state. Without the bit, the read raises
+/// SIGILL.
+pub const hwcap_cpuid: usize = 1 << 11;
+
+/// Linux's arm64 AT_HWCAP2 word, bit 1: HWCAP2_SVE2, Arm's FEAT_SVE2.
+pub const hwcap2_sve2: usize = 1 << 1;
+
+/// The place of each MIDR_EL1 field, from bit 0: Implementer is bits 31 to 24, Variant 23 to 20,
+/// Architecture 19 to 16, PartNum 15 to 4 and Revision 3 to 0. Each field's width is its type's in
+/// `Midr`.
+pub const midr_implementer_shift: u6 = 24;
+pub const midr_variant_shift: u6 = 20;
+pub const midr_architecture_shift: u6 = 16;
+pub const midr_part_shift: u6 = 4;
+pub const midr_revision_shift: u6 = 0;
+
 /// The sysctl names macOS gives the features on aarch64. Each holds a 32-bit integer: 1 when
 /// the CPU has the feature, 0 when it lacks it. A release older than the name has no value for it.
 pub const sysctl_aes = "hw.optional.arm.FEAT_AES";
@@ -71,3 +90,4 @@ pub const sysctl_dit = "hw.optional.arm.FEAT_DIT";
 pub const sysctl_sha256 = "hw.optional.arm.FEAT_SHA256";
 pub const sysctl_sha512 = "hw.optional.arm.FEAT_SHA512";
 pub const sysctl_sha3 = "hw.optional.arm.FEAT_SHA3";
+pub const sysctl_sve2 = "hw.optional.arm.FEAT_SVE2";

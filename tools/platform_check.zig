@@ -2,13 +2,17 @@
 //! through a source the probe does not read.
 //! - Linux: /proc/cpuinfo, its `flags` line on x86-64 (`aes`, `pclmulqdq`, `sha_ni`, `sha512`,
 //!   `ssse3`, `sse4_1`, `avx2`, `vaes`, `vpclmulqdq`) and its `Features` line on aarch64 (`aes`,
-//!   `pmull`, `dit`, `sha2`, `sha512`, `sha3`).
+//!   `pmull`, `dit`, `sha2`, `sha512`, `sha3`, `sve2`). On aarch64 the MIDR is the one a core's
+//!   `CPU implementer`, `CPU variant`, `CPU part` and `CPU revision` lines give, where `Features`
+//!   names `cpuid`: the probe ran on one of the cores the file lists. Linux prints `CPU
+//!   architecture: 8` for each core, which stands for MIDR_EL1's 0xf.
 //! - macOS on aarch64: `sysctl hw.optional.arm`, its `FEAT_AES`, `FEAT_PMULL`, `FEAT_DIT`,
-//!   `FEAT_SHA256`, `FEAT_SHA512` and `FEAT_SHA3`.
+//!   `FEAT_SHA256`, `FEAT_SHA512`, `FEAT_SHA3` and `FEAT_SVE2`.
 //! - macOS on x86-64: `sysctl -n machdep.cpu.features machdep.cpu.leaf7_features`, its `AES`,
 //!   `PCLMULQDQ`, `SSSE3`, `SSE4.1`, `SHA`, `AVX2`, `VAES` and `VPCLMULQDQ`. No Intel Mac has the
 //!   SHA-512 instructions, so its `sha512` is `no`.
-//! - On aarch64 `ssse3`, `sse4_1`, `avx2` and `vaes` are `no`, x86-64's instructions.
+//! - On aarch64 `ssse3`, `sse4_1`, `avx2` and `vaes` are `no`, x86-64's instructions. On x86-64
+//!   `sve2` is `no`, and `midr` is null on x86-64 and on macOS.
 //!
 //! The answers must be equal, `not_known` included: x86-64 reports no DIT, and a macOS release
 //! older than a sysctl name reports nothing for it. The build compiles `platform` for the generic
@@ -44,11 +48,11 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("platform-check BROKEN: built for a CPU that guarantees a feature it checks\n", .{});
         std.process.exit(1);
     }
-    const reference = try read_reference(arena, init.io) orelse {
+    const probed = platform.probe();
+    const reference = try read_reference(arena, init.io, probed.midr) orelse {
         std.debug.print("platform-check: no reference on {s}; nothing checked\n", .{system});
         return;
     };
-    const probed = platform.probe();
     std.debug.print(
         "platform-check, {s}, libc {}: the probe says {any}; {s} says {any}\n",
         .{ system, builtin.link_libc, probed, reference.source, reference.cpu },
@@ -62,16 +66,18 @@ pub fn main(init: std.process.Init) !void {
 fn guarantees_a_feature(cpu: std.Target.Cpu) bool {
     return switch (cpu.arch) {
         .x86_64 => std.Target.x86.featureSetHasAny(cpu.features, .{ .aes, .pclmul, .sha, .sha512, .avx2, .vaes, .vpclmulqdq }),
-        .aarch64 => std.Target.aarch64.featureSetHasAny(cpu.features, .{ .aes, .dit, .sha2, .sha3 }),
+        .aarch64 => std.Target.aarch64.featureSetHasAny(cpu.features, .{ .aes, .dit, .sha2, .sha3, .sve2 }),
         else => false,
     };
 }
 
-fn read_reference(arena: std.mem.Allocator, io: std.Io) !?Reference {
+/// The host's report. On Linux the MIDR is the core whose lines match `probed`, or the first
+/// core's when none does.
+fn read_reference(arena: std.mem.Allocator, io: std.Io, probed: ?platform.Midr) !?Reference {
     switch (builtin.os.tag) {
         .linux => {
             const text = try read_cpuinfo(arena, io);
-            const cpu = from_cpuinfo(builtin.cpu.arch, text) orelse return error.NoFeaturesLine;
+            const cpu = from_cpuinfo(builtin.cpu.arch, text, probed) orelse return error.NoFeaturesLine;
             return .{ .source = "/proc/cpuinfo", .cpu = cpu };
         },
         .macos => return switch (builtin.cpu.arch) {
@@ -110,7 +116,7 @@ fn run_sysctl(arena: std.mem.Allocator, io: std.Io, argv: []const []const u8) ![
 }
 
 /// The answers a Linux /proc/cpuinfo gives on `arch`, or null when it holds no line of features.
-fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8) ?Cpu {
+fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8, probed: ?platform.Midr) ?Cpu {
     switch (arch) {
         .x86_64 => {
             const words = value_of(text, "flags") orelse return null;
@@ -120,10 +126,12 @@ fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8) ?Cpu {
                 .sha256 = present(has_word(words, "sha_ni")),
                 .sha512 = present(has_word(words, "sha512")),
                 .sha3 = .no,
+                .sve2 = .no,
                 .ssse3 = present(has_word(words, "ssse3")),
                 .sse4_1 = present(has_word(words, "sse4_1")),
                 .avx2 = present(has_word(words, "avx2")),
                 .vaes = present(has_word(words, "avx2") and has_word(words, "vaes") and has_word(words, "vpclmulqdq")),
+                .midr = null,
             };
         },
         .aarch64 => {
@@ -134,10 +142,12 @@ fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8) ?Cpu {
                 .sha256 = present(has_word(words, "sha2")),
                 .sha512 = present(has_word(words, "sha512")),
                 .sha3 = present(has_word(words, "sha3")),
+                .sve2 = present(has_word(words, "sve2")),
                 .ssse3 = .no,
                 .sse4_1 = .no,
                 .avx2 = .no,
                 .vaes = .no,
+                .midr = if (has_word(words, "cpuid")) core_midr(text, probed) else null,
             };
         },
         else => return null,
@@ -156,10 +166,12 @@ fn from_sysctl_arm(text: []const u8) Cpu {
         .sha256 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA256"),
         .sha512 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA512"),
         .sha3 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA3"),
+        .sve2 = sysctl_answer(text, "hw.optional.arm.FEAT_SVE2"),
         .ssse3 = .no,
         .sse4_1 = .no,
         .avx2 = .no,
         .vaes = .no,
+        .midr = null,
     };
 }
 
@@ -171,11 +183,46 @@ fn from_machdep(text: []const u8) Cpu {
         .sha256 = present(has_word(text, "SHA")),
         .sha512 = .no,
         .sha3 = .no,
+        .sve2 = .no,
         .ssse3 = present(has_word(text, "SSSE3")),
         .sse4_1 = present(has_word(text, "SSE4.1")),
         .avx2 = present(has_word(text, "AVX2")),
         .vaes = present(has_word(text, "AVX2") and has_word(text, "VAES") and has_word(text, "VPCLMULQDQ")),
+        .midr = null,
     };
+}
+
+/// The MIDR of the core in `text` whose lines give `probed`, or of the first core when none does,
+/// or null when no core's lines parse. Each core's lines follow its `processor` line.
+fn core_midr(text: []const u8, probed: ?platform.Midr) ?platform.Midr {
+    var first: ?platform.Midr = null;
+    var cores = std.mem.splitSequence(u8, text, "\nprocessor");
+    while (cores.next()) |core| {
+        const midr = midr_of(core) orelse continue;
+        if (probed != null and std.meta.eql(midr, probed.?)) return midr;
+        if (first == null) first = midr;
+    }
+    return first;
+}
+
+/// The MIDR one core's lines give. Linux prints the architecture as 8 for every core, which
+/// stands for MIDR_EL1's 0xf.
+fn midr_of(core: []const u8) ?platform.Midr {
+    const architecture = std.mem.trim(u8, value_of(core, "CPU architecture") orelse return null, " \t");
+    if (!std.mem.eql(u8, architecture, "8")) return null;
+    return .{
+        .implementer = number(u8, core, "CPU implementer") orelse return null,
+        .variant = number(u4, core, "CPU variant") orelse return null,
+        .architecture = 0xf,
+        .part = number(u12, core, "CPU part") orelse return null,
+        .revision = number(u4, core, "CPU revision") orelse return null,
+    };
+}
+
+/// The number a line gives, as 0x41 or as 1.
+fn number(comptime T: type, core: []const u8, name: []const u8) ?T {
+    const text = std.mem.trim(u8, value_of(core, name) orelse return null, " \t");
+    return std.fmt.parseInt(T, text, 0) catch null;
 }
 
 fn sysctl_answer(text: []const u8, name: []const u8) Answer {
@@ -228,27 +275,27 @@ const aarch64_cpuinfo = "processor\t: 0\n" ++
 
 /// An aarch64 `Cpu` with every SHA answer `sha`.
 fn cpu_of(aes_clmul: Answer, dit: Answer, sha: Answer) Cpu {
-    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no };
+    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null };
 }
 
 test "the flags line of x86-64's cpuinfo answers from aes, pclmulqdq, sha_ni, sha512, ssse3 and sse4_1 alone" {
     const x86 = struct {
         fn of(aes_clmul: Answer, sha256: Answer, sha512: Answer, ssse3: Answer, sse4_1: Answer) Cpu {
-            return .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha256, .sha512 = sha512, .sha3 = .no, .ssse3 = ssse3, .sse4_1 = sse4_1, .avx2 = .no, .vaes = .no };
+            return .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha256, .sha512 = sha512, .sha3 = .no, .sve2 = .no, .ssse3 = ssse3, .sse4_1 = sse4_1, .avx2 = .no, .vaes = .no, .midr = null };
         }
     };
-    try testing.expectEqual(x86.of(.yes, .no, .no, .yes, .yes), from_cpuinfo(.x86_64, x86_64_cpuinfo).?);
+    try testing.expectEqual(x86.of(.yes, .no, .no, .yes, .yes), from_cpuinfo(.x86_64, x86_64_cpuinfo, null).?);
     const no_aes = "flags\t\t: fpu pclmulqdq vaes vpclmulqdq sha_ni ssse3\nvmx flags\t: aes sse4_1\n";
-    try testing.expectEqual(x86.of(.no, .yes, .no, .yes, .no), from_cpuinfo(.x86_64, no_aes).?);
+    try testing.expectEqual(x86.of(.no, .yes, .no, .yes, .no), from_cpuinfo(.x86_64, no_aes, null).?);
     const no_pclmulqdq = "flags\t\t: fpu aes vpclmulqdq sha512 sse4_1 sse4_2\n";
-    try testing.expectEqual(x86.of(.no, .no, .yes, .no, .yes), from_cpuinfo(.x86_64, no_pclmulqdq).?);
-    try testing.expectEqual(null, from_cpuinfo(.x86_64, "vmx flags\t: aes pclmulqdq\n"));
+    try testing.expectEqual(x86.of(.no, .no, .yes, .no, .yes), from_cpuinfo(.x86_64, no_pclmulqdq, null).?);
+    try testing.expectEqual(null, from_cpuinfo(.x86_64, "vmx flags\t: aes pclmulqdq\n", null));
 }
 
 test "the flags line of x86-64's cpuinfo answers avx2 from avx2, and vaes from avx2, vaes and vpclmulqdq" {
     const at = struct {
         fn flags(comptime words: []const u8) Cpu {
-            return from_cpuinfo(.x86_64, "flags\t\t: fpu sse2 avx " ++ words ++ "\nvmx flags\t: avx2 vaes vpclmulqdq\n").?;
+            return from_cpuinfo(.x86_64, "flags\t\t: fpu sse2 avx " ++ words ++ "\nvmx flags\t: avx2 vaes vpclmulqdq\n", null).?;
         }
     };
     const every = at.flags("avx2 vaes vpclmulqdq");
@@ -265,15 +312,15 @@ test "the flags line of x86-64's cpuinfo answers avx2 from avx2, and vaes from a
 
 test "the Features line of aarch64's cpuinfo answers from aes, pmull, dit, sha2, sha512 and sha3 alone" {
     const every = "Features\t: fp asimd aes pmull sha1 sha2 sha3 sha512 dit\n";
-    try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_cpuinfo(.aarch64, every).?);
-    const n2 = from_cpuinfo(.aarch64, aarch64_cpuinfo).?;
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no }, n2);
+    try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_cpuinfo(.aarch64, every, null).?);
+    const n2 = from_cpuinfo(.aarch64, aarch64_cpuinfo, null).?;
+    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, n2);
     const no_pmull = "Features\t: fp asimd aes svepmull dit svesha3\n";
-    try testing.expectEqual(cpu_of(.no, .yes, .no), from_cpuinfo(.aarch64, no_pmull).?);
+    try testing.expectEqual(cpu_of(.no, .yes, .no), from_cpuinfo(.aarch64, no_pmull, null).?);
     const no_aes_no_dit = "Features\t: fp asimd sveaes pmull uscat sha1\n";
-    try testing.expectEqual(cpu_of(.no, .no, .no), from_cpuinfo(.aarch64, no_aes_no_dit).?);
-    try testing.expectEqual(null, from_cpuinfo(.aarch64, x86_64_cpuinfo));
-    try testing.expectEqual(null, from_cpuinfo(.riscv64, aarch64_cpuinfo));
+    try testing.expectEqual(cpu_of(.no, .no, .no), from_cpuinfo(.aarch64, no_aes_no_dit, null).?);
+    try testing.expectEqual(null, from_cpuinfo(.aarch64, x86_64_cpuinfo, null));
+    try testing.expectEqual(null, from_cpuinfo(.riscv64, aarch64_cpuinfo, null));
 }
 
 test "the generic CPU guarantees no feature the check reads, and a named model does" {
@@ -289,19 +336,75 @@ test "the generic CPU guarantees no feature the check reads, and a named model d
 
 test "sysctl's FEAT_ values answer 1 as yes, 0 as no, and a missing name as not_known" {
     const every = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 1\nhw.optional.arm.FEAT_DIT: 1\n" ++
-        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 1\nhw.optional.arm.FEAT_SHA3: 1\n";
+        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 1\nhw.optional.arm.FEAT_SHA3: 1\nhw.optional.arm.FEAT_SVE2: 0\n";
     try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_sysctl_arm(every));
     const no_pmull = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 0\nhw.optional.arm.FEAT_DIT: 0\n" ++
-        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 0\nhw.optional.arm.FEAT_SHA3: 0\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no }, from_sysctl_arm(no_pmull));
+        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 0\nhw.optional.arm.FEAT_SHA3: 0\nhw.optional.arm.FEAT_SVE2: 0\n";
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, from_sysctl_arm(no_pmull));
     const older = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_SHA1: 1\n";
-    try testing.expectEqual(cpu_of(.not_known, .not_known, .not_known), from_sysctl_arm(older));
+    var unknown = cpu_of(.not_known, .not_known, .not_known);
+    unknown.sve2 = .not_known;
+    try testing.expectEqual(unknown, from_sysctl_arm(older));
     const machdep = "FPU SSE AES PCLMULQDQ SSE4.1\nRDWRFSGS TSC_THREAD_OFFSET SGX BMI1 AVX2 SHA\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .yes, .avx2 = .yes, .vaes = .no }, from_machdep(machdep));
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .ssse3 = .yes, .sse4_1 = .no, .avx2 = .yes, .vaes = .no }, from_machdep("FPU SSE AES VPCLMULQDQ SSSE3 SSE4.2\nAVX2 SHA512X\n"));
+    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .yes, .avx2 = .yes, .vaes = .no, .midr = null }, from_machdep(machdep));
+    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .yes, .sse4_1 = .no, .avx2 = .yes, .vaes = .no, .midr = null }, from_machdep("FPU SSE AES VPCLMULQDQ SSSE3 SSE4.2\nAVX2 SHA512X\n"));
     const ice_lake = from_machdep("FPU SSE AES PCLMULQDQ\nAVX2 VAES VPCLMULQDQ\n");
     try testing.expectEqual(Answer.yes, ice_lake.avx2);
     try testing.expectEqual(Answer.yes, ice_lake.vaes);
     try testing.expectEqual(Answer.no, from_machdep("FPU SSE AES\nVAES VPCLMULQDQ AVX512F\n").vaes);
     try testing.expectEqual(Answer.no, from_machdep("FPU SSE AES\nAVX2 VAES\n").vaes);
+}
+
+/// Two cores of different kinds, as a big.LITTLE system's /proc/cpuinfo lists them.
+const two_cores = "processor\t: 0\n" ++
+    "Features\t: fp asimd aes pmull sha2 cpuid sve2\n" ++
+    "CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x1\nCPU part\t: 0xd05\nCPU revision\t: 0\n\n" ++
+    "processor\t: 1\n" ++
+    "Features\t: fp asimd aes pmull sha2 cpuid sve2\n" ++
+    "CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 2\n";
+
+const cortex_a55: platform.Midr = .{ .implementer = 0x41, .variant = 1, .architecture = 0xf, .part = 0xd05, .revision = 0 };
+const neoverse_n2: platform.Midr = .{ .implementer = 0x41, .variant = 0, .architecture = 0xf, .part = 0xd49, .revision = 2 };
+
+test "the Features line answers sve2 from sve2 alone, and cpuid says whether the MIDR is there" {
+    try testing.expectEqual(Answer.yes, from_cpuinfo(.aarch64, two_cores, null).?.sve2);
+    try testing.expectEqual(Answer.no, from_cpuinfo(.aarch64, "Features\t: fp asimd sve svesha3 sveaes\n", null).?.sve2);
+    // Without cpuid, the probe reads no MIDR, whatever the lines say.
+    const without_cpuid = "processor\t: 0\nFeatures\t: fp asimd sve2\nCPU implementer\t: 0x41\nCPU architecture: 8\n" ++
+        "CPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 2\n";
+    try testing.expectEqual(null, from_cpuinfo(.aarch64, without_cpuid, neoverse_n2).?.midr);
+}
+
+test "the MIDR is the core whose lines match the probe's, or the first core's" {
+    try testing.expectEqual(neoverse_n2, from_cpuinfo(.aarch64, two_cores, neoverse_n2).?.midr.?);
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, cortex_a55).?.midr.?);
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, null).?.midr.?);
+    const other: platform.Midr = .{ .implementer = 0x61, .variant = 0, .architecture = 0xf, .part = 0, .revision = 0 };
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, other).?.midr.?);
+}
+
+test "a core's lines give its MIDR in hexadecimal and decimal, and Linux's architecture 8 is 0xf" {
+    const core = "\t: 3\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x2\nCPU part\t: 0x022\nCPU revision\t: 11\n";
+    try testing.expectEqual(platform.Midr{ .implementer = 0x61, .variant = 2, .architecture = 0xf, .part = 0x22, .revision = 11 }, midr_of(core).?);
+    try testing.expectEqual(null, midr_of("CPU implementer\t: 0x41\nCPU architecture: 7\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 0\n"));
+    try testing.expectEqual(null, midr_of("CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU revision\t: 0\n"));
+    try testing.expectEqual(null, midr_of("CPU implementer\t: 0x141\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 0\n"));
+}
+
+test "sysctl's FEAT_SVE2 answers sve2, and a macOS without the name says nothing" {
+    try testing.expectEqual(Answer.yes, from_sysctl_arm("hw.optional.arm.FEAT_SVE2: 1\n").sve2);
+    try testing.expectEqual(Answer.no, from_sysctl_arm("hw.optional.arm.FEAT_SVE2: 0\n").sve2);
+    try testing.expectEqual(Answer.not_known, from_sysctl_arm("hw.optional.arm.FEAT_SME2: 0\n").sve2);
+    try testing.expectEqual(null, from_sysctl_arm("hw.optional.arm.FEAT_SVE2: 1\n").midr);
+}
+
+test "the probe asks sysctl for each name the check reads" {
+    const names = platform.constants;
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_AES", names.sysctl_aes);
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_PMULL", names.sysctl_pmull);
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_DIT", names.sysctl_dit);
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_SHA256", names.sysctl_sha256);
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_SHA512", names.sysctl_sha512);
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_SHA3", names.sysctl_sha3);
+    try testing.expectEqualStrings("hw.optional.arm.FEAT_SVE2", names.sysctl_sve2);
 }
