@@ -2666,7 +2666,9 @@ small file.
       prints `CPU architecture: 8` for every core, which stands for MIDR_EL1's 0xf. On macOS,
       `sysctl hw.optional.arm`'s `FEAT_SVE2` answers `sve2`. In a Linux container on the owner's
       M1 Pro, the probe and /proc/cpuinfo both gave implementer 0x61 and part 0, without libc and
-      with it.
+      with it. On the hosted aarch64 runner of CI run
+      [44650971945](https://github.com/c4milo/stdx/actions/runs/44650971945), both gave
+      implementer 0x41, part 0xd49 and `sve2` `yes`: a Neoverse N2.
     - The alternatives refused:
       - A `core` enum of named cores. stdx would keep a list of cores and add one for each caller.
       - A `neoverse_n2` answer. It names one core for one caller's rule.
