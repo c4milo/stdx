@@ -5432,3 +5432,21 @@ small file.
     - The step's runtime safety checks off for `TextWriter`: 3% to 4% on the tree, against decision
       17.
     - No new call, the tree at the speed above: the owner kept the calls.
+
+83. **stdx is licensed under the Apache License, Version 2.0.** Ruled by the owner on 2026-11-19,
+    after a pass over the README found that stdx had no license, in the tree or in its history.
+    Without one, nobody may use or copy it.
+    - `LICENSE` holds the license's text as the Apache Software Foundation publishes it,
+      unmodified: 201 lines, with the SHA-256
+      `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`.
+    - `build.zig.zon` lists `LICENSE` in `.paths`, so each copy of the package carries it. Section
+      4 of the license requires a copy with each redistribution.
+    - The README names the license.
+    - The oracles, the baselines and the corpora keep their own licenses. stdx fetches them for
+      `tools/` and `bench/` and never ships them (decision 8).
+
+    The alternatives refused:
+    - The MIT license, which Zig and most Zig packages use, and which grants no express patent
+      license.
+    - Both licenses, at the dependent's choice.
+    - No license.
