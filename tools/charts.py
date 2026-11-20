@@ -505,7 +505,8 @@ def draw(benchmark, paths):
     legend.append(f'<text class="legend" x="16" y="{y + 9}">A bar is stdx:</text>')
     for x, fill, words in ((104, "stdx", "ahead"), (162, "tie", "level, inside the noise"), (322, "lose", "behind")):
         legend.append(f'<rect x="{x}" y="{y}" width="12" height="10" rx="2" fill="var(--{fill})"/><text class="legend" x="{x + 17}" y="{y + 9}">{words}</text>')
-    legend.append(f'<text class="legend" x="400" y="{y + 9}">|—| {"the jobs, lowest to highest" if len(paths) > 1 else "the two cells' spread"}</text>')
+    whisker = "the jobs, lowest to highest" if len(paths) > 1 else "the two cells' spread"
+    legend.append(f'<text class="legend" x="400" y="{y + 9}">|—| {whisker}</text>')
     if any_learned:
         y += 18
         legend.append(f'<text class="legend" x="16" y="{y + 9}">† the benchmark repeats this file of 256 KiB or less, so the branch predictor learns it (decision 45)</text>')

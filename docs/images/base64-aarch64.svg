@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 480" width="900" height="480" role="img" aria-labelledby="t d">
+<title id="t">stdx's base64 against its baselines, on Neoverse-N2</title>
+<desc id="d">base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.84 to 1.19. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.82 to 1.70.</desc>
+<style>
+svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --stdx:#2a78d6; --lose:#d4552b; --tie:#a3a29c; --m0:#1c9e77; --m1:#9467bd; --m2:#b8860b; --m3:#8a8984; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#8f8e86; --grid:#33332f; --stdx:#3987e5; --lose:#e0663b; --tie:#6b6a64; --m0:#2bb38b; --m1:#a982cf; --m2:#d4a62a; --m3:#8f8e86; }
+}
+text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
+.title { font-size: 17px; font-weight: 600; } .sub { font-size: 12.5px; fill: var(--ink2); }
+.panel { font-size: 13.5px; font-weight: 600; } .row { font-size: 11.5px; fill: var(--ink2); }
+.val { font-size: 10.5px; font-weight: 600; } .tick { font-size: 10.5px; fill: var(--muted); }
+.legend { font-size: 12px; fill: var(--ink2); }
+</style>
+<rect width="900" height="480" fill="var(--surface)"/>
+<text class="title" x="16" y="26">stdx's base64 against its baselines, on Neoverse-N2</text>
+<text class="sub" x="16" y="46">One job of run 44677328711 at commit 0dd2e97. The line at 1 is the baseline each panel's title names; the axis is logarithmic.</text>
+<text class="panel" x="16" y="80">base64 encoding by octets a call, in multiples of Rust's base64 crate's speed</text>
+<text class="sub" x="16" y="97">ahead on 4, level on 0, behind on 1 of 5 sizes; 0.84 to 1.19</text>
+<line x1="270.0" y1="110" x2="270.0" y2="195" stroke="var(--grid)"/>
+<text class="tick" x="270.0" y="208" text-anchor="middle">0.25</text>
+<line x1="460.9" y1="110" x2="460.9" y2="195" stroke="var(--grid)"/>
+<text class="tick" x="460.9" y="208" text-anchor="middle">0.5</text>
+<line x1="572.6" y1="110" x2="572.6" y2="195" stroke="var(--grid)"/>
+<text class="tick" x="572.6" y="208" text-anchor="middle">0.75</text>
+<line x1="651.8" y1="110" x2="651.8" y2="195" stroke="var(--grid)"/>
+<text class="tick" x="651.8" y="208" text-anchor="middle">1</text>
+<line x1="763.5" y1="110" x2="763.5" y2="195" stroke="var(--grid)"/>
+<text class="tick" x="763.5" y="208" text-anchor="middle">1.5</text>
+<text class="row" x="262" y="122.5" text-anchor="end">60 octets</text>
+<rect x="605.0" y="113.0" width="46.8" height="11" rx="2" fill="var(--lose)"/>
+<line x1="600.3" y1="118.5" x2="609.7" y2="118.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="600.3" y1="115.5" x2="600.3" y2="121.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="609.7" y1="115.5" x2="609.7" y2="121.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M307.5,114.3 L311.7,122.1 L303.3,122.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="530.0" y="114.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="656.8" y="122.5">0.84</text>
+<text class="row" x="262" y="139.5" text-anchor="end">1,024 octets</text>
+<rect x="651.8" y="130.0" width="34.4" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="685.3" y1="135.5" x2="687.0" y2="135.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="685.3" y1="132.5" x2="685.3" y2="138.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="687.0" y1="132.5" x2="687.0" y2="138.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M457.8,131.3 L462.0,139.1 L453.6,139.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="485.3" y="131.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="696.2" y="139.5">1.13</text>
+<text class="row" x="262" y="156.5" text-anchor="end">6,144 octets</text>
+<rect x="651.8" y="147.0" width="43.6" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="692.3" y1="152.5" x2="698.4" y2="152.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="692.3" y1="149.5" x2="692.3" y2="155.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="698.4" y1="149.5" x2="698.4" y2="155.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M466.6,148.3 L470.8,156.1 L462.4,156.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="474.1" y="148.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="705.4" y="156.5">1.17</text>
+<text class="row" x="262" y="173.5" text-anchor="end">65,536 octets</text>
+<rect x="651.8" y="164.0" width="47.0" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="697.4" y1="169.5" x2="700.2" y2="169.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="697.4" y1="166.5" x2="697.4" y2="172.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="700.2" y1="166.5" x2="700.2" y2="172.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M473.2,165.3 L477.4,173.1 L469.0,173.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="475.1" y="165.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="708.8" y="173.5">1.19</text>
+<text class="row" x="262" y="190.5" text-anchor="end">1,048,576 octets</text>
+<rect x="651.8" y="181.0" width="45.3" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="695.3" y1="186.5" x2="699.0" y2="186.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="695.3" y1="183.5" x2="695.3" y2="189.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="699.0" y1="183.5" x2="699.0" y2="189.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M469.5,182.3 L473.7,190.1 L465.3,190.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="473.3" y="182.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="707.2" y="190.5">1.18</text>
+<line x1="651.8" y1="106" x2="651.8" y2="195" stroke="var(--ink)" stroke-width="1.5"/>
+<line x1="274" y1="215" x2="274" y2="227" stroke="var(--ink)" stroke-width="1.5"/><text class="legend" x="282" y="225">Rust base64 0.23.1, rustc 1.100.0, at 1</text>
+<path d="M573.0,216.8 L577.2,224.6 L568.8,224.6 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="581" y="225">Go encoding/base64 1.27.3</text>
+<rect x="270.4" y="235.4" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="282" y="243">std.base64 0.16.0</text>
+<text class="panel" x="16" y="275">base64 decoding by octets a call, in multiples of Rust's base64 crate's speed</text>
+<text class="sub" x="16" y="292">ahead on 4, level on 0, behind on 1 of 5 sizes; 0.82 to 1.70</text>
+<line x1="270.0" y1="305" x2="270.0" y2="390" stroke="var(--grid)"/>
+<text class="tick" x="270.0" y="403" text-anchor="middle">0.25</text>
+<line x1="460.9" y1="305" x2="460.9" y2="390" stroke="var(--grid)"/>
+<text class="tick" x="460.9" y="403" text-anchor="middle">0.5</text>
+<line x1="572.6" y1="305" x2="572.6" y2="390" stroke="var(--grid)"/>
+<text class="tick" x="572.6" y="403" text-anchor="middle">0.75</text>
+<line x1="651.8" y1="305" x2="651.8" y2="390" stroke="var(--grid)"/>
+<text class="tick" x="651.8" y="403" text-anchor="middle">1</text>
+<line x1="763.5" y1="305" x2="763.5" y2="390" stroke="var(--grid)"/>
+<text class="tick" x="763.5" y="403" text-anchor="middle">1.5</text>
+<text class="row" x="262" y="317.5" text-anchor="end">60 octets</text>
+<rect x="597.8" y="308.0" width="54.0" height="11" rx="2" fill="var(--lose)"/>
+<line x1="594.6" y1="313.5" x2="601.0" y2="313.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="594.6" y1="310.5" x2="594.6" y2="316.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="601.0" y1="310.5" x2="601.0" y2="316.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M362.1,309.3 L366.3,317.1 L357.9,317.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="577.7" y="309.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="656.8" y="317.5">0.82</text>
+<text class="row" x="262" y="334.5" text-anchor="end">1,024 octets</text>
+<rect x="651.8" y="325.0" width="110.8" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="761.8" y1="330.5" x2="763.4" y2="330.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="761.8" y1="327.5" x2="761.8" y2="333.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="763.4" y1="327.5" x2="763.4" y2="333.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M530.4,326.3 L534.6,334.1 L526.2,334.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="595.8" y="326.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="772.6" y="334.5">1.50</text>
+<text class="row" x="262" y="351.5" text-anchor="end">6,144 octets</text>
+<rect x="651.8" y="342.0" width="143.1" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="793.5" y1="347.5" x2="796.3" y2="347.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="793.5" y1="344.5" x2="793.5" y2="350.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="796.3" y1="344.5" x2="796.3" y2="350.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M561.3,343.3 L565.5,351.1 L557.1,351.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="592.4" y="343.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="804.9" y="351.5">1.68</text>
+<text class="row" x="262" y="368.5" text-anchor="end">65,536 octets</text>
+<rect x="651.8" y="359.0" width="145.7" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="797.0" y1="364.5" x2="798.1" y2="364.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="797.0" y1="361.5" x2="797.0" y2="367.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="798.1" y1="361.5" x2="798.1" y2="367.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M563.6,360.3 L567.8,368.1 L559.4,368.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="592.7" y="360.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="807.5" y="368.5">1.70</text>
+<text class="row" x="262" y="385.5" text-anchor="end">1,048,576 octets</text>
+<rect x="651.8" y="376.0" width="145.4" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="796.0" y1="381.5" x2="798.5" y2="381.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="796.0" y1="378.5" x2="796.0" y2="384.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="798.5" y1="378.5" x2="798.5" y2="384.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M563.1,377.3 L567.3,385.1 L558.9,385.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="592.4" y="377.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="807.3" y="385.5">1.70</text>
+<line x1="651.8" y1="301" x2="651.8" y2="390" stroke="var(--ink)" stroke-width="1.5"/>
+<line x1="274" y1="410" x2="274" y2="422" stroke="var(--ink)" stroke-width="1.5"/><text class="legend" x="282" y="420">Rust base64 0.23.1, rustc 1.100.0, at 1</text>
+<path d="M573.0,411.8 L577.2,419.6 L568.8,419.6 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="581" y="420">Go encoding/base64 1.27.3</text>
+<rect x="270.4" y="430.4" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="282" y="438">std.base64 0.16.0</text>
+<text class="legend" x="16" y="463">A bar is stdx:</text>
+<rect x="104" y="454" width="12" height="10" rx="2" fill="var(--stdx)"/><text class="legend" x="121" y="463">ahead</text>
+<rect x="162" y="454" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="179" y="463">level, inside the noise</text>
+<rect x="322" y="454" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="339" y="463">behind</text>
+<text class="legend" x="400" y="463">|—| the two cells' spread</text>
+</svg>

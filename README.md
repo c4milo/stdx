@@ -17,7 +17,16 @@ opens a file, starts a thread or reads a clock, so it fits the hot path of a ser
 
 Its benchmarks time stdx beside zlib, zlib-ng, libdeflate, libzstd, Google's brotli, Wuffs,
 simdjson, yyjson, serde_json and Go's standard library, in one job on GitHub's x86-64 and aarch64
-runners. Each report names the version of each library it times.
+runners. Each report names the version of each library it times. On the Arm Neoverse N2 runner:
+
+- stdx decodes brotli faster than Google's decoder on all 39 corpus files, at 1.10 to 3.36 times
+  its speed.
+- stdx decodes gzip faster than libdeflate on 31 of the 39 files.
+- No level of zlib, zlib-ng or libdeflate encodes gzip both faster and smaller than any of stdx's
+  levels 1, 6 and 9.
+- `json`'s `TextWriter` writes JSON at 1.64 to 16.35 times serde_json's speed.
+
+[Performance](#performance) shows every chart, the rows where stdx is slower included.
 
 ## At a glance
 
@@ -36,6 +45,45 @@ runners. Each report names the version of each library it times.
 | Testing | Differential checks against zlib, Wuffs, libzstd and Google's brotli over public corpora, a fuzzer every night, and Lean proofs of JSON's UTF-8 and number machines |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
+
+## Performance
+
+Each chart shows stdx's speed in multiples of a baseline's, the one each panel's title names, in
+one job on GitHub's hosted runners (decision 20). A blue bar right of the line at 1 is faster, a
+gray bar is inside the noise, and an orange bar is slower. Each encoder's panel plots speed against
+compression ratio. The charts come from the first runs on Ubuntu 26.04, at commit 0dd2e97, and
+`tools/charts.py` draws them from the reports in [`bench/results/`](bench/results/).
+
+### Arm Neoverse N2
+
+![gzip decoding, in multiples of libdeflate's speed: ahead on 31, level on 2, behind on 6 of 39 files; 0.92 to 1.71. gzip encoding: speed in multiples of libdeflate's level 6, against compression ratio: no other library's point is both faster and smaller than any of stdx's 3 levels](docs/images/deflate-aarch64.svg)
+
+![Zstandard decoding, in multiples of libzstd's speed: ahead on 11, level on 3, behind on 25 of 39 files; 0.92 to 1.09. Zstandard encoding: speed in multiples of libzstd's level 3, against compression ratio: 2 of stdx's 2 levels have a faster and smaller point: level 1 by libzstd 3; level 3 by libzstd 3](docs/images/zstd-aarch64.svg)
+
+![brotli decoding, in multiples of Google's speed: ahead on 39, level on 0, behind on 0 of 39 files; 1.10 to 3.36. brotli encoding: speed in multiples of Google's quality 5, against compression ratio: no other library's point is both faster and smaller than any of stdx's 2 levels](docs/images/brotli-aarch64.svg)
+
+![JSON decoding, in multiples of simdjson's speed: ahead on 8, level on 0, behind on 1 of 9 rows (of 63 workloads, 1 behind); 0.87 to 5.36. JSON encoding, in multiples of simdjson's speed: ahead on 7, level on 0, behind on 1 of 8 rows (of 62 workloads, 1 behind); 0.80 to 11.18. TextWriter's methods, in multiples of serde_json's speed: ahead on 8, level on 0, behind on 0 of 8 rows (of 62 workloads, 0 behind); 1.64 to 16.35](docs/images/json-aarch64.svg)
+
+![CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 3, level on 0, behind on 1 of 4 sizes; 0.70 to 1.68. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.69 to 1.31. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 1, level on 2, behind on 1 of 4 sizes; 0.86 to 1.04](docs/images/checksum-aarch64.svg)
+
+![base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.84 to 1.19. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.82 to 1.70](docs/images/base64-aarch64.svg)
+
+<details>
+<summary>x86-64: Intel Xeon Platinum 8370C, AMD EPYC 7763 and AMD EPYC 9V45</summary>
+
+![gzip decoding, in multiples of libdeflate's speed: ahead on 22, level on 6, behind on 11 of 39 files; 0.89 to 1.98. gzip encoding: speed in multiples of libdeflate's level 6, against compression ratio: no other library's point is both faster and smaller than any of stdx's 3 levels](docs/images/deflate-x86_64.svg)
+
+![Zstandard decoding, in multiples of libzstd's speed: ahead on 31, level on 4, behind on 4 of 39 files; 0.88 to 1.27. Zstandard encoding: speed in multiples of libzstd's level 3, against compression ratio: 2 of stdx's 2 levels have a faster and smaller point: level 1 by libzstd 3; level 3 by libzstd 3](docs/images/zstd-x86_64.svg)
+
+![brotli decoding, in multiples of Google's speed: ahead on 38, level on 1, behind on 0 of 39 files; 1.03 to 3.32. brotli encoding: speed in multiples of Google's quality 5, against compression ratio: no other library's point is both faster and smaller than any of stdx's 2 levels](docs/images/brotli-x86_64.svg)
+
+![JSON decoding, in multiples of simdjson's speed: ahead on 3, level on 1, behind on 5 of 9 rows (of 63 workloads, 5 behind); 0.63 to 4.09. JSON encoding, in multiples of simdjson's speed: ahead on 5, level on 2, behind on 1 of 8 rows (of 62 workloads, 1 behind); 0.52 to 21.60. TextWriter's methods, in multiples of serde_json's speed: ahead on 8, level on 0, behind on 0 of 8 rows (of 62 workloads, 0 behind); 1.42 to 36.67](docs/images/json-x86_64.svg)
+
+![CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 0, level on 2, behind on 2 of 4 sizes; 0.79 to 1.00. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.72 to 1.19. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 0, level on 2, behind on 2 of 4 sizes; 0.82 to 1.00](docs/images/checksum-x86_64.svg)
+
+![base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 5, level on 0, behind on 0 of 5 sizes; 1.35 to 4.40. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.87 to 5.05](docs/images/base64-x86_64.svg)
+
+</details>
 
 ## Status
 
