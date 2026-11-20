@@ -5450,3 +5450,21 @@ small file.
       license.
     - Both licenses, at the dependent's choice.
     - No license.
+
+84. **Line coverage, counted by pepegrillo's engine, is the README's badge.** Ruled by the owner on
+    2026-11-20, who asked for a coverage badge from pepegrillo's tool.
+    - `zig build coverage` builds every module's unit tests in Debug with LLVM and runs them under
+      kcov 43, through pepegrillo's coverage engine (`tools/coverage.zig`). It prints the share of
+      each module's lines that its tests run, and the total.
+    - Zig compiles only the functions that code references, so a function that no test references
+      has no line to count. The share is of the lines the tests compile.
+    - The `coverage` job of `.github/workflows/main.yml` builds kcov from its release, pinned by
+      SHA-256, and runs the step on `ubuntu-26.04`. On main, it writes the total as a shields.io
+      endpoint to the orphan `badges` branch, which the README's badge reads.
+    - That job alone may write to the repository, and only its badge step holds the token.
+    - It is a report, not a check: no share fails the build, so it stays out of `tools/ci.sh`. It
+      counts the x86-64 paths alone; the aarch64 paths run in the tests of the aarch64 runner.
+
+    The alternatives refused:
+    - A fixed number in the README, which drifts from the code after each change.
+    - A floor that fails the build, before the first totals show where one belongs.

@@ -85,3 +85,95 @@ jobs:
         with:
           name: ci-report-${{ matrix.runner }}
           path: ci-report.md
+
+  # The line coverage of decision 84: every module's tests under kcov, through pepegrillo's engine
+  # (`zig build coverage`). It is a report, not a check, so it stays out of tools/ci.sh. On main,
+  # the total goes to the orphan `badges` branch as a shields.io endpoint, which the README's badge
+  # reads. This job alone may write to the repository, and only its badge step holds the token.
+  coverage:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    concurrency:
+      group: coverage-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      KCOV_VERSION: "43"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The token stays out of .git/config, where the build could read it.
+          persist-credentials: false
+      - name: Restore the packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-pkg-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}
+          restore-keys: |
+            zig-pkg-${{ hashFiles('build.zig.zon') }}-
+            zig-pkg-
+      - name: Install Zig
+        run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Build kcov from its release, pinned
+        # pepegrillo's engine refuses another release, which can count other lines. The archive is
+        # checked against the SHA-256 computed when the release was pinned.
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends binutils-dev libdw-dev libelf-dev libcurl4-openssl-dev zlib1g-dev libssl-dev
+          url="https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz"
+          sha="4cbba86af11f72de0c7514e09d59c7927ed25df7cebdad087f6d3623213b95bf"
+          curl -fsSL "$url" -o "$RUNNER_TEMP/kcov.tar.gz"
+          echo "$sha  $RUNNER_TEMP/kcov.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/kcov.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/kcov-${KCOV_VERSION}" -B "$RUNNER_TEMP/kcov" -DCMAKE_BUILD_TYPE=Release > /dev/null
+          cmake --build "$RUNNER_TEMP/kcov" -j4 > /dev/null
+          echo "$RUNNER_TEMP/kcov/src" >> "$GITHUB_PATH"
+      - name: Run every module's tests under kcov
+        run: |
+          set -o pipefail
+          zig build coverage 2>&1 | tee coverage.log
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo '## Line coverage'
+            echo
+            echo '```text'
+            grep '\[coverage\]' coverage.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Update the coverage badge
+        # The badge is a file on an orphan branch, so this job never pushes to main.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          total="$(sed -n 's/.*\[coverage\] total \([0-9.]*\)% of .*/\1/p' coverage.log)"
+          test -n "$total"
+          color="$(awk -v t="$total" 'BEGIN { print (t >= 90) ? "brightgreen" : (t >= 80) ? "green" : (t >= 70) ? "yellowgreen" : (t >= 60) ? "yellow" : "orange" }')"
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$total" "$color" > "$RUNNER_TEMP/coverage.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --quiet origin badges 2>/dev/null; then
+            git switch --quiet badges
+          else
+            git switch --quiet --orphan badges
+          fi
+          mkdir -p .github/badges
+          cp "$RUNNER_TEMP/coverage.json" .github/badges/coverage.json
+          if ! git ls-files --error-unmatch .github/badges/coverage.json > /dev/null 2>&1 ||
+              ! git diff --quiet -- .github/badges/coverage.json; then
+            git add .github/badges/coverage.json
+            git commit --quiet -m "chore: update the coverage badge"
+            git push --quiet "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" badges
+          fi
+      - name: Keep kcov's report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-html
+          path: zig-out/coverage/merged/
+          if-no-files-found: ignore

@@ -26,6 +26,7 @@ const brotli_tables = @import("build/brotli_tables.zig");
 const lean = @import("build/lean.zig");
 const platform_check = @import("build/platform_check.zig");
 const checkfree = @import("build/checkfree.zig");
+const coverage = @import("build/coverage.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -169,6 +170,7 @@ pub fn build(b: *std.Build) void {
     _ = checkfree.add(b, tool_module(b, pepegrillo, "tools/checkfree.zig"));
     add_commit_lint_step(b, pepegrillo, install_step);
     lean.add(b, tool_module(b, pepegrillo, "tools/lean.zig"));
+    _ = coverage.add(b, tool_module(b, pepegrillo, "tools/coverage.zig"));
     add_hooks_step(b);
 
     const fmt_step = b.step("fmt", "Check formatting of every Zig source");
