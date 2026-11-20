@@ -1153,6 +1153,8 @@ small file.
     - The jobs run on pinned runner labels, never `ubuntu-latest`: `ubuntu-24.04` for x86-64 and
       `ubuntu-24.04-arm` for aarch64, both free for a public repository, with 4 virtual CPUs and
       16 GB each. Both architectures are measured, so both checksum paths of decision 14 are.
+    - Entry 26 amends this item: since 2026-11-19, the jobs run on `ubuntu-26.04` and
+      `ubuntu-26.04-arm`.
     - A hosted runner is a virtual machine on shared hardware. Its CPU model can change from one
       run to the next, other tenants load the host, nobody pins a governor, and it may expose no
       performance counters. So the method changes in four ways:
@@ -1586,6 +1588,26 @@ small file.
       new labels starts from an empty corpus.
     - `tools/install_zig.sh` already creates the `tmp` directory of Zig's global cache, which a
       fresh runner does not have.
+
+    **Amended on 2026-11-19: the costs and the benchmarks on Ubuntu 26.04.** The owner ruled to
+    move them, after runs of one commit on both images priced the move.
+    - The costs and the benchmarks run on `ubuntu-26.04` and `ubuntu-26.04-arm`. This replaces
+      the ruling of 2026-11-03 above and the labels entry 20 pins.
+    - Two rounds of `bench` runs at commit d56478e put each benchmark on all four labels in one
+      run: runs 44664552382 to 44664571585, and 44670479866 to 44670495618.
+    - On the N2, 46 of stdx's 50 columns in each round moved 1.6% or less. UTF-8's check moved
+      as much as 6.5% one way in one round and 3.0% the other way in the next. Zstandard's encoder
+      moved 3.8% and base64's checked decoder 4.5%, each in one round only. CRC-32's armv8 path
+      ran 3% faster in both rounds; the N2 runs the pmull path, which moved 0.4% or less.
+    - Google's brotli encoder ran 2.3% to 6.3% faster on 26.04 in both rounds, so stdx over it
+      fell 3.5% to 6.5%. libzstd's encoder ran 5% faster in one round only, and the costs moved
+      about 4% in opposite directions.
+    - On x86-64, only jobs on one CPU model compare. On the Xeon 6975P-C, each DEFLATE section
+      moved 1.3% or less in two pairs. On the EPYC 9V74, stdx over libzstd moved 1.6% or less.
+    - The image's rustc and Go no longer build a baseline: entry 20's amendment of 2026-11-19
+      pins them.
+    - A report from before the move compares with none after it. The first runs on 26.04 at
+      main's commit are the new baseline, and `docs/costs.md` is filled from them.
 
 27. **A JSON module, `json`: RFC 8259's encoder and decoder, with RFC 7464's text sequences.**
     Ruled by the owner on 2026-09-28, who asked for it. colibri writes qlog
