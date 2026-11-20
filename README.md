@@ -1,46 +1,46 @@
 # stdx
 
-Compression and data codecs for Zig 0.16, written from the RFCs. They use no heap and do no I/O.
+[![main](https://github.com/c4milo/stdx/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/c4milo/stdx/actions/workflows/main.yml?query=branch%3Amain)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
+[![release](https://img.shields.io/github/v/release/c4milo/stdx)](https://github.com/c4milo/stdx/releases/latest)
 
-- **Compression:** DEFLATE with its zlib and gzip containers (RFC 1951, 1950 and 1952), Zstandard
-  (RFC 8878, with RFC 9659's limits for HTTP) and brotli (RFC 7932). These are the HTTP content
-  codings `deflate`, `gzip`, `zstd` and `br`.
-- **Data:** JSON (RFC 8259) with JSON text sequences (RFC 7464), and base 64 (RFC 4648).
-- **Support:** CRC-32, Adler-32 and XXH64, and a probe of what the CPU offers.
+The HTTP content codings in wide use, for Zig, each with an encoder and a decoder: `gzip`,
+`deflate`, `br` and `zstd`. Beside them are JSON and base 64. All of it is written from the RFCs,
+uses no allocator, and does no I/O.
 
-Each codec has an encoder and a decoder.
+A codec is a struct that your program places where it likes: on the stack, in a static, or inside
+its own state. Your program gives it the octets it has and the room it has. The codec writes what
+fits, and says whether it needs more input, more room, or is done. Nothing in stdx allocates,
+opens a file, starts a thread or reads a clock, so it fits the hot path of a server.
 
-## Properties
+Its benchmarks time stdx beside zlib, zlib-ng, libdeflate, libzstd, Google's brotli, Wuffs,
+simdjson, yyjson, serde_json and Go's standard library, in one job on GitHub's x86-64 and aarch64
+runners. Each report names the version of each library it times.
 
-- **No I/O.** A codec reads octets the caller already has, and writes into storage the caller
-  owns.
-- **No heap.** The caller owns every state, window and table. Each size is a comptime constant, so
-  a codec can live on the stack, in a static, or inside another struct.
-- **Streaming.** A call takes the input there is and writes what fits. It then says whether it
-  needs more input, needs more room, or is done, and the next call continues. A whole-buffer
-  helper calls it for you.
-- **Deterministic.** An encoder's output depends on its input and its options alone. It is the
-  same on every host, in every build mode, and for every split of the input and the output across
-  calls.
-- **No global state.** A program can run codecs on as many threads as it likes.
-- **Checked.** Assertions stay on in production builds, for programmer error only. Hostile input
-  returns an error value and never reaches an assertion. The code cites the RFC section behind
-  each refusal.
-- **Tested against other implementations.** Differential checks compare stdx with zlib, Wuffs,
-  libzstd and Google's brotli over public corpora, and a fuzzer runs every night.
+## At a glance
+
+| | |
+| --- | --- |
+| Compression | gzip, zlib and raw DEFLATE ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952), [1950](https://www.rfc-editor.org/rfc/rfc1950), [1951](https://www.rfc-editor.org/rfc/rfc1951)), Zstandard ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878), with [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)'s limits for HTTP) and brotli ([RFC 7932](https://www.rfc-editor.org/rfc/rfc7932)) |
+| Encoder levels | DEFLATE 1, 6 and 9 in all three containers, Zstandard 1 and 3, brotli 1 and 5 |
+| Data | JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) with JSON text sequences ([RFC 7464](https://www.rfc-editor.org/rfc/rfc7464)), and base 64 ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)) |
+| Checksums | CRC-32, Adler-32 and XXH64, with SIMD paths for x86-64 and aarch64 that the CPU selects at run time |
+| Memory | No allocator anywhere in `src/`, tests included. Each state's size is a comptime constant. |
+| I/O | None. A codec reads octets your program already has and writes into storage it owns. |
+| Streaming | Every call takes any amount of input and resumes where the last one stopped. Each decoder is also a `std.Io.Reader`, and each encoder a `std.Io.Writer`. |
+| Output | An encoder writes the same octets on every host, in every build mode, and for every split of its input across calls. |
+| Threads | No global state: run codecs on as many threads as you like. |
+| Safety | Assertions stay on in production. Hostile input returns an error value, and the code cites the RFC section behind each refusal. |
+| Testing | Differential checks against zlib, Wuffs, libzstd and Google's brotli over public corpora, a fuzzer every night, and Lean proofs of JSON's UTF-8 and number machines |
+| Language | Zig 0.16.0 |
+| License | Apache-2.0 |
 
 ## Status
 
-The current release is 0.2.0. Releases follow SemVer 2.0.0
-([decision 65](docs/decisions.md)).
-
-- Each codec has its decoder. The Zstandard decoder refuses a window larger than RFC 9659 allows
-  for HTTP.
-- The encoders offer these levels: DEFLATE 1, 6 and 9 in all three containers, Zstandard 1 and 3,
-  and brotli 1 and 5.
-- Each codec offers its decoder as a `std.Io.Reader` and its encoder as a `std.Io.Writer`.
-
-Open work is in [the issues](https://github.com/c4milo/stdx/issues).
+stdx is before 1.0, and its releases follow SemVer 2.0.0 ([decision 65](docs/decisions.md)). The
+latest release is [0.2.0](https://github.com/c4milo/stdx/releases/tag/v0.2.0), and each release's
+notes list what changed. Open work is in [the issues](https://github.com/c4milo/stdx/issues).
 
 ## Install
 
@@ -122,3 +122,7 @@ zig build test
 - [`docs/performance.md`](docs/performance.md) and [`docs/costs.md`](docs/costs.md) hold the
   performance method and the measured costs.
 - [`CLAUDE.md`](CLAUDE.md) holds the rules every change follows.
+
+## License
+
+stdx is licensed under the [Apache License, Version 2.0](LICENSE) (decision 83).
