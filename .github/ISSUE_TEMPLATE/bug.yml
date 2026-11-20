@@ -1,0 +1,44 @@
+name: Bug
+description: stdx does something the RFCs or its documents say it must not do.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report a vulnerability here. SECURITY.md says where to send it.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release tag or the commit of stdx, the output of `zig version`, and the CPU.
+      placeholder: v0.2.0, zig 0.16.0, x86-64
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      multiple: true
+      options: [deflate, zlib, gzip, zstd, brotli, json, base64, checksum, codec, platform]
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The calls your program made, the octets stdx read, and what it returned.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Cite the RFC and the section that states the rule, when there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: A test, an input file, or the input's octets in hex.
+      render: zig

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/c4milo/stdx/security/advisories/new
+    about: Report it in private, as SECURITY.md describes. Do not open a public issue.
+  - name: Read the README's example
+    url: https://github.com/c4milo/stdx#example
+    about: How to install stdx, start a codec, and decode into a buffer your program owns.

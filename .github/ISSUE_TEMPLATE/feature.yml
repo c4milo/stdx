@@ -1,0 +1,26 @@
+name: Feature
+description: Ask for something stdx does not do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        First read decision 13 in docs/decisions.md. Version one holds a fixed set of codecs and
+        encoder levels, and the decision gives the reason for each.
+  - type: textarea
+    id: need
+    attributes:
+      label: What your program needs
+      description: The program, the call it makes, and what it cannot do now.
+    validations:
+      required: true
+  - type: textarea
+    id: rfc
+    attributes:
+      label: RFC
+      description: The RFC and the section that define the feature, when one does.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do now
+      description: How your program works around the gap today.

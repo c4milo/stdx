@@ -121,7 +121,9 @@ zig build test
   proves it.
 - [`docs/performance.md`](docs/performance.md) and [`docs/costs.md`](docs/costs.md) hold the
   performance method and the measured costs.
-- [`CLAUDE.md`](CLAUDE.md) holds the rules every change follows.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) summarizes the rules a change keeps, and
+  [`CLAUDE.md`](CLAUDE.md) holds all of them.
+- [`SECURITY.md`](SECURITY.md) says how to report a vulnerability in private.
 
 ## License
 
