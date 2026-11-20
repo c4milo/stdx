@@ -5468,3 +5468,32 @@ small file.
     The alternatives refused:
     - A fixed number in the README, which drifts from the code after each change.
     - A floor that fails the build, before the first totals show where one belongs.
+
+85. **The README's charts of stdx's speed, drawn from committed reports.** Ruled by the owner on
+    2026-11-19, who asked for charts in the README, as the sibling repositories have.
+    - `tools/charts.py` draws one SVG for each benchmark and architecture under `docs/images/`, from
+      the reports `bench/charts.txt` names. The owner chose Python over a Zig program. `--check`,
+      which `tools/ci.sh` runs, fails when a committed chart differs from what its reports draw.
+    - The charts cover DEFLATE, Zstandard and brotli, JSON, and the checksums with base 64. The
+      first draw from the first runs on Ubuntu 26.04, at main's commit 0dd2e97.
+    - A bar is stdx's speed in multiples of the baseline the panel's title names, in the same row
+      of the same job (entry 20). The bar panels of a chart share one logarithmic axis, from 0.25
+      to 4 at most, and a bar past an edge ends in an arrow.
+    - Each other library keeps one figure and one color across a chart: stdx blue, the baseline at
+      1 black, the others a triangle, a square and a down triangle. Each legend names each
+      library's version, from its report.
+    - A row is level when its ratio lies inside the noise: the two cells' spread combined, or half
+      the range of the jobs, and never less than 0.5%. Each title counts the rows ahead, level and
+      behind. A row marked † repeats a file the branch predictor learns (entry 45).
+    - A checksum's bar is the path the report names as the one the CPU runs, since a caller gets
+      that path.
+    - An encoder's panel is its speed-size frontier: each library's levels, their speed against
+      the baseline's middle level and their ratio. The title names each stdx level that another
+      library's point beats in both.
+    - Several jobs on one CPU model draw their median, with a line from the lowest job to the
+      highest.
+
+    The alternatives refused:
+    - A Zig program, which the owner judged too large for the task.
+    - One axis for each panel, which makes two panels of one chart look alike at different scales.
+    - The fastest checksum path, which a caller may never run.

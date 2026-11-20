@@ -419,6 +419,9 @@ Change this section when a step adds or renames a command.
   on each push to main, on Linux on x86-64 and aarch64 and on macOS on arm64 (decisions 19 and
   26). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned SHA-256, and
   `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
+- Charts: `python3 tools/charts.py` draws the README's charts, `docs/images/<benchmark>-<arch>.svg`,
+  from the committed reports that `bench/charts.txt` names. `--check` fails when a committed chart
+  differs from what its reports draw, and `tools/ci.sh` runs it (decision 85).
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's
   share of lines run and the total. It needs Linux and kcov. The `coverage` job of

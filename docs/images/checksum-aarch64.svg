@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 570" width="900" height="570" role="img" aria-labelledby="t d">
+<title id="t">stdx's checksums against its baselines, on Neoverse-N2</title>
+<desc id="d">CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 3, level on 0, behind on 1 of 4 sizes; 0.70 to 1.68. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.69 to 1.31. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 1, level on 2, behind on 1 of 4 sizes; 0.86 to 1.04.</desc>
+<style>
+svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --stdx:#2a78d6; --lose:#d4552b; --tie:#a3a29c; --m0:#1c9e77; --m1:#9467bd; --m2:#b8860b; --m3:#8a8984; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#8f8e86; --grid:#33332f; --stdx:#3987e5; --lose:#e0663b; --tie:#6b6a64; --m0:#2bb38b; --m1:#a982cf; --m2:#d4a62a; --m3:#8f8e86; }
+}
+text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
+.title { font-size: 17px; font-weight: 600; } .sub { font-size: 12.5px; fill: var(--ink2); }
+.panel { font-size: 13.5px; font-weight: 600; } .row { font-size: 11.5px; fill: var(--ink2); }
+.val { font-size: 10.5px; font-weight: 600; } .tick { font-size: 10.5px; fill: var(--muted); }
+.legend { font-size: 12px; fill: var(--ink2); }
+</style>
+<rect width="900" height="570" fill="var(--surface)"/>
+<text class="title" x="16" y="26">stdx's checksums against its baselines, on Neoverse-N2</text>
+<text class="sub" x="16" y="46">One job of run 44677298419 at commit 0dd2e97. The line at 1 is the baseline each panel's title names; the axis is logarithmic.</text>
+<text class="panel" x="16" y="80">CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed</text>
+<text class="sub" x="16" y="97">ahead on 3, level on 0, behind on 1 of 4 sizes; 0.70 to 1.68</text>
+<line x1="270.0" y1="110" x2="270.0" y2="178" stroke="var(--grid)"/>
+<text class="tick" x="270.0" y="191" text-anchor="middle">0.25</text>
+<line x1="461.9" y1="110" x2="461.9" y2="178" stroke="var(--grid)"/>
+<text class="tick" x="461.9" y="191" text-anchor="middle">0.5</text>
+<line x1="574.1" y1="110" x2="574.1" y2="178" stroke="var(--grid)"/>
+<text class="tick" x="574.1" y="191" text-anchor="middle">0.75</text>
+<line x1="653.8" y1="110" x2="653.8" y2="178" stroke="var(--grid)"/>
+<text class="tick" x="653.8" y="191" text-anchor="middle">1</text>
+<line x1="766.0" y1="110" x2="766.0" y2="178" stroke="var(--grid)"/>
+<text class="tick" x="766.0" y="191" text-anchor="middle">1.5</text>
+<text class="row" x="262" y="122.5" text-anchor="end">64 octets</text>
+<rect x="557.0" y="113.0" width="96.8" height="11" rx="2" fill="var(--lose)"/>
+<line x1="555.7" y1="118.5" x2="558.2" y2="118.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="555.7" y1="115.5" x2="555.7" y2="121.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="558.2" y1="115.5" x2="558.2" y2="121.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M627.2,114.3 L631.4,122.1 L623.0,122.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="266.4" y="114.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,122.7 L274.2,114.9 L265.8,114.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="658.8" y="122.5">0.70</text>
+<text class="row" x="262" y="139.5" text-anchor="end">1,024 octets</text>
+<rect x="653.8" y="130.0" width="46.6" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="698.9" y1="135.5" x2="701.9" y2="135.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="698.9" y1="132.5" x2="698.9" y2="138.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="701.9" y1="132.5" x2="701.9" y2="138.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M637.8,131.3 L642.0,139.1 L633.6,139.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="266.4" y="131.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,139.7 L274.2,131.9 L265.8,131.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="710.4" y="139.5">1.18</text>
+<text class="row" x="262" y="156.5" text-anchor="end">16,384 octets</text>
+<rect x="653.8" y="147.0" width="143.6" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="796.5" y1="152.5" x2="798.1" y2="152.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="796.5" y1="149.5" x2="796.5" y2="155.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="798.1" y1="149.5" x2="798.1" y2="155.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M624.7,148.3 L628.9,156.1 L620.5,156.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="266.4" y="148.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,156.7 L274.2,148.9 L265.8,148.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="807.3" y="156.5">1.68</text>
+<text class="row" x="262" y="173.5" text-anchor="end">1,048,576 octets</text>
+<rect x="653.8" y="164.0" width="66.9" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="708.7" y1="169.5" x2="732.0" y2="169.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="708.7" y1="166.5" x2="708.7" y2="172.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="732.0" y1="166.5" x2="732.0" y2="172.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M619.3,165.3 L623.5,173.1 L615.1,173.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="266.4" y="165.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,173.7 L274.2,165.9 L265.8,165.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="737.0" y="173.5">1.27</text>
+<line x1="653.8" y1="106" x2="653.8" y2="178" stroke="var(--ink)" stroke-width="1.5"/>
+<line x1="274" y1="198" x2="274" y2="210" stroke="var(--ink)" stroke-width="1.5"/><text class="legend" x="282" y="208">libdeflate 1.26, at 1</text>
+<path d="M447.0,199.8 L451.2,207.6 L442.8,207.6 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="455" y="208">zlib-ng 2.3.3</text>
+<rect x="560.4" y="200.4" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="572" y="208">Wuffs 7411f48</text>
+<path d="M681.0,208.2 L685.2,200.4 L676.8,200.4 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="689" y="208">zlib 1.3.2</text>
+<text class="panel" x="16" y="240">Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed</text>
+<text class="sub" x="16" y="257">ahead on 2, level on 0, behind on 2 of 4 sizes; 0.69 to 1.31</text>
+<line x1="270.0" y1="270" x2="270.0" y2="338" stroke="var(--grid)"/>
+<text class="tick" x="270.0" y="351" text-anchor="middle">0.25</text>
+<line x1="461.9" y1="270" x2="461.9" y2="338" stroke="var(--grid)"/>
+<text class="tick" x="461.9" y="351" text-anchor="middle">0.5</text>
+<line x1="574.1" y1="270" x2="574.1" y2="338" stroke="var(--grid)"/>
+<text class="tick" x="574.1" y="351" text-anchor="middle">0.75</text>
+<line x1="653.8" y1="270" x2="653.8" y2="338" stroke="var(--grid)"/>
+<text class="tick" x="653.8" y="351" text-anchor="middle">1</text>
+<line x1="766.0" y1="270" x2="766.0" y2="338" stroke="var(--grid)"/>
+<text class="tick" x="766.0" y="351" text-anchor="middle">1.5</text>
+<text class="row" x="262" y="282.5" text-anchor="end">64 octets</text>
+<rect x="549.5" y="273.0" width="104.2" height="11" rx="2" fill="var(--lose)"/>
+<line x1="549.1" y1="278.5" x2="549.9" y2="278.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="549.1" y1="275.5" x2="549.1" y2="281.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="549.9" y1="275.5" x2="549.9" y2="281.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M350.3,274.3 L354.5,282.1 L346.1,282.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="320.7" y="274.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M369.5,282.7 L373.7,274.9 L365.3,274.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="658.8" y="282.5">0.69</text>
+<text class="row" x="262" y="299.5" text-anchor="end">1,024 octets</text>
+<rect x="643.4" y="290.0" width="10.3" height="11" rx="2" fill="var(--lose)"/>
+<path d="M454.5,291.3 L458.7,299.1 L450.3,299.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="438.5" y="291.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,299.7 L274.2,291.9 L265.8,291.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="658.8" y="299.5">0.96</text>
+<text class="row" x="262" y="316.5" text-anchor="end">16,384 octets</text>
+<rect x="653.8" y="307.0" width="75.2" height="11" rx="2" fill="var(--stdx)"/>
+<path d="M537.0,308.3 L541.2,316.1 L532.8,316.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="523.7" y="308.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,316.7 L274.2,308.9 L265.8,308.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="739.0" y="316.5">1.31</text>
+<text class="row" x="262" y="333.5" text-anchor="end">1,048,576 octets</text>
+<rect x="653.8" y="324.0" width="55.9" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="693.7" y1="329.5" x2="724.8" y2="329.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="693.7" y1="326.5" x2="693.7" y2="332.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="724.8" y1="326.5" x2="724.8" y2="332.5" stroke="var(--ink)" stroke-width="1.2"/>
+<path d="M566.8,325.3 L571.0,333.1 L562.6,333.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
+<rect x="555.7" y="325.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
+<path d="M270.0,333.7 L274.2,325.9 L265.8,325.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
+<text class="val" x="729.8" y="333.5">1.22</text>
+<line x1="653.8" y1="266" x2="653.8" y2="338" stroke="var(--ink)" stroke-width="1.5"/>
+<line x1="274" y1="358" x2="274" y2="370" stroke="var(--ink)" stroke-width="1.5"/><text class="legend" x="282" y="368">libdeflate 1.26, at 1</text>
+<path d="M447.0,359.8 L451.2,367.6 L442.8,367.6 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="455" y="368">zlib-ng 2.3.3</text>
+<rect x="560.4" y="360.4" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="572" y="368">Wuffs 7411f48</text>
+<path d="M681.0,368.2 L685.2,360.4 L676.8,360.4 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="689" y="368">zlib 1.3.2</text>
+<text class="panel" x="16" y="400">XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed</text>
+<text class="sub" x="16" y="417">ahead on 1, level on 2, behind on 1 of 4 sizes; 0.86 to 1.04</text>
+<line x1="270.0" y1="430" x2="270.0" y2="498" stroke="var(--grid)"/>
+<text class="tick" x="270.0" y="511" text-anchor="middle">0.25</text>
+<line x1="461.9" y1="430" x2="461.9" y2="498" stroke="var(--grid)"/>
+<text class="tick" x="461.9" y="511" text-anchor="middle">0.5</text>
+<line x1="574.1" y1="430" x2="574.1" y2="498" stroke="var(--grid)"/>
+<text class="tick" x="574.1" y="511" text-anchor="middle">0.75</text>
+<line x1="653.8" y1="430" x2="653.8" y2="498" stroke="var(--grid)"/>
+<text class="tick" x="653.8" y="511" text-anchor="middle">1</text>
+<line x1="766.0" y1="430" x2="766.0" y2="498" stroke="var(--grid)"/>
+<text class="tick" x="766.0" y="511" text-anchor="middle">1.5</text>
+<text class="row" x="262" y="442.5" text-anchor="end">64 octets</text>
+<rect x="611.5" y="433.0" width="42.3" height="11" rx="2" fill="var(--lose)"/>
+<line x1="610.6" y1="438.5" x2="612.4" y2="438.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="610.6" y1="435.5" x2="610.6" y2="441.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="612.4" y1="435.5" x2="612.4" y2="441.5" stroke="var(--ink)" stroke-width="1.2"/>
+<text class="val" x="658.8" y="442.5">0.86</text>
+<text class="row" x="262" y="459.5" text-anchor="end">1,024 octets</text>
+<rect x="653.3" y="450.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
+<line x1="651.9" y1="455.5" x2="654.7" y2="455.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="651.9" y1="452.5" x2="651.9" y2="458.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="654.7" y1="452.5" x2="654.7" y2="458.5" stroke="var(--ink)" stroke-width="1.2"/>
+<text class="val" x="663.3" y="459.5">1.00</text>
+<text class="row" x="262" y="476.5" text-anchor="end">16,384 octets</text>
+<rect x="653.8" y="467.0" width="11.6" height="11" rx="2" fill="var(--stdx)"/>
+<line x1="659.0" y1="472.5" x2="671.7" y2="472.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="659.0" y1="469.5" x2="659.0" y2="475.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="671.7" y1="469.5" x2="671.7" y2="475.5" stroke="var(--ink)" stroke-width="1.2"/>
+<text class="val" x="676.7" y="476.5">1.04</text>
+<text class="row" x="262" y="493.5" text-anchor="end">1,048,576 octets</text>
+<rect x="653.8" y="484.0" width="5.2" height="11" rx="2" fill="var(--tie)"/>
+<line x1="653.6" y1="489.5" x2="664.2" y2="489.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="653.6" y1="486.5" x2="653.6" y2="492.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="664.2" y1="486.5" x2="664.2" y2="492.5" stroke="var(--ink)" stroke-width="1.2"/>
+<text class="val" x="669.2" y="493.5">1.02</text>
+<line x1="653.8" y1="426" x2="653.8" y2="498" stroke="var(--ink)" stroke-width="1.5"/>
+<line x1="274" y1="518" x2="274" y2="530" stroke="var(--ink)" stroke-width="1.5"/><text class="legend" x="282" y="528">libzstd 1.5.7, at 1</text>
+<text class="legend" x="16" y="553">A bar is stdx:</text>
+<rect x="104" y="544" width="12" height="10" rx="2" fill="var(--stdx)"/><text class="legend" x="121" y="553">ahead</text>
+<rect x="162" y="544" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="179" y="553">level, inside the noise</text>
+<rect x="322" y="544" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="339" y="553">behind</text>
+<text class="legend" x="400" y="553">|—| the two cells' spread</text>
+</svg>

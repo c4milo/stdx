@@ -1,0 +1,5 @@
+# The README's charts (decision 85): one line each, a benchmark, an architecture, and the committed
+# reports the chart draws from, all from one CPU model. `python3 tools/charts.py` draws them into
+# docs/images/<benchmark>-<architecture>.svg, and `--check` fails when one differs.
+checksum aarch64 bench/results/2026-11-20-checksum-aarch64.md
+checksum x86_64 bench/results/2026-11-20-checksum-x86_64.md
