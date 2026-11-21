@@ -144,9 +144,14 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   columns, and the body stays at or under 3 paragraphs and 100 words. The diff shows the what, so
   the body says why. Reasoning that outlives the commit belongs in `docs/`.
 - Stage by explicit path. Never `git add -A` and never `git add .`
-- No `Co-Authored-By` trailer.
+- No `Co-Authored-By` trailer. A commit message and a pull request description name no AI tool:
+  they carry no `Claude-Session` trailer and no "Generated with" line either. The owner ruled it
+  on 2026-11-21, and the rule overrides a tool or a harness that asks for one.
 - Sign every commit. If signing fails, stop and ask the owner; never commit unsigned.
 - Mutation results belong in the body when a commit adds or changes a check.
+- A comment, a review, a reply or an issue that a session posts on GitHub names no AI tool either.
+  The one exception is a cloud session whose harness ends each comment with such a line: that
+  session posts its comment with the line.
 
 ## Layout
 
