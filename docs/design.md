@@ -7855,24 +7855,25 @@ to 12 are reordered and nothing else changes.
     which are one fault of Go's parser, and RE2's own two test logs gave RE2's groups in all but
     337 of 10,212,464 cases, which are one difference stdx chose (decision 86). Neither run is a
     check of this step until the owner rules on the oracle and the corpus.
-  - 67 mutations, each applied, run against `zig build test-regex`, and reverted: 9 of the
-    builder and the quantifiers, 6 of UTF-8, 3 of the scalar sets, 5 of the classes, 7 of the
-    parser, 2 of the escapes, 2 of the atoms, 9 of the matcher, 10 of the DFA, 4 of its cache, 4
-    of the searcher, 3 of the octet classes and 3 of the program.
-    - The first run counted 67 CAUGHT. Seven of them did not build, which the run had counted as
-      a failed test: pepegrillo's method names that trap. Written again so that each builds, 4
-      were CAUGHT and 3 NOT CAUGHT.
-    - NOT CAUGHT: `Matches` stepping one octet past an empty match in place of one scalar value.
-      The step was dead code: no match starts inside a scalar value. The step is one octet now.
-    - NOT CAUGHT: an entry written into a table whose cache cleared while the entry's state was
-      built. `searcher_test.zig` now fills the cache to the octet before that build, for each
-      length of a text's first part, and the mutation is CAUGHT.
-    - NOT CAUGHT: two DFA states that differ in their flags alone taken as one. They met only
-      where their hashes met. `dfa_cache.zig` now finds two such records, and the mutation is
-      CAUGHT.
-    - Three more were added with the tests of the matcher's work, and are CAUGHT. A run of all
-      70 against this tree, which counts a mutation CAUGHT only where a named test fails or the
-      test binary halts, is this step's last record.
+  - 70 mutations, each applied to `a3f56a4`, run against `zig build test-regex`, and reverted:
+    9 of the builder and the quantifiers, 6 of UTF-8, 3 of the scalar sets, 5 of the classes, 7
+    of the parser, 2 of the escapes, 2 of the atoms, 11 of the matcher, 11 of the DFA, 4 of its
+    cache, 4 of the searcher, 3 of the octet classes and 3 of the program. A mutation counts as
+    CAUGHT only where a named test fails or the test binary halts, as pepegrillo's method asks.
+    - 62 CAUGHT by a named test, and 8 CAUGHT by a halt: an assertion or a safety check stops
+      the test binary. None NOT CAUGHT.
+    - Three of the 70 first stop the build: the pattern that a test compiles at compile time
+      reaches an assertion. With that test set aside, two are CAUGHT by a named test and one by
+      a halt, and they are counted so above.
+    - An earlier run counted a mutation that did not build as CAUGHT, a trap the method names.
+      Written again so that each builds, three were NOT CAUGHT, and each is closed.
+      - `Matches` stepped one scalar value past an empty match, which no test saw. The step was
+        dead code, because no match starts inside a scalar value. The step is one octet now.
+      - An entry written into a table whose cache cleared while the entry's state was built.
+        `searcher_test.zig` now fills the cache to the octet before that build, for each
+        length of a text's first part.
+      - Two DFA states that differ in their flags alone taken as one, which shows only where
+        their hashes meet. `dfa_cache.zig` now finds two such records.
   - Not run here: the fuzzer's long pass, and the tests on aarch64 and on macOS. The hosted
     runners of decisions 20 and 26 run them.
 
