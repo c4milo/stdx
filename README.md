@@ -149,6 +149,7 @@ fn gunzip(features: codec.Features, body: []const u8, output: []u8) ![]u8 {
 | `gzip` | The gzip container, RFC 1952: the HTTP `gzip` coding |
 | `zstd` | Zstandard, RFC 8878 and RFC 9659: the HTTP `zstd` coding |
 | `brotli` | brotli, RFC 7932: the HTTP `br` coding |
+| `utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
 | `json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
 | `base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
 | `platform` | What the CPU offers, probed once when a program starts (decision 40) |

@@ -73,14 +73,16 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `gzip` | The gzip container | `codec`, `checksum`, `deflate` | 1952 |
 | `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
 | `brotli` | brotli | `codec` | 7932 |
-| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64` | 8259, 7464, 3629 |
+| `utf8` | UTF-8: a validator that takes one octet at a time, and the octets of one code point (decisions 28 and 86) | nothing | 3629 |
+| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64`, `utf8` | 8259, 7464 |
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40) | nothing | none |
-| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec` | 9485, 3629 |
+| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8` | 9485 |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
 and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision 73).
-No module reaches `platform`, and none reaches `regex`.
+`json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
+reaches it. No module reaches `platform`, and none reaches `regex`.
 No library module receives a package: pepegrillo, the oracles and the corpora are requested by
 `build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
 
@@ -7814,7 +7816,7 @@ to 12 are reordered and nothing else changes.
 - **Step 22: the `regex` module (decision 86).** Regular expressions matched in time linear in
   the text. The owner asked for it on 2026-11-21. The step has parts, and each part lands with its
   own check. Part 22a is built: `compile` and `compile_comptime`, `Matcher`, and `Searcher` with
-  its two lazy DFAs and `Matches`. Parts 22g and 22i are built too, and each has its record
+  its two lazy DFAs and `Matches`. Parts 22g, 22i and 22k are built too, and each has its record
   below.
   **Check, part 22a:**
   - Each form of the syntax has a table of patterns, texts and the groups each must give, and
@@ -7900,9 +7902,6 @@ to 12 are reordered and nothing else changes.
   - **22j: named groups, and the forms of RE2's that stay refused**, each with the owner's
     ruling: `\C`, a `]` or a `}` with nothing to close, and a `[` in a class that starts no
     named class.
-  - **22k: a `utf8` module** that `json` and `regex` import, by the owner's ruling of 2026-11-21
-    (decision 86). `regex` then keeps its range splitter alone. `json`'s tests, its Lean
-    vectors and `zig build checkfree-check` must give what they give today.
   - **22h: the matcher in Lean.** A model of the matcher: its work at one position is at most
     the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
@@ -7920,7 +7919,8 @@ to 12 are reordered and nothing else changes.
   pepegrillo `10841b3`.
   - `zig build test` exits 0. `zig build test-regex` runs 133 tests.
   - `matcher_test.zig` holds 13 tables, 155 cases, 12 of them the new forms, each run whole
-    and under 24 split seeds, and through `Searcher` under three cache sizes.
+    and under 24 split seeds. The two runs outside the tree, below, put the new forms through
+    `Searcher`.
   - The parser has 22 refusals. `EmptyClass` is gone: a `]` that comes first stands for itself,
     so no class is empty, and `[]` is a class with no `]`. A digit from 1 to 9 with no octal
     digit after it is `UnsupportedBackreference`, an 8 or a 9 among them.
@@ -7944,6 +7944,55 @@ to 12 are reordered and nothing else changes.
     11 CAUGHT by a named test and 3 by a halt. Two more of that record no longer apply, because
     this part removes the checks they broke: a `-` that stands for itself anywhere, and an
     empty class.
+
+  **Part 22k, built: a `utf8` module that `json` and `regex` import (decision 86, the owner's
+  ruling of 2026-11-21).** `src/utf8/` holds the validator that decision 28 proved, as
+  `utf8.Validator`, with `character_len`, `encoded_len`, `encode` and `encoded` as `json` had
+  them, UTF-8's constants, and a new `decode`. `json` imports it where it had `utf8.zig`, and
+  `regex` reads a pattern through it and keeps its range splitter in `utf8_ranges.zig`.
+  **Check:** every module's tests pass; the Lean proofs build and their vector files are what
+  the definitions give; `zig build checkfree-check` counts the same safety check sites in
+  `json`'s kernels; the kernels' instructions are the same before and after; mutations.
+
+  **Check passed, part 22k, 2026-11-21.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container, pepegrillo `10841b3`.
+  - `zig build test` exits 0. `test-utf8` runs 9 tests, `test-regex` 132 and `test-json` 266. Six
+    tests of `json` moved with the validator and the encoder, and one of `regex`'s encoder is
+    gone with that encoder.
+  - `zig build test-self-hosted`, `zig build test-avx512` and `zig build checkfree-check` exit 0.
+  - `zig build lean` exits 0. `Stdx/Json/Utf8.lean` is `Stdx/Utf8.lean` now, with its theorems
+    as `Stdx.Utf8.accepts_iff` and `refuses_iff`, on the same axioms. `utf8_vectors.txt` moved
+    to `src/utf8/`, and its first line alone differs: it names the file that proves it.
+  - The kernels of `json`'s two variant objects, built ReleaseSafe as assembly from `eca2fcf`
+    and from this tree. With local labels and private names set aside, all 8 exported kernels
+    hold the same instructions, and so does each of the 439 functions of the AVX2 object and
+    the 422 of the AVX-512 one.
+  - `json`'s whole test program, built the same way from both trees: 1,159 functions before
+    and 1,151 after. Those that differ are the six tests that moved, two helpers of theirs,
+    the test runner, one test of the number machine and three copies of std's formatter. No
+    function of the decoder, the encoder or the scans differs.
+  - `zig build graph-check` had no fixture for `base64` or `regex`, and a compile of a file
+    that is not there passed as a refusal. Both have fixtures now, with `utf8`, and a module
+    with no fixture fails the check: with `deflate_imports_utf8.zig` taken away the step exits
+    1 and names the file.
+  - 12 mutations, each run against the tests of every module that reads the mutated file.
+    - `utf8.decode`, 3: it keeps the first octet's mark, it keeps a continuation octet's mark,
+      it reads no octet after the first. Each CAUGHT by a named test of `utf8` and of `regex`.
+    - `utf8.Validator`, 4: an overlong form of three octets taken, a surrogate taken, a
+      continuation octet with no upper bound, 0xC0 and 0xC1 taken. Each CAUGHT by a named test
+      of `utf8`, of `regex` and of `json`.
+    - `regex`'s `take_scalar`, 2. Octets that are not UTF-8 read as the pattern's end: CAUGHT.
+      The reader keeps one octet read ahead: it first stops the build, where the pattern that a
+      test compiles at compile time halts; with that test set aside, CAUGHT by a named test.
+    - `regex`'s splitter, 3. The surrogates kept, and a sequence's last octets taken from the
+      range's first value: each CAUGHT. No cut where one octet stops and two start: CAUGHT by
+      a halt.
+    - One more was no mutation of behaviour: `<` for `<=` where a range starts at a length's
+      last value. Such a value's low bits are all ones, so the cut for a continuation octet
+      falls at the same place, and no test can tell the two apart.
+  - Not run: a benchmark. The hosted runners of decision 20 judge speed, and no number is
+    claimed. A `-Doracles` build was not run either: the container's network refused the
+    packages.
 
   **Part 22i, built: the UTF-8 ranges proved in Lean (decision 86).**
   **Check:** `zig build lean` builds `spec/lean/Stdx/Regex/Utf8.lean` with its theorems' axioms

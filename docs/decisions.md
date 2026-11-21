@@ -1850,6 +1850,11 @@ last part lists what still waits on a ruling.
       `tools/install_lean.sh` installs it on the x86-64 Linux runner, checked against the SHA-256
       GitHub records for the release, and `tools/ci.sh` builds the proofs where lake is on the path.
 
+    **As entry 86 moved it, 2026-11-21.** The UTF-8 machine is `utf8.Validator` in
+    `src/utf8/validator.zig`, which `json` and `regex` both import. Its twin is
+    `spec/lean/Stdx/Utf8.lean`, its theorems are `Stdx.Utf8.accepts_iff` and `refuses_iff`, and its
+    vectors are `src/utf8/utf8_vectors.txt`. The machine, the proofs and the steps are the same.
+
     The alternatives refused:
     - A Zig tool that writes the Zig machines' tables into Lean, with the proofs about those tables.
       It ties the proofs to the code as tightly, but puts the code under test in the grammar's
@@ -5521,10 +5526,25 @@ last part lists what still waits on a ruling.
       program of m instructions costs at most m steps a character. Cox's three articles (2007,
       2009, 2010) describe RE2, which is built on that bound and refuses the syntax that breaks it.
 
-    **Where.** A module of its own, `regex`, exported by name, which imports `codec` alone: the
-    checked reader a pattern is read through, and the classes of a refusal (design §3). No module
-    imports it. Every non-negotiable holds: no heap, no I/O, no clock, and a call that takes its
-    text in pieces.
+    **Where.** A module of its own, `regex`, exported by name. It imports `codec`, for the checked
+    reader a pattern is read through and the classes of a refusal, and `utf8`, for a pattern's
+    characters (design §3). No module imports it. Every non-negotiable holds: no heap, no I/O, no
+    clock, and a call that takes its text in pieces.
+
+    **UTF-8 in one place.** A module of its own, `utf8`, holds RFC 3629 for `json` and `regex`
+    both, by the owner's ruling of 2026-11-21. It imports nothing, as `checksum` does.
+    - It holds the validator that entry 28 proved, as `utf8.Validator`, with `character_len`,
+      `encoded_len`, `encode` and `encoded`, each as `json` had it, and UTF-8's constants. `json`
+      takes its UTF-8 constants from it and keeps their names.
+    - `decode` is new: the code point of one character that the caller checked. `regex` reads a
+      pattern through `character_len` and `decode`, where it had a decoder of its own.
+    - `regex` keeps what only it needs, in `utf8_ranges.zig`: a range of scalar values cut into
+      sequences of octet ranges.
+    - `json`'s kernels of the variant objects check UTF-8 too, so `build/variants.zig` gives each
+      such object the module, built for the object's own target.
+    - A commit scope holds letters and hyphens, so the module has no scope, as `base64` has none.
+    - Refused: the code in `codec`, which every codec imports and no codec needs it; and an edge
+      from `regex` to `json`, which makes a matcher depend on a JSON decoder.
 
     **The syntax.** RFC 9485 §3's grammar, the IETF's interoperable regular expression, with these
     forms of RE2's syntax beside it. Each refusal cites the section that does not hold the pattern.
@@ -5631,15 +5651,16 @@ last part lists what still waits on a ruling.
     - The fuzzer gives any octets as a pattern and as a text, under the same comparisons.
 
     **Proved in Lean, as entry 28 proves `json`'s machines.** `spec/lean/Stdx/Regex/Utf8.lean`
-    holds `utf8.zig`'s encoder and its range splitter as definitions, in Lean's core alone.
+    holds the `utf8` module's encoder and `utf8_ranges.zig`'s range splitter as definitions, in
+    Lean's core alone.
     - `encode_char` and `char_encode`: the encoder writes exactly the sequences that RFC 3629
-      §4's syntax derives, which `Stdx.Json.Utf8.Char` already transcribes.
+      §4's syntax derives, which `Stdx.Utf8.Char` already transcribes.
     - `sequences_iff`: for every range up to U+10FFFF, octets fall in one of the split's
       sequences exactly when they are the UTF-8 of a scalar value of the range. So a class of a
       program takes each of its scalar values, no surrogate, and no other octets.
     - The proof is of the Lean definitions. `Vectors.lean` writes their sequences for the 630
       ranges between 35 scalar values where an encoding changes, and a Zig test requires
-      `utf8.Splitter` to give the same sequences in the same order.
+      `utf8_ranges.Splitter` to give the same sequences in the same order.
     - Not proved: the parser, the builder, and that the matcher's match is the one a
       backtracking matcher finds first. Design §8 step 22 names what comes next.
 
@@ -5680,10 +5701,8 @@ last part lists what still waits on a ruling.
       first, the `-` that starts no range and the octal escapes, each as RE2 reads it. Built
       (design §8 step 22, part 22g). `\C` stays refused: it takes one octet of any value, so a
       match could cut a scalar value in two.
-    - RFC 3629's UTF-8 goes to a module of its own, `utf8`, which `json` and `regex` import. Not
-      built yet. `src/json/utf8.zig` holds the machine decision 28 proved, with `encoded_len`
-      and `encode`, and `src/regex/utf8.zig` still reads a pattern's scalar values and writes
-      them with code of its own.
+    - RFC 3629's UTF-8 goes to a module of its own, `utf8`, which `json` and `regex` import.
+      Built (design §8 step 22, part 22k). "UTF-8 in one place" above says what it holds.
     - The oracle and RE2's own tests go in the tree, both, as `zig build differential-regex
       -Doracles`: Go's regexp over generated patterns, and RE2's two test logs as a corpus pinned
       by SHA-256. Not built yet (step 22, part 22b). Go's regexp holds RE2's syntax and

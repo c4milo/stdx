@@ -20,7 +20,7 @@ const Instruction = program_file.Instruction;
 const Context = program_file.Context;
 const SparseSet = @import("sparse_set.zig").SparseSet;
 const Cache = @import("dfa_cache.zig").Cache;
-const is_continuation = @import("utf8.zig").is_continuation;
+const is_continuation = @import("utf8_ranges.zig").is_continuation;
 
 /// Which matches a DFA reports.
 pub const Kind = enum {

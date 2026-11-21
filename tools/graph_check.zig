@@ -25,7 +25,7 @@ const deflate_imports = [_]Import{
 };
 
 /// Every module name `deflate` must not be able to import. Each gets a fixture and each must fail.
-const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "platform", "regex", "pepegrillo", "oracle" };
+const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "platform", "regex", "utf8", "pepegrillo", "oracle" };
 
 /// The module name the positive control imports: one `deflate` really does have.
 const control = "codec";
@@ -68,6 +68,11 @@ pub fn main(init: std.process.Init) !void {
     var failures: usize = 0;
     for (forbidden) |module_name| {
         const path = try fixture_path(arena, fixtures, module_name);
+        // A compile of a file that is not there fails too, and would read as a pass.
+        std.Io.Dir.cwd().access(init.io, path, .{}) catch {
+            std.debug.print("graph-check BROKEN: no fixture {s} for '{s}'.\n", .{ path, module_name });
+            std.process.exit(1);
+        };
         const outcome = try compile(arena, init.io, zig_exe, src_root, path);
         if (outcome == .rejected) {
             std.debug.print("graph-check: src/deflate/ cannot import '{s}'\n", .{module_name});
@@ -123,7 +128,7 @@ fn compile(
 test "the forbidden list names every module of the graph deflate does not import, and a package" {
     // docs/design.md §3: every library module but `deflate` itself and `codec`, then pepegrillo
     // and the oracle bindings of tools/oracle/, which only tools and benchmarks may import.
-    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "platform", "regex", "pepegrillo", "oracle" };
+    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "platform", "regex", "utf8", "pepegrillo", "oracle" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {
         try std.testing.expectEqualStrings(want, got);

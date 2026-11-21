@@ -1,7 +1,8 @@
 //! The module graph of docs/design.md §3: one module per codec, one for the checksums, one for JSON
-//! (decision 27), one for the streaming contract every codec shares, and one that probes the CPU
-//! once when a program starts (decision 40). A module can `@import` only what this file gives it,
-//! so the dependency direction is enforced by the build and not by review (CLAUDE.md, Layout).
+//! (decision 27), one for regular expressions and one for the UTF-8 both read (decision 86), one
+//! for the streaming contract every codec shares, and one that probes the CPU once when a program
+//! starts (decision 40). A module can `@import` only what this file gives it, so the dependency
+//! direction is enforced by the build and not by review (CLAUDE.md, Layout).
 //!
 //! Every module here is library code and is exported by name with `b.addModule`, so a dependent
 //! reaches it with `dependency.module("gzip")` (decision 6). Nothing here imports a package: the
@@ -34,6 +35,9 @@ pub const Modules = struct {
     zstd: *std.Build.Module,
     /// Brotli, RFC 7932.
     brotli: *std.Build.Module,
+    /// UTF-8, RFC 3629: the validator decision 28 proved, and the octets of one code point
+    /// (decision 86). Imports nothing.
+    utf8: *std.Build.Module,
     /// JSON, RFC 8259, and JSON text sequences, RFC 7464 (decision 27).
     json: *std.Build.Module,
     /// Base 64, RFC 4648 §4 and §5 (decision 68).
@@ -88,10 +92,14 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     // Decision 68's AVX2 kernels: the nibble tables through vpshufb, and the encoder's shuffles.
     variants.add_levels(b, base64, "base64", settings.target, settings.optimize, &variants.base64_levels);
 
+    const utf8 = library(b, "utf8", settings);
+
     const json = library(b, "json", settings);
     json.addImport("codec", codec);
     // `TextWriter.base64`'s letters (decision 73).
     json.addImport("base64", base64);
+    // The check of a string's UTF-8, and the octets of a `\u` escape (decision 86).
+    json.addImport("utf8", utf8);
     // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
     variants.add_levels(b, json, "json", settings.target, settings.optimize, &variants.json_levels);
 
@@ -100,6 +108,8 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     const regex = library(b, "regex", settings);
     // The checked reader a pattern is read through, and the classes of a refusal (decision 11).
     regex.addImport("codec", codec);
+    // A pattern's characters, and the octets a program takes for each (decision 86).
+    regex.addImport("utf8", utf8);
 
     return .{
         .codec = codec,
@@ -109,6 +119,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .gzip = gzip,
         .zstd = zstd,
         .brotli = brotli,
+        .utf8 = utf8,
         .json = json,
         .base64 = base64,
         .platform = platform,

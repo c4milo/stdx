@@ -21,7 +21,7 @@ const program_file = @import("program.zig");
 const Program = program_file.Program;
 const Context = program_file.Context;
 const SparseSet = @import("sparse_set.zig").SparseSet;
-const is_continuation = @import("utf8.zig").is_continuation;
+const is_continuation = @import("utf8_ranges.zig").is_continuation;
 const work_file = @import("work.zig");
 
 /// What the caller says about the input of one call.

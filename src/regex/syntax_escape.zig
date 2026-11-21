@@ -4,7 +4,7 @@ const std = @import("std");
 const codec = @import("codec");
 const constants = @import("constants.zig");
 const errors = @import("errors.zig");
-const utf8 = @import("utf8.zig");
+const utf8_ranges = @import("utf8_ranges.zig");
 const Look = @import("program.zig").Look;
 const ScalarSet = @import("scalar_set.zig").ScalarSet;
 
@@ -45,7 +45,7 @@ pub const Escape = union(enum) {
 /// The escape whose reverse solidus was just read.
 pub fn take(reader: *codec.Reader) errors.Error!Escape {
     // RFC 9485 §3: SingleCharEsc = "\" and one character, so a pattern does not end at a "\".
-    const scalar = (try utf8.take_scalar(reader)) orelse return error.InvalidEscape;
+    const scalar = (try utf8_ranges.take_scalar(reader)) orelse return error.InvalidEscape;
     return switch (scalar) {
         'A' => .{ .look = .behind_text },
         'z' => .{ .look = .ahead_text },
@@ -138,7 +138,7 @@ fn hex(reader: *codec.Reader) errors.Error!u32 {
     // RFC 9485 §3 has no such escape: the braces RE2 gives it close after the digits.
     if (braced and !take_if(reader, '}')) return error.InvalidEscape;
     // RFC 3629 §3: a scalar value is at most U+10FFFF and is no surrogate.
-    if (value > constants.scalar_max or utf8.is_surrogate(value)) return error.InvalidScalarValue;
+    if (value > constants.scalar_max or utf8_ranges.is_surrogate(value)) return error.InvalidScalarValue;
     return value;
 }
 

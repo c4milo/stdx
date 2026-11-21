@@ -29,7 +29,7 @@ const Encoder = encoder_file.Encoder;
 const Token = encoder_file.Token;
 const Kind = encoder_file.Kind;
 const content = @import("encoder_content.zig");
-const Utf8 = @import("../utf8.zig").Utf8;
+const Validator = @import("utf8").Validator;
 
 /// What a token writes between the octets that frame it. The octets of one or two are written one
 /// at a time, so a copy of a few octets calls no `memcpy`.
@@ -90,7 +90,7 @@ pub inline fn token(encoder: *Encoder, comptime claims: Claims, value: Token, re
     assert(encoder.part == .between_tokens and encoder.pending_len == 0);
     // Between tokens, the UTF-8 check stands where `Encoder.open` sets it: each continuation octet
     // resets its range, and a string ends only between characters.
-    assert(std.meta.eql(encoder.utf8, Utf8{}));
+    assert(std.meta.eql(encoder.utf8, Validator{}));
     const kind = std.meta.activeTag(value);
     assert(encoder_file.allowed(encoder.position, kind));
     var buffer: format.Buffer = undefined;

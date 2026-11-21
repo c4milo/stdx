@@ -19,7 +19,7 @@ const Claims = @import("../claims.zig").Claims;
 const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
 const Piece = framing_file.Piece;
-const Utf8 = @import("../utf8.zig").Utf8;
+const Validator = @import("utf8").Validator;
 const Containers = @import("../containers.zig").Containers;
 const wide = @import("../wide.zig");
 const strings = @import("decoder_string.zig");
@@ -153,7 +153,7 @@ pub const Decoder = struct {
     /// The high surrogate a low one must follow, while `escape` says so.
     high_surrogate: u16,
     /// Where the validation of a string's octets stands (RFC 3629 §4).
-    utf8: Utf8,
+    utf8: Validator,
     /// Where a number stands in RFC 8259 §6's grammar.
     number: number_grammar.Number,
     /// The UTF-8 of an escaped character that the output had no room for: `pending[written..len]`.

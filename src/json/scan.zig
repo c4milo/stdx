@@ -12,7 +12,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
 const scan_utf8 = @import("scan_utf8.zig");
 
 /// True for an octet a string carries as it is that is ASCII: U+0020 to U+007F, but for quotation

@@ -1,13 +1,13 @@
 //! The UTF-8 check over a whole buffer (RFC 3629 §4), split from scan_utf8.zig: `valid` at 16
 //! lanes, the json module's `is_utf8` on a target with no wider copy (decision 38), and `valid_by`
 //! at any width, which the x86-64 variant object runs at 32 and 64 lanes (decision 39). Each judges
-//! a block with scan_utf8.zig's `error_octets`, and the octets past the last block with utf8.zig's
-//! machine.
+//! a block with scan_utf8.zig's `error_octets`, and the octets past the last block with
+//! `utf8.Validator`.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const constants = @import("constants.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
 const scan_utf8 = @import("scan_utf8.zig");
 const Form = scan_utf8.Form;
 const error_octets = scan_utf8.error_octets;
@@ -33,7 +33,7 @@ pub fn valid(octets: []const u8) bool {
 }
 
 /// `valid` at `width` lanes a block, by `form`: groups of `utf8_group_blocks` blocks, then blocks of
-/// `width`, then, past a wider width, blocks of 16, and the last octets through utf8.zig's machine.
+/// `width`, then, past a wider width, blocks of 16, and the last octets through `utf8.Validator`.
 /// The x86-64 variant object runs it at 32 and 64 lanes by the lookup (decision 39).
 pub fn valid_by(comptime width: usize, comptime form: Form, octets: []const u8) bool {
     const start = if (width == constants.vector_len) 0 else aligned_start(width, octets);
@@ -102,7 +102,7 @@ fn blocks_valid(comptime width: usize, comptime form: Form, octets: []const u8, 
 /// between characters.
 fn tail_valid(octets: []const u8, index: usize) bool {
     const cut_len = cut_character_len(octets[0..index]);
-    var machine: utf8.Utf8 = .{};
+    var machine: utf8.Validator = .{};
     for (octets[index - cut_len ..]) |octet| {
         if (!machine.accept(octet)) return false;
     }

@@ -3,7 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
-const ScalarRange = @import("utf8.zig").ScalarRange;
+const ScalarRange = @import("utf8_ranges.zig").ScalarRange;
 
 pub const Error = error{ClassTooLarge};
 

@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("constants.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
 const scan_utf8 = @import("scan_utf8.zig");
 const wide = @import("wide.zig");
 const valid = scan_utf8.valid;
@@ -17,9 +17,9 @@ const cut_character_len = scan_utf8.cut_character_len;
 const edge_octets = "\x00\x41\x7f\x80\x9f\xa0\xbf\xc0\xc1\xc2\xdf\xe0\xe1\xec\xed\xee\xef\xf0\xf1\xf3\xf4\xf5\xf7\xf8\xff";
 const sequence_len = 3;
 
-/// `valid` an octet at a time, the reference: utf8.zig's machine over the whole buffer.
+/// `valid` an octet at a time, the reference: `utf8.Validator` over the whole buffer.
 fn valid_scalar(octets: []const u8) bool {
-    var machine: utf8.Utf8 = .{};
+    var machine: utf8.Validator = .{};
     for (octets) |octet| {
         if (!machine.accept(octet)) return false;
     }

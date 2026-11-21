@@ -1,5 +1,6 @@
-//! UTF-8 for the `regex` module (RFC 3629): one scalar value read from a pattern, one written as
-//! octets, and a range of scalar values split into sequences of octet ranges.
+//! A pattern's UTF-8 for the `regex` module (RFC 3629): one scalar value read from a pattern, and
+//! a range of scalar values split into sequences of octet ranges. The `utf8` module checks each
+//! character, reads its scalar value and writes one as octets (decision 86).
 //!
 //! A program takes octets, so a class or a `.` that holds scalar values past U+007F becomes
 //! alternatives of two to four octet ranges. `Splitter` cuts a range of scalar values until each
@@ -8,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const utf8 = @import("utf8");
 const constants = @import("constants.zig");
 
 pub const ScalarRange = struct { lo: u32, hi: u32 };
@@ -20,69 +22,19 @@ pub const Sequence = struct {
     len: u32,
 };
 
-/// The octets a scalar value takes.
-pub fn encoded_len(scalar: u32) u32 {
-    assert(scalar <= constants.scalar_max);
-    if (scalar <= constants.one_octet_max) return 1;
-    if (scalar <= constants.two_octets_max) return constants.two_octets;
-    if (scalar <= constants.three_octets_max) return constants.three_octets;
-    return constants.utf8_len_max;
-}
-
-/// The leading octet of a sequence of `len` octets, with no payload bit set (RFC 3629 §3).
-fn lead_of(len: u32) u8 {
-    return switch (len) {
-        1 => 0,
-        constants.two_octets => constants.two_octets_lead,
-        constants.three_octets => constants.three_octets_lead,
-        constants.utf8_len_max => constants.four_octets_lead,
-        else => unreachable,
-    };
-}
-
-/// Writes a scalar value as UTF-8 (RFC 3629 §3), and gives the octets written.
-pub fn encode(scalar: u32, octets: *[constants.utf8_len_max]u8) u32 {
-    const len = encoded_len(scalar);
-    var rest = scalar;
-    var index = len;
-    while (index > 1) : (index -= 1) {
-        octets[index - 1] = constants.continuation_min | @as(u8, @intCast(rest & constants.continuation_mask));
-        rest >>= constants.continuation_bits;
-    }
-    octets[0] = lead_of(len) | @as(u8, @intCast(rest));
-    return len;
-}
-
 pub const DecodeError = error{InvalidUtf8};
-
-/// The octets of the sequence a leading octet starts (RFC 3629 §4).
-fn sequence_len(lead: u8) DecodeError!u32 {
-    if (lead <= constants.one_octet_max) return 1;
-    // RFC 3629 §4: UTF8-2 starts at C2, so a continuation octet, C0 and C1 start no sequence, and
-    // no sequence starts past F4.
-    if (lead < constants.two_octets_lead_min or lead > constants.lead_max) return error.InvalidUtf8;
-    if (lead < constants.three_octets_lead) return constants.two_octets;
-    if (lead < constants.four_octets_lead) return constants.three_octets;
-    return constants.utf8_len_max;
-}
 
 /// The next scalar value of a pattern, or null at its end.
 pub fn take_scalar(reader: *codec.Reader) DecodeError!?u32 {
-    const lead = reader.take_octet() catch return null;
-    const len = try sequence_len(lead);
-    if (len == 1) return lead;
-    var scalar: u32 = lead ^ lead_of(len);
-    for (1..len) |_| {
-        // RFC 3629 §4: a sequence holds each UTF8-tail its leading octet asks for.
-        const tail = reader.take_octet() catch return error.InvalidUtf8;
-        // RFC 3629 §4: UTF8-tail = %x80-BF.
-        if (tail < constants.continuation_min or tail > constants.continuation_max) return error.InvalidUtf8;
-        scalar = (scalar << constants.continuation_bits) | (tail & constants.continuation_mask);
-    }
-    // RFC 3629 §3: a scalar value takes its shortest form, a surrogate has none, and U+10FFFF is
-    // the last.
-    if (scalar > constants.scalar_max or is_surrogate(scalar) or encoded_len(scalar) != len) return error.InvalidUtf8;
-    return scalar;
+    const ahead = reader.take_partial(constants.utf8_len_max);
+    if (ahead.len == 0) return null;
+    // RFC 3629 §4: a pattern is UTF-8, so its next octets start with one whole character. The
+    // syntax holds no overlong form, no surrogate and no value past U+10FFFF.
+    const len = utf8.character_len(ahead) orelse return error.InvalidUtf8;
+    reader.unread(ahead.len);
+    // The character is inside the octets read ahead, so the reader holds all of it.
+    const character = reader.take(len) catch unreachable;
+    return utf8.decode(character);
 }
 
 /// True for 10xxxxxx, an octet that continues a sequence (RFC 3629 §3).
@@ -91,18 +43,11 @@ pub fn is_continuation(octet: u8) bool {
 }
 
 pub fn is_surrogate(scalar: u32) bool {
-    return scalar >= constants.surrogate_first and scalar <= constants.surrogate_last;
+    return scalar >= constants.surrogate_min and scalar <= constants.surrogate_max;
 }
 
-/// The largest scalar value that `len` octets encode.
-fn len_max(len: u32) u32 {
-    return switch (len) {
-        1 => constants.one_octet_max,
-        constants.two_octets => constants.two_octets_max,
-        constants.three_octets => constants.three_octets_max,
-        else => unreachable,
-    };
-}
+/// The largest scalar value that one, two and three octets encode, by the octets less one.
+const len_maxima = [_]u32{ constants.one_octet_max, constants.two_octets_max, constants.three_octets_max };
 
 /// Cuts a range of scalar values into sequences of octet ranges. The surrogates are left out.
 pub const Splitter = struct {
@@ -148,20 +93,19 @@ pub const Splitter = struct {
 
     /// RFC 3629 §3: UTF-8 encodes no surrogate, so a range holds none.
     fn cut_surrogates(splitter: *Splitter, range: *ScalarRange) bool {
-        if (range.lo < constants.surrogate_first and range.hi > constants.surrogate_last) {
-            splitter.push(constants.surrogate_last + 1, range.hi);
-            range.hi = constants.surrogate_first - 1;
+        if (range.lo < constants.surrogate_min and range.hi > constants.surrogate_max) {
+            splitter.push(constants.surrogate_max + 1, range.hi);
+            range.hi = constants.surrogate_min - 1;
             return true;
         }
-        if (is_surrogate(range.lo)) range.lo = constants.surrogate_last + 1;
-        if (is_surrogate(range.hi)) range.hi = constants.surrogate_first - 1;
+        if (is_surrogate(range.lo)) range.lo = constants.surrogate_max + 1;
+        if (is_surrogate(range.hi)) range.hi = constants.surrogate_min - 1;
         return false;
     }
 
     /// A sequence has one length, so a range ends where a longer encoding starts.
     fn cut_length(splitter: *Splitter, range: *ScalarRange) bool {
-        for (1..constants.utf8_len_max) |len| {
-            const last = len_max(@intCast(len));
+        for (len_maxima) |last| {
             if (range.lo <= last and range.hi > last) {
                 splitter.push(last + 1, range.hi);
                 range.hi = last;
@@ -175,7 +119,7 @@ pub const Splitter = struct {
     /// the first must be all zeros and those of the last all ones: only then is every octet
     /// between the two encodings' octets, position by position, inside the range.
     fn cut_continuation(splitter: *Splitter, range: *ScalarRange) bool {
-        for (1..encoded_len(range.hi)) |tail_count| {
+        for (1..utf8.encoded_len(@intCast(range.hi))) |tail_count| {
             const bits: u5 = @intCast(tail_count * constants.continuation_bits);
             const low: u32 = (@as(u32, 1) << bits) - 1;
             if (range.lo & ~low == range.hi & ~low) continue;
@@ -195,11 +139,13 @@ pub const Splitter = struct {
 };
 
 fn sequence_of(range: ScalarRange) Sequence {
+    const len = utf8.encoded_len(@intCast(range.lo));
+    assert(utf8.encoded_len(@intCast(range.hi)) == len);
     var first: [constants.utf8_len_max]u8 = undefined;
     var last: [constants.utf8_len_max]u8 = undefined;
-    const len = encode(range.lo, &first);
-    assert(encode(range.hi, &last) == len);
-    var sequence: Sequence = .{ .ranges = undefined, .len = len };
+    utf8.encode(@intCast(range.lo), first[0..len]);
+    utf8.encode(@intCast(range.hi), last[0..len]);
+    var sequence: Sequence = .{ .ranges = undefined, .len = @intCast(len) };
     for (0..len) |index| {
         assert(first[index] <= last[index]);
         sequence.ranges[index] = .{ .lo = first[index], .hi = last[index] };
@@ -208,15 +154,6 @@ fn sequence_of(range: ScalarRange) Sequence {
 }
 
 const testing = std.testing;
-
-test "encode writes the four lengths of RFC 3629 §3" {
-    var octets: [constants.utf8_len_max]u8 = undefined;
-    try testing.expectEqualSlices(u8, "A", octets[0..encode('A', &octets)]);
-    try testing.expectEqualSlices(u8, "\xC3\xA9", octets[0..encode(0xE9, &octets)]);
-    try testing.expectEqualSlices(u8, "\xE2\x82\xAC", octets[0..encode(0x20AC, &octets)]);
-    try testing.expectEqualSlices(u8, "\xF0\x9F\x98\x80", octets[0..encode(0x1F600, &octets)]);
-    try testing.expectEqualSlices(u8, "\xF4\x8F\xBF\xBF", octets[0..encode(0x10FFFF, &octets)]);
-}
 
 fn expect_scalars(text: []const u8, expected: []const u32) !void {
     var reader = codec.Reader.init(text);
@@ -303,7 +240,9 @@ test "Splitter cuts a range inside one length at each octet that is not whole" {
 /// True when the sequence holds the octets of `scalar`.
 fn holds(sequence: Sequence, scalar: u32) bool {
     var octets: [constants.utf8_len_max]u8 = undefined;
-    if (encode(scalar, &octets) != sequence.len) return false;
+    const len = utf8.encoded_len(@intCast(scalar));
+    if (len != sequence.len) return false;
+    utf8.encode(@intCast(scalar), octets[0..len]);
     for (sequence.ranges[0..sequence.len], octets[0..sequence.len]) |range, octet| {
         if (octet < range.lo or octet > range.hi) return false;
     }
@@ -320,8 +259,8 @@ fn sequence_size(sequence: Sequence) u64 {
 /// The scalar values of a range, the surrogates left out.
 fn range_size(lo: u32, hi: u32) u64 {
     var size: u64 = @as(u64, hi - lo) + 1;
-    const first = @max(lo, constants.surrogate_first);
-    const last = @min(hi, constants.surrogate_last);
+    const first = @max(lo, constants.surrogate_min);
+    const last = @min(hi, constants.surrogate_max);
     if (first <= last) size -= @as(u64, last - first) + 1;
     return size;
 }

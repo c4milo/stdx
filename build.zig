@@ -113,6 +113,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "base64", .module = graph.base64 },
         .{ .name = "platform", .module = graph.platform },
         .{ .name = "regex", .module = graph.regex },
+        .{ .name = "utf8", .module = graph.utf8 },
     };
     for (unit_test_modules) |entry| {
         // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast

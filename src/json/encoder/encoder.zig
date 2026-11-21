@@ -15,7 +15,7 @@ const format = @import("../format.zig");
 const Claims = @import("../claims.zig").Claims;
 const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
-const Utf8 = @import("../utf8.zig").Utf8;
+const Validator = @import("utf8").Validator;
 const Containers = @import("../containers.zig").Containers;
 const Number = @import("../number.zig").Number;
 const wide = @import("../wide.zig");
@@ -102,7 +102,7 @@ pub const Encoder = struct {
     pending_len: u8,
     pending_written: u8,
     /// Where the validation of a name's or a string's octets stands (RFC 3629 §4).
-    utf8: Utf8,
+    utf8: Validator,
     /// Where a number's text stands in RFC 8259 §6's grammar.
     number: Number,
     /// The widest vector the caller's CPU features allow the vector paths (claim J7).

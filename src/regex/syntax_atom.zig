@@ -5,7 +5,8 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const errors = @import("errors.zig");
 const fragment = @import("fragment.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
+const utf8_ranges = @import("utf8_ranges.zig");
 const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
 const ScalarSet = @import("scalar_set.zig").ScalarSet;
@@ -23,7 +24,7 @@ pub const Flags = struct {
 };
 
 /// The octet ranges of one sequence, each after the one before it.
-fn sequence(builder: *Builder, ranges: []const utf8.OctetRange) fragment.Error!Fragment {
+fn sequence(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.Error!Fragment {
     assert(ranges.len > 0 and ranges.len <= constants.utf8_len_max);
     var whole = try builder.range(ranges[0].lo, ranges[0].hi);
     for (ranges[1..]) |range| whole = builder.cat(whole, try builder.range(range.lo, range.hi));
@@ -32,10 +33,10 @@ fn sequence(builder: *Builder, ranges: []const utf8.OctetRange) fragment.Error!F
 
 /// Every scalar value of ranges that are in order and apart: one alternative for each sequence
 /// of octet ranges. No two alternatives take the same octets, so their order chooses nothing.
-fn scalar_ranges(builder: *Builder, scalars: []const utf8.ScalarRange) fragment.Error!Fragment {
+fn scalar_ranges(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
     var whole: ?Fragment = null;
     for (scalars) |range| {
-        var splitter = utf8.Splitter.init(range.lo, range.hi);
+        var splitter = utf8_ranges.Splitter.init(range.lo, range.hi);
         while (splitter.next()) |octets| {
             const piece = try sequence(builder, octets.ranges[0..octets.len]);
             whole = if (whole) |sofar| try builder.alternate(sofar, piece) else piece;
@@ -58,7 +59,7 @@ fn is_ascii_letter(scalar: u32) bool {
 
 /// One scalar value, as its UTF-8. Under `(?i)` an ASCII letter is its two cases.
 pub fn literal(builder: *Builder, flags: Flags, scalar: u32) errors.Error!Fragment {
-    assert(scalar <= constants.scalar_max and !utf8.is_surrogate(scalar));
+    assert(scalar <= constants.scalar_max and !utf8_ranges.is_surrogate(scalar));
     if (flags.case_insensitive) {
         // RFC 9485 §3 gives a regexp no case-insensitive form: `(?i)` is RE2's, and stdx folds
         // the ASCII letters alone until design §8 adds Unicode's tables (decision 86).
@@ -70,18 +71,19 @@ pub fn literal(builder: *Builder, flags: Flags, scalar: u32) errors.Error!Fragme
         }
     }
     var octets: [constants.utf8_len_max]u8 = undefined;
-    const len = utf8.encode(scalar, &octets);
+    const len = utf8.encoded_len(@intCast(scalar));
+    utf8.encode(@intCast(scalar), octets[0..len]);
     var whole = try builder.range(octets[0], octets[0]);
     for (octets[1..len]) |octet| whole = builder.cat(whole, try builder.range(octet, octet));
     return whole;
 }
 
 /// What a `.` holds: any scalar value but a line feed, and any at all under `(?s)`.
-const dot_ranges = [_]utf8.ScalarRange{
+const dot_ranges = [_]utf8_ranges.ScalarRange{
     .{ .lo = 0, .hi = constants.line_feed - 1 },
     .{ .lo = constants.line_feed + 1, .hi = constants.scalar_max },
 };
-const every_scalar = [_]utf8.ScalarRange{.{ .lo = 0, .hi = constants.scalar_max }};
+const every_scalar = [_]utf8_ranges.ScalarRange{.{ .lo = 0, .hi = constants.scalar_max }};
 
 pub fn dot(builder: *Builder, flags: Flags) errors.Error!Fragment {
     return scalar_ranges(builder, if (flags.dot_matches_line_feed) &every_scalar else &dot_ranges);
@@ -164,7 +166,7 @@ test "a set of no scalar value is an instruction no octet passes" {
     const none = try class(&builder, &set);
     try testing.expectEqual(program.Kind.fail, storage[none.entry].kind);
     try testing.expect(none.holes.is_empty());
-    try set.add(constants.surrogate_first, constants.surrogate_last);
+    try set.add(constants.surrogate_min, constants.surrogate_max);
     const surrogates = try class(&builder, &set);
     try testing.expectEqual(program.Kind.fail, storage[surrogates.entry].kind);
 }

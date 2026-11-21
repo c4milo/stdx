@@ -220,9 +220,11 @@ check lands with its step.
   pepegrillo, an oracle or a corpus.
 - **Mechanism.** A module can import only what `build/modules.zig` gives it.
 - **Check.** Lint rule `tools/lint/module_graph.zig` pins the graph; `zig build graph-check`
-  compiles fixtures that import a wrapper, another codec, `json`, `platform`, a package and the
-  oracle bindings from inside `src/deflate/`, and requires each compile to fail, beside a control
-  that must compile. Steps 0, 2 and 20.
+  compiles fixtures that import a wrapper, another codec, `json`, `base64`, `platform`, `regex`,
+  `utf8`, a package and the oracle bindings from inside `src/deflate/`, and requires each compile
+  to fail, beside a control that must compile. A module with no fixture fails the check: until
+  step 22 part 22k, `base64` and `regex` had none, and a compile of a file that is not there
+  passed as a refusal. Steps 0, 2, 20 and 22.
 - **Violation.** `deflate.addImport("checksum", checksum)` to share a helper.
 
 ### INV-15: no source names a consumer
@@ -286,10 +288,10 @@ check lands with its step.
 
 - **Claim.** For a range of scalar values, the sequences of octet ranges that `regex` compiles it
   to take the UTF-8 of each scalar value of the range, of no surrogate, and no other octets.
-- **Mechanism.** `utf8.Splitter` cuts a range at the surrogates, at each encoded length, and where
-  a continuation octet is not whole (decision 86).
+- **Mechanism.** `utf8_ranges.Splitter` cuts a range at the surrogates, at each encoded length,
+  and where a continuation octet is not whole (decision 86).
 - **Check.** A theorem in Lean, `Stdx.Regex.Utf8.sequences_iff`, of the splitter's definitions,
   for every range. Seeded check: a Zig test replays the 630 ranges of `utf8_split_vectors.txt`,
-  which the definitions give, against `utf8.Splitter`, and two tests count the scalar values of
-  each sequence for the same ranges and for 4,096 seeded ones. Step 22.
+  which the definitions give, against `utf8_ranges.Splitter`, and two tests count the scalar
+  values of each sequence for the same ranges and for 4,096 seeded ones. Step 22.
 - **Violation.** A splitter that keeps `ED A0 80`, a surrogate, in the range U+D000 to U+E000.

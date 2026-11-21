@@ -6,7 +6,8 @@ const codec = @import("codec");
 const constants = @import("constants.zig");
 const errors = @import("errors.zig");
 const escape = @import("syntax_escape.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
+const utf8_ranges = @import("utf8_ranges.zig");
 const atom = @import("syntax_atom.zig");
 const ScalarSet = @import("scalar_set.zig").ScalarSet;
 const posix = @import("syntax_posix.zig");
@@ -22,7 +23,7 @@ const Item = union(enum) {
 
 fn take_item(reader: *codec.Reader) errors.Error!Item {
     // RFC 9485 §3: charClassExpr ends with "]", so a pattern does not end inside a class.
-    const scalar = (try utf8.take_scalar(reader)) orelse return error.MissingBracket;
+    const scalar = (try utf8_ranges.take_scalar(reader)) orelse return error.MissingBracket;
     switch (scalar) {
         ']' => return .end,
         '[' => return .{ .posix = try take_posix(reader) },
@@ -117,7 +118,7 @@ pub fn take(reader: *codec.Reader, flags: atom.Flags) errors.Error!ScalarSet {
 }
 
 const testing = std.testing;
-const ScalarRange = utf8.ScalarRange;
+const ScalarRange = utf8_ranges.ScalarRange;
 
 /// The class a text holds, which must end at the text's end.
 fn take_text(text: []const u8, flags: atom.Flags) errors.Error!ScalarSet {
@@ -228,9 +229,9 @@ test "a class past class_ranges_max ranges is refused" {
     var len: usize = 0;
     // Every second scalar value from U+0100 on: no two join.
     for (0..constants.class_ranges_max + 1) |index| {
-        var octets: [constants.utf8_len_max]u8 = undefined;
-        const count = utf8.encode(@intCast(0x100 + 2 * index), &octets);
-        @memcpy(text[len..][0..count], octets[0..count]);
+        const code_point: u21 = @intCast(0x100 + 2 * index);
+        const count = utf8.encoded_len(code_point);
+        utf8.encode(code_point, text[len..][0..count]);
         len += count;
     }
     text[len] = ']';

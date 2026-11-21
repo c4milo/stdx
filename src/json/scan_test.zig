@@ -2,14 +2,14 @@
 //! tests draw and the fuzzer finds, at the codecs' `vector_len` of 16 octets a block, and at 32 and
 //! 64, AVX2's and AVX-512's (decision 21). So do wide.zig's string and hex scans at every level of
 //! claim J7 this CPU runs, which on x86-64 call the kernels of the variant objects (decision 30). The
-//! scalar paths are the reference (decision 16), and `utf8.zig`'s tests hold the UTF-8 they use to
+//! scalar paths are the reference (decision 16), and the `utf8` module's tests hold the UTF-8 they use to
 //! RFC 3629 §4.
 
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("constants.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
 const scan = @import("scan.zig");
 const wide = @import("wide.zig");
 
@@ -215,10 +215,10 @@ fn fuzz_one(_: void, smith: *testing.Smith) anyerror!void {
     try expect_same(input[0..len]);
 }
 
-/// The run a string carries as it is, by utf8.zig's machine: the whole characters before the
+/// The run a string carries as it is, by `utf8.Validator`: the whole characters before the
 /// first octet a string must escape (RFC 8259 §7) or UTF-8 rules out (RFC 3629 §4).
 fn whole_characters_len(octets: []const u8) usize {
-    var machine: utf8.Utf8 = .{};
+    var machine: utf8.Validator = .{};
     var whole: usize = 0;
     for (octets, 1..) |octet, len| {
         if (octet < constants.non_ascii_min and !scan.is_plain_ascii(octet)) return whole;

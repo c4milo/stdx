@@ -1,9 +1,9 @@
 /-!
 # UTF-8, RFC 3629 §4
 
-The syntax of a UTF-8 octet sequence, transcribed from RFC 3629 §4, and the machine
-`src/json/utf8.zig`'s `Utf8` runs, one octet at a time. Two theorems hold the machine to the
-syntax (decision 28):
+The syntax of a UTF-8 octet sequence, transcribed from RFC 3629 §4, and the machine that
+`src/utf8/validator.zig`'s `Validator` runs, one octet at a time. Two theorems hold the machine to
+the syntax (decision 28). The `json` and `regex` modules both read UTF-8 through it (decision 86):
 
 - `accepts_iff`: from the start, the machine ends between characters exactly on the sequences the
   syntax derives;
@@ -11,11 +11,11 @@ syntax (decision 28):
   octets up to it, so it refuses at the first octet that rules the text out.
 
 `Vectors.lean` writes every step of the machine, from every state it reaches, into
-`src/json/utf8_vectors.txt`, which a Zig test replays against `Utf8.accept`.
+`src/utf8/utf8_vectors.txt`, which a Zig test replays against `Validator.accept`.
 
 Octets are natural numbers; the machine refuses every one above 0xFF, as no rule derives one.
 -/
-namespace Stdx.Json.Utf8
+namespace Stdx.Utf8
 
 /-- `UTF8-tail = %x80-BF` -/
 def Tail (b : Nat) : Prop := 0x80 ≤ b ∧ b ≤ 0xBF
@@ -330,4 +330,4 @@ theorem refuses_iff (l : List Nat) : run .start l = none ↔ ¬ ∃ s, Octets (l
       rw [← accepts_iff, run_append, hr]
       exact run_completion q
 
-end Stdx.Json.Utf8
+end Stdx.Utf8

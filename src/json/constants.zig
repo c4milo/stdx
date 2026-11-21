@@ -3,6 +3,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const utf8 = @import("utf8");
 
 /// The most objects and arrays one text may hold open at once. RFC 8259 §9 lets an implementation
 /// limit the depth of nesting; a deeper text is `error.DepthTooLarge` in both directions. The
@@ -179,60 +180,47 @@ pub const nibble_bits = 4;
 pub const nibble_mask: u8 = 0x0f;
 pub const hex_digits_per_octet = 2;
 
-/// UTF-8 (RFC 3629 §3, §4). An octet below `non_ascii_min` is a character of one octet. A
-/// continuation octet lies from `continuation_min` to `continuation_max` and carries
-/// `continuation_bits` of the character. A first octet of two octets lies from `lead_2_min`, of
-/// three from `lead_3_min`, and of four from `lead_4_min` up to `lead_4_max`.
-pub const non_ascii_min: u8 = 0x80;
-pub const continuation_min: u8 = 0x80;
-pub const continuation_max: u8 = 0xbf;
-pub const continuation_bits = 6;
-pub const continuation_mask: u8 = 0x3f;
-pub const lead_2_min: u8 = 0xc2;
-pub const lead_3_min: u8 = 0xe0;
-pub const lead_4_min: u8 = 0xf0;
-pub const lead_4_max: u8 = 0xf4;
+/// UTF-8's octets and code points (RFC 3629 §3, §4), which the `utf8` module names: its
+/// `constants` holds what each one is.
+pub const non_ascii_min = utf8.constants.non_ascii_min;
+pub const continuation_min = utf8.constants.continuation_min;
+pub const continuation_max = utf8.constants.continuation_max;
+pub const continuation_bits = utf8.constants.continuation_bits;
+pub const continuation_mask = utf8.constants.continuation_mask;
+pub const lead_2_min = utf8.constants.lead_2_min;
+pub const lead_3_min = utf8.constants.lead_3_min;
+pub const lead_4_min = utf8.constants.lead_4_min;
+pub const lead_4_max = utf8.constants.lead_4_max;
+pub const invalid_min = utf8.constants.invalid_min;
+pub const lead_3_overlong = utf8.constants.lead_3_overlong;
+pub const lead_3_overlong_second_min = utf8.constants.lead_3_overlong_second_min;
+pub const lead_3_surrogate = utf8.constants.lead_3_surrogate;
+pub const lead_3_surrogate_second_max = utf8.constants.lead_3_surrogate_second_max;
+pub const lead_4_overlong = utf8.constants.lead_4_overlong;
+pub const lead_4_overlong_second_min = utf8.constants.lead_4_overlong_second_min;
+pub const lead_4_largest = utf8.constants.lead_4_largest;
+pub const lead_4_largest_second_max = utf8.constants.lead_4_largest_second_max;
+pub const lead_marks = utf8.constants.lead_marks;
+pub const one_octet_max = utf8.constants.one_octet_max;
+pub const two_octets_max = utf8.constants.two_octets_max;
+pub const three_octets_max = utf8.constants.three_octets_max;
+pub const code_point_max = utf8.constants.code_point_max;
+pub const utf8_len_max = utf8.constants.utf8_len_max;
 
-/// The octets that cannot appear in UTF-8 (RFC 3629 §4): 0xC0 and 0xC1, which would start an
-/// overlong form of a character of one octet, and 0xF5 up.
+/// The first of the two octets that would start an overlong form of a character of one octet,
+/// 0xC0 and 0xC1, which cannot appear in UTF-8 (RFC 3629 §4).
 pub const overlong_lead_2_min: u8 = 0xc0;
-pub const invalid_min: u8 = 0xf5;
 
 /// The least first octet of a character that reaches a given number of octets past itself, indexed
 /// by that number: 0xC0 up reaches 1, 0xE0 up 2, and 0xF0 up 3 (RFC 3629 §3). Index 0 is unused.
 pub const reaching_lead_min = [_]u8{ 0, 0xc0, 0xe0, 0xf0 };
 
-/// The first octets whose second octet has a narrower range than `continuation_min` to
-/// `continuation_max` (RFC 3629 §4): E0 takes A0 to BF, ED takes 80 to 9F, F0 takes 90 to BF, and
-/// F4 takes 80 to 8F. Each rules out an overlong form, a surrogate, or a code point past U+10FFFF.
-pub const lead_3_overlong: u8 = 0xe0;
-pub const lead_3_overlong_second_min: u8 = 0xa0;
-pub const lead_3_surrogate: u8 = 0xed;
-pub const lead_3_surrogate_second_max: u8 = 0x9f;
-pub const lead_4_overlong: u8 = 0xf0;
-pub const lead_4_overlong_second_min: u8 = 0x90;
-pub const lead_4_largest: u8 = 0xf4;
-pub const lead_4_largest_second_max: u8 = 0x8f;
-
-/// The mark each length of character sets in its first octet, which the character's bits follow,
-/// indexed by the length (RFC 3629 §3). A character of one octet has none.
-pub const lead_marks = [_]u8{ 0, 0, 0xc0, 0xe0, 0xf0 };
-
-/// The code points each length of UTF-8 reaches, and the last code point (RFC 3629 §3).
-pub const one_octet_max: u21 = 0x7f;
-pub const two_octets_max: u21 = 0x7ff;
-pub const three_octets_max: u21 = 0xffff;
-pub const code_point_max: u21 = 0x10ffff;
-
-/// The most octets one character takes in UTF-8 (RFC 3629 §3).
-pub const utf8_len_max = 4;
-
 /// UTF-16's surrogates, which a `\u` escape may name (RFC 8259 §7): a high surrogate from
 /// `high_surrogate_min` and a low one from `low_surrogate_min` to `surrogate_max`. A pair names
 /// the code point `supplementary_min` plus the high one's 10 bits and then the low one's.
-pub const high_surrogate_min: u16 = 0xd800;
+pub const high_surrogate_min: u16 = utf8.constants.surrogate_min;
 pub const low_surrogate_min: u16 = 0xdc00;
-pub const surrogate_max: u16 = 0xdfff;
+pub const surrogate_max: u16 = utf8.constants.surrogate_max;
 pub const surrogate_bits = 10;
 pub const supplementary_min: u21 = 0x10000;
 
@@ -315,6 +303,5 @@ comptime {
     for (1..utf8_len_max) |back| assert(reaching_lead_min[back] == lead_marks[back + 1]);
     assert(hex_digits_per_octet * nibble_bits == @bitSizeOf(u8));
     assert(lead_marks[2] == overlong_lead_2_min and lead_marks[3] == lead_3_min and lead_marks[4] == lead_4_min);
-    assert(continuation_mask + 1 == 1 << continuation_bits);
     assert(high_surrogate_min + (1 << surrogate_bits) == low_surrogate_min);
 }

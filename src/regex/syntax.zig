@@ -14,7 +14,7 @@ const escape = @import("syntax_escape.zig");
 const class = @import("syntax_class.zig");
 const atom = @import("syntax_atom.zig");
 const repeat = @import("repeat.zig");
-const utf8 = @import("utf8.zig");
+const utf8_ranges = @import("utf8_ranges.zig");
 const fragment = @import("fragment.zig");
 const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
@@ -65,7 +65,7 @@ pub const Parser = struct {
     /// The whole pattern as one fragment, at the end of the builder's program.
     pub fn parse(parser: *Parser) Error!Fragment {
         parser.frames[0] = .{ .flags = parser.flags, .group = no_group };
-        while (try utf8.take_scalar(&parser.reader)) |scalar| try parser.step(scalar);
+        while (try utf8_ranges.take_scalar(&parser.reader)) |scalar| try parser.step(scalar);
         // RFC 9485 §3: atom = "(" i-regexp ")", so each group closes before the pattern ends.
         if (parser.depth != 0) return error.MissingParenthesis;
         return parser.close_frame();

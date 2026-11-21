@@ -37,7 +37,7 @@ const Decoder = decoder_file.Decoder;
 const Expect = decoder_file.Expect;
 const Kind = decoder_file.Kind;
 const Outcome = decoder_file.Outcome;
-const Utf8 = @import("../utf8.zig").Utf8;
+const Validator = @import("utf8").Validator;
 const loop_copy = @import("decoder_loop/decoder_loop_copy.zig");
 
 /// Takes the octets before a text's first token, for a caller that holds the text's start
@@ -86,7 +86,7 @@ pub inline fn token(decoder: *Decoder, comptime claims: Claims, reader: *codec.R
     // Between tokens, the UTF-8 check stands where `start_token` sets it: each continuation octet
     // resets its range, and a string ends only between characters. So a token taken here leaves it
     // as the checked path does.
-    assert(std.meta.eql(decoder.utf8, Utf8{}));
+    assert(std.meta.eql(decoder.utf8, Validator{}));
     const start = reader.consumed();
     const written = writer.position;
     if (next_token(decoder, claims, reader, writer, in_place)) |outcome| return outcome;

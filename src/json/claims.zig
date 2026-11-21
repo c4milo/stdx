@@ -21,7 +21,7 @@ pub const Claims = struct {
     decoder_string_vectors: bool = constants.vectors,
     /// J5: where J1's or J3's run stops at a non-ASCII octet, UTF-8 is validated a vector at a
     /// time, so the run goes on past non-ASCII characters. Off, each non-ASCII character takes the
-    /// scalar validation of `utf8.zig`. It starts only there, past the escapes and the delimiters,
+    /// scalar validation of `utf8.Validator`. It starts only there, past the escapes and the delimiters,
     /// so text of ASCII runs what it runs with J5 off.
     ///
     /// J4, whitespace skipped a vector at a time, left with its code (decision 27, design §8 step

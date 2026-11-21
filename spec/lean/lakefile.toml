@@ -1,8 +1,8 @@
 name = "stdx"
 defaultTargets = ["Stdx"]
 
-# The proofs of decisions 28 and 86, about the state machines of src/json/ and the UTF-8 ranges of
-# src/regex/. Lean's core alone: no package.
+# The proofs of decisions 28 and 86, about the state machines of src/utf8/ and src/json/ and the
+# UTF-8 ranges of src/regex/. Lean's core alone: no package.
 [[lean_lib]]
 name = "Stdx"
 # Every public declaration says what it is, and an unused name in a proof is an error.

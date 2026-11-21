@@ -7,13 +7,13 @@
 //! octets, before any compare to bools, for `valid_by`, the check over a whole buffer (decision
 //! 38, scan_utf8_valid.zig), which the x86-64 variant object runs at 32 and 64 lanes as well
 //! (decision 39). The tables are built here from RFC 3629 §4's rules, and the tests require the
-//! lookup to judge every pair of octets as utf8.zig's machine does.
+//! lookup to judge every pair of octets as `utf8.Validator` does.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
-const utf8 = @import("utf8.zig");
+const utf8 = @import("utf8");
 
 fn Block(comptime width: usize) type {
     return @Vector(width, u8);
@@ -293,9 +293,9 @@ inline fn error_octets_lookup(comptime width: usize, previous: Block(width), blo
 
 const testing = std.testing;
 
-/// The states utf8.zig's machine reaches from between characters, over every octet.
-fn reachable_states() [constants.utf8_len_max * constants.utf8_len_max]?utf8.Utf8 {
-    var states: [constants.utf8_len_max * constants.utf8_len_max]?utf8.Utf8 = @splat(null);
+/// The states `utf8.Validator` reaches from between characters, over every octet.
+fn reachable_states() [constants.utf8_len_max * constants.utf8_len_max]?utf8.Validator {
+    var states: [constants.utf8_len_max * constants.utf8_len_max]?utf8.Validator = @splat(null);
     states[0] = .{};
     var count: usize = 1;
     var next: usize = 0;
@@ -316,7 +316,7 @@ fn reachable_states() [constants.utf8_len_max * constants.utf8_len_max]?utf8.Utf
 /// Whether some UTF-8 holds `before` and then `octet` next to each other, by the machine. An octet
 /// UTF-8 never holds, C0, C1 or F5 up, is judged by its place alone, as the octet before the next
 /// lane's: the tables flag it there, whatever follows.
-fn pair_possible(states: []const ?utf8.Utf8, before: u8, octet: u8) bool {
+fn pair_possible(states: []const ?utf8.Validator, before: u8, octet: u8) bool {
     const never = (octet >= constants.overlong_lead_2_min and octet < constants.lead_2_min) or octet >= constants.invalid_min;
     for (states) |maybe| {
         var state = maybe orelse break;
@@ -340,7 +340,7 @@ test "the tables judge every pair of octets as the machine of RFC 3629 §4 does"
 const edge_octets = "\x00\x41\x7f\x80\x9f\xa0\xbf\xc0\xc1\xc2\xdf\xe0\xe1\xec\xed\xee\xef\xf0\xf1\xf3\xf4\xf5\xf7\xf8\xff";
 
 fn is_utf8(octets: []const u8) bool {
-    var machine: utf8.Utf8 = .{};
+    var machine: utf8.Validator = .{};
     for (octets) |octet| {
         if (!machine.accept(octet)) return false;
     }

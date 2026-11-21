@@ -1,6 +1,6 @@
 //! An independent judge of the decoder: a recursive-descent parser written from RFC 8259 §2 to §7
 //! and RFC 7464 §2.1 and §2.4 as their grammars read, with none of the decoder's code but the UTF-8
-//! of `utf8.zig`, which that file's tests hold to RFC 3629 §4. Over every input the tests and the
+//! of the `utf8` module, which that module's tests hold to RFC 3629 §4. Over every input the tests and the
 //! fuzzer draw, the decoder's verdict must equal the parser's, and for a whole text so must every
 //! token (decision 15: fuzzing without a judge finds crashes and misses a decoder that accepts what
 //! it should refuse).
@@ -14,7 +14,7 @@ const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
 const constants = @import("../constants.zig");
-const utf8 = @import("../utf8.zig");
+const utf8 = @import("utf8");
 const Framing = @import("../framing.zig").Framing;
 const decoder_test = @import("decoder_test.zig");
 const Transcript = decoder_test.Transcript;
@@ -243,7 +243,7 @@ const Parser = struct {
     fn character(self: *Parser) Failure!usize {
         const rest = self.input[self.position..];
         if (utf8.character_len(rest)) |len| return len;
-        var validation: utf8.Utf8 = .{};
+        var validation: utf8.Validator = .{};
         for (rest) |octet| {
             if (!validation.accept(octet)) return error.TestRefused;
         }

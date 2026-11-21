@@ -1,6 +1,8 @@
 //! The limits of the `regex` module (decision 86, design §8 step 22): what RFC 3629 fixes for
-//! UTF-8, what RFC 9485 §8 lets an implementation bound, and the sizes stdx chose.
+//! UTF-8, as the `utf8` module names it, what RFC 9485 §8 lets an implementation bound, and the
+//! sizes stdx chose.
 const std = @import("std");
+const utf8 = @import("utf8");
 
 /// The values one octet takes.
 pub const octet_values = 256;
@@ -8,45 +10,28 @@ pub const octet_values = 256;
 /// The largest octet.
 pub const octet_max = 0xFF;
 
-/// The largest Unicode scalar value (RFC 3629 §3).
-pub const scalar_max = 0x10FFFF;
+/// The largest Unicode scalar value (RFC 3629 §3). The `utf8` module names it `code_point_max`,
+/// and each constant of UTF-8 below is that module's, as a number of no fixed type.
+pub const scalar_max = @as(comptime_int, utf8.constants.code_point_max);
 
 /// The first and the last surrogate, which UTF-8 never encodes (RFC 3629 §3).
-pub const surrogate_first = 0xD800;
-pub const surrogate_last = 0xDFFF;
+pub const surrogate_min = @as(comptime_int, utf8.constants.surrogate_min);
+pub const surrogate_max = @as(comptime_int, utf8.constants.surrogate_max);
 
 /// The largest scalar value that one, two and three octets encode (RFC 3629 §3).
-pub const one_octet_max = 0x7F;
-pub const two_octets_max = 0x7FF;
-pub const three_octets_max = 0xFFFF;
+pub const one_octet_max = @as(comptime_int, utf8.constants.one_octet_max);
+pub const two_octets_max = @as(comptime_int, utf8.constants.two_octets_max);
+pub const three_octets_max = @as(comptime_int, utf8.constants.three_octets_max);
 
 /// The octets of the longest UTF-8 sequence (RFC 3629 §3).
-pub const utf8_len_max = 4;
+pub const utf8_len_max = utf8.constants.utf8_len_max;
 
-/// The lengths of the multi-octet sequences (RFC 3629 §3).
-pub const two_octets = 2;
-pub const three_octets = 3;
-
-/// The bits of a scalar value that each continuation octet holds, and their mask (RFC 3629 §3).
-pub const continuation_bits = 6;
-pub const continuation_mask = 0x3F;
+/// The bits of a scalar value that each continuation octet holds (RFC 3629 §3).
+pub const continuation_bits = utf8.constants.continuation_bits;
 
 /// The first and the last continuation octet, 10xxxxxx (RFC 3629 §3).
-pub const continuation_min = 0x80;
-pub const continuation_max = 0xBF;
-
-/// The leading octets of a sequence of two, three and four octets with no payload bit set:
-/// 110xxxxx, 1110xxxx and 11110xxx (RFC 3629 §3).
-pub const two_octets_lead = 0xC0;
-pub const three_octets_lead = 0xE0;
-pub const four_octets_lead = 0xF0;
-
-/// The first leading octet that RFC 3629 §4's syntax allows for two octets: C0 and C1 would
-/// encode a scalar value below U+0080.
-pub const two_octets_lead_min = 0xC2;
-
-/// The last leading octet RFC 3629 §4's syntax allows: F5 and above would pass U+10FFFF.
-pub const lead_max = 0xF4;
+pub const continuation_min = @as(comptime_int, utf8.constants.continuation_min);
+pub const continuation_max = @as(comptime_int, utf8.constants.continuation_max);
 
 /// The line feed, the one octet `.` refuses by default and the octet a line ends with.
 pub const line_feed = '\n';
@@ -176,8 +161,6 @@ comptime {
     std.debug.assert(repeat_max * repeat_max < std.math.maxInt(u32));
     std.debug.assert(targets_per_instruction * instructions_max < hole_none);
     std.debug.assert(hole_flag & hole_none == 0);
-    std.debug.assert(one_octet_max + 1 == continuation_min);
-    std.debug.assert(continuation_max - continuation_min == continuation_mask);
     std.debug.assert(1 << context_bits == context_count);
     std.debug.assert(dfa_match_flag | dfa_dead_flag | dfa_row_mask == dfa_unknown);
     std.debug.assert(dfa_record_words > dfa_record_head);

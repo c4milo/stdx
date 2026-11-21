@@ -73,6 +73,24 @@ pub fn add_levels(
     }
 }
 
+/// Gives a variant object's root the library modules its kernels import, each built for the
+/// level's target as the object is. `json`'s kernels check UTF-8 with the `utf8` module (decision
+/// 86), and the other modules' kernels import none.
+fn add_imports(
+    b: *std.Build,
+    root: *std.Build.Module,
+    comptime name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    if (!comptime std.mem.eql(u8, name, "json")) return;
+    root.addImport("utf8", b.createModule(.{
+        .root_source_file = b.path("src/utf8/utf8.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+}
+
 /// The object of one level: `src/<name>/variants.zig` compiled for the level's target.
 pub fn object(
     b: *std.Build,
@@ -89,6 +107,7 @@ pub fn object(
         .optimize = optimize,
     });
     root.addOptions("variant_level", options);
+    add_imports(b, root, name, level_target(b, target, level), optimize);
     // LLVM, in every mode: Zig's own x86-64 backend, which Debug builds use on Linux, cannot
     // place a 512-bit operand of inline assembly.
     return b.addObject(.{

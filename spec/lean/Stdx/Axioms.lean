@@ -1,4 +1,4 @@
-import Stdx.Json.Utf8
+import Stdx.Utf8
 import Stdx.Json.Number
 import Stdx.Regex.Utf8
 
@@ -10,13 +10,17 @@ unfinished compiles to `sorryAx`, which would change a line below and fail `lake
 that may appear are the ones every Lean proof about functions and propositions may use:
 `propext`, `Classical.choice` and `Quot.sound`. A pin covers every lemma its theorem's proof uses.
 -/
-namespace Stdx.Json
+namespace Stdx
 
-/-- info: 'Stdx.Json.Utf8.accepts_iff' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'Stdx.Utf8.accepts_iff' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Utf8.accepts_iff
 
-/-- info: 'Stdx.Json.Utf8.refuses_iff' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'Stdx.Utf8.refuses_iff' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Utf8.refuses_iff
+
+end Stdx
+
+namespace Stdx.Json
 
 /-- info: 'Stdx.Json.Number.accepts_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Number.accepts_iff

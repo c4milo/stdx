@@ -5,7 +5,8 @@ containers, Zstandard and brotli, each with an encoder and a decoder. Beside the
 encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and `platform`, which
 a program calls once when it starts to learn what its CPU offers (decision 40). It holds RFC
 4648's base 64 too, in its own module (decision 68), and `regex`, regular expressions matched in
-time linear in the text (decision 86). Home:
+time linear in the text (decision 86). `json` and `regex` read RFC 3629's UTF-8 through one
+module, `utf8`. Home:
 github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's
 brotli and Wuffs on the workloads it measures, with no heap and no I/O.
 
@@ -72,10 +73,10 @@ The architecture depends on every rule in this section.
    production, about two per function, covering positive and negative space, for programmer error
    only (decision 17); the one loop that runs without them is decision 16's ruled exception.
    Hostile input returns an error value and fails closed; no input reaches an assertion.
-8. **One module per codec, plus the checksums, JSON and `platform`.** Each is exported by name with
-   `b.addModule`, so a dependent reaches it with `dependency.module("gzip")` (decision 6). The
-   library keeps no process-wide mutable state, so a dependent may run codecs on as many threads as
-   it likes.
+8. **One module per codec, plus the checksums, JSON, `platform`, `regex` and `utf8`.** Each is
+   exported by name with `b.addModule`, so a dependent reaches it with
+   `dependency.module("gzip")` (decision 6). The library keeps no process-wide mutable state, so
+   a dependent may run codecs on as many threads as it likes.
 9. **Invariants are code.** Every numbered invariant in `docs/invariants.md` names the check that
    proves it: a comptime assert, a runtime assertion, a lint rule or a seeded check.
 
@@ -177,8 +178,8 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
 - `docs/` is the design set. `docs/rfcs/` holds the RFCs.
 - `spec/lean/` holds the Lean proofs of decisions 28 and 86, a Lake package pepegrillo's `lean`
-  engine builds. Its `Vectors.lean` writes the vector files the unit tests of `src/json/` and
-  `src/regex/` replay.
+  engine builds. Its `Vectors.lean` writes the vector files the unit tests of `src/utf8/`,
+  `src/json/` and `src/regex/` replay.
 
 ## Performance
 
@@ -263,7 +264,7 @@ Change this section when a step adds or renames a command.
   `src/brotli/constants.zig` pins differs from the worst table `tools/brotli_table_budget.zig`
   finds for its alphabet (decision 12).
 - Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
-  then checks `src/json/utf8_vectors.txt`, `number_vectors.txt` and
+  then checks `src/utf8/utf8_vectors.txt`, `src/json/number_vectors.txt` and
   `src/regex/utf8_split_vectors.txt` are what the proved definitions give; `zig build lean --
   write` rewrites them. `zig build test` replays them against the Zig code, with no Lean
   needed. The step needs lake, from elan or a Lean release;
@@ -274,8 +275,9 @@ Change this section when a step adds or renames a command.
   reaches to equal the counts `tools/checkfree_sites.zig` pins (decision 51); `-- --record` prints
   the table the build gives.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec,
-  `json`, `platform`, a package or the oracle bindings from inside `src/deflate/`, and requires
-  each compile to fail.
+  `json`, `base64`, `platform`, `regex`, `utf8`, a package or the oracle bindings from inside
+  `src/deflate/`, and requires each compile to fail. A module that `deflate` must not reach has a
+  fixture in `tools/fixtures/`, and the check fails when one is missing.
 - Platform: `zig build platform-check` requires `platform.probe()` to give the answers the host
   reports: /proc/cpuinfo on Linux and `sysctl` on macOS. It builds `platform` for the generic CPU
   of the host's architecture, and on Linux runs without libc and with it (decision 40).

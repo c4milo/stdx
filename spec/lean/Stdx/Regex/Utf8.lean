@@ -1,27 +1,27 @@
-import Stdx.Json.Utf8
+import Stdx.Utf8
 
 /-!
 # UTF-8 as ranges of octets, RFC 3629 §3 and §4
 
-`src/regex/utf8.zig` writes a scalar value as octets, and cuts a range of scalar values into
-sequences of octet ranges, which a program of `regex` takes one octet at a time (decision 86).
-This file holds both as functions, and three theorems hold them to RFC 3629:
+The `utf8` module writes a scalar value as octets, and `src/regex/utf8_ranges.zig` cuts a range
+of scalar values into sequences of octet ranges, which a program of `regex` takes one octet at a
+time (decision 86). This file holds both as functions, and three theorems hold them to RFC 3629:
 
 - `encode_char` and `char_encode`: `encode` writes exactly the sequences RFC 3629 §4's syntax
-  derives, which `Stdx.Json.Utf8.Char` transcribes;
+  derives, which `Stdx.Utf8.Char` transcribes;
 - `whole_iff`: a range that `step` cuts no further is one sequence of octet ranges, which holds
   the UTF-8 of each scalar value of the range and nothing else;
 - `split_iff`: the sequences `split` gives for a range hold the UTF-8 of each scalar value of
   the range that is no surrogate, and nothing else.
 
 `Vectors.lean` writes the sequences of the ranges between the values where an encoding changes
-into `src/regex/utf8_split_vectors.txt`, which a Zig test replays against `utf8.Splitter`.
+into `src/regex/utf8_split_vectors.txt`, which a Zig test replays against `utf8_ranges.Splitter`.
 
 Scalar values and octets are natural numbers.
 -/
 namespace Stdx.Regex.Utf8
 
-open Stdx.Json.Utf8 (Char Tail)
+open Stdx.Utf8 (Char Tail)
 
 /-- A Unicode scalar value (RFC 3629 §3): at most U+10FFFF, and no surrogate. -/
 def Scalar (v : Nat) : Prop := v ≤ 0x10FFFF ∧ ¬ (0xD800 ≤ v ∧ v ≤ 0xDFFF)
@@ -149,7 +149,7 @@ theorem char_encode {l : List Nat} (h : Char l) : ∃ v, Scalar v ∧ encode v =
     exact list_four (by omega) (by omega) (by omega) (by omega)
 
 /-- At a width of `m` values, two values agree above it, or the first is all zeros below it and
-the last all ones: what `utf8.zig`'s `cut_continuation` leaves of a range. -/
+the last all ones: what `utf8_ranges.zig`'s `cut_continuation` leaves of a range. -/
 def Aligned (m lo hi : Nat) : Prop := lo / m = hi / m ∨ (lo % m = 0 ∧ hi % m = m - 1)
 
 /-- A range of values of two octets that is aligned holds exactly the values whose two octets
@@ -231,7 +231,7 @@ def Within : List (Nat × Nat) → List Nat → Prop
   | (lo, hi) :: ranges, b :: octets => lo ≤ b ∧ b ≤ hi ∧ Within ranges octets
   | _, _ => False
 
-/-- The octet ranges between the octets of two values, as `utf8.zig`'s `sequence_of` gives
+/-- The octet ranges between the octets of two values, as `utf8_ranges.zig`'s `sequence_of` gives
 them. -/
 def sequence (lo hi : Nat) : List (Nat × Nat) := (encode lo).zip (encode hi)
 
@@ -324,7 +324,7 @@ theorem whole_iff {lo hi : Nat} (h : Whole lo hi) (l : List Nat) :
   · exact whole_three hle hlo hhi h1 h2 l
   · exact whole_four hle hlo h1 h2 h3 l
 
-/-- What one pass of `utf8.zig`'s `Splitter.cut` loop leaves of a range. -/
+/-- What one pass of `utf8_ranges.zig`'s `Splitter.cut` loop leaves of a range. -/
 inductive Cut where
   /-- The range holds no scalar value. -/
   | none

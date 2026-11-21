@@ -3,8 +3,7 @@
 const std = @import("std");
 const errors = @import("errors.zig");
 const ScalarSet = @import("scalar_set.zig").ScalarSet;
-const utf8 = @import("utf8.zig");
-const ScalarRange = utf8.ScalarRange;
+const ScalarRange = @import("utf8_ranges.zig").ScalarRange;
 
 /// The longest name: `xdigit` and its like have six letters.
 pub const name_len_max = 6;

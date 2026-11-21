@@ -1,11 +1,11 @@
-//! The check that ties `utf8.Splitter` to the definitions spec/lean/Stdx/Regex/Utf8.lean proves
+//! The check that ties `utf8_ranges.Splitter` to the definitions spec/lean/Stdx/Regex/Utf8.lean proves
 //! (decisions 28 and 86). `sequences_iff` there says the sequences of a range hold the UTF-8 of
 //! each scalar value of the range and nothing else. This test requires the Zig splitter to give
 //! the same sequences, in the same order, for each range of utf8_split_vectors.txt, which
 //! spec/lean/Vectors.lean writes from those definitions.
 const std = @import("std");
 const testing = std.testing;
-const utf8 = @import("utf8.zig");
+const utf8_ranges = @import("utf8_ranges.zig");
 
 const vectors = @embedFile("utf8_split_vectors.txt");
 const radix = 10;
@@ -22,7 +22,7 @@ fn take_number(comptime T: type, line: *[]const u8, end: u8) !T {
 }
 
 /// One sequence of a line, after its bar: `first-last` for each octet, a space between.
-fn expect_sequence(text: []const u8, sequence: utf8.Sequence) !void {
+fn expect_sequence(text: []const u8, sequence: utf8_ranges.Sequence) !void {
     var rest = std.mem.trim(u8, text, " ");
     for (sequence.ranges[0..sequence.len]) |range| {
         try testing.expectEqual(range.lo, try take_number(u8, &rest, '-'));
@@ -36,12 +36,12 @@ fn expect_line(line: []const u8) !void {
     var range = std.mem.trim(u8, parts.first(), " ");
     const lo = try take_number(u32, &range, ' ');
     const hi = try take_number(u32, &range, ' ');
-    var splitter = utf8.Splitter.init(lo, hi);
+    var splitter = utf8_ranges.Splitter.init(lo, hi);
     while (parts.next()) |text| {
         const sequence = splitter.next() orelse return error.TestSequenceMissing;
         try expect_sequence(text, sequence);
     }
-    try testing.expectEqual(@as(?utf8.Sequence, null), splitter.next());
+    try testing.expectEqual(@as(?utf8_ranges.Sequence, null), splitter.next());
 }
 
 test "the splitter gives the sequences the proved definitions give, for each range of the vectors" {

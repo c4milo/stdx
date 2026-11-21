@@ -54,7 +54,7 @@ test {
     _ = @import("matcher_work_test.zig");
     _ = @import("fragment.zig");
     _ = @import("repeat.zig");
-    _ = @import("utf8.zig");
+    _ = @import("utf8_ranges.zig");
     _ = @import("utf8_vectors_test.zig");
     _ = @import("scalar_set.zig");
     _ = @import("octet_classes.zig");
