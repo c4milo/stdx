@@ -64,6 +64,7 @@ pub fn take(reader: *codec.Reader) errors.Error!Escape {
         'v' => .{ .scalar = '\x0B' },
         'a' => .{ .scalar = '\x07' },
         'x' => .{ .scalar = try hex(reader) },
+        '0'...'9' => .{ .scalar = try octal(reader, scalar) },
         else => .{ .scalar = try other(scalar) },
     };
 }
@@ -72,14 +73,37 @@ pub fn take(reader: *codec.Reader) errors.Error!Escape {
 fn other(scalar: u32) errors.Error!u32 {
     switch (scalar) {
         '!'...'/', ':'...'@', '['...'`', '{'...'~' => return scalar,
-        // RFC 9485 §1: a regexp has no backreference. No automaton of a fixed size matches one.
-        '1'...'9' => return error.UnsupportedBackreference,
         // RFC 9485 §3: charClassEsc is \p{...} or \P{...}, whose tables are a later step.
         'p', 'P' => return error.UnsupportedProperty,
         // RFC 9485 §3: SingleCharEsc names the characters a "\" may precede, and stdx adds the
         // ones above.
         else => return error.InvalidEscape,
     }
+}
+
+/// The next octet's value as an octal digit, read only when it is one.
+fn take_octal_digit(reader: *codec.Reader) ?u32 {
+    const octet = reader.take_octet() catch return null;
+    if (octet >= '0' and octet <= '7') return octet - '0';
+    reader.unread(1);
+    return null;
+}
+
+/// An octal escape, as RE2 reads one: `\0` and up to two octal digits after it, or a digit from
+/// 1 to 7 and one or two octal digits after it. A digit from 1 to 9 alone is how other engines
+/// write a backreference.
+fn octal(reader: *codec.Reader, first: u32) errors.Error!u32 {
+    var value: u32 = first - '0';
+    var count: u32 = 1;
+    if (first <= '7') {
+        while (count < constants.octal_digits_max) : (count += 1) {
+            const digit = take_octal_digit(reader) orelse break;
+            value = value * constants.octal_base + digit;
+        }
+    }
+    // RFC 9485 §1: a regexp has no backreference. No automaton of a fixed size matches one.
+    if (first != '0' and count == 1) return error.UnsupportedBackreference;
+    return value;
 }
 
 fn hex_digit(octet: u8) ?u32 {
@@ -159,14 +183,39 @@ test "take gives each ASCII punctuation character as itself, and no letter or di
     for ("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~") |octet| {
         try testing.expectEqual(@as(u32, octet), (try take_text(&.{octet})).scalar);
     }
-    for ("cegGhijklmoqQuyZ0") |octet| try testing.expectError(error.InvalidEscape, take_text(&.{octet}));
+    for ("cegGhijklmoqQuyZ") |octet| try testing.expectError(error.InvalidEscape, take_text(&.{octet}));
     try testing.expectError(error.InvalidEscape, take_text(" "));
     try testing.expectError(error.InvalidEscape, take_text("\xC3\xA9"));
     try testing.expectError(error.InvalidEscape, take_text(""));
 }
 
+test "an octal escape is a zero or two to three octal digits, as RE2 reads one" {
+    try testing.expectEqual(@as(u32, 0), (try take_text("0")).scalar);
+    try testing.expectEqual(@as(u32, '0'), (try take_text("060")).scalar);
+    try testing.expectEqual(@as(u32, 'a'), (try take_text("141")).scalar);
+    try testing.expectEqual(@as(u32, 1), (try take_text("01")).scalar);
+    try testing.expectEqual(@as(u32, 0o12), (try take_text("12")).scalar);
+    try testing.expectEqual(@as(u32, 0o777), (try take_text("777")).scalar);
+    // A third digit after a zero, a fourth digit, and a digit past 7 are left unread.
+    var reader = codec.Reader.init("0600");
+    try testing.expectEqual(@as(u32, '0'), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(usize, 1), reader.remaining_len());
+    reader = codec.Reader.init("608");
+    try testing.expectEqual(@as(u32, '0'), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(usize, 1), reader.remaining_len());
+    reader = codec.Reader.init("018");
+    try testing.expectEqual(@as(u32, 1), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(usize, 1), reader.remaining_len());
+    reader = codec.Reader.init("1411");
+    try testing.expectEqual(@as(u32, 'a'), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(usize, 1), reader.remaining_len());
+}
+
 test "take refuses a backreference and a property by their own errors" {
     for ("123456789") |octet| try testing.expectError(error.UnsupportedBackreference, take_text(&.{octet}));
+    for ([_][]const u8{ "1a", "7.", "8", "81", "90", "18", "1" }) |text| {
+        try testing.expectError(error.UnsupportedBackreference, take_text(text));
+    }
     try testing.expectError(error.UnsupportedProperty, take_text("p{L}"));
     try testing.expectError(error.UnsupportedProperty, take_text("PL"));
 }

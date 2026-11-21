@@ -62,4 +62,5 @@ test {
     _ = @import("syntax_atom.zig");
     _ = @import("syntax_class.zig");
     _ = @import("syntax_escape.zig");
+    _ = @import("syntax_posix.zig");
 }

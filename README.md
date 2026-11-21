@@ -152,7 +152,7 @@ fn gunzip(features: codec.Features, body: []const u8, output: []u8) ![]u8 {
 | `json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
 | `base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
 | `platform` | What the CPU offers, probed once when a program starts (decision 40) |
-| `regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups and flags (decision 86) |
+| `regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, flags and named classes (decision 86) |
 
 `platform` is the one module that may make a system call: `sysctlbyname` on macOS.
 

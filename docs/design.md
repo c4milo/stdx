@@ -7814,7 +7814,8 @@ to 12 are reordered and nothing else changes.
 - **Step 22: the `regex` module (decision 86).** Regular expressions matched in time linear in
   the text. The owner asked for it on 2026-11-21. The step has parts, and each part lands with its
   own check. Part 22a is built: `compile` and `compile_comptime`, `Matcher`, and `Searcher` with
-  its two lazy DFAs and `Matches`.
+  its two lazy DFAs and `Matches`. Parts 22g and 22i are built too, and each has its record
+  below.
   **Check, part 22a:**
   - Each form of the syntax has a table of patterns, texts and the groups each must give, and
     each of the parser's 23 refusals has its patterns, with the class `refusal` gives it.
@@ -7879,9 +7880,9 @@ to 12 are reordered and nothing else changes.
 
   The parts not built, each with the check it would land with:
   - **22b: the oracle, RE2's tests and the benchmark.** `zig build differential-regex -Doracles`
-    against Go's regexp and over RE2's two test logs, pinned by SHA-256, and `bench-regex`
-    against RE2, Rust's regex and Go's regexp. It waits on the owner's ruling (decision 86). No
-    claim below is made before it.
+    against Go's regexp and over RE2's two test logs, pinned by SHA-256. The owner ruled both
+    into the tree on 2026-11-21 (decision 86). `bench-regex` against RE2, Rust's regex and Go's
+    regexp waits on the owner's ruling on its baselines. No claim below is made before it.
   - **22c: literals found before the automaton runs.** A pattern that is one literal goes to a
     substring search; a search in its start state skips to the next octet that can start a
     match; a small set of literals goes to a vector search of their first octets, as Hyperscan's
@@ -7896,11 +7897,53 @@ to 12 are reordered and nothing else changes.
   - **22f: a range quantifier with no copies.** Counting-set automata (Turoňová and others,
     OOPSLA 2020) keep a count in a register where the operand is one class of characters. An
     experiment: it lands only if its states stay bounded where copies do not.
-  - **22g: named groups, and RE2's forms that RFC 9485 §3 refuses**, each with the owner's ruling.
+  - **22j: named groups, and the forms of RE2's that stay refused**, each with the owner's
+    ruling: `\C`, a `]` or a `}` with nothing to close, and a `[` in a class that starts no
+    named class.
+  - **22k: a `utf8` module** that `json` and `regex` import, by the owner's ruling of 2026-11-21
+    (decision 86). `regex` then keeps its range splitter alone. `json`'s tests, its Lean
+    vectors and `zig build checkfree-check` must give what they give today.
   - **22h: the matcher in Lean.** A model of the matcher: its work at one position is at most
     the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
     Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+
+  **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
+  2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
+  class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
+  `\x{H...}` takes any count of digits.
+  **Check:** each form has its patterns in the parser's tables and in the matcher's; each of
+  the fourteen names holds the characters a second list of them gives; RE2's two test logs and
+  Go's regexp give the same groups outside the tree, until part 22b brings both in; mutations.
+
+  **Check passed, part 22g, 2026-11-21.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container,
+  pepegrillo `10841b3`.
+  - `zig build test` exits 0. `zig build test-regex` runs 133 tests.
+  - `matcher_test.zig` holds 13 tables, 155 cases, 12 of them the new forms, each run whole
+    and under 24 split seeds, and through `Searcher` under three cache sizes.
+  - The parser has 22 refusals. `EmptyClass` is gone: a `]` that comes first stands for itself,
+    so no class is empty, and `[]` is a class with no `]`. A digit from 1 to 9 with no octal
+    digit after it is `UnsupportedBackreference`, an 8 or a 9 among them.
+  - RE2's two test logs, outside the tree, through `Searcher`. The search log: 3,424 of 3,776
+    cases gave RE2's groups, none differed, and stdx refused 352, each a pattern with `\C`,
+    `\p` or `\P`. The exhaustive log: 10,410,991 of 11,433,768 gave RE2's groups, the same
+    337 differed as before this part, and stdx refused 1,022,440, each a pattern with `\C`.
+    Before this part stdx refused 464 and 1,224,616.
+  - Go 1.24.7's regexp, outside the tree, with the new forms among the generated patterns:
+    1,200,000 cases through `Matcher` and through `Searcher`. stdx refused 112,855 for `(?i)`
+    past ASCII. 1,087,141 of the other 1,087,145 gave Go's groups, and the 4 are the fault of
+    Go's parser that decision 86 describes.
+  - 11 mutations of the new checks, each run against `zig build test-regex` and reverted. 10
+    CAUGHT by a named test: a `]` that comes first ends the class; a `-` before the `]` starts a
+    range; a named class is never negated, in the parser and in the class; a named class needs
+    no `:]`; a name RE2 does not list is taken; `upper` holds one letter fewer; an octal escape
+    takes two digits at most; a digit alone is an octal escape; an 8 or a 9 starts an octal
+    escape. 1 CAUGHT by a halt: a hex escape of many digits is not held at its limit, where an
+    integer overflows.
+  - The 14 mutations of part 22a's record that change the parser's other checks, run again:
+    11 CAUGHT by a named test and 3 by a halt. Two more of that record no longer apply, because
+    this part removes the checks they broke: a `-` that stands for itself anywhere, and an
+    empty class.
 
   **Part 22i, built: the UTF-8 ranges proved in Lean (decision 86).**
   **Check:** `zig build lean` builds `spec/lean/Stdx/Regex/Utf8.lean` with its theorems' axioms

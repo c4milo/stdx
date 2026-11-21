@@ -60,9 +60,13 @@ pub const ascii_case_bit = 0x20;
 /// same 1,000.
 pub const repeat_max = 1000;
 
-/// The base of a count's digits, and of a `\x` escape's.
+/// The base of a count's digits, of a `\x` escape's, and of an octal escape's.
 pub const decimal_base = 10;
 pub const hex_base = 16;
+pub const octal_base = 8;
+
+/// The digits of the longest octal escape, as RE2 reads one.
+pub const octal_digits_max = 3;
 
 /// The digits of a `\xHH` escape. A `\x{...}` escape holds any number.
 pub const hex_short_digits = 2;

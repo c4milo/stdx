@@ -31,12 +31,12 @@ test "a parenthesis with no partner is refused" {
     try expect_refused(error.MissingParenthesis, &.{ "(", "(a", "(?:a", "((a)", "(?i", "(?", "(?i-", "(a|b" });
 }
 
-test "a class that RFC 9485 §3 does not hold is refused" {
-    try expect_refused(error.MissingBracket, &.{ "[a", "[a-", "[^", "[", "[\\]" });
-    try expect_refused(error.EmptyClass, &.{ "[]", "[^]", "a[]b" });
-    try expect_refused(error.InvalidClass, &.{ "[[]", "[[:alpha:]]", "[a[]" });
-    try expect_refused(error.InvalidClassRange, &.{ "[z-a]", "[a-\\d]", "[\\d-z]", "[a-c-e]", "[a--]" });
+test "a class that neither RFC 9485 §3 nor RE2 holds is refused" {
+    try expect_refused(error.MissingBracket, &.{ "[a", "[a-", "[^", "[", "[\\]", "[]", "[^]", "a[]b", "[[:alpha:]" });
+    try expect_refused(error.InvalidClass, &.{ "[[]", "[[:letter:]]", "[a[]", "[[:alpha]]" });
+    try expect_refused(error.InvalidClassRange, &.{ "[z-a]", "[a-\\d]", "[a--]", "[a-[:digit:]]" });
     try expect_taken(&.{ "[a-a]", "[\\[]", "[\\]]", "[-]", "[a-]", "[-a]", "[\\d-]", "[^-]", "[*+?.|(){}]" });
+    try expect_taken(&.{ "[]]", "[]a]", "[^]a]", "[a-c-e]", "[--a]", "[\\d-z]", "[[:alpha:]]", "[[:^digit:][:space:]_]" });
 }
 
 test "a quantifier with no operand, or after a quantifier, is refused" {
@@ -57,9 +57,10 @@ test "a count past repeat_max, alone or as a product, is refused" {
 }
 
 test "an escape that names nothing is refused" {
-    try expect_refused(error.InvalidEscape, &.{ "\\", "a\\", "\\q", "\\0", "\\Q", "\\E", "\\C", "\\Z", "\\G", "\\xg1", "\\x4", "\\x{}", "\\x{41", "[\\b]", "[\\A]", "\\\xC3\xA9", "\\ " });
+    try expect_refused(error.InvalidEscape, &.{ "\\", "a\\", "\\q", "\\Q", "\\E", "\\C", "\\Z", "\\G", "\\xg1", "\\x4", "\\x{}", "\\x{41", "[\\b]", "[\\A]", "\\\xC3\xA9", "\\ " });
     try expect_refused(error.InvalidScalarValue, &.{ "\\x{110000}", "\\x{D800}", "\\x{DFFF}", "[\\x{FFFFFF}]" });
     try expect_taken(&.{ "\\_", "\\-", "\\]", "\\}", "\\{", "\\|", "\\x00", "\\x{0}", "\\x{10FFFF}", "\\a\\f\\v\\n\\r\\t" });
+    try expect_taken(&.{ "\\0", "\\060", "\\141", "\\01", "\\018", "\\608", "[\\101-\\132]", "\\x{00000061}" });
 }
 
 test "a group that starts with a question mark and names no form is refused" {
@@ -72,7 +73,7 @@ test "a closing bracket or brace with nothing to close is refused" {
 }
 
 test "the forms no program of this module holds are refused as unsupported" {
-    try expect_refused(error.UnsupportedBackreference, &.{ "(a)\\1", "\\9", "[\\1]" });
+    try expect_refused(error.UnsupportedBackreference, &.{ "(a)\\1", "\\9", "[\\1]", "\\8", "\\1a", "(a)\\1$" });
     try expect_refused(error.UnsupportedLookaround, &.{ "(?=a)", "(?!a)", "(?<=a)", "(?<!a)" });
     try expect_refused(error.UnsupportedProperty, &.{ "\\pL", "\\p{Greek}", "\\PL", "[\\p{L}]" });
     try expect_refused(error.UnsupportedCaseFolding, &.{ "(?i)\xC3\xA9", "(?i)[\xC3\xA9]", "(?i:a\xE2\x82\xAC)", "(?i)\\x{e9}", "(?i)[a-\\x{ff}]" });
@@ -106,7 +107,7 @@ test "a pattern holds groups_max capture groups and no more" {
 
 test "every refusal has its class" {
     try testing.expectEqual(codec.Refusal.corrupt, errors.refusal(error.NestedQuantifier));
-    try testing.expectEqual(codec.Refusal.corrupt, errors.refusal(error.EmptyClass));
+    try testing.expectEqual(codec.Refusal.corrupt, errors.refusal(error.InvalidClass));
     try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.DepthTooLarge));
     try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.ClassTooLarge));
     try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.GroupsTooMany));

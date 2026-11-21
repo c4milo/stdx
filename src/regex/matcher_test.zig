@@ -281,6 +281,23 @@ test "a class holds its characters, and a negated one every other scalar value" 
     });
 }
 
+test "the forms of RE2's syntax beside RFC 9485's match as RE2 matches them" {
+    try expect_cases(&.{
+        .{ .pattern = "[[:digit:]]+", .text = "ab123c", .groups = &.{g(2, 5)} },
+        .{ .pattern = "[[:^alpha:]]+", .text = "ab12 \xC3\xA9c", .groups = &.{g(2, 7)} },
+        .{ .pattern = "[[:upper:][:digit:]_]+", .text = "aB_9z", .groups = &.{g(1, 4)} },
+        .{ .pattern = "(?i)[[:lower:]]+", .text = "1aBc2", .groups = &.{g(1, 4)} },
+        .{ .pattern = "[]a]+", .text = "x]a]y", .groups = &.{g(1, 4)} },
+        .{ .pattern = "[^]a]+", .text = "]ab]", .groups = &.{g(2, 3)} },
+        .{ .pattern = "[a-c-e]+", .text = "da-ecf", .groups = &.{g(1, 5)} },
+        .{ .pattern = "[--/]+", .text = "a-./b", .groups = &.{g(1, 4)} },
+        .{ .pattern = "\\141\\0", .text = "ba\x00", .groups = &.{g(1, 3)} },
+        .{ .pattern = "\\0600", .text = "x00", .groups = &.{g(1, 3)} },
+        .{ .pattern = "[\\60-\\071]+", .text = "a0189b", .groups = &.{g(1, 5)} },
+        .{ .pattern = "\\x{00000061}", .text = "ba", .groups = &.{g(1, 2)} },
+    });
+}
+
 test "a scalar value past U+007F matches as its UTF-8, and no octet that is not UTF-8 matches" {
     try expect_cases(&.{
         .{ .pattern = "\xC3\xA9", .text = "caf\xC3\xA9", .groups = &.{g(3, 5)} },

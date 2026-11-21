@@ -5502,8 +5502,9 @@ last part lists what still waits on a ruling.
 86. **A `regex` module: regular expressions matched in time linear in the text, in memory the
     caller gives.** The owner asked for it on 2026-11-21: a safe and efficient engine in the manner
     of Google's RE2, built on what the papers say makes one fast and safe. Proposed the same day,
-    with the module's first step built (design §8 step 22). The parts under "What waits on the
-    owner" are not settled. It amends entries 1, 6 and 13, as entry 27 did for `json`.
+    with the module's first step built (design §8 step 22). The owner ruled on three of its
+    questions the same day, and "What the owner ruled" holds them. The parts under "What waits on
+    the owner" are not settled. It amends entries 1, 6 and 13, as entry 27 did for `json`.
 
     **Why an engine of this kind.** A backtracking matcher tries one alternative at a time, and
     some patterns make it try a number of paths exponential in the text.
@@ -5530,19 +5531,30 @@ last part lists what still waits on a ruling.
     - Added: the anchors `^`, `$`, `\A` and `\z`; `\b` and `\B`; capture groups and `(?:...)`; a
       `?` after a quantifier, which makes it lazy; the flags `i`, `m`, `s` and `U`, as `(?i)` and
       `(?i:...)`, with `-` to clear; `\d`, `\s`, `\w` and their negations, ASCII alone as RE2's
-      are; `\xHH`, `\x{H...}`, `\a`, `\f`, `\v`, and a `\` before any ASCII punctuation.
+      are; `\xHH`, `\x{H...}` with any count of digits, `\a`, `\f`, `\v`, and a `\` before any
+      ASCII punctuation.
+    - Added by the owner's ruling of 2026-11-21, each as RE2 reads it:
+      - A class named inside a bracket expression, `[[:alpha:]]`, and its negation,
+        `[[:^alpha:]]`. The names are RE2's fourteen, and each holds ASCII characters alone.
+      - A `]` that comes first in a class, or first after the `^` of a negated one. It stands
+        for itself: `[]a]` holds `]` and `a`.
+      - A `-` in a class that starts no range. It stands for itself: `[a-b-c]` holds `a`, `b`,
+        `c` and `-`, and `[\d-z]` holds the digits, `-` and `z`.
+      - An octal escape: `\0` with at most two octal digits after it, or a digit from 1 to 7
+        with one or two octal digits after it. A digit from 1 to 9 with no octal digit after it
+        is a backreference.
     - Refused as unsupported: a backreference and a lookaround, which no automaton of a fixed
       size matches; `\p{...}`, a named group, and `(?i)` over a scalar value past U+007F, each a
       later step.
     - Refused as RFC 9485 §3 refuses them, where RE2 takes them: a `]` or a `}` with no `\`
-      before it, a `[` inside a class, a second quantifier, and a `-` inside a class that is
-      neither first, last, nor between two characters. Each can be taken later with no change to
-      a pattern that compiles today.
+      before it and nothing to close, a `{` that starts no quantifier, and a `[` inside a class
+      that starts no named class. Each can be taken later with no change to a pattern that
+      compiles today.
+    - A second quantifier is refused, as RFC 9485 §3 refuses it. Go's regexp refuses it too.
     - A `.` is any scalar value but a line feed, as in RE2. RFC 9485 §5.3 maps its own `.` to
       `[^\n\r]`, so a caller that holds an I-Regexp writes that class.
-    - Forms of RE2's that RE2's own tests hold and stdx refuses today: `\C`, one octet of any
-      value, which Go's regexp refuses too; an octal escape; a class such as `[[:alpha:]]`; a `]`
-      first in a class; and `[a-b-c]`.
+    - Forms of RE2's that RE2's own tests hold and stdx refuses: `\C`, one octet of any value,
+      which Go's regexp refuses too, and `\p{...}`.
 
     **What a match is.** The match a backtracking matcher finds first, RE2's leftmost-first: it
     starts at the first octet where any match starts, and among the matches there it is the one
@@ -5663,31 +5675,44 @@ last part lists what still waits on a ruling.
     - A parser that builds a tree, or recurses: it needs memory that grows with the pattern, and
       a stack the pattern chooses.
 
-    **What waits on the owner.**
-    - **owner** An oracle and the baselines, under entry 8. Go's regexp holds RE2's syntax and
-      semantics, and Go is already a ruled toolchain (entries 68 and 69). On 2026-11-21 a run
-      outside the tree gave 1,100,000 generated patterns and texts to Go 1.24.7's regexp and to
-      stdx, through `Matcher` and through `Searcher`. stdx refused 110,876 of them for `(?i)`
-      past ASCII. Of the other 989,124, 989,121 gave the same groups. The last 3 are one fault of
-      Go's parser, which reads `A(?i)b|a` as `A(?i:B|(?:))` and then finds no match in `a`. A
-      `zig build differential-regex` would keep that run in the tree. `bench-regex` would time
-      RE2, Rust's regex and Go's regexp beside stdx.
-    - **owner** RE2's own tests as a pinned corpus. RE2's `make log` writes what RE2 answers on
-      its search tests and its exhaustive tests, and Go's tree keeps both logs
-      (`regexp/testdata/re2-search.txt` and `re2-exhaustive.txt.bz2`, at Go 1.24.7 here). The
-      same run outside the tree gave every leftmost-first case of both to `Searcher`.
-      - The search log: 3,776 cases. 3,312 gave RE2's groups, none differed, and stdx refused the
-        patterns of 464.
-      - The exhaustive log: 11,433,768 cases. 10,208,815 gave RE2's groups. 337 differed, each
+    **What the owner ruled, 2026-11-21.**
+    - RE2's forms that RFC 9485 §3 refuses. stdx takes the named classes, the `]` that comes
+      first, the `-` that starts no range and the octal escapes, each as RE2 reads it. Built
+      (design §8 step 22, part 22g). `\C` stays refused: it takes one octet of any value, so a
+      match could cut a scalar value in two.
+    - RFC 3629's UTF-8 goes to a module of its own, `utf8`, which `json` and `regex` import. Not
+      built yet. `src/json/utf8.zig` holds the machine decision 28 proved, with `encoded_len`
+      and `encode`, and `src/regex/utf8.zig` still reads a pattern's scalar values and writes
+      them with code of its own.
+    - The oracle and RE2's own tests go in the tree, both, as `zig build differential-regex
+      -Doracles`: Go's regexp over generated patterns, and RE2's two test logs as a corpus pinned
+      by SHA-256. Not built yet (step 22, part 22b). Go's regexp holds RE2's syntax and
+      semantics, and Go is already a ruled toolchain (entries 68 and 69). The runs so far were
+      made outside the tree, and each gave its cases through `Matcher` and through `Searcher`.
+      - Go 1.24.7's regexp, before part 22g: 1,100,000 generated patterns and texts. stdx
+        refused 110,876 for `(?i)` past ASCII, and 989,121 of the other 989,124 gave Go's
+        groups.
+      - Go's regexp again, with part 22g's forms among the generated patterns: 1,200,000 cases.
+        stdx refused 112,855 for `(?i)` past ASCII, and 1,087,141 of the other 1,087,145 gave
+        Go's groups.
+      - The 7 that differ are one fault of Go's parser. Where two alternatives start with the
+        same letter, one of them under `(?i)`, Go takes that letter out of both and gives both
+        the first one's rule for case. It reads `A(?i)b|a` as `A(?i:B|(?:))` and finds no match
+        in `a`, and it reads `(?i:a(b)+)c|A` as `(?i:A)(?:(?i:(B)+)c|(?:))` and matches `a`.
+      - RE2's `make log` writes what RE2 answers on its search tests and its exhaustive tests,
+        and Go's tree keeps both logs (`regexp/testdata/re2-search.txt` and
+        `re2-exhaustive.txt.bz2`, at Go 1.24.7 here). Every leftmost-first case of both went to
+        `Searcher`, after part 22g.
+      - The search log: 3,776 cases. 3,424 gave RE2's groups and none differed. stdx refused the
+        patterns of 352: 160 hold `\C`, and 192 hold `\p` or `\P`.
+      - The exhaustive log: 11,433,768 cases. 10,410,991 gave RE2's groups. 337 differed, each
         the pattern `\B` over a text with a scalar value past U+007F, where RE2 matches between
-        that value's octets. stdx refused the patterns of 1,224,616: `\C`, a `]` first in a
-        class, `[a-b-c]` and `[[:alpha:]]`.
+        that value's octets. stdx refused the patterns of 1,022,440, and each holds `\C`.
       - Each line also holds RE2's leftmost-longest answers, which stdx has no call for.
-    - **owner** RFC 3629's UTF-8 is written twice. `src/json/utf8.zig` holds the machine decision
-      28 proved, with `encoded_len` and `encode`. `src/regex/utf8.zig` reads a pattern's scalar
-      values and writes them with code of its own, because `regex` imports `codec` alone. One
-      copy needs a ruling on where it lives: in `codec`, in a module of its own that `json` and
-      `regex` import, or behind an edge from `regex` to `json`.
+
+    **What waits on the owner.**
+    - **owner** The baselines of `bench-regex`, under entry 8: RE2, Rust's regex and Go's regexp
+      beside stdx.
     - **owner** Non-negotiable 3 asks that a whole-buffer helper be built on the streaming call.
       `Searcher` is not: a reverse scan needs the whole text. It is held to the streaming call by
       checks instead, as a fast path is held to its checked path (entry 16).

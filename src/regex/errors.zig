@@ -13,9 +13,7 @@ pub const Corrupt = error{
     MissingParenthesis,
     /// A class with no `]`.
     MissingBracket,
-    /// A class that holds nothing: `[]` or `[^]`.
-    EmptyClass,
-    /// A class that holds a `[` with no reverse solidus before it.
+    /// A class that holds a `[` which starts none of RE2's named classes, such as `[:alpha:]`.
     InvalidClass,
     /// A range of a class whose ends are out of order, or not two characters.
     InvalidClassRange,
@@ -45,7 +43,8 @@ pub const Unsupported = error{
     ClassTooLarge,
     /// More capture groups than `groups_max`.
     GroupsTooMany,
-    /// `\1` to `\9`: no automaton of a fixed size matches a backreference.
+    /// `\1` to `\9` with no octal digit after it: no automaton of a fixed size matches a
+    /// backreference.
     UnsupportedBackreference,
     /// `(?=`, `(?!`, `(?<=` or `(?<!`.
     UnsupportedLookaround,
