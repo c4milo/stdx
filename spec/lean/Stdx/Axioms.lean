@@ -1,5 +1,6 @@
 import Stdx.Json.Utf8
 import Stdx.Json.Number
+import Stdx.Regex.Utf8
 
 /-!
 # What the proofs rest on
@@ -33,3 +34,22 @@ namespace Stdx.Json
 #guard_msgs in #print axioms Number.invalid_spec
 
 end Stdx.Json
+
+namespace Stdx.Regex
+
+/-- info: 'Stdx.Regex.Utf8.encode_char' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Utf8.encode_char
+
+/-- info: 'Stdx.Regex.Utf8.char_encode' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Utf8.char_encode
+
+/-- info: 'Stdx.Regex.Utf8.whole_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Utf8.whole_iff
+
+/-- info: 'Stdx.Regex.Utf8.cut_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Utf8.cut_spec
+
+/-- info: 'Stdx.Regex.Utf8.sequences_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Utf8.sequences_iff
+
+end Stdx.Regex

@@ -281,3 +281,15 @@ check lands with its step.
   patterns; and the fuzzer over both. Step 22.
 - **Violation.** A DFA that lets a match start before a continuation octet where the matcher
   does not, or a cache that keeps a start state across a clear.
+
+### INV-20: the octet ranges of a class hold the UTF-8 of its scalar values, and nothing else
+
+- **Claim.** For a range of scalar values, the sequences of octet ranges that `regex` compiles it
+  to take the UTF-8 of each scalar value of the range, of no surrogate, and no other octets.
+- **Mechanism.** `utf8.Splitter` cuts a range at the surrogates, at each encoded length, and where
+  a continuation octet is not whole (decision 86).
+- **Check.** A theorem in Lean, `Stdx.Regex.Utf8.sequences_iff`, of the splitter's definitions,
+  for every range. Seeded check: a Zig test replays the 630 ranges of `utf8_split_vectors.txt`,
+  which the definitions give, against `utf8.Splitter`, and two tests count the scalar values of
+  each sequence for the same ranges and for 4,096 seeded ones. Step 22.
+- **Violation.** A splitter that keeps `ED A0 80`, a surrogate, in the range U+D000 to U+E000.

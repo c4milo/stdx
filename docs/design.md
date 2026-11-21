@@ -7897,12 +7897,27 @@ to 12 are reordered and nothing else changes.
     OOPSLA 2020) keep a count in a register where the operand is one class of characters. An
     experiment: it lands only if its states stay bounded where copies do not.
   - **22g: named groups, and RE2's forms that RFC 9485 §3 refuses**, each with the owner's ruling.
-  - **22h: proofs in Lean, as decision 28's.** A model of `utf8.zig`'s `Splitter`, proved to give
-    exactly the sequences of RFC 3629 §4 that `Stdx.Json.Utf8` already transcribes, with vectors
-    the Zig tests replay. Then a model of the matcher: its work at one position is at most the
-    program's instructions, and each match it reports is a path of the program. That the
+  - **22h: the matcher in Lean.** A model of the matcher: its work at one position is at most
+    the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
     Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+
+  **Part 22i, built: the UTF-8 ranges proved in Lean (decision 86).**
+  **Check:** `zig build lean` builds `spec/lean/Stdx/Regex/Utf8.lean` with its theorems' axioms
+  pinned, and requires `src/regex/utf8_split_vectors.txt` to be what its definitions give; `zig
+  build test-regex` replays that file against `utf8.Splitter`; mutations.
+
+  **Check passed, part 22i, 2026-11-21.** Lean 4.34.0 and Zig 0.16.0 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `zig build lean` exits 0. `encode_char`, `char_encode`, `whole_iff`, `cut_spec` and
+    `sequences_iff` build with no `sorry`, on `propext`, `Classical.choice` and `Quot.sound`
+    alone, as `Stdx/Axioms.lean` pins them. The files of `src/json/` did not change.
+  - `utf8_split_vectors.txt` holds 630 ranges. The range of every scalar value gives the nine
+    sequences of RFC 3629 §4's syntax, and the range of the surrogates gives none.
+  - `zig build test-regex` runs 127 tests, the replay among them.
+  - Three mutations of `utf8.Splitter`, each CAUGHT by the replay and by 4 or 5 tests beside it:
+    the surrogates kept; no cut where the last value's low bits are not all ones; no cut where
+    the first value's low bits are not zero.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

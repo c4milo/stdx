@@ -1,6 +1,7 @@
-//! stdx's Lean proofs (decision 28), built by pepegrillo's lake runner. The project is spec/lean/.
-//! After the proofs build, the vector files the proved machines give are checked against the
-//! committed ones under src/json/, which the Zig unit tests replay against the Zig machines.
+//! stdx's Lean proofs (decisions 28 and 86), built by pepegrillo's lake runner. The project is
+//! spec/lean/. After the proofs build, the vector files the proved definitions give are checked
+//! against the committed ones under src/json/ and src/regex/, which the Zig unit tests replay
+//! against the Zig code.
 //!
 //! Run: `zig build lean`, or `zig build lean -- write` to rewrite the vector files.
 
@@ -9,8 +10,8 @@ const pepegrillo = @import("pepegrillo");
 
 /// The Lean project, from the repository's root. It pins its release in `lean-toolchain`.
 const directory = "spec/lean";
-/// The directory of the vector files, from the Lean project, where lake runs.
-const vector_directory = "../../src/json";
+/// The directory the vector files are named from, from the Lean project, where lake runs.
+const vector_directory = "../../src";
 
 const proofs: pepegrillo.lean.Config = .{ .directory = directory };
 const check_vectors: pepegrillo.lean.Config = .{

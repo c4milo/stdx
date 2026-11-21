@@ -176,8 +176,9 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
   (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
 - `docs/` is the design set. `docs/rfcs/` holds the RFCs.
-- `spec/lean/` holds the Lean proofs of decision 28, a Lake package pepegrillo's `lean` engine
-  builds. Its `Vectors.lean` writes the vector files the unit tests of `src/json/` replay.
+- `spec/lean/` holds the Lean proofs of decisions 28 and 86, a Lake package pepegrillo's `lean`
+  engine builds. Its `Vectors.lean` writes the vector files the unit tests of `src/json/` and
+  `src/regex/` replay.
 
 ## Performance
 
@@ -262,9 +263,10 @@ Change this section when a step adds or renames a command.
   `src/brotli/constants.zig` pins differs from the worst table `tools/brotli_table_budget.zig`
   finds for its alphabet (decision 12).
 - Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
-  then checks `src/json/utf8_vectors.txt` and `number_vectors.txt` are what the proved machines
-  give; `zig build lean -- write` rewrites them. `zig build test` replays them against the Zig
-  machines, with no Lean needed. The step needs lake, from elan or a Lean release;
+  then checks `src/json/utf8_vectors.txt`, `number_vectors.txt` and
+  `src/regex/utf8_split_vectors.txt` are what the proved definitions give; `zig build lean --
+  write` rewrites them. `zig build test` replays them against the Zig code, with no Lean
+  needed. The step needs lake, from elan or a Lean release;
   `tools/install_lean.sh` installs the pinned release on x86-64 Linux, and `tools/ci.sh` runs the
   step where lake is on the path.
 - Check sites: `zig build checkfree-check` builds the SIMD kernels' variant objects ReleaseSafe

@@ -5618,6 +5618,19 @@ last part lists what still waits on a ruling.
       implementation needs its corner cases studied, and this comparison is that study.
     - The fuzzer gives any octets as a pattern and as a text, under the same comparisons.
 
+    **Proved in Lean, as entry 28 proves `json`'s machines.** `spec/lean/Stdx/Regex/Utf8.lean`
+    holds `utf8.zig`'s encoder and its range splitter as definitions, in Lean's core alone.
+    - `encode_char` and `char_encode`: the encoder writes exactly the sequences that RFC 3629
+      §4's syntax derives, which `Stdx.Json.Utf8.Char` already transcribes.
+    - `sequences_iff`: for every range up to U+10FFFF, octets fall in one of the split's
+      sequences exactly when they are the UTF-8 of a scalar value of the range. So a class of a
+      program takes each of its scalar values, no surrogate, and no other octets.
+    - The proof is of the Lean definitions. `Vectors.lean` writes their sequences for the 630
+      ranges between 35 scalar values where an encoding changes, and a Zig test requires
+      `utf8.Splitter` to give the same sequences in the same order.
+    - Not proved: the parser, the builder, and that the matcher's match is the one a
+      backtracking matcher finds first. Design §8 step 22 names what comes next.
+
     **No speed is claimed.** No benchmark exists yet, so no number is published (entry 10). Step
     22's later parts name what would be measured, and against which engines. The code follows
     pepegrillo's performance method as its `e94a349` holds it, three commits of documents past
