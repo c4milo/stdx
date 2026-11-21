@@ -13,3 +13,5 @@ checksum aarch64 bench/results/2026-11-20-checksum-aarch64.md
 checksum x86_64 bench/results/2026-11-20-checksum-x86_64.md
 base64 aarch64 bench/results/2026-11-20-base64-aarch64.md
 base64 x86_64 bench/results/2026-11-20-base64-x86_64.md
+regex aarch64 bench/results/2026-11-21-regex-aarch64.md bench/results/2026-11-21-regex-second-aarch64.md bench/results/2026-11-21-regex-third-aarch64.md bench/results/2026-11-21-regex-fourth-aarch64.md bench/results/2026-11-21-regex-fifth-aarch64.md
+regex x86_64 bench/results/2026-11-21-regex-x86_64.md bench/results/2026-11-21-regex-fourth-x86_64.md bench/results/2026-11-21-regex-fifth-x86_64.md

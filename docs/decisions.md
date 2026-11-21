@@ -5498,6 +5498,29 @@ last part lists what still waits on a ruling.
       library's point beats in both.
     - Several jobs on one CPU model draw their median, with a line from the lowest job to the
       highest.
+    - The regex chart, added on 2026-11-21 with entry 86's benchmark, is drawn by
+      `tools/charts_wide.py`. Its libraries differ by a factor of thousands, and a review of its
+      first draft asked for the rules below. **owner** They differ from the rules above, for
+      this chart alone, and wait on a ruling.
+      - The panels share one logarithmic axis, as above, but its limits are the chart's lowest
+        and highest value, and its ticks are powers of 4.
+      - A panel holds the rows of one kind of pattern, so no count mixes a search for a
+        literal with a search that starts with a class.
+      - A row is level where its whisker touches a band around 1, and the whisker is the jobs'
+        lowest and highest ratio. Under the rule above, three jobs at 0.99, 1.02 and 1.03 are
+        "ahead" though one of them is behind.
+      - A panel's band is the most that stdx differed from itself on a row of the panel:
+        stdx, timed first in each round, over stdx timed again last in the round, as the
+        median of the jobs. The band holds what repeats from job to job, and the whisker
+        holds the rest. The band is never under 5%: the jobs of one CPU model repeat to 1%,
+        but a row that stood 1% to 3% ahead of Rust's crate on one x86-64 model stood 3% to
+        8% behind on another, from the same binary.
+      - A row's number stands in a column at the right, after a square in the colour of its
+        state, and a ratio under 0.095 is printed as 1/N. A bar of a ratio near 1 is too
+        short to show its colour, so such a row also shows its whisker as two numbers.
+      - A hollow circle is stdx with claim R1 off. A library that has no speed on a row has
+        its mark, hollow, after the row's name. Each panel counts stdx against each library
+        by the bar's rule, since a bar shows one. A panel of unlike patterns prints no mean.
 
     The alternatives refused:
     - A Zig program, which the owner judged too large for the task.
@@ -5685,14 +5708,39 @@ last part lists what still waits on a ruling.
     - Not proved: the parser, the builder, and that the matcher's match is the one a
       backtracking matcher finds first. Design §8 step 22 names what comes next.
 
-    **No speed is claimed.** No benchmark exists yet, so no number is published (entry 10). Step
-    22's later parts name what would be measured, and against which engines. The code follows
-    pepegrillo's performance method as its `e94a349` holds it, three commits of documents past
-    the commit stdx pins: the matcher is the reference that steps once an octet, the searcher
-    takes the common shapes, and the two are held together on every short text over five letters
-    (its step 3). No scratch array is filled for each literal, and the DFA's loop reads its table
-    through locals (its notes on Zig 0.16). The matcher's flags are still `bool`, which Zig 0.16
-    stores narrower than an octet; the first profile decides them.
+    **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
+    on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names
+    the runs). Each number is stdx's rate over another library's in one job, as the median of
+    the jobs, the N2 first. The README's two charts draw them.
+    - A search for a literal: 1/11 to 0.68 of Rust's crate, and 1/22 to 0.19. Rust's crate
+      searches for the literal's octets with vectors before its automaton runs. stdx skips to
+      an octet that can start a match, which is claim R1, and has no search for a whole
+      literal yet (part 22c). Against Go's regexp the same rows stand from 0.19 to 113, and
+      from 0.12 to 85: Go is ahead where a pattern starts with one literal.
+    - A search that starts with a class: 0.95 to 2.62 of Rust's crate, and 1.01 to 2.01.
+    - A pattern that validates a short text: 0.88 to 1.07, and 0.93 to 1.04.
+    - The EPYC 7763 is the best of four x86-64 models for stdx. Three more jobs drew a Xeon
+      6973P-C, a Xeon 6975P-C and an EPYC 9V74, and the chart draws one model (entry 85). On
+      those three a short text stands at 0.76 to 1.00 of Rust's crate, and the three class
+      rows that the EPYC 7763 puts at 1.01 to 1.03 stand at 0.92 to 1.07. The same binary ran
+      on each. So the chart's band is never under 5%, and the README says which model it
+      draws.
+    - The capture groups of a short text: 0.22, and 0.19. stdx runs the matcher for them, and
+      part 22d holds what would replace it.
+    - `[a-q][^u-z]{13}x`, the worst row: 1/2630 of Rust's crate, and 1/2111. The pattern's DFA
+      has more states than `cache_words_default` holds, so stdx runs the matcher, at 1.5 MB/s.
+      Go's regexp runs at 7 times that, and mvzr at 10 to 11 times.
+    - A pattern with `\b`, where claim R1 is off: 1/26, and 1/44.
+    - A compile: 1.06 to 30 times Rust's crate, and 0.76 to 26 times. Go's regexp compiles
+      faster than stdx on 14 of 23 patterns, and on 16, by the chart's rule. mvzr compiles
+      faster on each of 21, and zig-regex on 18 and on 21.
+    - Go's regexp, mvzr and zig-regex stand behind stdx on every search that starts with a
+      class and on every short text that each of them answers as Go's regexp does.
+    - The code follows pepegrillo's performance method as its `e94a349` holds it: the matcher
+      is the reference that steps once an octet, the searcher takes the common shapes, and the
+      two are held together on every short text over five letters (its step 3). The matcher's
+      flags are still `bool`, which Zig 0.16 stores narrower than an octet; the first profile
+      decides them.
 
     **The alternatives refused.**
     - A backtracking matcher that remembers the states it visited (Davis, Servant and Lee, IEEE
@@ -5736,7 +5784,8 @@ last part lists what still waits on a ruling.
         does not pass a line feed, so it takes a haystack one line at a time, and it takes
         texts that three of the validation patterns refuse. mvzr has no `(?i)` and no groups.
         Each such cell says `refused`, `differs` or `none`.
-      - A review of the first reports, on 2026-11-21, changed four things in the method.
+      - Two reviews of the first reports and of the chart, on 2026-11-21, changed the method.
+        The owner asked for a review by a second reader.
         - A search's answer is the count of the matches and the sum of each match's start and
           end. A count alone let Rust's crate run a search that finds each match's end only,
           where the others found both ends: up to 1.3 times less work in the reviewer's
@@ -5747,6 +5796,10 @@ last part lists what still waits on a ruling.
         - A validation has 65,536 texts, each made anew, and the seed chooses which are
           valid. The first 1,024 texts, valid and not in turn, were an input a branch
           predictor learns, the fault entry 45 names.
+        - A last column times stdx again, as the first column does, so the two span a round.
+          stdx over that column shows how far one code path differs from itself, and the
+          chart takes each panel's band from it.
+        - The compile table gives Rust's crate the form of a pattern that it searches with.
         - The searches are in three groups, and a count never mixes them: a literal to find, a
           class to start with, and the other shapes. The rows that joined: two patterns with
           an assertion, where claim R1 is off; `[a-q][^u-z]{13}x`, whose DFA has more states
@@ -5755,6 +5808,17 @@ last part lists what still waits on a ruling.
           No constant of claim R1 was chosen with the second text or the text in four
           scripts. A pattern with `\b` goes to Rust's crate as `(?-u:\b)`, the ASCII word
           boundary that the others read.
+        - What the reviews asked for and the benchmark does not do: a round still times the
+          candidates in one order; no row shows a pattern that stdx refuses, such as
+          `\p{L}`; and no row shows a pattern that takes a backtracking matcher a time
+          exponential in the text, where a candidate could run for hours.
+    - The owner asked whether the oracle check can run in a couple of seconds, whether the
+      engine can use vectors, and whether a cache can help.
+      - The check ran 2 min 13 s because it started a new searcher for each case, so no DFA
+        state served a second text. The lazy DFA's cache is the engine's cache, and the check
+        now keeps it for a pattern's texts: 22 s on four cores. Its work is 47 s of one core,
+        so a few seconds need more cores, and it starts a thread for each (part 22b).
+      - Vectors: claim R1, above.
     - RE2's forms that RFC 9485 §3 refuses. stdx takes the named classes, the `]` that comes
       first, the `-` that starts no range and the octal escapes, each as RE2 reads it. Built
       (design §8 step 22, part 22g). `\C` stays refused: it takes one octet of any value, so a
@@ -5792,6 +5856,12 @@ last part lists what still waits on a ruling.
         the check has no entry for the fault.
 
     **What waits on the owner.**
+    - **owner** `cache_words_default`, 2^16 words. The DFA of `[a-q][^u-z]{13}x` does not fit
+      it, and the row above is the price. A larger default is a named limit's change.
+    - **owner** The vector check `json.is_utf8` stays in `json`. The `utf8` module holds the
+      validator that Lean proves and the octets of one code point. To move the vector check
+      there, `utf8` must import `codec` for the CPU's features and join the variant objects of
+      `build/variants.zig`: a new edge of the module graph.
     - **owner** Non-negotiable 3 asks that a whole-buffer helper be built on the streaming call.
       `Searcher` is not: a reverse scan needs the whole text. It is held to the streaming call by
       checks instead, as a fast path is held to its checked path (entry 16).

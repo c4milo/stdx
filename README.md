@@ -54,6 +54,28 @@ gray bar is inside the noise, and an orange bar is slower. Each encoder's panel 
 compression ratio. The charts come from the first runs on Ubuntu 26.04, at commit 0dd2e97, and
 `tools/charts.py` draws them from the reports in [`bench/results/`](bench/results/).
 
+The regex chart comes from five jobs on the Neoverse N2 and three on the EPYC 7763, at commit
+22f6bba, and reads otherwise: its libraries differ by a factor of thousands, so its axis is wider,
+and each kind of pattern has a panel of its own. Rust's regex crate is the line at 1, and Go's
+regexp, mvzr and zig-regex are marks. Each number below is the N2's, then the EPYC 7763's.
+
+- stdx searches for a literal at 1/11 to 0.68 of the speed of Rust's crate, and at 1/22 to 0.19.
+  Rust's crate searches for a literal's octets with vectors, and stdx only skips to an octet that
+  can start a match.
+- A search that starts with a class runs at 0.95 to 2.62 of Rust's speed, and at 1.01 to 2.01. A
+  pattern that validates a short text runs at 0.88 to 1.07, and at 0.93 to 1.04.
+- The EPYC 7763 is the best of four x86-64 models for stdx. The jobs also drew a Xeon 6973P-C, a
+  Xeon 6975P-C and an EPYC 9V74, which the chart does not draw. There stdx validates a short
+  text at 0.76 to 1.00 of Rust's speed, and three class rows that the EPYC 7763 puts at 1.01 to
+  1.03 stand at 0.92 to 1.07. So the chart calls a row level when it is within 5% of Rust's.
+- Capture groups run at 0.22 and at 0.19 of Rust's speed, behind Go's regexp too.
+- The worst row is `[a-q][^u-z]{13}x`, at 1/2630 and 1/2111 of Rust's speed and behind Go's
+  regexp and mvzr: the pattern's DFA does not fit stdx's default cache.
+- stdx compiles a pattern 1.06 to 30 times as fast as Rust's crate, and 0.76 to 26 times. Go's
+  regexp compiles faster than stdx on 14 and on 16 of 23 patterns, and mvzr on all of them.
+- The chart shows no pattern that stdx refuses, such as `\p{L}`, no pattern that takes a
+  backtracking matcher a time exponential in the text, and no first search after a compile.
+
 ### Arm Neoverse N2
 
 ![gzip decoding, in multiples of libdeflate's speed: ahead on 31, level on 2, behind on 6 of 39 files; 0.92 to 1.71. gzip encoding: speed in multiples of libdeflate's level 6, against compression ratio: no other library's point is both faster and smaller than any of stdx's 3 levels](docs/images/deflate-aarch64.svg)
@@ -67,6 +89,8 @@ compression ratio. The charts come from the first runs on Ubuntu 26.04, at commi
 ![CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 3, level on 0, behind on 1 of 4 sizes; 0.70 to 1.68. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.69 to 1.31. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 1, level on 2, behind on 1 of 4 sizes; 0.86 to 1.04](docs/images/checksum-aarch64.svg)
 
 ![base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.84 to 1.19. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.82 to 1.70](docs/images/base64-aarch64.svg)
+
+![search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 0, level on 0, behind on 6 of 6 patterns; geometric mean 0.30, from 1/11 to 0.68; level is within 5.0% of 1; against Go regexp: ahead on 2, behind on 4 of 6; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 3, level on 2, behind on 0 of 5 patterns; geometric mean 1.42, from 0.95 to 2.62; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 1, level on 0, behind on 6 of 7 patterns; from 1/2630 to 1.83; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 2 of 7; mvzr: ahead on 4, behind on 1 of 5; zig-regex: ahead on 4, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 1, level on 2, behind on 2 of 5 patterns; geometric mean 0.97, from 0.88 to 1.07; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 2, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.22; level is within 5.0% of 1; against Go regexp: ahead on 0, behind on 1 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 22, level on 1, behind on 0 of 23 patterns; from 1.06 to 30.08; level is within 5.0% of 1; against Go regexp: ahead on 6, level on 3, behind on 14 of 23; mvzr: ahead on 0, behind on 21 of 21; zig-regex: ahead on 0, level on 3, behind on 18 of 21.](docs/images/regex-aarch64.svg)
 
 <details>
 <summary>x86-64: Intel Xeon Platinum 8370C, AMD EPYC 7763 and AMD EPYC 9V45</summary>
@@ -82,6 +106,8 @@ compression ratio. The charts come from the first runs on Ubuntu 26.04, at commi
 ![CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 0, level on 2, behind on 2 of 4 sizes; 0.79 to 1.00. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.72 to 1.19. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 0, level on 2, behind on 2 of 4 sizes; 0.82 to 1.00](docs/images/checksum-x86_64.svg)
 
 ![base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 5, level on 0, behind on 0 of 5 sizes; 1.35 to 4.40. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.87 to 5.05](docs/images/base64-x86_64.svg)
+
+![search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 0, level on 0, behind on 6 of 6 patterns; geometric mean 0.10, from 1/22 to 0.19; level is within 5.0% of 1; against Go regexp: ahead on 2, behind on 4 of 6; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 2, level on 3, behind on 0 of 5 patterns; geometric mean 1.28, from 1.01 to 2.01; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 1, level on 0, behind on 6 of 7 patterns; from 1/2111 to 1.57; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 2 of 7; mvzr: ahead on 4, behind on 1 of 5; zig-regex: ahead on 4, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 0, level on 4, behind on 1 of 5 patterns; geometric mean 0.99, from 0.93 to 1.04; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 2, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.19; level is within 5.0% of 1; against Go regexp: ahead on 0, behind on 1 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 20, level on 2, behind on 1 of 23 patterns; from 0.76 to 25.63; level is within 5.0% of 1; against Go regexp: ahead on 6, level on 1, behind on 16 of 23; mvzr: ahead on 0, behind on 21 of 21; zig-regex: ahead on 0, behind on 21 of 21.](docs/images/regex-x86_64.svg)
 
 </details>
 

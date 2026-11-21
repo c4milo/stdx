@@ -19,6 +19,9 @@ its highest. Each title counts the rows ahead, level and behind, and the members
 summary row, so a loss changes the title. A checksum's bar is the path the report names as the one
 the CPU runs. A row marked † repeats a file the branch predictor learns (decision 45).
 
+A benchmark whose libraries differ by orders of magnitude, regex, is drawn by charts_wide.py,
+which states its own rules.
+
 An encoder's panel is its speed-size frontier: one point for each library at each level, its
 speed over the files, total octets over total time, in multiples of one baseline's middle level in
 the same job, against its compression ratio, total octets over total compressed octets. The title
@@ -29,6 +32,9 @@ import os
 import re
 import statistics
 import sys
+
+# The tool runs from a checkout, which keeps no compiled copy of charts_wide.py.
+sys.dont_write_bytecode = True
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NUM = re.compile(r"^\s*(-?\d+(?:\.\d+)?)")
@@ -477,6 +483,10 @@ def versions(paths, lib):
 
 
 def draw(benchmark, paths):
+    if benchmark not in SPECS:
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import charts_wide
+        return charts_wide.draw(sys.modules[__name__], benchmark, paths)
     name, specs = SPECS[benchmark]
     reports = [tables(p) for p in paths]
     cpus = {field(p, "CPU model") for p in paths}

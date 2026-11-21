@@ -8006,6 +8006,10 @@ to 12 are reordered and nothing else changes.
     - In the third form a scan that does not skip runs the code of the commit before the
       claim, behind one test, `may_skip`, which `Dfa.init` computes. `resolve` is inline where
       the table holds the entry. The same search takes 491 instructions.
+    - Hosted run 44949411942 timed the third form, `c519449`, against the second in the same
+      job, under the benchmark's second method. The short texts stood at 1.05 to 1.13 of the
+      second form on the N2 and at 1.10 to 1.17 on an EPYC 9V74, with Rust's rows at 0.99 to
+      1.00. No search stood under 0.98, and `[0-9]+` stood at 1.28 and 1.14.
   - Mutations of the third form, each against `zig build test-regex`: 37, of which 30 CAUGHT
     by a named test, 5 CAUGHT by a halt, and 2 NOT CAUGHT.
     - The search for the octet, each CAUGHT by a named test: a range that leaves its last octet
@@ -8045,8 +8049,20 @@ to 12 are reordered and nothing else changes.
   - Three of them, run against the whole oracle check as well: a visit that passes one octet
     more failed 62,400 cases, a range that leaves its last octet out 2,692, and an octet that
     only leads on 550,534.
-  - Not run here: the hosted runners' `bench-regex` with the claim. No number is claimed
-    before it (decision 20).
+  - **The hosted runners, 2026-11-21, at `22f6bba`**, the third form under the benchmark's
+    last method: five jobs on the N2 and three on the EPYC 7763 (part 22l names the runs).
+    Each number is stdx with the claim on over stdx with the claim off, in one job, as the
+    median of the jobs, the N2 first.
+    - Where the octets that can start a match are far apart: `Pharaoh` 9.45 and 6.73,
+      `Sherlock`, which the text does not hold, 9.55 and 6.54, `Population` in the second
+      text 7.32 and 5.04, `(?i)pharaoh` 4.84 and 3.24, `Abraham|Isaac|Jacob|Joseph` 4.46 and
+      3.02, `[0-9]+` 4.31 and 3.40, `href="[^"]*"` 2.86 and 2.09, `[A-Z][A-Z][A-Z]+` 2.77
+      and 1.97, `[0-9][0-9,]* km` 2.62 and 2.01, `<h[1-6][^>]*>` 2.56 and 1.98,
+      `[A-Z][a-z]+ [A-Z][a-z]+` 2.12 and 1.56, and the Greek word 1.52 and 1.40.
+    - Where the skip rests, or the pattern holds an assertion: 1.00 on each row but one, at
+      1.01. The rows are `[a-z]+ing`, `the [a-z]+ of`, two capitalized words in the second
+      text, `\bPharaoh\b`, `(?m)^[A-Z][a-z]+:`, `[a-q][^u-z]{13}x` and the five patterns of
+      short texts. So the claim costs a search nothing where it gains nothing.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
@@ -8056,6 +8072,25 @@ to 12 are reordered and nothing else changes.
   **Check:** each candidate's answer equals Go's regexp's before it is timed, and stdx's must;
   the program's own parts have tests; the hosted runners' reports are committed under
   `bench/results/`, and no number is claimed before them (decision 20).
+
+  **Check passed, part 22l, 2026-11-21.** The `bench` workflow ran `bench-regex` at `22f6bba`
+  six times, on GitHub's hosted runners under Ubuntu 26.04.
+  - On aarch64, five jobs drew a Neoverse N2 (runs 44951158272, 44951161023, 44951166966,
+    44951169916 and 44951172875). The sixth, of run 44951163723, failed while cargo built
+    another benchmark's baseline, and left no report.
+  - On x86-64, three jobs drew an AMD EPYC 7763 (runs 44951158272, 44951166966 and
+    44951169916), and one each drew a Xeon 6973P-C, an EPYC 9V74 and a Xeon 6975P-C. The
+    chart draws one CPU model, as decision 85 rules, so it draws the three.
+  - In each job stdx gave Go's regexp's answer on every row, by the searcher, by the searcher
+    with claim R1 off, by the matcher alone, and by the searcher timed again.
+  - `bench/results/` holds the eleven reports as `2026-11-21-regex-*`, and `bench/charts.txt`
+    names the eight that the README's two charts draw. Decision 86 reads the numbers.
+  - stdx over stdx timed again, as the median of the jobs, stood within 0.5% of 1 on every
+    row but three: 0.7% on `[a-q][^u-z]{13}x` on the EPYC 7763, and 1.6% and 3.1% on the row
+    of capture groups, where the first place in a round is the faster one. The chart's band
+    is 5% all the same, its floor: the last review compared the six x86-64 jobs, and a row
+    1% to 3% ahead of Rust's crate on the EPYC 7763 stood 3% to 8% behind on the two Xeons
+    (decision 86).
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
