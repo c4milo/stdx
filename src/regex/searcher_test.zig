@@ -21,7 +21,7 @@ const groups_len = matcher_test.groups_len;
 
 /// The most cache a test gives a searcher.
 const cache_words_max = 32768;
-const memory_len = Searcher.memory_len(storage_len, groups_len * constants.group_slots, cache_words_max);
+pub const memory_len = Searcher.memory_len(storage_len, groups_len * constants.group_slots, cache_words_max);
 
 /// A program, a searcher for it and a matcher to hold the searcher against.
 pub const Fixture = struct {

@@ -32,6 +32,7 @@ pub const Span = matcher.Span;
 
 const searcher = @import("searcher.zig");
 pub const Searcher = searcher.Searcher;
+pub const SearcherClaims = searcher.Claims;
 pub const Matches = searcher.Matches;
 
 const errors = @import("errors.zig");

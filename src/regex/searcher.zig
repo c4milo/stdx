@@ -26,6 +26,15 @@ const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
 /// What a faster way found: the match, or that the text holds none.
 const Answer = struct { span: ?Span };
 
+/// The claims of a searcher, each a faster way that must give the answer the plain way gives.
+/// A caller turns one off to measure it, or to rule it out.
+pub const Claims = struct {
+    /// R1: a forward DFA that waits for a match to start skips to the next octet that can start
+    /// one, `skip_lanes` octets a step. It rests where the texts hold such octets too close
+    /// together for a skip to pay, and tries again later.
+    start_skip: bool = true,
+};
+
 pub const Searcher = struct {
     matcher: Matcher,
     forward: Dfa,
@@ -46,6 +55,11 @@ pub const Searcher = struct {
     /// Readies a searcher for `program`. The memory is the searcher's until the caller is done
     /// with it, and holds at least `memory_len` words with no cache.
     pub fn init(searcher: *Searcher, program: *const Program, memory: []u64) void {
+        searcher.init_with(program, .{}, memory);
+    }
+
+    /// `init`, with the claims the caller names.
+    pub fn init_with(searcher: *Searcher, program: *const Program, claims: Claims, memory: []u64) void {
         const matcher_len = Matcher.memory_len(program.forward_len, program.slot_count());
         assert(memory.len >= matcher_len);
         searcher.matcher.init(program, .{ .captures = .groups }, memory[0..matcher_len]);
@@ -54,7 +68,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(
@@ -177,4 +191,5 @@ pub const Matches = struct {
 
 test {
     _ = @import("searcher_test.zig");
+    _ = @import("searcher_skip_test.zig");
 }

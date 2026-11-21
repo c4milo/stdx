@@ -20,6 +20,7 @@ const Instruction = program_file.Instruction;
 const Context = program_file.Context;
 const SparseSet = @import("sparse_set.zig").SparseSet;
 const Cache = @import("dfa_cache.zig").Cache;
+const Skip = @import("dfa_skip.zig").Skip;
 const is_continuation = @import("utf8_ranges.zig").is_continuation;
 
 /// Which matches a DFA reports.
@@ -38,6 +39,10 @@ pub const Config = struct {
     kind: Kind,
     /// Whether a match must start at the scan's first octet.
     anchored: bool,
+    /// Claim R1: whether a forward scan that waits for a match to start skips to the next octet
+    /// that can start one (dfa_skip.zig). Only for a DFA of `Kind.first` that is not anchored:
+    /// an anchored scan waits for no match, and the reverse program starts where a match ends.
+    skip: bool = false,
 };
 
 /// What a scan found: the offset its last match ended at in the scan's direction, none, or
@@ -81,6 +86,23 @@ pub const Dfa = struct {
     reached: bool,
     /// Where the scan last counted its octets from.
     mark: usize,
+    /// Claim R1. The octets a match can start with, known once a scan asked for them.
+    skip: Skip,
+    skip_known: bool,
+    /// The row of the state that waits for a match to start, with no thread: a scan in it may
+    /// skip. `dfa_unknown` where the DFA skips nothing, or the cache holds no such state now.
+    idle: u32,
+    /// The visits of scans to that state since the skip was last judged, and the octets the
+    /// visits passed.
+    skip_visits: u32,
+    skip_octets: u64,
+    /// True while the skip is off because it was judged poor, until the scans took
+    /// `skip_rest_octets` more octets: the count of scanned octets at which it is tried again.
+    skip_off: bool,
+    skip_retry_at: u64,
+    /// The trials that judged the skip poor since one judged it good, up to
+    /// `skip_rest_doublings_max`: each doubles the rest.
+    skip_poor_trials: u6,
 
     /// The words of memory a DFA needs before its cache holds `dfa_states_min` states.
     pub fn memory_len_min(program: *const Program) usize {
@@ -101,6 +123,7 @@ pub const Dfa = struct {
     /// must not be used.
     pub fn init(dfa: *Dfa, program: *const Program, config: Config, memory: []u32) bool {
         if (memory.len < memory_len_min(program)) return false;
+        assert(!config.skip or (config.kind == .first and !config.anchored));
         const len = program.instructions.len;
         var rest = memory;
         dfa.* = .{
@@ -118,6 +141,14 @@ pub const Dfa = struct {
             .stack_len = 0,
             .reached = false,
             .mark = 0,
+            .skip = undefined,
+            .skip_known = false,
+            .idle = constants.dfa_unknown,
+            .skip_visits = 0,
+            .skip_octets = 0,
+            .skip_off = false,
+            .skip_retry_at = 0,
+            .skip_poor_trials = 0,
             .cache = undefined,
         };
         for (0..constants.octet_values) |octet| {
@@ -140,20 +171,44 @@ pub const Dfa = struct {
         // through locals: a store through `dfa` then reloads neither.
         const table = dfa.cache.table;
         const classes = &dfa.classes;
-        for (haystack[from..], from..) |octet, index| {
+        var idle = dfa.idle;
+        var index = from;
+        while (index < haystack.len) {
+            // Claim R1: the state that waits for a match to start stays where it is over an
+            // octet that starts none, so the scan goes to the next octet that can.
+            if (state == idle) {
+                index = dfa.pass(haystack, index);
+                idle = dfa.idle;
+                if (index == haystack.len) break;
+            }
+            const octet = haystack[index];
             const entry = table[state + classes[octet]];
+            index += 1;
             if (entry < constants.dfa_dead_flag) {
                 state = entry;
                 continue;
             }
-            const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
-            if (known & constants.dfa_match_flag != 0) last = index;
-            if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
-            state = known & constants.dfa_row_mask;
+            switch (dfa.settle(state, octet, entry, index - 1, earliest, &last)) {
+                .done => |scan| return scan,
+                .state => |row| state = row,
+            }
+            // The state just built may be the one that waits, and a cache that cleared gave it a
+            // new row.
+            idle = dfa.idle;
         }
         dfa.tally(haystack.len);
         if (dfa.matches_at_end(state, .edge)) last = haystack.len;
         return Scan.of(last);
+    }
+
+    /// What a forward scan does with an entry that is no plain state: the entry is built where
+    /// the table does not hold it, a match that ended before the octet at `index` is kept in
+    /// `last`, and the scan ends where no later octet can change its answer.
+    fn settle(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize, earliest: bool, last: *?usize) union(enum) { done: Scan, state: u32 } {
+        const known = dfa.resolve(state, octet, entry, index) orelse return .{ .done = .gave_up };
+        if (known & constants.dfa_match_flag != 0) last.* = index;
+        if (known & constants.dfa_dead_flag != 0 or (earliest and last.* != null)) return .{ .done = Scan.of(last.*) };
+        return .{ .state = known & constants.dfa_row_mask };
     }
 
     /// The least offset at or after `from` where a match that ends at `end` starts. The DFA runs
@@ -208,12 +263,71 @@ pub const Dfa = struct {
     /// The state a scan starts in, behind which stands an octet of `behind`'s context.
     fn start(dfa: *Dfa, behind: Context) ?u32 {
         const context: Context = if (dfa.has_looks) behind else .other;
-        const known = dfa.cache.starts[@intFromEnum(context)];
-        if (known != constants.dfa_unknown) return known;
-        dfa.next.clear();
-        const row = dfa.cache.intern(@intFromEnum(context) | restart_bit, dfa.next.slice()) orelse return null;
-        dfa.cache.starts[@intFromEnum(context)] = row;
+        var row = dfa.cache.starts[@intFromEnum(context)];
+        if (row == constants.dfa_unknown) {
+            dfa.next.clear();
+            row = dfa.cache.intern(@intFromEnum(context) | restart_bit, dfa.next.slice()) orelse return null;
+            dfa.cache.starts[@intFromEnum(context)] = row;
+            // Where the DFA knows the state that waits, it is this state, which the cache held
+            // before the call: `build` forgets the state's row when the cache clears.
+            assert(dfa.idle == constants.dfa_unknown or dfa.idle == row);
+        }
+        if (dfa.skip_off and dfa.cache.scanned >= dfa.skip_retry_at) dfa.skip_off = false;
+        if (dfa.idle == constants.dfa_unknown and dfa.skips()) dfa.wait_at(row);
         return row;
+    }
+
+    /// True when a scan may skip: claim R1 is on and is not resting, and one state waits for
+    /// a match to start whatever octet stands behind it. A program with an assertion has one
+    /// such state for each context.
+    fn skips(dfa: *const Dfa) bool {
+        return dfa.config.skip and !dfa.skip_off and !dfa.has_looks;
+    }
+
+    /// A visit of a scan to the state that waits, at an octet of the haystack: the offset of the
+    /// next octet that can start a match, which is `from` where its own octet can.
+    fn pass(dfa: *Dfa, haystack: []const u8, from: usize) usize {
+        var index = from;
+        if (!dfa.skip.starts[haystack[from]]) index = dfa.skip.next(haystack, from + 1);
+        dfa.skip_octets += index - from;
+        dfa.skip_visits += 1;
+        if (dfa.skip_visits == constants.skip_trial_visits) dfa.judge_skip();
+        return index;
+    }
+
+    /// Turns the skip off where its visits passed too few octets to pay for themselves, until
+    /// the scans took `skip_rest_octets` more octets.
+    fn judge_skip(dfa: *Dfa) void {
+        const poor = dfa.skip_octets < @as(u64, dfa.skip_visits) * constants.skip_octets_per_visit_min;
+        dfa.skip_visits = 0;
+        dfa.skip_octets = 0;
+        if (!poor) {
+            dfa.skip_poor_trials = 0;
+            return;
+        }
+        dfa.skip_off = true;
+        dfa.skip_retry_at = dfa.cache.scanned + (@as(u64, constants.skip_rest_octets) << dfa.skip_poor_trials);
+        dfa.skip_poor_trials = @min(dfa.skip_poor_trials + 1, constants.skip_rest_doublings_max);
+        dfa.idle = constants.dfa_unknown;
+    }
+
+    /// Takes `row` as the state that waits for a match to start, and learns once which octets
+    /// can start one: those the state does not answer by staying where it is.
+    fn wait_at(dfa: *Dfa, row: u32) void {
+        if (!dfa.skip_known) {
+            var class_starts: [constants.octet_values]bool = undefined;
+            for (0..dfa.class_count) |class| {
+                const octet = dfa.representatives[class];
+                const matched = dfa.close(row, dfa.context_of(octet), !is_continuation(octet));
+                dfa.step(octet);
+                class_starts[class] = matched or dfa.next.len != 0;
+            }
+            var starts: [constants.octet_values]bool = undefined;
+            for (&starts, dfa.classes) |*start_here, class| start_here.* = class_starts[class];
+            dfa.skip = Skip.init(&starts);
+            dfa.skip_known = true;
+        }
+        dfa.idle = row;
     }
 
     /// The entry for one class of octets from a state: the state's threads, each given the
@@ -230,7 +344,13 @@ pub const Dfa = struct {
         const restart = head & restart_bit != 0 and dfa.restarts_after(matched);
         if (dfa.next.len == 0 and !restart) return constants.dfa_dead_flag | flags;
         const next_head = @intFromEnum(dfa.context_of(octet)) | (if (restart) @as(u32, restart_bit) else 0);
-        const row = dfa.cache.intern(next_head, dfa.next.slice()) orelse return null;
+        const clears = dfa.cache.clears;
+        const interned = dfa.cache.intern(next_head, dfa.next.slice());
+        // A cache that cleared holds no state under its old row, also where it then gave up.
+        if (dfa.cache.clears != clears) dfa.idle = constants.dfa_unknown;
+        const row = interned orelse return null;
+        // The state with no thread that may still start a match is the one that waits.
+        if (dfa.next.len == 0 and dfa.skips() and dfa.skip_known) dfa.idle = row;
         return row | flags;
     }
 
@@ -331,4 +451,5 @@ fn take(memory: *[]u32, len: usize) []u32 {
 
 test {
     _ = @import("dfa_cache.zig");
+    _ = @import("dfa_skip.zig");
 }

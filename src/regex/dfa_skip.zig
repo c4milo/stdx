@@ -1,0 +1,164 @@
+//! The octets a match can start with, and the search for the next one (decision 86, claim R1).
+//!
+//! A lazy DFA that waits for a match to start takes each octet that cannot start one and stays
+//! where it is. `Skip` finds the next octet that can, with no read of the DFA's table: a few
+//! octets one at a time, then `skip_lanes` octets a step, where at most `skip_ranges_max` ranges
+//! hold every such octet. A pattern that starts with a literal, with one of a few letters or
+//! with a class of a few ranges has such ranges. The DFA then reads its table from that octet
+//! on, so the answer is the one it gives with no skip.
+//!
+//! A skip pays where the octets that can start a match are far apart. Where they are close, as
+//! the letters of `[a-z]+ing` are in prose, each visit to the state that waits passes few octets
+//! and costs a branch the CPU cannot predict. The DFA counts both and turns its skip off there
+//! (`skip_trial_visits`, `skip_octets_per_visit_min`), and tries it again after
+//! `skip_rest_octets`, since a text's parts differ.
+const std = @import("std");
+const assert = std.debug.assert;
+const constants = @import("constants.zig");
+
+/// The octets from `lo` on, `span` more than one of them.
+const Range = struct { lo: u8, span: u8 };
+
+const Lanes = @Vector(constants.skip_lanes, u8);
+
+pub const Skip = struct {
+    /// True for each octet a match can start with.
+    starts: [constants.octet_values]bool,
+    /// The octets a match can start with, as ranges. A range that is not used repeats the first.
+    ranges: [constants.skip_ranges_max]Range,
+    /// True when `ranges` hold every octet of `starts`, so a step may judge `skip_lanes` octets.
+    in_ranges: bool,
+
+    pub fn init(starts: *const [constants.octet_values]bool) Skip {
+        var skip: Skip = .{ .starts = starts.*, .ranges = undefined, .in_ranges = true };
+        var count: usize = 0;
+        var octet: usize = 0;
+        while (octet < constants.octet_values) {
+            if (!starts[octet]) {
+                octet += 1;
+                continue;
+            }
+            const lo = octet;
+            while (octet < constants.octet_values and starts[octet]) octet += 1;
+            if (count < constants.skip_ranges_max) skip.ranges[count] = .{ .lo = @intCast(lo), .span = @intCast(octet - 1 - lo) };
+            count += 1;
+        }
+        skip.in_ranges = count > 0 and count <= constants.skip_ranges_max;
+        if (skip.in_ranges) @memset(skip.ranges[count..], skip.ranges[0]);
+        return skip;
+    }
+
+    /// The first offset at or after `from` whose octet can start a match, or the haystack's
+    /// length where none is left.
+    pub fn next(skip: *const Skip, haystack: []const u8, from: usize) usize {
+        assert(from <= haystack.len);
+        // A dense set, such as the letters in prose, ends most skips within a few octets, where
+        // a step of `skip_lanes` octets would cost more than it saves.
+        const near = @min(haystack.len, from + constants.skip_scalar_run);
+        for (haystack[from..near], from..) |octet, index| {
+            if (skip.starts[octet]) return index;
+        }
+        const far = if (skip.in_ranges) skip.by_lanes(haystack, near) else near;
+        for (haystack[far..], far..) |octet, index| {
+            if (skip.starts[octet]) return index;
+        }
+        return haystack.len;
+    }
+
+    /// The first offset at or after `from` whose octet is in a range, where a whole step of
+    /// `skip_lanes` octets holds it, or the offset of the first step that does not fit.
+    fn by_lanes(skip: *const Skip, haystack: []const u8, from: usize) usize {
+        var index = from;
+        while (haystack.len - index >= constants.skip_lanes) : (index += constants.skip_lanes) {
+            const octets: Lanes = haystack[index..][0..constants.skip_lanes].*;
+            var hits: @Vector(constants.skip_lanes, bool) = @splat(false);
+            // An octet is in a range when its distance from the range's first octet, as an
+            // unsigned number, is at most the range's span.
+            inline for (0..constants.skip_ranges_max) |range| {
+                const lo: Lanes = @splat(skip.ranges[range].lo);
+                const span: Lanes = @splat(skip.ranges[range].span);
+                hits = @select(bool, octets -% lo <= span, @as(@Vector(constants.skip_lanes, bool), @splat(true)), hits);
+            }
+            if (std.simd.firstTrue(hits)) |lane| return index + lane;
+        }
+        return index;
+    }
+};
+
+const testing = std.testing;
+const Generator = @import("codec").testing.split.Generator;
+
+fn starts_of(octets: []const u8) [constants.octet_values]bool {
+    var starts: [constants.octet_values]bool = @splat(false);
+    for (octets) |octet| starts[octet] = true;
+    return starts;
+}
+
+/// The first start octet at or after `from`, one octet at a time: what `next` must give.
+fn next_plain(starts: *const [constants.octet_values]bool, haystack: []const u8, from: usize) usize {
+    for (haystack[from..], from..) |octet, index| {
+        if (starts[octet]) return index;
+    }
+    return haystack.len;
+}
+
+test "init gives the start octets as ranges where three hold them" {
+    const one = Skip.init(&starts_of("P"));
+    try testing.expect(one.in_ranges);
+    try testing.expectEqual(Range{ .lo = 'P', .span = 0 }, one.ranges[0]);
+    try testing.expectEqual(one.ranges[0], one.ranges[2]);
+    const letters = Skip.init(&starts_of("AIJpqr"));
+    try testing.expect(letters.in_ranges);
+    try testing.expectEqualSlices(Range, &.{ .{ .lo = 'A', .span = 0 }, .{ .lo = 'I', .span = 1 }, .{ .lo = 'p', .span = 2 } }, &letters.ranges);
+    const four = Skip.init(&starts_of("aceg"));
+    try testing.expect(!four.in_ranges);
+    const edges = Skip.init(&starts_of("\x00\xFF"));
+    try testing.expectEqualSlices(Range, &.{ .{ .lo = 0, .span = 0 }, .{ .lo = 0xFF, .span = 0 }, .{ .lo = 0, .span = 0 } }, &edges.ranges);
+    const none = Skip.init(&starts_of(""));
+    try testing.expect(!none.in_ranges);
+    const every: [constants.octet_values]bool = @splat(true);
+    const all = Skip.init(&every);
+    try testing.expect(all.in_ranges);
+    try testing.expectEqual(Range{ .lo = 0, .span = 0xFF }, all.ranges[0]);
+}
+
+/// Fills a haystack with octets that start nothing and `count` octets of `set` at places a seed
+/// draws, so that skips of each length are taken: none, one in the first lanes, one in a later
+/// step, and one in the last octets.
+fn scatter(generator: *Generator, haystack: []u8, set: []const u8, count: usize) void {
+    @memset(haystack, 'x');
+    if (set.len == 0) return;
+    for (0..count) |_| haystack[generator.below(haystack.len)] = set[generator.below(set.len)];
+}
+
+test "next gives the first start octet from every offset, as a walk of one octet at a time gives it" {
+    var haystack: [200]u8 = undefined;
+    var generator = Generator.init(0x5C1B);
+    const sets = [_][]const u8{ "P", "AIJ", "0123456789", "aceg", "\x00\xFF", "", "Pp\xC3" };
+    for (sets) |set| {
+        const starts = starts_of(set);
+        const skip = Skip.init(&starts);
+        for (0..64) |round| {
+            scatter(&generator, &haystack, set, round % 4);
+            const len = generator.below(haystack.len + 1);
+            for (0..len + 1) |from| {
+                try testing.expectEqual(next_plain(&starts, haystack[0..len], from), skip.next(haystack[0..len], from));
+            }
+        }
+    }
+}
+
+test "next judges each octet of a step by its own range" {
+    const skip = Skip.init(&starts_of("0123456789"));
+    var haystack: [3 * constants.skip_lanes + constants.skip_scalar_run]u8 = undefined;
+    // The octets beside a range's ends are not in it: one below its first and one above its last.
+    for (&haystack, 0..) |*octet, index| octet.* = if (index % 2 == 0) '/' else ':';
+    try testing.expectEqual(haystack.len, skip.next(&haystack, 0));
+    for (constants.skip_scalar_run..haystack.len) |at| {
+        haystack[at] = '0';
+        try testing.expectEqual(at, skip.next(&haystack, 0));
+        haystack[at] = '9';
+        try testing.expectEqual(at, skip.next(&haystack, 0));
+        haystack[at] = '/';
+    }
+}

@@ -2,8 +2,9 @@
 //! pattern, count its matches in a haystack, count the short texts it matches, and sum the
 //! offsets of its groups in each text.
 //!
-//! - stdx's `regex`, by a `Searcher` with the default cache, and by one with no cache, where the
-//!   matcher answers alone: the reference path.
+//! - stdx's `regex`, by a `Searcher` with the default cache; by one with claim R1 off, which
+//!   skips to no start octet; and by one with no cache, where the matcher answers alone: the
+//!   reference path.
 //! - Rust's `regex` crate and Go's regexp, from the libraries of bench/regex/rust and
 //!   bench/regex/go.
 //! - Two libraries in Zig: zig-regex and mvzr, each at the commit build.zig.zon pins. zig-regex's
@@ -17,10 +18,10 @@ const regex = @import("regex");
 const ZigRegex = @import("zig_regex").Regex;
 const mvzr = @import("mvzr");
 
-pub const Engine = enum { stdx, stdx_matcher, rust, go, zig_regex, mvzr };
+pub const Engine = enum { stdx, stdx_no_skip, stdx_matcher, rust, go, zig_regex, mvzr };
 
 /// Each candidate's column, in `Engine`'s order.
-pub const names = [_][]const u8{ "stdx", "stdx, matcher alone", "Rust regex", "Go regexp", "zig-regex", "mvzr" };
+pub const names = [_][]const u8{ "stdx", "stdx, no skip", "stdx, matcher alone", "Rust regex", "Go regexp", "zig-regex", "mvzr" };
 
 extern fn rust_regex_new(pattern: [*]const u8, len: usize) callconv(.c) ?*anyopaque;
 extern fn rust_regex_free(handle: ?*anyopaque) callconv(.c) void;
@@ -49,7 +50,7 @@ pub const Stdx = struct {
     searcher: regex.Searcher,
 
     fn cache_words(engine: Engine) usize {
-        return if (engine == .stdx) regex.constants.cache_words_default else 0;
+        return if (engine == .stdx_matcher) 0 else regex.constants.cache_words_default;
     }
 
     /// The words of a searcher's memory for any pattern of the benchmark.
@@ -61,7 +62,7 @@ pub const Stdx = struct {
     pub fn ready(stdx: *Stdx, engine: Engine, pattern: []const u8) bool {
         stdx.program = regex.compile(pattern, .{}, &stdx.storage) catch return false;
         const len = regex.Searcher.memory_len(stdx.program.forward_len, stdx.program.slot_count(), cache_words(engine));
-        stdx.searcher.init(&stdx.program, stdx.memory[0..len]);
+        stdx.searcher.init_with(&stdx.program, .{ .start_skip = engine != .stdx_no_skip }, stdx.memory[0..len]);
         return true;
     }
 };
@@ -69,6 +70,7 @@ pub const Stdx = struct {
 /// A pattern as one candidate compiled it.
 pub const Pattern = union(Engine) {
     stdx: *Stdx,
+    stdx_no_skip: *Stdx,
     stdx_matcher: *Stdx,
     rust: *anyopaque,
     go: usize,
@@ -80,11 +82,15 @@ pub const Pattern = union(Engine) {
 /// lives as long as the arena.
 pub fn compile(engine: Engine, arena: std.mem.Allocator, pattern: []const u8) !?Pattern {
     switch (engine) {
-        .stdx, .stdx_matcher => {
+        .stdx, .stdx_no_skip, .stdx_matcher => {
             const stdx = try arena.create(Stdx);
             stdx.memory = try arena.alloc(u64, Stdx.memory_len(engine));
             if (!stdx.ready(engine, pattern)) return null;
-            return if (engine == .stdx) .{ .stdx = stdx } else .{ .stdx_matcher = stdx };
+            return switch (engine) {
+                .stdx => .{ .stdx = stdx },
+                .stdx_no_skip => .{ .stdx_no_skip = stdx },
+                else => .{ .stdx_matcher = stdx },
+            };
         },
         .rust => return if (rust_regex_new(pattern.ptr, pattern.len)) |handle| .{ .rust = handle } else null,
         .go => {
@@ -119,7 +125,7 @@ pub const Scratch = struct {
 /// candidate refuses the pattern.
 pub fn compile_once(engine: Engine, scratch: *const Scratch, pattern: []const u8) bool {
     switch (engine) {
-        .stdx, .stdx_matcher => return scratch.stdx.ready(engine, pattern),
+        .stdx, .stdx_no_skip, .stdx_matcher => return scratch.stdx.ready(engine, pattern),
         .rust => {
             const handle = rust_regex_new(pattern.ptr, pattern.len) orelse return false;
             rust_regex_free(handle);
@@ -171,7 +177,7 @@ fn mvzr_count(compiled: *const mvzr.Regex, haystack: []const u8) usize {
 /// The matches of a pattern in a haystack, none inside another.
 pub fn count(pattern: Pattern, haystack: []const u8) usize {
     switch (pattern) {
-        .stdx, .stdx_matcher => |stdx| {
+        .stdx, .stdx_no_skip, .stdx_matcher => |stdx| {
             var found: usize = 0;
             var matches: regex.Matches = .{ .searcher = &stdx.searcher, .haystack = haystack };
             while (matches.next()) |_| found += 1;
@@ -201,7 +207,7 @@ pub fn matching(pattern: Pattern, batch: []const u8) usize {
     var texts: Texts = .{ .rest = batch };
     var found: usize = 0;
     switch (pattern) {
-        .stdx, .stdx_matcher => |stdx| while (texts.next()) |text| {
+        .stdx, .stdx_no_skip, .stdx_matcher => |stdx| while (texts.next()) |text| {
             found += @intFromBool(stdx.searcher.is_match(text));
         },
         .rust => |handle| return rust_regex_matching(handle, batch.ptr, batch.len),
@@ -247,7 +253,7 @@ fn zig_regex_groups(compiled: *ZigRegex, batch: []const u8) usize {
 /// batch, or null where the candidate gives no groups.
 pub fn groups(pattern: Pattern, batch: []const u8) ?usize {
     return switch (pattern) {
-        .stdx, .stdx_matcher => |stdx| stdx_groups(stdx, batch),
+        .stdx, .stdx_no_skip, .stdx_matcher => |stdx| stdx_groups(stdx, batch),
         .rust => |handle| rust_regex_groups(handle, batch.ptr, batch.len),
         .go => |handle| go_regex_groups(handle, batch.ptr, batch.len),
         .zig_regex => |compiled| zig_regex_groups(compiled, batch),

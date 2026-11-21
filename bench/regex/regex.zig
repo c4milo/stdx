@@ -2,8 +2,9 @@
 //! and Zig, for decision 86. The timing is bench/timing/timing.zig's: every candidate of a row
 //! interleaved in one run, the median of five runs with the spread, and the losses shown.
 //!
-//! The candidates are regex_engines.zig's: stdx by a searcher with its default cache, stdx by the
-//! matcher alone, Rust's `regex` crate, Go's regexp, zig-regex and mvzr. stdx is built
+//! The candidates are regex_engines.zig's: stdx by a searcher with its default cache, the same
+//! with claim R1 off, stdx by the matcher alone, Rust's `regex` crate, Go's regexp, zig-regex
+//! and mvzr. stdx is built
 //! ReleaseSafe and each other library ReleaseFast or its release form, all for the
 //! architecture's baseline CPU (decisions 17 and 75).
 //!
@@ -101,7 +102,7 @@ const Row = struct {
     }
 
     /// Times the row and prints its cells, with `items` of the row's unit in one operation, and
-    /// stdx's speed over Rust's and over Go's.
+    /// stdx's speed over its own with claim R1 off, over Rust's and over Go's.
     fn print(row: *const Row, io: std.Io, out: *std.Io.Writer, items: f64) !void {
         var runs: [engine_count][timing.run_count]f64 = undefined;
         timing.time_interleaved(io, row.operations[0..row.timed], runs[0..row.timed]);
@@ -119,7 +120,7 @@ const Row = struct {
             }
         }
         const stdx = rates[@intFromEnum(Engine.stdx)].?;
-        for ([_]Engine{ .rust, .go }) |other| {
+        for (ratio_bases) |other| {
             if (rates[@intFromEnum(other)]) |rate| try out.print(" {d:.2} |", .{stdx / rate}) else try out.writeAll(" |");
         }
         try out.writeAll("\n");
@@ -149,18 +150,27 @@ fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, patt
         }
         row.add(engine, .{ .context = &calls[index], .run_once = Call.run_once });
     }
-    if (row.cells[@intFromEnum(Engine.stdx)] != .timed or row.cells[@intFromEnum(Engine.stdx_matcher)] != .timed) {
+    const ours = [_]Engine{ .stdx, .stdx_no_skip, .stdx_matcher };
+    const agree = for (ours) |engine| {
+        if (row.cells[@intFromEnum(engine)] != .timed) break false;
+    } else true;
+    if (!agree) {
         std.debug.print("bench-regex: stdx does not give Go's answer for `{s}`\n", .{pattern});
         return error.CandidatesDisagree;
     }
     return expected;
 }
 
+/// The candidates a row gives stdx's speed over, a column each: stdx with claim R1 off, which is
+/// the claim's A/B in one run (decision 86), and the two baselines the charts draw stdx against.
+const ratio_bases = [_]Engine{ .stdx_no_skip, .rust, .go };
+
 fn print_head(out: *std.Io.Writer, title: []const u8, first: []const u8, second: []const u8) !void {
     try out.print("## {s}\n\n| {s} | {s} |", .{ title, first, second });
     for (engines.names) |name| try out.print(" {s} |", .{name});
-    try out.writeAll(" stdx / Rust regex | stdx / Go regexp |\n|---|---|");
-    for (0..engine_count + 2) |_| try out.writeAll("---|");
+    for (ratio_bases) |base| try out.print(" stdx / {s} |", .{engines.names[@intFromEnum(base)]});
+    try out.writeAll("\n|---|---|");
+    for (0..engine_count + ratio_bases.len) |_| try out.writeAll("---|");
     try out.writeAll("\n");
 }
 
@@ -176,6 +186,7 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
 const File = struct { name: []const u8, octets: []const u8 };
 
 fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File) !void {
+    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claim R1 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed.\n\n");
     try out.writeAll("The patterns of the search table:\n\n");
     for (cases.searches) |search| try out.print("- {s}, in {s}: `{s}`\n", .{ search.name, search.file, search.pattern });
     try out.writeAll("\n");

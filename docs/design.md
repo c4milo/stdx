@@ -7816,8 +7816,8 @@ to 12 are reordered and nothing else changes.
 - **Step 22: the `regex` module (decision 86).** Regular expressions matched in time linear in
   the text. The owner asked for it on 2026-11-21. The step has parts, and each part lands with its
   own check. Part 22a is built: `compile` and `compile_comptime`, `Matcher`, and `Searcher` with
-  its two lazy DFAs and `Matches`. Parts 22b, 22g, 22i, 22k and 22l are built too, and each has
-  its record below.
+  its two lazy DFAs and `Matches`. Parts 22b, 22g, 22i, 22k and 22l are built too, and the
+  first claim of part 22c, and each has its record below.
   **Check, part 22a:**
   - Each form of the syntax has a table of patterns, texts and the groups each must give, and
     each of the parser's 23 refusals has its patterns, with the class `refusal` gives it.
@@ -7882,10 +7882,10 @@ to 12 are reordered and nothing else changes.
 
   The parts not built, each with the check it would land with:
   - **22c: literals found before the automaton runs.** A pattern that is one literal goes to a
-    substring search; a search in its start state skips to the next octet that can start a
-    match; a small set of literals goes to a vector search of their first octets, as Hyperscan's
-    and Rust's engines do. Each is a claim with an A/B, and each keeps a guard on the octets it
-    skips, so no text makes it quadratic.
+    substring search; a small set of literals goes to a vector search of their first octets, as
+    Hyperscan's and Rust's engines do. Each is a claim with an A/B, and each keeps a guard on
+    the octets it skips, so no text makes it quadratic. Its first claim is built, and its record
+    is below: a search in its start state skips to the next octet that can start a match.
   - **22d: the capture groups without the matcher's lists.** A one-pass automaton where a pattern
     is one-pass, and a backtracking matcher under a table of visited states for a short text, as
     RE2 has both. Each must give the matcher's groups.
@@ -7955,6 +7955,65 @@ to 12 are reordered and nothing else changes.
       two tallies that leaves out the allowed cases or the entries' counts, each CAUGHT by a
       named test; and a pattern that keeps the searchers of the pattern before it, CAUGHT by a
       halt of the whole check.
+
+  **Part 22c, claim R1 built: a scan that waits for a match to start skips to the next octet
+  that can start one (decision 86).** The owner asked on 2026-11-21 whether the engine can use
+  vectors. `src/regex/dfa_skip.zig` holds the search for the octet, and `dfa.zig` the state
+  that waits and the judgment that rests a skip that does not pay.
+  **Check:** a searcher that skips gives the matcher's answer from every offset, under each
+  cache size, through a cache that clears, and with its skip resting; `Skip.next` gives what a
+  walk of one octet at a time gives; the oracle check of part 22b passes with the claim on;
+  `bench-regex` times the claim off beside the claim on in one run; mutations.
+
+  **Check passed, part 22c, claim R1, 2026-11-21.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux
+  6.18, in a cloud container. `zig build test`: 99 of 99 steps, 1,287 tests passed and 6
+  skipped. `zig build differential-regex -Doracles`: 12,437,544 cases, none failed, with the
+  claim on by default.
+  - Octets a visit to the state that waits, with the judgment off, over the benchmark's texts.
+    They are counts, the same on every machine: `Pharaoh` 2,357; `Abraham|Isaac|Jacob|Joseph`
+    99; `[A-Z][A-Z][A-Z]+` 42; `<h[1-6][^>]*>` 24; `the [a-z]+ of` 10.2; and `[a-z]+ing` 0.4.
+    `skip_octets_per_visit_min` is 8. A pass in the container, which orders candidates and
+    publishes no number, showed the skip level or ahead from 9.3 octets a visit up, and behind
+    from 2.3 down. The hosted report of `bench-regex` holds the time of each pattern, claim on
+    and claim off.
+  - The first form set the row of the state that waits back only where a state was kept. A
+    cache that cleared and then gave up left the old row. `Dfa.start` held the fault by
+    forgetting the row each time it kept the start state. `Dfa.build` now forgets the row
+    wherever the cache cleared, and `Dfa.start` asserts it.
+  - Mutations, each against `zig build test-regex`: 32, of which 27 CAUGHT by a named test, 4
+    CAUGHT by a halt, and 1 NOT CAUGHT.
+    - The search for the octet, each CAUGHT by a named test: a range that leaves its last octet
+      out; a step of lanes that gives the octet after the one it found; more start ranges than
+      three taken by the first three; a range one octet too wide; the octets after the last
+      whole step not read; a range that is not used left undefined.
+    - More start ranges than three with no other change: CAUGHT by a halt, a slice past the
+      ranges in `Skip.init`.
+    - NOT CAUGHT: the first octets after a visit judged by lanes and not one at a time. It
+      changes no answer, so no test can fail. The benchmark's rows of close start octets are
+      its measure.
+    - The visit, each CAUGHT by a named test: a visit that passes one octet more; a visit that
+      passes its own octet though it can start a match; a scan that keeps the state that waits
+      after a visit, or after a state was built.
+    - A scan that reads the haystack after a skip reached its end: CAUGHT by a halt, an index
+      past the slice.
+    - Where a DFA skips, each CAUGHT by a named test: a program with an assertion skips; a DFA
+      with the claim off skips; the searcher gives its claim to no DFA.
+    - The judgment, each CAUGHT by a named test: the judgment the other way round; a skip that
+      rests never tried again, or tried again at once; a rest that does not double; a count of
+      poor trials with no limit; a good trial that keeps the count; a skip that rests but keeps
+      the state that waits.
+    - The cache, CAUGHT by a named test: the state that waits not found again after a clear;
+      any state built taken as the state that waits. CAUGHT by a halt, the assertion of
+      `Dfa.start`: a cache that clears keeps the row of the state that waits; a cache that
+      clears and gives up keeps it.
+    - The start octets, each CAUGHT by a named test: an octet that only ends a match starts
+      none; an octet that only leads on starts none; a continuation octet can start a match;
+      the octets learned for one class alone; the state that waits taken with no octets known.
+  - Three of them, run against the whole oracle check as well: a visit that passes one octet
+    more failed 62,400 cases, a range that leaves its last octet out 2,692, and an octet that
+    only leads on 550,534.
+  - Not run here: the hosted runners' `bench-regex` with the claim. No number is claimed
+    before it (decision 20).
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,

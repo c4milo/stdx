@@ -134,6 +134,36 @@ pub const dfa_cache_parts = 3;
 /// some thousands of states of a usual pattern.
 pub const cache_words_default = 1 << 16;
 
+/// The octets one step of a skip judges: 16, the width of SSE2's and NEON's registers, which
+/// every x86-64 and aarch64 CPU has (claim R1).
+pub const skip_lanes = 16;
+
+/// The ranges of octets a step of a skip judges at most. Three hold a literal's first octet in
+/// both cases with one more, the first letters of a few words, or a class such as `[0-9A-Fa-f]`.
+/// A set of more ranges is skipped one octet at a time.
+pub const skip_ranges_max = 3;
+
+/// The octets a skip judges one at a time before it steps by `skip_lanes`. A step costs about as
+/// much as these, so a skip that ends within them, as most do where the start octets are dense,
+/// never pays for one.
+pub const skip_scalar_run = 8;
+
+/// A DFA judges its skip each time its scans visited the state that waits this many times, and
+/// keeps it only where the visits passed `skip_octets_per_visit_min` octets each on average. A
+/// visit that passes few octets costs a branch the CPU cannot predict, which is more than the
+/// table reads it saves: where the start octets are as dense as the letters in prose, the plain
+/// scan is faster. Design §8 step 22 holds the measurement the 8 comes from.
+pub const skip_trial_visits = 256;
+pub const skip_octets_per_visit_min = 8;
+
+/// The octets a DFA scans with its skip off before it tries the skip again. A text changes: one
+/// part's start octets are close together and the next part's are far apart. A trial that fails
+/// costs about a microsecond, and this many octets take a hundred times that. Each trial that
+/// fails after another doubles the rest, up to `skip_rest_doublings_max` times, so a text that
+/// stays dense pays for fewer trials.
+pub const skip_rest_octets = 1 << 16;
+pub const skip_rest_doublings_max = 4;
+
 /// The words a cache keeps for a state beside its row of the table: where its record starts, and
 /// two slots of the hash table, which is kept at most half full.
 pub const dfa_words_per_state = 3;

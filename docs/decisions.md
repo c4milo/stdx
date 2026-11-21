@@ -5614,6 +5614,25 @@ last part lists what still waits on a ruling.
       the matcher: RE2's rule, which Rust's regex keeps too. No search fails for lack of memory.
     - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
       DFA's table has one entry a class.
+    - Claim R1: a forward DFA that waits for a match to start goes to the next octet that can
+      start one (design §8 step 22, part 22c). The state that waits takes every other octet and
+      stays where it is, so the scan reads no table entry for them.
+      - The DFA learns the octets that can start a match once, from that state's own answers.
+        Where 3 ranges hold them, a step judges 16 octets with vector compares. Otherwise, and
+        for the first 8 octets after a visit, a step judges one octet by a table of 256 answers.
+      - The DFA reads its table from the octet it stopped at, so the answer is the one it gives
+        with no skip. A skip reads each octet it passes once, so a search stays linear in the
+        text.
+      - A program with an assertion has one such state for each kind of octet behind it, and
+        the reverse DFA starts where a match ends. Neither skips.
+      - A visit to the state that waits costs a branch. Where the octets that can start a match
+        are close, as the letters of `[a-z]+ing` are in prose, the branch costs more than the
+        octets it passes save. The DFA counts both. After 256 visits that passed under 8 octets
+        a visit, the skip rests for 64 KiB of scans and is then tried again, since the parts of
+        a text differ. Each trial that fails after another doubles the rest, up to 16 times.
+        The counts change the work alone, and never an answer.
+      - `Searcher.init_with` takes `SearcherClaims`, whose `start_skip` turns the claim off.
+        `bench-regex` times that searcher as `stdx, no skip`, beside the claim on, in one run.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
@@ -5638,7 +5657,9 @@ last part lists what still waits on a ruling.
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
-    `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words.
+    `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R1's: `skip_lanes`, 16;
+    `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
+    `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
 
     **The checks.** Design §8 step 22 holds what each printed, and the mutations.
     - Each form of the syntax has a table of patterns, texts and the groups they must give, and
