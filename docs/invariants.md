@@ -295,3 +295,18 @@ check lands with its step.
   which the definitions give, against `utf8_ranges.Splitter`, and two tests count the scalar
   values of each sequence for the same ranges and for 4,096 seeded ones. Step 22.
 - **Violation.** A splitter that keeps `ED A0 80`, a surrogate, in the range U+D000 to U+E000.
+
+### INV-21: a regular expression's match is the one RE2 finds first
+
+- **Claim.** For a pattern stdx takes and a text of UTF-8, the match and its groups are RE2's
+  leftmost-first ones, but where RE2's match starts or ends between the octets of one scalar
+  value.
+- **Mechanism.** The program is Thompson's automaton with each split's preferred branch first,
+  and the matcher keeps its threads in the order a backtracking matcher tries them (decision 86).
+  No match starts before a continuation octet.
+- **Check.** Seeded check: `zig build differential-regex -Doracles` compares stdx with Go's
+  regexp over a million generated patterns and texts, and with the groups RE2 recorded for every
+  case of its two test logs. A difference passes only by an entry of
+  `tools/oracle/verdicts_regex.zig`, and each log's count of equal answers is pinned. Step 22.
+- **Violation.** A matcher that keeps a thread after the match of a thread it prefers, so `a|ab`
+  gives `ab`.

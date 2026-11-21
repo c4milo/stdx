@@ -43,6 +43,7 @@ const oracle_zstd_encode = @import("oracle_zstd_encode.zig");
 const oracle_brotli_encode = @import("oracle_brotli_encode.zig");
 const oracle_json = @import("oracle_json.zig");
 const oracle_base64 = @import("oracle_base64.zig");
+const oracle_regex = @import("oracle_regex.zig");
 
 /// The zlib sources the oracle compiles: the library without its gz* file layer, which would need
 /// the host's file I/O.
@@ -122,12 +123,14 @@ pub fn add(b: *std.Build, options: Options) void {
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, per gzip and Zstandard encoder, and per json token (-Doracles)");
     const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
     const bench_base64_step = b.step("bench-base64", "Time base 64 encoding and decoding against std.base64 (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, brotli_encode_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step, bench_base64_step };
+    const regex_step = b.step("differential-regex", "Require the regex module to agree with Go's regexp and RE2's test logs (-Doracles)");
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, brotli_encode_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step, bench_base64_step, regex_step };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
         return;
     }
+    oracle_regex.add(b, regex_step);
     const oracle = add_oracle_module(b) orelse return;
     // The timing loop runs between every repetition, so it is built as the benchmarks are.
     const timing = b.createModule(.{

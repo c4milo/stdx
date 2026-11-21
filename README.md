@@ -42,7 +42,7 @@ runners. Each report names the version of each library it times. On the Arm Neov
 | Output | An encoder writes the same octets on every host, in every build mode, and for every split of its input across calls. |
 | Threads | No global state: run codecs on as many threads as you like. |
 | Safety | Assertions stay on in production. Hostile input returns an error value, and the code cites the RFC section behind each refusal. |
-| Testing | Differential checks against zlib, Wuffs, libzstd and Google's brotli over public corpora, a fuzzer every night, and Lean proofs of JSON's UTF-8 and number machines |
+| Testing | Differential checks against zlib, Wuffs, libzstd and Google's brotli over public corpora, and against Go's regexp and RE2's own test logs; a fuzzer every night; and Lean proofs of the UTF-8 and number machines |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
 

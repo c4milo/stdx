@@ -5704,30 +5704,32 @@ last part lists what still waits on a ruling.
     - RFC 3629's UTF-8 goes to a module of its own, `utf8`, which `json` and `regex` import.
       Built (design §8 step 22, part 22k). "UTF-8 in one place" above says what it holds.
     - The oracle and RE2's own tests go in the tree, both, as `zig build differential-regex
-      -Doracles`: Go's regexp over generated patterns, and RE2's two test logs as a corpus pinned
-      by SHA-256. Not built yet (step 22, part 22b). Go's regexp holds RE2's syntax and
-      semantics, and Go is already a ruled toolchain (entries 68 and 69). The runs so far were
-      made outside the tree, and each gave its cases through `Matcher` and through `Searcher`.
-      - Go 1.24.7's regexp, before part 22g: 1,100,000 generated patterns and texts. stdx
-        refused 110,876 for `(?i)` past ASCII, and 989,121 of the other 989,124 gave Go's
-        groups.
-      - Go's regexp again, with part 22g's forms among the generated patterns: 1,200,000 cases.
-        stdx refused 112,855 for `(?i)` past ASCII, and 1,087,141 of the other 1,087,145 gave
-        Go's groups.
-      - The 7 that differ are one fault of Go's parser. Where two alternatives start with the
-        same letter, one of them under `(?i)`, Go takes that letter out of both and gives both
-        the first one's rule for case. It reads `A(?i)b|a` as `A(?i:B|(?:))` and finds no match
-        in `a`, and it reads `(?i:a(b)+)c|A` as `(?i:A)(?:(?i:(B)+)c|(?:))` and matches `a`.
+      -Doracles`. Built (design §8 step 22, part 22b).
+      - Go's regexp is the oracle over generated patterns. It holds RE2's syntax and its
+        leftmost-first matches, and Go is already a ruled toolchain (entries 68 and 69). go
+        builds it as a c-archive from `tools/oracle/go_regexp/`, by the release its go.mod
+        names, Go 1.27.3, as it builds the Go baselines of `bench/`.
       - RE2's `make log` writes what RE2 answers on its search tests and its exhaustive tests,
-        and Go's tree keeps both logs (`regexp/testdata/re2-search.txt` and
-        `re2-exhaustive.txt.bz2`, at Go 1.24.7 here). Every leftmost-first case of both went to
-        `Searcher`, after part 22g.
-      - The search log: 3,776 cases. 3,424 gave RE2's groups and none differed. stdx refused the
-        patterns of 352: 160 hold `\C`, and 192 hold `\p` or `\P`.
-      - The exhaustive log: 11,433,768 cases. 10,410,991 gave RE2's groups. 337 differed, each
-        the pattern `\B` over a text with a scalar value past U+007F, where RE2 matches between
-        that value's octets. stdx refused the patterns of 1,022,440, and each holds `\C`.
-      - Each line also holds RE2's leftmost-longest answers, which stdx has no call for.
+        and Go's repository keeps both logs. `tools/corpus/fetch.sh` fetches them at the tag
+        `go1.24.7`, and `build/oracle_regex.zig` pins each by SHA-256.
+      - A difference passes only by an entry of `tools/oracle/verdicts_regex.zig`. The entries
+        are stdx's refusal of `(?i)` past ASCII, of `\C` and of `\p`, and RE2's match between
+        the octets of one scalar value, where Go's regexp must give stdx's answer. Go's own
+        tests of these logs leave such cases out.
+      - Each log's count of equal answers is pinned, so a refusal that an entry allows cannot
+        grow unseen.
+      - Go's regexp reads an octet that is not UTF-8 as U+FFFD, where RE2 and stdx match no such
+        octet. So the generated texts are UTF-8, and the tables of `matcher_test.zig` hold the
+        other texts.
+      - Each line of a log also holds RE2's leftmost-longest answers, which stdx has no call
+        for.
+      - Before the check was in the tree, two runs outside it gave 2,300,000 generated cases to
+        Go 1.24.7's regexp. stdx refused 223,731 for `(?i)` past ASCII, and all but 7 of the
+        other 2,076,269 gave Go's groups. The 7 were one fault of that release's parser. Where
+        two alternatives started with the same letter, one of them under `(?i)`, it took the
+        letter out of both and kept one rule for its case: it read `A(?i)b|a` as
+        `A(?i:B|(?:))` and found no match in `a`. Go 1.27.3 reads it as `A(?i:B)|(?i:A)`, and
+        the check has no entry for the fault.
 
     **What waits on the owner.**
     - **owner** The baselines of `bench-regex`, under entry 8: RE2, Rust's regex and Go's regexp

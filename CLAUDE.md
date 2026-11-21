@@ -225,10 +225,11 @@ stdx's appendix to it.
     (decision 27); simdutf, the baseline of the `json` module's UTF-8 check (decision 38); and
     Rust's `base64` crate 0.23.1 and Go's encoding/base64, bench-base64's baselines (decision 68),
     and serde_json 1.0.154 and Go's encoding/json/jsontext, bench-json's (decision 69), built by
-    cargo and go;
+    cargo and go; and Go's regexp, differential-regex's oracle (decision 86), built by go;
   - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
-    fetches and checks against a pinned SHA-256 because Zig fetches archives only.
+    fetches and checks against a pinned SHA-256 because Zig fetches archives only; and RE2's two
+    test logs, which the same script fetches from Go's repository at a pinned tag (decision 86).
   Every one is a lazy package pinned by hash, or a file pinned by SHA-256, and `build/oracle.zig`
   requests them only when a build passes `-Doracles`.
 - Weakening an assertion or an invariant to make a test pass.
@@ -332,6 +333,16 @@ Change this section when a step adds or renames a command.
   also run whole at quality 5. It then corrupts streams of each file's first 4 KiB and requires
   stdx's verdict to equal that of Google's streaming decoder, or to match an entry of
   `tools/oracle/verdicts_brotli.zig`.
+  `zig build differential-regex -Doracles` gives a million generated patterns and texts to stdx
+  and to Go's regexp, which holds RE2's syntax and its leftmost-first matches, and then every
+  pattern and text of RE2's own two test logs, `re2-search.txt` and `re2-exhaustive.txt.bz2`, to
+  stdx. stdx must give the groups Go gives and the groups RE2 recorded, by a searcher with a
+  cache and by the matcher alone, or the difference must match an entry of
+  `tools/oracle/verdicts_regex.zig`. Each log must also give the count of equal answers that
+  `tools/differential/regex.zig` pins. It needs go on the path, which builds the oracle of
+  `tools/oracle/go_regexp/` by the Go release its go.mod names, and the network for the two
+  logs, which `build/oracle_regex.zig` pins by SHA-256. `zig build test` runs the tests of the
+  check's own parts, with no oracle; `zig build test-differential-regex` runs them alone.
 - Corpora: `zig build corpus -Doracles` cuts the HTTP payloads into 1 KiB, 16 KiB and 1 MiB,
   shuffles dickens's first MiB into `shuffled/dickens-1m`, and installs every corpus file under
   `zig-out/corpus/`.

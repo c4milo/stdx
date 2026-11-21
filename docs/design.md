@@ -7816,8 +7816,8 @@ to 12 are reordered and nothing else changes.
 - **Step 22: the `regex` module (decision 86).** Regular expressions matched in time linear in
   the text. The owner asked for it on 2026-11-21. The step has parts, and each part lands with its
   own check. Part 22a is built: `compile` and `compile_comptime`, `Matcher`, and `Searcher` with
-  its two lazy DFAs and `Matches`. Parts 22g, 22i and 22k are built too, and each has its record
-  below.
+  its two lazy DFAs and `Matches`. Parts 22b, 22g, 22i and 22k are built too, and each has its
+  record below.
   **Check, part 22a:**
   - Each form of the syntax has a table of patterns, texts and the groups each must give, and
     each of the parser's 23 refusals has its patterns, with the class `refusal` gives it.
@@ -7881,10 +7881,8 @@ to 12 are reordered and nothing else changes.
     runners of decisions 20 and 26 run them.
 
   The parts not built, each with the check it would land with:
-  - **22b: the oracle, RE2's tests and the benchmark.** `zig build differential-regex -Doracles`
-    against Go's regexp and over RE2's two test logs, pinned by SHA-256. The owner ruled both
-    into the tree on 2026-11-21 (decision 86). `bench-regex` against RE2, Rust's regex and Go's
-    regexp waits on the owner's ruling on its baselines. No claim below is made before it.
+  - **22l: the benchmark.** `bench-regex` against RE2, Rust's regex and Go's regexp. It waits
+    on the owner's ruling on its baselines (decision 86). No claim below is made before it.
   - **22c: literals found before the automaton runs.** A pattern that is one literal goes to a
     substring search; a search in its start state skips to the next octet that can start a
     match; a small set of literals goes to a vector search of their first octets, as Hyperscan's
@@ -7906,6 +7904,50 @@ to 12 are reordered and nothing else changes.
     the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
     Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+
+  **Part 22b, built: the oracle and RE2's own tests in the tree (decision 86, the owner's ruling
+  of 2026-11-21).** `zig build differential-regex -Doracles` gives generated patterns and texts
+  to stdx and to Go's regexp, and every pattern and text of RE2's two test logs to stdx.
+  **Check:** stdx gives each case the groups its oracle gives, by a searcher with a cache and by
+  the matcher alone, or an entry of `tools/oracle/verdicts_regex.zig` allows the difference;
+  each log gives its pinned count of equal answers; the check's own parts have tests that
+  `zig build test` runs; mutations of the engine fail the check.
+
+  **Check passed, part 22b, 2026-11-21.** Zig 0.16.0 and Go 1.27.3 on x86-64 Linux 6.18, in a
+  cloud container. 12,437,544 cases, none failed, in 2 min 40 s with the build.
+  - Go's regexp: 1,000,000 generated cases from four seeds. 906,094 gave Go's groups. stdx
+    refused 93,906 for `(?i)` over a scalar value past U+007F, which the entry allows. Go
+    refused no pattern.
+  - RE2's search log: 3,776 cases. 3,424 gave RE2's groups, and stdx refused 352: 160 for `\C`
+    and 192 for `\p` or `\P`.
+  - RE2's exhaustive log: 11,433,768 cases. 10,410,991 gave RE2's groups. stdx refused
+    1,022,440 for `\C`. In 337, RE2's match starts or ends between the octets of one scalar
+    value, and Go's regexp gave stdx's answer for each.
+  - The logs come from Go's repository at the tag `go1.24.7`, and `tools/corpus/fetch.sh`
+    checked each against its SHA-256.
+  - The container's network refused the other oracles' packages, so no `-Doracles` build could
+    start here. The check ran through a scratch step that called `build/oracle_regex.zig`'s
+    `add` alone, with the same oracle, logs and program. The hosted runners of decision 19 run
+    it as `tools/ci.sh` does, where go is on the path.
+  - `zig build test` runs 14 tests of the check's own parts: the verdict entries, the generator
+    and the reader of RE2's logs with stdx's side.
+  - 17 mutations, each reverted.
+    - The verdict entries, 7: a refusal of case folding with no flag in the pattern, and one
+      with no value past ASCII; a cleared flag taken as a set one; any refusal of a pattern
+      with `\C`; a match inside a character where Go differs from stdx; a match between
+      characters; an entry that allows the other oracle's difference. Each CAUGHT by a named
+      test.
+    - The reader of the logs, 4: the match anywhere given as the match of the whole text; an
+      octal escape read in base ten; a group that took no part read as a group at the start;
+      an answer past the list of texts. Each CAUGHT by a named test.
+    - The generator, 2: every literal the first of its list, and no piece with a quantifier.
+      The first was NOT CAUGHT, so a test now requires every entry of each list among a
+      seed's cases. Both CAUGHT by it.
+    - The check's program, 1: a difference counted as an equal answer. CAUGHT by the whole
+      check: the exhaustive log's count is not the pinned one.
+    - The engine, 3, each CAUGHT by the whole check: a greedy split that leaves first, 431,825
+      cases failed; `upper` with one letter fewer, 10; an octal escape of two digits at most,
+      45,938.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a

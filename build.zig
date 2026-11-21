@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const oracle = @import("build/oracle.zig");
+const oracle_regex = @import("build/oracle_regex.zig");
 const self_hosted = @import("build/self_hosted.zig");
 const avx512 = @import("build/avx512.zig");
 const brotli_tables = @import("build/brotli_tables.zig");
@@ -146,6 +147,10 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(run);
         tool_test_step.dependOn(run);
     }
+    // The parts of differential-regex that need no oracle (decision 86).
+    const regex_check_tests = oracle_regex.add_tests(b);
+    test_step.dependOn(regex_check_tests);
+    tool_test_step.dependOn(regex_check_tests);
 
     // The tests again, built by Zig's own x86-64 backend, the Debug default on x86-64 Linux; and
     // built by LLVM in Debug for a CPU with AVX-512.

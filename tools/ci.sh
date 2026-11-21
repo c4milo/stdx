@@ -85,6 +85,13 @@ run_check "differential zstd" zig build differential-zstd -Doracles
 run_check "differential zstd encode" zig build differential-zstd-encode -Doracles
 run_check "differential brotli encode" zig build differential-brotli-encode -Doracles
 run_check "differential brotli" zig build differential-brotli -Doracles
+# Decision 86: the regex module against Go's regexp and RE2's two test logs, where go is on the
+# path. go builds the oracle, by the release tools/oracle/go_regexp/go.mod names.
+if command -v go >/dev/null 2>&1; then
+  run_check "differential regex" zig build differential-regex -Doracles
+else
+  rows+=("| differential regex | skipped: no go | 0 s |")
+fi
 
 {
   echo "# CI report"
