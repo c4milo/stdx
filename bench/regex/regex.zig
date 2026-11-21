@@ -9,9 +9,10 @@
 //! architecture's baseline CPU (decisions 17 and 75).
 //!
 //! The workloads are regex_cases.zig's, in four tables:
-//! - every match of a pattern in the first MiB of a corpus file, in megabytes a second;
-//! - a pattern that validates each of 1,024 short texts, half of them valid, in millions of
-//!   texts a second;
+//! - every match of a pattern in a haystack of 1 MiB, both ends of each match, in megabytes a
+//!   second;
+//! - a pattern that validates each of 65,536 short texts, about half of them valid, in
+//!   millions of texts a second;
 //! - the same with a group around each number of a date and time, by the groups' offsets;
 //! - a pattern compiled and made ready for its first search, in thousands of patterns a second.
 //!
@@ -30,8 +31,9 @@ const engines = @import("regex_engines.zig");
 const Engine = engines.Engine;
 const engine_count = engines.names.len;
 
-/// The seed of each validation's texts.
+/// The seed of each validation's texts, and of the haystack in four scripts.
 const texts_seed = 0x7265676578000000;
+const scripts_seed = 0x7363726970747300;
 
 /// What a rate counts each second: megabytes of haystack, millions of texts, or thousands of
 /// patterns.
@@ -41,22 +43,31 @@ const per_thousand = 1_000.0;
 /// The exit status of a usage error.
 const usage_exit_status = 2;
 
-/// What one call does with a compiled pattern.
-const Work = enum { count, matching, groups };
+/// What one call does with a compiled pattern, and what it does it to.
+const Work = union(enum) {
+    find_all: []const u8,
+    matching: engines.Texts,
+    groups: engines.Texts,
+};
+
+/// What a call answers: a count or a sum, and for a search the sum of its matches' offsets too.
+const Answer = struct { count: usize, offsets: u64 = 0 };
 
 /// One candidate's timed call: a pattern over a haystack or a batch of texts.
 const Call = struct {
     pattern: engines.Pattern,
-    input: []const u8,
     work: Work,
 
     /// The call's answer, or null where the candidate has no such call.
-    fn answer(call: *const Call) ?usize {
-        return switch (call.work) {
-            .count => engines.count(call.pattern, call.input),
-            .matching => engines.matching(call.pattern, call.input),
-            .groups => engines.groups(call.pattern, call.input),
-        };
+    fn answer(call: *const Call) ?Answer {
+        switch (call.work) {
+            .find_all => |haystack| {
+                const found = engines.find_all(call.pattern, haystack);
+                return .{ .count = found.matches, .offsets = found.offsets };
+            },
+            .matching => |texts| return .{ .count = engines.matching(call.pattern, texts) },
+            .groups => |texts| return .{ .count = engines.groups(call.pattern, texts) orelse return null },
+        }
     }
 
     fn run_once(context: *const anyopaque) void {
@@ -127,24 +138,34 @@ const Row = struct {
     }
 };
 
+/// A pattern as the candidates take it: Rust's regex takes `rust` where it is not null.
+const Forms = struct {
+    pattern: []const u8,
+    rust: ?[]const u8 = null,
+
+    fn of(forms: Forms, engine: Engine) []const u8 {
+        return if (engine == .rust) forms.rust orelse forms.pattern else forms.pattern;
+    }
+};
+
 /// Compiles a pattern for every candidate and holds each one's answer to Go's. stdx must give
 /// Go's answer.
-fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, pattern: []const u8, input: []const u8, work: Work) !usize {
-    const go = (try engines.compile(.go, arena, pattern)) orelse return error.GoRefusesThePattern;
-    const expected = (Call{ .pattern = go, .input = input, .work = work }).answer().?;
+fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, forms: Forms, work: Work) !Answer {
+    const go = (try engines.compile(.go, arena, forms.pattern)) orelse return error.GoRefusesThePattern;
+    const expected = (Call{ .pattern = go, .work = work }).answer().?;
     for (std.enums.values(Engine)) |engine| {
         const index = @intFromEnum(engine);
-        const compiled = (try engines.compile(engine, arena, pattern)) orelse {
+        const compiled = (try engines.compile(engine, arena, forms.of(engine))) orelse {
             row.cells[index] = .refused;
             continue;
         };
-        calls[index] = .{ .pattern = compiled, .input = input, .work = work };
+        calls[index] = .{ .pattern = compiled, .work = work };
         const answer = calls[index].answer() orelse {
             row.cells[index] = .none;
             continue;
         };
-        if (answer != expected) {
-            std.debug.print("bench-regex: {s} gives {d} for `{s}`, and Go's regexp gives {d}\n", .{ engines.names[index], answer, pattern, expected });
+        if (!std.meta.eql(answer, expected)) {
+            std.debug.print("bench-regex: {s} gives {d} and offsets {d} for `{s}`, and Go's regexp gives {d} and {d}\n", .{ engines.names[index], answer.count, answer.offsets, forms.pattern, expected.count, expected.offsets });
             row.cells[index] = .differs;
             continue;
         }
@@ -155,7 +176,7 @@ fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, patt
         if (row.cells[@intFromEnum(engine)] != .timed) break false;
     } else true;
     if (!agree) {
-        std.debug.print("bench-regex: stdx does not give Go's answer for `{s}`\n", .{pattern});
+        std.debug.print("bench-regex: stdx does not give Go's answer for `{s}`\n", .{forms.pattern});
         return error.CandidatesDisagree;
     }
     return expected;
@@ -186,32 +207,41 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
 const File = struct { name: []const u8, octets: []const u8 };
 
 fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File) !void {
-    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claim R1 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed.\n\n");
+    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claim R1 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
     try out.writeAll("The patterns of the search table:\n\n");
-    for (cases.searches) |search| try out.print("- {s}, in {s}: `{s}`\n", .{ search.name, search.file, search.pattern });
+    for (cases.searches) |search| {
+        try out.print("- {s}, in {s}: `{s}`", .{ search.name, search.file, search.pattern });
+        if (search.rust) |form| try out.print(", which Rust's regex takes as `{s}`", .{form});
+        try out.writeAll("\n");
+    }
     try out.writeAll("\n");
     try print_head(out, "Search in 1 MiB, MB/s", "Pattern", "Matches");
     for (cases.searches) |search| {
         const haystack = try haystack_of(files, search.file);
         var calls: [engine_count]Call = undefined;
         var row: Row = .{};
-        const matches = try prepare(arena, &calls, &row, search.pattern, haystack, .count);
-        try out.print("| {s} | {d} |", .{ search.name, matches });
+        const found = try prepare(arena, &calls, &row, .{ .pattern = search.pattern, .rust = search.rust }, .{ .find_all = haystack });
+        try out.print("| {s} | {d} |", .{ search.name, found.count });
         try row.print(io, out, @as(f64, @floatFromInt(haystack.len)) / timing.octets_per_megabyte);
         try out.flush();
     }
     try out.writeAll("\n");
 }
 
-fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, title: []const u8, validations: []const cases.Validation, work: Work) !void {
+/// Whether a table of short texts times a match of each text or its capture groups.
+const TextWork = enum { matching, groups };
+
+fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, title: []const u8, validations: []const cases.Validation, what: TextWork) !void {
     try print_head(out, title, "Pattern", "Texts that match");
     for (validations, 0..) |validation, index| {
-        var batch: std.ArrayList(u8) = .empty;
-        const valid = try cases.write_texts(validation.kind, texts_seed + index, &batch, arena);
+        var batch: cases.Batch = .{};
+        try cases.write_texts(validation.kind, texts_seed + index, &batch, arena);
+        const texts: engines.Texts = .{ .octets = batch.octets.items, .ends = batch.ends.items };
         var calls: [engine_count]Call = undefined;
         var row: Row = .{};
-        const answer = try prepare(arena, &calls, &row, validation.pattern, batch.items, work);
-        if (work == .matching and answer != valid) return error.ValidTextsDoNotMatch;
+        const answer = try prepare(arena, &calls, &row, .{ .pattern = validation.pattern }, if (what == .matching) .{ .matching = texts } else .{ .groups = texts });
+        if (what == .matching and answer.count != batch.valid) return error.ValidTextsDoNotMatch;
+        const valid = batch.valid;
         try out.print("| {s} | {d} |", .{ validation.name, valid });
         try row.print(io, out, @as(f64, cases.texts_per_validation) / per_million);
         try out.flush();
@@ -264,6 +294,8 @@ pub fn main(init: std.process.Init) !void {
         const octets = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
         try files.append(arena, .{ .name = argument[0..split], .octets = octets });
     }
+    const scripts = try arena.alloc(u8, cases.haystack_len_max);
+    try files.append(arena, .{ .name = cases.scripts, .octets = scripts[0..cases.write_scripts(scripts_seed, scripts)] });
     try report_searches(io, out, arena, files.items);
     try report_texts(io, out, arena, "Match short texts, millions of texts a second", &cases.validations, .matching);
     try report_texts(io, out, arena, "Capture groups of short texts, millions of texts a second", &.{cases.groups_validation}, .groups);

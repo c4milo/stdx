@@ -1,12 +1,12 @@
 // bench-regex's Go baseline (decision 86): Go's regexp behind a C ABI built as a c-archive. A
 // pattern is compiled once into a handle, and each call takes one whole haystack, or a batch of
-// texts with a line feed after each, so that the cost of a call into Go is small beside its work.
+// texts and the offset where each ends, so that the cost of a call into Go is small beside its
+// work.
 package main
 
 import "C"
 
 import (
-	"bytes"
 	"regexp"
 	"unsafe"
 )
@@ -44,46 +44,62 @@ func go_regex_compile(pattern *C.uchar, length C.size_t) C.size_t {
 	return 1
 }
 
-// go_regex_count counts the matches of a pattern in a haystack, none inside another.
+// go_regex_find_all finds the matches of a pattern in a haystack, none inside another. It returns
+// their count, and writes the sum of each match's start and end to offsets.
 //
-//export go_regex_count
-func go_regex_count(handle C.size_t, haystack *C.uchar, length C.size_t) C.size_t {
-	return C.size_t(len(compiled[handle-1].FindAllIndex(octets(haystack, length), -1)))
+//export go_regex_find_all
+func go_regex_find_all(handle C.size_t, haystack *C.uchar, length C.size_t, offsets *C.ulonglong) C.size_t {
+	found := compiled[handle-1].FindAllIndex(octets(haystack, length), -1)
+	sum := uint64(0)
+	for _, span := range found {
+		sum += uint64(span[0] + span[1])
+	}
+	*offsets = C.ulonglong(sum)
+	return C.size_t(len(found))
 }
 
-// go_regex_matching counts the texts a pattern matches, of texts with a line feed after each.
+// batch gives the octets of count texts, one after another, and the offset where each ends.
+func batch(texts *C.uchar, ends *C.uint, count C.size_t) ([]byte, []C.uint) {
+	if count == 0 {
+		return nil, nil
+	}
+	offsets := unsafe.Slice(ends, int(count))
+	return octets(texts, C.size_t(offsets[count-1])), offsets
+}
+
+// go_regex_matching counts the texts of a batch that a pattern matches.
 //
 //export go_regex_matching
-func go_regex_matching(handle C.size_t, texts *C.uchar, length C.size_t) C.size_t {
+func go_regex_matching(handle C.size_t, texts *C.uchar, ends *C.uint, count C.size_t) C.size_t {
 	expression := compiled[handle-1]
-	rest := octets(texts, length)
-	count := 0
-	for len(rest) > 0 {
-		end := bytes.IndexByte(rest, '\n')
-		if expression.Match(rest[:end]) {
-			count++
+	all, offsets := batch(texts, ends, count)
+	matching := 0
+	start := C.uint(0)
+	for _, end := range offsets {
+		if expression.Match(all[start:end]) {
+			matching++
 		}
-		rest = rest[end+1:]
+		start = end
 	}
-	return C.size_t(count)
+	return C.size_t(matching)
 }
 
-// go_regex_groups sums the start and the end of each group of the first match in each text, of
-// texts with a line feed after each. A group that took no part adds nothing.
+// go_regex_groups sums the start and the end of each group of the first match in each text of a
+// batch. A group that took no part adds nothing.
 //
 //export go_regex_groups
-func go_regex_groups(handle C.size_t, texts *C.uchar, length C.size_t) C.size_t {
+func go_regex_groups(handle C.size_t, texts *C.uchar, ends *C.uint, count C.size_t) C.size_t {
 	expression := compiled[handle-1]
-	rest := octets(texts, length)
+	all, offsets := batch(texts, ends, count)
 	sum := 0
-	for len(rest) > 0 {
-		end := bytes.IndexByte(rest, '\n')
-		for _, offset := range expression.FindSubmatchIndex(rest[:end]) {
+	start := C.uint(0)
+	for _, end := range offsets {
+		for _, offset := range expression.FindSubmatchIndex(all[start:end]) {
 			if offset >= 0 {
 				sum += offset
 			}
 		}
-		rest = rest[end+1:]
+		start = end
 	}
 	return C.size_t(sum)
 }

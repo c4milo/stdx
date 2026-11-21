@@ -5729,13 +5729,32 @@ last part lists what still waits on a ruling.
         at a commit `build.zig.zon` pins.
       - RE2 itself is no baseline: the owner named three languages, and its answers are held
         through its logs. It may join later.
-      - Each pattern spells its classes out and holds no `\d`, `\w` or `\b`, which Rust's
-        crate reads as Unicode's and the others as ASCII's. No haystack holds an octet that is
-        not UTF-8, where the engines differ by design.
+      - Each pattern spells its classes out and holds no `\d` or `\w`, which Rust's crate
+        reads as Unicode's and the others as ASCII's. No haystack holds an octet that is not
+        UTF-8, where the engines differ by design.
       - A candidate's answer is held to Go's regexp's before it is timed. zig-regex's search
         does not pass a line feed, so it takes a haystack one line at a time, and it takes
         texts that three of the validation patterns refuse. mvzr has no `(?i)` and no groups.
         Each such cell says `refused`, `differs` or `none`.
+      - A review of the first reports, on 2026-11-21, changed four things in the method.
+        - A search's answer is the count of the matches and the sum of each match's start and
+          end. A count alone let Rust's crate run a search that finds each match's end only,
+          where the others found both ends: up to 1.3 times less work in the reviewer's
+          measure.
+        - A batch of short texts is the texts one after another and the offset where each
+          ends, made before the clock starts. With a line feed after each text, each
+          candidate paid its own price to find it, from 0.98 to 1.23 of its call.
+        - A validation has 65,536 texts, each made anew, and the seed chooses which are
+          valid. The first 1,024 texts, valid and not in turn, were an input a branch
+          predictor learns, the fault entry 45 names.
+        - The searches are in three groups, and a count never mixes them: a literal to find, a
+          class to start with, and the other shapes. The rows that joined: two patterns with
+          an assertion, where claim R1 is off; `[a-q][^u-z]{13}x`, whose DFA has more states
+          than the cache holds, so stdx runs the matcher; a class past ASCII over a text
+          that the benchmark makes in four scripts; and three patterns over a second text.
+          No constant of claim R1 was chosen with the second text or the text in four
+          scripts. A pattern with `\b` goes to Rust's crate as `(?-u:\b)`, the ASCII word
+          boundary that the others read.
     - RE2's forms that RFC 9485 §3 refuses. stdx takes the named classes, the `]` that comes
       first, the `-` that starts no range and the octal escapes, each as RE2 reads it. Built
       (design §8 step 22, part 22g). `\C` stays refused: it takes one octet of any value, so a

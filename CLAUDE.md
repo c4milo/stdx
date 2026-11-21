@@ -431,8 +431,8 @@ Change this section when a step adds or renames a command.
 - regex benchmark: `zig build bench-regex -Doracles` times the `regex` module, by a searcher with
   its cache, by one with claim R1 off and by the matcher alone, beside Rust's `regex` crate, Go's
   regexp, zig-regex and mvzr, every candidate interleaved in one run. Its four tables are every
-  match of a pattern in the first MiB of a corpus file, a pattern that validates 1,024 short
-  texts, the same with capture groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's
+  match of a pattern in a haystack of 1 MiB, a pattern that validates 65,536 short texts, the
+  same with capture groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's
   before it is timed: a candidate that refuses a pattern or answers otherwise is named so and not
   timed, and stdx must give Go's answer. It needs cargo and go on the path. The `bench` workflow
   offers it.
@@ -451,7 +451,8 @@ Change this section when a step adds or renames a command.
   26). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned SHA-256, and
   `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
 - Charts: `python3 tools/charts.py` draws the README's charts, `docs/images/<benchmark>-<arch>.svg`,
-  from the committed reports that `bench/charts.txt` names. `--check` fails when a committed chart
+  from the committed reports that `bench/charts.txt` names. `tools/charts_wide.py` draws the
+  regex chart, whose libraries differ by orders of magnitude, under rules it states. `--check` fails when a committed chart
   differs from what its reports draw, and `tools/ci.sh` runs it (decision 85).
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's

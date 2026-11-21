@@ -1,5 +1,5 @@
 //! The candidates of bench-regex (decision 86), each behind the same four calls: compile a
-//! pattern, count its matches in a haystack, count the short texts it matches, and sum the
+//! pattern, find its matches in a haystack, count the short texts it matches, and sum the
 //! offsets of its groups in each text.
 //!
 //! - stdx's `regex`, by a `Searcher` with the default cache; by one with claim R1 off, which
@@ -10,8 +10,11 @@
 //! - Two libraries in Zig: zig-regex and mvzr, each at the commit build.zig.zon pins. zig-regex's
 //!   search does not pass a line feed, so it takes a haystack one line at a time.
 //!
-//! A batch of texts holds a line feed after each text. A call into Go costs some tens of
-//! nanoseconds, so every candidate takes a whole batch or a whole haystack in one call.
+//! A search gives the count of the matches and the sum of each match's start and end, so every
+//! candidate finds both ends of a match. A batch of texts is the texts one after another and the
+//! offset where each ends, so no candidate looks for a text's end while the clock runs. A call
+//! into Go costs some tens of nanoseconds, so every candidate takes a whole batch or a whole
+//! haystack in one call.
 
 const std = @import("std");
 const regex = @import("regex");
@@ -25,14 +28,14 @@ pub const names = [_][]const u8{ "stdx", "stdx, no skip", "stdx, matcher alone",
 
 extern fn rust_regex_new(pattern: [*]const u8, len: usize) callconv(.c) ?*anyopaque;
 extern fn rust_regex_free(handle: ?*anyopaque) callconv(.c) void;
-extern fn rust_regex_count(handle: *const anyopaque, haystack: [*]const u8, len: usize) callconv(.c) usize;
-extern fn rust_regex_matching(handle: *const anyopaque, texts: [*]const u8, len: usize) callconv(.c) usize;
-extern fn rust_regex_groups(handle: *const anyopaque, texts: [*]const u8, len: usize) callconv(.c) usize;
+extern fn rust_regex_find_all(handle: *const anyopaque, haystack: [*]const u8, len: usize, offsets: *u64) callconv(.c) usize;
+extern fn rust_regex_matching(handle: *const anyopaque, octets: [*]const u8, ends: [*]const u32, count: usize) callconv(.c) usize;
+extern fn rust_regex_groups(handle: *const anyopaque, octets: [*]const u8, ends: [*]const u32, count: usize) callconv(.c) usize;
 extern fn go_regex_new(pattern: [*]const u8, len: usize) callconv(.c) usize;
 extern fn go_regex_compile(pattern: [*]const u8, len: usize) callconv(.c) usize;
-extern fn go_regex_count(handle: usize, haystack: [*]const u8, len: usize) callconv(.c) usize;
-extern fn go_regex_matching(handle: usize, texts: [*]const u8, len: usize) callconv(.c) usize;
-extern fn go_regex_groups(handle: usize, texts: [*]const u8, len: usize) callconv(.c) usize;
+extern fn go_regex_find_all(handle: usize, haystack: [*]const u8, len: usize, offsets: *u64) callconv(.c) usize;
+extern fn go_regex_matching(handle: usize, octets: [*]const u8, ends: [*]const u32, count: usize) callconv(.c) usize;
+extern fn go_regex_groups(handle: usize, octets: [*]const u8, ends: [*]const u32, count: usize) callconv(.c) usize;
 
 /// The instructions a pattern of the benchmark takes at most, and the groups it holds at most.
 const storage_len = 4096;
@@ -145,73 +148,100 @@ pub fn compile_once(engine: Engine, scratch: *const Scratch, pattern: []const u8
     }
 }
 
-/// zig-regex's matches in one line. Its search does not pass a line feed, so `zig_regex_count`
-/// gives it a haystack one line at a time.
-fn zig_regex_count_line(compiled: *ZigRegex, line: []const u8) usize {
-    var matches: usize = 0;
+/// What a search of a haystack found: the matches, none inside another, and the sum of each
+/// match's start and end.
+pub const Found = struct {
+    matches: usize = 0,
+    offsets: u64 = 0,
+
+    fn add(found: *Found, start: u64, end: u64) void {
+        found.matches += 1;
+        found.offsets += start + end;
+    }
+};
+
+/// zig-regex's matches in one line, which starts at `base` in its haystack. Its search does not
+/// pass a line feed, so `zig_regex_find_all` gives it a haystack one line at a time.
+fn zig_regex_find_line(compiled: *ZigRegex, line: []const u8, base: usize, found: *Found) void {
     var position: usize = 0;
     while (position <= line.len) {
-        var found = (compiled.captures(line[position..]) catch return matches) orelse return matches;
-        const span = found.boundsAt(0).?;
-        found.deinit();
-        matches += 1;
+        var captures = (compiled.captures(line[position..]) catch return) orelse return;
+        const span = captures.boundsAt(0).?;
+        captures.deinit();
+        found.add(base + position + span.lower, base + position + span.upper);
         position += @max(span.upper, span.lower + 1);
     }
-    return matches;
 }
 
-fn zig_regex_count(compiled: *ZigRegex, haystack: []const u8) usize {
-    var matches: usize = 0;
+fn zig_regex_find_all(compiled: *ZigRegex, haystack: []const u8) Found {
+    var found: Found = .{};
     var lines = std.mem.splitScalar(u8, haystack, '\n');
-    while (lines.next()) |line| matches += zig_regex_count_line(compiled, line);
-    return matches;
+    while (lines.next()) |line| zig_regex_find_line(compiled, line, @intFromPtr(line.ptr) - @intFromPtr(haystack.ptr), &found);
+    return found;
 }
 
-fn mvzr_count(compiled: *const mvzr.Regex, haystack: []const u8) usize {
-    var found: usize = 0;
+fn mvzr_find_all(compiled: *const mvzr.Regex, haystack: []const u8) Found {
+    var found: Found = .{};
     var matches = compiled.iterator(haystack);
-    while (matches.next()) |_| found += 1;
+    while (matches.next()) |match| found.add(match.start, match.end);
+    return found;
+}
+
+fn stdx_find_all(stdx: *Stdx, haystack: []const u8) Found {
+    var found: Found = .{};
+    var matches: regex.Matches = .{ .searcher = &stdx.searcher, .haystack = haystack };
+    while (matches.next()) |span| found.add(span.start, span.end);
     return found;
 }
 
 /// The matches of a pattern in a haystack, none inside another.
-pub fn count(pattern: Pattern, haystack: []const u8) usize {
+pub fn find_all(pattern: Pattern, haystack: []const u8) Found {
+    var found: Found = .{};
     switch (pattern) {
-        .stdx, .stdx_no_skip, .stdx_matcher => |stdx| {
-            var found: usize = 0;
-            var matches: regex.Matches = .{ .searcher = &stdx.searcher, .haystack = haystack };
-            while (matches.next()) |_| found += 1;
-            return found;
-        },
-        .rust => |handle| return rust_regex_count(handle, haystack.ptr, haystack.len),
-        .go => |handle| return go_regex_count(handle, haystack.ptr, haystack.len),
-        .zig_regex => |compiled| return zig_regex_count(compiled, haystack),
-        .mvzr => |compiled| return mvzr_count(compiled, haystack),
+        .stdx, .stdx_no_skip, .stdx_matcher => |stdx| return stdx_find_all(stdx, haystack),
+        .rust => |handle| found.matches = rust_regex_find_all(handle, haystack.ptr, haystack.len, &found.offsets),
+        .go => |handle| found.matches = go_regex_find_all(handle, haystack.ptr, haystack.len, &found.offsets),
+        .zig_regex => |compiled| return zig_regex_find_all(compiled, haystack),
+        .mvzr => |compiled| return mvzr_find_all(compiled, haystack),
     }
+    return found;
 }
 
-/// The texts of a batch, a line feed after each.
-const Texts = struct {
-    rest: []const u8,
+/// A batch of texts: the texts one after another, and the offset where each ends.
+pub const Texts = struct {
+    octets: []const u8,
+    ends: []const u32,
 
-    fn next(texts: *Texts) ?[]const u8 {
-        if (texts.rest.len == 0) return null;
-        const end = std.mem.indexOfScalar(u8, texts.rest, '\n').?;
-        defer texts.rest = texts.rest[end + 1 ..];
-        return texts.rest[0..end];
+    /// The texts in turn.
+    const Walk = struct {
+        texts: Texts,
+        index: usize = 0,
+        start: usize = 0,
+
+        fn next(walk: *Walk) ?[]const u8 {
+            if (walk.index == walk.texts.ends.len) return null;
+            const end = walk.texts.ends[walk.index];
+            defer walk.start = end;
+            walk.index += 1;
+            return walk.texts.octets[walk.start..end];
+        }
+    };
+
+    fn in_turn(texts: Texts) Walk {
+        return .{ .texts = texts };
     }
 };
 
 /// The texts of a batch that a pattern matches.
-pub fn matching(pattern: Pattern, batch: []const u8) usize {
-    var texts: Texts = .{ .rest = batch };
+pub fn matching(pattern: Pattern, batch: Texts) usize {
+    var texts = batch.in_turn();
     var found: usize = 0;
     switch (pattern) {
         .stdx, .stdx_no_skip, .stdx_matcher => |stdx| while (texts.next()) |text| {
             found += @intFromBool(stdx.searcher.is_match(text));
         },
-        .rust => |handle| return rust_regex_matching(handle, batch.ptr, batch.len),
-        .go => |handle| return go_regex_matching(handle, batch.ptr, batch.len),
+        .rust => |handle| return rust_regex_matching(handle, batch.octets.ptr, batch.ends.ptr, batch.ends.len),
+        .go => |handle| return go_regex_matching(handle, batch.octets.ptr, batch.ends.ptr, batch.ends.len),
         .zig_regex => |compiled| while (texts.next()) |text| {
             found += @intFromBool(compiled.partialMatch(text) catch false);
         },
@@ -222,8 +252,8 @@ pub fn matching(pattern: Pattern, batch: []const u8) usize {
     return found;
 }
 
-fn stdx_groups(stdx: *Stdx, batch: []const u8) usize {
-    var texts: Texts = .{ .rest = batch };
+fn stdx_groups(stdx: *Stdx, batch: Texts) usize {
+    var texts = batch.in_turn();
     var spans: [groups_max]?regex.Span = undefined;
     const found = spans[0..stdx.program.group_count];
     var sum: usize = 0;
@@ -236,8 +266,8 @@ fn stdx_groups(stdx: *Stdx, batch: []const u8) usize {
     return sum;
 }
 
-fn zig_regex_groups(compiled: *ZigRegex, batch: []const u8) usize {
-    var texts: Texts = .{ .rest = batch };
+fn zig_regex_groups(compiled: *ZigRegex, batch: Texts) usize {
+    var texts = batch.in_turn();
     var sum: usize = 0;
     while (texts.next()) |text| {
         var found = (compiled.captures(text) catch continue) orelse continue;
@@ -251,11 +281,11 @@ fn zig_regex_groups(compiled: *ZigRegex, batch: []const u8) usize {
 
 /// The sum of the start and the end of each group of a pattern's first match in each text of a
 /// batch, or null where the candidate gives no groups.
-pub fn groups(pattern: Pattern, batch: []const u8) ?usize {
+pub fn groups(pattern: Pattern, batch: Texts) ?usize {
     return switch (pattern) {
         .stdx, .stdx_no_skip, .stdx_matcher => |stdx| stdx_groups(stdx, batch),
-        .rust => |handle| rust_regex_groups(handle, batch.ptr, batch.len),
-        .go => |handle| go_regex_groups(handle, batch.ptr, batch.len),
+        .rust => |handle| rust_regex_groups(handle, batch.octets.ptr, batch.ends.ptr, batch.ends.len),
+        .go => |handle| go_regex_groups(handle, batch.octets.ptr, batch.ends.ptr, batch.ends.len),
         .zig_regex => |compiled| zig_regex_groups(compiled, batch),
         .mvzr => null,
     };

@@ -8034,8 +8034,9 @@ to 12 are reordered and nothing else changes.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
-  zig-regex and mvzr: every match of a pattern in a MiB of prose or markup, a pattern that
-  validates short texts, the same with capture groups, and a pattern compiled and made ready.
+  zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that
+  validates 65,536 short texts, the same with capture groups, and a pattern compiled and made
+  ready. Decision 86 holds what a review changed in its method on 2026-11-21.
   **Check:** each candidate's answer equals Go's regexp's before it is timed, and stdx's must;
   the program's own parts have tests; the hosted runners' reports are committed under
   `bench/results/`, and no number is claimed before them (decision 20).
