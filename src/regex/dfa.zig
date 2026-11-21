@@ -69,6 +69,10 @@ pub const Dfa = struct {
     instructions: []const Instruction,
     config: Config,
     has_looks: bool,
+    /// True when claim R1 is on and one state waits for a match to start whatever octet stands
+    /// behind it. A program with an assertion has one such state for each context, so it has
+    /// no skip.
+    may_skip: bool,
     classes: [constants.octet_values]u8,
     /// One octet of each class, which stands for the class when a state is built.
     representatives: [constants.octet_values]u8,
@@ -130,6 +134,7 @@ pub const Dfa = struct {
             .instructions = program.instructions,
             .config = config,
             .has_looks = program.has_looks,
+            .may_skip = config.skip and !program.has_looks,
             .classes = program.classes,
             .representatives = undefined,
             .class_count = program.class_count,
@@ -164,17 +169,10 @@ pub const Dfa = struct {
     pub fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
         assert(from <= haystack.len);
         const behind: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
-        const state = dfa.start(behind) orelse return .gave_up;
+        var state = dfa.start(behind) orelse return .gave_up;
         dfa.mark = from;
-        // `start` knows the state that waits exactly where this scan may skip. Claim R1 has a
-        // loop of its own, so a scan that does not skip pays nothing for it.
-        if (dfa.idle != constants.dfa_unknown) return dfa.scan_skipping(haystack, from, earliest, state);
-        return dfa.scan_plain(haystack, from, earliest, state);
-    }
-
-    /// A forward scan that reads the table for every octet.
-    fn scan_plain(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
-        var state = first;
+        // Claim R1 has a loop of its own, so a scan that does not skip pays one test for it.
+        if (dfa.skips_from(state)) return dfa.scan_skipping(haystack, from, earliest, state);
         var last: ?usize = null;
         // The table and the classes stay where they are while a scan runs, so the loop reads them
         // through locals: a store through `dfa` then reloads neither.
@@ -191,8 +189,6 @@ pub const Dfa = struct {
             if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
             state = known & constants.dfa_row_mask;
         }
-        // No scan that started with no state that waits learns one: only `start` turns a skip on.
-        assert(dfa.idle == constants.dfa_unknown);
         dfa.tally(haystack.len);
         if (dfa.matches_at_end(state, .edge)) last = haystack.len;
         return Scan.of(last);
@@ -279,10 +275,15 @@ pub const Dfa = struct {
         dfa.mark = index;
     }
 
-    /// The entry of a state for an octet, built when the table does not hold it. Null when the
-    /// DFA gives up.
-    fn resolve(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize) ?u32 {
-        if (entry != constants.dfa_unknown) return entry;
+    /// The entry of a state for an octet: the table's, or one built now. Null when the DFA gives
+    /// up. Inline, so a scan that meets an entry the table holds makes no call: a short text
+    /// that no pattern matches ends at such an entry.
+    inline fn resolve(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize) ?u32 {
+        return if (entry != constants.dfa_unknown) entry else dfa.build_entry(state, octet, index);
+    }
+
+    /// Builds the entry of a state for an octet, which the table does not hold.
+    fn build_entry(dfa: *Dfa, state: u32, octet: u8, index: usize) ?u32 {
         dfa.tally(index);
         const class = dfa.classes[octet];
         const clears = dfa.cache.clears;
@@ -304,16 +305,28 @@ pub const Dfa = struct {
             // before the call: `build` forgets the state's row when the cache clears.
             assert(dfa.idle == constants.dfa_unknown or dfa.idle == row);
         }
-        if (dfa.skip_off and dfa.cache.scanned >= dfa.skip_retry_at) dfa.skip_off = false;
-        if (dfa.idle == constants.dfa_unknown and dfa.skips()) dfa.wait_at(row);
         return row;
     }
 
-    /// True when a scan may skip: claim R1 is on and is not resting, and one state waits for
-    /// a match to start whatever octet stands behind it. A program with an assertion has one
-    /// such state for each context.
+    /// True when the scan that starts in `row` skips. Inline: the one test of `scan_forward`.
+    inline fn skips_from(dfa: *Dfa, row: u32) bool {
+        return dfa.may_skip and dfa.waits(row);
+    }
+
+    /// Readies the skip where a scan starts in `row`: it ends a rest that is over, and takes
+    /// `row` as the state that waits where the DFA knows none. True when the scan skips.
+    fn waits(dfa: *Dfa, row: u32) bool {
+        assert(dfa.may_skip);
+        if (dfa.skip_off and dfa.cache.scanned >= dfa.skip_retry_at) dfa.skip_off = false;
+        if (!dfa.skips()) return false;
+        if (dfa.idle == constants.dfa_unknown) dfa.wait_at(row);
+        assert(dfa.idle == row);
+        return true;
+    }
+
+    /// True when a scan may skip: `may_skip`, and the skip is not resting.
     fn skips(dfa: *const Dfa) bool {
-        return dfa.config.skip and !dfa.skip_off and !dfa.has_looks;
+        return dfa.may_skip and !dfa.skip_off;
     }
 
     /// A visit of a scan to the state that waits, at an octet of the haystack: the offset of the

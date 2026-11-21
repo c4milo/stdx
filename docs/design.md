@@ -7993,8 +7993,21 @@ to 12 are reordered and nothing else changes.
     does not skip now runs the loop of the commit before, `scan_plain`, and the claim's loop
     is `scan_skipping`. The hosted runs that follow time the commit before the claim in the
     same job, through the workflow's `base` input.
-  - Mutations, each against `zig build test-regex`: 34, of which 28 CAUGHT by a named test, 4
-    CAUGHT by a halt, and 2 NOT CAUGHT.
+  - The second form, commit `4ce909a`, was timed so, on the N2 in two jobs (runs 44945332342
+    and 44945335519). Each number is the form's rate over the rate of the commit before the
+    claim, in one job. The searches where start octets are far apart stood at 2.0 to 9.3, the
+    other searches at 0.98, and the short texts at 0.86 to 0.95, the same in both jobs. So
+    the second form still cost a short text 5% to 14%.
+    - A count shows why. One search of a short text takes 511 instructions at the commit
+      before the claim and 556 in the second form (valgrind 3.22.0, x86-64, 20,480 texts, the
+      scans called from four places as a program calls them). The scan's loop was a call of
+      its own, `Dfa.start` made two more tests, and a text that no pattern matches ended in a
+      call to `resolve`, which the compiler no longer inlined.
+    - In the third form a scan that does not skip runs the code of the commit before the
+      claim, behind one test, `may_skip`, which `Dfa.init` computes. `resolve` is inline where
+      the table holds the entry. The same search takes 491 instructions.
+  - Mutations of the third form, each against `zig build test-regex`: 37, of which 30 CAUGHT
+    by a named test, 5 CAUGHT by a halt, and 2 NOT CAUGHT.
     - The search for the octet, each CAUGHT by a named test: a range that leaves its last octet
       out; a step of lanes that gives the octet after the one it found; more start ranges than
       three taken by the first three; a range one octet too wide; the octets after the last
@@ -8006,8 +8019,11 @@ to 12 are reordered and nothing else changes.
       its measure.
     - The choice of the loop. A scan that may skip sent to the loop that reads every octet:
       CAUGHT by a named test. NOT CAUGHT: a scan that does not skip sent to the claim's loop.
-      It changes no answer, and it is the fault of the first form. Its measure is the hosted
-      report against the commit before.
+      It changes no answer, and it is the fault of the first form. Its measure is the count
+      of instructions above, and a hosted report against the commit before.
+    - The start of a scan. A skip that rests taken all the same, and an entry the table does
+      not hold taken as it is: each CAUGHT by a named test. A scan that skips with no state
+      that waits: CAUGHT by a halt, the assertion of `Dfa.waits`.
     - The visit, each CAUGHT by a named test: a visit that passes one octet more; a visit that
       passes its own octet though it can start a match; a scan that keeps the state that waits
       after a visit, or after a state was built.
