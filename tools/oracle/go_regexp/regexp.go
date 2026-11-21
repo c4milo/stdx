@@ -21,25 +21,31 @@ const (
 	groupsTooMany = -2
 )
 
-// The pattern of the last call and what Go made of it. RE2's logs give one pattern many texts, so
-// one compiled pattern serves the calls that follow it.
-var (
-	lastPattern  []byte
-	lastRegexp   *regexp.Regexp
-	lastCompiled bool
-)
+// The callers go_regexp_find serves at once: each thread of the check names a slot of its own.
+const slotCount = 64
 
-func compiled(pattern []byte) *regexp.Regexp {
-	if lastCompiled && bytes.Equal(lastPattern, pattern) {
-		return lastRegexp
+// The pattern of a slot's last call and what Go made of it. A check gives one pattern many texts,
+// so one compiled pattern serves the calls that follow it. No two threads share a slot, so a slot
+// needs no lock.
+type slot struct {
+	pattern  []byte
+	regexp   *regexp.Regexp
+	compiled bool
+}
+
+var slots [slotCount]slot
+
+func compiled(last *slot, pattern []byte) *regexp.Regexp {
+	if last.compiled && bytes.Equal(last.pattern, pattern) {
+		return last.regexp
 	}
-	lastPattern = append(lastPattern[:0], pattern...)
-	lastCompiled = true
-	lastRegexp = nil
+	last.pattern = append(last.pattern[:0], pattern...)
+	last.compiled = true
+	last.regexp = nil
 	if expression, err := regexp.Compile(string(pattern)); err == nil {
-		lastRegexp = expression
+		last.regexp = expression
 	}
-	return lastRegexp
+	return last.regexp
 }
 
 func octets(pointer *C.uchar, length C.size_t) []byte {
@@ -49,14 +55,15 @@ func octets(pointer *C.uchar, length C.size_t) []byte {
 	return unsafe.Slice((*byte)(unsafe.Pointer(pointer)), int(length))
 }
 
-// go_regexp_find searches text for the leftmost-first match of pattern. It writes the start and
-// the end of each group into offsets, the whole match first, with -1 twice for a group that took
-// no part, and returns the groups written. It returns 0 when nothing matches, -1 when Go refuses
-// the pattern, and -2 when the groups do not fit room, which counts groups.
+// go_regexp_find searches text for the leftmost-first match of pattern, for the caller that holds
+// the slot index. It writes the start and the end of each group into offsets, the whole match
+// first, with -1 twice for a group that took no part, and returns the groups written. It returns
+// 0 when nothing matches, -1 when Go refuses the pattern, and -2 when the groups do not fit room,
+// which counts groups.
 //
 //export go_regexp_find
-func go_regexp_find(pattern *C.uchar, patternLength C.size_t, text *C.uchar, textLength C.size_t, offsets *C.longlong, room C.size_t) C.longlong {
-	expression := compiled(octets(pattern, patternLength))
+func go_regexp_find(index C.size_t, pattern *C.uchar, patternLength C.size_t, text *C.uchar, textLength C.size_t, offsets *C.longlong, room C.size_t) C.longlong {
+	expression := compiled(&slots[index%slotCount], octets(pattern, patternLength))
 	if expression == nil {
 		return refused
 	}

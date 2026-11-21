@@ -5697,6 +5697,9 @@ last part lists what still waits on a ruling.
       a stack the pattern chooses.
 
     **What the owner ruled, 2026-11-21.**
+    - The engine takes no name of its own. It is the `regex` module, as each module of stdx is
+      named for what it holds. A second name was weighed and refused: it would stand in prose
+      alone, where the code says `regex`.
     - RE2's forms that RFC 9485 §3 refuses. stdx takes the named classes, the `]` that comes
       first, the `-` that starts no range and the octal escapes, each as RE2 reads it. Built
       (design §8 step 22, part 22g). `\C` stays refused: it takes one octet of any value, so a
@@ -5708,10 +5711,12 @@ last part lists what still waits on a ruling.
       - Go's regexp is the oracle over generated patterns. It holds RE2's syntax and its
         leftmost-first matches, and Go is already a ruled toolchain (entries 68 and 69). go
         builds it as a c-archive from `tools/oracle/go_regexp/`, by the release its go.mod
-        names, Go 1.27.3, as it builds the Go baselines of `bench/`.
+        names, as it builds the Go baselines of `bench/`. The release is Go 1.27.4, the latest
+        stable one on 2026-11-21, which the owner asked for.
       - RE2's `make log` writes what RE2 answers on its search tests and its exhaustive tests,
-        and Go's repository keeps both logs. `tools/corpus/fetch.sh` fetches them at the tag
-        `go1.24.7`, and `build/oracle_regex.zig` pins each by SHA-256.
+        and Go's repository keeps both logs. `tools/corpus/fetch.sh` fetches them at the tag of
+        the same release, `go1.27.4`, and `build/oracle_regex.zig` pins each by SHA-256. The
+        two files are the same octets at `go1.24.7`, where they were first read.
       - A difference passes only by an entry of `tools/oracle/verdicts_regex.zig`. The entries
         are stdx's refusal of `(?i)` past ASCII, of `\C` and of `\p`, and RE2's match between
         the octets of one scalar value, where Go's regexp must give stdx's answer. Go's own
@@ -5728,7 +5733,7 @@ last part lists what still waits on a ruling.
         other 2,076,269 gave Go's groups. The 7 were one fault of that release's parser. Where
         two alternatives started with the same letter, one of them under `(?i)`, it took the
         letter out of both and kept one rule for its case: it read `A(?i)b|a` as
-        `A(?i:B|(?:))` and found no match in `a`. Go 1.27.3 reads it as `A(?i:B)|(?i:A)`, and
+        `A(?i:B|(?:))` and found no match in `a`. Go 1.27.4 reads it as `A(?i:B)|(?i:A)`, and
         the check has no entry for the fault.
 
     **What waits on the owner.**

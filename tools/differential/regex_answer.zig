@@ -1,6 +1,7 @@
 //! What one engine makes of a pattern and a text, for `zig build differential-regex` (decision
-//! 86), and stdx's side of the check: a pattern compiled once, and its match in each text by a
-//! `regex.Searcher`.
+//! 86), and stdx's side of the check: a pattern compiled once, and its match in each text by two
+//! searchers that live as long as the pattern. One has a cache, so the states its DFAs build for
+//! one text serve the next. The other has none, so the matcher answers alone.
 
 const std = @import("std");
 const regex = @import("regex");
@@ -40,38 +41,52 @@ pub const Answer = struct {
         return .{ @intCast(answer.offsets[0]), @intCast(answer.offsets[1]) };
     }
 
-    /// Prints the answer, for a failure's line.
-    pub fn print(answer: *const Answer) void {
+    /// Writes the answer, for a failure's line.
+    pub fn write(answer: *const Answer, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (answer.kind) {
-            .refused => std.debug.print("refused {s}", .{answer.refusal}),
-            .none => std.debug.print("no match", .{}),
+            .refused => try writer.print("refused {s}", .{answer.refusal}),
+            .none => try writer.writeAll("no match"),
             .match => for (0..answer.groups) |index| {
-                std.debug.print("{s}{d}-{d}", .{ if (index == 0) "" else " ", answer.offsets[2 * index], answer.offsets[2 * index + 1] });
+                try writer.print("{s}{d}-{d}", .{ if (index == 0) "" else " ", answer.offsets[2 * index], answer.offsets[2 * index + 1] });
             },
         }
     }
 };
 
-/// stdx's side: one pattern at a time, compiled into storage of its own.
+/// The two ways stdx answers: a searcher with a cache for its DFAs, and one with none.
+pub const Way = enum { cached, alone };
+
+/// stdx's side: one pattern at a time, compiled into storage of its own. A `Stdx` stays where it
+/// is while it holds a pattern: its searchers point at its program.
 pub const Stdx = struct {
     storage: []regex.Instruction,
-    /// A searcher's memory for the largest program the storage holds.
-    memory: []u64,
+    /// Each searcher's memory, for the largest program the storage holds.
+    memory: [way_count][]u64,
     program: regex.Program = undefined,
+    searchers: [way_count]regex.Searcher = undefined,
     /// The name of the error `compile` gave the pattern, or nothing when it compiled.
     refusal: []const u8 = "",
 
-    pub fn init(allocator: std.mem.Allocator) !Stdx {
-        const memory_len = regex.Searcher.memory_len(storage_len, 2 * groups_max, regex.constants.cache_words_default);
-        return .{
-            .storage = try allocator.alloc(regex.Instruction, storage_len),
-            .memory = try allocator.alloc(u64, memory_len),
+    const way_count = std.meta.fields(Way).len;
+
+    fn cache_words(way: Way) usize {
+        return switch (way) {
+            .cached => regex.constants.cache_words_default,
+            .alone => 0,
         };
+    }
+
+    pub fn init(allocator: std.mem.Allocator) !Stdx {
+        var stdx: Stdx = .{ .storage = try allocator.alloc(regex.Instruction, storage_len), .memory = undefined };
+        for (&stdx.memory, 0..) |*memory, way| {
+            memory.* = try allocator.alloc(u64, regex.Searcher.memory_len(storage_len, 2 * groups_max, cache_words(@enumFromInt(way))));
+        }
+        return stdx;
     }
 
     pub fn deinit(stdx: *Stdx, allocator: std.mem.Allocator) void {
         allocator.free(stdx.storage);
-        allocator.free(stdx.memory);
+        for (stdx.memory) |memory| allocator.free(memory);
     }
 
     pub fn compile(stdx: *Stdx, pattern: []const u8) void {
@@ -80,16 +95,22 @@ pub const Stdx = struct {
             stdx.refusal = @errorName(err);
             return;
         };
-        if (stdx.program.group_count > groups_max) stdx.refusal = groups_refusal;
+        if (stdx.program.group_count > groups_max) {
+            stdx.refusal = groups_refusal;
+            return;
+        }
+        const program = &stdx.program;
+        for (&stdx.searchers, stdx.memory, 0..) |*searcher, memory, way| {
+            const len = regex.Searcher.memory_len(program.forward_len, program.slot_count(), cache_words(@enumFromInt(way)));
+            searcher.init(program, memory[0..len]);
+        }
     }
 
-    /// The match of the compiled pattern in `text`, by a searcher with `cache_words` words of
-    /// cache. With no cache the searcher has no DFA, and the matcher answers alone.
-    pub fn answer(stdx: *Stdx, text: []const u8, cache_words: usize) Answer {
+    /// The match of the compiled pattern in `text`, by one of the pattern's two searchers.
+    pub fn answer(stdx: *Stdx, text: []const u8, way: Way) Answer {
         if (stdx.refusal.len != 0) return .{ .kind = .refused, .refusal = stdx.refusal };
         const program = &stdx.program;
-        var searcher: regex.Searcher = undefined;
-        searcher.init(program, stdx.memory[0..regex.Searcher.memory_len(program.forward_len, program.slot_count(), cache_words)]);
+        const searcher = &stdx.searchers[@intFromEnum(way)];
         var groups: [groups_max]?regex.Span = undefined;
         if (!searcher.captures(text, 0, groups[0..program.group_count])) return .{ .kind = .none };
         var result: Answer = .{ .kind = .match, .groups = program.group_count };
@@ -107,17 +128,33 @@ test "Stdx gives a match's groups, no match, and a refusal by its error's name" 
     var stdx = try Stdx.init(testing.allocator);
     defer stdx.deinit(testing.allocator);
     stdx.compile("(a)|(b)");
-    for ([_]usize{ regex.constants.cache_words_default, 0 }) |cache_words| {
-        const found = stdx.answer("xb", cache_words);
-        try testing.expectEqual(Answer.Kind.match, found.kind);
-        try testing.expectEqualSlices(i64, &.{ 1, 2, -1, -1, 1, 2 }, found.offsets[0 .. 2 * found.groups]);
-        try testing.expectEqual([2]usize{ 1, 2 }, found.whole().?);
-        try testing.expectEqual(Answer.Kind.none, stdx.answer("c", cache_words).kind);
+    for ([_]Way{ .cached, .alone }) |way| {
+        // A second text, and the first again: a searcher serves each text of its pattern.
+        for (0..2) |_| {
+            const found = stdx.answer("xb", way);
+            try testing.expectEqual(Answer.Kind.match, found.kind);
+            try testing.expectEqualSlices(i64, &.{ 1, 2, -1, -1, 1, 2 }, found.offsets[0 .. 2 * found.groups]);
+            try testing.expectEqual([2]usize{ 1, 2 }, found.whole().?);
+            try testing.expectEqual(Answer.Kind.none, stdx.answer("c", way).kind);
+        }
     }
     stdx.compile("\\C");
-    const refused = stdx.answer("a", 0);
+    const refused = stdx.answer("a", .alone);
     try testing.expectEqual(Answer.Kind.refused, refused.kind);
     try testing.expectEqualStrings("InvalidEscape", refused.refusal);
+}
+
+test "write spells a refusal, no match, and each group of a match" {
+    var buffer: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
+    var found: Answer = .{ .kind = .match, .groups = 2 };
+    found.offsets[0..4].* = .{ 0, 3, -1, -1 };
+    try found.write(&writer);
+    try writer.writeAll("; ");
+    try (Answer{ .kind = .none }).write(&writer);
+    try writer.writeAll("; ");
+    try (Answer{ .kind = .refused, .refusal = "InvalidEscape" }).write(&writer);
+    try testing.expectEqualStrings("0-3 -1--1; no match; refused InvalidEscape", writer.buffered());
 }
 
 test "eql compares the kind, and the groups of two matches" {

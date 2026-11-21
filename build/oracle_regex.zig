@@ -14,8 +14,9 @@ const std = @import("std");
 const modules = @import("modules.zig");
 const toolchains = @import("oracle_toolchains.zig");
 
-/// Where Go's repository keeps RE2's logs, at the tag of the release they were read from.
-const logs_url = "https://raw.githubusercontent.com/golang/go/go1.24.7/src/regexp/testdata/";
+/// Where Go's repository keeps RE2's logs, at the tag of the release that go.mod names for the
+/// oracle.
+const logs_url = "https://raw.githubusercontent.com/golang/go/go1.27.4/src/regexp/testdata/";
 
 /// Each log, in the order the check takes them, with its SHA-256.
 const logs = [_]struct { name: []const u8, sha256: []const u8 }{
@@ -26,12 +27,12 @@ const logs = [_]struct { name: []const u8, sha256: []const u8 }{
 /// What the step says on a host without go.
 const missing_message = "differential-regex builds its oracle with go; put go on the path";
 
-/// The files of the check that hold tests and need no oracle, each with the library modules it
-/// imports.
-const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = false }{
+/// The files of the check that hold tests and need no oracle, each with the modules it imports.
+/// The program's root imports the Go oracle's bindings, and its tests call none of them, so they
+/// link with no archive.
+const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = false, program: bool = false }{
     .{ .root = "tools/oracle/verdicts_regex.zig" },
-    .{ .root = "tools/differential/regex_generate.zig", .codec = true },
-    .{ .root = "tools/differential/regex_re2_log.zig", .regex = true },
+    .{ .root = "tools/differential/regex.zig", .codec = true, .regex = true, .program = true },
 };
 
 pub fn add(b: *std.Build, step: *std.Build.Step) void {
@@ -74,22 +75,31 @@ pub fn add(b: *std.Build, step: *std.Build.Step) void {
     step.dependOn(&run.step);
 }
 
-/// The tests of the check's own parts: the verdict entries, the generator of patterns and the
-/// reader of RE2's logs, with stdx's side of the check. They run on the host in Debug, as every
-/// tool's tests do, over a library graph of their own.
+/// The tests of the check's own parts: the verdict entries, and the program with the generator of
+/// patterns, the reader of RE2's logs and stdx's side of the check. They run on the host in
+/// Debug, as every tool's tests do, over a library graph of their own.
 pub fn add_tests(b: *std.Build) *std.Build.Step {
     const step = b.step("test-differential-regex", "Run the tests of differential-regex's own parts, which need no oracle");
     const graph = modules.add(b, .{ .target = b.graph.host, .optimize = .Debug, .visibility = .private });
     for (tested) |entry| {
-        const module = b.createModule(.{
-            .root_source_file = b.path(entry.root),
-            .target = b.graph.host,
-            .optimize = .Debug,
-        });
+        const module = host_module(b, entry.root);
         if (entry.codec) module.addImport("codec", graph.codec);
         if (entry.regex) module.addImport("regex", graph.regex);
+        if (entry.program) {
+            module.addImport("oracle_regexp", host_module(b, "tools/oracle/oracle_regexp.zig"));
+            module.addImport("verdicts", host_module(b, "tools/oracle/verdicts_regex.zig"));
+        }
         const tests = b.addTest(.{ .name = std.fs.path.stem(entry.root), .root_module = module });
         step.dependOn(&b.addRunArtifact(tests).step);
     }
     return step;
+}
+
+/// A module compiled for the build host in Debug, as every tool's tests are.
+fn host_module(b: *std.Build, root: []const u8) *std.Build.Module {
+    return b.createModule(.{
+        .root_source_file = b.path(root),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
 }

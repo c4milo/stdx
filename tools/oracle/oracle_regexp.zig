@@ -5,7 +5,7 @@
 
 const std = @import("std");
 
-extern fn go_regexp_find(pattern: [*]const u8, pattern_len: usize, text: [*]const u8, text_len: usize, offsets: [*]c_longlong, room: usize) c_longlong;
+extern fn go_regexp_find(slot: usize, pattern: [*]const u8, pattern_len: usize, text: [*]const u8, text_len: usize, offsets: [*]c_longlong, room: usize) c_longlong;
 extern fn go_bzip2_decode(input: [*]const u8, len: usize, output: [*]u8, room: usize) c_longlong;
 
 /// What go_regexp_find returns where it returns no count of groups.
@@ -25,11 +25,16 @@ pub const Found = union(enum) {
     groups_too_many,
 };
 
+/// The callers `find` serves at once, each with a slot of its own.
+pub const slots_max = 64;
+
 /// Go's leftmost-first match of `pattern` in `text`, its offsets written into `offsets`, two for
-/// each group.
-pub fn find(pattern: []const u8, text: []const u8, offsets: []i64) Found {
+/// each group. `slot` names the caller: Go keeps the pattern it compiled last for each slot, and
+/// no two threads call with one slot.
+pub fn find(slot: usize, pattern: []const u8, text: []const u8, offsets: []i64) Found {
+    std.debug.assert(slot < slots_max);
     const room = offsets.len / 2;
-    const groups = go_regexp_find(pattern.ptr, pattern.len, text.ptr, text.len, @ptrCast(offsets.ptr), room);
+    const groups = go_regexp_find(slot, pattern.ptr, pattern.len, text.ptr, text.len, @ptrCast(offsets.ptr), room);
     return switch (groups) {
         find_refused => .refused,
         find_groups_too_many => .groups_too_many,

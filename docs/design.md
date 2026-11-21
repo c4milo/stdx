@@ -7913,8 +7913,13 @@ to 12 are reordered and nothing else changes.
   each log gives its pinned count of equal answers; the check's own parts have tests that
   `zig build test` runs; mutations of the engine fail the check.
 
-  **Check passed, part 22b, 2026-11-21.** Zig 0.16.0 and Go 1.27.3 on x86-64 Linux 6.18, in a
-  cloud container. 12,437,544 cases, none failed, in 2 min 40 s with the build.
+  **Check passed, part 22b, 2026-11-21.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a
+  cloud container. 12,437,544 cases, none failed, in 23 s on four threads.
+  - The first form of the check took 2 min 13 s on one thread. It started a new searcher for
+    each case, so no state that a DFA built for one text served the next. A pattern now keeps
+    its searchers for all its texts, which took the time to 49 s, and four threads take the
+    tasks, a seed or a part of the exhaustive log each. The counts below are the same in each
+    form, and under Go 1.27.3.
   - Go's regexp: 1,000,000 generated cases from four seeds. 906,094 gave Go's groups. stdx
     refused 93,906 for `(?i)` over a scalar value past U+007F, which the entry allows. Go
     refused no pattern.
@@ -7923,15 +7928,15 @@ to 12 are reordered and nothing else changes.
   - RE2's exhaustive log: 11,433,768 cases. 10,410,991 gave RE2's groups. stdx refused
     1,022,440 for `\C`. In 337, RE2's match starts or ends between the octets of one scalar
     value, and Go's regexp gave stdx's answer for each.
-  - The logs come from Go's repository at the tag `go1.24.7`, and `tools/corpus/fetch.sh`
-    checked each against its SHA-256.
+  - The logs come from Go's repository at the tag `go1.27.4`, and `tools/corpus/fetch.sh`
+    checked each against its SHA-256. They are the same octets at `go1.24.7`.
   - The container's network refused the other oracles' packages, so no `-Doracles` build could
     start here. The check ran through a scratch step that called `build/oracle_regex.zig`'s
     `add` alone, with the same oracle, logs and program. The hosted runners of decision 19 run
     it as `tools/ci.sh` does, where go is on the path.
-  - `zig build test` runs 14 tests of the check's own parts: the verdict entries, the generator
-    and the reader of RE2's logs with stdx's side.
-  - 17 mutations, each reverted.
+  - `zig build test` runs 18 tests of the check's own parts: the verdict entries, the
+    generator, the reader of RE2's logs with stdx's side, and the cut of a log into tasks.
+  - 21 mutations, each reverted.
     - The verdict entries, 7: a refusal of case folding with no flag in the pattern, and one
       with no value past ASCII; a cleared flag taken as a set one; any refusal of a pattern
       with `\C`; a match inside a character where Go differs from stdx; a match between
@@ -7948,6 +7953,10 @@ to 12 are reordered and nothing else changes.
     - The engine, 3, each CAUGHT by the whole check: a greedy split that leaves first, 431,825
       cases failed; `upper` with one letter fewer, 10; an octal escape of two digits at most,
       45,938.
+    - The check on four threads, 4 more: a part of a log cut one octet early, and a sum of
+      two tallies that leaves out the allowed cases or the entries' counts, each CAUGHT by a
+      named test; and a pattern that keeps the searchers of the pattern before it, CAUGHT by a
+      halt of the whole check.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
