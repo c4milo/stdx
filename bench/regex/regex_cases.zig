@@ -48,10 +48,11 @@ pub const searches = [_]Search{
     .{ .name = "class: a word that ends in ing", .pattern = "[a-z]+ing", .file = prose },
     .{ .name = "class: a word in capitals", .pattern = "[A-Z][A-Z][A-Z]+", .file = prose },
     .{ .name = "class: a number", .pattern = "[0-9]+", .file = markup },
-    .{ .name = "class: a distance, second text", .pattern = "[0-9][0-9,]* km", .file = second },
-    // The other shapes: a literal with a class inside or after it, an assertion, a pattern whose
-    // DFA has more states than a cache holds, and a class past ASCII.
+    .{ .name = "class: two capitalized words, second text", .pattern = "[A-Z][a-z]+ [A-Z][a-z]+", .file = second },
+    // The other shapes: a literal with a class inside, before or after it, an assertion, a
+    // pattern whose DFA has more states than a cache holds, and a class past ASCII.
     .{ .name = "other: a word between two words", .pattern = "the [a-z]+ of", .file = prose },
+    .{ .name = "other: a number before a unit, second text", .pattern = "[0-9][0-9,]* km", .file = second },
     .{ .name = "other: a heading's start tag", .pattern = "<h[1-6][^>]*>", .file = markup },
     .{ .name = "other: a whole word", .pattern = "\\bPharaoh\\b", .file = prose, .rust = "(?-u:\\b)Pharaoh(?-u:\\b)" },
     .{ .name = "other: a line's first word, second text", .pattern = "(?m)^[A-Z][a-z]+:", .file = second },
@@ -121,7 +122,7 @@ pub const groups_validation: Validation = .{
 };
 
 /// The texts of one validation, each one made anew: about half of them valid, and the others
-/// with one octet changed. A batch holds 1.3 to 2.4 MB, so a run does not repeat a text that the
+/// with one octet changed. A batch holds 0.7 to 2.4 MB, so a run does not repeat a text that the
 /// branch predictor has learned (decision 45).
 pub const texts_per_validation = 1 << 16;
 

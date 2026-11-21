@@ -4,7 +4,7 @@
 //!
 //! The candidates are regex_engines.zig's: stdx by a searcher with its default cache, the same
 //! with claim R1 off, stdx by the matcher alone, Rust's `regex` crate, Go's regexp, zig-regex
-//! and mvzr. stdx is built
+//! and mvzr, and last in each round stdx again, as the first. stdx is built
 //! ReleaseSafe and each other library ReleaseFast or its release form, all for the
 //! architecture's baseline CPU (decisions 17 and 75).
 //!
@@ -132,7 +132,11 @@ const Row = struct {
         }
         const stdx = rates[@intFromEnum(Engine.stdx)].?;
         for (ratio_bases) |other| {
-            if (rates[@intFromEnum(other)]) |rate| try out.print(" {d:.2} |", .{stdx / rate}) else try out.writeAll(" |");
+            const rate = rates[@intFromEnum(other)] orelse {
+                try out.writeAll(" |");
+                continue;
+            };
+            if (stdx / rate < small_ratio) try out.print(" {d:.4} |", .{stdx / rate}) else try out.print(" {d:.2} |", .{stdx / rate});
         }
         try out.writeAll("\n");
     }
@@ -171,7 +175,7 @@ fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, form
         }
         row.add(engine, .{ .context = &calls[index], .run_once = Call.run_once });
     }
-    const ours = [_]Engine{ .stdx, .stdx_no_skip, .stdx_matcher };
+    const ours = [_]Engine{ .stdx, .stdx_no_skip, .stdx_matcher, .stdx_again };
     const agree = for (ours) |engine| {
         if (row.cells[@intFromEnum(engine)] != .timed) break false;
     } else true;
@@ -183,8 +187,12 @@ fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, form
 }
 
 /// The candidates a row gives stdx's speed over, a column each: stdx with claim R1 off, which is
-/// the claim's A/B in one run (decision 86), and the two baselines the charts draw stdx against.
-const ratio_bases = [_]Engine{ .stdx_no_skip, .rust, .go };
+/// the claim's A/B in one run (decision 86); stdx again, the same code path timed last in each
+/// round; and two baselines.
+const ratio_bases = [_]Engine{ .stdx_no_skip, .stdx_again, .rust, .go };
+
+/// A ratio under this is printed with four decimals, where two would leave no digit.
+const small_ratio = 0.1;
 
 fn print_head(out: *std.Io.Writer, title: []const u8, first: []const u8, second: []const u8) !void {
     try out.print("## {s}\n\n| {s} | {s} |", .{ title, first, second });
@@ -207,7 +215,7 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
 const File = struct { name: []const u8, octets: []const u8 };
 
 fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File) !void {
-    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claim R1 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
+    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claim R1 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
     try out.writeAll("The patterns of the search table:\n\n");
     for (cases.searches) |search| {
         try out.print("- {s}, in {s}: `{s}`", .{ search.name, search.file, search.pattern });
@@ -252,22 +260,22 @@ fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, title
 fn report_compiles(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator) !void {
     const scratch = try engines.Scratch.init(arena);
     try print_head(out, "Compile, thousands of patterns a second", "Pattern", "Octets");
-    var patterns: [cases.validations.len + cases.searches.len]struct { name: []const u8, pattern: []const u8 } = undefined;
-    for (cases.validations, 0..) |validation, index| patterns[index] = .{ .name = validation.name, .pattern = validation.pattern };
-    for (cases.searches, cases.validations.len..) |search, index| patterns[index] = .{ .name = search.name, .pattern = search.pattern };
+    var patterns: [cases.validations.len + cases.searches.len]struct { name: []const u8, forms: Forms } = undefined;
+    for (cases.validations, 0..) |validation, index| patterns[index] = .{ .name = validation.name, .forms = .{ .pattern = validation.pattern } };
+    for (cases.searches, cases.validations.len..) |search, index| patterns[index] = .{ .name = search.name, .forms = .{ .pattern = search.pattern, .rust = search.rust } };
     for (patterns) |entry| {
         var compiles: [engine_count]Compile = undefined;
         var row: Row = .{};
         for (std.enums.values(Engine)) |engine| {
             const index = @intFromEnum(engine);
-            compiles[index] = .{ .engine = engine, .scratch = &scratch, .pattern = entry.pattern };
-            if (!engines.compile_once(engine, &scratch, entry.pattern)) {
+            compiles[index] = .{ .engine = engine, .scratch = &scratch, .pattern = entry.forms.of(engine) };
+            if (!engines.compile_once(engine, &scratch, entry.forms.of(engine))) {
                 row.cells[index] = .refused;
                 continue;
             }
             row.add(engine, .{ .context = &compiles[index], .run_once = Compile.run_once });
         }
-        try out.print("| {s} | {d} |", .{ entry.name, entry.pattern.len });
+        try out.print("| {s} | {d} |", .{ entry.name, entry.forms.pattern.len });
         try row.print(io, out, 1.0 / per_thousand);
         try out.flush();
     }
