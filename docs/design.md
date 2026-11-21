@@ -7984,8 +7984,17 @@ to 12 are reordered and nothing else changes.
     cache that cleared and then gave up left the old row. `Dfa.start` held the fault by
     forgetting the row each time it kept the start state. `Dfa.build` now forgets the row
     wherever the cache cleared, and `Dfa.start` asserts it.
-  - Mutations, each against `zig build test-regex`: 32, of which 27 CAUGHT by a named test, 4
-    CAUGHT by a halt, and 1 NOT CAUGHT.
+  - The first form of the claim, commit `c65ceab`, ran every forward scan in the claim's loop.
+    Hosted run 44943142279 timed it. The searches gained, and the claim off cost nothing
+    beside the claim on. But the rows of short texts stood at 0.67 to 0.95 of Rust's on the
+    Xeon 8370C and at 0.81 to 0.94 on the N2, where run 44939231333 of the commit before had
+    them at 1.17 to 1.40 and at 1.07 to 1.23. The two runs are other jobs, so the figures
+    show a fault and measure none. No test saw it, since it changes no answer. A scan that
+    does not skip now runs the loop of the commit before, `scan_plain`, and the claim's loop
+    is `scan_skipping`. The hosted runs that follow time the commit before the claim in the
+    same job, through the workflow's `base` input.
+  - Mutations, each against `zig build test-regex`: 34, of which 28 CAUGHT by a named test, 4
+    CAUGHT by a halt, and 2 NOT CAUGHT.
     - The search for the octet, each CAUGHT by a named test: a range that leaves its last octet
       out; a step of lanes that gives the octet after the one it found; more start ranges than
       three taken by the first three; a range one octet too wide; the octets after the last
@@ -7995,6 +8004,10 @@ to 12 are reordered and nothing else changes.
     - NOT CAUGHT: the first octets after a visit judged by lanes and not one at a time. It
       changes no answer, so no test can fail. The benchmark's rows of close start octets are
       its measure.
+    - The choice of the loop. A scan that may skip sent to the loop that reads every octet:
+      CAUGHT by a named test. NOT CAUGHT: a scan that does not skip sent to the claim's loop.
+      It changes no answer, and it is the fault of the first form. Its measure is the hosted
+      report against the commit before.
     - The visit, each CAUGHT by a named test: a visit that passes one octet more; a visit that
       passes its own octet though it can start a match; a scan that keeps the state that waits
       after a visit, or after a state was built.

@@ -164,18 +164,50 @@ pub const Dfa = struct {
     pub fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
         assert(from <= haystack.len);
         const behind: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
-        var state = dfa.start(behind) orelse return .gave_up;
-        var last: ?usize = null;
+        const state = dfa.start(behind) orelse return .gave_up;
         dfa.mark = from;
+        // `start` knows the state that waits exactly where this scan may skip. Claim R1 has a
+        // loop of its own, so a scan that does not skip pays nothing for it.
+        if (dfa.idle != constants.dfa_unknown) return dfa.scan_skipping(haystack, from, earliest, state);
+        return dfa.scan_plain(haystack, from, earliest, state);
+    }
+
+    /// A forward scan that reads the table for every octet.
+    fn scan_plain(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        var state = first;
+        var last: ?usize = null;
         // The table and the classes stay where they are while a scan runs, so the loop reads them
         // through locals: a store through `dfa` then reloads neither.
+        const table = dfa.cache.table;
+        const classes = &dfa.classes;
+        for (haystack[from..], from..) |octet, index| {
+            const entry = table[state + classes[octet]];
+            if (entry < constants.dfa_dead_flag) {
+                state = entry;
+                continue;
+            }
+            const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
+            if (known & constants.dfa_match_flag != 0) last = index;
+            if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
+            state = known & constants.dfa_row_mask;
+        }
+        // No scan that started with no state that waits learns one: only `start` turns a skip on.
+        assert(dfa.idle == constants.dfa_unknown);
+        dfa.tally(haystack.len);
+        if (dfa.matches_at_end(state, .edge)) last = haystack.len;
+        return Scan.of(last);
+    }
+
+    /// A forward scan under claim R1: the state that waits for a match to start stays where it
+    /// is over an octet that starts none, so the scan goes to the next octet that can.
+    fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        var state = first;
+        var last: ?usize = null;
         const table = dfa.cache.table;
         const classes = &dfa.classes;
         var idle = dfa.idle;
         var index = from;
         while (index < haystack.len) {
-            // Claim R1: the state that waits for a match to start stays where it is over an
-            // octet that starts none, so the scan goes to the next octet that can.
             if (state == idle) {
                 index = dfa.pass(haystack, index);
                 idle = dfa.idle;
