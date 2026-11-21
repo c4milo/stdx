@@ -8124,9 +8124,25 @@ to 12 are reordered and nothing else changes.
     - One more was no mutation of behaviour: `<` for `<=` where a range starts at a length's
       last value. Such a value's low bits are all ones, so the cut for a continuation octet
       falls at the same place, and no test can tell the two apart.
-  - Not run: a benchmark. The hosted runners of decision 20 judge speed, and no number is
-    claimed. A `-Doracles` build was not run either: the container's network refused the
-    packages.
+  - Not run in the container: a benchmark. A `-Doracles` build was not run either at first:
+    the container's network refused the packages.
+  - **The hosted runners, 2026-11-21: `json` is no slower.** The owner asked for the check.
+    `bench-json` ran twice with main's `413a510` as its base, in the same job as the change
+    (runs 44935468830 and 44941876810; `bench/results/` holds the eight reports as
+    `2026-11-21-json-utf8-module-*`).
+    - Each number below is the change's rate over the base's, for every cell of a report that
+      holds a rate and a spread. stdx's cells: a geometric mean of 0.997 on the EPYC 7763, 0.999
+      on the Xeon 8370C, and 0.999 and 1.000 on the N2. The baselines' cells, which the change
+      does not touch: 0.999, 1.000, 0.998 and 0.999.
+    - One cell moved far in the first x86-64 run: decoding `hex: silesia/samba`, at 0.745. The
+      other hex rows run the same code and did not move. In the second run the same cell stood
+      at 1.39, so the cell has two speeds, and the change chooses neither.
+    - In the second x86-64 run, `is_utf8` moved on ten rows, from 0.68 to 1.21. simdutf,
+      measured beside it in the same job, moved the same way on each of them, from 0.81 to
+      1.12. The machine moved, and stdx over simdutf stayed between 1.09 and 1.95.
+    - Before the runs, the eight SIMD kernels of `json`, and every function of its variant
+      objects, 439 on x86-64 and 422 on aarch64, compiled to the same instructions before and
+      after the move.
 
   **Part 22i, built: the UTF-8 ranges proved in Lean (decision 86).**
   **Check:** `zig build lean` builds `spec/lean/Stdx/Regex/Utf8.lean` with its theorems' axioms
