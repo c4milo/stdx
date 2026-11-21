@@ -1,0 +1,5 @@
+# The Rust release that builds this baseline, so a new runner image cannot move it (decision 20).
+# rustup reads this file in the directory cargo runs in, which build/oracle_toolchains.zig sets.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"

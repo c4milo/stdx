@@ -1,0 +1,20 @@
+# bench-regex's Rust baseline (decision 86): the `regex` crate, at its latest release, behind a C
+# ABI the benchmark links. Built only with -Doracles.
+[package]
+name = "stdx-bench-regex-rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+regex = "=1.13.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

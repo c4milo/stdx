@@ -5700,6 +5700,21 @@ last part lists what still waits on a ruling.
     - The engine takes no name of its own. It is the `regex` module, as each module of stdx is
       named for what it holds. A second name was weighed and refused: it would stand in prose
       alone, where the code says `regex`.
+    - `bench-regex` compares the module with popular libraries in Rust, Zig and Go, under entry
+      8. Built (design §8 step 22, part 22l). The baselines:
+      - Rust's `regex` crate 1.13.2, the crate Rust programs use, by its `bytes::Regex`.
+      - Go's regexp, of Go 1.27.4.
+      - zig-regex 0.1.3 and mvzr 0.3.9, the two libraries in Zig that build with Zig 0.16, each
+        at a commit `build.zig.zon` pins.
+      - RE2 itself is no baseline: the owner named three languages, and its answers are held
+        through its logs. It may join later.
+      - Each pattern spells its classes out and holds no `\d`, `\w` or `\b`, which Rust's
+        crate reads as Unicode's and the others as ASCII's. No haystack holds an octet that is
+        not UTF-8, where the engines differ by design.
+      - A candidate's answer is held to Go's regexp's before it is timed. zig-regex's search
+        does not pass a line feed, so it takes a haystack one line at a time, and it takes
+        texts that three of the validation patterns refuse. mvzr has no `(?i)` and no groups.
+        Each such cell says `refused`, `differs` or `none`.
     - RE2's forms that RFC 9485 §3 refuses. stdx takes the named classes, the `]` that comes
       first, the `-` that starts no range and the octal escapes, each as RE2 reads it. Built
       (design §8 step 22, part 22g). `\C` stays refused: it takes one octet of any value, so a
@@ -5737,8 +5752,6 @@ last part lists what still waits on a ruling.
         the check has no entry for the fault.
 
     **What waits on the owner.**
-    - **owner** The baselines of `bench-regex`, under entry 8: RE2, Rust's regex and Go's regexp
-      beside stdx.
     - **owner** Non-negotiable 3 asks that a whole-buffer helper be built on the streaming call.
       `Searcher` is not: a reverse scan needs the whole text. It is held to the streaming call by
       checks instead, as a fast path is held to its checked path (entry 16).

@@ -7816,8 +7816,8 @@ to 12 are reordered and nothing else changes.
 - **Step 22: the `regex` module (decision 86).** Regular expressions matched in time linear in
   the text. The owner asked for it on 2026-11-21. The step has parts, and each part lands with its
   own check. Part 22a is built: `compile` and `compile_comptime`, `Matcher`, and `Searcher` with
-  its two lazy DFAs and `Matches`. Parts 22b, 22g, 22i and 22k are built too, and each has its
-  record below.
+  its two lazy DFAs and `Matches`. Parts 22b, 22g, 22i, 22k and 22l are built too, and each has
+  its record below.
   **Check, part 22a:**
   - Each form of the syntax has a table of patterns, texts and the groups each must give, and
     each of the parser's 23 refusals has its patterns, with the class `refusal` gives it.
@@ -7881,8 +7881,6 @@ to 12 are reordered and nothing else changes.
     runners of decisions 20 and 26 run them.
 
   The parts not built, each with the check it would land with:
-  - **22l: the benchmark.** `bench-regex` against RE2, Rust's regex and Go's regexp. It waits
-    on the owner's ruling on its baselines (decision 86). No claim below is made before it.
   - **22c: literals found before the automaton runs.** A pattern that is one literal goes to a
     substring search; a search in its start state skips to the next octet that can start a
     match; a small set of literals goes to a vector search of their first octets, as Hyperscan's
@@ -7957,6 +7955,14 @@ to 12 are reordered and nothing else changes.
       two tallies that leaves out the allowed cases or the entries' counts, each CAUGHT by a
       named test; and a pattern that keeps the searchers of the pattern before it, CAUGHT by a
       halt of the whole check.
+
+  **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
+  `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
+  zig-regex and mvzr: every match of a pattern in a MiB of prose or markup, a pattern that
+  validates short texts, the same with capture groups, and a pattern compiled and made ready.
+  **Check:** each candidate's answer equals Go's regexp's before it is timed, and stdx's must;
+  the program's own parts have tests; the hosted runners' reports are committed under
+  `bench/results/`, and no number is claimed before them (decision 20).
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a

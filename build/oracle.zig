@@ -123,14 +123,13 @@ pub fn add(b: *std.Build, options: Options) void {
     const profile_step = b.step("bench-profile", "Count cycles, instructions and branch misses per gzip, Zstandard and brotli decoder, per gzip and Zstandard encoder, and per json token (-Doracles)");
     const bench_json_step = b.step("bench-json", "Time the json module's vector paths against its scalar ones (-Doracles)");
     const bench_base64_step = b.step("bench-base64", "Time base 64 encoding and decoding against std.base64 (-Doracles)");
-    const regex_step = b.step("differential-regex", "Require the regex module to agree with Go's regexp and RE2's test logs (-Doracles)");
-    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, brotli_encode_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step, bench_base64_step, regex_step };
+    const regex_steps = oracle_regex.steps(b);
+    const steps = .{ selftest_step, corpus_step, test_step, bench_step, checksum_step, bench_checksum_step, deflate_step, encode_step, zstd_step, zstd_encode_step, brotli_step, brotli_encode_step, bench_zstd_step, bench_brotli_step, profile_step, bench_json_step, bench_base64_step, regex_steps.check, regex_steps.bench };
     if (!options.enabled) {
         const fail = b.addFail(disabled_message);
         inline for (steps) |step| step.dependOn(&fail.step);
         return;
     }
-    oracle_regex.add(b, regex_step);
     const oracle = add_oracle_module(b) orelse return;
     // The timing loop runs between every repetition, so it is built as the benchmarks are.
     const timing = b.createModule(.{
@@ -156,6 +155,7 @@ pub fn add(b: *std.Build, options: Options) void {
         .cut = host_module(b, "tools/corpus/cut.zig"),
         .shuffle = shuffle_module,
     }) orelse return;
+    oracle_regex.add(b, regex_steps, .{ .graph = graph, .baseline = baseline, .timing = timing, .corpus = corpus });
 
     const selftest_module = host_module(b, "tools/oracle/selftest.zig");
     selftest_module.addImport("oracle", oracle);

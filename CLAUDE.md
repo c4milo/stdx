@@ -225,7 +225,9 @@ stdx's appendix to it.
     (decision 27); simdutf, the baseline of the `json` module's UTF-8 check (decision 38); and
     Rust's `base64` crate 0.23.1 and Go's encoding/base64, bench-base64's baselines (decision 68),
     and serde_json 1.0.154 and Go's encoding/json/jsontext, bench-json's (decision 69), built by
-    cargo and go; and Go's regexp, differential-regex's oracle (decision 86), built by go;
+    cargo and go; and Go's regexp, differential-regex's oracle (decision 86), built by go; and
+    bench-regex's baselines (decision 86): Rust's `regex` crate 1.13.2 and Go's regexp, built by
+    cargo and go, and two libraries in Zig, zig-regex and mvzr, as lazy packages;
   - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
     fetches and checks against a pinned SHA-256 because Zig fetches archives only; and RE2's two
@@ -426,6 +428,14 @@ Change this section when a step adds or renames a command.
   Rust types, as serde's derive does (decision 81). A macOS host builds it without simdjson and simdutf, as Zig 0.16.0 builds no
   libc++ there, and a host without cargo or go builds it without serde_json or Go's jsontext. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.
+- regex benchmark: `zig build bench-regex -Doracles` times the `regex` module, by a searcher with
+  its cache and by the matcher alone, beside Rust's `regex` crate, Go's regexp, zig-regex and mvzr,
+  every candidate interleaved in one run. Its four tables are every match of a pattern in the
+  first MiB of a corpus file, a pattern that validates 1,024 short texts, the same with capture
+  groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's
+  before it is timed: a candidate that refuses a pattern or answers otherwise is named so and not
+  timed, and stdx must give Go's answer. It needs cargo and go on the path. The `bench` workflow
+  offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
   fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins

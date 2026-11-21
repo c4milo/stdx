@@ -102,6 +102,12 @@ baselines() {
       echo "| Go encoding/base64 | $(go_release bench/base64/go) |"
       echo "| std.base64 | ${zig} |"
       ;;
+    bench-regex)
+      echo "| Rust regex | $(crate bench/regex/rust regex) |"
+      echo "| Go regexp | $(go_release bench/regex/go) |"
+      echo "| zig-regex | $(pinned zig_regex) |"
+      echo "| mvzr | $(pinned mvzr) |"
+      ;;
   esac
 }
 
