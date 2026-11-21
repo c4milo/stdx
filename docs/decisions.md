@@ -5499,7 +5499,10 @@ last part lists what still waits on a ruling.
     - Several jobs on one CPU model draw their median, with a line from the lowest job to the
       highest.
     - The regex chart, added on 2026-11-21 with entry 86's benchmark, is drawn by
-      `tools/charts_wide.py`. Its libraries differ by a factor of thousands, and a review of its
+      `tools/charts_wide.py`. It stays out of the README until the findings of two reviews of
+      its method, by a software engineer and by a data scientist, are applied. Among them: a
+      `\|` in a row's label shifts every column, a missing CPU model draws as `unknown`, and
+      the x86-64 chart draws one of four CPU models where the model decides some rows. Its libraries differ by a factor of thousands, and a review of its
       first draft asked for the rules below. **owner** They differ from the rules above, for
       this chart alone, and wait on a ruling.
       - The panels share one logarithmic axis, as above, but its limits are the chart's lowest
@@ -5719,12 +5722,12 @@ last part lists what still waits on a ruling.
       from 0.12 to 85: Go is ahead where a pattern starts with one literal.
     - A search that starts with a class: 0.95 to 2.62 of Rust's crate, and 1.01 to 2.01.
     - A pattern that validates a short text: 0.88 to 1.07, and 0.93 to 1.04.
-    - The EPYC 7763 is the best of four x86-64 models for stdx. Three more jobs drew a Xeon
-      6973P-C, a Xeon 6975P-C and an EPYC 9V74, and the chart draws one model (entry 85). On
-      those three a short text stands at 0.76 to 1.00 of Rust's crate, and the three class
-      rows that the EPYC 7763 puts at 1.01 to 1.03 stand at 0.92 to 1.07. The same binary ran
-      on each. So the chart's band is never under 5%, and the README says which model it
-      draws.
+    - The CPU model decides some rows. Three more jobs drew a Xeon 6973P-C, a Xeon 6975P-C and
+      an EPYC 9V74, and the chart draws one model (entry 85). The EPYC 7763 is the best of the
+      four for stdx on the six rows of short texts, and the worst on 21 of all 47 rows. On the
+      other three a short text stands at 0.76 to 1.00 of Rust's crate, and three class rows
+      that the EPYC 7763 puts at 1.01 to 1.03 stand at 0.92 to 1.07. The same binary ran on
+      each. A review found this, and the README states the range over every model.
     - The capture groups of a short text: 0.22, and 0.19. stdx runs the matcher for them, and
       part 22d holds what would replace it.
     - `[a-q][^u-z]{13}x`, the worst row: 1/2630 of Rust's crate, and 1/2111. The pattern's DFA
@@ -5865,9 +5868,10 @@ last part lists what still waits on a ruling.
     - **owner** Non-negotiable 3 asks that a whole-buffer helper be built on the streaming call.
       `Searcher` is not: a reverse scan needs the whole text. It is held to the streaming call by
       checks instead, as a fast path is held to its checked path (entry 16).
-    - **owner** The source of RE2, Go's regexp and Rust's regex read for their methods, as entry
-      67 allows for the baselines it names. Nothing here was read from them but their documents,
-      Cox's articles and Gallant's (2023) account of Rust's engine.
+    - The owner ruled on 2026-11-21 that Rust's regex crate may be read for its methods, as
+      entry 67 allows for a baseline: regex 1.13.2, regex-automata 0.4.19, regex-syntax 0.8.12,
+      memchr 2.8.3 and aho-corasick 1.1.5. No code, table or comment of theirs goes into stdx.
+      What a method does is written again in stdx's words, with its source named.
     - **owner** Unicode's tables, generated from a pinned copy of the Unicode Character Database,
       for `\p{...}` and for `(?i)` past ASCII. RFC 9485 §3 requires `\p{...}` of an I-Regexp
       implementation, so the module is not yet one.
