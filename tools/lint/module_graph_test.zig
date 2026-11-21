@@ -35,6 +35,8 @@ const passing_build: [:0]const u8 =
     \\    json.addImport("codec", codec);
     \\    json.addImport("base64", base64);
     \\    const platform = library(b, "platform", target, optimize);
+    \\    const regex = library(b, "regex", target, optimize);
+    \\    regex.addImport("codec", codec);
     \\}
 ;
 
@@ -175,8 +177,8 @@ test "module-graph reads the created modules and the edges of every receiver" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
-    try testing.expectEqual(10, calls.modules.len);
-    try testing.expectEqual(13, calls.edges.len);
+    try testing.expectEqual(11, calls.modules.len);
+    try testing.expectEqual(14, calls.edges.len);
     try testing.expectEqualStrings("deflate", calls.edges[0].module);
     try testing.expectEqualStrings("codec", calls.edges[0].name);
     try testing.expectEqualStrings("brotli", calls.edges[9].module);
@@ -219,11 +221,12 @@ test "the expected graph is design §3's table" {
         .{ "json", "codec" },
         .{ "json", "base64" },
         .{ "base64", "codec" },
+        .{ "regex", "codec" },
     };
     var edge_count: usize = 0;
     for (module_graph.expected_graph) |module| edge_count += module.imports.len;
     try testing.expectEqual(table.len, edge_count);
-    try testing.expectEqual(10, module_graph.expected_graph.len);
+    try testing.expectEqual(11, module_graph.expected_graph.len);
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
 }
 

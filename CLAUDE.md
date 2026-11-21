@@ -4,7 +4,8 @@ stdx is a library of compression codecs, written from the RFCs: DEFLATE with its
 containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it holds a JSON
 encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and `platform`, which
 a program calls once when it starts to learn what its CPU offers (decision 40). It holds RFC
-4648's base 64 too, in its own module (decision 68). Home:
+4648's base 64 too, in its own module (decision 68), and `regex`, regular expressions matched in
+time linear in the text (decision 86). Home:
 github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's
 brotli and Wuffs on the workloads it measures, with no heap and no I/O.
 
@@ -135,9 +136,9 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the
   `!` optional. The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
   `ci`, `chore`. A scope holds lowercase letters and hyphens. Scopes track the module graph:
-  `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, `platform`, and
-  `bench` and `oracle` for the benchmarks and the differential checks. A scope outside that set is
-  a warning.
+  `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, `platform`, `regex`,
+  and `bench` and `oracle` for the benchmarks and the differential checks. A scope outside that
+  set is a warning.
 - The description is imperative, starts with a lowercase letter, and ends without a period. The
   subject line stays at or under 72 columns.
 - Exactly one blank line separates the body from the subject. A body line stays at or under 100

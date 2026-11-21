@@ -7,7 +7,9 @@ build plan. [decisions.md](decisions.md) holds why each choice beat its alternat
 
 The owner ruled on decisions 11 to 20 on 2026-09-25, so this document states the design as
 ruled. Where it depends on a decision, it names the decision. Decision 27, ruled on 2026-09-28,
-adds the `json` module, and decision 40, ruled on 2026-09-29, the `platform` module.
+adds the `json` module, and decision 40, ruled on 2026-09-29, the `platform` module. Decision 86,
+proposed on 2026-11-21 at the owner's request, adds the `regex` module; what it leaves to the owner
+is listed there.
 
 ## 1. Thesis and scope
 
@@ -23,7 +25,9 @@ three.
 
 Beside the codecs, stdx holds a JSON encoder and decoder, RFC 8259 and RFC 7464's text sequences,
 under the same rules (decision 27). It also holds `platform`, which a program calls once when it
-starts to learn what its CPU offers, and which no other module imports (decision 40).
+starts to learn what its CPU offers, and which no other module imports (decision 40). It holds
+`regex` too: regular expressions matched in time linear in the text, in memory the caller gives,
+with the syntax and the limits of decision 86.
 
 Out of scope are the items decision 13 lists: RFC 9841's extensions, dictionaries of every kind,
 threads, and formats that are not the four HTTP codings, but for JSON (decision 27).
@@ -48,6 +52,10 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
   array, a number, a string or a literal name, nested to any depth. It must be UTF-8 (§8.1, RFC 3629),
   and it does not mark its own end. A text sequence puts a record separator before each text and a
   line feed after it (RFC 7464 §2.2).
+- **Regular expressions (RFC 9485, RFC 3629).** A pattern is alternatives of pieces, each an atom
+  with an optional quantifier (RFC 9485 §3). An atom is a character, a class or a group. Decision
+  86 adds RE2's anchors, capture groups, lazy quantifiers and flags. A pattern and a text are
+  UTF-8, and a program takes octets.
 
 ## 3. Module graph
 
@@ -68,10 +76,11 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64` | 8259, 7464, 3629 |
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40) | nothing | none |
+| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec` | 9485, 3629 |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
 and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision 73).
-No module reaches `platform`.
+No module reaches `platform`, and none reaches `regex`.
 No library module receives a package: pepegrillo, the oracles and the corpora are requested by
 `build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
 
@@ -149,6 +158,10 @@ where one can pin it. The ones that exist today are fixed by the RFCs:
 | `brotli.constants.window_bits_max` | 24 | RFC 7932 §9.1 |
 | `brotli.constants.window_len_max` | 2^24 - 16 | RFC 7932 §9.1 |
 | `json.constants.depth_max` | 1,024 | RFC 8259 §9 lets a parser limit nesting (decision 27) |
+| `regex.constants.repeat_max` | 1,000 | RFC 9485 §8 lets an implementation limit a range quantifier's count and its nesting (decision 86) |
+| `regex.constants.depth_max` | 96 | RFC 9485 §8; the parser's frames, in its own stack frame (decision 86) |
+| `regex.constants.class_ranges_max` | 128 | RFC 9485 §8; the ranges one class holds (decision 86) |
+| `regex.constants.groups_max` | 4,096 | Two slots a group in every thread of a matcher (decision 86) |
 
 Limits that land with their steps: each fast path's `input_slack` and
 `output_slack` (decision 16), the table widths of decision 14, and each encoder level's window and
@@ -7798,6 +7811,98 @@ to 12 are reordered and nothing else changes.
     - `gzip` and `zstd` that stop after one member or frame; `deflate`, `zlib` and `brotli` that
       decode octets after their stream.
 
+- **Step 22: the `regex` module (decision 86).** Regular expressions matched in time linear in
+  the text. The owner asked for it on 2026-11-21. The step has parts, and each part lands with its
+  own check. Part 22a is built: `compile` and `compile_comptime`, `Matcher`, and `Searcher` with
+  its two lazy DFAs and `Matches`.
+  **Check, part 22a:**
+  - Each form of the syntax has a table of patterns, texts and the groups each must give, and
+    each of the parser's 23 refusals has its patterns, with the class `refusal` gives it.
+  - Each table's case gives the same groups whole and under seeded splits of the text
+    (invariant 5).
+  - `Searcher` gives what `Matcher` gives from every offset of every text, with a cache for
+    thousands of states, with the least cache and with none, for the tables and for patterns a
+    seed generates (invariant 19).
+  - A cache that fills clears and goes on; one that thrashes gives up, and the search still
+    answers; a searcher stops trying its DFA after `dfa_give_ups_max` searches.
+  - A test build counts the matcher's work on the patterns that make a backtracking matcher
+    exponential, and bounds it for each octet (invariant 18).
+  - The fuzzer gives any octets as a pattern and as a text, under the comparisons above.
+  - Mutations.
+
+  **Check passed, part 22a, 2026-11-21.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container,
+  pepegrillo `10841b3`.
+  - `zig build test` exits 0. `zig build test-regex` runs 126 tests.
+  - The tables: `matcher_test.zig` holds 12 tables of the syntax's forms, 143 cases, each run
+    whole and under 24 split seeds through `codec.testing.split.drive`, which moves the matcher
+    between calls (invariant 12). `syntax_test.zig` holds the refusals, and `syntax_class.zig`,
+    `syntax_escape.zig` and `utf8.zig` the refusals of their own parts.
+  - `Searcher` against `Matcher`: 19 cases under three cache sizes from every offset, twice, so
+    the second pass reads the first one's table; then 600 generated patterns, each over 6
+    generated texts from every offset, half with the least cache; then 15 patterns over each of
+    the 3,906 texts of at most 5 letters from an alphabet of 5, with the least cache.
+  - The cache: `(a|b)*a(a|b){8}c` over 600 letters under the least cache clears more than once
+    and gives up, with the matcher's answer; with room for its states it clears nothing. Forty
+    words with forty first letters, each started 3 times with 60 octets between, clear the least
+    cache and never give up.
+  - The matcher's work: nine patterns, among them Cox's `(a?){24}a{24}` and the shapes of
+    Cloudflare's and Stack Overflow's patterns, over texts of 64 to 512 octets. The count stays
+    under four tries an instruction for each octet, and at most doubles when the text doubles.
+  - `Splitter` gives exactly its range for all 630 ordered pairs of 35 scalar values where an
+    encoding changes, and for 4,096 seeded ranges; its stack peaks inside
+    `utf8_split_stack_len`.
+  - Outside the tree, 989,124 generated cases gave Go 1.24.7's regexp's groups in all but 3,
+    which are one fault of Go's parser, and RE2's own two test logs gave RE2's groups in all but
+    337 of 10,212,464 cases, which are one difference stdx chose (decision 86). Neither run is a
+    check of this step until the owner rules on the oracle and the corpus.
+  - 67 mutations, each applied, run against `zig build test-regex`, and reverted: 9 of the
+    builder and the quantifiers, 6 of UTF-8, 3 of the scalar sets, 5 of the classes, 7 of the
+    parser, 2 of the escapes, 2 of the atoms, 9 of the matcher, 10 of the DFA, 4 of its cache, 4
+    of the searcher, 3 of the octet classes and 3 of the program.
+    - The first run counted 67 CAUGHT. Seven of them did not build, which the run had counted as
+      a failed test: pepegrillo's method names that trap. Written again so that each builds, 4
+      were CAUGHT and 3 NOT CAUGHT.
+    - NOT CAUGHT: `Matches` stepping one octet past an empty match in place of one scalar value.
+      The step was dead code: no match starts inside a scalar value. The step is one octet now.
+    - NOT CAUGHT: an entry written into a table whose cache cleared while the entry's state was
+      built. `searcher_test.zig` now fills the cache to the octet before that build, for each
+      length of a text's first part, and the mutation is CAUGHT.
+    - NOT CAUGHT: two DFA states that differ in their flags alone taken as one. They met only
+      where their hashes met. `dfa_cache.zig` now finds two such records, and the mutation is
+      CAUGHT.
+    - Three more were added with the tests of the matcher's work, and are CAUGHT. A run of all
+      70 against this tree, which counts a mutation CAUGHT only where a named test fails or the
+      test binary halts, is this step's last record.
+  - Not run here: the fuzzer's long pass, and the tests on aarch64 and on macOS. The hosted
+    runners of decisions 20 and 26 run them.
+
+  The parts not built, each with the check it would land with:
+  - **22b: the oracle, RE2's tests and the benchmark.** `zig build differential-regex -Doracles`
+    against Go's regexp and over RE2's two test logs, pinned by SHA-256, and `bench-regex`
+    against RE2, Rust's regex and Go's regexp. It waits on the owner's ruling (decision 86). No
+    claim below is made before it.
+  - **22c: literals found before the automaton runs.** A pattern that is one literal goes to a
+    substring search; a search in its start state skips to the next octet that can start a
+    match; a small set of literals goes to a vector search of their first octets, as Hyperscan's
+    and Rust's engines do. Each is a claim with an A/B, and each keeps a guard on the octets it
+    skips, so no text makes it quadratic.
+  - **22d: the capture groups without the matcher's lists.** A one-pass automaton where a pattern
+    is one-pass, and a backtracking matcher under a table of visited states for a short text, as
+    RE2 has both. Each must give the matcher's groups.
+  - **22e: Unicode's tables.** `\p{...}`, and `(?i)` past ASCII, from tables a tool generates
+    from a pinned copy of the Unicode Character Database, as `zig build brotli-tables` generates
+    brotli's. With them, RFC 9485 §3.1's checking implementation.
+  - **22f: a range quantifier with no copies.** Counting-set automata (Turoňová and others,
+    OOPSLA 2020) keep a count in a register where the operand is one class of characters. An
+    experiment: it lands only if its states stay bounded where copies do not.
+  - **22g: named groups, and RE2's forms that RFC 9485 §3 refuses**, each with the owner's ruling.
+  - **22h: proofs in Lean, as decision 28's.** A model of `utf8.zig`'s `Splitter`, proved to give
+    exactly the sequences of RFC 3629 §4 that `Stdx.Json.Utf8` already transcribes, with vectors
+    the Zig tests replay. Then a model of the matcher: its work at one position is at most the
+    program's instructions, and each match it reports is a path of the program. That the
+    matcher's match is the one a backtracking matcher finds first is a larger proof, which
+    Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
@@ -7819,6 +7924,10 @@ Decisions 11 to 20 are ruled. Decisions 27 and 28 leave one question each to the
 - A proof in Lean that the vector UTF-8 check of claim J5 agrees with the scalar one on every
   window of four octets. Decision 28 proves the scalar machines against their RFCs, and leaves
   this one.
+
+Decision 86 leaves five to the owner, under "What waits on the owner": an oracle and the baselines
+for `regex`, the searcher's place beside non-negotiable 3, the baselines' source read for methods,
+Unicode's tables, and four limits no source fixes.
 
 ## 11. Risks
 

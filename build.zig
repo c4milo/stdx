@@ -112,6 +112,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "json", .module = graph.json },
         .{ .name = "base64", .module = graph.base64 },
         .{ .name = "platform", .module = graph.platform },
+        .{ .name = "regex", .module = graph.regex },
     };
     for (unit_test_modules) |entry| {
         // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast

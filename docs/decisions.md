@@ -21,7 +21,8 @@ x86-64, entry 40 out of [issue 15](https://github.com/c4milo/stdx/issues/15)'s r
 probe of the CPU, entry 41 out of the owner's ruling once the benchmarks carried a `memset` of
 their own, entry 42 out of design §8 step 9's look at E.coli's parse beside libdeflate's, entry
 44 out of the blocks that look counted, and entry 45 out of a probe of how the benchmarks time a
-small file.
+small file. Entry 86 came out of the owner's request for a regular expression engine, and its
+last part lists what still waits on a ruling.
 
 ## Scope and shape
 
@@ -5497,3 +5498,227 @@ small file.
     - A Zig program, which the owner judged too large for the task.
     - One axis for each panel, which makes two panels of one chart look alike at different scales.
     - The fastest checksum path, which a caller may never run.
+
+86. **A `regex` module: regular expressions matched in time linear in the text, in memory the
+    caller gives.** The owner asked for it on 2026-11-21: a safe and efficient engine in the manner
+    of Google's RE2, built on what the papers say makes one fast and safe. Proposed the same day,
+    with the module's first step built (design §8 step 22). The parts under "What waits on the
+    owner" are not settled. It amends entries 1, 6 and 13, as entry 27 did for `json`.
+
+    **Why an engine of this kind.** A backtracking matcher tries one alternative at a time, and
+    some patterns make it try a number of paths exponential in the text.
+    - Davis, Coghlan, Servant and Lee (ESEC/FSE 2018) found a pattern with super-linear matches in
+      13,018 of 375,652 npm modules, 3%, and in 705 of 72,750 PyPI modules. About three in four of
+      those patterns were quadratic and not exponential, so a matcher must be linear, not only
+      sub-exponential.
+    - Staicu and Pradel (USENIX Security 2018) reached 339 of 2,846 live web sites through such
+      patterns, with inputs the size of an HTTP header.
+    - Cloudflare lost 27 minutes of service on 2 July 2019 to one pattern on PCRE, and Stack
+      Overflow 34 minutes on 20 July 2016 to one pattern over 20,000 spaces. Both post-mortems
+      name the backtracking.
+    - Thompson (CACM 1968) holds every alternative at once and takes each character one time: a
+      program of m instructions costs at most m steps a character. Cox's three articles (2007,
+      2009, 2010) describe RE2, which is built on that bound and refuses the syntax that breaks it.
+
+    **Where.** A module of its own, `regex`, exported by name, which imports `codec` alone: the
+    checked reader a pattern is read through, and the classes of a refusal (design §3). No module
+    imports it. Every non-negotiable holds: no heap, no I/O, no clock, and a call that takes its
+    text in pieces.
+
+    **The syntax.** RFC 9485 §3's grammar, the IETF's interoperable regular expression, with these
+    forms of RE2's syntax beside it. Each refusal cites the section that does not hold the pattern.
+    - Added: the anchors `^`, `$`, `\A` and `\z`; `\b` and `\B`; capture groups and `(?:...)`; a
+      `?` after a quantifier, which makes it lazy; the flags `i`, `m`, `s` and `U`, as `(?i)` and
+      `(?i:...)`, with `-` to clear; `\d`, `\s`, `\w` and their negations, ASCII alone as RE2's
+      are; `\xHH`, `\x{H...}`, `\a`, `\f`, `\v`, and a `\` before any ASCII punctuation.
+    - Refused as unsupported: a backreference and a lookaround, which no automaton of a fixed
+      size matches; `\p{...}`, a named group, and `(?i)` over a scalar value past U+007F, each a
+      later step.
+    - Refused as RFC 9485 §3 refuses them, where RE2 takes them: a `]` or a `}` with no `\`
+      before it, a `[` inside a class, a second quantifier, and a `-` inside a class that is
+      neither first, last, nor between two characters. Each can be taken later with no change to
+      a pattern that compiles today.
+    - A `.` is any scalar value but a line feed, as in RE2. RFC 9485 §5.3 maps its own `.` to
+      `[^\n\r]`, so a caller that holds an I-Regexp writes that class.
+    - Forms of RE2's that RE2's own tests hold and stdx refuses today: `\C`, one octet of any
+      value, which Go's regexp refuses too; an octal escape; a class such as `[[:alpha:]]`; a `]`
+      first in a class; and `[a-b-c]`.
+
+    **What a match is.** The match a backtracking matcher finds first, RE2's leftmost-first: it
+    starts at the first octet where any match starts, and among the matches there it is the one
+    the pattern's order prefers. A text is octets. A pattern's scalar values match their UTF-8
+    (RFC 3629), and an octet that is not UTF-8 matches nothing. No match starts before a
+    continuation octet, so no match cuts a scalar value in two. RE2 itself reports an empty match
+    between the octets of one scalar value; Go's regexp and Rust's regex do not, and stdx follows
+    them.
+
+    **The program.** `compile` reads a pattern into instructions in storage the caller gives.
+    - It is Thompson's automaton in Pike's instruction form: a range of octets, a split with a
+      preferred branch, a save of a capture slot, an assertion, and `match`.
+    - A scalar value past U+007F is a sequence of octet ranges, as RE2 compiles it, so one
+      program runs on octets and no matcher decodes UTF-8.
+    - The parser builds no tree and never recurses. It keeps one frame for each open group, and
+      a range quantifier copies its operand's block.
+    - A loop over an operand that matches the empty string is built as `(x+)?`, the rewrite RE2
+      and Go's regexp make, so an empty pass ends the loop as a backtracking matcher ends it.
+    - A program holds a reverse half too, which a `Searcher` reads to find where a match starts.
+    - `compile_comptime` compiles a pattern the build knows: the storage is the program's own
+      length, and a pattern `compile` refuses is a compile error.
+
+    **The matcher.** `Matcher` is Pike's simulation: the threads that can still match, in the
+    order a backtracking matcher would try them, each with its capture slots. It takes the text
+    in pieces and keeps offsets from the text's start, so it serves a stream of any length in
+    memory that depends on the program alone. It reports a match at the octet that decides it. It
+    is the module's reference, as a codec's checked path is (entry 16).
+
+    **The searcher.** `Searcher` takes a text that is all in one slice, and answers as the matcher
+    answers, by the order of work Cox (2010) describes for RE2.
+    - A lazy DFA over the forward program reads the text once and gives the match's end. Each
+      state is the matcher's list at one position, built the first time a search reaches it.
+    - A lazy DFA over the reverse program reads back from that end and gives the match's start.
+    - The matcher then runs from that start, for a caller that asks for the capture groups.
+    - Each DFA keeps its states in a cache of a fixed size. A full cache forgets every state and
+      goes on. A cache that fills again within 10 octets a state gives up, and the search runs on
+      the matcher: RE2's rule, which Rust's regex keeps too. No search fails for lack of memory.
+    - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
+      DFA's table has one entry a class.
+
+    **What bounds a search.**
+    - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
+      table read an octet for a DFA whose states fit its cache. A thread copies its slots as it
+      moves, so a search that keeps k slots costs O(m·k·n) over n octets. Barrière and
+      Pit-Claudel (PLDI 2024) show the same factor in RE2's and Rust's simulations. A search for
+      the match alone keeps 2 slots, and the capture groups cost only over the match.
+    - The m is the pattern after its range quantifiers are copied. Turoňová and others (USENIX
+      Security 2022) made RE2 take 228 s and Rust's regex 96.7 s over 50 MB with
+      `Oid=[^\x0D\x0A]{1000}`: a count of 1,000 is 1,000 instructions, and a DFA of such a
+      pattern has more states than any cache. RFC 9485 §8 lets an implementation limit a count
+      and the nesting of counts. `repeat_max` holds each count and each product of nested counts
+      at 1,000, RE2's and Go's limit, and the caller's storage bounds the program.
+    - Memory: the storage, the matcher's memory and the cache are the caller's, each of a size
+      the caller chose. Nothing grows.
+    - The parser's stack: `depth_max` frames, in its own stack frame. Go's regexp took a stack
+      overflow from two megabytes of nested parentheses (CVE-2022-24921).
+    - Every match in turn can cost the square of the text. A pattern such as `a|a.*z` over a text
+      of `a` alone makes each search read to the text's end. Rust's regex documents the same
+      bound, and Go's issue 11181 was closed as unavoidable under these semantics.
+
+    **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
+    96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
+    `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
+    `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words.
+
+    **The checks.** Design §8 step 22 holds what each printed, and the mutations.
+    - Each form of the syntax has a table of patterns, texts and the groups they must give, and
+      each refusal has its patterns.
+    - Every answer must be the same when the text arrives in the pieces a seed draws.
+    - `Searcher` must give what `Matcher` gives from every offset of every text, with room for
+      thousands of states, with the least cache, and with none, for the tables and for patterns
+      a seed generates. Bhuiyan and others (2024) warn that an engine with more than one
+      implementation needs its corner cases studied, and this comparison is that study.
+    - The fuzzer gives any octets as a pattern and as a text, under the same comparisons.
+
+    **No speed is claimed.** No benchmark exists yet, so no number is published (entry 10). Step
+    22's later parts name what would be measured, and against which engines. The code follows
+    pepegrillo's performance method as its `e94a349` holds it, three commits of documents past
+    the commit stdx pins: the matcher is the reference that steps once an octet, the searcher
+    takes the common shapes, and the two are held together on every short text over five letters
+    (its step 3). No scratch array is filled for each literal, and the DFA's loop reads its table
+    through locals (its notes on Zig 0.16). The matcher's flags are still `bool`, which Zig 0.16
+    stores narrower than an octet; the first profile decides them.
+
+    **The alternatives refused.**
+    - A backtracking matcher that remembers the states it visited (Davis, Servant and Lee, IEEE
+      S&P 2021): it is linear in time, and takes memory that grows with the text, so it cannot
+      take a stream. RE2 keeps one for texts whose table fits 32 kB. It may come as a claim for
+      short texts.
+    - Derivatives, as .NET's NonBacktracking engine (Moseley and others, PLDI 2023) and RE#
+      (Varatalu, Veanes and Ernits, POPL 2025) use them. RE# reports the best times of the
+      engines it compares. A derivative is a term built and interned on demand, which needs an
+      arena that grows; .NET falls back to a simulation past 10,000 states, and RE# has no
+      fallback and no capture groups. A later experiment, with a fixed arena.
+    - Tagged DFAs (Laurikari, SPIRE 2000; Trofimovich, 2017), which carry capture offsets in
+      registers. Trofimovich reports that counted repetition blows them up, and they are built
+      before the search and not during it.
+    - One DFA built whole: its states can be exponential in the pattern, which no fixed memory
+      holds.
+    - A bit-parallel simulation (Baeza-Yates and Gonnet, CACM 1992; Navarro and Raffinot, 2004),
+      which Hyperscan (Wang and others, NSDI 2019) runs for automata of at most 512 states. It
+      serves small programs only. A later claim.
+    - POSIX's leftmost-longest groups: Borsotti and Trofimovich (2021) give O(n·m²·t) for them,
+      and report that RE2's method for them is not correct.
+    - A parser that builds a tree, or recurses: it needs memory that grows with the pattern, and
+      a stack the pattern chooses.
+
+    **What waits on the owner.**
+    - **owner** An oracle and the baselines, under entry 8. Go's regexp holds RE2's syntax and
+      semantics, and Go is already a ruled toolchain (entries 68 and 69). On 2026-11-21 a run
+      outside the tree gave 1,100,000 generated patterns and texts to Go 1.24.7's regexp and to
+      stdx, through `Matcher` and through `Searcher`. stdx refused 110,876 of them for `(?i)`
+      past ASCII. Of the other 989,124, 989,121 gave the same groups. The last 3 are one fault of
+      Go's parser, which reads `A(?i)b|a` as `A(?i:B|(?:))` and then finds no match in `a`. A
+      `zig build differential-regex` would keep that run in the tree. `bench-regex` would time
+      RE2, Rust's regex and Go's regexp beside stdx.
+    - **owner** RE2's own tests as a pinned corpus. RE2's `make log` writes what RE2 answers on
+      its search tests and its exhaustive tests, and Go's tree keeps both logs
+      (`regexp/testdata/re2-search.txt` and `re2-exhaustive.txt.bz2`, at Go 1.24.7 here). The
+      same run outside the tree gave every leftmost-first case of both to `Searcher`.
+      - The search log: 3,776 cases. 3,312 gave RE2's groups, none differed, and stdx refused the
+        patterns of 464.
+      - The exhaustive log: 11,433,768 cases. 10,208,815 gave RE2's groups. 337 differed, each
+        the pattern `\B` over a text with a scalar value past U+007F, where RE2 matches between
+        that value's octets. stdx refused the patterns of 1,224,616: `\C`, a `]` first in a
+        class, `[a-b-c]` and `[[:alpha:]]`.
+      - Each line also holds RE2's leftmost-longest answers, which stdx has no call for.
+    - **owner** RFC 3629's UTF-8 is written twice. `src/json/utf8.zig` holds the machine decision
+      28 proved, with `encoded_len` and `encode`. `src/regex/utf8.zig` reads a pattern's scalar
+      values and writes them with code of its own, because `regex` imports `codec` alone. One
+      copy needs a ruling on where it lives: in `codec`, in a module of its own that `json` and
+      `regex` import, or behind an edge from `regex` to `json`.
+    - **owner** Non-negotiable 3 asks that a whole-buffer helper be built on the streaming call.
+      `Searcher` is not: a reverse scan needs the whole text. It is held to the streaming call by
+      checks instead, as a fast path is held to its checked path (entry 16).
+    - **owner** The source of RE2, Go's regexp and Rust's regex read for their methods, as entry
+      67 allows for the baselines it names. Nothing here was read from them but their documents,
+      Cox's articles and Gallant's (2023) account of Rust's engine.
+    - **owner** Unicode's tables, generated from a pinned copy of the Unicode Character Database,
+      for `\p{...}` and for `(?i)` past ASCII. RFC 9485 §3 requires `\p{...}` of an I-Regexp
+      implementation, so the module is not yet one.
+    - **owner** The values of `depth_max`, `class_ranges_max`, `groups_max` and
+      `cache_words_default`, which no source fixes.
+
+    **The sources.** Each was read for this entry on 2026-11-21, the papers at the address shown.
+    - K. Thompson, "Regular Expression Search Algorithm", CACM 11(6), 1968.
+    - R. Cox, "Regular Expression Matching Can Be Simple And Fast" (2007), "Regular Expression
+      Matching: the Virtual Machine Approach" (2009) and "Regular Expression Matching in the
+      Wild" (2010), `https://swtch.com/~rsc/regexp/`.
+    - J. Davis, C. Coghlan, F. Servant, D. Lee, "The Impact of Regular Expression Denial of
+      Service (ReDoS) in Practice", ESEC/FSE 2018, DOI 10.1145/3236024.3236027.
+    - C.-A. Staicu, M. Pradel, "Freezing the Web", USENIX Security 2018.
+    - J. Davis, F. Servant, D. Lee, "Using Selective Memoization to Defeat Regular Expression
+      Denial of Service (ReDoS)", IEEE S&P 2021.
+    - L. Turoňová, L. Holík, I. Homoliak, O. Lengál, M. Veanes, T. Vojnar, "Counting in Regexes
+      Considered Harmful", USENIX Security 2022.
+    - A. Barrière, C. Pit-Claudel, "Linear Matching of JavaScript Regular Expressions", PLDI
+      2024, `https://arxiv.org/abs/2311.17620`.
+    - D. Moseley and others, "Derivative Based Nonbacktracking Real-World Regex Matching with
+      Backtracking Semantics", PLDI 2023.
+    - I. Varatalu, M. Veanes, J.-P. Ernits, "RE#: High Performance Derivative-Based Regex
+      Matching with Intersection, Complement, and Restricted Lookarounds", POPL 2025,
+      `https://arxiv.org/abs/2407.20479`.
+    - V. Laurikari, "NFAs with Tagged Transitions", SPIRE 2000; U. Trofimovich, "Tagged
+      Deterministic Finite Automata with Lookahead", 2017, `https://arxiv.org/abs/1907.08837`;
+      A. Borsotti, U. Trofimovich, "Efficient POSIX Submatch Extraction on NFA", 2021.
+    - R. Baeza-Yates, G. Gonnet, "A New Approach to Text Searching", CACM 35(10), 1992; G.
+      Navarro, M. Raffinot, "New Techniques for Regular Expression Searching", Algorithmica
+      41(2), 2004.
+    - X. Wang and others, "Hyperscan: A Fast Multi-pattern Regex Matcher for Modern CPUs", NSDI
+      2019.
+    - M. Bhuiyan and others, "SoK: A Literature and Engineering Review of Regular Expression
+      Denial of Service (ReDoS)", `https://arxiv.org/abs/2406.11618`.
+    - A. Gallant, "Regex engine internals as a library", 2023,
+      `https://burntsushi.net/regex-internals/`.
+    - Cloudflare, "Details of the Cloudflare outage on July 2, 2019"; Stack Exchange, "Outage
+      Postmortem - July 20, 2016".
+    - RE2's README and `re2.h`, Go's `regexp/syntax` documents and its issues 51112 and 11181,
+      and the documents of Rust's `regex` crate, for the limits each names.

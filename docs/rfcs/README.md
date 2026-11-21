@@ -21,6 +21,8 @@ cd docs/rfcs && shasum -a 256 -c SHA256SUMS
   `https://www.rfc-editor.org/rfc/rfcNNNN.txt`, for the `json` module (decision 27).
 - RFC 4648 was downloaded on 2026-11-09 from `https://www.rfc-editor.org/rfc/rfc4648.txt`, for
   the `base64` module (decision 68).
+- RFC 9485 was downloaded on 2026-11-21 from `https://www.rfc-editor.org/rfc/rfc9485.txt`, for
+  the `regex` module (decision 86).
 
 ## Later revisions
 
@@ -33,6 +35,9 @@ another RFC in this directory, and a check that exists because of the update cit
 
 On 2026-11-09, `https://www.rfc-editor.org/rfc/rfc4648.json` named no RFC that obsoletes or
 updates RFC 4648. RFC 4648 obsoletes RFC 3548, which stdx never reads or cites.
+
+On 2026-11-21, `https://www.rfc-editor.org/rfc/rfc9485.json` named no RFC that obsoletes or
+updates RFC 9485, and RFC 9485 obsoletes none.
 
 RFC 8259 obsoletes RFC 7159, which RFC 7464 cites for its JSON-text. stdx reads that JSON-text as
 RFC 8259 defines it.
@@ -74,6 +79,12 @@ reported against §6, base 32, which stdx does not implement.
 [8669](https://www.rfc-editor.org/errata/eid8669) is reported against §4. It states the bit order
 §4 already implies: the most significant bit of the first octet first.
 
+RFC 9485's errata change nothing the `regex` module does, as the RFC Editor's page showed them on
+2026-11-21. [7990](https://www.rfc-editor.org/errata/eid7990) and
+[8505](https://www.rfc-editor.org/errata/eid8505) are reported against §5.1's table of substitutes
+for multi-character escapes. §5 is not normative, and the module's `\s`, `\d` and `\w` are RE2's
+ASCII classes (decision 86), which that table does not define.
+
 ## Compression
 
 | RFC | Title | What stdx uses it for |
@@ -103,3 +114,8 @@ RFC 9110 §8.4 defines the HTTP content codings these formats serve. stdx makes 
 |---|---|---|
 | [4648](rfc4648.txt) | The Base16, Base32, and Base64 Data Encodings | `base64`: base 64 (§4), its URL and filename safe alphabet (§5), padding (§3.2), the octets a decoder refuses (§3.3) and the canonical text (§3.5) |
 
+## Regular expressions
+
+| RFC | Title | What stdx uses it for |
+|---|---|---|
+| [9485](rfc9485.txt) | I-Regexp: An Interoperable Regular Expression Format | `regex`: the grammar every pattern is held to (§3), with the forms decision 86 adds, and the limits an implementation may set on range quantifiers (§8). RFC 3629 above is the UTF-8 of a pattern and of a text |

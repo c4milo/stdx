@@ -251,3 +251,33 @@ check lands with its step.
   consumed on the worst-case generators of decision 15, and `zig build test` bounds the count.
   Steps 5, 11 and 12.
 - **Violation.** A brotli decoder that rebuilds a prefix-code table on every block switch.
+
+### INV-18: a regular expression search does work linear in its text
+
+- **Claim.** A search does at most a constant times the program's instructions of work for each
+  octet of its text, whatever the pattern and the text. No search fails or grows its memory.
+- **Mechanism.** The matcher holds each instruction once in a list, so one octet costs at most the
+  program's instructions (decision 86). A lazy DFA reads its table once an octet, or builds one
+  state as the matcher builds a position. A cache that fills again within
+  `dfa_octets_per_state_min` octets a state gives up, and the search runs on the matcher.
+  `repeat_max` and the caller's storage bound the program.
+- **Check.** Seeded check: a test build counts the instructions the matcher visits, and
+  `zig build test` bounds the count at four times the program's instructions for each octet, on
+  the patterns that make a backtracking matcher exponential. The cache's and the searcher's tests
+  hold the rule that gives up. The DFA's own work is not counted. Step 22.
+- **Violation.** A matcher that follows a loop over the empty string again and again at one
+  position, or a searcher that tries the next start one octet later after a failed match.
+
+### INV-19: every way to a regular expression's answer gives the matcher's answer
+
+- **Claim.** `Searcher`'s lazy DFAs, with a cache of any size and through any number of clears,
+  and `Matcher` over a text in any pieces, give the match and the groups that `Matcher` gives
+  over the text whole.
+- **Mechanism.** A DFA state is the matcher's list at one position, built by the same rules. The
+  reverse program takes each match read backward, so the least start of a match that ends where
+  the forward program ended is the start the matcher found (decision 86).
+- **Check.** Seeded check: the tables of each form of the syntax under seeded splits; `Searcher`
+  against `Matcher` from every offset under three cache sizes, for the tables and for generated
+  patterns; and the fuzzer over both. Step 22.
+- **Violation.** A DFA that lets a match start before a continuation octet where the matcher
+  does not, or a cache that keeps a start state across a clear.

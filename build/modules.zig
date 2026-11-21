@@ -41,6 +41,9 @@ pub const Modules = struct {
     /// What the CPU a program runs on offers, probed once when the program starts: the one module
     /// that may make a syscall (decision 40). Imports nothing, and no module imports it.
     platform: *std.Build.Module,
+    /// Regular expressions that match in linear time, RFC 9485's grammar and RE2's additions
+    /// (decision 86).
+    regex: *std.Build.Module,
 };
 
 /// Whether a graph's modules are exported by name. build.zig exports the graph a dependent imports;
@@ -94,6 +97,10 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 
     const platform = library(b, "platform", settings);
 
+    const regex = library(b, "regex", settings);
+    // The checked reader a pattern is read through, and the classes of a refusal (decision 11).
+    regex.addImport("codec", codec);
+
     return .{
         .codec = codec,
         .checksum = checksum,
@@ -105,6 +112,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .json = json,
         .base64 = base64,
         .platform = platform,
+        .regex = regex,
     };
 }
 
