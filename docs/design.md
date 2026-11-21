@@ -7918,6 +7918,10 @@ to 12 are reordered and nothing else changes.
     its searchers for all its texts, which took the time to 49 s, and four threads take the
     tasks, a seed or a part of the exhaustive log each. The counts below are the same in each
     form, and under Go 1.27.3.
+  - The check's work is 47 s of one core, 3.8 µs a case, and each case runs the searcher and
+    the matcher alone. Four cores cannot do it in a few seconds. Since 2026-11-21 the check
+    starts a thread for each core, 16 at most, and cuts the exhaustive log into 64 parts, so a
+    machine with more cores takes less time. The counts are sums, and they stay the same.
   - Go's regexp: 1,000,000 generated cases from four seeds. 906,094 gave Go's groups. stdx
     refused 93,906 for `(?i)` over a scalar value past U+007F, which the entry allows. Go
     refused no pattern.

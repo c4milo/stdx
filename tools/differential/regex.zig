@@ -12,7 +12,7 @@
 //! log must also give the count of equal answers `expected_equal` pins, so a refusal that an
 //! entry allows cannot grow unseen.
 //!
-//! The work is cut into tasks, a seed or a part of a log each, which `worker_count` threads take
+//! The work is cut into tasks, a seed or a part of a log each, which a thread for each core takes
 //! in turn. Each thread holds its patterns' storage and a slot of the Go oracle, and the counts
 //! are sums, so the verdict is the same for any count of threads.
 //!
@@ -34,10 +34,11 @@ const Stdx = answers.Stdx;
 const seeds = [_]u64{ 0x5EED_0001, 0x5EED_0002, 0x5EED_0003, 0x5EED_0004 };
 const cases_per_seed = 250_000;
 
-/// The threads that take the tasks, and the parts the exhaustive log is cut into, so that each
-/// thread has work until the last part.
-const worker_count = 4;
-const exhaustive_parts = 16;
+/// The most threads that take the tasks: the check starts one for each core, up to this count.
+/// The exhaustive log is cut into `exhaustive_parts`, so that each thread has work until the
+/// last part.
+const workers_max = 16;
+const exhaustive_parts = 64;
 
 /// The line that starts a list of texts in a log. A reader needs nothing of the log before it.
 const texts_line = "\nstrings\n";
@@ -309,15 +310,17 @@ fn log_failures(phase: Phase, tally: Tally, expected: usize) usize {
     return tally.failures + 1;
 }
 
-/// Runs every task on `worker_count` threads, each with patterns' storage of its own.
+/// Runs every task on a thread for each core, `workers_max` at most, each with patterns' storage
+/// of its own. The tallies are sums, so the count of threads changes no result.
 fn run(arena: std.mem.Allocator, tasks: []Task) !void {
-    comptime std.debug.assert(worker_count <= oracle.slots_max);
-    const workers = try arena.alloc(Worker, worker_count);
+    comptime std.debug.assert(workers_max <= oracle.slots_max);
+    const cores = std.Thread.getCpuCount() catch 1;
+    const workers = try arena.alloc(Worker, @max(1, @min(cores, workers_max)));
     for (workers, 0..) |*worker, slot| worker.* = .{ .stdx = try Stdx.init(arena), .second = try Stdx.init(arena), .slot = slot };
     var queue: Queue = .{ .tasks = tasks };
-    var threads: [worker_count]std.Thread = undefined;
-    for (&threads, workers) |*thread, *worker| thread.* = try std.Thread.spawn(.{}, Queue.work, .{ &queue, worker });
-    for (threads) |thread| thread.join();
+    var threads: [workers_max]std.Thread = undefined;
+    for (threads[0..workers.len], workers) |*thread, *worker| thread.* = try std.Thread.spawn(.{}, Queue.work, .{ &queue, worker });
+    for (threads[0..workers.len]) |thread| thread.join();
 }
 
 pub fn main(init: std.process.Init) !void {
