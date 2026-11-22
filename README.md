@@ -133,8 +133,7 @@ const stdx = b.dependency("stdx", .{ .target = target, .release = true });
 exe.root_module.addImport("stdx", stdx.module("stdx"));
 ```
 
-Zig compiles only the parts a program uses. Each module is also exported under its own name, as
-`stdx.module("gzip")`, for a program that imports one alone.
+Zig compiles only the parts a program uses. A new dependent imports `stdx` alone.
 
 stdx builds in Debug or ReleaseSafe only, because its assertions stay on
 ([decision 17](docs/decisions.md)). `.release = true` selects ReleaseSafe. stdx takes no
@@ -181,8 +180,9 @@ fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
 | `stdx.platform` | What the CPU offers, probed once when a program starts (decision 40), and a vector `memset` (decision 41) |
 | `stdx.codec` | The streaming contract every codec shares, and `Features` (decision 11) |
 
-Each is also a module of its own, under its own name: `deflate`, `zlib`, `gzip`, `zstd`, `brotli`,
-`checksum`, `utf8`, `json`, `base64`, `regex`, `platform` and `codec`.
+The modules' own names, such as `stdx.module("gzip")`, stay exported as aliases while the
+projects that import them move to `stdx`, and a later release removes them. A new dependent does
+not use them.
 
 `stdx.platform` is the one module that may make a system call: `sysctlbyname` on macOS.
 

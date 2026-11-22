@@ -78,7 +78,8 @@ The architecture depends on every rule in this section.
 8. **One module per codec, plus the checksums, JSON, `platform`, `regex` and `utf8`.** Each is
    exported by name with `b.addModule`, so a dependent reaches it with `dependency.module("gzip")`
    (decision 6). The module `stdx` names each under its category, as `stdx.compress.gzip`, and no
-   other module imports it (decision 6 as amended). The library keeps no process-wide mutable state,
+   other module imports it (decision 6 as amended). The modules' own names are aliases for the
+   move: a new dependent imports `stdx` alone. The library keeps no process-wide mutable state,
    so a dependent may run codecs on as many threads as it likes.
 9. **Invariants are code.** Every numbered invariant in `docs/invariants.md` names the check that
    proves it: a comptime assert, a runtime assertion, a lint rule or a seeded check.

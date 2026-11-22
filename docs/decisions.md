@@ -114,6 +114,9 @@ last part lists what still waits on a ruling.
    object, some 10 KB each since decision 21's amendment of the same day. Each module stays a
    module of its own, so the graph of design §3 still holds each codec to its imports, and each is
    still exported by name, so a dependent that imports one keeps working.
+   - Those names are aliases for the move, ruled the same day: a new dependent imports `stdx`
+     alone, and a later release removes the aliases once colibri, connect-zig, cocuyo and stompy
+     import `stdx`. `src/` moves to the categories too: `src/compress/gzip/` and the like.
    - The alternative refused: a module for each category, as `@import("compress")`. It saves a
      program the objects of the other categories, which the same amendment made small, and asks
      a program for one import for each category.
