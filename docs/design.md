@@ -8303,7 +8303,8 @@ to 12 are reordered and nothing else changes.
 
   **Part 22c, the plain loop's branch (decision 86).** The hosted runs on main at `95bde31`
   timed the plain loop at half the speed of `85d3fe7` on an EPYC 9V74 and faster on a Xeon
-  6975P-C and the Neoverse N2: `stdx, no skip` 305 MB/s against 607 on `[a-z]+ing`, with a spread
+  6975P-C and the Neoverse N2. `[a-z]+ing` ran at 292 MB/s against 556, and `stdx, no skip`,
+  which runs the plain loop alone, at 305 against 607 over `Pharaoh`'s text, each with a spread
   under 0.3%. The machine code showed why. The slow path joined the loop's latch, so the
   compiler placed a second latch beside the first, and each octet took two branches: one back to
   the latch, and one from it over the second latch to the loop's head. At `85d3fe7` each octet
