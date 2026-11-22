@@ -7,27 +7,36 @@ const assert = std.debug.assert;
 pub const SparseSet = struct {
     /// The members, in the order they joined.
     dense: []u32,
-    /// Where each value sits in `dense`, for the values that are members.
+    /// Where each value sits in `dense`, for the values that are members, at the value less
+    /// `base`.
     sparse: []u32,
+    /// The least value the set takes: the first instruction of the program the set's DFA runs.
+    /// The reverse program follows the forward one, so its DFA's sets start at its first.
+    base: u32 = 0,
     len: u32 = 0,
 
     /// A set of the values below `dense.len`. `sparse` is cleared once, here, so no test for
     /// membership reads an octet that nothing wrote.
     pub fn init(dense: []u32, sparse: []u32) SparseSet {
+        return init_at(dense, sparse, 0);
+    }
+
+    /// A set of the values from `base` to `base + dense.len`, not that one.
+    pub fn init_at(dense: []u32, sparse: []u32, base: u32) SparseSet {
         assert(dense.len == sparse.len);
         @memset(sparse, 0);
-        return .{ .dense = dense, .sparse = sparse };
+        return .{ .dense = dense, .sparse = sparse, .base = base };
     }
 
     pub fn contains(set: *const SparseSet, value: u32) bool {
-        const index = set.sparse[value];
+        const index = set.sparse[value - set.base];
         return index < set.len and set.dense[index] == value;
     }
 
     /// Adds a value. False when the set held it.
     pub fn insert(set: *SparseSet, value: u32) bool {
         if (set.contains(value)) return false;
-        set.sparse[value] = set.len;
+        set.sparse[value - set.base] = set.len;
         set.dense[set.len] = value;
         set.len += 1;
         return true;
@@ -55,6 +64,17 @@ test "a set keeps the order its members joined in, each once" {
     try testing.expect(!set.insert(0));
     try testing.expectEqualSlices(u32, &.{ 5, 0, 7 }, set.slice());
     try testing.expect(set.contains(7) and !set.contains(1) and !set.contains(6));
+}
+
+test "a set from a base takes the values from it, and no value under it" {
+    var dense: [4]u32 = undefined;
+    var sparse: [4]u32 = undefined;
+    var set = SparseSet.init_at(&dense, &sparse, 10);
+    try testing.expect(set.insert(13));
+    try testing.expect(set.insert(10));
+    try testing.expect(!set.insert(13));
+    try testing.expect(set.contains(10) and set.contains(13) and !set.contains(11) and !set.contains(12));
+    try testing.expectEqualSlices(u32, &.{ 13, 10 }, set.slice());
 }
 
 test "a cleared set holds no member it held before" {

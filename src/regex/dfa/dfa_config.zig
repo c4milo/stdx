@@ -1,4 +1,7 @@
-//! The configuration of a lazy DFA, and what its scan finds (dfa.zig, decision 86).
+//! The configuration of a lazy DFA, the program it runs, and what its scan finds (dfa.zig,
+//! decision 86).
+const assert = @import("std").debug.assert;
+const Program = @import("../program.zig").Program;
 
 /// Which matches a DFA reports.
 pub const Kind = enum {
@@ -51,5 +54,19 @@ pub const Scan = union(enum) {
 
     pub fn of(last: ?usize) Scan {
         return if (last) |offset| .{ .found = offset } else .none;
+    }
+};
+
+/// The instructions of one program of a `Program`: the forward one from the first instruction,
+/// or the reverse one, from where the forward one ends to the last.
+pub const Block = struct {
+    base: u32,
+    len: u32,
+
+    pub fn of(program: *const Program, entry: u32) Block {
+        assert(entry < program.instructions.len);
+        const total: u32 = @intCast(program.instructions.len);
+        if (entry < program.forward_len) return .{ .base = 0, .len = program.forward_len };
+        return .{ .base = program.forward_len, .len = total - program.forward_len };
     }
 };

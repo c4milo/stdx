@@ -8778,6 +8778,32 @@ to 12 are reordered and nothing else changes.
     octet of a broken sequence or takes any octet as its follow, a broken sequence at the end
     kept, and a line range that starts a line late or ends a line early.
 
+  **Part 22n, in progress: the held-out set's gaps.** Part 22m's set found rows where stdx runs
+  at a ten-thousandth to a tenth of Rust's crate. On x86-64 Linux 6.18 in a cloud container, a
+  driver that counts one search's work found each cause:
+  - The lazy DFAs of rebar's date pattern under `(?i)`, 28,422 instructions, and of its bounded
+    repeats, did not start. A DFA's lists took six words for each instruction of both programs
+    from a cache of 512 kB, and left no room for `dfa_states_min` states, so the matcher ran
+    alone. Each DFA's lists now cover its own program, and `cache_words_default` is 4 MiB by the
+    owner's ruling of 2026-11-22 (decision 86). The date row went from 0.35 to 22 MB/s, and
+    `[A-Za-z]{10}\s+[\s\S]{0,100}Result[\s\S]{0,100}\s+[A-Za-z]{10}` from 9.6 to 35 MB/s.
+  - `\p{L}` compiles to about 3,600 instructions, one alternative for each UTF-8 sequence of
+    its ranges, and `\p{L}{8,13}` to 95,512. Its reverse DFA builds more states than the cache
+    holds, so the searcher gives up its DFAs after `dfa_give_ups_max` searches.
+  - rebar's dictionary, 2,663 words in one alternation, builds each DFA state through every
+    branch.
+  - The capture groups of a lexer's and a log's patterns come from the matcher's threads, which
+    copy the slots of every group.
+  **Check, the cache and the lists:** a DFA's lists cover its own program; the default holds both
+  DFAs of a program of 40,000 instructions each way; mutations.
+  **Check passed, the cache and the lists, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `zig build test-regex` passes.
+  - Mutations against `zig build test-regex`: 7, all CAUGHT: each DFA's lists over the whole
+    program, the reverse lists from offset zero or as long as the whole program, a set that
+    tests or adds a value without its base, a set that keeps no base, and the default back to
+    2^16 words.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

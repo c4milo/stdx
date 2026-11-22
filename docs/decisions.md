@@ -5934,7 +5934,7 @@ last part lists what still waits on a ruling.
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
     96 open groups; `class_ranges_max`, 2,048 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
-    `dfa_give_ups_max`, 8; `cache_words_default`, 2^16 words; and `dfa_slots_first`, 64, the slots
+    `dfa_give_ups_max`, 8; `cache_words_default`, 2^19 words; and `dfa_slots_first`, 64, the slots
     of a cache's hash table that `init` and a clear write before the table doubles. Claim R2's: `literal_len_max`,
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
     and `avx2_lanes`, 32. Claim R5's:
@@ -6140,8 +6140,12 @@ last part lists what still waits on a ruling.
         the check has no entry for the fault.
 
     **What waits on the owner.**
-    - **owner** `cache_words_default`, 2^16 words. The DFA of `[a-q][^u-z]{13}x` does not fit
-      it, and the row above is the price. A larger default is a named limit's change.
+    - `cache_words_default`: 2^19 words, 4 MiB, by the owner's ruling of 2026-11-22. Rust's
+      regex crate lets each of a pattern's two lazy DFAs take 2 MiB. At the 512 kB of 2^16 words,
+      the DFAs of rebar's date and bounded-repeat patterns did not start, and the held-out set
+      ran them on the matcher alone, at 1/314 and 1/8 of Rust's speed (design §8 part 22n). stdx
+      takes the memory up front, where Rust's crate grows to it, so a caller with many patterns
+      names a smaller size.
     - **owner** The vector check `json.is_utf8` stays in `json`. The `utf8` module holds the
       validator that Lean proves and the octets of one code point. To move the vector check
       there, `utf8` must import `codec` for the CPU's features and join the variant objects of
@@ -6156,8 +6160,8 @@ last part lists what still waits on a ruling.
     - Unicode's tables, generated from a pinned copy of the Unicode Character Database, for
       `\p{...}` and for `(?i)` past ASCII, which the owner ruled on 2026-11-22 (above). With them
       the module takes RFC 9485 §3's `\p{...}`.
-    - **owner** The values of `depth_max`, `groups_max` and `cache_words_default`, which no
-      source fixes. The owner ruled `class_ranges_max` on 2026-11-22.
+    - **owner** The values of `depth_max` and `groups_max`, which no source fixes. The owner
+      ruled `class_ranges_max` and `cache_words_default` on 2026-11-22.
 
     **The sources.** Each was read for this entry on 2026-11-21, the papers at the address shown.
     - K. Thompson, "Regular Expression Search Algorithm", CACM 11(6), 1968.

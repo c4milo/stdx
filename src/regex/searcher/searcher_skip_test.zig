@@ -124,6 +124,23 @@ const clear_gap_len = 640;
 /// The clears the test's scan must pass at least.
 const clears_min = 3;
 
+/// The words of cache, in a searcher's words, that `init_holding` adds in each try.
+const holding_step_words = 8;
+
+/// Readies the searcher with the least cache, in steps of `holding_step_words`, whose forward
+/// DFA holds `states` states.
+fn init_holding(fixture: *Fixture, pattern: []const u8, states: u32) !void {
+    var cache_words = searcher_test.cache_sizes(&fixture.program).least;
+    // Each try adds at least one word of room for a state, so the tries are at most as many as
+    // the words that many states take.
+    for (0..states * fixture.program.class_count) |_| {
+        try fixture.init_claims(pattern, searcher_test.no_suffix, cache_words);
+        if (fixture.searcher.forward.cache.states_max >= states) return;
+        cache_words += holding_step_words;
+    }
+    return error.TestUnexpectedResult;
+}
+
 /// Where the letter stands that decides whether a run matches the pattern of that test, counted
 /// from the run's end: the `a` before the six letters and the `c`.
 const clear_decides_from_end = 8;
@@ -136,7 +153,7 @@ test "a skip follows the state that waits through a cache that clears" {
     const letter_that_decides = clear_run_len - clear_decides_from_end;
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init_claims(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).least);
+    try init_holding(&fixture, pattern, clear_run_len + 1);
     var generator = codec.testing.split.Generator.init(0xC1EA);
     var haystack: [clear_runs * (clear_gap_len + clear_run_len)]u8 = undefined;
     for (0..clear_runs) |run| {

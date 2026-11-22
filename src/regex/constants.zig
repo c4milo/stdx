@@ -155,9 +155,11 @@ pub const dfa_give_ups_max = 8;
 pub const dfa_forward_parts = 2;
 pub const dfa_cache_parts = 3;
 
-/// The words of cache a `Searcher` takes where its caller names no other size: 512 kB, room for
-/// some thousands of states of a usual pattern.
-pub const cache_words_default = 1 << 16;
+/// The words of cache a `Searcher` takes where its caller names no other size: 4 MiB, the memory
+/// Rust's regex crate lets the two lazy DFAs of one pattern take, 2 MiB each. The owner ruled it
+/// on 2026-11-22 (decision 86 as amended): at 512 kB the DFAs of rebar's date pattern, and of
+/// others of its size, did not start, and the matcher ran alone.
+pub const cache_words_default = 1 << 19;
 
 /// The octets one step of a skip judges: 16, the width of SSE2's and NEON's registers, which
 /// every x86-64 and aarch64 CPU has (claim R1).

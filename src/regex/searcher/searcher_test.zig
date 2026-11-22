@@ -13,7 +13,8 @@ const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
 const searcher_file = @import("searcher.zig");
 const Searcher = searcher_file.Searcher;
-const Dfa = @import("../dfa/dfa.zig").Dfa;
+const dfa_file = @import("../dfa/dfa.zig");
+const Dfa = dfa_file.Dfa;
 const Program = @import("../program.zig").Program;
 const Instruction = @import("../program.zig").Instruction;
 
@@ -83,6 +84,11 @@ fn words_for(len: usize) usize {
     return (len + narrow_per_word - 1) / narrow_per_word;
 }
 
+/// The least memory both DFAs of a program take: the larger of their least.
+fn least_of(program: *const Program) usize {
+    return @max(Dfa.memory_len_min(program, program.forward), Dfa.memory_len_min(program, program.reverse));
+}
+
 /// The caches a test runs under: room for thousands of states, the least both DFAs take, and
 /// none, which leaves the matcher alone.
 pub const CacheSizes = struct { most: usize, least: usize, none: usize };
@@ -90,7 +96,7 @@ pub const CacheSizes = struct { most: usize, least: usize, none: usize };
 pub fn cache_sizes(program: *const Program) CacheSizes {
     return .{
         .most = cache_words_max,
-        .least = words_for(Dfa.memory_len_min(program) * constants.dfa_cache_parts),
+        .least = words_for(least_of(program) * constants.dfa_cache_parts),
         .none = 0,
     };
 }
@@ -134,7 +140,7 @@ test "the searcher gives what the matcher gives, from every offset, under every 
 test "a DFA takes memory_len_min words and no fewer" {
     var fixture: Fixture = .{};
     fixture.program = try compiler.compile("(a|b)+c", .{}, &fixture.storage);
-    const least = Dfa.memory_len_min(&fixture.program);
+    const least = Dfa.memory_len_min(&fixture.program, fixture.program.forward);
     const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
     var dfa: Dfa = undefined;
     const config: @import("../dfa/dfa.zig").Config = .{ .entry = fixture.program.forward, .kind = .first, .anchored = false };
@@ -147,17 +153,55 @@ test "a searcher divides its cache two parts to one, and uses a DFA only where i
     var fixture: Fixture = .{};
     try fixture.init("(a|b)+c", 0);
     try testing.expect(!fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
-    const least = Dfa.memory_len_min(&fixture.program);
+    const least = least_of(&fixture.program);
+    const reverse_least = Dfa.memory_len_min(&fixture.program, fixture.program.reverse);
     // Three times the least: two parts for the forward DFA and one, the least, for the reverse.
     try fixture.init("(a|b)+c", words_for(constants.dfa_cache_parts * least));
     try testing.expect(fixture.searcher.forward_ready and fixture.searcher.reverse_ready);
-    // Two words under it in each part: the forward DFA still fits its two parts.
-    try fixture.init("(a|b)+c", words_for(constants.dfa_cache_parts * (least - 2)));
+    // Two words under the reverse DFA's least in each part: the forward DFA still fits its two.
+    try fixture.init("(a|b)+c", words_for(constants.dfa_cache_parts * (reverse_least - 2)));
     try testing.expect(fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
     try fixture.expect_agree_everywhere("xabcab");
     // The least alone: two parts of it are under what the forward DFA takes.
     try fixture.init("(a|b)+c", words_for(least));
     try testing.expect(!fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
+}
+
+test "a DFA's lists cover its own program, and not the other one" {
+    var fixture: Fixture = .{};
+    // The groups' saves are in the forward program alone, so it is the longer of the two.
+    fixture.program = try compiler.compile("(a)(b)(c)", .{}, &fixture.storage);
+    const program = &fixture.program;
+    const reverse_len = program.instructions.len - program.forward_len;
+    try testing.expect(program.forward_len > reverse_len);
+    const forward_least = Dfa.memory_len_min(program, program.forward);
+    const reverse_least = Dfa.memory_len_min(program, program.reverse);
+    try testing.expectEqual(dfa_file.lists_len * (program.forward_len - reverse_len), forward_least - reverse_least);
+    // The reverse DFA runs in memory that holds its own least and no more.
+    const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
+    var dfa: Dfa = undefined;
+    const config: dfa_file.Config = .{ .entry = program.reverse, .kind = .longest, .anchored = true };
+    try testing.expect(dfa.init(program, config, memory[0..reverse_least]));
+    try testing.expectEqual(dfa_file.Scan{ .found = 1 }, dfa.scan_reverse("xabc", 0, 4));
+}
+
+/// The instructions of each program, forward and reverse, that `cache_words_default` must give
+/// both DFAs room for: rebar's date pattern under `(?i)` compiled to 14,247 forward instructions,
+/// and its DFAs did not start in the 512 kB the default was before the owner's ruling of
+/// 2026-11-22 (decision 86 as amended).
+const default_room_instructions = 40_000;
+
+test "the default cache gives both DFAs of a large program their least" {
+    var fixture: Fixture = .{};
+    var program = try compiler.compile("a", .{}, &fixture.storage);
+    // The least reads the program's lengths alone, so its instructions need not exist.
+    const many: [*]const Instruction = @ptrCast(&fixture.storage);
+    program.instructions = many[0 .. 2 * default_room_instructions];
+    program.forward_len = default_room_instructions;
+    const cache_len = constants.cache_words_default * narrow_per_word;
+    const forward_part = cache_len / constants.dfa_cache_parts * constants.dfa_forward_parts;
+    try testing.expect(Dfa.memory_len_min(&program, 0) <= forward_part);
+    try testing.expect(Dfa.memory_len_min(&program, default_room_instructions) <= cache_len - forward_part);
 }
 
 test "a program with no reverse half gives its whole cache to the forward DFA" {

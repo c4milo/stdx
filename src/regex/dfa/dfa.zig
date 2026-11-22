@@ -33,10 +33,11 @@ const dfa_config = @import("dfa_config.zig");
 pub const Kind = dfa_config.Kind;
 pub const Config = dfa_config.Config;
 pub const Scan = dfa_config.Scan;
+const Block = dfa_config.Block;
 
 /// The lists a DFA builds a state with, each as long as the program: two sets of two lists, the
 /// threads and the stack.
-const lists_len = 6;
+pub const lists_len = 6;
 
 /// The bit of a record's first word that says a match may still start at the state.
 const restart_bit = 1 << constants.context_bits;
@@ -97,13 +98,16 @@ pub const Dfa = struct {
     /// `skip_rest_doublings_max`: each doubles the rest.
     skip_poor_trials: u6,
 
-    /// The words of memory a DFA needs before its cache holds `dfa_states_min` states.
-    pub fn memory_len_min(program: *const Program) usize {
-        return scratch_len(program) + Cache.memory_len(constants.dfa_states_min, stride_of(program));
+    /// The words of memory a DFA of the program at `entry` needs before its cache holds
+    /// `dfa_states_min` states.
+    pub fn memory_len_min(program: *const Program, entry: u32) usize {
+        return scratch_len(program, entry) + Cache.memory_len(constants.dfa_states_min, stride_of(program));
     }
 
-    fn scratch_len(program: *const Program) usize {
-        return lists_len * program.instructions.len + 1;
+    /// The lists cover the instructions of the DFA's own program, which a search never leaves:
+    /// the forward program, or the reverse one, which the compiler writes after it.
+    fn scratch_len(program: *const Program, entry: u32) usize {
+        return lists_len * Block.of(program, entry).len + 1;
     }
 
     /// A row of the table: one entry for each class of octets, and one for each context the text
@@ -115,11 +119,12 @@ pub const Dfa = struct {
     /// Readies a DFA in `memory`. False when the memory is under `memory_len_min`, and the DFA
     /// must not be used.
     pub fn init(dfa: *Dfa, program: *const Program, config: Config, memory: []u32) bool {
-        if (memory.len < memory_len_min(program)) return false;
+        if (memory.len < memory_len_min(program, config.entry)) return false;
         assert(!config.skip or (config.kind == .first and !config.anchored));
         assert(!config.literal or config.skip);
         assert(!config.literal_set or config.skip);
-        const len = program.instructions.len;
+        const block = Block.of(program, config.entry);
+        const len = block.len;
         var rest = memory;
         dfa.* = .{
             .instructions = program.instructions,
@@ -131,8 +136,8 @@ pub const Dfa = struct {
             .class_count = program.class_count,
             .pair_shift = 0,
             .first_columns = undefined,
-            .visited = SparseSet.init(take(&rest, len), take(&rest, len)),
-            .next = SparseSet.init(take(&rest, len), take(&rest, len)),
+            .visited = SparseSet.init_at(take(&rest, len), take(&rest, len), block.base),
+            .next = SparseSet.init_at(take(&rest, len), take(&rest, len), block.base),
             .threads = take(&rest, len),
             .threads_len = 0,
             .stack = take(&rest, len + 1),
