@@ -93,3 +93,65 @@ pub unsafe extern "C" fn rust_regex_groups(regex: *const Regex, octets: *const u
     }
     sum
 }
+
+/// rebar's NFA size limit for Rust's crate, which its harness gives every benchmark.
+const REBAR_SIZE_LIMIT: usize = 100 << 20;
+
+unsafe fn rebar_regex(pattern: *const u8, len: usize, unicode: bool, case_insensitive: bool) -> Option<Regex> {
+    let pattern = std::str::from_utf8(std::slice::from_raw_parts(pattern, len)).ok()?;
+    regex::bytes::RegexBuilder::new(pattern)
+        .unicode(unicode)
+        .case_insensitive(case_insensitive)
+        .size_limit(REBAR_SIZE_LIMIT)
+        .build()
+        .ok()
+}
+
+/// Compiles a pattern of the held-out set with rebar's options. Returns a handle, or null when the
+/// crate refuses the pattern.
+#[no_mangle]
+pub unsafe extern "C" fn rust_rebar_new(pattern: *const u8, len: usize, unicode: bool, case_insensitive: bool) -> *mut Regex {
+    match rebar_regex(pattern, len, unicode, case_insensitive) {
+        Some(regex) => Box::into_raw(Box::new(regex)),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Compiles a pattern of the held-out set and keeps nothing: the cost before a first search.
+#[no_mangle]
+pub unsafe extern "C" fn rust_rebar_compile(pattern: *const u8, len: usize, unicode: bool, case_insensitive: bool) -> bool {
+    rebar_regex(pattern, len, unicode, case_insensitive).is_some()
+}
+
+/// A haystack's lines, as rebar's models split them: at each line feed, with a carriage return
+/// before it left out, and no empty line after the last line feed.
+fn lines(haystack: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let body = haystack.strip_suffix(b"\n").unwrap_or(haystack);
+    let empty = haystack.is_empty();
+    body.split(|&octet| octet == b'\n').filter(move |_| !empty).map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+}
+
+/// The groups that take part in each match of a haystack, the whole match counted.
+fn count_captures(regex: &Regex, haystack: &[u8]) -> u64 {
+    let mut count = 0u64;
+    for captures in regex.captures_iter(haystack) {
+        count += captures.iter().filter(|group| group.is_some()).count() as u64;
+    }
+    count
+}
+
+/// One call of a rebar model on a whole haystack, in the order of regex_rebar.zig's `Model`:
+/// count, count-spans, count-captures, grep, grep-captures, and compile's count.
+#[no_mangle]
+pub unsafe extern "C" fn rust_rebar_run(regex: *const Regex, model: u32, haystack: *const u8, len: usize) -> u64 {
+    let regex = &*regex;
+    let haystack = if len == 0 { &[][..] } else { std::slice::from_raw_parts(haystack, len) };
+    match model {
+        0 | 5 => regex.find_iter(haystack).count() as u64,
+        1 => regex.find_iter(haystack).map(|found| found.len() as u64).sum(),
+        2 => count_captures(regex, haystack),
+        3 => lines(haystack).filter(|line| regex.is_match(line)).count() as u64,
+        4 => lines(haystack).map(|line| count_captures(regex, line)).sum(),
+        _ => panic!("rust_rebar_run: no model {model}"),
+    }
+}

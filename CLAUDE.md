@@ -238,8 +238,10 @@ stdx's appendix to it.
     cargo and go, and two libraries in Zig, zig-regex and mvzr, as lazy packages;
   - the corpora of decision 15: Silesia, Canterbury and its large corpus, three.js, Bootstrap and
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
-    fetches and checks against a pinned SHA-256 because Zig fetches archives only; and RE2's two
-    test logs, which the same script fetches from Go's repository at a pinned tag (decision 86).
+    fetches and checks against a pinned SHA-256 because Zig fetches archives only; RE2's two
+    test logs, which the same script fetches from Go's repository at a pinned tag (decision 86);
+    and the 15 files of rebar's curated set that bench-regex's held-out set reads, which the same
+    script fetches from rebar's repository at a pinned commit (decision 86 as amended).
   Every one is a lazy package pinned by hash, or a file pinned by SHA-256, and `build/oracle.zig`
   requests them only when a build passes `-Doracles`.
 - Weakening an assertion or an invariant to make a test pass.
@@ -449,8 +451,11 @@ Change this section when a step adds or renames a command.
   match of a pattern in a haystack of 1 MiB, a pattern that validates 65,536 short texts, the
   same with capture groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's
   before it is timed: a candidate that refuses a pattern or answers otherwise is named so and not
-  timed, and stdx must give Go's answer. It needs cargo and go on the path. The `bench` workflow
-  offers it.
+  timed, and stdx must give Go's answer. Last, it times the held-out set: every benchmark of
+  rebar's curated set whose engines name Go's regexp or RE2, under rebar's own models, patterns and
+  haystacks, each answer held to rebar's count, which `bench/regex/rebar_cases.py` writes into
+  `bench/regex/regex_rebar.zig` and no claim is judged on. `-- --held-out` times that set alone. It
+  needs cargo and go on the path. The `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
   fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins

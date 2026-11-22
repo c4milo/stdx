@@ -63,7 +63,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="270.3" cy="264.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="260.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="268.5">0.84</text>
-<text class="tick" x="640" y="268.5">0.84–0.85</text>
+<text class="tick" x="646" y="268.5">0.84–0.85</text>
 <text class="tick" x="752" y="268.5" text-anchor="end">1.69</text>
 <text class="tick" x="818" y="268.5" text-anchor="end">179</text>
 <text class="tick" x="884" y="268.5" text-anchor="end">892</text>
@@ -88,7 +88,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="280.4" cy="281.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="277.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="285.5">0.93</text>
-<text class="tick" x="640" y="285.5">0.927–0.933</text>
+<text class="tick" x="646" y="285.5">0.927–0.933</text>
 <text class="tick" x="752" y="285.5" text-anchor="end">0.64</text>
 <text class="tick" x="818" y="285.5" text-anchor="end">225</text>
 <text class="tick" x="884" y="285.5" text-anchor="end">1059</text>
@@ -113,7 +113,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="327.5" cy="298.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="294.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="302.5">1.46</text>
-<text class="tick" x="640" y="302.5">1.459–1.464</text>
+<text class="tick" x="646" y="302.5">1.459–1.464</text>
 <text class="tick" x="752" y="302.5" text-anchor="end">266</text>
 <text class="tick" x="818" y="302.5" text-anchor="end">837</text>
 <text class="tick" x="884" y="302.5" text-anchor="end">1091</text>
@@ -138,7 +138,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="401.4" cy="315.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="311.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="319.5">2.93</text>
-<text class="tick" x="640" y="319.5">2.92–2.94</text>
+<text class="tick" x="646" y="319.5">2.92–2.94</text>
 <text class="tick" x="752" y="319.5" text-anchor="end">302</text>
 <text class="tick" x="818" y="319.5" text-anchor="end">—</text>
 <text class="tick" x="884" y="319.5" text-anchor="end">—</text>
@@ -163,7 +163,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="282.9" cy="332.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="328.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="336.5">0.953</text>
-<text class="tick" x="640" y="336.5">0.94–0.96</text>
+<text class="tick" x="646" y="336.5">0.94–0.96</text>
 <text class="tick" x="752" y="336.5" text-anchor="end">7.09</text>
 <text class="tick" x="818" y="336.5" text-anchor="end">211</text>
 <text class="tick" x="884" y="336.5" text-anchor="end">1216</text>
@@ -188,7 +188,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="271.5" cy="349.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="345.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="353.5">0.85</text>
-<text class="tick" x="640" y="353.5">0.84–0.85</text>
+<text class="tick" x="646" y="353.5">0.84–0.85</text>
 <text class="tick" x="752" y="353.5" text-anchor="end">2.04</text>
 <text class="tick" x="818" y="353.5" text-anchor="end">220</text>
 <text class="tick" x="884" y="353.5" text-anchor="end">786</text>
@@ -232,7 +232,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="354.4" cy="492.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="488.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="496.5">1.89</text>
-<text class="tick" x="640" y="496.5">1.88–1.89</text>
+<text class="tick" x="646" y="496.5">1.88–1.89</text>
 <text class="tick" x="752" y="496.5" text-anchor="end">27.06</text>
 <text class="tick" x="818" y="496.5" text-anchor="end">16.29</text>
 <text class="tick" x="884" y="496.5" text-anchor="end">75.00</text>
@@ -257,7 +257,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="337.6" cy="509.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="505.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="513.5">1.61</text>
-<text class="tick" x="640" y="513.5">1.61–1.62</text>
+<text class="tick" x="646" y="513.5">1.61–1.62</text>
 <text class="tick" x="752" y="513.5" text-anchor="end">30.04</text>
 <text class="tick" x="818" y="513.5" text-anchor="end">48.34</text>
 <text class="tick" x="884" y="513.5" text-anchor="end">109</text>
@@ -282,7 +282,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="386.1" cy="526.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="522.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="530.5">2.54</text>
-<text class="tick" x="640" y="530.5">2.539–2.545</text>
+<text class="tick" x="646" y="530.5">2.539–2.545</text>
 <text class="tick" x="752" y="530.5" text-anchor="end">33.41</text>
 <text class="tick" x="818" y="530.5" text-anchor="end">17.55</text>
 <text class="tick" x="884" y="530.5" text-anchor="end">85.31</text>
@@ -307,7 +307,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="304.6" cy="543.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="539.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="547.5">1.18</text>
-<text class="tick" x="640" y="547.5">1.17–1.18</text>
+<text class="tick" x="646" y="547.5">1.17–1.18</text>
 <text class="tick" x="752" y="547.5" text-anchor="end">50.55</text>
 <text class="tick" x="818" y="547.5" text-anchor="end">36.92</text>
 <text class="tick" x="884" y="547.5" text-anchor="end">3856</text>
@@ -332,7 +332,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="325.8" cy="560.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="556.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="564.5">1.43</text>
-<text class="tick" x="640" y="564.5">1.43–1.44</text>
+<text class="tick" x="646" y="564.5">1.43–1.44</text>
 <text class="tick" x="752" y="564.5" text-anchor="end">19.84</text>
 <text class="tick" x="818" y="564.5" text-anchor="end">11.11</text>
 <text class="tick" x="884" y="564.5" text-anchor="end">41.33</text>
@@ -376,7 +376,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="287.2" cy="703.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="699.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="707.5">0.995</text>
-<text class="tick" x="640" y="707.5">0.994–0.996</text>
+<text class="tick" x="646" y="707.5">0.994–0.996</text>
 <text class="tick" x="752" y="707.5" text-anchor="end">6.87</text>
 <text class="tick" x="818" y="707.5" text-anchor="end">10.74</text>
 <text class="tick" x="884" y="707.5" text-anchor="end">66.57</text>
@@ -401,7 +401,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="275.9" cy="720.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="716.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="724.5">0.90</text>
-<text class="tick" x="640" y="724.5">0.89–0.90</text>
+<text class="tick" x="646" y="724.5">0.89–0.90</text>
 <text class="tick" x="752" y="724.5" text-anchor="end">130</text>
 <text class="tick" x="818" y="724.5" text-anchor="end">80.62</text>
 <text class="tick" x="884" y="724.5" text-anchor="end">295</text>
@@ -426,7 +426,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="496.4" cy="737.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="733.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="741.5">7.22</text>
-<text class="tick" x="640" y="741.5">7.17–7.23</text>
+<text class="tick" x="646" y="741.5">7.17–7.23</text>
 <text class="tick" x="752" y="741.5" text-anchor="end">7.83</text>
 <text class="tick" x="818" y="741.5" text-anchor="end">141</text>
 <text class="tick" x="884" y="741.5" text-anchor="end">769</text>
@@ -451,7 +451,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="280.8" cy="754.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="750.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="758.5">0.93</text>
-<text class="tick" x="640" y="758.5">0.92–0.94</text>
+<text class="tick" x="646" y="758.5">0.92–0.94</text>
 <text class="tick" x="752" y="758.5" text-anchor="end">276</text>
 <text class="tick" x="818" y="758.5" text-anchor="end">246</text>
 <text class="tick" x="884" y="758.5" text-anchor="end">1020</text>
@@ -476,7 +476,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="296.9" cy="771.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="767.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="775.5">1.09</text>
-<text class="tick" x="640" y="775.5">1.09–1.10</text>
+<text class="tick" x="646" y="775.5">1.09–1.10</text>
 <text class="tick" x="752" y="775.5" text-anchor="end">30.83</text>
 <text class="tick" x="818" y="775.5" text-anchor="end">—</text>
 <text class="tick" x="884" y="775.5" text-anchor="end">—</text>
@@ -501,7 +501,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="452.8" cy="788.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="784.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="792.5">4.75</text>
-<text class="tick" x="640" y="792.5">4.68–4.79</text>
+<text class="tick" x="646" y="792.5">4.68–4.79</text>
 <text class="tick" x="752" y="792.5" text-anchor="end">1783</text>
 <text class="tick" x="818" y="792.5" text-anchor="end">1062</text>
 <text class="tick" x="884" y="792.5" text-anchor="end">—</text>
@@ -526,7 +526,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="339.0" cy="805.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="801.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="809.5">1.63</text>
-<text class="tick" x="640" y="809.5">1.63–1.64</text>
+<text class="tick" x="646" y="809.5">1.63–1.64</text>
 <text class="tick" x="752" y="809.5" text-anchor="end">10.11</text>
 <text class="tick" x="818" y="809.5" text-anchor="end">—</text>
 <text class="tick" x="884" y="809.5" text-anchor="end">—</text>
@@ -570,7 +570,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="315.9" cy="948.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="944.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="952.5">1.31</text>
-<text class="tick" x="640" y="952.5">1.30–1.32</text>
+<text class="tick" x="646" y="952.5">1.30–1.32</text>
 <text class="tick" x="752" y="952.5" text-anchor="end">10.13</text>
 <text class="tick" x="818" y="952.5" text-anchor="end">6.97</text>
 <text class="tick" x="884" y="952.5" text-anchor="end">—</text>
@@ -595,7 +595,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="326.6" cy="965.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="961.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="969.5">1.45</text>
-<text class="tick" x="640" y="969.5">1.44–1.45</text>
+<text class="tick" x="646" y="969.5">1.44–1.45</text>
 <text class="tick" x="752" y="969.5" text-anchor="end">7.48</text>
 <text class="tick" x="818" y="969.5" text-anchor="end">6.37</text>
 <text class="tick" x="884" y="969.5" text-anchor="end">32.10</text>
@@ -620,7 +620,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="313.5" cy="982.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="978.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="986.5">1.27</text>
-<text class="tick" x="640" y="986.5">1.27–1.28</text>
+<text class="tick" x="646" y="986.5">1.27–1.28</text>
 <text class="tick" x="752" y="986.5" text-anchor="end">6.20</text>
 <text class="tick" x="818" y="986.5" text-anchor="end">10.15</text>
 <text class="tick" x="884" y="986.5" text-anchor="end">—</text>
@@ -645,7 +645,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="330.9" cy="999.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="995.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1003.5">1.49</text>
-<text class="tick" x="640" y="1003.5">1.48–1.51</text>
+<text class="tick" x="646" y="1003.5">1.48–1.51</text>
 <text class="tick" x="752" y="1003.5" text-anchor="end">4.93</text>
 <text class="tick" x="818" y="1003.5" text-anchor="end">4.94</text>
 <text class="tick" x="884" y="1003.5" text-anchor="end">28.93</text>
@@ -670,7 +670,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="313.5" cy="1016.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1012.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1020.5">1.27</text>
-<text class="tick" x="640" y="1020.5">1.27–1.28</text>
+<text class="tick" x="646" y="1020.5">1.27–1.28</text>
 <text class="tick" x="752" y="1020.5" text-anchor="end">9.19</text>
 <text class="tick" x="818" y="1020.5" text-anchor="end">11.07</text>
 <text class="tick" x="884" y="1020.5" text-anchor="end">—</text>
@@ -713,7 +713,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="278.2" cy="1143.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1139.5" width="8" height="8" rx="2" fill="var(--lose)"/>
 <text class="val" x="603" y="1147.5">0.90</text>
-<text class="tick" x="640" y="1147.5">0.88–0.92</text>
+<text class="tick" x="646" y="1147.5">0.88–0.92</text>
 <text class="tick" x="752" y="1147.5" text-anchor="end">2.08</text>
 <text class="tick" x="818" y="1147.5" text-anchor="end">—</text>
 <text class="tick" x="884" y="1147.5" text-anchor="end">11.26</text>
@@ -759,7 +759,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="408.1" cy="1316.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1312.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1320.0">3.21</text>
-<text class="tick" x="640" y="1320.0">3.13–3.24</text>
+<text class="tick" x="646" y="1320.0">3.13–3.24</text>
 <text class="tick" x="752" y="1320.0" text-anchor="end">1.24</text>
 <text class="tick" x="818" y="1320.0" text-anchor="end">1/14</text>
 <text class="tick" x="884" y="1320.0" text-anchor="end">0.57</text>
@@ -784,7 +784,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="438.3" cy="1328.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1324.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1332.0">4.28</text>
-<text class="tick" x="640" y="1332.0">4.10–4.33</text>
+<text class="tick" x="646" y="1332.0">4.10–4.33</text>
 <text class="tick" x="752" y="1332.0" text-anchor="end">1.96</text>
 <text class="tick" x="818" y="1332.0" text-anchor="end">1/23</text>
 <text class="tick" x="884" y="1332.0" text-anchor="end">1.041</text>
@@ -809,7 +809,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="481.0" cy="1340.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1336.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1344.0">6.21</text>
-<text class="tick" x="640" y="1344.0">6.19–6.29</text>
+<text class="tick" x="646" y="1344.0">6.19–6.29</text>
 <text class="tick" x="752" y="1344.0" text-anchor="end">3.63</text>
 <text class="tick" x="818" y="1344.0" text-anchor="end">1/16</text>
 <text class="tick" x="884" y="1344.0" text-anchor="end">1.60</text>
@@ -834,7 +834,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="450.9" cy="1352.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1348.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1356.0">4.66</text>
-<text class="tick" x="640" y="1356.0">4.62–4.70</text>
+<text class="tick" x="646" y="1356.0">4.62–4.70</text>
 <text class="tick" x="752" y="1356.0" text-anchor="end">2.45</text>
 <text class="tick" x="818" y="1356.0" text-anchor="end">1/15</text>
 <text class="tick" x="884" y="1356.0" text-anchor="end">1.035</text>
@@ -859,7 +859,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="417.1" cy="1364.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1360.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1368.0">3.53</text>
-<text class="tick" x="640" y="1368.0">3.36–3.59</text>
+<text class="tick" x="646" y="1368.0">3.36–3.59</text>
 <text class="tick" x="752" y="1368.0" text-anchor="end">1.36</text>
 <text class="tick" x="818" y="1368.0" text-anchor="end">1/17</text>
 <text class="tick" x="884" y="1368.0" text-anchor="end">0.56</text>
@@ -884,7 +884,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="332.0" cy="1376.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1372.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1380.0">1.52</text>
-<text class="tick" x="640" y="1380.0">1.45–1.54</text>
+<text class="tick" x="646" y="1380.0">1.45–1.54</text>
 <text class="tick" x="752" y="1380.0" text-anchor="end">1.20</text>
 <text class="tick" x="818" y="1380.0" text-anchor="end">1/40</text>
 <text class="tick" x="884" y="1380.0" text-anchor="end">0.79</text>
@@ -909,7 +909,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="336.7" cy="1388.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1384.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1392.0">1.59</text>
-<text class="tick" x="640" y="1392.0">1.55–1.60</text>
+<text class="tick" x="646" y="1392.0">1.55–1.60</text>
 <text class="tick" x="752" y="1392.0" text-anchor="end">1.21</text>
 <text class="tick" x="818" y="1392.0" text-anchor="end">1/40</text>
 <text class="tick" x="884" y="1392.0" text-anchor="end">0.81</text>
@@ -934,7 +934,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="510.8" cy="1400.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1396.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1404.0">8.18</text>
-<text class="tick" x="640" y="1404.0">8.11–8.30</text>
+<text class="tick" x="646" y="1404.0">8.11–8.30</text>
 <text class="tick" x="752" y="1404.0" text-anchor="end">1.67</text>
 <text class="tick" x="818" y="1404.0" text-anchor="end">1/39</text>
 <text class="tick" x="884" y="1404.0" text-anchor="end">1.09</text>
@@ -960,7 +960,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="580.0" cy="1412.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1408.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1416.0">36.77</text>
-<text class="tick" x="640" y="1416.0">36.45–37.12</text>
+<text class="tick" x="646" y="1416.0">36.45–37.12</text>
 <text class="tick" x="752" y="1416.0" text-anchor="end">0.88</text>
 <text class="tick" x="818" y="1416.0" text-anchor="end">1/41</text>
 <text class="tick" x="884" y="1416.0" text-anchor="end">—</text>
@@ -985,7 +985,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="580.0" cy="1424.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1420.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1428.0">9.88</text>
-<text class="tick" x="640" y="1428.0">9.59–30.61</text>
+<text class="tick" x="646" y="1428.0">9.59–30.61</text>
 <text class="tick" x="752" y="1428.0" text-anchor="end">0.87</text>
 <text class="tick" x="818" y="1428.0" text-anchor="end">1/50</text>
 <text class="tick" x="884" y="1428.0" text-anchor="end">0.57</text>
@@ -1010,7 +1010,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="341.2" cy="1436.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1432.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1440.0">1.67</text>
-<text class="tick" x="640" y="1440.0">1.64–1.79</text>
+<text class="tick" x="646" y="1440.0">1.64–1.79</text>
 <text class="tick" x="752" y="1440.0" text-anchor="end">1.26</text>
 <text class="tick" x="818" y="1440.0" text-anchor="end">1/40</text>
 <text class="tick" x="884" y="1440.0" text-anchor="end">0.85</text>
@@ -1035,7 +1035,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="459.4" cy="1448.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1444.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1452.0">5.10</text>
-<text class="tick" x="640" y="1452.0">5.02–5.16</text>
+<text class="tick" x="646" y="1452.0">5.02–5.16</text>
 <text class="tick" x="752" y="1452.0" text-anchor="end">1.008</text>
 <text class="tick" x="818" y="1452.0" text-anchor="end">1/12</text>
 <text class="tick" x="884" y="1452.0" text-anchor="end">0.68</text>
@@ -1060,7 +1060,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="465.0" cy="1460.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1456.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1464.0">5.37</text>
-<text class="tick" x="640" y="1464.0">5.34–5.46</text>
+<text class="tick" x="646" y="1464.0">5.34–5.46</text>
 <text class="tick" x="752" y="1464.0" text-anchor="end">0.93</text>
 <text class="tick" x="818" y="1464.0" text-anchor="end">1/22</text>
 <text class="tick" x="884" y="1464.0" text-anchor="end">0.64</text>
@@ -1085,7 +1085,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="444.8" cy="1472.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1468.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1476.0">4.45</text>
-<text class="tick" x="640" y="1476.0">4.40–4.53</text>
+<text class="tick" x="646" y="1476.0">4.40–4.53</text>
 <text class="tick" x="752" y="1476.0" text-anchor="end">0.79</text>
 <text class="tick" x="818" y="1476.0" text-anchor="end">1/14</text>
 <text class="tick" x="884" y="1476.0" text-anchor="end">0.59</text>
@@ -1111,7 +1111,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="580.0" cy="1484.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1480.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1488.0">18.86</text>
-<text class="tick" x="640" y="1488.0">18.57–19.11</text>
+<text class="tick" x="646" y="1488.0">18.57–19.11</text>
 <text class="tick" x="752" y="1488.0" text-anchor="end">0.56</text>
 <text class="tick" x="818" y="1488.0" text-anchor="end">1/29</text>
 <text class="tick" x="884" y="1488.0" text-anchor="end">0.42</text>
@@ -1136,7 +1136,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="457.8" cy="1496.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1492.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1500.0">5.04</text>
-<text class="tick" x="640" y="1500.0">5.01–5.10</text>
+<text class="tick" x="646" y="1500.0">5.01–5.10</text>
 <text class="tick" x="752" y="1500.0" text-anchor="end">1.007</text>
 <text class="tick" x="818" y="1500.0" text-anchor="end">1/12</text>
 <text class="tick" x="884" y="1500.0" text-anchor="end">0.69</text>
@@ -1161,7 +1161,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="452.8" cy="1508.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1504.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1512.0">4.86</text>
-<text class="tick" x="640" y="1512.0">4.80–4.93</text>
+<text class="tick" x="646" y="1512.0">4.80–4.93</text>
 <text class="tick" x="752" y="1512.0" text-anchor="end">1.27</text>
 <text class="tick" x="818" y="1512.0" text-anchor="end">1/23</text>
 <text class="tick" x="884" y="1512.0" text-anchor="end">0.80</text>
@@ -1186,7 +1186,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="556.9" cy="1520.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1516.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1524.0">13.11</text>
-<text class="tick" x="640" y="1524.0">12.83–13.30</text>
+<text class="tick" x="646" y="1524.0">12.83–13.30</text>
 <text class="tick" x="752" y="1524.0" text-anchor="end">0.81</text>
 <text class="tick" x="818" y="1524.0" text-anchor="end">1/29</text>
 <text class="tick" x="884" y="1524.0" text-anchor="end">0.58</text>
@@ -1211,7 +1211,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="580.0" cy="1532.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1528.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1536.0">10.06</text>
-<text class="tick" x="640" y="1536.0">9.92–33.49</text>
+<text class="tick" x="646" y="1536.0">9.92–33.49</text>
 <text class="tick" x="752" y="1536.0" text-anchor="end">0.69</text>
 <text class="tick" x="818" y="1536.0" text-anchor="end">1/42</text>
 <text class="tick" x="884" y="1536.0" text-anchor="end">0.50</text>
@@ -1236,7 +1236,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="475.0" cy="1544.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1540.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1548.0">6.00</text>
-<text class="tick" x="640" y="1548.0">5.91–6.06</text>
+<text class="tick" x="646" y="1548.0">5.91–6.06</text>
 <text class="tick" x="752" y="1548.0" text-anchor="end">1.25</text>
 <text class="tick" x="818" y="1548.0" text-anchor="end">1/38</text>
 <text class="tick" x="884" y="1548.0" text-anchor="end">0.85</text>
@@ -1261,7 +1261,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="457.1" cy="1556.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1552.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1560.0">4.96</text>
-<text class="tick" x="640" y="1560.0">4.94–5.01</text>
+<text class="tick" x="646" y="1560.0">4.94–5.01</text>
 <text class="tick" x="752" y="1560.0" text-anchor="end">0.89</text>
 <text class="tick" x="818" y="1560.0" text-anchor="end">—</text>
 <text class="tick" x="884" y="1560.0" text-anchor="end">—</text>
@@ -1286,7 +1286,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="580.0" cy="1568.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1564.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1572.0">8.02</text>
-<text class="tick" x="640" y="1572.0">7.89–15.04</text>
+<text class="tick" x="646" y="1572.0">7.89–15.04</text>
 <text class="tick" x="752" y="1572.0" text-anchor="end">0.26</text>
 <text class="tick" x="818" y="1572.0" text-anchor="end">1/108</text>
 <text class="tick" x="884" y="1572.0" text-anchor="end">0.29</text>
@@ -1311,7 +1311,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="580.0" cy="1580.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <rect x="590" y="1576.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
 <text class="val" x="603" y="1584.0">12.52</text>
-<text class="tick" x="640" y="1584.0">12.29–52.80</text>
+<text class="tick" x="646" y="1584.0">12.29–52.80</text>
 <text class="tick" x="752" y="1584.0" text-anchor="end">0.53</text>
 <text class="tick" x="818" y="1584.0" text-anchor="end">—</text>
 <text class="tick" x="884" y="1584.0" text-anchor="end">0.40</text>

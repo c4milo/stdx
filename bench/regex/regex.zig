@@ -21,16 +21,25 @@
 //! is named so in its cell and is not timed. stdx must give Go's answer, or the benchmark fails:
 //! a fast wrong answer is no result.
 //!
-//! Usage: `bench_regex <name>=<path>...`, the corpus files. It prints Markdown to standard output.
+//! Last, regex_held_out.zig times the held-out set: rebar's curated benchmarks, which nobody who
+//! tuned stdx chose, under their own models and haystacks.
+//!
+//! Usage: `bench_regex [--held-out] <name>=<path>...`, the corpus files and rebar's files. It
+//! prints Markdown to standard output. `--held-out` times the held-out set alone.
 
 const std = @import("std");
 const codec = @import("codec");
 const timing = @import("timing");
 const cases = @import("regex_cases.zig");
 const engines = @import("regex_engines.zig");
+const table = @import("regex_table.zig");
+const held_out = @import("regex_held_out.zig");
 
 const Engine = engines.Engine;
 const engine_count = engines.names.len;
+const Row = table.Row;
+const File = table.File;
+const print_head = table.print_head;
 
 /// The seed of each validation's texts, and of the haystack in four scripts.
 const texts_seed = 0x7265676578000000;
@@ -43,6 +52,9 @@ const per_thousand = 1_000.0;
 
 /// The exit status of a usage error.
 const usage_exit_status = 2;
+
+/// The argument that times the held-out set alone, to check it without the other tables.
+const held_out_flag = "--held-out";
 
 /// What one call does with a compiled pattern, and what it does it to.
 const Work = union(enum) {
@@ -86,60 +98,6 @@ const Compile = struct {
     fn run_once(context: *const anyopaque) void {
         const call: *const Compile = @ptrCast(@alignCast(context));
         std.mem.doNotOptimizeAway(engines.compile_once(call.engine, call.scratch, call.pattern));
-    }
-};
-
-/// What a candidate's cell of a row holds.
-const Cell = union(enum) {
-    /// The candidate refuses the pattern.
-    refused,
-    /// The candidate's answer is not Go's.
-    differs,
-    /// The candidate has no such call.
-    none,
-    /// The candidate is timed: its place among the row's operations.
-    timed: usize,
-};
-
-/// A row as it is timed: each candidate's cell, and the operations of those that are timed.
-const Row = struct {
-    cells: [engine_count]Cell = undefined,
-    operations: [engine_count]timing.Operation = undefined,
-    timed: usize = 0,
-
-    fn add(row: *Row, engine: Engine, operation: timing.Operation) void {
-        row.cells[@intFromEnum(engine)] = .{ .timed = row.timed };
-        row.operations[row.timed] = operation;
-        row.timed += 1;
-    }
-
-    /// Times the row and prints its cells, with `items` of the row's unit in one operation, and
-    /// stdx's speed over its own with claims R1 to R5 off, over Rust's and over Go's.
-    fn print(row: *const Row, io: std.Io, out: *std.Io.Writer, items: f64) !void {
-        var runs: [engine_count][timing.run_count]f64 = undefined;
-        timing.time_interleaved(io, row.operations[0..row.timed], runs[0..row.timed]);
-        var rates: [engine_count]?f64 = @splat(null);
-        for (row.cells, &rates) |cell, *rate| {
-            switch (cell) {
-                .refused => try out.writeAll(" refused |"),
-                .differs => try out.writeAll(" differs |"),
-                .none => try out.writeAll(" none |"),
-                .timed => |index| {
-                    const summary = timing.summarize(runs[index]);
-                    rate.* = items / (summary.median / std.time.ns_per_s);
-                    try out.print(" {d:.2} ± {d:.1}% |", .{ rate.*.?, summary.spread * 100 });
-                },
-            }
-        }
-        const stdx = rates[@intFromEnum(Engine.stdx)].?;
-        for (ratio_bases) |other| {
-            const rate = rates[@intFromEnum(other)] orelse {
-                try out.writeAll(" |");
-                continue;
-            };
-            if (stdx / rate < small_ratio) try out.print(" {d:.4} |", .{stdx / rate}) else try out.print(" {d:.2} |", .{stdx / rate});
-        }
-        try out.writeAll("\n");
     }
 };
 
@@ -187,23 +145,6 @@ fn prepare(arena: std.mem.Allocator, features: codec.Features, calls: *[engine_c
     return expected;
 }
 
-/// The candidates a row gives stdx's speed over, a column each: stdx with claims R1 to R5 off,
-/// the claims' A/B in one run (decision 86); stdx again, the same code path timed last in each
-/// round; and two baselines.
-const ratio_bases = [_]Engine{ .stdx_no_skip, .stdx_again, .rust, .go };
-
-/// A ratio under this is printed with four decimals, where two would leave no digit.
-const small_ratio = 0.1;
-
-fn print_head(out: *std.Io.Writer, title: []const u8, first: []const u8, second: []const u8) !void {
-    try out.print("## {s}\n\n| {s} | {s} |", .{ title, first, second });
-    for (engines.names) |name| try out.print(" {s} |", .{name});
-    for (ratio_bases) |base| try out.print(" stdx / {s} |", .{engines.names[@intFromEnum(base)]});
-    try out.writeAll("\n|---|---|");
-    for (0..engine_count + ratio_bases.len) |_| try out.writeAll("---|");
-    try out.writeAll("\n");
-}
-
 /// The corpus file a name gives, cut to a haystack's length.
 fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
     for (files) |file| {
@@ -212,8 +153,6 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
     std.debug.print("bench-regex: the build passed no {s}\n", .{name});
     return error.CorpusFileMissing;
 }
-
-const File = struct { name: []const u8, octets: []const u8 };
 
 fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, files: []const File) !void {
     try out.writeAll("`stdx` is a searcher with its cache and the CPU features it detected at start, as Rust's regex detects them, `stdx, no skip` the same with claims R1 to R5 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
@@ -291,14 +230,19 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
     var files: std.ArrayList(File) = .empty;
+    var held_out_alone = false;
     for (args[1..]) |argument| {
+        if (std.mem.eql(u8, argument, held_out_flag)) {
+            held_out_alone = true;
+            continue;
+        }
         const split = std.mem.indexOfScalar(u8, argument, '=') orelse {
             std.debug.print("bench-regex: {s} is not <name>=<path>\n", .{argument});
             std.process.exit(usage_exit_status);
         };
         const wanted = for (cases.searches) |search| {
             if (std.mem.eql(u8, search.file, argument[0..split])) break true;
-        } else false;
+        } else std.mem.startsWith(u8, argument, held_out.file_prefix);
         if (!wanted) continue;
         const octets = try std.Io.Dir.cwd().readFileAlloc(io, argument[split + 1 ..], arena, .unlimited);
         try files.append(arena, .{ .name = argument[0..split], .octets = octets });
@@ -307,13 +251,17 @@ pub fn main(init: std.process.Init) !void {
     try files.append(arena, .{ .name = cases.scripts, .octets = scripts[0..cases.write_scripts(scripts_seed, scripts)] });
     // The CPU is probed once, as a program does at start, and each stdx searcher takes the answer.
     const features = codec.Features.detect();
-    try report_searches(io, out, arena, features, files.items);
-    try report_texts(io, out, arena, features, "Match short texts, millions of texts a second", &cases.validations, .matching);
-    try report_texts(io, out, arena, features, "Capture groups of short texts, millions of texts a second", &.{cases.groups_validation}, .groups);
-    try report_compiles(io, out, arena, features);
+    if (!held_out_alone) {
+        try report_searches(io, out, arena, features, files.items);
+        try report_texts(io, out, arena, features, "Match short texts, millions of texts a second", &cases.validations, .matching);
+        try report_texts(io, out, arena, features, "Capture groups of short texts, millions of texts a second", &.{cases.groups_validation}, .groups);
+        try report_compiles(io, out, arena, features);
+    }
+    try held_out.report(io, out, arena, features, files.items);
     try out.flush();
 }
 
 test {
     _ = cases;
+    _ = held_out;
 }

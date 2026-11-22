@@ -8758,6 +8758,26 @@ to 12 are reordered and nothing else changes.
     1% to 3% ahead of Rust's crate on the EPYC 7763 stood 3% to 8% behind on the two Xeons
     (decision 86).
 
+  **Part 22m, built: the held-out set (decision 86 as amended, the owner's ruling of
+  2026-11-22).** After its tuned tables, `bench-regex` times every benchmark of rebar's curated
+  set whose engines name Go's regexp or RE2: 41 of its 55, under rebar's own models, patterns and
+  haystacks (`bench/regex/regex_held_out.zig`). `bench/regex/rebar_cases.py` writes the set from
+  rebar's definitions at commit 463d00f, and `tools/corpus/fetch.sh` fetches its 15 files. A
+  chart of its own, `docs/images/regex-rebar-<arch>.svg`, draws it, and no claim is judged on it.
+  **Check:** the generator writes the committed table octet for octet; every candidate's answer
+  equals the count rebar gives Go's regexp; the line split, the UTF-8 repair and the line ranges
+  have tests; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `python3 bench/regex/rebar_cases.py` on a checkout of rebar at 463d00f writes
+    `bench/regex/regex_rebar.zig` as committed.
+  - `zig build bench-regex -Doracles -- --held-out`: stdx, Rust's crate and Go's regexp each gave
+    rebar's count on each of the 41 benchmarks. The record quotes none of its numbers: those
+    come from the hosted runners (decision 20).
+  - Mutations against `zig build test-differential-regex`: 8, all CAUGHT: a line that keeps its
+    carriage return or its line feed, an empty haystack with a line, a repair that replaces each
+    octet of a broken sequence or takes any octet as its follow, a broken sequence at the end
+    kept, and a line range that starts a line late or ends a line early.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

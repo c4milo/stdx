@@ -10,8 +10,9 @@ import tempfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from charts_wide import (CONFIDENCE, MARGIN, Measure, Row, counted, coverage, flipped, interval,  # noqa: E402
-                         models_of, pattern, rank, ratio_text, state, tick_text, ticks_of)
+from charts_wide import (CONFIDENCE, HELD_COMPILE, HELD_SEARCH, MARGIN, PANELS, Measure, Panel, Row, claim,  # noqa: E402
+                         counted, coverage, flipped, interval, interval_text, models_of, pattern, rank, ratio_text, state,
+                         tick_text, ticks_of)
 
 
 def test_interval():
@@ -76,7 +77,16 @@ def test_models():
 def test_flipped():
     behind = Row("other: a word", Measure([0.9] * 5), {}, {"Y": 1.1, "Z": 0.8}, 0.0)
     ahead = Row("class: a number", Measure([1.2] * 5), {}, {"Y": 1.3}, 0.0)
-    assert flipped([(None, [behind, ahead])]) == ["a word (Y, 1.10)"], flipped([(None, [behind, ahead])])
+    assert flipped([(None, [behind, ahead], [])]) == ["a word (Y, 1.10)"], flipped([(None, [behind, ahead], [])])
+
+
+def test_unanswered():
+    """A row where stdx gave no answer stays in its panel's count, by name."""
+    panel = Panel("Search", r"", "searches")
+    rows = [Row("other: a word", Measure([0.9] * 5), {}, {}, 0.0), Row("class: a number", Measure([1.2] * 5), {}, {}, 0.0)]
+    line = claim(panel, rows, ["a date"])
+    assert line.endswith("; stdx gives no answer on 1: a date"), line
+    assert "no answer" not in claim(panel, rows)
 
 
 def test_ticks():
@@ -97,8 +107,25 @@ def test_pipe():
     assert head == ["Pattern", "stdx", "Rust regex"] and body == [["a|b", "2.0", "1.0"]], body
 
 
+def test_interval_text():
+    assert interval_text(Measure([0.00006, 0.00007, 0.00008, 0.00007, 0.00007])) == "1/16667–1/12500"
+    assert interval_text(Measure([0.84, 0.85, 0.86, 0.85, 0.85])) == "0.84–0.86"
+    assert interval_text(Measure([0.994, 0.995, 0.996, 0.995, 0.995])) == "0.994–0.996"
+    assert interval_text(Measure([150.0, 160.0, 170.0, 160.0, 160.0])) == "150–170"
+
+
+def test_charts():
+    """The held-out set draws on a chart of its own, with Go's column alone, and the tuned chart
+    holds none of its rows."""
+    held = {HELD_SEARCH, HELD_COMPILE}
+    assert not any(panel.section in held for panel in PANELS["regex"][2])
+    assert {panel.section for panel in PANELS["regex-rebar"][2]} == held
+    assert all(panel.marks == ["Go regexp"] for panel in PANELS["regex-rebar"][2])
+
+
 def main():
-    tests = (test_interval, test_state, test_counts, test_models, test_flipped, test_ticks, test_pipe)
+    tests = (test_interval, test_state, test_counts, test_models, test_flipped, test_unanswered, test_charts, test_ticks,
+             test_pipe, test_interval_text)
     for test in tests:
         test()
     print(f"charts_wide_test.py: {len(tests)} tests passed")

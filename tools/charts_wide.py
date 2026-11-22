@@ -49,6 +49,8 @@ SEARCH = "Search in 1 MiB, MB/s"
 TEXTS = "Match short texts, millions of texts a second"
 GROUPS = "Capture groups of short texts, millions of texts a second"
 COMPILE = "Compile, thousands of patterns a second"
+HELD_SEARCH = "Held-out search, rebar's curated set, MB/s"
+HELD_COMPILE = "Held-out compile, rebar's curated set, thousands of patterns a second"
 # What a row's name starts with in the report, which a panel's title says for all its rows.
 GROUP = re.compile(r"^(literal|class|other): ")
 # The suffix of a row that times a pattern of another row on a second text.
@@ -62,14 +64,17 @@ COLUMN = 66
 
 class Panel:
     """The rows of `section` whose names match `rows`. `mean` prints a geometric mean, which
-    unlike patterns do not have, and `row` is the height of a row."""
+    unlike patterns do not have, `row` is the height of a row, and `marks` the libraries whose
+    columns stand at the right."""
 
-    def __init__(self, section, rows, title, mean=True, row=None, note=None):
+    def __init__(self, section, rows, title, mean=True, row=None, note=None, marks=None):
         self.section, self.rows, self.title, self.mean, self.row, self.note = section, re.compile(rows), title, mean, row, note
+        self.marks = MARKS if marks is None else marks
 
 
+# Each chart: what it draws, what it draws stdx against, and its panels.
 PANELS = {
-    "regex": ("regular expressions", [
+    "regex": ("regular expressions", "libraries in Rust, Go and Zig", [
         Panel(SEARCH, r"^literal: ", "search for a literal: every match in 1 MiB"),
         Panel(SEARCH, r"^class: ", "search that starts with a class: every match in 1 MiB"),
         Panel(SEARCH, r"^other: ", "search of other shapes: every match in 1 MiB", False),
@@ -78,6 +83,14 @@ PANELS = {
         Panel(COMPILE, r"", "a pattern compiled and made ready for its first search", False, 12,
               "stdx compiles both programs and readies a searcher, Rust's crate runs Regex::new and Go "
               "regexp.Compile. A program compiles a pattern once and searches with it many times."),
+    ]),
+    # The held-out set: a benchmark of its own, which nobody who tuned stdx chose (decision 86).
+    "regex-rebar": ("regular expressions on rebar's curated set", "Rust's regex and Go's regexp", [
+        Panel(HELD_SEARCH, r"", "rebar's curated searches", True, None,
+              "Each row is a benchmark of rebar's curated set whose engines name Go's regexp or RE2, under rebar's "
+              "own model, pattern and haystack. No claim of stdx is judged on these rows. rebar's author also wrote "
+              "Rust's crate, and rebar's BIAS.md says the set may favor that crate.", ["Go regexp"]),
+        Panel(HELD_COMPILE, r"", "rebar's curated compiles", True, 12, None, ["Go regexp"]),
     ]),
 }
 
@@ -153,7 +166,7 @@ def cells_of(kit, report, panel, name):
 
 def row_of(kit, panel, drawn, others, name):
     """A row over the drawn jobs, or None where no drawn job timed both stdx and Rust's crate."""
-    base, libs, drift = [], {lib: [] for lib in MARKS}, 0.0
+    base, libs, drift = [], {lib: [] for lib in panel.marks}, 0.0
     for report in drawn:
         head, cells = cells_of(kit, report, panel, name)
         stdx = kit.pick(head, cells, "stdx")[0] if cells else None
@@ -161,7 +174,7 @@ def row_of(kit, panel, drawn, others, name):
         if not stdx or not rust:
             continue
         base.append(stdx / rust)
-        for lib in MARKS:
+        for lib in panel.marks:
             value = kit.pick(head, cells, lib)[0]
             if value:
                 libs[lib].append(stdx / value)
@@ -189,8 +202,11 @@ def row_of(kit, panel, drawn, others, name):
 
 
 def rows_of(kit, panel, drawn, others):
+    """The panel's rows, and the names of those where stdx gave no speed in any job, which a count
+    must still name."""
     names = [r[0] for r in drawn[0][panel.section][1] if panel.rows.search(r[0])]
-    return [row for row in (row_of(kit, panel, drawn, others, name) for name in names) if row]
+    pairs = [(name, row_of(kit, panel, drawn, others, name)) for name in names]
+    return [row for _, row in pairs if row], [GROUP.sub("", name) for name, row in pairs if not row]
 
 
 def geometric_mean(values):
@@ -208,23 +224,24 @@ def counted(measures):
     return ", ".join([side("ahead"), f"level on {level}"] + ([f"unclear on {unclear}"] if unclear else []) + [side("behind")])
 
 
-def claim(panel, rows):
-    """A panel's first line: stdx against Rust's crate."""
+def claim(panel, rows, missing=()):
+    """A panel's first line: stdx against Rust's crate, and the rows where stdx gave no answer."""
+    unanswered = f"; stdx gives no answer on {len(missing)}: {', '.join(missing)}" if missing else ""
     if len(rows) == 1:
         m = rows[0].base
         within = f", inside {MARGIN:.0%}" if m.small else ""
-        return f"against {BASE}: {m.state}{within}, at {ratio_text(m.median)}, {ratio_text(m.low)} to {ratio_text(m.high)}"
+        return f"against {BASE}: {m.state}{within}, at {ratio_text(m.median)}, {ratio_text(m.low)} to {ratio_text(m.high)}{unanswered}"
     patterns = len({r.pattern for r in rows})
     ratios = [r.base.median for r in rows]
     mean = f"; geometric mean over these rows {ratio_text(geometric_mean(ratios))}" if panel.mean else ""
     return (f"against {BASE}: {counted([r.base for r in rows])} of {len(rows)} rows, {patterns} patterns{mean}; "
-            f"from {ratio_text(min(ratios))} to {ratio_text(max(ratios))}")
+            f"from {ratio_text(min(ratios))} to {ratio_text(max(ratios))}{unanswered}")
 
 
-def versus(rows):
+def versus(rows, marks=MARKS):
     """A panel's second line: stdx against each other library, by the rule of the first."""
     parts = []
-    for lib in MARKS:
+    for lib in marks:
         measures = [r.libs[lib] for r in rows if lib in r.libs]
         parts.append(f"{lib}: " + (f"{counted(measures)} of {len(measures)}" if measures else "no pattern timed"))
     return "against " + "; ".join(parts)
@@ -290,26 +307,36 @@ def whisker(row, cy, sx):
     return out
 
 
-def columns(kit, row, cy):
+def interval_text(m):
+    """A row's interval as the number column prints it: three decimals where two would print both
+    ends alike or the row is inside the margin, 1/N where two decimals leave no digit, and whole
+    numbers past 100."""
+    if m.low < 0.095:
+        return f"{ratio_text(m.low)}–{ratio_text(m.high)}"
+    if m.median >= 100:
+        return f"{m.low:.0f}–{m.high:.0f}"
+    digits = 3 if f"{m.low:.2f}" == f"{m.high:.2f}" or inside(m.low, m.high) else 2
+    return f"{m.low:.{digits}f}–{m.high:.{digits}f}"
+
+
+def columns(kit, row, cy, marks):
     """The number column, then stdx over each other library."""
     column = kit.WIDTH - RIGHT + 10
     m = row.base
     out = [f'<rect x="{column}" y="{cy - 4:.1f}" width="8" height="8" rx="2" fill="{FILL[m.state]}"'
            + (' stroke="var(--tie)" stroke-width="1"' if m.state == "unclear" else "") + "/>",
            f'<text class="val" x="{column + 13}" y="{cy + 4:.1f}">{ratio_text(m.median)}</text>']
-    digits = 3 if (f"{m.low:.2f}" == f"{m.high:.2f}" or inside(m.low, m.high)) and m.median < 100 else 2
-    span = f"{m.low:.{digits}f}–{m.high:.{digits}f}" if m.median < 100 else f"{m.low:.0f}–{m.high:.0f}"
-    out.append(f'<text class="tick" x="{column + 50}" y="{cy + 4:.1f}">{span}</text>')
-    for k, lib in enumerate(MARKS):
-        x = kit.WIDTH - 16 - COLUMN * (len(MARKS) - 1 - k)
+    out.append(f'<text class="tick" x="{column + 56}" y="{cy + 4:.1f}">{interval_text(m)}</text>')
+    for k, lib in enumerate(marks):
+        x = kit.WIDTH - 16 - COLUMN * (len(marks) - 1 - k)
         text = ratio_text(row.libs[lib].median) if lib in row.libs else "—"
         out.append(f'<text class="tick" x="{x}" y="{cy + 4:.1f}" text-anchor="end">{text}</text>')
     return out
 
 
-def row_svg(kit, row, cy, sx, height):
+def row_svg(kit, row, cy, sx, height, marks):
     out = [f'<text class="row" x="{LEFT - 8}" y="{cy + 4:.1f}" text-anchor="end">{kit.esc(row.label)}</text>']
-    return out + bar(kit, row, cy, sx, height) + whisker(row, cy, sx) + columns(kit, row, cy)
+    return out + bar(kit, row, cy, sx, height) + whisker(row, cy, sx) + columns(kit, row, cy, marks)
 
 
 class Scale:
@@ -323,28 +350,28 @@ class Scale:
         return self.left + (min(max(math.log(value), self.low), self.high) - self.low) * self.unit
 
 
-def header(kit, top):
+def header(kit, top, marks):
     column = kit.WIDTH - RIGHT + 10
     out = [f'<text class="tick" x="{column}" y="{top - 6}">stdx ÷ Rust, interval</text>']
-    for k, lib in enumerate(MARKS):
-        x = kit.WIDTH - 16 - COLUMN * (len(MARKS) - 1 - k)
+    for k, lib in enumerate(marks):
+        x = kit.WIDTH - 16 - COLUMN * (len(marks) - 1 - k)
         out.append(f'<text class="tick" x="{x}" y="{top - 6}" text-anchor="end">÷ {SHORT[lib]}</text>')
     return out
 
 
-def panel_svg(kit, panel, rows, y, sx):
+def panel_svg(kit, panel, rows, missing, y, sx):
     out = [f'<text class="panel" x="16" y="{y + 16}">{kit.esc(panel.title)}, in multiples of {BASE}\'s speed</text>']
-    lines = wrap(claim(panel, rows)) + wrap(versus(rows)) + (wrap(panel.note) if panel.note else [])
+    lines = wrap(claim(panel, rows, missing)) + wrap(versus(rows, panel.marks)) + (wrap(panel.note) if panel.note else [])
     out += [f'<text class="sub" x="16" y="{y + 33 + 16 * k}">{kit.esc(line)}</text>' for k, line in enumerate(lines)]
     row_height = panel.row or kit.ROW
     top = y + 44 + 16 * len(lines)
     height = row_height * len(rows)
-    out += header(kit, top)
+    out += header(kit, top, panel.marks)
     for tick in ticks_of(sx.low, sx.high):
         out.append(f'<line x1="{sx(tick):.1f}" y1="{top}" x2="{sx(tick):.1f}" y2="{top + height}" stroke="var(--grid)"/>')
         out.append(f'<text class="tick" x="{sx(tick):.1f}" y="{top + height + 13}" text-anchor="middle">{tick_text(tick)}</text>')
     for k, row in enumerate(rows):
-        out += row_svg(kit, row, top + k * row_height + row_height / 2, sx, row_height * 0.65)
+        out += row_svg(kit, row, top + k * row_height + row_height / 2, sx, row_height * 0.65, panel.marks)
     out.append(f'<line x1="{sx(1):.1f}" y1="{top - 4}" x2="{sx(1):.1f}" y2="{top + height}" stroke="var(--ink)" stroke-width="1.5"/>')
     return out, top + height + 34
 
@@ -379,7 +406,7 @@ def ordinal(k):
 def flipped(data):
     """The rows that fall on the other side of 1 on another CPU model."""
     out = []
-    for _, rows in data:
+    for _, rows, _ in data:
         for r in rows:
             for model, ratio in r.others.items():
                 if (ratio < 1) != (r.base.median < 1):
@@ -421,14 +448,14 @@ def models_of(kit, paths, jobs_min=JOBS_MIN):
 
 
 def draw(kit, benchmark, paths):
-    name, panels = PANELS[benchmark]
+    name, against, panels = PANELS[benchmark]
     model, drawn_paths, other_paths = models_of(kit, paths)
     drawn = [kit.tables(p) for p in drawn_paths]
     others = {m: [kit.tables(p) for p in ps] for m, ps in other_paths.items()}
     panels = [p for p in panels if all(p.section in r for r in drawn)]
-    data = [(p, rows_of(kit, p, drawn, others)) for p in panels]
-    data = [(p, rows) for p, rows in data if rows]
-    sx = Scale(kit, span_of([rows for _, rows in data]))
+    data = [(p,) + rows_of(kit, p, drawn, others) for p in panels]
+    data = [(p, rows, missing) for p, rows, missing in data if rows]
+    sx = Scale(kit, span_of([rows for _, rows, _ in data]))
     runs = ", ".join(kit.field(p, "Run URL").rsplit("/", 1)[-1] for p in drawn_paths)
     commits = ", ".join(sorted({kit.field(p, "Commit") for p in drawn_paths}))
     rule = f", the CPU model of {len(drawn_paths)} of {len(paths)} jobs, the most of any" if other_paths else ""
@@ -438,14 +465,14 @@ def draw(kit, benchmark, paths):
     body, descs = [], []
     y += 24
     drift = 0.0
-    for panel, rows in data:
-        part, y = panel_svg(kit, panel, rows, y, sx)
+    for panel, rows, missing in data:
+        part, y = panel_svg(kit, panel, rows, missing, y, sx)
         body += part
         drift = max([drift] + [r.drift for r in rows])
-        descs.append(f"{panel.title}, in multiples of {BASE}'s speed: {claim(panel, rows)}; {versus(rows)}")
+        descs.append(f"{panel.title}, in multiples of {BASE}'s speed: {claim(panel, rows, missing)}; {versus(rows, panel.marks)}")
     notes, y = notes_svg(kit, y - 14, data, drift, bool(other_paths))
     height = y + 16
-    title = f"stdx's {name} against libraries in Rust, Go and Zig, on {model}"
+    title = f"stdx's {name} against {against}, on {model}"
     head = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {kit.WIDTH} {height}" width="{kit.WIDTH}" height="{height}" role="img" aria-labelledby="t d">',
             f'<title id="t">{kit.esc(title)}</title>', f'<desc id="d">{kit.esc(". ".join(descs))}.</desc>', kit.STYLE,
             f'<rect width="{kit.WIDTH}" height="{height}" fill="var(--surface)"/>',

@@ -5573,6 +5573,9 @@ last part lists what still waits on a ruling.
       - A `\|` in a cell stays in the cell.
       - The chart stands in the README's regex section, by the owner's ruling of 2026-11-22: the N2's
         chart, and the x86-64 chart in a details block that names its CPU model.
+      - The held-out set of entry 86 draws on a chart of its own, `regex-rebar`, by the same rules,
+        with Go's column alone at the right: the owner asked on 2026-11-22 to chart rebar's
+        results, and a reader keeps the tuned rows and the held-out rows apart.
 
       What the rules before did, which these replace:
       - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
@@ -6069,6 +6072,30 @@ last part lists what still waits on a ruling.
           candidates in one order; no row shows a pattern that stdx refuses, such as
           `\p{L}`; and no row shows a pattern that takes a backtracking matcher a time
           exponential in the text, where a candidate could run for hours.
+      - The held-out set, by the owner's ruling of 2026-11-22 on a staff data scientist's
+        review. The people who tuned stdx chose every pattern above, and several claims were
+        judged on those rows, so a count over them can say more about the choice than the engine.
+        - The set is every benchmark of rebar's curated set, at commit 463d00f, whose engines
+          name Go's regexp or RE2: 41 of its 55. The rule names no row by what stdx does on it,
+          and `bench/regex/rebar_cases.py` writes `bench/regex/regex_rebar.zig` by it.
+        - Each benchmark runs under rebar's own model, pattern and haystack: count,
+          count-spans, count-captures, grep, grep-captures or compile. Every candidate's answer
+          is held to the count rebar's definition gives Go's regexp.
+        - Rust's crate takes rebar's `unicode` and `case-insensitive` options and the NFA size
+          limit of rebar's harness. stdx and Go's regexp take `(?i)`, as rebar gives Go.
+        - zig-regex and mvzr are not timed on it. The tables above time them at a hundredth to
+          a four-thousandth of stdx's speed, and the set's haystacks hold up to 32 MB.
+        - No claim is judged on a held-out row, and no constant is chosen with one. The report
+          counts the set apart from the tuned rows, and a chart of its own draws it (entry 85).
+        - rebar's author also wrote Rust's crate, and rebar's `BIAS.md` says its curated set may
+          favor that crate. The set takes away the bias toward stdx, and can hold one toward the
+          baseline. A row stdx loses on it is no less a loss for that.
+        - `tools/corpus/fetch.sh` fetches the set's 15 files from rebar's commit with
+          `-Doracles`, about 45 MB, each pinned by SHA-256.
+        - The alternatives refused: rebar's patterns on the corpora stdx already pins, which
+          change rebar's tasks; and the 34 benchmarks of the count, span and compile models
+          alone, which leave out the 7 of grep and captures, where stdx trails Rust's crate on
+          the tuned rows.
     - The owner asked whether the oracle check can run in a couple of seconds, whether the
       engine can use vectors, and whether a cache can help.
       - The check ran 2 min 13 s because it started a new searcher for each case, so no DFA

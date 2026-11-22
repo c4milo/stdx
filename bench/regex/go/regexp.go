@@ -7,6 +7,7 @@ package main
 import "C"
 
 import (
+	"bytes"
 	"regexp"
 	"unsafe"
 )
@@ -102,6 +103,66 @@ func go_regex_groups(handle C.size_t, texts *C.uchar, ends *C.uint, count C.size
 		start = end
 	}
 	return C.size_t(sum)
+}
+
+// lines gives a haystack's lines, as rebar's models split them: at each line feed, with a
+// carriage return before it left out, and no empty line after the last line feed.
+func lines(haystack []byte) [][]byte {
+	if len(haystack) == 0 {
+		return nil
+	}
+	all := bytes.Split(bytes.TrimSuffix(haystack, []byte{'\n'}), []byte{'\n'})
+	for index, line := range all {
+		all[index] = bytes.TrimSuffix(line, []byte{'\r'})
+	}
+	return all
+}
+
+// countCaptures counts the groups that take part in each match of a haystack, the whole match
+// counted.
+func countCaptures(expression *regexp.Regexp, haystack []byte) uint64 {
+	count := uint64(0)
+	for _, match := range expression.FindAllSubmatchIndex(haystack, -1) {
+		for group := 0; group < len(match); group += 2 {
+			if match[group] >= 0 {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// go_rebar_run runs one of rebar's models on a whole haystack, in the order of regex_rebar.zig's
+// Model: count, count-spans, count-captures, grep, grep-captures, and compile's count.
+//
+//export go_rebar_run
+func go_rebar_run(handle C.size_t, model C.uint, haystack *C.uchar, length C.size_t) C.ulonglong {
+	expression := compiled[handle-1]
+	text := octets(haystack, length)
+	sum := uint64(0)
+	switch model {
+	case 0, 5:
+		sum = uint64(len(expression.FindAllIndex(text, -1)))
+	case 1:
+		for _, match := range expression.FindAllIndex(text, -1) {
+			sum += uint64(match[1] - match[0])
+		}
+	case 2:
+		sum = countCaptures(expression, text)
+	case 3:
+		for _, line := range lines(text) {
+			if expression.Match(line) {
+				sum++
+			}
+		}
+	case 4:
+		for _, line := range lines(text) {
+			sum += countCaptures(expression, line)
+		}
+	default:
+		panic("go_rebar_run: no such model")
+	}
+	return C.ulonglong(sum)
 }
 
 func main() {}

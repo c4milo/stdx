@@ -14,7 +14,8 @@
 //! and two libraries in Zig, zig-regex and mvzr (`bench/regex/regex.zig`). cargo builds the Rust
 //! crate and go the Go package, each from its pinned sources under bench/regex/, and the two Zig
 //! libraries are lazy packages of build.zig.zon. Each is built ReleaseFast, or in its release
-//! form, for the architecture's baseline CPU (decision 75).
+//! form, for the architecture's baseline CPU (decision 75). Its held-out set reads rebar's files,
+//! which tools/corpus/fetch.sh fetches at a pinned commit. `-- --held-out` times that set alone.
 //!
 //! The check's own parts need no oracle: `zig build test` runs their tests (`add_tests`).
 const std = @import("std");
@@ -32,6 +33,30 @@ const logs = [_]struct { name: []const u8, sha256: []const u8 }{
     .{ .name = "re2-exhaustive.txt.bz2", .sha256 = "f1253bff45157cd2a71d7729e11a19ad8ae15efdc0af00fe0939289e6e1a4ec8" },
 };
 
+/// rebar, the regex benchmark whose curated set is bench-regex's held-out set (decision 86 as
+/// amended), at the commit bench/regex/regex_rebar.zig was written from. tools/corpus/fetch.sh
+/// fetches each file the set reads and refuses one whose SHA-256 is not the pinned one.
+const rebar_url = "https://raw.githubusercontent.com/BurntSushi/rebar/463d00f31887e84c38467805b9e3122c314b9521/benchmarks/";
+
+/// The set's haystacks and pattern files, by their paths under rebar's `benchmarks/`.
+const rebar_files = [_]struct { path: []const u8, sha256: []const u8 }{
+    .{ .path = "haystacks/cloud-flare-redos.txt", .sha256 = "2950cee4e38166459d4314a6e61929d2e7b9edc32cd50f029e79ac549c783a1d" },
+    .{ .path = "haystacks/opensubtitles/en-medium.txt", .sha256 = "d1da7bb695f9807deaa21306ee0c132f09d92d92c13d07219792c6765480f90c" },
+    .{ .path = "haystacks/opensubtitles/en-sampled.txt", .sha256 = "0d40805f6d02c8fe02bd75945b98911891f707e8ecb939e018446858065d76ea" },
+    .{ .path = "haystacks/opensubtitles/ru-sampled.txt", .sha256 = "7ffddb21336a1bfb4a9e2df4bb77eea0305c0010a57c5d3c56e0dfead9e80a90" },
+    .{ .path = "haystacks/opensubtitles/zh-sampled.txt", .sha256 = "f129e81928c58ecbba0ccbb63b36679355345248df057d1e9ded670d6e9c964b" },
+    .{ .path = "haystacks/rust-src-tools-3b0d4813.txt", .sha256 = "7d43cc8dfd053b083b809bd7ce7d4a074f2fd24a6b7ec38908b3966f3324fa36" },
+    .{ .path = "haystacks/wild/UnicodeData-15.0.0.txt", .sha256 = "806e9aed65037197f1ec85e12be6e8cd870fc5608b4de0fffd990f689f376a73" },
+    .{ .path = "haystacks/wild/cpython-226484e4.py", .sha256 = "1aaf33e0e5d90f0b350c5e04c3817c6c12b9e1ee0cecf2433c8ee6a7bae176d2" },
+    .{ .path = "haystacks/wild/parol-veryl.vl", .sha256 = "adf5fcdfb6071e5470b77a45b33826ccf6a0cb8709e5157697d5a9838a4e0b81" },
+    .{ .path = "haystacks/wild/unstructured-to-json.log", .sha256 = "3afccfa634a74ce4045267ac5486f900d73fe5b58a96ba70b659249cf6f64be7" },
+    .{ .path = "regexes/dictionary/english/length-15.txt", .sha256 = "8e5c78a5b7db76cfd0bca99157cdb7088b379aee9aa34508de0cc9cb42c274e7" },
+    .{ .path = "regexes/wild/date.txt", .sha256 = "0d223554e54ce6bfb34bbb3aa510a4a0941a3856882c64b0d971cc6b10f893bf" },
+    .{ .path = "regexes/wild/parol-veryl.txt", .sha256 = "0ba9358c2787da1696c4f98ab393c979fe5ece5dac75934eb1553b1d8e04fb93" },
+    .{ .path = "regexes/wild/ucd-parse.txt", .sha256 = "3f1c1df738d353947bd3f10bf34234305a024a2bcd46abaee6ba5d0d6f6d6788" },
+    .{ .path = "regexes/wild/unstructured-to-json.txt", .sha256 = "7b2a622c8e436ada0c357e61c773de8d05adb59ed12475aeb50643d2ad8cd894" },
+};
+
 /// What the step says on a host without go.
 const missing_message = "differential-regex builds its oracle with go; put go on the path";
 
@@ -44,6 +69,9 @@ const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = 
     .{ .root = "tools/differential/regex.zig", .codec = true, .regex = true, .program = true },
     // The benchmark's workloads: its patterns and the short texts it generates.
     .{ .root = "bench/regex/regex_cases.zig", .codec = true },
+    // The held-out set's line split, its UTF-8 repair and its line ranges.
+    .{ .root = "bench/regex/regex_engines_rebar.zig", .codec = true, .regex = true },
+    .{ .root = "bench/regex/regex_held_out.zig", .codec = true, .regex = true },
 };
 
 /// What the benchmark says on a host without both toolchains.
@@ -97,6 +125,12 @@ fn add_bench(b: *std.Build, step: *std.Build.Step, inputs: Inputs) void {
     b.installArtifact(program);
     const run = b.addRunArtifact(program);
     oracle_corpus.add_args(b, run, inputs.corpus);
+    for (rebar_files) |file| {
+        const fetch = b.addSystemCommand(&.{ "bash", "tools/corpus/fetch.sh", b.fmt("{s}{s}", .{ rebar_url, file.path }), file.sha256 });
+        fetch.addFileInput(b.path("tools/corpus/fetch.sh"));
+        run.addPrefixedFileArg(b.fmt("rebar/{s}=", .{file.path}), fetch.addOutputFileArg(std.fs.path.basename(file.path)));
+    }
+    if (b.args) |args| run.addArgs(args);
     run.has_side_effects = true;
     step.dependOn(&run.step);
 }
