@@ -34,11 +34,12 @@ run_check() {
   fi
 }
 
-# Checks that docs/rfcs/ and docs/specs/ hold the RFCs and the specifications unmodified, with
-# sha256sum on Linux and shasum on macOS.
+# Checks that docs/rfcs/ and docs/specs/ hold the RFCs and the specifications unmodified, and
+# tools/unicode/ucd/ the Unicode data files the unicode tables come from, with sha256sum on Linux
+# and shasum on macOS.
 check_copies() {
   local directory
-  for directory in docs/rfcs docs/specs; do
+  for directory in docs/rfcs docs/specs tools/unicode/ucd; do
     if command -v sha256sum >/dev/null 2>&1; then
       (cd "$directory" && sha256sum --check --quiet SHA256SUMS) || return 1
     else
@@ -51,7 +52,7 @@ check_copies() {
 # drops one connection does not fail a check that has nothing to do with the network.
 run_check "fetch" tools/fetch_packages.sh
 run_check "format" zig fmt --check build.zig bench build src tools
-run_check "rfcs and specs" check_copies
+run_check "rfcs, specs and data" check_copies
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "package prune" bash tools/prune_packages_check.sh
 run_check "fuzz verdict" bash tools/fuzz_check.sh
