@@ -8473,6 +8473,23 @@ to 12 are reordered and nothing else changes.
     added: a pair kept across a cache clear. 1 NOT CAUGHT, an equivalent mutant: a step's
     `dfa_idle_flag`, which no DFA with a plain scan sets.
 
+  **Part 22c, a literal of one octet compares each block once (decision 86).** Claim R4's
+  suffix is often one octet, as `:` in `(?m)^[A-Z][a-z]+:` and `x` in `[a-q][^u-z]{13}x`. Its
+  search loaded and compared the literal's first and last octets, which are one octet, as a
+  literal of two does. Rust's crate takes memchr for one octet. `literal_find.zig` now has a
+  third form of its loop, `single`, which loads and compares a block once.
+  **Check:** `find`'s tests at both widths from every offset, whose literals include `a`; the
+  searcher's tests; the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps passed. `zig build differential-regex
+  -Doracles`: 12,437,544 cases, none failed.
+  - Under cachegrind, against `85f532c`, at 16 lanes and at 32: `(?m)^[A-Z][a-z]+:` over the
+    second text took 7.6% and 6.7% fewer instructions, and `[a-q][^u-z]{13}x` over the bible 14%
+    and 7.7% fewer. `Pharaoh` and `the [a-z]+ of` moved by under 1.2%.
+  - Mutations, each against `zig build test-regex`: 4. 2 CAUGHT: a block whose candidates are
+    lost, and one whose candidates are the places of other octets. 2 NOT CAUGHT, each of which
+    changes no answer: lanes the loop never reads, and a one-octet literal given the loop of two.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that
