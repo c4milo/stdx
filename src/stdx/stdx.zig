@@ -26,10 +26,9 @@ pub const compress = struct {
 /// the fastest path the caller's CPU runs.
 pub const hash = @import("checksum");
 
-/// Unicode: UTF-8 (RFC 3629), which `json` and `regex` read through.
-pub const unicode = struct {
-    pub const utf8 = @import("utf8");
-};
+/// Unicode: the general categories, scripts and simple case folding of Unicode 17.0.0, and UTF-8
+/// (RFC 3629) as `stdx.unicode.utf8`, which `json` and `regex` read through.
+pub const unicode = @import("unicode");
 
 /// JSON (RFC 8259) and JSON text sequences (RFC 7464).
 pub const json = @import("json");
@@ -59,5 +58,6 @@ test "each category names its modules" {
     try std.testing.expect(@hasDecl(compress.gzip, "Decoder"));
     try std.testing.expect(@hasDecl(hash, "crc32"));
     try std.testing.expect(@hasDecl(unicode.utf8, "Validator"));
+    try std.testing.expect(@hasDecl(unicode, "property"));
     try std.testing.expect(@hasDecl(regex, "Searcher"));
 }

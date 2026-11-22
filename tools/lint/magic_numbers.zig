@@ -9,9 +9,11 @@
 //!
 //! `constants.zig` is not read, because it is where the names live. Neither is a piece the
 //! file-length rule split from one, named file by file: `constants_levels.zig`, the DEFLATE
-//! encoder's levels, and `constants_encoder.zig`, the brotli encoder's limits. A table generated from an RFC joins the exclusions in the commit that adds its
-//! generator, named the same way: `rfc_tables.zig`, which tools/brotli_tables.zig writes from RFC
-//! 7932's appendices.
+//! encoder's levels, and `constants_encoder.zig`, the brotli encoder's limits. A table generated
+//! from an RFC joins the exclusions in the commit that adds its generator, named the same way:
+//! `rfc_tables.zig`, which tools/brotli_tables.zig writes from RFC 7932's appendices, and
+//! `unicode_tables.zig`, which tools/unicode/unicode_tables.zig writes from Unicode 17.0.0's data
+//! files.
 //!
 //! The width of an octet is `@bitSizeOf(u8)`, never 8, so a shift by a whole octet names what it
 //! shifts by.
@@ -30,7 +32,7 @@ pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_basenames = &.{ "constants.zig", "constants_levels.zig", "constants_encoder.zig", "rfc_tables.zig" },
+        .exclude_basenames = &.{ "constants.zig", "constants_levels.zig", "constants_encoder.zig", "rfc_tables.zig", "unicode_tables.zig" },
     },
 };
 
@@ -93,6 +95,9 @@ test "magic-numbers reads src/ but not its constants" {
     try expect_findings("src/deflate/constants.zig", failing_fixture, &.{});
     try expect_findings("src/deflate/constants_levels.zig", failing_fixture, &.{});
     try expect_findings("src/zstd/constants.zig", failing_fixture, &.{});
+    // The tables a tool writes from a specification hold its numbers.
+    try expect_findings("src/brotli/rfc_tables.zig", failing_fixture, &.{});
+    try expect_findings("src/unicode/unicode_tables.zig", failing_fixture, &.{});
     try expect_findings("tools/graph_check.zig", failing_fixture, &.{});
     try expect_findings("build/modules.zig", failing_fixture, &.{});
 }

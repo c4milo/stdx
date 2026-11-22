@@ -108,12 +108,13 @@ last part lists what still waits on a ruling.
 
    Amended by the owner on 2026-11-22: stdx is no longer compression codecs alone, so its modules
    are grouped by category, as `std` groups its own. A module `stdx` names each under its category:
-   `stdx.compress` holds `deflate`, `zlib`, `gzip`, `zstd` and `brotli`, `stdx.hash` is
-   `checksum`, and `stdx.unicode` holds `utf8`, beside `stdx.json`, `stdx.base64`, `stdx.regex`,
-   `stdx.platform` and `stdx.codec`. A program imports `stdx` alone and links every variant
-   object, some 10 KB each since decision 21's amendment of the same day. Each module stays a
-   module of its own, so the graph of design §3 still holds each codec to its imports, and each is
-   still exported by name, so a dependent that imports one keeps working.
+   `stdx.compress` holds `deflate`, `zlib`, `gzip`, `zstd` and `brotli`, `stdx.hash` is `checksum`,
+   and `stdx.unicode` is `unicode`, which names `utf8` as `unicode.utf8` beside Unicode's tables
+   (entry 86 as amended the same day), beside `stdx.json`, `stdx.base64`, `stdx.regex`,
+   `stdx.platform` and `stdx.codec`. A program imports `stdx` alone and links every variant object,
+   some 10 KB each since decision 21's amendment of the same day. Each module stays a module of its
+   own, so the graph of design §3 still holds each codec to its imports, and each is still exported
+   by name, so a dependent that imports one keeps working.
    - Those names are aliases for the move, ruled the same day: a new dependent imports `stdx`
      alone, and a later release removes the aliases once colibri, connect-zig, cocuyo and stompy
      import `stdx`. `src/` moves to the categories too: `src/compress/gzip/` and the like.
@@ -5618,6 +5619,33 @@ last part lists what still waits on a ruling.
     - A commit scope holds letters and hyphens, so the module has no scope, as `base64` has none.
     - Refused: the code in `codec`, which every codec imports and no codec needs it; and an edge
       from `regex` to `json`, which makes a matcher depend on a JSON decoder.
+
+    **Unicode's tables, built on 2026-11-22 by the owner's ruling of that day (design §8 step 22,
+    part 22e).** A module of its own, `unicode`, holds Unicode 17.0.0's general categories,
+    scripts and simple case folding. Go 1.27.4's regexp holds the same version.
+    - `tools/unicode/unicode_tables.zig` writes `src/unicode/unicode_tables.zig` from four files of
+      the Unicode Character Database, which `tools/unicode/ucd/` holds unmodified, and `zig build
+      test` fails when the file differs from what they give. The file is committed, as brotli's
+      tables are, so a dependent's build runs no tool. The lint's file-length and magic-numbers
+      rules leave it out by its basename.
+    - `property(name)` gives the ranges of a General_Category value, LC, a group of one letter, a
+      Script, or Any, ASCII or Assigned (UTS #18 RL1.2 and §1.2.5). A value has every name
+      PropertyValueAliases.txt gives it, and a Script its long name alone.
+    - A name compares by UAX44-LM3 (UAX #44 §5.9.3), with two narrowings that Go's regexp makes
+      too. The space is the one whitespace that does not count. An `is` before a name counts, as
+      UTS #18 §1.2.4 allows.
+    - `simple_fold` gives the next code point of an orbit: the code points that fold to one code
+      point under CaseFolding.txt's statuses C and S (UTS #18 RL1.5). `images` gives the next code
+      points of a range's code points as ranges, for a caller that folds a class.
+    - `unicode` names `utf8` as `unicode.utf8`, as Zig's `std.unicode` holds UTF-8 and Go's
+      `unicode/utf8` sits under `unicode`. That adds one edge, `unicode` to `utf8`, and `utf8`
+      stays a module of its own.
+    - The alternatives refused: the tables in `utf8`, which `json` imports and needs none of; the
+      data files parsed at comptime, which costs each dependent's build a parse of 600 KB of text;
+      and the groups of one letter joined at each call, which takes storage from the caller for
+      ranges the tables can hold.
+    - `regex` takes neither `\p{...}` nor `(?i)` past ASCII yet. `\p{L}` holds 684 ranges, and a
+      class holds at most `class_ranges_max`, 128, on the parser's stack.
 
     **The syntax.** RFC 9485 §3's grammar, the IETF's interoperable regular expression, with these
     forms of RE2's syntax beside it. Each refusal cites the section that does not hold the pattern.

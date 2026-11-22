@@ -8,9 +8,10 @@ holds a JSON encoder and decoder (RFC 8259, RFC 7464), under the same rules (dec
 `platform`, which a program calls once when it starts to learn what its CPU offers (decision 40). It
 holds RFC 4648's base 64 too, in its own module (decision 68), and `regex`, regular expressions
 matched in time linear in the text (decision 86). `json` and `regex` read RFC 3629's UTF-8 through
-one module, `utf8`. Home: github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng,
-libdeflate, libzstd, Google's brotli and Wuffs on the workloads it measures, with no heap and no
-I/O.
+one module, `utf8`, and `unicode` holds Unicode 17.0.0's general categories, scripts and case
+folding, with `utf8` as `unicode.utf8` (decision 86 as amended). Home: github.com/c4milo/stdx. It
+aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's brotli and Wuffs on the
+workloads it measures, with no heap and no I/O.
 
 It is a standalone library. colibri is its first consumer: colibri's h11 decodes HTTP/1.1's `gzip`
 and `deflate` transfer codings with it, and its qlog writes JSON text sequences with `json`. Other
@@ -75,12 +76,12 @@ The architecture depends on every rule in this section.
    production, about two per function, covering positive and negative space, for programmer error
    only (decision 17); the one loop that runs without them is decision 16's ruled exception.
    Hostile input returns an error value and fails closed; no input reaches an assertion.
-8. **One module per codec, plus the checksums, JSON, `platform`, `regex` and `utf8`.** Each is
-   exported by name with `b.addModule`, so a dependent reaches it with `dependency.module("gzip")`
-   (decision 6). The module `stdx` names each under its category, as `stdx.compress.gzip`, and no
-   other module imports it (decision 6 as amended). The modules' own names are aliases for the
-   move: a new dependent imports `stdx` alone. The library keeps no process-wide mutable state,
-   so a dependent may run codecs on as many threads as it likes.
+8. **One module per codec, plus the checksums, JSON, `platform`, `regex`, `unicode` and
+   `utf8`.** Each is exported by name with `b.addModule`, so a dependent reaches it with
+   `dependency.module("gzip")` (decision 6). The module `stdx` names each under its category, as
+   `stdx.compress.gzip`, and no other module imports it (decision 6 as amended). The modules' own
+   names are aliases for the move: a new dependent imports `stdx` alone. The library keeps no
+   process-wide mutable state, so a dependent may run codecs on as many threads as it likes.
 9. **Invariants are code.** Every numbered invariant in `docs/invariants.md` names the check that
    proves it: a comptime assert, a runtime assertion, a lint rule or a seeded check.
 
@@ -142,8 +143,8 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   `!` optional. The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
   `ci`, `chore`. A scope holds lowercase letters and hyphens. Scopes track the module graph:
   `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, `platform`, `regex`,
-  and `bench` and `oracle` for the benchmarks and the differential checks. A scope outside that
-  set is a warning.
+  `unicode`, and `bench` and `oracle` for the benchmarks and the differential checks. A scope
+  outside that set is a warning.
 - The description is imperative, starts with a lowercase letter, and ends without a period. The
   subject line stays at or under 72 columns.
 - Exactly one blank line separates the body from the subject. A body line stays at or under 100
@@ -175,12 +176,15 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - `tools/oracle/` holds the oracle bindings (`oracle.c`, `oracle.zig`), the RFCs' sample code
   (`rfc_samples.c`) and the oracles' self-test. `tools/differential/` holds the differential
   checks of stdx against them, and `tools/corpus/` the corpus fetcher, the corpus's names and the
-  tool that cuts the HTTP payloads.
+  tool that cuts the HTTP payloads. `tools/unicode/` holds the generator of the `unicode` module's
+  tables, and `tools/unicode/ucd/` its input: Unicode 17.0.0's data files, unmodified, with their
+  SHA-256 sums and license.
 - `bench/` holds the benchmarks, their scripts and their committed results. The baselines are
   compiled here and in `tools/`, and nowhere else. `bench/costs/` measures docs/costs.md.
 - `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
   (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
-- `docs/` is the design set. `docs/rfcs/` holds the RFCs.
+- `docs/` is the design set. `docs/rfcs/` holds the RFCs, and `docs/specs/` the other
+  specifications stdx is written from, each a document a person reads.
 - `spec/lean/` holds the Lean proofs of decisions 28 and 86, a Lake package pepegrillo's `lean`
   engine builds. Its `Vectors.lean` writes the vector files the unit tests of `src/utf8/`,
   `src/json/` and `src/regex/` replay.
@@ -256,8 +260,8 @@ Change this section when a step adds or renames a command.
   the checked reader and writer, decision 16). Every rule `tools/lint/main.zig` registers runs, and a canary
   tree in `build/lint.zig` proves it.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
-  `graph-check`, `platform-check`, `hook-check`, `brotli-tables-check` and
-  `brotli-table-budget-check`.
+  `graph-check`, `platform-check`, `hook-check`, `brotli-tables-check`,
+  `brotli-table-budget-check` and `unicode-tables-check`.
   `zig build test-<module>` runs one module's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build test-self-hosted` builds every module's tests with
   Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux, and runs them there; any
@@ -270,6 +274,10 @@ Change this section when a step adds or renames a command.
   from what it writes. `zig build brotli-table-budget-check` fails when a lookup table budget
   `src/brotli/constants.zig` pins differs from the worst table `tools/brotli_table_budget.zig`
   finds for its alphabet (decision 12).
+- Unicode tables: `zig build unicode-tables` writes `src/unicode/unicode_tables.zig` from the data
+  files of Unicode 17.0.0 in `tools/unicode/ucd/` with `tools/unicode/unicode_tables.zig`; `zig
+  build unicode-tables-check` fails when the committed file differs from what it writes (decision 86
+  as amended). The file-length and magic-numbers rules leave the file out by its basename.
 - Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
   then checks `src/utf8/utf8_vectors.txt`, `src/json/number_vectors.txt` and
   `src/regex/utf8_split_vectors.txt` are what the proved definitions give; `zig build lean --
@@ -474,8 +482,8 @@ Change this section when a step adds or renames a command.
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
-- RFCs and specifications: `cd docs/rfcs && shasum -a 256 -c SHA256SUMS`, and the same in
-  `docs/specs`.
+- RFCs, specifications and data: `cd docs/rfcs && shasum -a 256 -c SHA256SUMS`, and the same in
+  `docs/specs` and in `tools/unicode/ucd`.
 - Linux: Zig 0.16 fails to fetch a zip package on a machine whose global cache has no `tmp`
   directory. `tools/install_zig.sh` creates it; on a fresh Linux machine without that script, run
   `mkdir -p ~/.cache/zig/tmp` before the first `-Doracles` build.

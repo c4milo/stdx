@@ -1,8 +1,8 @@
 //! The module graph of docs/design.md §3: one module per codec, one for the checksums, one for JSON
-//! (decision 27), one for regular expressions and one for the UTF-8 both read (decision 86), one
-//! for the streaming contract every codec shares, and one that probes the CPU once when a program
-//! starts (decision 40). A module can `@import` only what this file gives it, so the dependency
-//! direction is enforced by the build and not by review (CLAUDE.md, Layout).
+//! (decision 27), one for regular expressions, one for the UTF-8 both read and one for Unicode's
+//! tables (decision 86), one for the streaming contract every codec shares, and one that probes the
+//! CPU once when a program starts (decision 40). A module can `@import` only what this file gives
+//! it, so the dependency direction is enforced by the build and not by review (CLAUDE.md, Layout).
 //!
 //! Every module here is library code and is exported by name with `b.addModule`, so a dependent
 //! reaches it with `dependency.module("gzip")` (decision 6). Nothing here imports a package: the
@@ -38,6 +38,9 @@ pub const Modules = struct {
     /// UTF-8, RFC 3629: the validator decision 28 proved, and the octets of one code point
     /// (decision 86). Imports nothing.
     utf8: *std.Build.Module,
+    /// Unicode 17.0.0's general categories, scripts and simple case folding, with `utf8` beside them
+    /// as the namespace `std.unicode` is (decisions 6 and 86 as amended).
+    unicode: *std.Build.Module,
     /// JSON, RFC 8259, and JSON text sequences, RFC 7464 (decision 27).
     json: *std.Build.Module,
     /// Base 64, RFC 4648 §4 and §5 (decision 68).
@@ -96,6 +99,10 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 
     const utf8 = library(b, "utf8", settings);
 
+    const unicode = library(b, "unicode", settings);
+    // `unicode.utf8`, so a program finds UTF-8 under `stdx.unicode` (decision 6 as amended).
+    unicode.addImport("utf8", utf8);
+
     const json = library(b, "json", settings);
     json.addImport("codec", codec);
     // `TextWriter.base64`'s letters (decision 73).
@@ -125,6 +132,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     stdx.addImport("zstd", zstd);
     stdx.addImport("brotli", brotli);
     stdx.addImport("utf8", utf8);
+    stdx.addImport("unicode", unicode);
     stdx.addImport("json", json);
     stdx.addImport("base64", base64);
     stdx.addImport("platform", platform);
@@ -139,6 +147,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .zstd = zstd,
         .brotli = brotli,
         .utf8 = utf8,
+        .unicode = unicode,
         .json = json,
         .base64 = base64,
         .platform = platform,

@@ -24,6 +24,7 @@ const oracle_regex = @import("build/oracle_regex.zig");
 const self_hosted = @import("build/self_hosted.zig");
 const avx512 = @import("build/avx512.zig");
 const brotli_tables = @import("build/brotli_tables.zig");
+const unicode_tables = @import("build/unicode_tables.zig");
 const lean = @import("build/lean.zig");
 const platform_check = @import("build/platform_check.zig");
 const checkfree = @import("build/checkfree.zig");
@@ -53,6 +54,7 @@ const plain_tool_test_roots = [_][]const u8{
     "tools/graph_check.zig",
     "tools/corpus/cut.zig",
     "tools/brotli_tables.zig",
+    "tools/unicode/unicode_tables.zig",
     "bench/costs/costs.zig",
 };
 
@@ -115,6 +117,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "platform", .module = graph.platform },
         .{ .name = "regex", .module = graph.regex },
         .{ .name = "utf8", .module = graph.utf8 },
+        .{ .name = "unicode", .module = graph.unicode },
         .{ .name = "stdx", .module = graph.stdx },
     };
     for (unit_test_modules) |entry| {
@@ -172,6 +175,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(platform_steps.tests);
     tool_test_step.dependOn(platform_steps.tests);
     test_step.dependOn(brotli_tables.add(b, host_module(b, "tools/brotli_tables.zig")));
+    test_step.dependOn(unicode_tables.add(b, host_module(b, "tools/unicode/unicode_tables.zig")));
     const host_graph = modules.add(b, .{ .target = b.graph.host, .optimize = .ReleaseFast, .visibility = .private });
     test_step.dependOn(brotli_tables.add_budget_check(b, host_graph.brotli));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

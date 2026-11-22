@@ -173,6 +173,7 @@ fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
 | `stdx.compress.zstd` | Zstandard, RFC 8878 and RFC 9659: the HTTP `zstd` coding |
 | `stdx.compress.brotli` | brotli, RFC 7932: the HTTP `br` coding |
 | `stdx.hash` | CRC-32, Adler-32 and XXH64 |
+| `stdx.unicode` | Unicode 17.0.0's general categories, scripts and simple case folding, from tables written from the Unicode Character Database (decision 86) |
 | `stdx.unicode.utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
 | `stdx.json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
 | `stdx.base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |

@@ -8,7 +8,10 @@
 //! and reports a file over the limit once, at the first line past it.
 //!
 //! Markdown is exempt: a document's audited unit is the section, not the file, and the design set
-//! is deliberately long.
+//! is deliberately long. So is a file a tool writes, which no person splits: a table generated from
+//! a specification joins the exclusions in the commit that adds its generator, named by its
+//! basename. `unicode_tables.zig`, which tools/unicode/unicode_tables.zig writes from Unicode
+//! 17.0.0's data files, is the one.
 //!
 //! The rule is pepegrillo's `file_length` (decision 7). This file holds stdx's configuration of it
 //! and the fixtures that pin that configuration.
@@ -21,11 +24,13 @@ const file_length = lint.rules.file_length;
 /// The most lines a hand-written file may hold.
 pub const max_lines: u32 = 500;
 
-/// The configuration: `.zig` and `.sh` files under `src/`, `tools/`, `build/` and `bench/`.
+/// The configuration: `.zig` and `.sh` files under `src/`, `tools/`, `build/` and `bench/`, but for
+/// the generated tables.
 pub const config: file_length.Config = .{
     .scope = .{
         .extensions = &.{ ".zig", ".sh" },
         .include_directories = &.{ "src", "tools", "build", "bench" },
+        .exclude_basenames = &.{"unicode_tables.zig"},
     },
     .lines_max = max_lines,
     .message_suffix = "; split the file",
@@ -79,4 +84,11 @@ test "file-length reads no file outside the directories it names" {
     const arena = arena_state.allocator();
     try harness.expect_messages(try harness.run(arena, Rule, "docs/design.md", failing_fixture), &.{});
     try harness.expect_messages(try harness.run(arena, Rule, "build.zig", failing_fixture), &.{});
+}
+
+test "file-length leaves out the generated tables, by basename alone" {
+    try testing.expect(!config.scope.applies("src/unicode/unicode_tables.zig"));
+    // A hand-written file beside them stays in, and so does a file of another name that ends alike.
+    try testing.expect(config.scope.applies("src/unicode/property.zig"));
+    try testing.expect(config.scope.applies("src/unicode/my_unicode_tables.zig"));
 }

@@ -32,6 +32,8 @@ const passing_build: [:0]const u8 =
     \\    const base64 = library(b, "base64", target, optimize);
     \\    base64.addImport("codec", codec);
     \\    const utf8 = library(b, "utf8", target, optimize);
+    \\    const unicode = library(b, "unicode", target, optimize);
+    \\    unicode.addImport("utf8", utf8);
     \\    const json = library(b, "json", target, optimize);
     \\    json.addImport("codec", codec);
     \\    json.addImport("base64", base64);
@@ -49,6 +51,7 @@ const passing_build: [:0]const u8 =
     \\    stdx.addImport("zstd", zstd);
     \\    stdx.addImport("brotli", brotli);
     \\    stdx.addImport("utf8", utf8);
+    \\    stdx.addImport("unicode", unicode);
     \\    stdx.addImport("json", json);
     \\    stdx.addImport("base64", base64);
     \\    stdx.addImport("platform", platform);
@@ -193,8 +196,8 @@ test "module-graph reads the created modules and the edges of every receiver" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
-    try testing.expectEqual(13, calls.modules.len);
-    try testing.expectEqual(28, calls.edges.len);
+    try testing.expectEqual(14, calls.modules.len);
+    try testing.expectEqual(30, calls.edges.len);
     try testing.expectEqualStrings("deflate", calls.edges[0].module);
     try testing.expectEqualStrings("codec", calls.edges[0].name);
     try testing.expectEqualStrings("brotli", calls.edges[9].module);
@@ -240,6 +243,7 @@ test "the expected graph is design §3's table" {
         .{ "base64", "codec" },
         .{ "regex", "codec" },
         .{ "regex", "utf8" },
+        .{ "unicode", "utf8" },
         .{ "stdx", "codec" },
         .{ "stdx", "checksum" },
         .{ "stdx", "deflate" },
@@ -248,6 +252,7 @@ test "the expected graph is design §3's table" {
         .{ "stdx", "zstd" },
         .{ "stdx", "brotli" },
         .{ "stdx", "utf8" },
+        .{ "stdx", "unicode" },
         .{ "stdx", "json" },
         .{ "stdx", "base64" },
         .{ "stdx", "platform" },
@@ -256,7 +261,7 @@ test "the expected graph is design §3's table" {
     var edge_count: usize = 0;
     for (module_graph.expected_graph) |module| edge_count += module.imports.len;
     try testing.expectEqual(table.len, edge_count);
-    try testing.expectEqual(13, module_graph.expected_graph.len);
+    try testing.expectEqual(14, module_graph.expected_graph.len);
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
 }
 

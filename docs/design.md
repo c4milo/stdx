@@ -76,6 +76,7 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
 | `brotli` | brotli | `codec` | 7932 |
 | `utf8` | UTF-8: a validator that takes one octet at a time, and the octets of one code point (decisions 28 and 86) | nothing | 3629 |
+| `unicode` | Unicode 17.0.0's general categories, scripts and simple case folding, from tables a tool writes from the Unicode Character Database, and `utf8` as `unicode.utf8` (decision 86 as amended) | `utf8` | none |
 | `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64`, `utf8` | 8259, 7464 |
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
@@ -83,11 +84,12 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform` and `codec`, as `std` groups its own (decision 6 as amended) | every module above | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
-and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision 73).
-`json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
-reaches it. No module but `stdx` reaches `platform`, and no module reaches `regex` or `stdx`.
-No library module receives a package: pepegrillo, the oracles and the corpora are requested by
-`build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
+and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision
+73). `json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
+reaches it. `unicode` reaches `utf8` to name it as `unicode.utf8`, and no codec reaches `unicode`.
+No module but `stdx` reaches `platform`, and no module reaches `regex` or `stdx`. No library module
+receives a package: pepegrillo, the oracles and the corpora are requested by `build.zig` for
+`tools/` and `bench/` only, after the point a dependent's build stops.
 
 Outside the library, and never imported by it:
 
@@ -7894,7 +7896,8 @@ to 12 are reordered and nothing else changes.
     RE2 has both. Each must give the matcher's groups.
   - **22e: Unicode's tables.** `\p{...}`, and `(?i)` past ASCII, from tables a tool generates
     from a pinned copy of the Unicode Character Database, as `zig build brotli-tables` generates
-    brotli's. With them, RFC 9485 §3.1's checking implementation.
+    brotli's. With them, RFC 9485 §3.1's checking implementation. Its first half is built: the
+    module `unicode`, whose record is below. `regex` takes the tables in the second half.
   - **22f: a range quantifier with no copies.** Counting-set automata (Turoňová and others,
     OOPSLA 2020) keep a count in a register where the operand is one class of characters. An
     experiment: it lands only if its states stay bounded where copies do not.
@@ -8619,6 +8622,40 @@ to 12 are reordered and nothing else changes.
   - `e2a7db9` is now `4f16ca0`.
   - `1b0002a` is now `89d224f`.
   - `43d309e` is now `d355d8c`.
+
+  **Part 22e, its first half built: Unicode 17.0.0's tables in the module `unicode` (decision 86
+  as amended, the owner's ruling of 2026-11-22).** `tools/unicode/unicode_tables.zig` writes
+  `src/unicode/unicode_tables.zig` from four files of the Unicode Character Database, which
+  `tools/unicode/ucd/` holds. `unicode.property` gives the ranges of the property a name names.
+  `unicode.simple_fold` and `unicode.images` give the case orbits of CaseFolding.txt's statuses C
+  and S. The second half, `\p{...}` and `(?i)` past ASCII in `regex`, waits on
+  `class_ranges_max`, 128: `\p{L}` holds 684 ranges, and `\p{C}` holds 741.
+  **Check:** each name and its loose forms; the names refused; the longest name; each property's
+  ranges in order and apart; Any, ASCII and Assigned; the General_Category values of two letters
+  as a partition of the codespace; LC and the groups of one letter; every orbit a cycle in
+  ascending order of at most `orbit_len_max` code points; the images of every code point; the
+  tool's own tests; `zig build unicode-tables-check`; Go's regexp's classes; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 120 of 120 steps passed. `zig build test-self-hosted test-avx512`:
+  104 of 104 steps passed.
+  - Go's regexp/syntax built the class of `\p{name}` and of `(?i)\p{name}` for 257 names: each
+    name that PropertyValueAliases.txt gives a General_Category value, each Script of Scripts.txt,
+    and Any, ASCII and Assigned. Go took all 257. The data files and the orbits gave the same code
+    points in 512 of the 514 classes.
+  - The other two are `(?i)\p{LC}` and `(?i)\p{Cased_Letter}`, where Go leaves out U+0345, which
+    folds to ι, an Ll. Go's `(?i)\p{L}` and `(?i)\p{Ll}` hold U+0345, and the orbits give it to LC
+    too, as UTS #18 RL1.5 asks.
+  - Go's `unicode.SimpleFold` gave each code point from 0 to U+10FFFF the next code point that the
+    orbits give.
+  - Go refuses an `is` before a name, a Script's code of four letters, `Unknown`, and a name that
+    holds a tab, U+00A0 or a letter past ASCII. `property` refuses each.
+  - The tables hold 8,356 ranges in 215 properties, 257 names and 379 runs: about 67 KB of
+    ranges in a program that calls `property`. The file holds 3,701 lines.
+  - Mutations: 27, each against the narrowest check. 24 CAUGHT: 9 of `property.zig` and
+    `constants.zig` and 8 of `fold.zig` by `zig build test-unicode`, and 7 of the tool by its own
+    tests. 3 NOT CAUGHT by the tool's tests, which each got a test and are now CAUGHT: a pair whose
+    second code point goes on to a third, LC without Lt, and a line of CaseFolding.txt with a
+    fourth field. `zig build unicode-tables-check` caught the first two already.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
