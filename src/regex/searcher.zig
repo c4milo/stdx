@@ -19,6 +19,7 @@ const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
 const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
+const Literal = @import("literal.zig").Literal;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -33,6 +34,11 @@ pub const Claims = struct {
     /// one, `skip_lanes` octets a step. It rests where the texts hold such octets too close
     /// together for a skip to pay, and tries again later.
     start_skip: bool = true,
+    /// R2: where every match starts with a literal of two octets or more, that skip goes to the
+    /// next place of the literal, found with its first and last octets `skip_lanes` places a
+    /// step. Where the pattern is that literal and nothing else, the searcher reads no DFA: a
+    /// place of the literal is a match. Only with `start_skip`.
+    literal: bool = true,
 };
 
 pub const Searcher = struct {
@@ -44,6 +50,8 @@ pub const Searcher = struct {
     reverse_ready: bool,
     /// The searches in which a DFA gave up.
     give_ups: u32,
+    /// Claim R2: the pattern, where it is a literal and nothing else.
+    exact: ?Literal,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -68,7 +76,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(
@@ -77,10 +85,16 @@ pub const Searcher = struct {
             cache[forward_len..],
         );
         searcher.give_ups = 0;
+        // A DFA that `init` refused holds no literal. Without a cache the matcher answers alone.
+        searcher.exact = null;
+        if (searcher.forward_ready) {
+            if (searcher.forward.literal) |literal| searcher.exact = if (literal.exact) literal else null;
+        }
     }
 
     /// True when the haystack holds a match.
     pub fn is_match(searcher: *Searcher, haystack: []const u8) bool {
+        if (searcher.exact) |*literal| return literal.find(haystack, 0) != null;
         if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
             switch (searcher.forward.scan_forward(haystack, 0, true)) {
                 .gave_up => searcher.give_ups += 1,
@@ -127,6 +141,10 @@ pub const Searcher = struct {
     /// The match as the two DFAs find it, or null when the searcher has no DFA for the search or
     /// one gave up.
     fn find_by_dfa(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
+        if (searcher.exact) |*literal| {
+            const start = literal.find(haystack, from) orelse return .{ .span = null };
+            return .{ .span = .{ .start = start, .end = start + literal.len } };
+        }
         if (!searcher.forward_ready or !searcher.reverse_ready) return null;
         if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
         const end = switch (searcher.forward.scan_forward(haystack, from, false)) {
@@ -192,4 +210,5 @@ pub const Matches = struct {
 test {
     _ = @import("searcher_test.zig");
     _ = @import("searcher_skip_test.zig");
+    _ = @import("searcher_literal_test.zig");
 }

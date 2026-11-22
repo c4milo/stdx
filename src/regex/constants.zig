@@ -138,6 +138,21 @@ pub const cache_words_default = 1 << 16;
 /// every x86-64 and aarch64 CPU has (claim R1).
 pub const skip_lanes = 16;
 
+/// The octets of the literal every match starts with that claim R2 keeps at most. A place where
+/// the literal's first and last octets stand costs a comparison of this many octets at most, so a
+/// search stays linear in the text. A longer literal keeps its first octets, which every match
+/// still starts with.
+pub const literal_len_max = 32;
+
+/// The steps of `skip_lanes` octets that claim R2's search tests before it looks for a candidate
+/// in one: 64 octets, whose mask fits one word. A text with few candidates then costs one
+/// branch for each 64 octets, not one for each 16.
+pub const literal_steps = 4;
+
+/// The shortest literal that claim R2 searches for where more of the pattern follows it. One
+/// octet is claim R1's skip, which judges `skip_ranges_max` ranges a step.
+pub const literal_prefix_len_min = 2;
+
 /// The ranges of octets a step of a skip judges at most. Three hold a literal's first octet in
 /// both cases with one more, the first letters of a few words, or a class such as `[0-9A-Fa-f]`.
 /// A set of more ranges is skipped one octet at a time.

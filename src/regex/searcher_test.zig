@@ -11,7 +11,8 @@ const matcher_test = @import("matcher_test.zig");
 const matcher_file = @import("matcher.zig");
 const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
-const Searcher = @import("searcher.zig").Searcher;
+const searcher_file = @import("searcher.zig");
+const Searcher = searcher_file.Searcher;
 const Dfa = @import("dfa.zig").Dfa;
 const Program = @import("program.zig").Program;
 const Instruction = @import("program.zig").Instruction;
@@ -34,10 +35,15 @@ pub const Fixture = struct {
 
     /// Compiles `pattern` and gives the searcher `cache_words` words of cache.
     pub fn init(fixture: *Fixture, pattern: []const u8, cache_words: usize) !void {
+        return fixture.init_with(pattern, .{}, cache_words);
+    }
+
+    /// `init`, with the claims a test names.
+    pub fn init_with(fixture: *Fixture, pattern: []const u8, claims: searcher_file.Claims, cache_words: usize) !void {
         fixture.program = try compiler.compile(pattern, .{}, &fixture.storage);
         if (fixture.program.group_count > groups_len) return error.TestTooManyGroups;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
-        fixture.searcher.init(&fixture.program, fixture.memory[0..len]);
+        fixture.searcher.init_with(&fixture.program, claims, fixture.memory[0..len]);
         fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
     }
 

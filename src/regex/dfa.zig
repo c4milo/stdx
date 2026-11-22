@@ -21,41 +21,13 @@ const Context = program_file.Context;
 const SparseSet = @import("sparse_set.zig").SparseSet;
 const Cache = @import("dfa_cache.zig").Cache;
 const Skip = @import("dfa_skip.zig").Skip;
+const Literal = @import("literal.zig").Literal;
 const is_continuation = @import("utf8_ranges.zig").is_continuation;
 
-/// Which matches a DFA reports.
-pub const Kind = enum {
-    /// The forward program: a thread that matches ends every thread after it, as in the matcher,
-    /// so the last match a scan sees is the one a backtracking matcher finds first.
-    first,
-    /// Every match is kept, so the last match a scan sees is the longest. The reverse program runs
-    /// this way from a match's end, to find its start.
-    longest,
-};
-
-pub const Config = struct {
-    /// Where the program starts.
-    entry: u32,
-    kind: Kind,
-    /// Whether a match must start at the scan's first octet.
-    anchored: bool,
-    /// Claim R1: whether a forward scan that waits for a match to start skips to the next octet
-    /// that can start one (dfa_skip.zig). Only for a DFA of `Kind.first` that is not anchored:
-    /// an anchored scan waits for no match, and the reverse program starts where a match ends.
-    skip: bool = false,
-};
-
-/// What a scan found: the offset its last match ended at in the scan's direction, none, or
-/// nothing, because the cache thrashed.
-pub const Scan = union(enum) {
-    gave_up,
-    none,
-    found: usize,
-
-    fn of(last: ?usize) Scan {
-        return if (last) |offset| .{ .found = offset } else .none;
-    }
-};
+const dfa_config = @import("dfa_config.zig");
+pub const Kind = dfa_config.Kind;
+pub const Config = dfa_config.Config;
+pub const Scan = dfa_config.Scan;
 
 /// The lists a DFA builds a state with, each as long as the program: two sets of two lists, the
 /// threads and the stack.
@@ -92,6 +64,8 @@ pub const Dfa = struct {
     mark: usize,
     /// Claim R1. The octets a match can start with, known once a scan asked for them.
     skip: Skip,
+    /// Claim R2. The literal every match starts with, where the skip goes instead.
+    literal: ?Literal,
     skip_known: bool,
     /// The row of the state that waits for a match to start, with no thread: a scan in it may
     /// skip. `dfa_unknown` where the DFA skips nothing, or the cache holds no such state now.
@@ -128,6 +102,7 @@ pub const Dfa = struct {
     pub fn init(dfa: *Dfa, program: *const Program, config: Config, memory: []u32) bool {
         if (memory.len < memory_len_min(program)) return false;
         assert(!config.skip or (config.kind == .first and !config.anchored));
+        assert(!config.literal or config.skip);
         const len = program.instructions.len;
         var rest = memory;
         dfa.* = .{
@@ -147,6 +122,7 @@ pub const Dfa = struct {
             .reached = false,
             .mark = 0,
             .skip = undefined,
+            .literal = if (config.literal and config.skip) Literal.of(program) else null,
             .skip_known = false,
             .idle = constants.dfa_unknown,
             .skip_visits = 0,
@@ -333,7 +309,9 @@ pub const Dfa = struct {
     /// next octet that can start a match, which is `from` where its own octet can.
     fn pass(dfa: *Dfa, haystack: []const u8, from: usize) usize {
         var index = from;
-        if (!dfa.skip.starts[haystack[from]]) index = dfa.skip.next(haystack, from + 1);
+        if (dfa.literal) |*literal| {
+            index = literal.find(haystack, from) orelse haystack.len;
+        } else if (!dfa.skip.starts[haystack[from]]) index = dfa.skip.next(haystack, from + 1);
         dfa.skip_octets += index - from;
         dfa.skip_visits += 1;
         if (dfa.skip_visits == constants.skip_trial_visits) dfa.judge_skip();

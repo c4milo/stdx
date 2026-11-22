@@ -68,8 +68,9 @@ test "a searcher that skips gives what the matcher gives, from every offset, und
 test "a searcher skips only where one state waits for a match to start" {
     var fixture: Fixture = .{};
     const haystack = "x" ** haystack_len;
-    // A literal: one octet starts a match, and the state that waits is known after a search.
-    try init_roomy(&fixture, "Ph");
+    // One octet starts a match, and the state that waits is known after a search. A pattern that
+    // starts with a literal of two octets goes to claim R2 instead.
+    try init_roomy(&fixture, "P[hi]");
     try fixture.expect_agree(haystack, 0);
     try testing.expect(fixture.searcher.forward.skip_known);
     try testing.expect(fixture.searcher.forward.idle != constants.dfa_unknown);
@@ -208,7 +209,7 @@ test "a skip that passes few octets a visit rests and is tried again, and one th
     // A `q` after each long gap: a visit passes the gap.
     var sparse: [4 * constants.skip_octets_per_visit_min * constants.skip_trial_visits]u8 = undefined;
     for (&sparse, 0..) |*octet, index| octet.* = if (index % (2 * constants.skip_octets_per_visit_min) == 0) 'q' else 'x';
-    try init_roomy(&fixture, "qz");
+    try init_roomy(&fixture, "q[yz]");
     try fixture.expect_agree(&sparse, 0);
     try testing.expect(!fixture.searcher.forward.skip_off);
     try testing.expect(fixture.searcher.forward.idle != constants.dfa_unknown);

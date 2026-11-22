@@ -5659,6 +5659,25 @@ last part lists what still waits on a ruling.
         The counts change the work alone, and never an answer.
       - `Searcher.init_with` takes `SearcherClaims`, whose `start_skip` turns the claim off.
         `bench-regex` times that searcher as `stdx, no skip`, beside the claim on, in one run.
+    - Claim R2: where every match starts with a literal of two octets or more, R1's skip goes to
+      the next place of that literal. Where the pattern is that literal and nothing else, the
+      searcher reads no DFA: each place of the literal is a match (design §8 step 22, part 22c).
+      - `Literal.of` reads the literal from the forward program: the instructions from the entry
+        that each take one octet, through saves, up to `literal_len_max`, 32 octets.
+      - `Literal.find` compares the literal's first and last octets at their distance, 16
+        octets a step and 4 steps a block, as Muła (2016) describes. It compares the whole
+        literal only where both stand. A place costs at most 32 octets compared, and each step
+        moves on, so a search stays linear in the text.
+      - Rust's regex crate does the same with memchr's memmem, which the owner's ruling of
+        2026-11-21 let this entry read for its method. memmem picks the two octets that its
+        table of octet frequencies ranks rarest. stdx takes the first and the last octet and
+        keeps no table.
+      - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
+        `stdx, no skip` turns off both.
+      - What R2 does not do yet, from the reading of Rust's crate: a search for one of several
+        literals (Teddy), a literal that ends every match with a reverse scan from it, the skip
+        under an assertion such as `\b`, and AVX2's 32 lanes, which Rust's crate picks at run
+        time on x86-64.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
@@ -5683,7 +5702,8 @@ last part lists what still waits on a ruling.
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
-    `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R1's: `skip_lanes`, 16;
+    `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
+    32; `literal_prefix_len_min`, 2; and `literal_steps`, 4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
 

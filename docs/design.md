@@ -8064,6 +8064,52 @@ to 12 are reordered and nothing else changes.
       text, `\bPharaoh\b`, `(?m)^[A-Z][a-z]+:`, `[a-q][^u-z]{13}x` and the five patterns of
       short texts. So the claim costs a search nothing where it gains nothing.
 
+  **Part 22c, claim R2 built: the skip goes to the literal every match starts with (decision
+  86).** The owner asked on 2026-11-21 that stdx do as well as Rust's regex crate, and ruled that
+  its source may be read for its methods. A reading of it found that literal search explains most
+  of the gap. `src/regex/literal.zig` reads the literal from the forward program and searches for
+  it. `Dfa.pass` goes to its next place, and `Searcher` reads no DFA where the pattern is the
+  literal.
+  **Check:** `Literal.of` gives each pattern's literal, or none, as a table of patterns requires;
+  `Literal.find` gives what a plain search gives from every offset; a searcher with R2 gives the
+  matcher's answer from every offset under each cache size; the oracle check of part 22b passes
+  with R2 on; mutations.
+
+  **Check passed, part 22c, claim R2, 2026-11-21.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux
+  6.18, in a cloud container. `zig build test`: 99 of 99 steps, 1,294 tests passed and 6
+  skipped. `zig build test-self-hosted`: 49 of 49 steps. `zig build differential-regex
+  -Doracles`: 12,437,544 cases, none failed.
+  - In the container, which orders candidates and publishes no number, R1 with R2 ran the
+    benchmark's searches of a literal at 4 to 15 times R1 alone: `Sherlock`, `Pharaoh` and
+    `Population` at 12 to 20 GB/s, `href="[^"]*"` at 10 to 17 GB/s. The first form read each
+    step's 16 octets through a slice of its own, and the compiler kept a bounds check and an
+    overflow check on each: 6 GB/s. A block of 64 octets read through two slices of fixed
+    length took them out.
+  - The hosted runners' `bench-regex`, with main's `85d3fe7` as its base in the same job, is
+    the measure. No number is claimed before it.
+  - A fault found on the way: `Searcher.init` read the literal of a forward DFA that `Dfa.init`
+    had refused, and so had not set. The searcher now takes a literal only from a DFA that is
+    ready, and a test starts from a searcher that held one.
+  - Mutations, each against `zig build test-regex`: 20, of which 17 CAUGHT by a named test, 1
+    CAUGHT by a halt, and 2 NOT CAUGHT.
+    - The literal, each CAUGHT by a named test: a range of several octets taken as one octet;
+      a literal past 32 octets that goes on; the walk through a split, or through an
+      assertion; no pattern taken as its literal; a literal of one octet kept where more of
+      the pattern follows.
+    - The search, each CAUGHT by a named test: a haystack as long as the literal searched for
+      none; the last place left out; a candidate not compared whole; a candidate one place too
+      far; a block's last octets read one place early; a step's mask at another step's place;
+      the octets after the last block not searched.
+    - NOT CAUGHT: a block that compares the first octets alone, and a tail that compares no
+      first octet before the whole literal. Each changes the work alone: every candidate is
+      compared whole, so no answer changes. The benchmark is their measure.
+    - The DFA and the searcher: a skip to the literal one octet late, the switch of R2 read
+      nowhere, a match of the literal one octet short, and a literal taken from a refused DFA,
+      each CAUGHT by a named test. A searcher that never takes its literal: CAUGHT by a halt.
+  - The mutations of claim R1, run again after its tests moved to patterns that start with no
+    literal of two octets: 37, of which 30 CAUGHT by a named test, 5 by a halt, and the same 2
+    NOT CAUGHT.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

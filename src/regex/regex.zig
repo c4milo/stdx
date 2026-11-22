@@ -49,6 +49,7 @@ test {
     _ = matcher;
     _ = @import("sparse_set.zig");
     _ = @import("dfa.zig");
+    _ = @import("literal.zig");
     _ = searcher;
     _ = @import("generate_test.zig");
     _ = @import("fuzz_test.zig");
