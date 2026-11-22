@@ -46,7 +46,10 @@ jobs:
         runner: [ubuntu-26.04, ubuntu-26.04-arm, macos-26]
         module: ${{ fromJSON(needs.modules.outputs.modules) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 240
+    # A hosted runner stops a job at 6 hours, and 350 minutes leaves 10 for the steps that write
+    # the report. At 2M runs, json on x86-64 took 234 minutes in run 80 and passed 240 in run 81,
+    # brotli on x86-64 passed 240 in run 75, and deflate on arm64 takes 230 to 233 each night.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The packages the ci and bench workflows keep, restored as they restore them. A fuzz build
