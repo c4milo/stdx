@@ -160,7 +160,10 @@ pub const Dfa = struct {
         // A program with an assertion has no skip, so claim R5 is for one with none.
         if (config.literal_set and config.skip and dfa.literal == null and !program.has_looks) dfa.literals = LiteralSet.of(program);
         if (dfa.literal) |*literal| literal.wide = config.wide;
-        if (dfa.literals) |*set| set.wide = config.wide;
+        if (dfa.literals) |*set| {
+            set.wide = config.wide;
+            set.ssse3 = config.ssse3;
+        }
         const stride = stride_of(program);
         const pair_stride = dfa.pair_stride_of(program, config, rest.len);
         dfa.cache.init(rest, stride, pair_stride);

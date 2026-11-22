@@ -8560,6 +8560,21 @@ to 12 are reordered and nothing else changes.
   to 1.23 times as fast, `(?:the|and)[ ,]`, whose matches stand closest, 1.06 times. It changes
   where a search starts and no answer, so it carries no mutation.
 
+  **Part 22c, Teddy on SSSE3 (decisions 21 and 86).** A CPU with SSSE3 and no AVX2 searched a
+  set with the SSE2 compares, whose cost grows with each literal. Rust's crate takes Teddy there
+  with SSSE3's PSHUFB. `codec.Features.ssse3` reads CPUID's leaf 1, a variant level
+  `x86_64_ssse3` builds `literal_teddy.zig` at 16 lanes, and `LiteralSet.find` calls it for a
+  caller whose features name SSSE3 and not AVX2, from `teddy_count_min` literals.
+  **Check:** the set's search from every offset with SSSE3's object, a searcher whose features
+  name SSSE3 alone, and the object's instructions: PSHUFB and no instruction of AVX; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container. `zig
+  build test`: 111 of 111 steps passed. The object holds 90 PSHUFB and no VEX instruction.
+  - In the container, best of 135 runs over the bible's first MiB, SSSE3's Teddy over the SSE2
+    compares: sets of 4 at 1.08 to 1.20, 5 at 1.36 to 1.44, and 8 at 1.37 to 2.19.
+  - Mutations, each against `zig build test-regex`: 3. 2 CAUGHT: PSHUFB's operands swapped,
+    CAUGHT once the object built from the baseline, and no searcher taking SSSE3. 1 NOT CAUGHT,
+    which changes no answer: the object for sets of 2 and 3 literals too.
+
   **Part 22c, the history from `0fec1a4` on was written again (the owner's ruling of
   2026-11-22).** Its first 17 commits named Claude as their author and committer, which the
   owner does not allow. Each of the 47 commits kept its tree, its message and its dates, and took

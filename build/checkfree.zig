@@ -14,7 +14,7 @@ pub fn add(b: *std.Build, tool_module: *std.Build.Module) *std.Build.Step {
     if (b.args) |args| run.addArgs(args);
     for (architectures) |arch| {
         const target = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .linux });
-        add_levels(b, run, "checksum", target, variants.levels_of(arch));
+        add_levels(b, run, "checksum", target, &variants.checksum_levels);
         add_levels(b, run, "json", target, &variants.json_levels);
     }
     const step = b.step(

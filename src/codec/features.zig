@@ -16,6 +16,9 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 pub const Features = struct {
+    /// x86-64: SSSE3's PSHUFB, a lookup of 16 entries for each of 16 lanes, which needs no
+    /// register the operating system saves beyond SSE2's.
+    ssse3: bool = false,
     /// x86-64: PCLMULQDQ, with SSE4.1.
     pclmul: bool = false,
     /// x86-64: AVX2, with the operating system saving the YMM registers.
@@ -97,6 +100,7 @@ fn detect_cpu() Features {
 fn from_target(cpu: std.Target.Cpu) Features {
     return switch (cpu.arch) {
         .x86_64 => .{
+            .ssse3 = has_x86(cpu, .ssse3),
             .pclmul = has_x86(cpu, .pclmul) and has_x86(cpu, .sse4_1),
             .avx2 = has_x86(cpu, .avx2),
             .bmi2 = has_x86(cpu, .bmi2) and has_x86(cpu, .ssse3),
@@ -225,6 +229,7 @@ fn from_x86(registers: X86Registers) Features {
     const avx512_bits = x86.ebx_avx512f | x86.ebx_avx512bw | x86.ebx_avx512dq | x86.ebx_avx512vl;
     const avx512 = zmm and all(registers.leaf_7_ebx, avx512_bits);
     return .{
+        .ssse3 = all(registers.leaf_1_ecx, x86.ecx_ssse3),
         .pclmul = all(registers.leaf_1_ecx, x86.ecx_pclmulqdq | x86.ecx_sse4_1),
         .avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2),
         .bmi2 = all(registers.leaf_1_ecx, x86.ecx_ssse3) and all(registers.leaf_7_ebx, x86.ebx_bmi2),
@@ -331,21 +336,23 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
 }
 
-test "BMI2 counts only with SSSE3, and needs no register saved" {
+test "SSSE3 counts alone, BMI2 only with SSSE3, and neither needs a register saved" {
     const both: X86Registers = .{ .vendor_amd = false, .vendor_intel = false, .leaf_1_ecx = 0x0000_0200, .leaf_7_ebx = 0x0000_0100, .leaf_7_ecx = 0, .xcr0 = 0 };
-    try testing.expectEqual(Features{ .bmi2 = true }, from_x86(both));
+    try testing.expectEqual(Features{ .ssse3 = true, .bmi2 = true }, from_x86(both));
     var no_ssse3 = both;
     no_ssse3.leaf_1_ecx = 0;
     try testing.expectEqual(Features{}, from_x86(no_ssse3));
     var no_bmi2 = both;
     no_bmi2.leaf_7_ebx = 0;
-    try testing.expectEqual(Features{}, from_x86(no_bmi2));
-    // The target's features: BMI2 alone is not enough.
+    try testing.expectEqual(Features{ .ssse3 = true }, from_x86(no_bmi2));
+    // The target's features: BMI2 alone is not enough, and SSSE3 alone is SSSE3.
     var cpu = std.Target.x86.cpu.x86_64.toCpu(.x86_64);
+    try testing.expect(!from_target(cpu).ssse3);
     cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.bmi2));
     try testing.expect(!from_target(cpu).bmi2);
     cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
     try testing.expect(from_target(cpu).bmi2);
+    try testing.expect(from_target(cpu).ssse3);
 }
 
 test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does not" {

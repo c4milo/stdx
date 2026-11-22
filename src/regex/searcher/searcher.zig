@@ -89,6 +89,12 @@ fn wide_of(features: codec.Features) bool {
     return literal_file.has_kernels and features.avx2;
 }
 
+/// Whether claim R5 takes Teddy in the variant object of SSSE3: on x86-64 with SSSE3 and no
+/// AVX2, whose object searches wider.
+fn ssse3_of(features: codec.Features) bool {
+    return literal_file.has_kernels and features.ssse3 and !features.avx2;
+}
+
 /// Judges claim R6 for the matcher's program, with the matcher's lists.
 fn judge_one_pass(matcher: *Matcher) OnePass {
     if (!one_pass.check(matcher)) return .no;
@@ -136,7 +142,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .pairs = claims.pairs },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(

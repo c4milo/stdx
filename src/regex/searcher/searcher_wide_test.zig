@@ -19,11 +19,15 @@ fn expect_agree_wide(fixture: *Fixture, features: codec.Features, patterns: []co
     var generator = codec.testing.split.Generator.init(seed);
     var haystack: [literal_test.haystack_len]u8 = undefined;
     const wide = has_kernels and features.avx2;
+    const ssse3 = has_kernels and features.ssse3 and !features.avx2;
     for (patterns) |pattern| {
         try fixture.init(pattern, 0);
         try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
         if (fixture.searcher.forward.literal) |literal| try testing.expectEqual(wide, literal.wide);
-        if (fixture.searcher.forward.literals) |set| try testing.expectEqual(wide, set.wide);
+        if (fixture.searcher.forward.literals) |set| {
+            try testing.expectEqual(wide, set.wide);
+            try testing.expectEqual(ssse3, set.ssse3);
+        }
         if (fixture.searcher.suffix) |suffix| try testing.expectEqual(wide, suffix.wide);
         for (0..texts_per_pattern) |_| {
             for (&haystack) |*octet| octet.* = alphabet[generator.below(alphabet.len)];
@@ -41,4 +45,14 @@ test "a searcher with the host's features gives what the matcher gives, for each
     var suffixes: [suffix_test.suffix_cases.len][]const u8 = undefined;
     for (&suffixes, suffix_test.suffix_cases) |*pattern, case| pattern.* = case.pattern;
     try expect_agree_wide(&fixture, fixture.features, &suffixes, suffix_test.alphabet);
+}
+
+/// Sets of `teddy_count_min` literals and more, which SSSE3's Teddy searches.
+const teddy_sets = [_][]const u8{ "Abraham|Isaac|Jacob|Joseph", "Ab|Is|Ja|Jo|Mo|Aa|Da|Sa", "(?:Ab|Is|Ja|Jo)[a-z]" };
+
+test "a searcher with SSSE3 and no AVX2, as an older CPU has, gives what the matcher gives for sets" {
+    if (!(has_kernels and codec.Features.detect().ssse3)) return error.SkipZigTest;
+    var fixture: Fixture = .{ .features = .{ .ssse3 = true } };
+    try expect_agree_wide(&fixture, fixture.features, &literal_test.sets_patterns, literal_test.sets_alphabet);
+    try expect_agree_wide(&fixture, fixture.features, &teddy_sets, literal_test.sets_alphabet);
 }

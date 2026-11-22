@@ -1354,6 +1354,10 @@ last part lists what still waits on a ruling.
       level. The levels are x86-64 with SSE4.1 and carry-less multiplication, x86-64 with AVX2,
       x86-64 with AVX-512, and aarch64 with the CRC32 and PMULL instructions; the target's own
       level is the module itself.
+    - Amended by the owner on 2026-11-22: a level of x86-64 with SSSE3 alone, for claim R5's
+      Teddy (entry 86), which `codec.Features.ssse3` names. It serves a CPU with SSSE3 and no
+      AVX2. Its object builds from x86-64's baseline and SSSE3, whatever the module's CPU, so it
+      holds no instruction of AVX, and the tests on a host with AVX2 run its PSHUFB too.
     - Detection reads no file and makes no syscall. On x86-64 it runs the CPUID and XGETBV
       instructions. On aarch64 Linux it reads the kernel's hardware capability words with
       `getauxval`, which reads the auxiliary vector the kernel wrote into the process's memory at
@@ -5748,8 +5752,9 @@ last part lists what still waits on a ruling.
         where a pair stands. It needs SSE2 or NEON alone, and takes AVX2's 32 lanes as R2 does.
       - From `teddy_count_min` literals, 4, a target with a lookup of nibbles takes Teddy, from
         Hyperscan (Wang and others, NSDI 2019), as Rust's crate does (`literal_teddy.zig`):
-        aarch64's own build with NEON's TBL, and x86-64's AVX2 object with VPSHUFB. The baseline
-        of x86-64, SSE2, has neither, and keeps the compares.
+        aarch64's own build with NEON's TBL, x86-64's AVX2 object with VPSHUFB, and its SSSE3
+        object with PSHUFB, for a CPU with SSSE3 and no AVX2. The baseline of x86-64, SSE2, has
+        no lookup, and keeps the compares, as Rust's Teddy needs SSSE3 too.
       - Each literal takes one bit of an octet. Four tables of 16 entries give the literals'
         bits by the low and the high nibble of their first octet and of their last. A step costs
         four lookups whatever the count, where the compares cost two for each literal. The

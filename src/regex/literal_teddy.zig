@@ -10,9 +10,10 @@
 //! where the compares cost two for each literal, so `find_by` takes Teddy for sets of
 //! `teddy_count_min` literals or more.
 //!
-//! The lookups take NEON's TBL in the library's own build for aarch64, and AVX2's VPSHUFB in the
-//! variant object of x86-64 (variants.zig). The baseline of x86-64 has neither, so its own build
-//! keeps the compares.
+//! The lookups take NEON's TBL in the library's own build for aarch64. On x86-64 they take
+//! AVX2's VPSHUFB at 32 lanes in one variant object, and SSSE3's PSHUFB at 16 in another
+//! (variants.zig). The baseline of x86-64, SSE2, has no lookup, so its own build keeps the
+//! compares.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -50,13 +51,22 @@ pub const Tables = extern struct {
 };
 
 /// Whether a search of `width` octets a step can take Teddy on the build's target: TBL on
-/// aarch64 at `skip_lanes`, and VPSHUFB at `avx2_lanes` in the variant object built with AVX2.
+/// aarch64 at `skip_lanes`, VPSHUFB at `avx2_lanes` in the variant object built with AVX2, and
+/// PSHUFB at `skip_lanes` in one built with SSSE3.
 pub fn runs(comptime width: usize) bool {
     return switch (builtin.cpu.arch) {
         .aarch64 => width == constants.skip_lanes,
-        .x86_64 => width == constants.avx2_lanes and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2),
+        .x86_64 => switch (width) {
+            constants.avx2_lanes => x86_has(.avx2),
+            constants.skip_lanes => x86_has(.ssse3),
+            else => false,
+        },
         else => false,
     };
+}
+
+fn x86_has(comptime feature: std.Target.x86.Feature) bool {
+    return std.Target.x86.featureSetHas(builtin.cpu.features, feature);
 }
 
 /// The first place of a literal of the set that starts at or after `from` and before `end`,
@@ -156,9 +166,9 @@ fn Steps(comptime width: usize) type {
     };
 }
 
-/// Each lane of `indices`, a nibble, looked up in `table`: NEON's TBL at 16 lanes, or AVX2's
-/// VPSHUFB at 32, which looks each 16 lanes up in their own 16 entries. Register operands only,
-/// as decision 16 admits.
+/// Each lane of `indices`, a nibble, looked up in `table`: NEON's TBL at 16 lanes, AVX2's VPSHUFB
+/// at 32, which looks each 16 lanes up in their own 16 entries, or SSSE3's PSHUFB at 16, which
+/// writes its result over the table's register. Register operands only, as decision 16 admits.
 inline fn lookup(comptime width: usize, table: @Vector(width, u8), indices: @Vector(width, u8)) @Vector(width, u8) {
     comptime assert(runs(width));
     return switch (builtin.cpu.arch) {
@@ -167,9 +177,13 @@ inline fn lookup(comptime width: usize, table: @Vector(width, u8), indices: @Vec
             : [table] "w" (table),
               [indices] "w" (indices),
         ),
-        .x86_64 => asm ("vpshufb %[indices], %[table], %[result]"
+        .x86_64 => if (comptime x86_has(.avx)) asm ("vpshufb %[indices], %[table], %[result]"
             : [result] "=x" (-> @Vector(width, u8)),
             : [table] "x" (table),
+              [indices] "x" (indices),
+        ) else asm ("pshufb %[indices], %[result]"
+            : [result] "=x" (-> @Vector(width, u8)),
+            : [table] "0" (table),
               [indices] "x" (indices),
         ),
         else => unreachable,

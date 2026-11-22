@@ -25,6 +25,7 @@ const BlockMask = std.meta.Int(.unsigned, block_len);
 const split_branches = 2;
 
 extern fn stdx_regex_literal_set_find_x86_64_avx2(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
+extern fn stdx_regex_literal_set_find_x86_64_ssse3(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
 
 /// An extern struct, so that the variant object, built for other CPU features, reads the same
 /// fields at the same offsets.
@@ -36,6 +37,9 @@ pub const LiteralSet = extern struct {
     /// True when `find` searches `avx2_lanes` octets a step, in the variant object, as
     /// `Literal.wide` says.
     wide: bool = false,
+    /// True when `find` takes Teddy in the variant object of SSSE3, at `skip_lanes` octets a
+    /// step: the caller's `codec.Features` name SSSE3 and not AVX2.
+    ssse3: bool = false,
     /// Teddy's tables of the literals, which `of` builds.
     teddy: literal_teddy.Tables = undefined,
     /// Each literal's length, at most `literal_len_max`.
@@ -88,6 +92,8 @@ pub const LiteralSet = extern struct {
         // first, but a set's 16-lane compares cost more than the call: on a Xeon, sets whose
         // places stand close together ran 1.01 to 1.23 times as fast with no inline block.
         if (literal_file.has_kernels and set.wide) return set.find_far(haystack, from);
+        // Below `teddy_count_min` literals the library's own compares are the faster way.
+        if (literal_file.has_kernels and set.ssse3 and set.count >= constants.teddy_count_min) return set.find_ssse3(haystack, from);
         return set.find_by(constants.skip_lanes, haystack, from);
     }
 
@@ -114,6 +120,13 @@ pub const LiteralSet = extern struct {
             if (haystack.len - index >= len and std.mem.eql(u8, haystack[index..][0..len], octets[0..len])) return len;
         }
         return null;
+    }
+
+    /// Teddy in the variant object of SSSE3, from `from`, out of line as `find_far` is.
+    noinline fn find_ssse3(set: *const LiteralSet, haystack: []const u8, from: usize) ?usize {
+        if (haystack.len - from < set.len) return null;
+        const found = stdx_regex_literal_set_find_x86_64_ssse3(set, haystack.ptr, haystack.len, from);
+        return if (found == literal_file.no_place) null else found;
     }
 
     /// The variant object's search from `from`, out of line, as `Literal.find_far` is.
@@ -336,12 +349,21 @@ fn random_set(generator: *Generator, count: usize) LiteralSet {
     return set;
 }
 
-/// Requires `find` to give `expected` at `skip_lanes` octets a step, and at `avx2_lanes` where
-/// the host has AVX2.
-fn expect_find(set: *LiteralSet, avx2: bool, haystack: []const u8, from: usize, expected: ?usize) !void {
+/// The searches a host runs beside the library's own: SSSE3's Teddy and AVX2's 32 lanes.
+const Kernels = struct { ssse3: bool, avx2: bool };
+
+/// Requires `find` to give `expected` at `skip_lanes` octets a step, and in each variant object
+/// the host has.
+fn expect_find(set: *LiteralSet, kernels: Kernels, haystack: []const u8, from: usize, expected: ?usize) !void {
     set.wide = false;
+    set.ssse3 = false;
     try testing.expectEqual(expected, set.find(haystack, from));
-    if (!avx2) return;
+    if (kernels.ssse3) {
+        set.ssse3 = true;
+        try testing.expectEqual(expected, set.find(haystack, from));
+        set.ssse3 = false;
+    }
+    if (!kernels.avx2) return;
     set.wide = true;
     try testing.expectEqual(expected, set.find(haystack, from));
 }
@@ -355,13 +377,17 @@ test "find gives the first place of a literal of the set from every offset, as a
     var generator = Generator.init(0x5E75);
     var haystack: [test_haystack_len]u8 = undefined;
     // Detection runs CPUID, which a virtual machine traps, so the test asks once.
-    const avx2 = literal_file.has_kernels and codec.Features.detect().avx2;
+    const features = codec.Features.detect();
+    const kernels: Kernels = .{
+        .ssse3 = literal_file.has_kernels and features.ssse3,
+        .avx2 = literal_file.has_kernels and features.avx2,
+    };
     for (2..constants.literal_set_max + 1) |count| {
         for (0..32) |_| {
             var set = random_set(&generator, count);
             for (&haystack) |*octet| octet.* = test_text_octets[generator.below(test_text_octets.len)];
             const len = generator.below(haystack.len + 1);
-            for (0..len + 1) |from| try expect_find(&set, avx2, haystack[0..len], from, find_plain(&set, haystack[0..len], from));
+            for (0..len + 1) |from| try expect_find(&set, kernels, haystack[0..len], from, find_plain(&set, haystack[0..len], from));
         }
     }
 }

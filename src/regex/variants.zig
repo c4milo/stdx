@@ -7,6 +7,7 @@ const level = @import("variant_level").level;
 
 comptime {
     switch (level) {
+        .x86_64_ssse3 => _ = @import("variants/regex_ssse3.zig"),
         .x86_64_avx2 => _ = @import("variants/regex_avx2.zig"),
         else => {},
     }

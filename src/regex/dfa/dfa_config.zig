@@ -30,6 +30,9 @@ pub const Config = struct {
     /// Whether the searches of claims R2 and R5 run in the variant object of x86-64's AVX2,
     /// `avx2_lanes` octets a step (`Literal.wide`).
     wide: bool = false,
+    /// Whether claim R5 takes Teddy in the variant object of SSSE3, on a CPU with SSSE3 and no
+    /// AVX2 (`LiteralSet.ssse3`).
+    ssse3: bool = false,
     /// Claim R7: whether a forward scan with no skip takes two octets a read (dfa_pairs.zig).
     pairs: bool = false,
 };

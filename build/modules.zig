@@ -65,7 +65,7 @@ pub const Settings = struct {
 pub fn add(b: *std.Build, settings: Settings) Modules {
     const codec = library(b, "codec", settings);
     const checksum = library(b, "checksum", settings);
-    variants.add(b, checksum, "checksum", settings.target, settings.optimize);
+    variants.add_levels(b, checksum, "checksum", settings.target, settings.optimize, &variants.checksum_levels);
 
     const deflate = library(b, "deflate", settings);
     deflate.addImport("codec", codec);
