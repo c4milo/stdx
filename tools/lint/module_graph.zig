@@ -78,7 +78,7 @@ pub const expected_graph = [_]Module{
     .{ .name = "json", .imports = &.{ "codec", "base64", "utf8" } },
     .{ .name = "base64", .imports = &.{"codec"} },
     .{ .name = "platform", .imports = &.{} },
-    .{ .name = "regex", .imports = &.{ "codec", "utf8" } },
+    .{ .name = "regex", .imports = &.{ "codec", "utf8", "unicode" } },
     .{ .name = "stdx", .imports = &.{ "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "unicode", "json", "base64", "platform", "regex" } },
 };
 

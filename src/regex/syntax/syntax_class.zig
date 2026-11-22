@@ -1,6 +1,10 @@
 //! A bracket expression of a pattern (decision 86): RFC 9485 §3's charClassExpr, with the escapes
 //! of syntax_escape.zig as its items, and three forms of RE2's: a class named as `[:alpha:]`, a
 //! `]` that comes first, and a `-` that starts no range.
+//!
+//! A class is built in the one set the parser keeps (decision 86 as amended). Under `(?i)` each
+//! item is folded as it is read, and the class's `^` negates the folded items, as Go's regexp
+//! folds a class.
 const std = @import("std");
 const codec = @import("codec");
 const constants = @import("../constants.zig");
@@ -9,16 +13,18 @@ const escape = @import("syntax_escape.zig");
 const utf8 = @import("utf8");
 const utf8_ranges = @import("../utf8_ranges.zig");
 const atom = @import("syntax_atom.zig");
-const ScalarSet = @import("../scalar_set.zig").ScalarSet;
+const scalar_set = @import("../scalar_set.zig");
+const NamedClass = scalar_set.NamedClass;
+const ScalarSet = scalar_set.ScalarSet;
 const posix = @import("syntax_posix.zig");
-const Posix = posix.Posix;
+const unicode = @import("unicode");
 
 const Item = union(enum) {
     /// The `]` that ends the class.
     end,
     scalar: u32,
-    class: escape.Perl,
-    posix: Posix,
+    /// `\d`, `\p{Greek}`, `[:alpha:]` and their negations.
+    class: NamedClass,
 };
 
 fn take_item(reader: *codec.Reader) errors.Error!Item {
@@ -26,20 +32,20 @@ fn take_item(reader: *codec.Reader) errors.Error!Item {
     const scalar = (try utf8_ranges.take_scalar(reader)) orelse return error.MissingBracket;
     switch (scalar) {
         ']' => return .end,
-        '[' => return .{ .posix = try take_posix(reader) },
+        '[' => return .{ .class = try take_posix(reader) },
         '\\' => {},
         else => return .{ .scalar = scalar },
     }
     switch (try escape.take(reader)) {
         .scalar => |escaped| return .{ .scalar = escaped },
-        .class => |perl| return .{ .class = perl },
+        .class => |named| return .{ .class = named },
         // RFC 9485 §3: a class holds characters, and an assertion such as \b is none.
         .look => return error.InvalidEscape,
     }
 }
 
 /// The class `[:name:]` names, whose `[` was just read.
-fn take_posix(reader: *codec.Reader) errors.Error!Posix {
+fn take_posix(reader: *codec.Reader) errors.Error!NamedClass {
     // RFC 9485 §3: CCchar holds no "[" but an escaped one. RE2 adds "[:name:]" alone.
     if (!escape.take_if(reader, ':')) return error.InvalidClass;
     const negated = escape.take_if(reader, '^');
@@ -56,14 +62,15 @@ fn take_posix(reader: *codec.Reader) errors.Error!Posix {
     // RFC 9485 §3 holds no such form: RE2's ends with ":]".
     if (!escape.take_if(reader, ':') or !escape.take_if(reader, ']')) return error.InvalidClass;
     // RFC 9485 §3 holds no such form: RE2's names one of its fourteen classes.
-    return Posix.named(name[0..len], negated) orelse return error.InvalidClass;
+    return posix.named(name[0..len], negated) orelse return error.InvalidClass;
 }
 
-/// The scalar values a class names, before its negation.
+/// The items of one class, added to the parser's set as they are read.
 const Class = struct {
-    set: ScalarSet = .{},
-    /// True when the pattern wrote a scalar value past U+007F into the class.
-    past_ascii: bool = false,
+    set: *ScalarSet,
+    /// `(?i)`: each item gains the scalar values that match its own without case. RFC 9485 §3
+    /// gives a regexp no case-insensitive form, so this is RE2's, with UTS #18 RL1.5's folding.
+    fold: bool,
 
     /// One character, or a range from it when a `-` and a second character follow. A `-` that
     /// starts no range stands for itself, as in RE2: last in the class, or after a range.
@@ -71,7 +78,7 @@ const Class = struct {
         var hi = lo;
         if (escape.take_if(reader, '-')) {
             if (escape.peek_is(reader, ']')) {
-                try class.set.add('-', '-');
+                try class.set.add_folded('-', '-', class.fold);
             } else {
                 hi = switch (try take_item(reader)) {
                     .scalar => |scalar| scalar,
@@ -83,54 +90,74 @@ const Class = struct {
         // RFC 9485 §4: a regexp means what XSD says, where a range's first character is at or
         // before its last.
         if (lo > hi) return error.InvalidClassRange;
-        class.past_ascii = class.past_ascii or hi > constants.one_octet_max;
-        try class.set.add(lo, hi);
+        try class.set.add_folded(lo, hi, class.fold);
     }
 
     fn add_item(class: *Class, reader: *codec.Reader, item: Item) errors.Error!void {
         switch (item) {
             .end => unreachable,
-            .class => |perl| try perl.add_to(&class.set),
-            .posix => |named| try named.add_to(&class.set),
+            .class => |named| try class.set.add_named(named, class.fold),
             .scalar => |lo| try class.add_from(reader, lo),
         }
     }
 };
 
-/// The set of the class whose `[` was just read. A `]` that comes first stands for itself, as in
-/// RE2, so a class holds at least one item.
-pub fn take(reader: *codec.Reader, flags: atom.Flags) errors.Error!ScalarSet {
-    var class: Class = .{};
+/// Writes into `set` the class whose `[` was just read, normalized. A `]` that comes first stands
+/// for itself, as in RE2, so a class holds at least one item. An item may hold no scalar value,
+/// as `\P{Any}` holds none, and so may the class.
+pub fn take(reader: *codec.Reader, flags: atom.Flags, set: *ScalarSet) errors.Error!void {
+    set.len = 0;
+    var class: Class = .{ .set = set, .fold = flags.case_insensitive };
     const negated = escape.take_if(reader, '^');
     if (escape.take_if(reader, ']')) try class.add_from(reader, ']');
     var item = try take_item(reader);
     while (item != .end) : (item = try take_item(reader)) try class.add_item(reader, item);
-    std.debug.assert(class.set.len > 0);
-    if (flags.case_insensitive) {
-        // RFC 9485 §3 gives a regexp no case-insensitive form: `(?i)` is RE2's, and stdx folds
-        // the ASCII letters alone (decision 86).
-        if (class.past_ascii) return error.UnsupportedCaseFolding;
-        try class.set.fold_ascii();
-    }
-    class.set.normalize();
-    if (negated) try class.set.negate();
-    return class.set;
+    set.normalize();
+    if (negated) try set.negate();
 }
 
 const testing = std.testing;
 const ScalarRange = utf8_ranges.ScalarRange;
 
 /// The class a text holds, which must end at the text's end.
-fn take_text(text: []const u8, flags: atom.Flags) errors.Error!ScalarSet {
+/// The class a text holds, which must end at the text's end, written into `set`.
+fn take_into(set: *ScalarSet, text: []const u8, flags: atom.Flags) errors.Error!void {
     var reader = codec.Reader.init(text);
-    const set = try take(&reader, flags);
+    try take(&reader, flags, set);
     std.debug.assert(reader.remaining_len() == 0);
-    return set;
+}
+
+fn take_text(text: []const u8, flags: atom.Flags) errors.Error!void {
+    var set: ScalarSet = .{};
+    try take_into(&set, text, flags);
 }
 
 fn expect_class(text: []const u8, flags: atom.Flags, expected: []const ScalarRange) !void {
-    const set = try take_text(text, flags);
+    var set: ScalarSet = .{};
+    try take_into(&set, text, flags);
     try testing.expectEqualSlices(ScalarRange, expected, set.slice());
+}
+
+fn holds(set: *const ScalarSet, scalar: u32) bool {
+    for (set.slice()) |piece| {
+        if (piece.lo <= scalar and scalar <= piece.hi) return true;
+    }
+    return false;
+}
+
+/// Requires the class of `text` under `(?i)` to hold each scalar value of the orbits of `lo` to
+/// `hi`, and no other: a second reading of the folding, one scalar value at a time.
+fn expect_orbits(text: []const u8, lo: u32, hi: u32) !void {
+    var wanted: ScalarSet = .{};
+    for (lo..hi + 1) |scalar| {
+        var current: u32 = @intCast(scalar);
+        for (0..unicode.constants.orbit_len_max) |_| {
+            try wanted.add(current, current);
+            current = unicode.simple_fold(current);
+        }
+    }
+    wanted.normalize();
+    try expect_class(text, .{ .case_insensitive = true }, wanted.slice());
 }
 
 fn range(lo: u32, hi: u32) ScalarRange {
@@ -175,13 +202,34 @@ test "a class takes the three ASCII classes and their negations as items" {
     try expect_class("\\D\\d]", .{}, &.{range(0, constants.scalar_max)});
 }
 
-test "a class under (?i) gains the other case of its ASCII letters before its negation" {
-    try expect_class("a-c]", .{ .case_insensitive = true }, &.{ range('A', 'C'), range('a', 'c') });
-    try expect_class("^k]", .{ .case_insensitive = true }, &.{ range(0, 'J'), range('L', 'j'), range('l', constants.scalar_max) });
-    // The negated ASCII classes pass U+007F, and the pattern wrote no such scalar value.
-    try expect_class("\\W]", .{ .case_insensitive = true }, &.{ range(0, '/'), range(':', '@'), range('[', '^'), range('`', '`'), range('{', constants.scalar_max) });
-    try testing.expectError(error.UnsupportedCaseFolding, take_text("\xC3\xA9]", .{ .case_insensitive = true }));
-    try testing.expectError(error.UnsupportedCaseFolding, take_text("a-\xC3\xA9]", .{ .case_insensitive = true }));
+test "a class under (?i) holds each orbit of its scalar values, before its negation" {
+    const fold: atom.Flags = .{ .case_insensitive = true };
+    try expect_class("a-c]", fold, &.{ range('A', 'C'), range('a', 'c') });
+    // k's orbit holds the Kelvin sign.
+    try expect_class("^k]", fold, &.{ range(0, 'J'), range('L', 'j'), range('l', 0x2129), range(0x212B, constants.scalar_max) });
+    // \W is folded before it is negated, so it holds neither ſ nor the Kelvin sign, which fold
+    // to s and k.
+    try expect_class("\\W]", fold, &.{ range(0, '/'), range(':', '@'), range('[', '^'), range('`', '`'), range('{', 0x17E), range(0x180, 0x2129), range(0x212B, constants.scalar_max) });
+    try expect_orbits("\xC3\xA9]", 0xE9, 0xE9);
+    try expect_orbits("a-\xC3\xA9]", 'a', 0xE9);
+    try expect_orbits("\xCF\x82]", 0x3C2, 0x3C2);
+}
+
+test "a class takes Unicode properties and their negations as items" {
+    var set: ScalarSet = .{};
+    try take_into(&set, "\\p{Greek}0]", .{});
+    try testing.expect(holds(&set, 0x3B1) and holds(&set, '0') and !holds(&set, 'a'));
+    try take_into(&set, "\\P{Greek}]", .{});
+    try testing.expect(!holds(&set, 0x3B1) and holds(&set, 'a'));
+    // \P{Any} holds no scalar value, and the class may hold none.
+    try expect_class("\\P{Any}]", .{}, &.{});
+    try expect_class("^\\P{Any}]", .{}, &.{range(0, constants.scalar_max)});
+    // Under (?i), \p{Lu} holds the lowercase letters too, and \P{Lu} holds neither case.
+    try take_into(&set, "\\p{Lu}]", .{ .case_insensitive = true });
+    try testing.expect(holds(&set, 'a') and holds(&set, 'A'));
+    try take_into(&set, "\\P{Lu}]", .{ .case_insensitive = true });
+    try testing.expect(!holds(&set, 'a') and !holds(&set, 'A') and holds(&set, '1'));
+    try testing.expectError(error.InvalidProperty, take_text("\\p{Nothing}]", .{}));
 }
 
 test "a closing bracket that comes first stands for itself" {
@@ -199,7 +247,7 @@ test "a class takes RE2's named classes, and their negations" {
     try expect_class("[:alpha:]_]", .{}, &.{ range('A', 'Z'), range('_', '_'), range('a', 'z') });
     try expect_class("[:^ascii:]]", .{}, &.{range(constants.one_octet_max + 1, constants.scalar_max)});
     try expect_class("^[:^digit:]]", .{}, &.{range('0', '9')});
-    try expect_class("[:upper:]]", .{ .case_insensitive = true }, &.{ range('A', 'Z'), range('a', 'z') });
+    try expect_class("[:upper:]]", .{ .case_insensitive = true }, &.{ range('A', 'Z'), range('a', 'z'), range(0x17F, 0x17F), range(0x212A, 0x212A) });
     try expect_class("a[:blank:]-]", .{}, &.{ range('\t', '\t'), range(' ', ' '), range('-', '-'), range('a', 'a') });
     try testing.expectError(error.InvalidClass, take_text("[:letter:]]", .{}));
     try testing.expectError(error.InvalidClass, take_text("[:alpha]", .{}));

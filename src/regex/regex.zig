@@ -72,4 +72,5 @@ test {
     _ = @import("syntax/syntax_class.zig");
     _ = @import("syntax/syntax_escape.zig");
     _ = @import("syntax/syntax_posix.zig");
+    _ = @import("syntax/syntax_property.zig");
 }

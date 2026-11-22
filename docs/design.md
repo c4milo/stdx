@@ -80,7 +80,7 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64`, `utf8` | 8259, 7464 |
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
-| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8` | 9485 |
+| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode` | 9485 |
 | `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform` and `codec`, as `std` groups its own (decision 6 as amended) | every module above | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
@@ -7896,8 +7896,8 @@ to 12 are reordered and nothing else changes.
     RE2 has both. Each must give the matcher's groups.
   - **22e: Unicode's tables.** `\p{...}`, and `(?i)` past ASCII, from tables a tool generates
     from a pinned copy of the Unicode Character Database, as `zig build brotli-tables` generates
-    brotli's. With them, RFC 9485 §3.1's checking implementation. Its first half is built: the
-    module `unicode`, whose record is below. `regex` takes the tables in the second half.
+    brotli's. With them, RFC 9485 §3.1's checking implementation. Both halves are built, and
+    their records are below: the module `unicode`, and `regex`'s `\p{...}` and `(?i)`.
   - **22f: a range quantifier with no copies.** Counting-set automata (Turoňová and others,
     OOPSLA 2020) keep a count in a register where the operand is one class of characters. An
     experiment: it lands only if its states stay bounded where copies do not.
@@ -8656,6 +8656,38 @@ to 12 are reordered and nothing else changes.
     tests. 3 NOT CAUGHT by the tool's tests, which each got a test and are now CAUGHT: a pair whose
     second code point goes on to a third, LC without Lt, and a line of CaseFolding.txt with a
     fourth field. `zig build unicode-tables-check` caught the first two already.
+
+  **Part 22e, its second half built: `\p{...}` and `(?i)` past ASCII in `regex` (decision 86 as
+  amended, the owner's rulings of 2026-11-22).** `syntax_property.zig` reads `\pL`, `\p{name}`,
+  `\P{name}` and `\p{^name}` for each name `unicode.property` takes. `(?i)` folds each item of a
+  class by the orbits before the item is negated, as Go's regexp folds a class, and a literal
+  under `(?i)` is its orbit. `class_ranges_max` is 2,048, and the parser builds each class in the
+  one set it keeps, where `ScalarSet` negates and folds an item in place.
+  **Check:** the property's forms and its refusals; each class under `(?i)` against a second
+  reading of the orbits, one scalar value at a time; the matcher's cases against Go 1.27.4's
+  answers; the set's negation and folding in place; the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 120 of 120 steps passed. `zig build test-self-hosted
+  test-avx512`: 104 of 104. `zig build differential-regex -Doracles`: 12,437,542 cases, none
+  failed.
+  - Generated cases: 999,985 of 999,998 equal to Go's. 13 are allowed, the new entry: Go's
+    `(?i)\p{LC}` leaves out U+0345. 2 cases' programs passed the 65,536 instructions of
+    regex_answer.zig, and were left out: a property under quantifiers nested three deep. The
+    check now counts such a case apart, and fails past `programs_too_large_max`, 16.
+  - RE2's search log: 3,616 equal answers, where 3,424 were pinned. Each case that stdx refused
+    for `\p` now gives RE2's answer, so the pin moves. The exhaustive log stays at 10,410,991.
+  - A class compiles each UTF-8 sequence of each range as an alternative of its own: `\pL` takes
+    7,350 instructions, `\p{Lu}` 4,898, `\p{Greek}` 316 and `(?i)k` 18. RE2 and Rust's regex share
+    the sequences' common suffixes, a claim of its own: https://github.com/c4milo/stdx/issues/43.
+  - Mutations, each against `zig build test-regex`: 18. 17 CAUGHT at first: a negation's gap one
+    off at either end, no gap after the last range, no check of the room a negation takes, one
+    pass of folding, a named class negated before its fold, a named class or a range never
+    folded, touching ranges kept apart, a `^` in braces that always negates, a braced name that
+    keeps its `}`, a `\P` that does not negate, `(?i)` over ASCII literals alone, a class negated
+    before it is normalized, a property outside a class never folded, the set kept from the class
+    before, and the adjacent members of an orbit kept apart. 1 NOT CAUGHT at first: a fold that
+    adds the ranges its set holds, which changes the set's room alone. A test of whole orbits in
+    1,226 ranges now catches it.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,

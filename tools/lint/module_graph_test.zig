@@ -42,6 +42,7 @@ const passing_build: [:0]const u8 =
     \\    const regex = library(b, "regex", target, optimize);
     \\    regex.addImport("codec", codec);
     \\    regex.addImport("utf8", utf8);
+    \\    regex.addImport("unicode", unicode);
     \\    const stdx = library(b, "stdx", target, optimize);
     \\    stdx.addImport("codec", codec);
     \\    stdx.addImport("checksum", checksum);
@@ -197,7 +198,7 @@ test "module-graph reads the created modules and the edges of every receiver" {
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
     try testing.expectEqual(14, calls.modules.len);
-    try testing.expectEqual(30, calls.edges.len);
+    try testing.expectEqual(31, calls.edges.len);
     try testing.expectEqualStrings("deflate", calls.edges[0].module);
     try testing.expectEqualStrings("codec", calls.edges[0].name);
     try testing.expectEqualStrings("brotli", calls.edges[9].module);
@@ -243,6 +244,7 @@ test "the expected graph is design §3's table" {
         .{ "base64", "codec" },
         .{ "regex", "codec" },
         .{ "regex", "utf8" },
+        .{ "regex", "unicode" },
         .{ "unicode", "utf8" },
         .{ "stdx", "codec" },
         .{ "stdx", "checksum" },

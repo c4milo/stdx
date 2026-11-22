@@ -352,7 +352,35 @@ test "a flag holds from where it stands to the end of its group" {
         .{ .pattern = "(?i)\\x41", .text = "a", .groups = &.{g(0, 1)} },
         .{ .pattern = "(?i)@\\[`\\{", .text = "@[`{", .groups = &.{g(0, 4)} },
         .{ .pattern = "(?i)@", .text = "`", .groups = &.{} },
-        .{ .pattern = "(?i)k", .text = "\xE2\x84\xAA", .groups = &.{} },
+        .{ .pattern = "(?i)k", .text = "\xE2\x84\xAA", .groups = &.{g(0, 3)} },
+    });
+}
+
+test "Unicode's properties and case folding match as Go's regexp matches them" {
+    // Go 1.27.4's regexp found each case's groups. Each property's program fits `storage_len`,
+    // which `\\pL`'s 7,350 instructions do not: the parser's tests and the oracle check take it.
+    try expect_cases(&.{
+        .{ .pattern = "(?i)\\x{212A}", .text = "k", .groups = &.{g(0, 1)} },
+        .{ .pattern = "(?i)\xC3\xA9", .text = "x\xC3\x89x", .groups = &.{g(1, 3)} },
+        .{ .pattern = "(?i)\xCF\x83", .text = "\xCF\x82", .groups = &.{g(0, 2)} },
+        .{ .pattern = "(?i)\xC3\x9F", .text = "\xE1\xBA\x9E", .groups = &.{g(0, 3)} },
+        .{ .pattern = "(?i)s", .text = "\xC5\xBF", .groups = &.{g(0, 2)} },
+        .{ .pattern = "(?i)\\x{345}", .text = "\xE1\xBE\xBE", .groups = &.{g(0, 3)} },
+        .{ .pattern = "\\p{Greek}+", .text = "a\xCE\xB1\xCE\xB2\xCE\xB3b", .groups = &.{g(1, 7)} },
+        .{ .pattern = "\\p{Han}+", .text = "1\xE6\x97\xA5\xE6\x9C\xAC2", .groups = &.{g(1, 7)} },
+        .{ .pattern = "\\P{Greek}+", .text = "\xCE\xB1\xCE\xB212\xCE\xB3", .groups = &.{g(4, 6)} },
+        .{ .pattern = "\\P{^Greek}+", .text = "ab\xCE\xB1\xCE\xB2", .groups = &.{g(2, 6)} },
+        .{ .pattern = "[\\p{Greek}\\d]+", .text = "a\xCE\xB11\xCE\xB2b", .groups = &.{g(1, 6)} },
+        .{ .pattern = "[^\\p{Han}]+", .text = "\xE6\x97\xA5 12\xE6\x9C\xAC", .groups = &.{g(3, 6)} },
+        .{ .pattern = "(?i)\\p{Lu}+", .text = "1aBc2", .groups = &.{g(1, 4)} },
+        .{ .pattern = "(?i)\\P{Lu}+", .text = "aB12", .groups = &.{g(2, 4)} },
+        .{ .pattern = "(?i)[^k]", .text = "\xE2\x84\xAAb", .groups = &.{g(3, 4)} },
+        .{ .pattern = "(?i)[\\W]", .text = "k\xE2\x84\xAA-", .groups = &.{g(4, 5)} },
+        .{ .pattern = "\\p{Any}+", .text = "a\n\xE6\x97\xA5", .groups = &.{g(0, 5)} },
+        .{ .pattern = "\\P{Any}", .text = "abc", .groups = &.{} },
+        .{ .pattern = "[\\P{Any}a]", .text = "ba", .groups = &.{g(1, 2)} },
+        .{ .pattern = "\\p{ASCII}+", .text = "\xC3\xA9 ab", .groups = &.{g(2, 5)} },
+        .{ .pattern = "\\p{Nd}+", .text = "a\xD9\xA34", .groups = &.{g(1, 4)} },
     });
 }
 

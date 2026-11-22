@@ -1,8 +1,9 @@
 //! The classes a bracket expression names as `[:name:]` (decision 86). RFC 9485 §3 holds no such
 //! form: it is RE2's, with RE2's fourteen names, each a set of ASCII characters.
 const std = @import("std");
-const errors = @import("../errors.zig");
-const ScalarSet = @import("../scalar_set.zig").ScalarSet;
+const scalar_set = @import("../scalar_set.zig");
+const NamedClass = scalar_set.NamedClass;
+const ScalarSet = scalar_set.ScalarSet;
 const ScalarRange = @import("../utf8_ranges.zig").ScalarRange;
 
 /// The longest name: `xdigit` and its like have six letters.
@@ -35,28 +36,14 @@ const entries = [_]Entry{
     .{ .name = "xdigit", .ranges = &.{ r('0', '9'), r('A', 'F'), r('a', 'f') } },
 };
 
-/// One named class of a bracket expression.
-pub const Posix = struct {
-    ranges: []const ScalarRange,
-    /// `[:^name:]`: every scalar value the class does not hold.
-    negated: bool,
-
-    /// The class a name gives, or null where RE2 has no such name.
-    pub fn named(name: []const u8, negated: bool) ?Posix {
-        for (entries) |entry| {
-            if (std.mem.eql(u8, entry.name, name)) return .{ .ranges = entry.ranges, .negated = negated };
-        }
-        return null;
+/// The class a name gives, or with `negated` `[:^name:]`, every scalar value it does not hold.
+/// Null where RE2 has no such name.
+pub fn named(name: []const u8, negated: bool) ?NamedClass {
+    for (entries) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return .{ .ranges = entry.ranges, .negated = negated };
     }
-
-    /// Adds the scalar values of the class to a set.
-    pub fn add_to(posix: Posix, set: *ScalarSet) errors.Error!void {
-        var class: ScalarSet = .{};
-        for (posix.ranges) |range| try class.add(range.lo, range.hi);
-        if (posix.negated) try class.negate();
-        for (class.slice()) |range| try set.add(range.lo, range.hi);
-    }
-};
+    return null;
+}
 
 const testing = std.testing;
 const constants = @import("../constants.zig");
@@ -71,12 +58,12 @@ fn holds(set: *const ScalarSet, scalar: u32) bool {
 /// The characters a name holds, as a second spelling of RE2's list for the tests to judge by.
 fn expect_named(name: []const u8, held: []const u8, refused: []const u8) !void {
     var set: ScalarSet = .{};
-    try Posix.named(name, false).?.add_to(&set);
+    try set.add_named(named(name, false).?, false);
     for (held) |octet| try testing.expect(holds(&set, octet));
     for (refused) |octet| try testing.expect(!holds(&set, octet));
     try testing.expect(!holds(&set, constants.one_octet_max + 1));
     var rest: ScalarSet = .{};
-    try Posix.named(name, true).?.add_to(&rest);
+    try rest.add_named(named(name, true).?, false);
     for (held) |octet| try testing.expect(!holds(&rest, octet));
     for (refused) |octet| try testing.expect(holds(&rest, octet));
     try testing.expect(holds(&rest, constants.scalar_max));
@@ -100,9 +87,9 @@ test "each of the fourteen names holds RE2's characters, and its negation the re
 }
 
 test "a name RE2 does not list gives no class" {
-    try testing.expectEqual(@as(?Posix, null), Posix.named("letter", false));
-    try testing.expectEqual(@as(?Posix, null), Posix.named("", false));
-    try testing.expectEqual(@as(?Posix, null), Posix.named("Alpha", false));
-    try testing.expectEqual(@as(?Posix, null), Posix.named("alph", false));
+    try testing.expectEqual(null, named("letter", false));
+    try testing.expectEqual(null, named("", false));
+    try testing.expectEqual(null, named("Alpha", false));
+    try testing.expectEqual(null, named("alph", false));
     for (entries) |entry| try testing.expect(entry.name.len <= name_len_max);
 }

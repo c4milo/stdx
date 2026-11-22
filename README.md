@@ -177,7 +177,7 @@ fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
 | `stdx.unicode.utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
 | `stdx.json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
 | `stdx.base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
-| `stdx.regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, named groups, flags and named classes (decision 86) |
+| `stdx.regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, named groups, flags and named classes, Unicode's properties and its case folding (decision 86) |
 | `stdx.platform` | What the CPU offers, probed once when a program starts (decision 40), and a vector `memset` (decision 41) |
 | `stdx.codec` | The streaming contract every codec shares, and `Features` (decision 11) |
 

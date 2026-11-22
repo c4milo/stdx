@@ -119,6 +119,8 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     regex.addImport("codec", codec);
     // A pattern's characters, and the octets a program takes for each (decision 86).
     regex.addImport("utf8", utf8);
+    // The properties `\p{...}` names, and the case orbits `(?i)` folds by (decision 86 as amended).
+    regex.addImport("unicode", unicode);
     variants.add_levels(b, regex, "regex", settings.target, settings.optimize, &variants.regex_levels);
 
     // The root a program imports, which names each module under its category (decision 6 as

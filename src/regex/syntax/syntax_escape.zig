@@ -6,41 +6,27 @@ const constants = @import("../constants.zig");
 const errors = @import("../errors.zig");
 const utf8_ranges = @import("../utf8_ranges.zig");
 const Look = @import("../program.zig").Look;
-const ScalarSet = @import("../scalar_set.zig").ScalarSet;
+const scalar_set = @import("../scalar_set.zig");
+const NamedClass = scalar_set.NamedClass;
+const ScalarRange = utf8_ranges.ScalarRange;
+const property = @import("syntax_property.zig");
 
 /// `\d`, `\s` and `\w`, which hold ASCII characters alone, as RE2's do.
-pub const Perl = struct {
-    kind: enum { digit, space, word },
-    /// `\D`, `\S` or `\W`: every scalar value the class does not hold.
-    negated: bool,
-
-    /// Adds the scalar values of the class to a set.
-    pub fn add_to(perl: Perl, set: *ScalarSet) errors.Error!void {
-        var class: ScalarSet = .{};
-        switch (perl.kind) {
-            .digit => try class.add('0', '9'),
-            .space => {
-                try class.add('\t', '\n');
-                try class.add('\x0C', '\r');
-                try class.add(' ', ' ');
-            },
-            .word => {
-                try class.add('0', '9');
-                try class.add('A', 'Z');
-                try class.add('_', '_');
-                try class.add('a', 'z');
-            },
-        }
-        if (perl.negated) try class.negate();
-        for (class.slice()) |range| try set.add(range.lo, range.hi);
-    }
-};
+const digit_ranges = [_]ScalarRange{.{ .lo = '0', .hi = '9' }};
+const space_ranges = [_]ScalarRange{ .{ .lo = '\t', .hi = '\n' }, .{ .lo = '\x0C', .hi = '\r' }, .{ .lo = ' ', .hi = ' ' } };
+const word_ranges = [_]ScalarRange{ .{ .lo = '0', .hi = '9' }, .{ .lo = 'A', .hi = 'Z' }, .{ .lo = '_', .hi = '_' }, .{ .lo = 'a', .hi = 'z' } };
 
 pub const Escape = union(enum) {
     scalar: u32,
     look: Look,
-    class: Perl,
+    /// `\d`, `\s`, `\w`, their negations, and a Unicode property.
+    class: NamedClass,
 };
+
+/// `\d`, `\s` or `\w`, or with `negated` `\D`, `\S` or `\W`.
+fn perl(ranges: []const ScalarRange, negated: bool) Escape {
+    return .{ .class = .{ .ranges = ranges, .negated = negated } };
+}
 
 /// The escape whose reverse solidus was just read.
 pub fn take(reader: *codec.Reader) errors.Error!Escape {
@@ -51,12 +37,14 @@ pub fn take(reader: *codec.Reader) errors.Error!Escape {
         'z' => .{ .look = .ahead_text },
         'b' => .{ .look = .word_boundary },
         'B' => .{ .look = .not_word_boundary },
-        'd' => .{ .class = .{ .kind = .digit, .negated = false } },
-        'D' => .{ .class = .{ .kind = .digit, .negated = true } },
-        's' => .{ .class = .{ .kind = .space, .negated = false } },
-        'S' => .{ .class = .{ .kind = .space, .negated = true } },
-        'w' => .{ .class = .{ .kind = .word, .negated = false } },
-        'W' => .{ .class = .{ .kind = .word, .negated = true } },
+        'd' => perl(&digit_ranges, false),
+        'D' => perl(&digit_ranges, true),
+        's' => perl(&space_ranges, false),
+        'S' => perl(&space_ranges, true),
+        'w' => perl(&word_ranges, false),
+        'W' => perl(&word_ranges, true),
+        'p' => .{ .class = try property.take(reader, false) },
+        'P' => .{ .class = try property.take(reader, true) },
         'n' => .{ .scalar = '\n' },
         'r' => .{ .scalar = '\r' },
         't' => .{ .scalar = '\t' },
@@ -73,8 +61,6 @@ pub fn take(reader: *codec.Reader) errors.Error!Escape {
 fn other(scalar: u32) errors.Error!u32 {
     switch (scalar) {
         '!'...'/', ':'...'@', '['...'`', '{'...'~' => return scalar,
-        // RFC 9485 §3: charClassEsc is \p{...} or \P{...}, whose tables are a later step.
-        'p', 'P' => return error.UnsupportedProperty,
         // RFC 9485 §3: SingleCharEsc names the characters a "\" may precede, and stdx adds the
         // ones above.
         else => return error.InvalidEscape,
@@ -211,13 +197,14 @@ test "an octal escape is a zero or two to three octal digits, as RE2 reads one" 
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
 }
 
-test "take refuses a backreference and a property by their own errors" {
+test "take refuses a backreference by its own error, and reads a property" {
     for ("123456789") |octet| try testing.expectError(error.UnsupportedBackreference, take_text(&.{octet}));
     for ([_][]const u8{ "1a", "7.", "8", "81", "90", "18", "1" }) |text| {
         try testing.expectError(error.UnsupportedBackreference, take_text(text));
     }
-    try testing.expectError(error.UnsupportedProperty, take_text("p{L}"));
-    try testing.expectError(error.UnsupportedProperty, take_text("PL"));
+    try testing.expect(!(try take_text("p{L}")).class.negated);
+    try testing.expect((try take_text("PL")).class.negated);
+    try testing.expectError(error.InvalidProperty, take_text("p{Nope}"));
 }
 
 test "a hex escape is two digits, or one or more in braces, that name a scalar value" {
@@ -246,14 +233,14 @@ test "a hex escape of two digits leaves the octets after it unread" {
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
 }
 
-fn expect_class(perl: Perl, held: []const u8, refused: []const u8) !void {
-    var set: ScalarSet = .{};
-    try perl.add_to(&set);
+fn expect_class(text: []const u8, held: []const u8, refused: []const u8) !void {
+    var set: scalar_set.ScalarSet = .{};
+    try set.add_named((try take_text(text)).class, false);
     for (held) |octet| try testing.expect(holds(&set, octet));
     for (refused) |octet| try testing.expect(!holds(&set, octet));
 }
 
-fn holds(set: *const ScalarSet, scalar: u32) bool {
+fn holds(set: *const scalar_set.ScalarSet, scalar: u32) bool {
     for (set.slice()) |range| {
         if (range.lo <= scalar and scalar <= range.hi) return true;
     }
@@ -261,13 +248,13 @@ fn holds(set: *const ScalarSet, scalar: u32) bool {
 }
 
 test "the three classes hold RE2's ASCII characters, and their negations the rest" {
-    try expect_class(.{ .kind = .digit, .negated = false }, "0159", "/:aA ");
-    try expect_class(.{ .kind = .space, .negated = false }, "\t\n\x0C\r ", "\x08\x0B\x0E\x1F!a");
-    try expect_class(.{ .kind = .word, .negated = false }, "09AZaz_", "/:@[`{ -");
-    try expect_class(.{ .kind = .digit, .negated = true }, "/:aA \x00", "0159");
-    try expect_class(.{ .kind = .word, .negated = true }, "/:@[`{ -", "09AZaz_");
-    var set: ScalarSet = .{};
-    try (Perl{ .kind = .space, .negated = true }).add_to(&set);
+    try expect_class("d", "0159", "/:aA ");
+    try expect_class("s", "\t\n\x0C\r ", "\x08\x0B\x0E\x1F!a");
+    try expect_class("w", "09AZaz_", "/:@[`{ -");
+    try expect_class("D", "/:aA \x00", "0159");
+    try expect_class("W", "/:@[`{ -", "09AZaz_");
+    var set: scalar_set.ScalarSet = .{};
+    try set.add_named((try take_text("S")).class, false);
     try testing.expect(holds(&set, constants.scalar_max));
     try testing.expect(holds(&set, 0xE9));
 }

@@ -16,6 +16,7 @@ const atom = @import("syntax_atom.zig");
 const name = @import("syntax_name.zig");
 const repeat = @import("../repeat.zig");
 const utf8_ranges = @import("../utf8_ranges.zig");
+const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 const fragment = @import("../fragment.zig");
 const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
@@ -61,6 +62,9 @@ pub const Parser = struct {
     /// The names of the named groups so far, where the caller asks the parser to keep them.
     /// Without, the parser reads each name and checks no name against another.
     names: ?*name.Names = null,
+    /// The one set each class is built in, `class_ranges_max` ranges of 16 KiB in all, which the
+    /// next class reuses (decision 86 as amended).
+    set: ScalarSet = .{},
 
     pub fn init(pattern: []const u8, flags: Flags, builder: *Builder) Parser {
         return .{ .reader = codec.Reader.init(pattern), .builder = builder, .flags = flags };
@@ -87,8 +91,8 @@ pub const Parser = struct {
             '|' => try parser.close_alternative(),
             '*', '+', '?', '{' => try parser.quantifier(scalar),
             '[' => {
-                const set = try class.take(&parser.reader, parser.flags);
-                parser.push(try atom.class(parser.builder, &set));
+                try class.take(&parser.reader, parser.flags, &parser.set);
+                parser.push(try atom.class(parser.builder, &parser.set));
             },
             '.' => parser.push(try atom.dot(parser.builder, parser.flags)),
             '^' => parser.push(try parser.builder.look(if (parser.flags.multi_line) .behind_line else .behind_text)),
@@ -105,11 +109,11 @@ pub const Parser = struct {
         switch (try escape.take(&parser.reader)) {
             .scalar => |scalar| parser.push(try atom.literal(parser.builder, parser.flags, scalar)),
             .look => |look| parser.push(try parser.builder.look(look)),
-            .class => |perl| {
-                var set: @import("../scalar_set.zig").ScalarSet = .{};
-                try perl.add_to(&set);
-                set.normalize();
-                parser.push(try atom.class(parser.builder, &set));
+            .class => |named| {
+                parser.set.len = 0;
+                try parser.set.add_named(named, parser.flags.case_insensitive);
+                parser.set.normalize();
+                parser.push(try atom.class(parser.builder, &parser.set));
             },
         }
     }

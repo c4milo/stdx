@@ -5644,8 +5644,23 @@ last part lists what still waits on a ruling.
       data files parsed at comptime, which costs each dependent's build a parse of 600 KB of text;
       and the groups of one letter joined at each call, which takes storage from the caller for
       ranges the tables can hold.
-    - `regex` takes neither `\p{...}` nor `(?i)` past ASCII yet. `\p{L}` holds 684 ranges, and a
-      class holds at most `class_ranges_max`, 128, on the parser's stack.
+    - `regex` takes the tables, by the owner's rulings of the same day:
+      - `\p{name}`, `\P{name}`, `\pL` with one letter, and `\p{^name}`, as RE2 writes them, in a
+        class and out, for every name `property` takes. A `\p` that names nothing is
+        `InvalidProperty`, which replaces `UnsupportedProperty`.
+      - `(?i)` folds by the orbits past ASCII too, and `UnsupportedCaseFolding` is gone. Each item
+        of a class is folded before it is negated, and the class's `^` negates the folded items,
+        as Go's regexp folds a class, so `(?i)[\W]` holds no `k`. `(?i)k` matches the Kelvin
+        sign, and `(?i)s` matches `ſ`, as in Go.
+      - `class_ranges_max` is 2,048. The parser keeps one set of 16 KiB, and builds each class in
+        it. An item is added, folded and negated at the set's end, so no item takes a second set.
+      - `ScalarRange` is `unicode.Range`, so a class takes a property's ranges as they are.
+      - The alternatives refused: 1,024 ranges, which leave little room past the 831 of
+        `[\p{L}\p{M}\p{N}\p{Pc}]`; and a slice of ranges the caller gives in `Options`, which adds
+        a public name.
+      - A class compiles each UTF-8 sequence of each range as an alternative of its own, so `\pL`
+        takes 7,350 instructions. RE2 and Rust's regex share the sequences' common suffixes,
+        which is a claim of its own (https://github.com/c4milo/stdx/issues/43).
 
     **The syntax.** RFC 9485 §3's grammar, the IETF's interoperable regular expression, with these
     forms of RE2's syntax beside it. Each refusal cites the section that does not hold the pattern.
@@ -5665,7 +5680,7 @@ last part lists what still waits on a ruling.
         with one or two octal digits after it. A digit from 1 to 9 with no octal digit after it
         is a backreference.
     - Refused as unsupported: a backreference and a lookaround, which no automaton of a fixed
-      size matches; `\p{...}` and `(?i)` over a scalar value past U+007F, each a later step.
+      size matches.
     - Named groups, built on 2026-11-22 (design §8 step 22, part 22c): RE2's `(?P<name>re)` and
       `(?<name>re)`, each a group as `(re)` is. A name holds letters, digits and `_`, as Go's
       regexp takes it, and at most `group_name_len_max` octets. A pattern names at most
@@ -5683,8 +5698,8 @@ last part lists what still waits on a ruling.
     - A second quantifier is refused, as RFC 9485 §3 refuses it. Go's regexp refuses it too.
     - A `.` is any scalar value but a line feed, as in RE2. RFC 9485 §5.3 maps its own `.` to
       `[^\n\r]`, so a caller that holds an I-Regexp writes that class.
-    - Forms of RE2's that RE2's own tests hold and stdx refuses: `\C`, one octet of any value,
-      which Go's regexp refuses too, and `\p{...}`.
+    - A form of RE2's that RE2's own tests hold and stdx refuses: `\C`, one octet of any value,
+      which Go's regexp refuses too.
 
     **What a match is.** The match a backtracking matcher finds first, RE2's leftmost-first: it
     starts at the first octet where any match starts, and among the matches there it is the one
@@ -5892,7 +5907,7 @@ last part lists what still waits on a ruling.
       bound, and Go's issue 11181 was closed as unavoidable under these semantics.
 
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
-    96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
+    96 open groups; `class_ranges_max`, 2,048 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
     `dfa_give_ups_max`, 8; `cache_words_default`, 2^16 words; and `dfa_slots_first`, 64, the slots
     of a cache's hash table that `init` and a clear write before the table doubles. Claim R2's: `literal_len_max`,
@@ -6089,11 +6104,11 @@ last part lists what still waits on a ruling.
       entry 67 allows for a baseline: regex 1.13.2, regex-automata 0.4.19, regex-syntax 0.8.12,
       memchr 2.8.3 and aho-corasick 1.1.5. No code, table or comment of theirs goes into stdx.
       What a method does is written again in stdx's words, with its source named.
-    - **owner** Unicode's tables, generated from a pinned copy of the Unicode Character Database,
-      for `\p{...}` and for `(?i)` past ASCII. RFC 9485 §3 requires `\p{...}` of an I-Regexp
-      implementation, so the module is not yet one.
-    - **owner** The values of `depth_max`, `class_ranges_max`, `groups_max` and
-      `cache_words_default`, which no source fixes.
+    - Unicode's tables, generated from a pinned copy of the Unicode Character Database, for
+      `\p{...}` and for `(?i)` past ASCII, which the owner ruled on 2026-11-22 (above). With them
+      the module takes RFC 9485 §3's `\p{...}`.
+    - **owner** The values of `depth_max`, `groups_max` and `cache_words_default`, which no
+      source fixes. The owner ruled `class_ranges_max` on 2026-11-22.
 
     **The sources.** Each was read for this entry on 2026-11-21, the papers at the address shown.
     - K. Thompson, "Regular Expression Search Algorithm", CACM 11(6), 1968.

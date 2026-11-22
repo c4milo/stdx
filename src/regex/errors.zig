@@ -27,6 +27,8 @@ pub const Corrupt = error{
     InvalidEscape,
     /// A `\x` escape that names no Unicode scalar value.
     InvalidScalarValue,
+    /// A `\p` or a `\P` that names no property of Unicode 17.0.0, or whose `{` has no `}`.
+    InvalidProperty,
     /// A `(?` that starts no group stdx knows.
     InvalidGroup,
     /// A `(?P<` or a `(?<` whose name is empty, holds a character that is not a letter, a digit
@@ -53,10 +55,6 @@ pub const Unsupported = error{
     UnsupportedBackreference,
     /// `(?=`, `(?!`, `(?<=` or `(?<!`.
     UnsupportedLookaround,
-    /// `\p` or `\P`: the Unicode property tables are a later step of design §8.
-    UnsupportedProperty,
-    /// `(?i)` over a scalar value past U+007F: stdx folds the ASCII letters alone.
-    UnsupportedCaseFolding,
     /// A group's name longer than `group_name_len_max`.
     GroupNameTooLong,
     /// More named groups than `group_names_max`.

@@ -18,8 +18,13 @@ pub const text_len_max = text_characters_max * text_piece_len_max;
 /// The groups a pattern nests at most.
 const depth_max = 3;
 
-const literals = [_][]const u8{ "a", "b", "c", "a", "b", "A", "B", "1", "_", " ", "\xC3\xA9", "\xE6\x97\xA5", "-", "\\.", "\\n" };
-const classes = [_][]const u8{
+/// The literals hold characters whose case orbits cross ASCII or hold three: k and the Kelvin
+/// sign, s and ſ, σ, and U+0345, which folds to ι (decision 86 as amended).
+const literals = [_][]const u8{
+    "a", "b", "c",            "a",        "b",        "A",        "B", "1", "_", " ", "\xC3\xA9", "\xE6\x97\xA5", "-", "\\.", "\\n",
+    "k", "s", "\xE2\x84\xAA", "\xC3\x89", "\xCF\x83", "\xCD\x85",
+};
+const ascii_classes = [_][]const u8{
     ".",             "[ab]",                "[^a]",          "[a-c]",         "[^b-c1]",              "\\d",
     "\\w",           "\\s",                 "\\D",           "\\W",           "\\S",                  "[\\dab]",
     "[^\\w]",        "[\xC3\xA9-\xC3\xBC]", "[a\\-c]",       "[-a]",          "[a-]",                 "\\x61",
@@ -28,10 +33,21 @@ const classes = [_][]const u8{
     "[\\d-b]",       "[+--]",               "[a-c-]",        "\\141",         "\\0",                  "\\60",
     "[\\101-\\103]", "\\x{0000061}",
 };
+
+/// Properties whose programs stay small, so that the copies of nested quantifiers fit the storage
+/// of regex_answer.zig: `\pL` takes 7,350 instructions, and RE2's logs hold it.
+const properties = [_][]const u8{
+    "\\p{Greek}",    "\\P{Greek}",  "\\p{^Greek}", "\\pN", "\\p{Han}", "[\\p{Greek}\\d]", "[^\\p{Han}a]", "\\p{LC}",
+    "\\p{Cyrillic}", "[\\P{Any}a]", "\\p{ascii}",
+};
+const classes = ascii_classes ++ properties;
 const assertions = [_][]const u8{ "^", "$", "\\b", "\\B", "\\A", "\\z" };
 const flags = [_][]const u8{ "(?i)", "(?s)", "(?m)", "(?U)", "(?i-s)", "(?ms)", "(?-i)" };
 const quantifiers = [_][]const u8{ "*", "+", "?", "*?", "+?", "??", "{2}", "{0,2}", "{1,3}", "{2,}", "{1,2}?", "{0}", "{3,}?" };
-const text_pieces = [_][]const u8{ "a", "b", "c", "a", "b", "A", "B", "1", "_", " ", "\n", "\xC3\xA9", "\xE6\x97\xA5", "-", "." };
+const text_pieces = [_][]const u8{
+    "a", "b", "c",            "a",        "b",        "A",        "B",        "1",        "_",        " ",        "\n", "\xC3\xA9", "\xE6\x97\xA5", "-", ".",
+    "k", "s", "\xE2\x84\xAA", "\xC5\xBF", "\xC3\x89", "\xCF\x83", "\xCF\x82", "\xCD\x85", "\xCE\xB1", "\xD0\xB4",
+};
 
 /// How many pieces a concatenation holds, alternatives an alternation, and characters a text: one
 /// entry is drawn, so a count that stands twice comes twice as often.

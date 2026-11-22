@@ -49,7 +49,8 @@ const exhaustive_len_max = 128 * 1024 * 1024;
 /// The cases of each log whose answers stdx gives as RE2 does, with the logs as pinned. A change
 /// to what stdx refuses changes a count, in the commit that makes the change.
 const expected_equal = struct {
-    const search = 3_424;
+    /// 3,424 until stdx took `\\p{...}` and `(?i)` past ASCII (decision 86 as amended).
+    const search = 3_616;
     const exhaustive = 10_410_991;
 };
 
@@ -60,6 +61,16 @@ const failure_line_len = 4096;
 /// The exit status of a usage error.
 const usage_exit_status = 2;
 
+/// The generated cases whose program may pass the storage of regex_answer.zig: a property under
+/// quantifiers nested three deep takes up to 81 copies, which a few cases in a million make. Each
+/// is left out, since `NoSpaceLeft` names the caller's storage and no refusal of the pattern
+/// (errors.zig). More than this many fails the check, so a compile that refuses for room where it
+/// should not cannot leave cases out unseen.
+const programs_too_large_max = 16;
+
+/// The name of the error that says a program does not fit its storage.
+const no_space_left = "NoSpaceLeft";
+
 /// Counts for the report.
 const Tally = struct {
     cases: usize = 0,
@@ -68,12 +79,14 @@ const Tally = struct {
     both_refuse: usize = 0,
     /// Generated patterns past the generator's buffer, which were left out.
     too_long: usize = 0,
+    /// Generated patterns whose program passes the storage, which were left out.
+    too_large: usize = 0,
     allowed: usize = 0,
     allowed_by: [verdicts.entries.len]usize = @splat(0),
     failures: usize = 0,
 
     fn add(tally: *Tally, other: Tally) void {
-        inline for (.{ "cases", "equal", "both_refuse", "too_long", "allowed", "failures" }) |field| {
+        inline for (.{ "cases", "equal", "both_refuse", "too_long", "too_large", "allowed", "failures" }) |field| {
             @field(tally, field) += @field(other, field);
         }
         for (&tally.allowed_by, other.allowed_by) |*count, more| count.* += more;
@@ -203,6 +216,10 @@ fn check_seed(check: *Check, seed: u64) void {
         const pattern = case.pattern.slice();
         const text = case.text[0..case.text_len];
         stdx.compile(pattern);
+        if (std.mem.eql(u8, stdx.refusal, no_space_left)) {
+            check.tally.too_large += 1;
+            continue;
+        }
         const ours = stdx_answer(check, stdx, pattern, text);
         const theirs = go_answer(check.worker.slot, pattern, text);
         check.judge(facts_of(.go, pattern, text, &ours, &theirs), &ours, &theirs);
@@ -297,10 +314,17 @@ fn report(phase: Phase, tally: Tally) void {
         phase.name(), tally.cases, tally.equal, tally.both_refuse, tally.allowed, tally.failures,
     });
     if (tally.too_long != 0) std.debug.print(", {d} patterns too long left out", .{tally.too_long});
+    if (tally.too_large != 0) std.debug.print(", {d} programs too large left out", .{tally.too_large});
     std.debug.print("\n", .{});
     for (verdicts.entries, tally.allowed_by) |entry, allowed| {
         if (entry.oracle == phase.oracle_kind()) std.debug.print("differential-regex:   {d} allowed: {s}\n", .{ allowed, entry.shape });
     }
+}
+
+/// The failures of the generated cases, one more when more programs passed the storage than
+/// `programs_too_large_max`.
+fn generated_failures(tally: Tally) usize {
+    return tally.failures + @intFromBool(tally.too_large > programs_too_large_max);
 }
 
 /// The failures of a log's check, one more when its count of equal answers is not the pinned one.
@@ -351,9 +375,13 @@ pub fn main(init: std.process.Init) !void {
         report(@enumFromInt(phase), tally);
         cases += tally.cases;
     }
+    const generated = totals[@intFromEnum(Phase.generated)];
+    if (generated.too_large > programs_too_large_max) {
+        std.debug.print("differential-regex FAILED: {d} programs too large, and {d} may be\n", .{ generated.too_large, programs_too_large_max });
+    }
     const search = totals[@intFromEnum(Phase.search)];
     const exhaustive = totals[@intFromEnum(Phase.exhaustive)];
-    const failures = totals[@intFromEnum(Phase.generated)].failures +
+    const failures = generated_failures(generated) +
         log_failures(.search, search, expected_equal.search) + log_failures(.exhaustive, exhaustive, expected_equal.exhaustive);
     std.debug.print("differential-regex: {d} cases, {d} failed\n", .{ cases, failures });
     if (failures != 0) std.process.exit(1);
@@ -385,15 +413,20 @@ test "cut_log gives parts that start at a list of texts and hold the whole log" 
 
 test "Tally.add sums each count" {
     var total: Tally = .{ .cases = 1, .equal = 1 };
-    var other: Tally = .{ .cases = 5, .equal = 2, .both_refuse = 1, .too_long = 1, .allowed = 1, .failures = 1 };
+    var other: Tally = .{ .cases = 5, .equal = 2, .both_refuse = 1, .too_long = 1, .too_large = 3, .allowed = 1, .failures = 1 };
     other.allowed_by[0] = 1;
     total.add(other);
     total.add(other);
-    try testing.expectEqual(Tally{ .cases = 11, .equal = 5, .both_refuse = 2, .too_long = 2, .allowed = 2, .allowed_by = blk: {
+    try testing.expectEqual(Tally{ .cases = 11, .equal = 5, .both_refuse = 2, .too_long = 2, .too_large = 6, .allowed = 2, .allowed_by = blk: {
         var by: [verdicts.entries.len]usize = @splat(0);
         by[0] = 2;
         break :blk by;
     }, .failures = 2 }, total);
+}
+
+test "programs too large fail the generated cases past their bound alone" {
+    try testing.expectEqual(@as(usize, 2), generated_failures(.{ .failures = 2, .too_large = programs_too_large_max }));
+    try testing.expectEqual(@as(usize, 3), generated_failures(.{ .failures = 2, .too_large = programs_too_large_max + 1 }));
 }
 
 test {

@@ -75,9 +75,13 @@ test "a closing bracket or brace with nothing to close is refused" {
 test "the forms no program of this module holds are refused as unsupported" {
     try expect_refused(error.UnsupportedBackreference, &.{ "(a)\\1", "\\9", "[\\1]", "\\8", "\\1a", "(a)\\1$" });
     try expect_refused(error.UnsupportedLookaround, &.{ "(?=a)", "(?!a)", "(?<=a)", "(?<!a)" });
-    try expect_refused(error.UnsupportedProperty, &.{ "\\pL", "\\p{Greek}", "\\PL", "[\\p{L}]" });
-    try expect_refused(error.UnsupportedCaseFolding, &.{ "(?i)\xC3\xA9", "(?i)[\xC3\xA9]", "(?i:a\xE2\x82\xAC)", "(?i)\\x{e9}", "(?i)[a-\\x{ff}]" });
     try expect_taken(&.{ "(?i)a(?-i)\xC3\xA9", "(?i)[^a]", "(?i)\\W", "(?i).", "(?i)1", "(?i:a)\xE2\x82\xAC" });
+}
+
+test "Unicode's properties and its case folding compile, and a property that names nothing is refused" {
+    try expect_taken(&.{ "\\pL", "\\p{Greek}", "\\PL", "[\\p{L}]", "\\p{^Lu}", "[^\\P{Han}a]", "\\p{Any}", "\\P{Any}" });
+    try expect_taken(&.{ "(?i)\xC3\xA9", "(?i)[\xC3\xA9]", "(?i:a\xE2\x82\xAC)", "(?i)\\x{e9}", "(?i)[a-\\x{ff}]", "(?i)\\p{Lu}" });
+    try expect_refused(error.InvalidProperty, &.{ "\\p", "\\p{", "\\p{L", "\\p{}", "\\pX", "\\p{IsGreek}", "[\\p{Latn}]", "\\P{gc=L}" });
 }
 
 test "a named group compiles as a group, and a name that breaks RE2's rules is refused" {
@@ -120,6 +124,5 @@ test "every refusal has its class" {
     try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.ClassTooLarge));
     try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.GroupsTooMany));
     try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.UnsupportedBackreference));
-    try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.UnsupportedCaseFolding));
-    try testing.expectEqual(codec.Refusal.unsupported, errors.refusal(error.UnsupportedProperty));
+    try testing.expectEqual(codec.Refusal.corrupt, errors.refusal(error.InvalidProperty));
 }

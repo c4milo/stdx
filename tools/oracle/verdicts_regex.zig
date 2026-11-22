@@ -39,11 +39,11 @@ pub const Entry = struct {
 pub const entries = [_]Entry{
     .{
         .oracle = .go,
-        .shape = "stdx refuses `(?i)` over a scalar value past U+007F, written as UTF-8 or as an " ++
-            "escape, which Go's regexp folds",
-        .holds = folds_past_ascii,
-        .reason = "RFC 9485 §3 gives a regexp no case-insensitive form. `(?i)` is RE2's.",
-        .decision = "86: stdx folds the ASCII letters alone until design §8 step 22 adds Unicode's tables",
+        .shape = "Go's `(?i)\\p{LC}` leaves out U+0345, which folds to ι, and the text holds U+0345",
+        .holds = folds_cased_letter,
+        .reason = "UTS #18 RL1.5 folds a property by its case orbits. Go's regexp folds `\\p{L}` and " ++
+            "`\\p{Ll}` so, and holds U+0345 in both, but holds no fold for LC.",
+        .decision = "86 as amended: the orbits fold every property alike",
     },
     .{
         .oracle = .re2,
@@ -51,13 +51,6 @@ pub const entries = [_]Entry{
         .holds = holds_any_octet,
         .reason = "RFC 9485 §3 holds no `\\C`. It takes an octet that is no character.",
         .decision = "86: no match cuts a scalar value in two, so `\\C` stays refused",
-    },
-    .{
-        .oracle = .re2,
-        .shape = "stdx refuses `\\p` or `\\P`, a Unicode property",
-        .holds = holds_property,
-        .reason = "RFC 9485 §3 requires `\\p{...}`, which needs Unicode's tables.",
-        .decision = "86: the tables are design §8 step 22's part 22e",
     },
     .{
         .oracle = .re2,
@@ -78,17 +71,6 @@ fn is_continuation(octet: u8) bool {
     return octet >= continuation_min and octet <= continuation_max;
 }
 
-/// True when the pattern may name a scalar value past U+007F: by its UTF-8, by a `\x` escape, or
-/// by an octal escape, a reverse solidus before a digit.
-fn names_past_ascii(pattern: []const u8) bool {
-    for (pattern, 0..) |octet, index| {
-        if (octet >= continuation_min) return true;
-        if (octet != '\\' or index + 1 == pattern.len) continue;
-        if (pattern[index + 1] == 'x' or std.ascii.isDigit(pattern[index + 1])) return true;
-    }
-    return false;
-}
-
 /// True when the pattern sets the flag `i` in a `(?` group: an `i` between the `(?` and the `)`
 /// or the `:` that ends the flags.
 fn sets_case_flag(pattern: []const u8) bool {
@@ -102,18 +84,17 @@ fn sets_case_flag(pattern: []const u8) bool {
     return false;
 }
 
-fn folds_past_ascii(facts: Facts) bool {
-    if (!std.mem.eql(u8, facts.stdx_error, "UnsupportedCaseFolding") or facts.oracle_refused) return false;
-    return sets_case_flag(facts.pattern) and names_past_ascii(facts.pattern);
+/// U+0345 COMBINING GREEK YPOGEGRAMMENI as UTF-8, which folds to ι.
+const ypogegrammeni = "\xCD\x85";
+
+fn folds_cased_letter(facts: Facts) bool {
+    if (facts.stdx_error.len != 0 or facts.oracle_refused) return false;
+    if (std.mem.indexOf(u8, facts.text, ypogegrammeni) == null) return false;
+    return sets_case_flag(facts.pattern) and std.mem.indexOf(u8, facts.pattern, "{LC}") != null;
 }
 
 fn holds_any_octet(facts: Facts) bool {
     return std.mem.eql(u8, facts.stdx_error, "InvalidEscape") and std.mem.indexOf(u8, facts.pattern, "\\C") != null;
-}
-
-fn holds_property(facts: Facts) bool {
-    if (!std.mem.eql(u8, facts.stdx_error, "UnsupportedProperty")) return false;
-    return std.mem.indexOf(u8, facts.pattern, "\\p") != null or std.mem.indexOf(u8, facts.pattern, "\\P") != null;
 }
 
 fn oracle_cuts_a_character(facts: Facts) bool {
@@ -141,21 +122,16 @@ fn expect_entry(shape_start: []const u8, facts: Facts) !void {
     try testing.expectEqual(facts.oracle, entries[index].oracle);
 }
 
-test "a refusal of (?i) past ASCII is allowed only where the pattern sets the flag over such a value" {
-    try expect_entry("stdx refuses `(?i)`", .{ .oracle = .go, .pattern = "(?i)\xC3\xA9", .text = "", .stdx_error = "UnsupportedCaseFolding" });
-    try expect_entry("stdx refuses `(?i)`", .{ .oracle = .go, .pattern = "a(?s-m:(?i:\xC3\xA9))", .text = "", .stdx_error = "UnsupportedCaseFolding" });
-    // RE2's logs hold no such pattern, so no entry allows one there.
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .re2, .pattern = "(?i)\xC3\xA9", .text = "", .stdx_error = "UnsupportedCaseFolding" }));
-    try expect_entry("stdx refuses `(?i)`", .{ .oracle = .go, .pattern = "(?si-m)\xC3\xA9", .text = "", .stdx_error = "UnsupportedCaseFolding" });
-    try expect_entry("stdx refuses `(?i)`", .{ .oracle = .go, .pattern = "(?i)\\x{e9}", .text = "", .stdx_error = "UnsupportedCaseFolding" });
-    try expect_entry("stdx refuses `(?i)`", .{ .oracle = .go, .pattern = "(?i:\\601)", .text = "", .stdx_error = "UnsupportedCaseFolding" });
-    // Another error, no flag, a cleared flag alone, no value past ASCII, and a pattern the oracle
-    // refuses too.
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?i)\xC3\xA9", .text = "", .stdx_error = "InvalidEscape" }));
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "i\xC3\xA9", .text = "", .stdx_error = "UnsupportedCaseFolding" }));
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?-i)\xC3\xA9", .text = "", .stdx_error = "UnsupportedCaseFolding" }));
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?i)e", .text = "", .stdx_error = "UnsupportedCaseFolding" }));
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?i)\xC3\xA9", .text = "", .stdx_error = "UnsupportedCaseFolding", .oracle_refused = true }));
+test "Go's (?i)\\p{LC} is allowed only where the flag is set and the text holds U+0345" {
+    try expect_entry("Go's `(?i)\\p{LC}`", .{ .oracle = .go, .pattern = "(?i)\\p{LC}", .text = "a\xCD\x85" });
+    try expect_entry("Go's `(?i)\\p{LC}`", .{ .oracle = .go, .pattern = "a(?s-m:(?i:[\\p{LC}1]))", .text = "\xCD\x85" });
+    // No flag, a cleared flag alone, another property, no U+0345, a refusal, and RE2's logs.
+    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "\\p{LC}", .text = "\xCD\x85" }));
+    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?-i)\\p{LC}", .text = "\xCD\x85" }));
+    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?i)\\p{L}", .text = "\xCD\x85" }));
+    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?i)\\p{LC}", .text = "a" }));
+    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "(?i)\\p{LC}", .text = "\xCD\x85", .stdx_error = "InvalidProperty" }));
+    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .re2, .pattern = "(?i)\\p{LC}", .text = "\xCD\x85" }));
 }
 
 test "a difference of two matches has no entry for Go's regexp" {
@@ -163,14 +139,11 @@ test "a difference of two matches has no entry for Go's regexp" {
     try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "\\B", .text = "\xC3\xA9", .oracle_match = .{ 1, 1 }, .go_agrees_with_stdx = true }));
 }
 
-test "a refusal of \\C or of a property is allowed for RE2's logs, by its error and its pattern" {
+test "a refusal of \\C is allowed for RE2's logs, by its error and its pattern" {
     try expect_entry("stdx refuses `\\C`", .{ .oracle = .re2, .pattern = "a\\C*", .text = "", .stdx_error = "InvalidEscape" });
-    try expect_entry("stdx refuses `\\p`", .{ .oracle = .re2, .pattern = "\\pN+", .text = "", .stdx_error = "UnsupportedProperty" });
-    try expect_entry("stdx refuses `\\p`", .{ .oracle = .re2, .pattern = "\\P{Lu}", .text = "", .stdx_error = "UnsupportedProperty" });
     try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .re2, .pattern = "a\\Q", .text = "", .stdx_error = "InvalidEscape" }));
     try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .re2, .pattern = "a\\C*", .text = "", .stdx_error = "MissingOperand" }));
     try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .go, .pattern = "a\\C*", .text = "", .stdx_error = "InvalidEscape" }));
-    try testing.expectEqual(@as(?usize, null), find(.{ .oracle = .re2, .pattern = "p", .text = "", .stdx_error = "UnsupportedProperty" }));
 }
 
 test "RE2's match inside a character is allowed only where Go gives stdx's answer" {

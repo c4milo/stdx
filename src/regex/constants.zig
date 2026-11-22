@@ -36,9 +36,6 @@ pub const continuation_max = @as(comptime_int, utf8.constants.continuation_max);
 /// The line feed, the one octet `.` refuses by default and the octet a line ends with.
 pub const line_feed = '\n';
 
-/// The bit that tells an ASCII letter's upper case from its lower case.
-pub const ascii_case_bit = 0x20;
-
 /// The largest count a range quantifier names, and the largest product of the counts of nested
 /// range quantifiers. RFC 9485 §8 lets an implementation limit both. A count multiplies the
 /// program, so the limit bounds the instructions one quantifier adds. RE2 and Go's regexp hold the
@@ -66,7 +63,10 @@ pub const depth_max = 96;
 pub const pending_max = 2;
 
 /// The ranges of scalar values one character class holds, after its negation and its case folding.
-pub const class_ranges_max = 128;
+/// Unicode 17.0.0's largest property, `\p{C}`, holds 741, and `[\p{L}\p{M}\p{N}\p{Pc}]` holds 831,
+/// so 2048 holds every class a pattern names with room. The owner ruled it on 2026-11-22: one set
+/// of 16 KiB a class, which the parser keeps (decision 86 as amended).
+pub const class_ranges_max = 2048;
 
 /// The ranges the UTF-8 split of one range of scalar values keeps on its stack. A split leaves at
 /// most one range for each boundary it cuts at: the surrogates, the three lengths, and two for each

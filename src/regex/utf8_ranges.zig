@@ -12,7 +12,9 @@ const codec = @import("codec");
 const utf8 = @import("utf8");
 const constants = @import("constants.zig");
 
-pub const ScalarRange = struct { lo: u32, hi: u32 };
+/// One range of scalar values: the `unicode` module's range, so a class takes a property's ranges as
+/// they are.
+pub const ScalarRange = @import("unicode").Range;
 
 pub const OctetRange = struct { lo: u8, hi: u8 };
 
