@@ -188,7 +188,8 @@ pub const Searcher = struct {
     /// Claim R4: the first match at or after `from`, found from the places of the suffix in
     /// turn. At the first place from which the reverse DFA reads back to a match's start, the
     /// match ends with the place's suffix (dfa_suffix.zig).
-    fn find_by_suffix(searcher: *Searcher, suffix: *const Literal, haystack: []const u8, from: usize) ?Answer {
+    /// Out of line, so that `find_by_dfa` stays small enough for its caller to inline.
+    noinline fn find_by_suffix(searcher: *Searcher, suffix: *const Literal, haystack: []const u8, from: usize) ?Answer {
         var index = from;
         // Each turn goes on from one octet past the place before, so the turns are at most the
         // octets from `from` and one.

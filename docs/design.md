@@ -8254,6 +8254,23 @@ to 12 are reordered and nothing else changes.
   classes, as in `[A-Ca-c]`, taken as a place that folds. `Literal.of`'s test of patterns with no
   literal now holds it.
 
+  **Part 22c, a search's calls (decision 86).** The first hosted run on main at `dbbb884`, on a
+  Xeon 6975P-C and a Neoverse N2, timed `[0-9]+` at 0.84 and 0.82 of main's `85d3fe7`. It finds
+  8,288 matches a MiB, each a search with a forward and a reverse scan. At `85d3fe7` the
+  compiler inlined both scans into `Searcher.find`, so a search made no call. Claims R2 to R4 made
+  the scans too large to inline: a search called `scan_forward`, the skip loop, `Dfa.start`,
+  `Dfa.waits` and the reverse scan, and stored about 29 words more.
+  - The common path is now marked `inline`: `scan_forward`, R1's skip loop, `start`, `waits` and
+    the reverse scan. The rare paths are out of line: claim R2's copy of the skip loop, claim
+    R3's scan and claim R4's search.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `[0-9]+` over 1 MiB three times: 23.3 million instructions, against 22.8 million at
+  `85d3fe7` and 24.3 million at `16d437c`. Sixty searches of the MiB, in turns: 41 ms at best
+  of five, against 40 at `85d3fe7` and 47 at `16d437c`. The five validations, setup included:
+  381.7 million instructions against 445.9 million, and 441 ms against 489 at best of five.
+  `zig build test`, `zig build test-self-hosted` and `zig build differential-regex -Doracles`
+  pass: 1,308 tests, and 12,437,544 cases with none failed. No check changed.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

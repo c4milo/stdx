@@ -153,8 +153,9 @@ pub const Dfa = struct {
     }
 
     /// The offset where the forward program's match from `from` ends, as the matcher finds it, or
-    /// with `earliest` the first offset where any match ends.
-    pub fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
+    /// with `earliest` the first offset where any match ends. Inline, with the loops of R1 and of
+    /// no claim, so that a text with many matches makes no call for each: a search inlines it.
+    pub inline fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
         assert(from <= haystack.len);
         const behind: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
         const state = dfa.start(behind) orelse return .gave_up;
@@ -198,12 +199,18 @@ pub const Dfa = struct {
     /// A forward scan under claim R1: the state that waits for a match to start stays where it
     /// is over an octet that starts none, so the scan goes to the next octet that can. Claim R2
     /// takes a copy of the loop of its own, so that R1's loop holds no test of R2.
-    noinline fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
-        if (dfa.literal != null) return dfa.skip_loop(true, haystack, from, earliest, first);
+    inline fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        if (dfa.literal != null) return dfa.skip_loop_literal(haystack, from, earliest, first);
         return dfa.skip_loop(false, haystack, from, earliest, first);
     }
 
-    fn skip_loop(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+    /// Claim R2's copy, out of line: a search with a literal makes few scans, and a scan of R1
+    /// alone, which a text with many matches makes many of, inlines into its caller.
+    noinline fn skip_loop_literal(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        return dfa.skip_loop(true, haystack, from, earliest, first);
+    }
+
+    inline fn skip_loop(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         var state = first;
         var last: ?usize = null;
         const table = dfa.cache.table;
@@ -275,7 +282,7 @@ pub const Dfa = struct {
     }
 
     /// The state a scan starts in, behind which stands an octet of `behind`'s context.
-    pub fn start(dfa: *Dfa, behind: Context) ?u32 {
+    pub inline fn start(dfa: *Dfa, behind: Context) ?u32 {
         const context: Context = if (dfa.has_looks) behind else .other;
         var row = dfa.cache.starts[@intFromEnum(context)];
         if (row == constants.dfa_unknown) {
@@ -296,7 +303,7 @@ pub const Dfa = struct {
 
     /// Readies the skip where a scan starts in `row`: it ends a rest that is over, and takes
     /// `row` as the state that waits where the DFA knows none. True when the scan skips.
-    fn waits(dfa: *Dfa, row: u32) bool {
+    inline fn waits(dfa: *Dfa, row: u32) bool {
         assert(dfa.may_skip);
         if (dfa.skip_off and dfa.cache.scanned >= dfa.skip_retry_at) dfa.skip_off = false;
         if (!dfa.skips()) return false;
