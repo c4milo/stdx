@@ -91,6 +91,9 @@ pub const Literal = struct {
         while (end - index >= block_len) : (index += block_len) {
             const firsts = haystack[index..][0..block_len];
             const lasts = haystack[index + last ..][0..block_len];
+            // Most blocks hold no candidate. One reduction says so, where a mask costs a
+            // reduction for each step on Arm, which has no instruction that gathers lane bits.
+            if (!any_candidate(firsts, lasts, first_octets, last_octets)) continue;
             var mask = candidates(firsts, lasts, first_octets, last_octets);
             // Each set bit is one place to compare, at most `block_len` of them.
             while (mask != 0) : (mask &= mask - 1) {
@@ -145,6 +148,23 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
 }
 
 const block_len = constants.literal_steps * constants.skip_lanes;
+
+/// True when some place of a block holds the first octet in `firsts` and the last octet at the
+/// same place in `lasts`.
+inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u8, first_octets: Lanes, last_octets: Lanes) bool {
+    const all: Lanes = @splat(constants.octet_max);
+    const none: Lanes = @splat(0);
+    var any = none;
+    inline for (0..constants.literal_steps) |step| {
+        const at = step * constants.skip_lanes;
+        const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
+        const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
+        const first_here = @select(u8, first == first_octets, all, none);
+        const last_here = @select(u8, last == last_octets, all, none);
+        any |= first_here & last_here;
+    }
+    return @reduce(.Or, any) != 0;
+}
 
 /// A bit for each place of a block where the first octet stands in `firsts` and the last octet
 /// at the same place in `lasts`, the block read from the literal's last octet on.

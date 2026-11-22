@@ -8221,6 +8221,21 @@ to 12 are reordered and nothing else changes.
   `zig build test-self-hosted`: 49 of 49 steps. The change holds no new check, so it has no
   mutation.
 
+  **Part 22c, claim R2's test of a block (decision 86).** On the hosted Neoverse N2 jobs a search
+  for one literal ran at 0.59 of Rust's regex, against 0.53 to 0.79 on x86-64. The aarch64 code
+  of a block of 64 octets took about 55 instructions: Arm has no instruction that gathers a
+  vector's lane bits, so each step's mask took four. Almost every block holds no candidate. A
+  block now ORs its four steps' compares and tests them with one reduction, `umaxv` on Arm, and
+  builds the mask only where a lane is set: about 33 instructions on aarch64.
+  **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container. On x86-64,
+  cachegrind counts 6.5% fewer instructions for each of the four searches of one literal over
+  1 MiB three times, program start included, and 400 searches of `Pharaoh` or `Sherlock` ran in
+  25 ms against 28 ms at best of three. The aarch64 count is read from `-femit-asm` for the
+  baseline CPU; the hosted runners are its measure. Mutations, each against `zig build
+  test-regex`: a block with no candidate and a test that leaves out the last step, each CAUGHT
+  by `find`'s test from every offset; a block that always holds a candidate, and a lane with
+  either octet taken as one, NOT CAUGHT, since each candidate is still compared whole.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that
