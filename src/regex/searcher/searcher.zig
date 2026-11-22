@@ -22,6 +22,7 @@ const Dfa = dfa_file.Dfa;
 const Literal = literal_file.Literal;
 const dfa_suffix = @import("../dfa/dfa_suffix.zig");
 const one_pass = @import("../one_pass.zig");
+const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
 const literal_file = @import("../literal.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
@@ -57,6 +58,10 @@ pub const Claims = struct {
     /// R7: where the forward program has at most `pair_classes_max` classes of octets, a forward
     /// scan with no skip takes two octets for one read of the cache (dfa_pairs.zig).
     pairs: bool = true,
+    /// R8: where the DFAs found a match's span and the program is not one-pass, `captures`
+    /// follows one path at a time over the span, each instruction at each offset once, in place
+    /// of the matcher's threads (backtrack.zig).
+    backtrack: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -120,6 +125,8 @@ pub const Searcher = struct {
     /// Claim R6: whether one thread finds the groups. Only `captures` reads it, so `init` leaves
     /// it `unknown`, and the first `captures` judges it.
     one_pass: OnePass,
+    /// Claim R8: whether `captures` takes the backtracker over a span the DFAs found.
+    backtrack: bool,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -159,6 +166,7 @@ pub const Searcher = struct {
         searcher.init_exact();
         // A program of no group but the whole match needs no thread: the DFAs give its span.
         searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
+        searcher.backtrack = claims.backtrack;
         searcher.suffix = null;
         const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
         // A literal that starts every match is the better way, and a pattern that starts at the
@@ -219,18 +227,35 @@ pub const Searcher = struct {
         var anchored = false;
         if (searcher.find_by_dfa(haystack, from)) |answer| {
             const span = answer.span orelse return false;
+            // A program of no group but the whole match: the DFAs gave every group.
+            if (groups.len == 1) {
+                groups[0] = span;
+                return true;
+            }
             anchor = @intCast(span.start);
             anchored = true;
+            searcher.matcher.configure(.{ .captures = .groups, .anchored = true });
+            if (searcher.groups_in_span(haystack, anchor, @intCast(span.end)) != null) {
+                copy_groups(&searcher.matcher, groups);
+                return true;
+            }
         }
         searcher.matcher.configure(.{ .captures = .groups, .anchored = anchored });
-        // The DFAs found where the match starts, so one thread from there finds its groups.
-        const found = if (anchored and searcher.one_pass == .yes) one_pass.find(&searcher.matcher, haystack, anchor) else null;
-        if (found == null and searcher.matcher.find(haystack, anchor) == null) {
+        if (searcher.matcher.find(haystack, anchor) == null) {
             assert(!anchored);
             return false;
         }
-        for (groups, 0..) |*group, index| group.* = searcher.matcher.group(@intCast(index));
+        copy_groups(&searcher.matcher, groups);
         return true;
+    }
+
+    /// The groups of the match from `start` to `end`, which the DFAs found, by one thread where
+    /// the program is one-pass (claim R6), or by the backtracker (claim R8). Null where neither
+    /// applies, or the backtracker's tables are too small: the matcher then finds them.
+    fn groups_in_span(searcher: *Searcher, haystack: []const u8, start: usize, end: usize) ?Span {
+        if (searcher.one_pass == .yes) return one_pass.find(&searcher.matcher, haystack, start);
+        if (searcher.backtrack) return backtrack.find(&searcher.matcher, haystack, start, end);
+        return null;
     }
 
     /// Claim R6 for a program whose every match starts at the text's start: a match starts at
@@ -238,7 +263,7 @@ pub const Searcher = struct {
     fn captures_at_start(searcher: *Searcher, haystack: []const u8, from: usize, groups: []?Span) bool {
         searcher.matcher.configure(.{ .captures = .groups, .anchored = true });
         if (one_pass.find(&searcher.matcher, haystack, from) == null) return false;
-        for (groups, 0..) |*group, index| group.* = searcher.matcher.group(@intCast(index));
+        copy_groups(&searcher.matcher, groups);
         return true;
     }
 
@@ -301,6 +326,19 @@ pub const Searcher = struct {
         return .{ .span = null };
     }
 };
+
+/// The groups of the matcher's match, read from its slots in one pass: what `Matcher.group`
+/// gives for each, with no call for each.
+fn copy_groups(matcher: *const Matcher, groups: []?Span) void {
+    assert(matcher.finished and matcher.matched);
+    const slots = matcher.best();
+    assert(slots.len == groups.len * constants.group_slots);
+    for (groups, 0..) |*group, index| {
+        const start = slots[index * constants.group_slots];
+        const end = slots[index * constants.group_slots + 1];
+        group.* = if (start == constants.slot_unset or end == constants.slot_unset) null else .{ .start = start, .end = end };
+    }
+}
 
 /// True when every match starts at the text's start: the forward program asserts it before it
 /// takes an octet or splits.

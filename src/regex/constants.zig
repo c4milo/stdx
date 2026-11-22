@@ -177,6 +177,12 @@ pub const dfa_give_ups_max = 8;
 pub const dfa_forward_parts = 2;
 pub const dfa_cache_parts = 3;
 
+/// The splits the backtracker passes, at most, to skip alternatives that start with a range that
+/// does not take the octet before it pushes the path (backtrack.zig). A class's node of 64
+/// continuation ranges is 63 splits, so the walk passes any node's alternatives, and a push
+/// costs a bounded walk.
+pub const backtrack_skip_splits_max = 64;
+
 /// The words of cache a `Searcher` takes where its caller names no other size: 4 MiB, the memory
 /// Rust's regex crate lets the two lazy DFAs of one pattern take, 2 MiB each. The owner ruled it
 /// on 2026-11-22 (decision 86 as amended): at 512 kB the DFAs of rebar's date pattern, and of

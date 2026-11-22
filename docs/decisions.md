@@ -5910,6 +5910,23 @@ last part lists what still waits on a ruling.
         quarter of its memory, so a pattern of many states keeps three quarters of them. A
         cache that clears while a pair is built keeps no entry for it.
       - `SearcherClaims.pairs` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
+    - Claim R8, added 2026-11-22 (design §8 part 22n): where the DFAs found a match's span and
+      the program is not one-pass, `Searcher.captures` follows one path at a time from the span's
+      start, in the order of preference, in place of the matcher's threads (`backtrack.zig`).
+      - A bit for each pair of an instruction and an offset of the span says the pair was
+        visited, so each pair costs one visit: at most m·(s + 1) visits for a span of s octets.
+        A path writes a slot only at a save, and its stack restores the slot where it fails. The
+        first path that reaches `match` is the matcher's match, which ends at the span's end, so
+        no path takes an octet past it.
+      - The bits and the stack take the matcher's two tables of slots, 2·m·k words, which only
+        the matcher's own search writes. Where the span's bits or the stack do not fit, the
+        matcher finds the groups. A path does not push an alternative whose saves and jumps lead
+        to a range that does not take the octet there, or to an assertion that does not hold, so
+        the alternatives of a class leave no entry behind an octet a path took.
+      - RE2's BitState and Rust's crate's `BoundedBacktracker` search the same way (Cox,
+        "Regular Expression Matching in the Wild", 2010). Both give the bitmap memory of its own.
+      - A program of no group but the whole match takes the DFAs' span, and runs neither.
+      - `SearcherClaims.backtrack` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one

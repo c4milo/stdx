@@ -8804,8 +8804,33 @@ to 12 are reordered and nothing else changes.
     instruction of a state in about one octet.
   - rebar's dictionary, 2,663 words in one alternation, builds each DFA state through every
     branch.
-  - The capture groups of a lexer's and a log's patterns come from the matcher's threads, which
-    copy the slots of every group.
+  - The capture groups of a lexer's and a log's patterns came from the matcher's threads, which
+    copy the slots of every group: the lexer's 89 groups are 178 slots a thread. Claim R8 finds
+    them with a backtracker over the span the DFAs found, each instruction at each offset once
+    (decision 86). A warm run of the driver gave the lexer row 0.34 MB/s before and 3.9 to 4.4
+    MB/s after, and the log row 5.4 and 15.7 MB/s, where Rust's crate gave 4.64 and 65.9 in the
+    local run of part 22m. The groups are now read from the slots in one pass, which took the
+    lexer row from 2.4 MB/s to that.
+  - rebar's Unicode-data row is one-pass and anchored at `^`, so `one_pass.find` takes each
+    line with no DFA. Its walk follows a class's alternatives at each octet, where Rust's
+    crate's one-pass DFA reads one entry, and it runs at 25 MB/s to Rust's 168.
+  **Check, the backtracker:** it gives the match and the groups the matcher gives from every
+  start where the matcher finds one, over 3,000 patterns a seed draws, and gives way at fewer
+  than one start in 500; a failed path gives back the slots it wrote; a span whose bits or
+  stack do not fit gives way, and the searcher then agrees with the matcher; an alternative that
+  fails at once takes no bit and no entry; a searcher with the claim takes no step of the
+  matcher; the Go differential check passes; mutations.
+  **Check passed, the backtracker, 2026-11-22.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18,
+  in a cloud container.
+  - `zig build test-regex` passes. The seed's 3,000 patterns gave 51,178 matches, of which 37
+    gave way: a stack that outgrew the tables of a pattern of nested loops.
+  - Mutations against `zig build test-regex`: 16. CAUGHT, 14: a visited pair visited again; a
+    split that keeps no alternative; a save not undone, or a restore that writes nothing; a
+    range that takes the octet at the span's end; no branch skipped; a failing assertion not
+    judged, or always failing the check; a split that fails the check; the stack over the bits;
+    one group with no span; the claim always on; the searcher past the backtracker; the groups
+    read from the other slot. NOT CAUGHT, 2: a group read as a span with one of its slots
+    unset, either one. A match never holds such a group, so the two checks give one answer.
   **Check, the classes:** a class's automaton takes the texts its alternatives take, in both
   directions, over the UTF-8 of every scalar value to U+07FF and of every 101st past it, and over
   random octets; `\p{L}`'s automaton takes under three fifths of its alternatives'
