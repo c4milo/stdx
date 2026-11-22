@@ -5682,8 +5682,9 @@ last part lists what still waits on a ruling.
         TBL.
       - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
         `stdx, no skip` turns off both.
-      - What R2 does not do yet, from the reading of Rust's crate: a search for one of several
-        literals (Teddy), and AVX2's 32 lanes, which Rust's crate picks at run time on x86-64.
+      - What R2 does not do yet, from the reading of Rust's crate: AVX2's 32 lanes, which Rust's
+        crate picks at run time on x86-64, and the two octets a table of frequencies ranks
+        rarest. Claim R5 searches for one of several literals.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two
       octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan
       goes to the next place of that literal (design §8 step 22, part 22c).
@@ -5718,6 +5719,20 @@ last part lists what still waits on a ruling.
       - R4 does not run where every match starts at the text's start, or where a literal starts
         every match. It runs only with R1, so `stdx, no skip` turns it off, and
         `SearcherClaims.suffix` turns it off alone.
+    - Claim R5: where the forward program starts with an alternation, each branch starts with a
+      literal, and no one literal starts every match, R1's skip goes to the next place of one of
+      them, as in `Abraham|Isaac|Jacob|Joseph` (design §8 step 22, part 22c).
+      - `LiteralSet.of` walks the splits from the entry, and reads each branch's literal as
+        claim R2 does, with no assertion and no place that folds. It keeps at most
+        `literal_set_max`, 8, and each one's first octets up to the shortest one's length.
+      - `LiteralSet.find` compares each literal's first and last octets at their distance, 16
+        octets a step and 4 steps a block, ORs the compares, and compares the literals whole
+        where a pair stands. It needs SSE2 or NEON alone.
+      - Rust's crate searches such a set with Teddy, from Hyperscan (Wang and others, NSDI
+        2019), which looks up nibbles with PSHUFB or TBL. stdx's build takes neither on x86-64,
+        whose baseline is SSE2.
+      - R5 runs only with R1, so `stdx, no skip` turns it off, and `SearcherClaims.literal_set`
+        turns it off alone.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
@@ -5743,7 +5758,8 @@ last part lists what still waits on a ruling.
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
     `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
-    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; and `case_bit`, 0x20. Claim R1's: `skip_lanes`, 16;
+    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; and `case_bit`, 0x20. Claim R5's:
+    `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
 

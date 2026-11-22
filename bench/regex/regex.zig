@@ -3,7 +3,7 @@
 //! interleaved in one run, the median of five runs with the spread, and the losses shown.
 //!
 //! The candidates are regex_engines.zig's: stdx by a searcher with its default cache, the same
-//! with claims R1 to R4 off, stdx by the matcher alone, Rust's `regex` crate, Go's regexp,
+//! with claims R1 to R5 off, stdx by the matcher alone, Rust's `regex` crate, Go's regexp,
 //! zig-regex and mvzr, and last in each round stdx again, as the first. stdx is built
 //! ReleaseSafe and each other library ReleaseFast or its release form, all for the
 //! architecture's baseline CPU (decisions 17 and 75).
@@ -113,7 +113,7 @@ const Row = struct {
     }
 
     /// Times the row and prints its cells, with `items` of the row's unit in one operation, and
-    /// stdx's speed over its own with claims R1 to R4 off, over Rust's and over Go's.
+    /// stdx's speed over its own with claims R1 to R5 off, over Rust's and over Go's.
     fn print(row: *const Row, io: std.Io, out: *std.Io.Writer, items: f64) !void {
         var runs: [engine_count][timing.run_count]f64 = undefined;
         timing.time_interleaved(io, row.operations[0..row.timed], runs[0..row.timed]);
@@ -186,7 +186,7 @@ fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, form
     return expected;
 }
 
-/// The candidates a row gives stdx's speed over, a column each: stdx with claims R1 to R4 off,
+/// The candidates a row gives stdx's speed over, a column each: stdx with claims R1 to R5 off,
 /// the claims' A/B in one run (decision 86); stdx again, the same code path timed last in each
 /// round; and two baselines.
 const ratio_bases = [_]Engine{ .stdx_no_skip, .stdx_again, .rust, .go };
@@ -215,7 +215,7 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
 const File = struct { name: []const u8, octets: []const u8 };
 
 fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File) !void {
-    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claims R1 to R4 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
+    try out.writeAll("`stdx` is a searcher with its cache, `stdx, no skip` the same with claims R1 to R5 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
     try out.writeAll("The patterns of the search table:\n\n");
     for (cases.searches) |search| {
         try out.print("- {s}, in {s}: `{s}`", .{ search.name, search.file, search.pattern });

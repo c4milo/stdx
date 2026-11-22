@@ -154,6 +154,14 @@ pub const literal_len_max = 32;
 /// branch for each 64 octets, not one for each 16.
 pub const literal_steps = 4;
 
+/// The literals claim R5 searches for at most, one of which every match starts with. Each costs
+/// two compares and an AND a vector, so eight cost about two instructions an octet, under the
+/// forward DFA's dozen. A pattern with more branches takes claim R1's skip.
+pub const literal_set_max = 8;
+
+/// The fewest literals claim R5 searches for: one literal is claim R2's.
+pub const literal_set_count_min = 2;
+
 /// The bit in which the two cases of an ASCII letter differ (RFC 20's chart). `(?i)` takes a
 /// letter as a split between its two cases, and claim R2 compares `octet | case_bit` with the
 /// lower case: equal for the two octets that differ in this bit alone, and for no other.

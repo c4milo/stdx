@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Dfa = @import("dfa.zig").Dfa;
 const Skip = @import("dfa_skip.zig").Skip;
+const Pass = @import("dfa_config.zig").Pass;
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 /// Readies the skip where a scan starts in `row`: it ends a rest that is over, and takes
@@ -27,12 +28,14 @@ pub fn skips(dfa: *const Dfa) bool {
 
 /// A visit of a scan to the state that waits, at an octet of the haystack: the offset of the
 /// next octet that can start a match, which is `from` where its own octet can. With
-/// `by_literal`, the next place of the literal (claim R2).
-pub fn pass(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize) usize {
-    var index = from;
-    if (by_literal) {
-        index = dfa.literal.?.find(haystack, from) orelse haystack.len;
-    } else if (!dfa.skip.starts[haystack[from]]) index = dfa.skip.next(haystack, from + 1);
+/// `how` at `.literal`, the next place of the literal (claim R2), and at `.literal_set`, of one of
+/// the literals (claim R5).
+pub fn pass(dfa: *Dfa, comptime how: Pass, haystack: []const u8, from: usize) usize {
+    const index = switch (how) {
+        .literal => dfa.literal.?.find(haystack, from) orelse haystack.len,
+        .literal_set => dfa.literals.?.find(haystack, from) orelse haystack.len,
+        .octet => if (dfa.skip.starts[haystack[from]]) from else dfa.skip.next(haystack, from + 1),
+    };
     dfa.skip_octets += index - from;
     dfa.skip_visits += 1;
     if (dfa.skip_visits == constants.skip_trial_visits) judge_skip(dfa);

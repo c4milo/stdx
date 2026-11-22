@@ -22,6 +22,7 @@ const SparseSet = @import("../sparse_set.zig").SparseSet;
 const Cache = @import("dfa_cache.zig").Cache;
 const Skip = @import("dfa_skip.zig").Skip;
 const Literal = @import("../literal.zig").Literal;
+const LiteralSet = @import("../literal_set.zig").LiteralSet;
 const dfa_literal = @import("dfa_literal.zig");
 const dfa_wait = @import("dfa_wait.zig");
 const dfa_reverse = @import("dfa_reverse.zig");
@@ -70,6 +71,8 @@ pub const Dfa = struct {
     /// Claim R2. The literal every match starts with, where the skip goes instead. In a program
     /// with an assertion, the literal after the assertions at its start (claim R3).
     literal: ?Literal,
+    /// Claim R5. The literals one of which every match starts with, where the skip goes instead.
+    literals: ?LiteralSet,
     /// Claim R3: the program holds an assertion and `literal`, and the scan goes to the literal
     /// from each state with no thread, which `build` marks with `dfa_idle_flag`.
     looking: bool,
@@ -110,6 +113,7 @@ pub const Dfa = struct {
         if (memory.len < memory_len_min(program)) return false;
         assert(!config.skip or (config.kind == .first and !config.anchored));
         assert(!config.literal or config.skip);
+        assert(!config.literal_set or config.skip);
         const len = program.instructions.len;
         var rest = memory;
         dfa.* = .{
@@ -130,6 +134,7 @@ pub const Dfa = struct {
             .mark = 0,
             .skip = undefined,
             .literal = if (config.literal and config.skip) Literal.of(program, program.has_looks) else null,
+            .literals = null,
             .looking = false,
             .skip_known = false,
             .idle = constants.dfa_unknown,
@@ -145,6 +150,8 @@ pub const Dfa = struct {
             dfa.representatives[dfa.classes[reversed]] = reversed;
         }
         dfa.looking = program.has_looks and dfa.literal != null;
+        // A program with an assertion has no skip, so claim R5 is for one with none.
+        if (config.literal_set and config.skip and dfa.literal == null and !program.has_looks) dfa.literals = LiteralSet.of(program);
         dfa.cache.init(rest, stride_of(program));
         return true;
     }
@@ -202,16 +209,22 @@ pub const Dfa = struct {
     /// takes a copy of the loop of its own, so that R1's loop holds no test of R2.
     inline fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         if (dfa.literal != null) return dfa.skip_loop_literal(haystack, from, earliest, first);
-        return dfa.skip_loop(false, haystack, from, earliest, first);
+        if (dfa.literals != null) return dfa.skip_loop_literal_set(haystack, from, earliest, first);
+        return dfa.skip_loop(.octet, haystack, from, earliest, first);
     }
 
     /// Claim R2's copy, out of line: a search with a literal makes few scans, and a scan of R1
     /// alone, which a text with many matches makes many of, inlines into its caller.
     noinline fn skip_loop_literal(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
-        return dfa.skip_loop(true, haystack, from, earliest, first);
+        return dfa.skip_loop(.literal, haystack, from, earliest, first);
     }
 
-    inline fn skip_loop(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+    /// Claim R5's copy, out of line as R2's is.
+    noinline fn skip_loop_literal_set(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        return dfa.skip_loop(.literal_set, haystack, from, earliest, first);
+    }
+
+    inline fn skip_loop(dfa: *Dfa, comptime how: dfa_config.Pass, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         var state = first;
         var last: ?usize = null;
         const table = dfa.cache.table;
@@ -220,7 +233,7 @@ pub const Dfa = struct {
         var index = from;
         while (index < haystack.len) {
             if (state == idle) {
-                index = dfa_wait.pass(dfa, by_literal, haystack, index);
+                index = dfa_wait.pass(dfa, how, haystack, index);
                 idle = dfa.idle;
                 if (index == haystack.len) break;
             }

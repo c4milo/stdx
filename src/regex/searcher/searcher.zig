@@ -45,6 +45,9 @@ pub const Claims = struct {
     /// the literal's next place and reads back from it to the match's start. Only with
     /// `start_skip`, and only where no part of a match before the literal takes its first octet.
     suffix: bool = true,
+    /// R5: where an alternation's branches each start with a literal, and no one literal starts
+    /// every match, the skip goes to the next place of one of them. Only with `start_skip`.
+    literal_set: bool = true,
 };
 
 pub const Searcher = struct {
@@ -84,7 +87,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(

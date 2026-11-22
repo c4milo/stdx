@@ -179,3 +179,47 @@ test "a searcher goes on to the literal's next place where the assertion before 
     try fixture.expect_agree(haystack, 0);
     try testing.expect(fixture.searcher.forward.skip_octets - skipped >= 2 * constants.skip_lanes);
 }
+
+/// The octets of a test of literal sets: the literals' octets, and octets none starts with.
+const sets_alphabet = "abcdxhefg AIJs";
+
+/// Patterns whose branches each start with a literal (claim R5).
+const sets_patterns = [_][]const u8{
+    "Ab|Is|Ja", "Abraham|Isaac|Jacob|Joseph", "(?:ab|cd)+x", "(ab|cd|efg)h", "ab|abc", "ba|ab|ca", "(?:ab|cd)(?:ef|gh)",
+};
+
+test "a searcher that goes to the places of a literal set gives what the matcher gives" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0x5E76);
+    var haystack: [haystack_len]u8 = undefined;
+    for (sets_patterns) |pattern| {
+        try fixture.init(pattern, 0);
+        const sizes = searcher_test.cache_sizes(&fixture.program);
+        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
+            try fixture.init(pattern, cache_words);
+            try testing.expect(fixture.searcher.forward.literals != null);
+            for (0..8) |_| {
+                for (&haystack) |*octet| octet.* = sets_alphabet[generator.below(sets_alphabet.len)];
+                try fixture.expect_agree_everywhere(&haystack);
+            }
+        }
+    }
+}
+
+test "a searcher goes from one place of a literal set to the next, and stops at no octet between" {
+    var fixture: Fixture = .{};
+    try fixture.init("Ab|Is", 0);
+    const words = searcher_test.cache_sizes(&fixture.program).most;
+    try fixture.init("Ab|Is", words);
+    // R1's skip would stop at each `A` and `I`; the set's search makes one visit a scan.
+    const haystack = "AxIx" ** constants.skip_lanes ++ "Is";
+    try fixture.expect_agree(haystack, 0);
+    const visits = fixture.searcher.forward.skip_visits;
+    try fixture.expect_agree(haystack, 0);
+    try testing.expectEqual(visits + scans_of_expect_agree, fixture.searcher.forward.skip_visits);
+    try fixture.init_with("Ab|Is", .{ .literal_set = false }, words);
+    try testing.expect(fixture.searcher.forward.literals == null);
+    try fixture.expect_agree(haystack, 0);
+    try fixture.init_with("Ab|Is", .{ .start_skip = false }, words);
+    try testing.expect(fixture.searcher.forward.literals == null);
+}

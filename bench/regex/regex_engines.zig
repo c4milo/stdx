@@ -2,7 +2,7 @@
 //! pattern, find its matches in a haystack, count the short texts it matches, and sum the
 //! offsets of its groups in each text.
 //!
-//! - stdx's `regex`, by a `Searcher` with the default cache; by one with claims R1 to R4 off,
+//! - stdx's `regex`, by a `Searcher` with the default cache; by one with claims R1 to R5 off,
 //!   which skips to no start octet and no literal; and by one with no cache, where the matcher answers alone: the
 //!   reference path. A second searcher like the first is timed last in each round, `stdx,
 //!   again`: stdx over it shows how far one code path differs from itself across a round.

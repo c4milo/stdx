@@ -8271,6 +8271,36 @@ to 12 are reordered and nothing else changes.
   `zig build test`, `zig build test-self-hosted` and `zig build differential-regex -Doracles`
   pass: 1,308 tests, and 12,437,544 cases with none failed. No check changed.
 
+  **Part 22c, claim R5 built: the skip goes to one of the literals an alternation's branches
+  start with (decision 86).** The hosted runners timed `Abraham|Isaac|Jacob|Joseph` at 0.17 to
+  0.23 of Rust's regex on x86-64 and 0.61 to 0.62 on the Neoverse N2. R1's skip stopped at each
+  `A`, `I` and `J`. `src/regex/literal_set.zig` holds the set and its search, and `dfa_wait.pass`
+  goes to its next place. Claim R1's state that waits moved to `src/regex/dfa/dfa_wait.zig`
+  first, so that `dfa.zig` keeps under 500 lines.
+  **Check:** `LiteralSet.of` gives each pattern's set, or none where a branch starts with no
+  literal, with too short a one, or where the branches are more than eight; `find` gives a plain
+  search's place from every offset, for sets of two to eight literals; a searcher with R5 gives
+  the matcher's answer for seven patterns under each cache size; the skip makes one visit a scan
+  where R1's would stop at each first octet; the oracle check passes; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. In the container, which orders candidates and publishes no number, R5 ran
+  `Abraham|Isaac|Jacob|Joseph` at 2.4 to 3.0 times R1 alone, 2.8 to 4.9 GB/s, `Egypt|Israel`
+  at 2.1 to 2.5 times and `lord|LORD|God` at 3.1 to 3.4 times. `and|the`, whose literals stand
+  every few octets, ran at 1.0 to 1.1 times.
+  - Mutations, each against `zig build test-regex`: 18, of which 13 CAUGHT by a named test, 3
+    CAUGHT by a halt, and 2 NOT CAUGHT.
+    - CAUGHT by a named test: the set's length taken from its last branch; one literal taken
+      as a set; a set of one octet kept; the octets after the last block not searched; a block
+      or a mask that leaves out the last literal; a place compared with the first literal
+      alone; a block's last octets read one place early; a branch that folds, or one through an
+      assertion, taken as a literal; R1's loop taken for a set; no DFA given its set; the
+      switch of R5 read nowhere.
+    - CAUGHT by a halt: a set of more than eight branches, a visit that goes to the literal of
+      claim R2, and R5 without R1.
+    - NOT CAUGHT, each with no answer changed: a set taken where a literal starts every match,
+      which holds no alternation at its start, and one taken for a program with an assertion,
+      whose DFA never skips. Each condition saves work at `init` alone.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

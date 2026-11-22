@@ -23,7 +23,16 @@ pub const Config = struct {
     /// Claim R2: whether that skip goes to the next place of the literal every match starts
     /// with, where the program has one (literal.zig). Only with `skip`.
     literal: bool = false,
+    /// Claim R5: whether that skip goes to the next place of one of the literals that the
+    /// branches of an alternation start with, where the program has no literal of claim R2 and
+    /// no assertion (literal_set.zig). Only with `skip`.
+    literal_set: bool = false,
 };
+
+/// What a visit of a scan to the state that waits goes to (dfa_wait.zig): the next octet that
+/// can start a match (claim R1), the next place of the literal (claim R2), or of one of the
+/// literals (claim R5).
+pub const Pass = enum { octet, literal, literal_set };
 
 /// What a scan found: the offset its last match ended at in the scan's direction, none, or
 /// nothing, because the cache thrashed.
