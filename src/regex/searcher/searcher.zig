@@ -21,6 +21,7 @@ const dfa_file = @import("../dfa/dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Literal = @import("../literal.zig").Literal;
 const dfa_suffix = @import("../dfa/dfa_suffix.zig");
+const one_pass = @import("../one_pass.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 /// The words of the caches' memory in one word of a searcher's memory.
@@ -48,6 +49,9 @@ pub const Claims = struct {
     /// R5: where an alternation's branches each start with a literal, and no one literal starts
     /// every match, the skip goes to the next place of one of them. Only with `start_skip`.
     literal_set: bool = true,
+    /// R6: where the forward program is one-pass, `captures` follows one thread from the match's
+    /// start, in place of the matcher's threads (one_pass.zig).
+    one_pass: bool = true,
 };
 
 pub const Searcher = struct {
@@ -63,6 +67,10 @@ pub const Searcher = struct {
     exact: ?Literal,
     /// Claim R4: the literal every match ends with, where the search starts from it.
     suffix: ?Literal,
+    /// Claim R6: true when the forward program is one-pass, so one thread finds the groups.
+    one_pass: bool,
+    /// Claim R6: true when the program is one-pass and every match starts at the text's start.
+    starts_at_text: bool,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -96,11 +104,19 @@ pub const Searcher = struct {
             cache[forward_len..],
         );
         searcher.give_ups = 0;
+        searcher.init_claims(program, claims);
+    }
+
+    /// Readies the claims that read what the DFAs and the matcher found at `init`.
+    fn init_claims(searcher: *Searcher, program: *const Program, claims: Claims) void {
         // A DFA that `init` refused holds no literal. Without a cache the matcher answers alone.
         searcher.exact = null;
         if (searcher.forward_ready) {
             if (searcher.forward.literal) |literal| searcher.exact = if (literal.exact) literal else null;
         }
+        // A program of no group but the whole match needs no thread: the DFAs give its span.
+        searcher.one_pass = claims.one_pass and program.group_count > 1 and one_pass.check(&searcher.matcher);
+        searcher.starts_at_text = searcher.one_pass and starts_at_text_start(program);
         searcher.suffix = null;
         const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
         // A literal that starts every match is the better way, and a pattern that starts at the
@@ -142,6 +158,7 @@ pub const Searcher = struct {
     pub fn captures(searcher: *Searcher, haystack: []const u8, from: usize, groups: []?Span) bool {
         assert(from <= haystack.len);
         assert(groups.len == searcher.matcher.program.group_count);
+        if (searcher.starts_at_text) return searcher.captures_at_start(haystack, from, groups);
         var anchor = from;
         var anchored = false;
         if (searcher.find_by_dfa(haystack, from)) |answer| {
@@ -150,10 +167,21 @@ pub const Searcher = struct {
             anchored = true;
         }
         searcher.matcher.configure(.{ .captures = .groups, .anchored = anchored });
-        if (searcher.matcher.find(haystack, anchor) == null) {
+        // The DFAs found where the match starts, so one thread from there finds its groups.
+        const found = if (anchored and searcher.one_pass) one_pass.find(&searcher.matcher, haystack, anchor) else null;
+        if (found == null and searcher.matcher.find(haystack, anchor) == null) {
             assert(!anchored);
             return false;
         }
+        for (groups, 0..) |*group, index| group.* = searcher.matcher.group(@intCast(index));
+        return true;
+    }
+
+    /// Claim R6 for a program whose every match starts at the text's start: a match starts at
+    /// `from` or nowhere, so one thread from there finds it and its groups, with no DFA.
+    fn captures_at_start(searcher: *Searcher, haystack: []const u8, from: usize, groups: []?Span) bool {
+        searcher.matcher.configure(.{ .captures = .groups, .anchored = true });
+        if (one_pass.find(&searcher.matcher, haystack, from) == null) return false;
         for (groups, 0..) |*group, index| group.* = searcher.matcher.group(@intCast(index));
         return true;
     }
@@ -277,4 +305,5 @@ test {
     _ = @import("searcher_skip_test.zig");
     _ = @import("searcher_literal_test.zig");
     _ = @import("searcher_suffix_test.zig");
+    _ = @import("searcher_one_pass_test.zig");
 }

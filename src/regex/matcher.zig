@@ -202,12 +202,12 @@ pub const Matcher = struct {
     }
 
     /// The slots of the thread being followed.
-    fn current(matcher: *const Matcher) []u64 {
+    pub fn current(matcher: *const Matcher) []u64 {
         return matcher.rows[0..matcher.slots_len];
     }
 
     /// The slots of the best match so far.
-    fn best(matcher: *const Matcher) []u64 {
+    pub fn best(matcher: *const Matcher) []u64 {
         return matcher.rows[matcher.slots_max..][0..matcher.slots_len];
     }
 
@@ -341,7 +341,7 @@ pub const Matcher = struct {
         matcher.restart = false;
     }
 
-    fn push(matcher: *Matcher, entry: u32, value: u64) void {
+    pub fn push(matcher: *Matcher, entry: u32, value: u64) void {
         matcher.stack[matcher.stack_len] = entry;
         matcher.stack_values[matcher.stack_len] = value;
         matcher.stack_len += 1;

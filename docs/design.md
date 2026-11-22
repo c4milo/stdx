@@ -8331,6 +8331,27 @@ to 12 are reordered and nothing else changes.
   CAUGHT by `find`'s test; no wide block, and no narrow block, NOT CAUGHT, since the other
   blocks and the tail then search what it would have.
 
+  **Part 22c, claim R6 built: one thread finds a one-pass pattern's groups (decision 86).** The
+  hosted runners timed the six groups of a date over 65,536 short texts at 0.16 to 0.21 of Rust's
+  regex. The matcher keeps a thread for each instruction that waits for an octet, and copies each
+  one's 14 slots as it moves. `src/regex/one_pass.zig` holds the judgment and the search.
+  **Check:** `one_pass.check` takes 8 patterns and refuses 8; `one_pass.find` gives the matcher's
+  match and every group from every offset, for 8 patterns over texts with a scalar value of two
+  octets; a searcher takes R6 where it holds, runs no DFA for a date pattern that starts at the
+  text's start, and takes no step of the matcher's threads; the oracle check passes; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 99 of 99 steps, 1,316 tests passed and 6 skipped. `zig build
+  test-self-hosted`: 49 of 49 steps. `zig build differential-regex -Doracles`: 12,437,544
+  cases, none failed.
+  - In the container, which orders candidates and publishes no number, the six groups of a date
+    took 145 to 147 ns a text, against 446 to 476 ns with R6 off: 3.0 to 3.3 times. The first
+    form took 203 ns: it ran both DFAs before the thread and a list at every octet. A line of
+    saves and jumps then took no list, and a pattern that starts at the text's start no DFA.
+  - Mutations, each against `zig build test-regex`: 19, each CAUGHT by a named test. Two were
+    NOT CAUGHT at first, and each got a test: a judgment that stops at every assertion, which
+    `\b(a|ab)c` now catches, and a match started inside the UTF-8 of a scalar value, which the
+    empty pattern `()` over a text with `é` now catches.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

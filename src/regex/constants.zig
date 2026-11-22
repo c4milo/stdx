@@ -167,6 +167,11 @@ pub const literal_set_max = 8;
 /// The fewest literals claim R5 searches for: one literal is claim R2's.
 pub const literal_set_count_min = 2;
 
+/// The forward instructions a program may hold for a searcher to judge at `init` whether it is
+/// one-pass (claim R6). The judgment walks a closure from each instruction that takes an octet,
+/// so it costs at most this many walks of this many instructions.
+pub const one_pass_instructions_max = 1024;
+
 /// The bit in which the two cases of an ASCII letter differ (RFC 20's chart). `(?i)` takes a
 /// letter as a split between its two cases, and claim R2 compares `octet | case_bit` with the
 /// lower case: equal for the two octets that differ in this bit alone, and for no other.

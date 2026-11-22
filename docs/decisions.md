@@ -5733,6 +5733,22 @@ last part lists what still waits on a ruling.
         whose baseline is SSE2.
       - R5 runs only with R1, so `stdx, no skip` turns it off, and `SearcherClaims.literal_set`
         turns it off alone.
+    - Claim R6: where the forward program is one-pass, `Searcher.captures` follows one thread
+      from the match's start in place of the matcher's threads (design §8 step 22, part 22c).
+      - A program is one-pass where, from each instruction a thread can wait at, no two
+        instructions its paths reach take the same octet, and no path reaches `match` beside one
+        that reaches an instruction that takes an octet. A path through an assertion of the
+        text's end takes no octet after it. `one_pass.check` judges it at `init`, for a program
+        of at most `one_pass_instructions_max`, 1,024, instructions, with each other assertion
+        taken to hold.
+      - Then each position holds one thread. `one_pass.find` follows its paths as
+        `Matcher.follow` does, and writes the matcher's slots, so `Matcher.group` reads them. A
+        seed whose paths form one line of saves, jumps and assertions takes no list.
+      - Where every match starts at the text's start, a match starts at `from` or nowhere, so
+        `captures` runs no DFA. Elsewhere the DFAs find the match's start, as before.
+      - RE2 and Rust's crate keep a one-pass DFA for this case, a table of transitions with the
+        slots each one writes. stdx keeps no table, so the search needs no memory of its own.
+      - `SearcherClaims.one_pass` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
@@ -5760,7 +5776,8 @@ last part lists what still waits on a ruling.
     `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; and `case_bit`,
     0x20. Claim R5's:
-    `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R1's: `skip_lanes`, 16;
+    `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R6's: `one_pass_instructions_max`,
+    1,024. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
 
