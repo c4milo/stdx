@@ -59,7 +59,7 @@ test "a searcher that takes two octets a read gives what the matcher gives, in c
     var fixture: Fixture = .{};
     var generator = codec.testing.split.Generator.init(seed);
     for (patterns) |pattern| {
-        try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
+        try fixture.init(pattern, 0);
         try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
         try testing.expect(fixture.searcher.forward.cache.pair_states > 0);
         try expect_agree_random(&fixture, &generator);
@@ -78,7 +78,7 @@ test "states past the ones with pair rows take the table, and the answers stay t
     var generator = codec.testing.split.Generator.init(seed + 1);
     // The eighth octet from the end is an `a`: 2^8 states, more than `pair_states_max`.
     const pattern = "(?:a|b)*a[ab]{7}\\b";
-    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
+    try fixture.init(pattern, 0);
     try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
     const pair_states = fixture.searcher.forward.cache.pair_states;
     try testing.expect(pair_states > 0 and pair_states <= constants.pair_states_max);
@@ -94,7 +94,7 @@ test "a program with more classes than pair_classes_max gets no pair row" {
     var fixture: Fixture = .{};
     // Each letter of the literal is a class of its own.
     const pattern = "[0-9]+abcdefghijklmnopqrstuvwxyzABCDEFGH";
-    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
+    try fixture.init(pattern, 0);
     try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
     try testing.expect(fixture.program.class_count > constants.pair_classes_max);
     try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.cache.pair_states);
@@ -104,7 +104,7 @@ test "a program with more classes than pair_classes_max gets no pair row" {
 test "a pair whose first step clears the cache keeps no entry under the row it started from" {
     var fixture: Fixture = .{};
     const pattern = "[0-9]+x";
-    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
+    try fixture.init(pattern, 0);
     try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
     const dfa = &fixture.searcher.forward;
     try testing.expect(dfa.cache.pair_states > 0);
