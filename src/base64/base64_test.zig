@@ -257,6 +257,17 @@ pub fn expect_drop_agrees(text: []const u8) !void {
     try testing.expectEqualSlices(u8, strict_octets, drop_out[0..try dropped]);
 }
 
+test "a text is refused for its pad bits only where every other rule holds" {
+    // The fuzzer found the first: two letters of a final quantum, and one of its two pad
+    // characters. Its pad bits are not zero, and its padding is short, which `.drop` refuses too.
+    const texts = [_][]const u8{ "YYYYYYYY+YYYYY=", "YY=", "YYY=x", "YY=x=", "YY==Y", "Zh=", "Zh==Zh==", "Zh==" };
+    for (texts) |text| try expect_drop_agrees(text);
+    var out: [paths_room_len]u8 = undefined;
+    try testing.expectError(error.InvalidPadding, decode("YYYYYYYY+YYYYY=", &out, .{}));
+    try testing.expectError(error.InvalidPadding, decode("YYY=x", &out, .{}));
+    try testing.expectError(error.NonCanonical, decode("Zh==", &out, .{}));
+}
+
 test "decoded_len refuses the lengths no text has" {
     try testing.expectError(error.InvalidPadding, Decoder.decoded_len("Zg="));
     try testing.expectError(error.InvalidPadding, Decoder.decoded_len("Zm9vY="));

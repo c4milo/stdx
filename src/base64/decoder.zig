@@ -98,6 +98,10 @@ pub const Decoder = struct {
     pending: [constants.group_octets]u8,
     pending_len: u8,
     pending_written: u8,
+    /// True when the final quantum's unused bits are not zero where `pad_bits` refuses them. The
+    /// text is refused at its end, once every other rule holds, so that a text refused for its
+    /// pad bits alone is one that `.drop` takes.
+    non_canonical: bool,
     part: Part,
 
     const Part = enum(u8) { letters, padding, after_padding, tail, done };
@@ -132,6 +136,7 @@ pub const Decoder = struct {
             .pending = undefined,
             .pending_len = 0,
             .pending_written = 0,
+            .non_canonical = false,
             .part = .letters,
         };
     }
@@ -286,7 +291,7 @@ pub const Decoder = struct {
         // RFC 4648 §4: pad characters follow two or three letters of a quantum, never fewer.
         if (self.held_len < constants.one_octet_letters) return error.InvalidPadding;
         const pads = constants.pads_after(self.held_len);
-        try self.form_tail();
+        self.form_tail();
         self.pads_left = @intCast(pads - 1);
         self.part = if (self.pads_left == 0) .after_padding else .padding;
     }
@@ -303,25 +308,27 @@ pub const Decoder = struct {
                 if (self.held_len == 1) return error.InvalidLength;
                 // RFC 4648 §3.2: the caller may require the pad characters.
                 if (self.padding == .required) return error.InvalidPadding;
-                try self.form_tail();
+                self.form_tail();
             },
             // RFC 4648 §4: a pad character stands for each letter the quantum lacks.
             .padding => return error.InvalidPadding,
             .after_padding => {},
             .tail, .done => unreachable,
         }
+        // RFC 4648 §3.5: the pad bits, last of the text's rules (`non_canonical`).
+        if (self.non_canonical) return error.NonCanonical;
         self.part = .tail;
     }
 
     /// The octets of a final quantum of two or three letters (RFC 4648 §4, cases (2) and (3)).
-    fn form_tail(self: *Decoder) Error!void {
+    fn form_tail(self: *Decoder) void {
         assert(self.held_len == constants.one_octet_letters or self.held_len == constants.two_octet_letters);
         const bits_len = self.held_len * constants.letter_bits;
         const octets = bits_len / constants.octet_bits;
         const unused = bits_len % constants.octet_bits;
         // RFC 4648 §3.5: the bits after the last octet's are zero in the one canonical text, and a
-        // decoder may refuse a text where they are not. The shift below drops them.
-        if (self.pad_bits == .refuse and self.bits & ((@as(u32, 1) << @intCast(unused)) - 1) != 0) return error.NonCanonical;
+        // decoder may refuse a text where they are not. `end` refuses it. The shift below drops them.
+        if (self.pad_bits == .refuse and self.bits & ((@as(u32, 1) << @intCast(unused)) - 1) != 0) self.non_canonical = true;
         const value = self.bits >> @intCast(unused);
         assert(self.pending_written == self.pending_len);
         for (0..octets) |index| {
