@@ -6130,3 +6130,31 @@ last part lists what still waits on a ruling.
       Postmortem - July 20, 2016".
     - RE2's README and `re2.h`, Go's `regexp/syntax` documents and its issues 51112 and 11181,
       and the documents of Rust's `regex` crate, for the limits each names.
+
+87. **Cryptography is chapulin's, and every library reaches chapulin through stdx.** Ruled by the
+    owner on 2026-11-22, in two answers: all crypto in stdx comes from chapulin, and none of the
+    owner's Zig libraries names chapulin directly, only through stdx.
+    - stdx writes no cryptographic primitive. `stdx.hash` holds checksums alone, CRC-32, Adler-32
+      and XXH64, as `std.hash` holds Zig's apart from `std.crypto`.
+    - `stdx.crypto` is chapulin's Zig module. stdx pins chapulin by commit and hash as a lazy
+      dependency, and builds its objects only for a dependent that opts in with a build option. A
+      dependent that does not opt in fetches no chapulin and compiles no C.
+    - colibri, cocuyo, stompy and connect-zig move to `stdx.crypto`. One pin and one build request,
+      in stdx, give a program one chapulin object of each transport, which chapulin requires.
+      This reverses colibri's decision 94, under which colibri pins and compiles chapulin itself.
+    - chapulin is the owner's own library, written to its own rules, so non-negotiable 5 does not
+      bind it. It is the library's first dependency, beside none.
+    - The tools keep Zig's own SHA-256 for the pins of the differential checks. They never ship.
+    - **owner** Open for the issue that builds it
+      (https://github.com/c4milo/stdx/issues/42): which objects stdx offers and through which
+      options (colibri builds a TCP object and a QUIC object today, each with KEYLOG off, and on
+      for its tests); how a program's one CPU probe, `stdx.platform`, gives chapulin its `cpu`
+      value; and where the hook chapulin calls on a failed assertion, `ch_assert_fail`, is
+      defined.
+
+    The alternatives refused:
+    - No crypto in stdx, each library pinning chapulin itself. Two pins or two sets of options in
+      one program give two objects of one transport, which fail its link.
+    - A `stdx.crypto` whose `chapulin` import the program binds, as cocuyo's `cocuyo_quic` takes
+      colibri's `quic`. Each library would still name chapulin.
+    - The checksums moved into chapulin, which holds cryptography alone.
