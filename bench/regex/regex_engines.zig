@@ -54,8 +54,7 @@ pub const Stdx = struct {
     memory: []u64,
     program: regex.Program,
     searcher: regex.Searcher,
-    /// The host's CPU features, detected once when the side is made, as Rust's crate detects
-    /// them once.
+    /// The host's CPU features, which `main` detects once, as Rust's crate detects them once.
     features: codec.Features,
 
     fn cache_words(engine: Engine) usize {
@@ -90,12 +89,12 @@ pub const Pattern = union(Engine) {
 
 /// Compiles a pattern for a candidate, or gives null where the candidate refuses it. The pattern
 /// lives as long as the arena.
-pub fn compile(engine: Engine, arena: std.mem.Allocator, pattern: []const u8) !?Pattern {
+pub fn compile(engine: Engine, arena: std.mem.Allocator, features: codec.Features, pattern: []const u8) !?Pattern {
     switch (engine) {
         .stdx, .stdx_no_skip, .stdx_matcher, .stdx_again => {
             const stdx = try arena.create(Stdx);
             stdx.memory = try arena.alloc(u64, Stdx.memory_len(engine));
-            stdx.features = codec.Features.detect();
+            stdx.features = features;
             if (!stdx.ready(engine, pattern)) return null;
             return switch (engine) {
                 .stdx => .{ .stdx = stdx },
@@ -126,10 +125,10 @@ pub fn compile(engine: Engine, arena: std.mem.Allocator, pattern: []const u8) !?
 pub const Scratch = struct {
     stdx: *Stdx,
 
-    pub fn init(arena: std.mem.Allocator) !Scratch {
+    pub fn init(arena: std.mem.Allocator, features: codec.Features) !Scratch {
         const stdx = try arena.create(Stdx);
         stdx.memory = try arena.alloc(u64, Stdx.memory_len(.stdx));
-        stdx.features = codec.Features.detect();
+        stdx.features = features;
         return .{ .stdx = stdx };
     }
 };

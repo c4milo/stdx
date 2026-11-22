@@ -24,6 +24,7 @@
 //! Usage: `bench_regex <name>=<path>...`, the corpus files. It prints Markdown to standard output.
 
 const std = @import("std");
+const codec = @import("codec");
 const timing = @import("timing");
 const cases = @import("regex_cases.zig");
 const engines = @import("regex_engines.zig");
@@ -154,12 +155,12 @@ const Forms = struct {
 
 /// Compiles a pattern for every candidate and holds each one's answer to Go's. stdx must give
 /// Go's answer.
-fn prepare(arena: std.mem.Allocator, calls: *[engine_count]Call, row: *Row, forms: Forms, work: Work) !Answer {
-    const go = (try engines.compile(.go, arena, forms.pattern)) orelse return error.GoRefusesThePattern;
+fn prepare(arena: std.mem.Allocator, features: codec.Features, calls: *[engine_count]Call, row: *Row, forms: Forms, work: Work) !Answer {
+    const go = (try engines.compile(.go, arena, features, forms.pattern)) orelse return error.GoRefusesThePattern;
     const expected = (Call{ .pattern = go, .work = work }).answer().?;
     for (std.enums.values(Engine)) |engine| {
         const index = @intFromEnum(engine);
-        const compiled = (try engines.compile(engine, arena, forms.of(engine))) orelse {
+        const compiled = (try engines.compile(engine, arena, features, forms.of(engine))) orelse {
             row.cells[index] = .refused;
             continue;
         };
@@ -214,7 +215,7 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
 
 const File = struct { name: []const u8, octets: []const u8 };
 
-fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File) !void {
+fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, files: []const File) !void {
     try out.writeAll("`stdx` is a searcher with its cache and the CPU features it detected at start, as Rust's regex detects them, `stdx, no skip` the same with claims R1 to R5 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
     try out.writeAll("The patterns of the search table:\n\n");
     for (cases.searches) |search| {
@@ -228,7 +229,7 @@ fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, fi
         const haystack = try haystack_of(files, search.file);
         var calls: [engine_count]Call = undefined;
         var row: Row = .{};
-        const found = try prepare(arena, &calls, &row, .{ .pattern = search.pattern, .rust = search.rust }, .{ .find_all = haystack });
+        const found = try prepare(arena, features, &calls, &row, .{ .pattern = search.pattern, .rust = search.rust }, .{ .find_all = haystack });
         try out.print("| {s} | {d} |", .{ search.name, found.count });
         try row.print(io, out, @as(f64, @floatFromInt(haystack.len)) / timing.octets_per_megabyte);
         try out.flush();
@@ -239,7 +240,7 @@ fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, fi
 /// Whether a table of short texts times a match of each text or its capture groups.
 const TextWork = enum { matching, groups };
 
-fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, title: []const u8, validations: []const cases.Validation, what: TextWork) !void {
+fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, title: []const u8, validations: []const cases.Validation, what: TextWork) !void {
     try print_head(out, title, "Pattern", "Texts that match");
     for (validations, 0..) |validation, index| {
         var batch: cases.Batch = .{};
@@ -247,7 +248,7 @@ fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, title
         const texts: engines.Texts = .{ .octets = batch.octets.items, .ends = batch.ends.items };
         var calls: [engine_count]Call = undefined;
         var row: Row = .{};
-        const answer = try prepare(arena, &calls, &row, .{ .pattern = validation.pattern }, if (what == .matching) .{ .matching = texts } else .{ .groups = texts });
+        const answer = try prepare(arena, features, &calls, &row, .{ .pattern = validation.pattern }, if (what == .matching) .{ .matching = texts } else .{ .groups = texts });
         if (what == .matching and answer.count != batch.valid) return error.ValidTextsDoNotMatch;
         const valid = batch.valid;
         try out.print("| {s} | {d} |", .{ validation.name, valid });
@@ -257,8 +258,8 @@ fn report_texts(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, title
     try out.writeAll("\n");
 }
 
-fn report_compiles(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator) !void {
-    const scratch = try engines.Scratch.init(arena);
+fn report_compiles(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features) !void {
+    const scratch = try engines.Scratch.init(arena, features);
     try print_head(out, "Compile, thousands of patterns a second", "Pattern", "Octets");
     var patterns: [cases.validations.len + cases.searches.len]struct { name: []const u8, forms: Forms } = undefined;
     for (cases.validations, 0..) |validation, index| patterns[index] = .{ .name = validation.name, .forms = .{ .pattern = validation.pattern } };
@@ -304,10 +305,12 @@ pub fn main(init: std.process.Init) !void {
     }
     const scripts = try arena.alloc(u8, cases.haystack_len_max);
     try files.append(arena, .{ .name = cases.scripts, .octets = scripts[0..cases.write_scripts(scripts_seed, scripts)] });
-    try report_searches(io, out, arena, files.items);
-    try report_texts(io, out, arena, "Match short texts, millions of texts a second", &cases.validations, .matching);
-    try report_texts(io, out, arena, "Capture groups of short texts, millions of texts a second", &.{cases.groups_validation}, .groups);
-    try report_compiles(io, out, arena);
+    // The CPU is probed once, as a program does at start, and each stdx searcher takes the answer.
+    const features = codec.Features.detect();
+    try report_searches(io, out, arena, features, files.items);
+    try report_texts(io, out, arena, features, "Match short texts, millions of texts a second", &cases.validations, .matching);
+    try report_texts(io, out, arena, features, "Capture groups of short texts, millions of texts a second", &.{cases.groups_validation}, .groups);
+    try report_compiles(io, out, arena, features);
     try out.flush();
 }
 
