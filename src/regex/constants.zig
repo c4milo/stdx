@@ -154,6 +154,11 @@ pub const literal_len_max = 32;
 /// branch for each 64 octets, not one for each 16.
 pub const literal_steps = 4;
 
+/// The steps of a block of claim R2's search where the text has room for one: 128 octets, so a
+/// block's bounds checks and branch cost half as much an octet as in a block of `literal_steps`.
+/// A block of `literal_steps` then takes what is left before the octets one at a time.
+pub const literal_wide_steps = 8;
+
 /// The literals claim R5 searches for at most, one of which every match starts with. Each costs
 /// two compares and an AND a vector, so eight cost about two instructions an octet, under the
 /// forward DFA's dozen. A pattern with more branches takes claim R1's skip.

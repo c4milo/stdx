@@ -8316,6 +8316,21 @@ to 12 are reordered and nothing else changes.
   `95bde31` and 60 at `85d3fe7`. `zig build test`, `zig build test-self-hosted` and `zig build
   differential-regex -Doracles` pass. The hosted runs on an EPYC are the measure.
 
+  **Part 22c, claim R2's wide blocks (decision 86).** At `95bde31` a search for one literal ran
+  at 0.86 to 0.96 of Rust's regex on the Xeon 6975P-C and the N2, and at 0.59 to 0.68 on the
+  EPYCs. A block of 64 octets pays its bounds checks, its reduction and its branch once. A block
+  of `literal_wide_steps`, 128 octets, now pays them for twice the octets, and one block of
+  `literal_steps` takes what is left before the octets one at a time, so a short text keeps its
+  vectors.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. Over 1 MiB three times, program start included: `Pharaoh` 3.74 million instructions
+  against 4.19 million, `Sherlock` 3.56 against 4.03, and `(?i)pharaoh` 4.31 against 4.79. 400
+  searches of `Sherlock`: 21 ms against 24 at best of five. The tests of `find` now search texts
+  of two wide blocks and more. Mutations, each against `zig build test-regex`: a wide block that
+  reads its last octets one place early, and one whose mask leaves out its last step, each
+  CAUGHT by `find`'s test; no wide block, and no narrow block, NOT CAUGHT, since the other
+  blocks and the tail then search what it would have.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

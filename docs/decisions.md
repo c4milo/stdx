@@ -5758,7 +5758,8 @@ last part lists what still waits on a ruling.
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
     `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
-    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; and `case_bit`, 0x20. Claim R5's:
+    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; and `case_bit`,
+    0x20. Claim R5's:
     `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
