@@ -28,8 +28,13 @@ pub inline fn encode(code_point: u21, octets: []u8) void {
 /// `code_point`'s UTF-8 in `len` octets: the first holds `len`'s mark and the highest bits, and each
 /// after it the continuation octet's mark and the next `continuation_bits` (RFC 3629 §3).
 pub inline fn encoded(comptime len: usize, code_point: u21) [len]u8 {
+    assert(encoded_len(code_point) == len);
     var octets: [len]u8 = undefined;
-    octets[0] = constants.lead_marks[len] | @as(u8, @intCast(code_point >> (len - 1) * constants.continuation_bits));
+    // `encode` reaches this for each length, and a code point the build knows must not fail to
+    // compile the lengths that are not its own: the assertion checks the length, so the lead
+    // octet's bits are truncated, not cast.
+    const lead_bits: u8 = @truncate(code_point >> (len - 1) * constants.continuation_bits);
+    octets[0] = constants.lead_marks[len] | lead_bits;
     inline for (1..len) |index| {
         const bits: u8 = @truncate(code_point >> (len - 1 - index) * constants.continuation_bits);
         octets[index] = constants.continuation_min | (bits & constants.continuation_mask);
@@ -92,4 +97,14 @@ test "decode reads the first and the last code point of each length" {
     try testing.expectEqual(0xffff, decode("\xef\xbf\xbf"));
     try testing.expectEqual(0x10000, decode("\xf0\x90\x80\x80"));
     try testing.expectEqual(0x10ffff, decode("\xf4\x8f\xbf\xbf"));
+}
+
+test "encode takes a code point the build knows, into a slice of a length it does not" {
+    // Each length's arm is analyzed for every call, so an arm that is not the code point's own
+    // must hold a value that does not fit it.
+    var octets: [constants.utf8_len_max]u8 = undefined;
+    var len: usize = 2;
+    _ = &len;
+    encode(0x3B1, octets[0..len]);
+    try std.testing.expectEqualSlices(u8, "\xCE\xB1", octets[0..len]);
 }
