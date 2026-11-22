@@ -474,4 +474,5 @@ fn take(memory: *[]u32, len: usize) []u32 {
 test {
     _ = @import("dfa_cache.zig");
     _ = @import("dfa_skip.zig");
+    _ = @import("dfa_suffix.zig");
 }

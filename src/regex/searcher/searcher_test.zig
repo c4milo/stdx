@@ -61,6 +61,10 @@ pub const Fixture = struct {
 
     pub fn expect_agree_everywhere(fixture: *Fixture, haystack: []const u8) !void {
         for (0..haystack.len + 1) |from| try fixture.expect_agree(haystack, from);
+        try fixture.expect_is_match_agrees(haystack);
+    }
+
+    pub fn expect_is_match_agrees(fixture: *Fixture, haystack: []const u8) !void {
         fixture.reference.configure(.{ .captures = .none });
         fixture.reference.start(null, 0);
         const matched = fixture.reference.search(haystack, .last).status == .match;
@@ -170,12 +174,16 @@ fn letters(generator: *codec.testing.split.Generator, buffer: []u8) void {
     for (buffer) |*octet| octet.* = if (generator.next() & 1 == 0) 'a' else 'b';
 }
 
+/// The claims of a searcher whose forward DFA reads every octet of a pattern that ends with a
+/// literal: claim R4 would read back from the literal and build few states.
+pub const no_suffix: searcher_file.Claims = .{ .suffix = false };
+
 test "a pattern whose states outgrow the cache clears it, gives up, and still answers as the matcher" {
     // The DFA of this pattern remembers the last eight letters: 256 states and more.
     const pattern = "(a|b)*a(a|b){8}c";
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init(pattern, cache_sizes(&fixture.program).least);
+    try fixture.init_with(pattern, no_suffix, cache_sizes(&fixture.program).least);
     var generator = codec.testing.split.Generator.init(7);
     var text: [600]u8 = undefined;
     letters(&generator, &text);
@@ -184,7 +192,7 @@ test "a pattern whose states outgrow the cache clears it, gives up, and still an
     try testing.expect(fixture.searcher.forward.cache.clears > 1);
     try testing.expect(fixture.searcher.give_ups > 0);
     // With room for its states, the same search never gives up.
-    try fixture.init(pattern, cache_words_max);
+    try fixture.init_with(pattern, no_suffix, cache_words_max);
     try fixture.expect_agree(&text, 0);
     try testing.expectEqual(@as(u32, 0), fixture.searcher.give_ups);
     try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.cache.clears);
@@ -194,7 +202,7 @@ test "a searcher stops trying its DFA after dfa_give_ups_max searches gave up" {
     const pattern = "(a|b)*a(a|b){8}c";
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init(pattern, cache_sizes(&fixture.program).least);
+    try fixture.init_with(pattern, no_suffix, cache_sizes(&fixture.program).least);
     var generator = codec.testing.split.Generator.init(11);
     var text: [600]u8 = undefined;
     for (0..2 * constants.dfa_give_ups_max) |_| {

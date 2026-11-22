@@ -8159,6 +8159,48 @@ to 12 are reordered and nothing else changes.
       `Dfa.build` now asserts it; and an earliest search that goes on past its first match,
       which changes the work alone.
 
+  **Part 22c, claim R4 built: the search reads back from the literal every match ends with
+  (decision 86).** The hosted runners timed three patterns that end with a literal and start with
+  none at 0.0004 to 0.29 of Rust's regex: `[0-9][0-9,]* km`, `(?m)^[A-Z][a-z]+:` and
+  `[a-q][^u-z]{13}x`. The last one's forward DFA has more states than the cache holds.
+  `Literal.suffix_of` reads the literal from the reverse program, `src/regex/dfa/dfa_suffix.zig`
+  holds the rule, and `Searcher.find_by_suffix` the search.
+  **Check:** `Literal.suffix_of` gives each pattern's suffix, or none; a searcher with R4 gives
+  the matcher's answer from every offset under each cache size, for 13 patterns it takes and 7 it
+  must refuse, over random texts and texts chosen for each fault; a pattern whose forward DFA
+  gives up in the least cache never gives up under R4; a reverse DFA that gives up hands the
+  search to the matcher; the oracle check passes; mutations.
+
+  **Check passed, part 22c, claim R4, 2026-11-21.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux
+  6.18, in a cloud container. `zig build test`: 99 of 99 steps, 1,304 tests passed and 6
+  skipped. `zig build test-self-hosted`: 49 of 49 steps. `zig build differential-regex
+  -Doracles`: 12,437,544 cases, none failed.
+  - In the container, which orders candidates and publishes no number, R4 ran
+    `[0-9][0-9,]* km` at 7.5 to 8.9 times the searcher with R4 off, `(?m)^[A-Z][a-z]+:` at 6.0
+    to 6.1 times, and `[a-q][^u-z]{13}x` at 9 to 15 GB/s, where the searcher with R4 off ran at
+    1 MB/s. `[a-z]+ing`, whose part before `ing` takes `i`, kept its speed.
+  - The first form ran the forward DFA from the start that the reverse DFA found, as Rust's
+    crate does. Under stdx's rule no match from that start goes past the place, so the forward
+    scan was taken out.
+  - Four tests of the cache and of R1's skip used patterns that end with a literal. They now
+    turn R4 off, since R4 takes their searches from the forward DFA.
+  - Mutations, each against `zig build test-regex`: 20, of which 16 CAUGHT by a named test, 2
+    CAUGHT by a halt, and 2 NOT CAUGHT. Three were NOT CAUGHT at first, and each got a test: the
+    walk that stops at an assertion, a place passed whole where the suffix overlaps itself, and
+    a reverse DFA that gave up taken as no match.
+    - CAUGHT by a named test: no instruction taken as one that takes the octet; the walk that
+      follows no second branch of a split, or no `out`; the walk that stops at an assertion;
+      the suffix in the reverse program's order, or read up to an assertion; a pattern that is
+      all literal given a suffix; a place passed whole; the match one octet short; R4 for a
+      pattern that starts at the text's start, or with a literal that starts every match; the
+      switch of R4 read nowhere; R4 without R1; `is_match` and `find` through the forward DFA;
+      a reverse scan that gave up taken as no match.
+    - CAUGHT by a halt: no suffix passes the rule, and the rule walked from the reverse
+      program's entry.
+    - NOT CAUGHT, each with no answer changed: the rule that reads the suffix's last octet,
+      which a copy of the suffix that starts in a match's part before it also holds; and a
+      reverse scan bounded by the place before, which stops there in any case.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

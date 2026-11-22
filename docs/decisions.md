@@ -5675,8 +5675,7 @@ last part lists what still waits on a ruling.
       - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
         `stdx, no skip` turns off both.
       - What R2 does not do yet, from the reading of Rust's crate: a search for one of several
-        literals (Teddy), a literal that ends every match with a reverse scan from it, and AVX2's
-        32 lanes, which Rust's crate picks at run time on x86-64.
+        literals (Teddy), and AVX2's 32 lanes, which Rust's crate picks at run time on x86-64.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two
       octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan
       goes to the next place of that literal (design §8 step 22, part 22c).
@@ -5692,6 +5691,25 @@ last part lists what still waits on a ruling.
         Its loop tests one bound an octet, as the plain loop does.
       - Rust's crate runs its prefilter inside its lazy DFA the same way, and starts again after
         a look-behind assertion. R3 runs only with R1 and R2, so `stdx, no skip` turns it off too.
+    - Claim R4: where no literal starts every match, every match ends with a literal, and no
+      part of a match before that literal takes its first octet, the searcher goes to the
+      literal's next place. The reverse DFA reads back from the place's end to the least start of
+      a match that ends there (design §8 step 22, part 22c).
+      - `Literal.suffix_of` reads the literal from the reverse program. `dfa_suffix.suffix_of`
+        walks every instruction the reverse program reaches after it, and refuses the literal
+        where one takes its first octet. The walk reads each instruction once.
+      - Under that rule a match holds the octet only in its literal. So the first place at or
+        after a match's start ends the match, and the least start found from the places in turn
+        is the match's start. Every match from that start ends at the place's end, so the
+        search needs no forward scan.
+      - Each reverse scan stops at the place before its own, whose first octet no instruction
+        it reads there takes. So a search reads each octet a bounded number of times.
+      - Rust's crate runs the same search under a wider rule, which lets a match go on past the
+        place, and then runs its forward DFA from the start. It also guards against a reverse
+        scan that reads back past the place before. stdx's rule makes that guard needless.
+      - R4 does not run where every match starts at the text's start, or where a literal starts
+        every match. It runs only with R1, so `stdx, no skip` turns it off, and
+        `SearcherClaims.suffix` turns it off alone.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one

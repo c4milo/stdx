@@ -35,35 +35,24 @@ pub const Literal = struct {
     /// `through_looks` the walk goes through assertions, which take no octet, so the literal
     /// stands where a match starts, and the match is the literal only where no assertion stood.
     pub fn of(program: *const Program, through_looks: bool) ?Literal {
-        var literal: Literal = .{ .octets = undefined, .len = 0, .exact = false };
-        var passed_look = false;
-        var index = program.forward;
-        // Each instruction is read once: the walk follows `out` and stops at a split.
-        for (0..program.forward_len) |_| {
-            const instruction = program.instructions[index];
-            switch (instruction.kind) {
-                .save, .jump => index = instruction.out,
-                .range => {
-                    if (instruction.lo != instruction.hi or literal.len == constants.literal_len_max) break;
-                    literal.octets[literal.len] = instruction.lo;
-                    literal.len += 1;
-                    index = instruction.out;
-                },
-                .match => {
-                    literal.exact = !passed_look;
-                    break;
-                },
-                .look => {
-                    if (!through_looks) break;
-                    passed_look = true;
-                    index = instruction.out;
-                },
-                .split, .fail => break,
-            }
-        }
+        const found = walk(program, program.forward, through_looks);
+        const literal = found.literal;
         if (literal.len == 0) return null;
         if (!literal.exact and literal.len < constants.literal_prefix_len_min) return null;
         return literal;
+    }
+
+    /// Claim R4: the literal every match ends with, read from the reverse program, and the
+    /// instruction where the reverse program goes on to the part of a match before it. Null
+    /// where the reverse program starts with no octet, or where it is all literal: claim R2 or
+    /// R3 then holds the pattern.
+    pub fn suffix_of(program: *const Program) ?Suffix {
+        assert(program.reverse != program_file.no_entry);
+        var found = walk(program, program.reverse, true);
+        if (found.literal.len == 0 or found.reached_match) return null;
+        std.mem.reverse(u8, found.literal.octets[0..found.literal.len]);
+        found.literal.exact = false;
+        return .{ .literal = found.literal, .before = found.stop };
     }
 
     pub fn slice(literal: *const Literal) []const u8 {
@@ -113,6 +102,48 @@ pub const Literal = struct {
     }
 };
 
+/// A literal every match ends with, and the first instruction of the reverse program after it.
+pub const Suffix = struct { literal: Literal, before: u32 };
+
+/// What a walk of a program found: the octets its instructions take one after another from
+/// `entry`, and the instruction where it stopped.
+const Walk = struct {
+    literal: Literal,
+    stop: u32,
+    reached_match: bool,
+};
+
+/// Follows `out` from `entry` through saves, jumps and, with `through_looks`, assertions, and
+/// keeps the octet of each instruction that takes one octet alone, up to `literal_len_max`.
+fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
+    var literal: Literal = .{ .octets = undefined, .len = 0, .exact = false };
+    var passed_look = false;
+    var index = entry;
+    // Each instruction is read once: the walk follows `out` and stops at a split.
+    for (0..program.instructions.len) |_| {
+        const instruction = program.instructions[index];
+        switch (instruction.kind) {
+            .save, .jump => {},
+            .range => {
+                if (instruction.lo != instruction.hi or literal.len == constants.literal_len_max) break;
+                literal.octets[literal.len] = instruction.lo;
+                literal.len += 1;
+            },
+            .match => {
+                literal.exact = !passed_look;
+                return .{ .literal = literal, .stop = index, .reached_match = true };
+            },
+            .look => {
+                if (!through_looks) break;
+                passed_look = true;
+            },
+            .split, .fail => break,
+        }
+        index = instruction.out;
+    }
+    return .{ .literal = literal, .stop = index, .reached_match = false };
+}
+
 const block_len = constants.literal_steps * constants.skip_lanes;
 
 /// A bit for each place of a block where the first octet stands in `firsts` and the last octet
@@ -134,8 +165,9 @@ const testing = std.testing;
 const compiler = @import("compile.zig");
 const Generator = @import("codec").testing.split.Generator;
 
-/// The instructions a test's pattern takes at most.
-const test_storage_len = 256;
+/// The instructions a test's pattern takes at most, its forward and its reverse program:
+/// `[^u-z]{13}` takes some hundreds.
+const test_storage_len = 4096;
 
 fn literal_of(pattern: []const u8) !?Literal {
     var storage: [test_storage_len]program_file.Instruction = undefined;
@@ -196,6 +228,35 @@ test "through assertions, of reads the literal after them, and no pattern with o
     try testing.expect(plain.exact);
     try testing.expect(try literal_through_looks("\\b(?:ab|ac)") == null);
     try testing.expect(try literal_through_looks("\\ba") == null);
+}
+
+fn suffix_of_pattern(pattern: []const u8) !?Literal {
+    var storage: [test_storage_len]program_file.Instruction = undefined;
+    const program = try compiler.compile(pattern, .{}, &storage);
+    const suffix = Literal.suffix_of(&program) orelse return null;
+    return suffix.literal;
+}
+
+test "suffix_of reads the literal every match ends with, in the order of the text" {
+    const cases = [_]struct { pattern: []const u8, octets: []const u8 }{
+        .{ .pattern = "[0-9][0-9,]* km", .octets = " km" },
+        .{ .pattern = "(?m)^[A-Z][a-z]+:", .octets = ":" },
+        .{ .pattern = "[a-q][^u-z]{13}x", .octets = "x" },
+        .{ .pattern = "[ab]+(xy)\\b", .octets = "xy" },
+        .{ .pattern = "[ab]+\xC3\xA9", .octets = "\xC3\xA9" },
+        // A suffix whose first octet the part before it takes too: claim R4 refuses it later.
+        .{ .pattern = "x+", .octets = "x" },
+    };
+    for (cases) |case| {
+        const literal = (try suffix_of_pattern(case.pattern)) orelse return error.TestExpectedLiteral;
+        try testing.expectEqualStrings(case.octets, literal.slice());
+        try testing.expect(!literal.exact);
+    }
+    // No literal ends every match, or the whole pattern is one.
+    const none = [_][]const u8{ "ab|cb", "x[ab]", "[ab]+", "a*", "Pharaoh", "\\bab\\b" };
+    for (none) |pattern| {
+        if (try suffix_of_pattern(pattern) != null) return error.TestUnexpectedLiteral;
+    }
 }
 
 /// The first place of `needle` at or after `from`, one offset at a time: what `find` must give.

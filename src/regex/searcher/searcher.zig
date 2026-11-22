@@ -20,6 +20,8 @@ const Span = matcher_file.Span;
 const dfa_file = @import("../dfa/dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Literal = @import("../literal.zig").Literal;
+const dfa_suffix = @import("../dfa/dfa_suffix.zig");
+const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -39,6 +41,10 @@ pub const Claims = struct {
     /// step. Where the pattern is that literal and nothing else, the searcher reads no DFA: a
     /// place of the literal is a match. Only with `start_skip`.
     literal: bool = true,
+    /// R4: where no literal starts every match and one ends every match, the searcher goes to
+    /// the literal's next place and reads back from it to the match's start. Only with
+    /// `start_skip`, and only where no part of a match before the literal takes its first octet.
+    suffix: bool = true,
 };
 
 pub const Searcher = struct {
@@ -52,6 +58,8 @@ pub const Searcher = struct {
     give_ups: u32,
     /// Claim R2: the pattern, where it is a literal and nothing else.
     exact: ?Literal,
+    /// Claim R4: the literal every match ends with, where the search starts from it.
+    suffix: ?Literal,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -90,12 +98,21 @@ pub const Searcher = struct {
         if (searcher.forward_ready) {
             if (searcher.forward.literal) |literal| searcher.exact = if (literal.exact) literal else null;
         }
+        searcher.suffix = null;
+        const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
+        // A literal that starts every match is the better way, and a pattern that starts at the
+        // text's start reads few octets forward.
+        if (suffix_on and searcher.forward.literal == null and !starts_at_text_start(program)) {
+            searcher.suffix = dfa_suffix.suffix_of(&searcher.reverse, program);
+        }
     }
 
     /// True when the haystack holds a match.
     pub fn is_match(searcher: *Searcher, haystack: []const u8) bool {
         if (searcher.exact) |*literal| return literal.find(haystack, 0) != null;
-        if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
+        if (searcher.suffix != null) {
+            if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
+        } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
             switch (searcher.forward.scan_forward(haystack, 0, true)) {
                 .gave_up => searcher.give_ups += 1,
                 .none => return false,
@@ -147,6 +164,7 @@ pub const Searcher = struct {
         }
         if (!searcher.forward_ready or !searcher.reverse_ready) return null;
         if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
+        if (searcher.suffix) |*suffix| return searcher.find_by_suffix(suffix, haystack, from);
         const end = switch (searcher.forward.scan_forward(haystack, from, false)) {
             .gave_up => return searcher.gave_up(),
             .none => return .{ .span = null },
@@ -166,7 +184,50 @@ pub const Searcher = struct {
         searcher.give_ups += 1;
         return null;
     }
+
+    /// Claim R4: the first match at or after `from`, found from the places of the suffix in
+    /// turn. At the first place from which the reverse DFA reads back to a match's start, the
+    /// match ends with the place's suffix (dfa_suffix.zig).
+    fn find_by_suffix(searcher: *Searcher, suffix: *const Literal, haystack: []const u8, from: usize) ?Answer {
+        var index = from;
+        // Each turn goes on from one octet past the place before, so the turns are at most the
+        // octets from `from` and one.
+        for (0..haystack.len - from + 1) |_| {
+            const place = suffix.find(haystack, index) orelse return .{ .span = null };
+            const end = place + suffix.len;
+            switch (searcher.reverse.scan_reverse(haystack, from, end)) {
+                .none => index = place + 1,
+                .gave_up => return searcher.gave_up(),
+                .found => |start| {
+                    // The program takes whole UTF-8 sequences, so a match starts at no
+                    // continuation octet.
+                    assert(!is_continuation(haystack[start]));
+                    return .{ .span = .{ .start = start, .end = end } };
+                },
+            }
+        }
+        return .{ .span = null };
+    }
 };
+
+/// True when every match starts at the text's start: the forward program asserts it before it
+/// takes an octet or splits.
+fn starts_at_text_start(program: *const Program) bool {
+    var index = program.forward;
+    // The walk follows `out`, and reads each instruction once.
+    for (0..program.forward_len) |_| {
+        const instruction = program.instructions[index];
+        switch (instruction.kind) {
+            .save, .jump => index = instruction.out,
+            .look => {
+                if (instruction.look == .behind_text) return true;
+                index = instruction.out;
+            },
+            else => return false,
+        }
+    }
+    return false;
+}
 
 /// Every match of a haystack in order, none inside another: each search starts where the match
 /// before it ended. An empty match that touches the match before it is left out, as RE2 and Go's
@@ -211,4 +272,5 @@ test {
     _ = @import("searcher_test.zig");
     _ = @import("searcher_skip_test.zig");
     _ = @import("searcher_literal_test.zig");
+    _ = @import("searcher_suffix_test.zig");
 }

@@ -36,10 +36,11 @@ fn fill(generator: *codec.testing.split.Generator, haystack: []u8) void {
     }
 }
 
-/// Compiles `pattern` and gives the searcher room for thousands of states.
+/// Compiles `pattern` and gives the searcher room for thousands of states, with claim R4 off so
+/// that the forward DFA reads the text and skips.
 fn init_roomy(fixture: *Fixture, pattern: []const u8) !void {
     try fixture.init(pattern, 0);
-    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).most);
+    try fixture.init_with(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).most);
 }
 
 const patterns = [_][]const u8{
@@ -135,7 +136,7 @@ test "a skip follows the state that waits through a cache that clears" {
     const letter_that_decides = clear_run_len - clear_decides_from_end;
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).least);
+    try fixture.init_with(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).least);
     var generator = codec.testing.split.Generator.init(0xC1EA);
     var haystack: [clear_runs * (clear_gap_len + clear_run_len)]u8 = undefined;
     for (0..clear_runs) |run| {
