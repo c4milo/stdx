@@ -177,8 +177,19 @@ pub const LiteralSet = extern struct {
                 if (set.stands_at(haystack, candidate)) return candidate;
             }
         }
-        for (index..end) |candidate| {
-            if (set.stands_at(haystack, candidate)) return candidate;
+        return set.find_scalar(haystack, index, end);
+    }
+
+    /// The first place at or after `from` and before `end` where a literal of the set stands,
+    /// one offset at a time. Teddy's tables give, in four lookups, the literals whose first and
+    /// last octets stand there, so an offset where none does costs no compare. A text shorter
+    /// than a block, such as a line, is searched all this way.
+    pub fn find_scalar(set: *const LiteralSet, haystack: []const u8, from: usize, end: usize) ?usize {
+        assert(end <= haystack.len - set.len + 1);
+        const last = set.len - 1;
+        for (from..end) |candidate| {
+            const bits = set.teddy.bits_at(haystack[candidate], haystack[candidate + last]);
+            if (bits != 0 and set.stands_among(bits, haystack, candidate)) return candidate;
         }
         return null;
     }

@@ -8814,6 +8814,19 @@ to 12 are reordered and nothing else changes.
   - rebar's Unicode-data row is one-pass and anchored at `^`, so `one_pass.find` takes each
     line with no DFA. Its walk follows a class's alternatives at each octet, where Rust's
     crate's one-pass DFA reads one entry, and it runs at 25 MB/s to Rust's 168.
+  - rebar's aws-keys row searches each line of a 32 MB file for `ASIA`, `AKIA`, `AROA` or
+    `AIDA`. A line is shorter than one block of claim R5's search, so the tail took every
+    offset, and compared each literal whole at each: 390 instructions an octet under callgrind.
+    The tail now asks Teddy's tables, four lookups, for the literals whose first and last octets
+    stand there, and compares those alone. The row went from 101 to 433 to 487 MB/s, where
+    Rust's crate gave 735 and Go's regexp 439 in the local run of part 22m.
+  **Check, the tail:** `bits_at` gives exactly the literals whose first and last octets stand
+  there, over every pair of octets; mutations.
+  **Check passed, the tail, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  `zig build test-regex` passes. Mutations against it: 5. CAUGHT, 4: a lookup with no last
+  octet, or no high nibble; a search one offset late; the first octet read for the last. NOT
+  CAUGHT, 1: the tail that compares each literal at each offset, which gives the same answers
+  more slowly.
   **Check, the backtracker:** it gives the match and the groups the matcher gives from every
   start where the matcher finds one, over 3,000 patterns a seed draws, and gives way at fewer
   than one start in 500; a failed path gives back the slots it wrote; a span whose bits or

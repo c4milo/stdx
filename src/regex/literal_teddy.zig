@@ -48,6 +48,14 @@ pub const Tables = extern struct {
         }
         return tables;
     }
+
+    /// The literals whose first octet is `first` and whose last is `last`, a bit each. A bit of
+    /// a low nibble's entry and of a high nibble's entry is the same literal's, so the bits are
+    /// exact.
+    pub fn bits_at(tables: *const Tables, first: u8, last: u8) u8 {
+        return tables.first_low[first & constants.nibble_mask] & tables.first_high[first >> constants.nibble_bits] &
+            tables.last_low[last & constants.nibble_mask] & tables.last_high[last >> constants.nibble_bits];
+    }
 };
 
 /// Whether a search of `width` octets a step can take Teddy on the build's target: TBL on
@@ -87,10 +95,7 @@ pub fn find(comptime width: usize, set: *const LiteralSet, haystack: []const u8,
         if (!Search.any(firsts, lasts, &lookups, &bits)) continue;
         if (Search.first(set, haystack, index, &bits)) |place| return place;
     }
-    for (index..end) |candidate| {
-        if (set.stands_at(haystack, candidate)) return candidate;
-    }
-    return null;
+    return set.find_scalar(haystack, index, end);
 }
 
 /// The steps of a block for a vector of `width` octets.
@@ -207,4 +212,21 @@ test "of gives each literal its bit in the tables of its first and its last octe
     // The middle octets, `b` and `c`, take no table: the whole compare judges them.
     try testing.expectEqual(@as(u8, 0), tables.first_low['b' & constants.nibble_mask]);
     try testing.expectEqual(@as(u8, 0), tables.last_low['c' & constants.nibble_mask]);
+}
+
+test "bits_at gives the literals whose first and last octets stand there, and no others" {
+    var set: LiteralSet = .{ .octets = undefined, .count = 4, .len = 4 };
+    // Literals that share nibbles across each other's first and last octets: `A`, 0x41, and
+    // `q`, 0x71, share their low nibble, and `A` and `D` their high one.
+    for ([_]*const [4]u8{ "ASIA", "AKIq", "qROD", "DIDA" }, 0..) |literal, index| set.octets[index][0..4].* = literal.*;
+    const tables: Tables = .of(&set);
+    for (0..constants.octet_values) |first| {
+        for (0..constants.octet_values) |last| {
+            var expected: u8 = 0;
+            for (set.octets[0..set.count], 0..) |*octets, literal| {
+                if (octets[0] == first and octets[set.len - 1] == last) expected |= @as(u8, 1) << @intCast(literal);
+            }
+            try testing.expectEqual(expected, tables.bits_at(@intCast(first), @intCast(last)));
+        }
+    }
 }
