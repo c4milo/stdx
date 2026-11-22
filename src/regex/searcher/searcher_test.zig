@@ -280,11 +280,17 @@ fn first_letter(index: usize) u8 {
 
 test "a cache that clears on a text with few states for its length goes on without giving up" {
     // Forty words with forty first letters: two states a word, more than the least cache holds.
-    var pattern: [word_count * (word_len + 1)]u8 = undefined;
+    // The words are in one group, so the parser writes one alternative a word: a trie of them
+    // would build fewer states (literal_trie.zig).
+    const opener = "(?:";
+    var pattern: [opener.len + word_count * (word_len + 1)]u8 = undefined;
+    @memcpy(pattern[0..opener.len], opener);
     for (0..word_count) |index| {
         const word = [_]u8{ first_letter(index), '=', @intCast('0' + index % 10), '|' };
-        @memcpy(pattern[index * word.len ..][0..word.len], &word);
+        @memcpy(pattern[opener.len + index * word.len ..][0..word.len], &word);
     }
+    // The last word's `|` closes the group.
+    pattern[pattern.len - 1] = ')';
     // The text starts each word and leaves it, pass after pass, and ends with one whole word.
     var text: [passes * word_count * (word_len - 1 + gap_len) + word_len]u8 = @splat('x');
     for (0..passes * word_count) |index| {
@@ -294,8 +300,8 @@ test "a cache that clears on a text with few states for its length goes on witho
     }
     @memcpy(text[text.len - word_len ..], "b=1");
     var fixture: Fixture = .{};
-    try fixture.init(pattern[0 .. pattern.len - 1], 0);
-    try fixture.init(pattern[0 .. pattern.len - 1], cache_sizes(&fixture.program).least);
+    try fixture.init(&pattern, 0);
+    try fixture.init(&pattern, cache_sizes(&fixture.program).least);
     try fixture.expect_agree(&text, 0);
     try testing.expectEqual(@as(?Span, .{ .start = text.len - word_len, .end = text.len }), fixture.searcher.find(&text, 0));
     try testing.expect(fixture.searcher.forward.cache.clears > 0);

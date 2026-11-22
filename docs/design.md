@@ -8802,8 +8802,12 @@ to 12 are reordered and nothing else changes.
     take the octet, up to 121. A state's record then holds about 700 words, and the 594 states of
     the row need more than the reverse DFA's third of the cache. Rust's crate packs each
     instruction of a state in about one octet.
-  - rebar's dictionary, 2,663 words in one alternation, builds each DFA state through every
-    branch.
+  - rebar's dictionary, 2,663 words in one alternation, built each DFA state through every
+    branch. An alternation of more than `literal_set_max` literals is now a trie
+    (`literal_trie.zig`, decision 86): 24,088 instructions for both programs in place of 89,692.
+    A warm run of the driver took the row from 0.03 to 481 MB/s, where Rust's crate gave 454 in
+    the local run of part 22m. The compile takes 3.4 ms in place of 2.1 ms, built for
+    x86-64-v3, at 1.12 times the instructions.
   - The capture groups of a lexer's and a log's patterns came from the matcher's threads, which
     copy the slots of every group: the lexer's 89 groups are 178 slots a thread. Claim R8 finds
     them with a backtracker over the span the DFAs found, each instruction at each offset once
@@ -8820,6 +8824,22 @@ to 12 are reordered and nothing else changes.
     The tail now asks Teddy's tables, four lookups, for the literals whose first and last octets
     stand there, and compares those alone. The row went from 101 to 433 to 487 MB/s, where
     Rust's crate gave 735 and Go's regexp 439 in the local run of part 22m.
+  **Check, the trie:** the trie takes an alternation of more than `literal_set_max` literals
+  and nothing else; 300 sets of 9 to 40 literals a seed draws over three letters match as the
+  parser's program does, by the matcher and the searcher, from every start; escaped, grouped
+  and UTF-8 literals match as the parser's do; a node with no order for its end, and a storage
+  with no room past the program, take the parser; the Go differential check passes; mutations.
+  **Check passed, the trie, 2026-11-22.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `zig build test-regex` passes. The seed's 300 sets built 73 tries: three letters nest the
+    literals' starts so densely that the others hold a node with no order.
+  - Mutations against `zig build test-regex`: 16. CAUGHT, 15: the cheap test one bar short; a set
+    of `literal_set_max` taken; a star or an escaped letter as a literal; no order judged; the
+    end with no last answer; the branches unsorted; a literal twice that keeps its last end; the
+    reverse sorted from the first octet, by its key or past it; a node found whatever its
+    targets; no room check; the program grown over its lists; the end placed after a branch that
+    follows it; the trie never tried. NOT CAUGHT, 1: a shorter literal sorted after a longer one it starts, which builds
+    the same trie, since its end lands on an open node.
   **Check, the tail:** `bits_at` gives exactly the literals whose first and last octets stand
   there, over every pair of octets; mutations.
   **Check passed, the tail, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.

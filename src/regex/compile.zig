@@ -13,6 +13,7 @@ const program_file = @import("program.zig");
 const syntax = @import("syntax/syntax.zig");
 const syntax_name = @import("syntax/syntax_name.zig");
 const atom = @import("syntax/syntax_atom.zig");
+const literal_trie = @import("literal_trie.zig");
 const Builder = fragment.Builder;
 const Instruction = program_file.Instruction;
 const Program = program_file.Program;
@@ -42,11 +43,23 @@ const Pass = struct {
 /// forward pass checks the names. The reverse pass reads the same pattern and checks none, and a
 /// pattern with no `(?` holds no name, so neither pays for the parser's table of names.
 fn pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, names: []GroupName, classes: bool) errors.Error!Pass {
+    if (try trie_pass(builder, pattern, flags, direction)) |done| return done;
     if (direction == .forward and may_name(pattern)) {
         var read: syntax_name.Names = .{};
         return pass_with(builder, pattern, flags, direction, .{ .read = &read, .kept = names }, classes);
     }
     return pass_with(builder, pattern, flags, direction, .{ .read = null, .kept = &.{} }, classes);
+}
+
+/// The pass of a pattern that is an alternation of literals and nothing else, as a trie
+/// (literal_trie.zig), or null where the pattern is anything else. It holds no group of its own.
+fn trie_pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction) errors.Error!?Pass {
+    builder.direction = direction;
+    const body = (try literal_trie.alternation(builder, pattern, flags.case_insensitive)) orelse return null;
+    const whole = try builder.capture(body, 0);
+    const end = try builder.emit(.{ .kind = .match });
+    builder.patch(whole.holes, end);
+    return .{ .entry = whole.entry, .group_count = 1, .names = &.{} };
 }
 
 /// True when the pattern holds `(?`, which a named group starts with. `std.mem.indexOf` would

@@ -177,6 +177,15 @@ pub const dfa_give_ups_max = 8;
 pub const dfa_forward_parts = 2;
 pub const dfa_cache_parts = 3;
 
+/// The least slots of the table that finds a written node of a literal trie (literal_trie.zig),
+/// and the slots a lookup reads from a hash's home. The table holds a power of two of slots, at
+/// least one for each `trie_octets_per_slot` octets of the literals, in the storage past the
+/// program. For rebar's dictionary, a table of one slot an octet took 786 kB of the storage; an
+/// eighth of it wrote 5% more instructions, 24,088 in place of 22,915, in 0.95 of the time.
+pub const trie_node_slots_min = 64;
+pub const trie_octets_per_slot = 8;
+pub const trie_node_probes = 8;
+
 /// The splits the backtracker passes, at most, to skip alternatives that start with a range that
 /// does not take the octet before it pushes the path (backtrack.zig). A class's node of 64
 /// continuation ranges is 63 splits, so the walk passes any node's alternatives, and a push

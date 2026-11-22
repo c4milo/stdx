@@ -5928,6 +5928,20 @@ last part lists what still waits on a ruling.
       - A program of no group but the whole match takes the DFAs' span, and runs neither.
       - `SearcherClaims.backtrack` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 
+    - A pattern that is an alternation of more than `literal_set_max` literals and nothing else,
+      each alone or in `(?:` and `)`, compiles as a trie (`literal_trie.zig`, added 2026-11-22,
+      design §8 part 22n). rebar's dictionary, 2,663 words, wrote one alternative a word, and
+      each state of a DFA visited every word: stdx ran it at 1/15,000 of Rust's crate, which
+      takes such a pattern as a set of literals for Aho-Corasick.
+      - The literals are sorted in the storage past the program and taken by Daciuk's
+        construction, as a class is: common starts are taken once and equal nodes written once.
+      - The forward program keeps the leftmost-first rule. Two literals that match at one place
+        meet in the node where the shorter ends. A branch's answers are its literals that no
+        earlier literal under it starts. The node's end goes after the branches whose answers
+        come before its literal, and before the others. A node with a branch whose answers stand
+        on both sides of its end has no order, and the parser compiles the pattern, as it does
+        any other pattern. The reverse program keeps the longest match, so no order binds it.
+
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
       table read an octet for a DFA whose states fit its cache. A thread copies its slots as it
