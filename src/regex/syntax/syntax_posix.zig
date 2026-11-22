@@ -57,12 +57,14 @@ fn holds(set: *const ScalarSet, scalar: u32) bool {
 
 /// The characters a name holds, as a second spelling of RE2's list for the tests to judge by.
 fn expect_named(name: []const u8, held: []const u8, refused: []const u8) !void {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add_named(named(name, false).?, false);
     for (held) |octet| try testing.expect(holds(&set, octet));
     for (refused) |octet| try testing.expect(!holds(&set, octet));
     try testing.expect(!holds(&set, constants.one_octet_max + 1));
-    var rest: ScalarSet = .{};
+    var rest_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var rest = ScalarSet.init(&rest_storage);
     try rest.add_named(named(name, true).?, false);
     for (held) |octet| try testing.expect(!holds(&rest, octet));
     for (refused) |octet| try testing.expect(holds(&rest, octet));

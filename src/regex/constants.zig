@@ -64,9 +64,20 @@ pub const pending_max = 2;
 
 /// The ranges of scalar values one character class holds, after its negation and its case folding.
 /// Unicode 17.0.0's largest property, `\p{C}`, holds 741, and `[\p{L}\p{M}\p{N}\p{Pc}]` holds 831,
-/// so 2048 holds every class a pattern names with room. The owner ruled it on 2026-11-22: one set
-/// of 16 KiB a class, which the parser keeps (decision 86 as amended).
+/// so 2048 holds every class a pattern names with room. The owner ruled it on 2026-11-22: the
+/// parser builds each class in one set, which it keeps for the next (decision 86 as amended).
 pub const class_ranges_max = 2048;
+
+/// The ranges of the set a pass builds its classes in first. ReleaseSafe writes each octet of a
+/// set it declares, so a set of `class_ranges_max` costs a pass 16 KiB of writes. A pass reads a
+/// pattern again in a set of `class_ranges_max` when a class does not fit in this one, so the limit
+/// stays `class_ranges_max`. `\p{Greek}` and `\p{Latin}` hold 36 ranges each, and `\p{Lu}` 655.
+pub const class_ranges_small = 64;
+
+comptime {
+    // A pass reads a pattern again only in a larger set.
+    std.debug.assert(class_ranges_small < class_ranges_max);
+}
 
 /// The ranges the UTF-8 split of one range of scalar values keeps on its stack. A split leaves at
 /// most one range for each boundary it cuts at: the surrogates, the three lengths, and two for each

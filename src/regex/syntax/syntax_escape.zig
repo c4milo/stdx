@@ -234,7 +234,8 @@ test "a hex escape of two digits leaves the octets after it unread" {
 }
 
 fn expect_class(text: []const u8, held: []const u8, refused: []const u8) !void {
-    var set: scalar_set.ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = scalar_set.ScalarSet.init(&set_storage);
     try set.add_named((try take_text(text)).class, false);
     for (held) |octet| try testing.expect(holds(&set, octet));
     for (refused) |octet| try testing.expect(!holds(&set, octet));
@@ -253,7 +254,8 @@ test "the three classes hold RE2's ASCII characters, and their negations the res
     try expect_class("w", "09AZaz_", "/:@[`{ -");
     try expect_class("D", "/:aA \x00", "0159");
     try expect_class("W", "/:@[`{ -", "09AZaz_");
-    var set: scalar_set.ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = scalar_set.ScalarSet.init(&set_storage);
     try set.add_named((try take_text("S")).class, false);
     try testing.expect(holds(&set, constants.scalar_max));
     try testing.expect(holds(&set, 0xE9));

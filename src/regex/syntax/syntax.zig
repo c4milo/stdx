@@ -17,6 +17,7 @@ const name = @import("syntax_name.zig");
 const repeat = @import("../repeat.zig");
 const utf8_ranges = @import("../utf8_ranges.zig");
 const ScalarSet = @import("../scalar_set.zig").ScalarSet;
+const ScalarRange = utf8_ranges.ScalarRange;
 const fragment = @import("../fragment.zig");
 const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
@@ -62,12 +63,12 @@ pub const Parser = struct {
     /// The names of the named groups so far, where the caller asks the parser to keep them.
     /// Without, the parser reads each name and checks no name against another.
     names: ?*name.Names = null,
-    /// The one set each class is built in, `class_ranges_max` ranges of 16 KiB in all, which the
-    /// next class reuses (decision 86 as amended).
-    set: ScalarSet = .{},
+    /// The one set each class is built in, which the next class reuses (decision 86 as amended).
+    /// Its storage is the pass's, of `class_ranges_max` ranges at most.
+    set: ScalarSet,
 
-    pub fn init(pattern: []const u8, flags: Flags, builder: *Builder) Parser {
-        return .{ .reader = codec.Reader.init(pattern), .builder = builder, .flags = flags };
+    pub fn init(pattern: []const u8, flags: Flags, builder: *Builder, ranges: []ScalarRange) Parser {
+        return .{ .reader = codec.Reader.init(pattern), .builder = builder, .flags = flags, .set = .init(ranges) };
     }
 
     /// The whole pattern as one fragment, at the end of the builder's program.

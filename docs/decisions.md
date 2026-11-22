@@ -5652,8 +5652,12 @@ last part lists what still waits on a ruling.
         of a class is folded before it is negated, and the class's `^` negates the folded items,
         as Go's regexp folds a class, so `(?i)[\W]` holds no `k`. `(?i)k` matches the Kelvin
         sign, and `(?i)s` matches `ſ`, as in Go.
-      - `class_ranges_max` is 2,048. The parser keeps one set of 16 KiB, and builds each class in
-        it. An item is added, folded and negated at the set's end, so no item takes a second set.
+      - `class_ranges_max` is 2,048. The parser keeps one set, and builds each class in it. An
+        item is added, folded and negated at the set's end, so no item takes a second set.
+      - The set's storage is the pass's: none for a pattern with no `[` and no `\`, 64 ranges for
+        another, and 2,048 when a class does not fit in 64, which reads the pattern again.
+        ReleaseSafe writes each octet of a set it declares, so a set of 16 KiB in each pass made
+        a compile half as fast (design §8 part 22e, its compile cost).
       - `ScalarRange` is `unicode.Range`, so a class takes a property's ranges as they are.
       - The alternatives refused: 1,024 ranges, which leave little room past the 831 of
         `[\p{L}\p{M}\p{N}\p{Pc}]`; and a slice of ranges the caller gives in `Options`, which adds

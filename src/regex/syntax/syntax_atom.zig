@@ -37,6 +37,12 @@ fn sequence(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.
 fn scalar_ranges(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
     var whole: ?Fragment = null;
     for (scalars) |range| {
+        if (range.hi <= constants.one_octet_max) {
+            // One octet for each scalar value: the one range of octets the split would give.
+            const piece = try builder.range(@intCast(range.lo), @intCast(range.hi));
+            whole = if (whole) |sofar| try builder.alternate(sofar, piece) else piece;
+            continue;
+        }
         var splitter = utf8_ranges.Splitter.init(range.lo, range.hi);
         while (splitter.next()) |octets| {
             const piece = try sequence(builder, octets.ranges[0..octets.len]);
@@ -56,7 +62,16 @@ pub fn class(builder: *Builder, set: *const ScalarSet) fragment.Error!Fragment {
 /// case-insensitive form, so `(?i)` is RE2's, with UTS #18 RL1.5's simple case folding.
 pub fn literal(builder: *Builder, flags: Flags, scalar: u32) errors.Error!Fragment {
     assert(scalar <= constants.scalar_max and !utf8_ranges.is_surrogate(scalar));
-    if (flags.case_insensitive and unicode.simple_fold(scalar) != scalar) return orbit(builder, scalar);
+    if (flags.case_insensitive) {
+        if (scalar <= constants.one_octet_max) {
+            const orbit = &ascii_orbits[scalar];
+            if (orbit.len > 0 and orbit.one_octet()) return one_octet_orbit(builder, orbit.slice());
+            if (orbit.len > 0) return scalar_ranges(builder, orbit.slice());
+        } else if (unicode.simple_fold(scalar) != scalar) {
+            const orbit = orbit_of(scalar);
+            return scalar_ranges(builder, orbit.slice());
+        }
+    }
     var octets: [constants.utf8_len_max]u8 = undefined;
     const len = utf8.encoded_len(@intCast(scalar));
     utf8.encode(@intCast(scalar), octets[0..len]);
@@ -65,23 +80,47 @@ pub fn literal(builder: *Builder, flags: Flags, scalar: u32) errors.Error!Fragme
     return whole;
 }
 
-/// Each scalar value of `scalar`'s case orbit in ascending order, one alternative for each run of
-/// adjacent ones: Ā and ā, U+0100 and U+0101, are one range.
-fn orbit(builder: *Builder, scalar: u32) errors.Error!Fragment {
-    var members: [unicode.constants.orbit_len_max]utf8_ranges.ScalarRange = undefined;
+/// A case orbit's members in ascending order, as ranges: adjacent ones, such as Ā and ā, U+0100
+/// and U+0101, are one range.
+const Orbit = struct {
+    ranges: [unicode.constants.orbit_len_max]utf8_ranges.ScalarRange,
+    len: u8,
+
+    fn slice(orbit: *const Orbit) []const utf8_ranges.ScalarRange {
+        return orbit.ranges[0..orbit.len];
+    }
+
+    /// True when each member is one octet of UTF-8, as each member of `a`'s orbit is.
+    fn one_octet(orbit: *const Orbit) bool {
+        assert(orbit.len > 0);
+        return orbit.ranges[orbit.len - 1].hi <= constants.one_octet_max;
+    }
+};
+
+/// An orbit of members of one octet each, as `scalar_ranges` writes it, with no fragment to
+/// test for each range.
+fn one_octet_orbit(builder: *Builder, ranges: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
+    var whole = try builder.range(@intCast(ranges[0].lo), @intCast(ranges[0].hi));
+    for (ranges[1..]) |range| whole = try builder.alternate(whole, try builder.range(@intCast(range.lo), @intCast(range.hi)));
+    return whole;
+}
+
+/// The orbit of `scalar`, which holds two members or more.
+fn orbit_of(scalar: u32) Orbit {
+    var orbit: Orbit = .{ .ranges = @splat(.{ .lo = scalar, .hi = scalar }), .len = 0 };
     var count: usize = 0;
     var current = scalar;
     // `simple_fold` walks the orbit in ascending order, from its last member back to its first.
-    while (count < members.len) : (count += 1) {
-        members[count] = .{ .lo = current, .hi = current };
+    while (count < orbit.ranges.len) : (count += 1) {
+        orbit.ranges[count] = .{ .lo = current, .hi = current };
         current = unicode.simple_fold(current);
         if (current == scalar) break;
     }
     assert(current == scalar and count >= 1);
-    const orbit_len = count + 1;
-    std.mem.sort(utf8_ranges.ScalarRange, members[0..orbit_len], {}, lower_first);
+    const members = orbit.ranges[0 .. count + 1];
+    std.mem.sort(utf8_ranges.ScalarRange, members, {}, lower_first);
     var last: usize = 0;
-    for (members[1..orbit_len]) |member| {
+    for (members[1..]) |member| {
         if (member.lo == members[last].hi + 1) {
             members[last].hi = member.hi;
             continue;
@@ -89,8 +128,24 @@ fn orbit(builder: *Builder, scalar: u32) errors.Error!Fragment {
         last += 1;
         members[last] = member;
     }
-    return scalar_ranges(builder, members[0 .. last + 1]);
+    orbit.len = @intCast(last + 1);
+    return orbit;
 }
+
+/// The branches the compiler takes to read the folding tables for each ASCII character.
+const ascii_orbits_branch_quota = 100_000;
+
+/// The orbit of each ASCII character, which `literal` takes under `(?i)` with no search of the
+/// folding tables. A character alone in its orbit has a length of 0.
+const ascii_orbits = orbits: {
+    @setEvalBranchQuota(ascii_orbits_branch_quota);
+    var orbits: [constants.one_octet_max + 1]Orbit = undefined;
+    for (&orbits, 0..) |*orbit, scalar| {
+        const alone: Orbit = .{ .ranges = @splat(.{ .lo = scalar, .hi = scalar }), .len = 0 };
+        orbit.* = if (unicode.simple_fold(scalar) == scalar) alone else orbit_of(scalar);
+    }
+    break :orbits orbits;
+};
 
 fn lower_first(_: void, left: utf8_ranges.ScalarRange, right: utf8_ranges.ScalarRange) bool {
     return left.lo < right.lo;
@@ -152,6 +207,54 @@ test "a letter under (?i) takes its case orbit, and any other character itself a
     try testing.expect(first_octets(&storage, e.entry, 0xC3) and !first_octets(&storage, e.entry, 'e'));
 }
 
+/// The program of `scalars` with every range split, as `scalar_ranges` wrote it before it took a
+/// range of one octet a scalar value in one instruction.
+fn split_ranges(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
+    var whole: ?Fragment = null;
+    for (scalars) |range| {
+        var splitter = utf8_ranges.Splitter.init(range.lo, range.hi);
+        while (splitter.next()) |octets| {
+            const piece = try sequence(builder, octets.ranges[0..octets.len]);
+            whole = if (whole) |sofar| try builder.alternate(sofar, piece) else piece;
+        }
+    }
+    return whole orelse builder.fail();
+}
+
+test "a range of one octet a scalar value writes the program its split writes" {
+    var storage: [storage_len]program.Instruction = undefined;
+    var split_storage: [storage_len]program.Instruction = undefined;
+    const sets = [_][]const utf8_ranges.ScalarRange{
+        &.{.{ .lo = 0, .hi = constants.one_octet_max }},
+        &.{ .{ .lo = 'A', .hi = 'Z' }, .{ .lo = 'a', .hi = 'z' } },
+        &.{ .{ .lo = '0', .hi = '9' }, .{ .lo = 0x7F, .hi = 0x80 } },
+        &.{ .{ .lo = 'k', .hi = 'k' }, .{ .lo = 0x212A, .hi = 0x212A } },
+    };
+    for (sets) |scalars| {
+        var builder: Builder = .{ .instructions = &storage, .direction = .forward };
+        var split: Builder = .{ .instructions = &split_storage, .direction = .forward };
+        _ = try scalar_ranges(&builder, scalars);
+        _ = try split_ranges(&split, scalars);
+        try testing.expectEqualSlices(program.Instruction, split_storage[0..split.len], storage[0..builder.len]);
+    }
+}
+
+test "each ASCII character under (?i) writes the program of its class folded by the tables" {
+    var storage: [storage_len]program.Instruction = undefined;
+    var folded_storage: [storage_len]program.Instruction = undefined;
+    var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
+    for (0..constants.one_octet_max + 1) |scalar| {
+        var builder: Builder = .{ .instructions = &storage, .direction = .forward };
+        _ = try literal(&builder, .{ .case_insensitive = true }, @intCast(scalar));
+        // A second reading of the orbit: `unicode.images`, which a class folds by.
+        var set = ScalarSet.init(&set_storage);
+        try set.add_folded(@intCast(scalar), @intCast(scalar), true);
+        var folded: Builder = .{ .instructions = &folded_storage, .direction = .forward };
+        _ = try class(&folded, &set);
+        try testing.expectEqualSlices(program.Instruction, folded_storage[0..folded.len], storage[0..builder.len]);
+    }
+}
+
 fn first_octets(storage: []const program.Instruction, entry: u32, octet: u8) bool {
     // Follows the splits from `entry` and reads each alternative's first range.
     var stack: [storage_len]u32 = undefined;
@@ -192,7 +295,8 @@ test "a dot starts with any octet that starts a scalar value, but a line feed" {
 test "a set of no scalar value is an instruction no octet passes" {
     var storage: [storage_len]program.Instruction = undefined;
     var builder: Builder = .{ .instructions = &storage, .direction = .forward };
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     const none = try class(&builder, &set);
     try testing.expectEqual(program.Kind.fail, storage[none.entry].kind);
     try testing.expect(none.holes.is_empty());

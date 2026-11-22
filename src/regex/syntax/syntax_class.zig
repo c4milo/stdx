@@ -128,12 +128,14 @@ fn take_into(set: *ScalarSet, text: []const u8, flags: atom.Flags) errors.Error!
 }
 
 fn take_text(text: []const u8, flags: atom.Flags) errors.Error!void {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try take_into(&set, text, flags);
 }
 
 fn expect_class(text: []const u8, flags: atom.Flags, expected: []const ScalarRange) !void {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try take_into(&set, text, flags);
     try testing.expectEqualSlices(ScalarRange, expected, set.slice());
 }
@@ -148,7 +150,8 @@ fn holds(set: *const ScalarSet, scalar: u32) bool {
 /// Requires the class of `text` under `(?i)` to hold each scalar value of the orbits of `lo` to
 /// `hi`, and no other: a second reading of the folding, one scalar value at a time.
 fn expect_orbits(text: []const u8, lo: u32, hi: u32) !void {
-    var wanted: ScalarSet = .{};
+    var wanted_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
+    var wanted = ScalarSet.init(&wanted_storage);
     for (lo..hi + 1) |scalar| {
         var current: u32 = @intCast(scalar);
         for (0..unicode.constants.orbit_len_max) |_| {
@@ -216,7 +219,8 @@ test "a class under (?i) holds each orbit of its scalar values, before its negat
 }
 
 test "a class takes Unicode properties and their negations as items" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try take_into(&set, "\\p{Greek}0]", .{});
     try testing.expect(holds(&set, 0x3B1) and holds(&set, '0') and !holds(&set, 'a'));
     try take_into(&set, "\\P{Greek}]", .{});

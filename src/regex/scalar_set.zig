@@ -23,14 +23,22 @@ pub const NamedClass = struct {
 };
 
 pub const ScalarSet = struct {
-    ranges: [constants.class_ranges_max]ScalarRange = undefined,
+    /// The storage the ranges are written in, which the caller gives: `class_ranges_max` ranges
+    /// at most, and fewer where the caller reads the pattern again in a larger set.
+    ranges: []ScalarRange,
     len: u32 = 0,
+
+    pub fn init(ranges: []ScalarRange) ScalarSet {
+        assert(ranges.len <= constants.class_ranges_max);
+        return .{ .ranges = ranges };
+    }
 
     pub fn add(set: *ScalarSet, lo: u32, hi: u32) Error!void {
         assert(lo <= hi and hi <= constants.scalar_max);
         // RFC 9485 §8: an implementation that takes a regexp from an untrusted source bounds what
-        // it costs. A class past `class_ranges_max` ranges is refused.
-        if (set.len == constants.class_ranges_max) return error.ClassTooLarge;
+        // it costs. A class past the set's ranges is refused. `compile` then reads the pattern
+        // again in a set of `class_ranges_max` ranges, and refuses a class past those.
+        if (set.len == set.ranges.len) return error.ClassTooLarge;
         set.ranges[set.len] = .{ .lo = lo, .hi = hi };
         set.len += 1;
     }
@@ -112,8 +120,9 @@ pub const ScalarSet = struct {
         const after = set.ranges[set.len - 1].hi < constants.scalar_max;
         const negated_count = count - 1 + @intFromBool(before) + @intFromBool(after);
         // RFC 9485 §8: an implementation that takes a regexp from an untrusted source bounds what
-        // it costs. A class past `class_ranges_max` ranges is refused.
-        if (start + negated_count > constants.class_ranges_max) return error.ClassTooLarge;
+        // it costs. A class past the set's ranges is refused. `compile` then reads the pattern
+        // again in a set of `class_ranges_max` ranges, and refuses a class past those.
+        if (start + negated_count > set.ranges.len) return error.ClassTooLarge;
         if (before) set.negate_after_gap(start, count, after) else set.negate_from_zero(start, count, after);
         set.len = start + negated_count;
     }
@@ -185,7 +194,8 @@ fn expect_ranges(set: *const ScalarSet, expected: []const ScalarRange) !void {
 }
 
 test "normalize orders the ranges and joins those that overlap or touch" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('m', 'p');
     try set.add('a', 'c');
     try set.add('d', 'f');
@@ -196,7 +206,8 @@ test "normalize orders the ranges and joins those that overlap or touch" {
 }
 
 test "normalize keeps apart two ranges with a scalar value between them" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('c', 'd');
     try set.add('a', 'a');
     set.normalize();
@@ -204,7 +215,8 @@ test "normalize keeps apart two ranges with a scalar value between them" {
 }
 
 test "normalize keeps a range inside another as the outer one" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('a', 'z');
     try set.add('c', 'd');
     set.normalize();
@@ -212,7 +224,8 @@ test "normalize keeps a range inside another as the outer one" {
 }
 
 test "normalize_from leaves the ranges before its start as they are" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('x', 'z');
     try set.add('c', 'd');
     try set.add('a', 'b');
@@ -221,7 +234,8 @@ test "normalize_from leaves the ranges before its start as they are" {
 }
 
 test "negate gives the scalar values between the ranges, and before and after them" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('b', 'c');
     try set.add('x', 'x');
     set.normalize();
@@ -236,20 +250,23 @@ test "negate gives the scalar values between the ranges, and before and after th
 }
 
 test "negate of ranges at either end of the codespace gives no range past them" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add(0, 'a');
     try set.add('m', 'n');
     try set.add('x', constants.scalar_max);
     try set.negate();
     try expect_ranges(&set, &.{ .{ .lo = 'b', .hi = 'l' }, .{ .lo = 'o', .hi = 'w' } });
-    var first: ScalarSet = .{};
+    var first_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var first = ScalarSet.init(&first_storage);
     try first.add(0, 'a');
     try first.negate();
     try expect_ranges(&first, &.{.{ .lo = 'b', .hi = constants.scalar_max }});
 }
 
 test "negate of every scalar value is empty, and of nothing is every scalar value" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.negate();
     try expect_ranges(&set, &.{.{ .lo = 0, .hi = constants.scalar_max }});
     try set.negate();
@@ -257,7 +274,8 @@ test "negate of every scalar value is empty, and of nothing is every scalar valu
 }
 
 test "negate_from negates the ranges from its start on alone" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('a', 'a');
     try set.add('m', 'p');
     try set.negate_from(1);
@@ -265,7 +283,8 @@ test "negate_from negates the ranges from its start on alone" {
 }
 
 test "negate refuses a negation past the class's limit, and keeps the set" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     for (0..constants.class_ranges_max) |index| try set.add(@intCast(2 * index + 1), @intCast(2 * index + 1));
     try testing.expectError(error.ClassTooLarge, set.negate());
     try testing.expectEqual(@as(u32, constants.class_ranges_max), set.len);
@@ -274,36 +293,43 @@ test "negate refuses a negation past the class's limit, and keeps the set" {
 
 test "add_ranges adds ranges, or every scalar value they do not hold" {
     const ranges = [_]ScalarRange{ .{ .lo = 'a', .hi = 'c' }, .{ .lo = 'x', .hi = 'z' } };
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add_ranges(&ranges, false);
     try expect_ranges(&set, &ranges);
-    var rest: ScalarSet = .{};
+    var rest_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var rest = ScalarSet.init(&rest_storage);
     try rest.add_ranges(&ranges, true);
     try expect_ranges(&rest, &.{ .{ .lo = 0, .hi = '`' }, .{ .lo = 'd', .hi = 'w' }, .{ .lo = '{', .hi = constants.scalar_max } });
-    var none: ScalarSet = .{};
+    var none_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var none = ScalarSet.init(&none_storage);
     try none.add_ranges(&.{.{ .lo = 0, .hi = constants.scalar_max }}, true);
     try expect_ranges(&none, &.{});
 }
 
 test "fold_from adds each scalar value's whole orbit, and nothing to a range with none" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('k', 'k');
     try set.fold_from(0);
     // k's orbit holds K, k and the Kelvin sign.
     try expect_ranges(&set, &.{ .{ .lo = 'K', .hi = 'K' }, .{ .lo = 'k', .hi = 'k' }, .{ .lo = 0x212A, .hi = 0x212A } });
-    var iota: ScalarSet = .{};
+    var iota_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var iota = ScalarSet.init(&iota_storage);
     // U+0345 folds to ι, whose orbit holds four: the last pass reaches U+1FBE.
     try iota.add(0x345, 0x345);
     try iota.fold_from(0);
     try expect_ranges(&iota, &.{ .{ .lo = 0x345, .hi = 0x345 }, .{ .lo = 0x399, .hi = 0x399 }, .{ .lo = 0x3B9, .hi = 0x3B9 }, .{ .lo = 0x1FBE, .hi = 0x1FBE } });
-    var digits: ScalarSet = .{};
+    var digits_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var digits = ScalarSet.init(&digits_storage);
     try digits.add('0', '9');
     try digits.fold_from(0);
     try expect_ranges(&digits, &.{.{ .lo = '0', .hi = '9' }});
 }
 
 test "fold_from folds the ranges from its start on alone" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add('a', 'a');
     try set.add(0x101, 0x102);
     try set.fold_from(1);
@@ -313,22 +339,26 @@ test "fold_from folds the ranges from its start on alone" {
 
 test "add_named folds a negated class before it negates it" {
     const word = NamedClass{ .ranges = &.{ .{ .lo = '0', .hi = '9' }, .{ .lo = 'A', .hi = 'Z' }, .{ .lo = '_', .hi = '_' }, .{ .lo = 'a', .hi = 'z' } }, .negated = true };
-    var folded: ScalarSet = .{};
+    var folded_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var folded = ScalarSet.init(&folded_storage);
     try folded.add_named(word, true);
     // \w folds to hold ſ and the Kelvin sign, so its negation holds neither, nor any letter.
     for ([_]u32{ 'k', 'K', 's', 0x17F, 0x212A }) |scalar| try testing.expect(!holds(folded.slice(), .{ .lo = scalar, .hi = scalar }));
     try testing.expect(holds(folded.slice(), .{ .lo = '-', .hi = '-' }));
-    var plain: ScalarSet = .{};
+    var plain_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var plain = ScalarSet.init(&plain_storage);
     try plain.add_named(word, false);
     try testing.expect(holds(plain.slice(), .{ .lo = 0x212A, .hi = 0x212A }));
 }
 
 test "add_folded adds a range and its orbits, or the range alone" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     try set.add_folded('0', '0', true);
     try set.add_folded('s', 's', true);
     try expect_ranges(&set, &.{ .{ .lo = '0', .hi = '0' }, .{ .lo = 'S', .hi = 'S' }, .{ .lo = 's', .hi = 's' }, .{ .lo = 0x17F, .hi = 0x17F } });
-    var plain: ScalarSet = .{};
+    var plain_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var plain = ScalarSet.init(&plain_storage);
     try plain.add_folded('s', 's', false);
     try expect_ranges(&plain, &.{.{ .lo = 's', .hi = 's' }});
 }
@@ -373,7 +403,8 @@ test "fold_from adds nothing to whole orbits, though they hold most of the set's
     // Each orbit whose code points touch none taken before, whole: no fold adds a range to them.
     // A fold that added each range's images though the set held them would pass the limit.
     var taken = Taken.initEmpty();
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     var code_point: u32 = 0;
     while (code_point <= constants.scalar_max) : (code_point += 1) {
         if (first_of_orbit(code_point) and !orbit_touches(&taken, code_point)) try add_orbit(&set, &taken, code_point);
@@ -386,7 +417,8 @@ test "fold_from adds nothing to whole orbits, though they hold most of the set's
 }
 
 test "add refuses a range past the class's limit" {
-    var set: ScalarSet = .{};
+    var set_storage: [constants.class_ranges_max]ScalarRange = undefined;
+    var set = ScalarSet.init(&set_storage);
     for (0..constants.class_ranges_max) |index| try set.add(@intCast(2 * index), @intCast(2 * index));
     try testing.expectError(error.ClassTooLarge, set.add(0x10000, 0x10000));
     try testing.expectEqual(@as(u32, constants.class_ranges_max), set.len);

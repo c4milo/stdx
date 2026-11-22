@@ -167,7 +167,7 @@ where one can pin it. The ones that exist today are fixed by the RFCs:
 | `json.constants.depth_max` | 1,024 | RFC 8259 §9 lets a parser limit nesting (decision 27) |
 | `regex.constants.repeat_max` | 1,000 | RFC 9485 §8 lets an implementation limit a range quantifier's count and its nesting (decision 86) |
 | `regex.constants.depth_max` | 96 | RFC 9485 §8; the parser's frames, in its own stack frame (decision 86) |
-| `regex.constants.class_ranges_max` | 128 | RFC 9485 §8; the ranges one class holds (decision 86) |
+| `regex.constants.class_ranges_max` | 2,048 | RFC 9485 §8; the ranges one class holds (decision 86 as amended) |
 | `regex.constants.groups_max` | 4,096 | Two slots a group in every thread of a matcher (decision 86) |
 
 Limits that land with their steps: each fast path's `input_slack` and
@@ -8688,6 +8688,40 @@ to 12 are reordered and nothing else changes.
     before, and the adjacent members of an orbit kept apart. 1 NOT CAUGHT at first: a fold that
     adds the ranges its set holds, which changes the set's room alone. A test of whole orbits in
     1,226 ranges now catches it.
+
+  **Part 22e, its compile cost (decision 86 as amended).** Ten hosted runs of `bench-regex` at
+  1667e8b gave a compile on the N2 half the speed it had at 822c457: 369,000 patterns a second for
+  `literal: a word`, against 785,000. A UUID's pattern fell from 219,000 to 152,000. Two causes,
+  both of the half above:
+  - Each pass declared the parser's set of 2,048 ranges, and ReleaseSafe writes each octet of a
+    set it declares. A compile wrote 32 KiB that it never read.
+  - Each letter under `(?i)` searched the folding tables for its orbit, and split each member
+    into UTF-8, where an ASCII letter had taken two instructions.
+
+  A pass now declares a set only when the pattern holds a `[` or a `\`, which start every class.
+  The set holds `class_ranges_small`, 64 ranges. A class past them reads the pattern again in a
+  set of `class_ranges_max`, so the limit stays 2,048. The ASCII characters' orbits are a table
+  built at compile time, and a range of one octet a scalar value is one instruction.
+  **Check:** the program of a class past the small set against a pass in the large set; each
+  ASCII character under `(?i)` against its class folded by `unicode.images`; a range of one octet
+  a scalar value against its split; the instructions of a compile under callgrind; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 120 of 120 steps passed. `zig build test-self-hosted
+  test-avx512`: 104 of 104. `zig build differential-regex -Doracles`: 12,437,542 cases, none
+  failed, and each count as above.
+  - Instructions of one compile, ReleaseSafe for x86-64-v3 under callgrind, at 99863ad, the
+    commit before the half above, and with this change: `Sherlock Holmes` 14,679 and 14,954;
+    `a` 4,757 and 4,892; `[0-9]+` 7,624 and 6,861; `[A-Z][a-z]+ [A-Z][a-z]+` 17,427 and 13,864;
+    `(?i)hero` 8,719 and 9,398. `(?i)Sherlock` takes 12,707 and 16,590, because `s` and `k` now
+    hold ſ and the Kelvin sign.
+  - Mutations, each against `zig build test-regex`: 14. 13 CAUGHT at first: no reset of the
+    builder or of the names before the second reading, a set's two checks of room against
+    `class_ranges_max` in place of its storage, the scan of a pattern always false or blind to
+    `\`, a range of one octet tested by its first scalar value or written as that value alone,
+    an orbit not sorted, every orbit taken as one octet a member, an orbit's alternatives
+    reversed, an orbit cut to its first member, and no second reading. 1 NOT CAUGHT at first:
+    the two sets swapped, which a second reading hid. A pattern with no class now takes the
+    empty set alone, so a scan that misses a class refuses it, and the mutation is CAUGHT.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,

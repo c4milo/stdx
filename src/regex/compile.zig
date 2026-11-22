@@ -17,6 +17,7 @@ const Builder = fragment.Builder;
 const Instruction = program_file.Instruction;
 const Program = program_file.Program;
 const GroupName = program_file.GroupName;
+const ScalarRange = @import("utf8_ranges.zig").ScalarRange;
 
 pub const Options = struct {
     /// The flags the pattern starts under. A `(?i)` and its like change them from inside.
@@ -40,12 +41,12 @@ const Pass = struct {
 /// Reads the pattern into the builder in one direction, and keeps its names in `names`. The
 /// forward pass checks the names. The reverse pass reads the same pattern and checks none, and a
 /// pattern with no `(?` holds no name, so neither pays for the parser's table of names.
-fn pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, names: []GroupName) errors.Error!Pass {
+fn pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, names: []GroupName, classes: bool) errors.Error!Pass {
     if (direction == .forward and may_name(pattern)) {
         var read: syntax_name.Names = .{};
-        return pass_with(builder, pattern, flags, direction, .{ .read = &read, .kept = names });
+        return pass_with(builder, pattern, flags, direction, .{ .read = &read, .kept = names }, classes);
     }
-    return pass_with(builder, pattern, flags, direction, .{ .read = null, .kept = &.{} });
+    return pass_with(builder, pattern, flags, direction, .{ .read = null, .kept = &.{} }, classes);
 }
 
 /// True when the pattern holds `(?`, which a named group starts with. `std.mem.indexOf` would
@@ -63,9 +64,43 @@ fn may_name(pattern: []const u8) bool {
 /// Where a pass keeps names: the parser's table, and the caller's storage.
 const Keep = struct { read: ?*syntax_name.Names, kept: []GroupName };
 
-fn pass_with(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
+/// Reads the pattern in the set its classes need. ReleaseSafe writes each octet of a set it
+/// declares, so a pass declares none where `classes` says the pattern holds no `[` and no `\`,
+/// which start every class, and `class_ranges_small` ranges for another. A class past them reads
+/// the pattern again, from the builder's state before the pass, in a set of `class_ranges_max`.
+fn pass_with(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep, classes: bool) errors.Error!Pass {
+    // A pattern with no class adds no range, so the empty set refuses none of its classes.
+    if (!classes) return pass_in(builder, pattern, flags, direction, keep, &.{});
+    const begin = builder.len;
+    if (pass_small(builder, pattern, flags, direction, keep)) |done| return done else |err| if (err != error.ClassTooLarge) return err;
+    builder.len = begin;
+    if (keep.read) |read| read.len = 0;
+    return pass_large(builder, pattern, flags, direction, keep);
+}
+
+/// True when the pattern holds a `[` or a `\`. `std.mem.indexOfScalar` would set up a vector
+/// loop for each of the two, which costs a short pattern more than its octets do.
+fn may_hold_class(pattern: []const u8) bool {
+    for (pattern) |octet| {
+        if (octet == '[' or octet == '\\') return true;
+    }
+    return false;
+}
+
+fn pass_small(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
+    var ranges: [constants.class_ranges_small]ScalarRange = undefined;
+    return pass_in(builder, pattern, flags, direction, keep, &ranges);
+}
+
+/// A pass in a set of `class_ranges_max` ranges, whose 16 KiB take a frame of their own.
+noinline fn pass_large(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
+    var ranges: [constants.class_ranges_max]ScalarRange = undefined;
+    return pass_in(builder, pattern, flags, direction, keep, &ranges);
+}
+
+fn pass_in(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep, ranges: []ScalarRange) errors.Error!Pass {
     builder.direction = direction;
-    var parser = syntax.Parser.init(pattern, flags, builder);
+    var parser = syntax.Parser.init(pattern, flags, builder, ranges);
     parser.names = keep.read;
     const whole = try builder.capture(try parser.parse(), 0);
     const end = try builder.emit(.{ .kind = .match });
@@ -110,11 +145,12 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         .instructions = storage[0..@min(storage.len, constants.instructions_max)],
         .direction = .forward,
     };
-    const forward = try pass(&builder, pattern, options.flags, .forward, options.names);
+    const holds_class = may_hold_class(pattern);
+    const forward = try pass(&builder, pattern, options.flags, .forward, options.names, holds_class);
     const forward_len = builder.len;
     var reverse_entry: u32 = program_file.no_entry;
     if (options.reverse) {
-        const reverse = try pass(&builder, pattern, options.flags, .reverse, &.{});
+        const reverse = try pass(&builder, pattern, options.flags, .reverse, &.{}, holds_class);
         assert(reverse.group_count == forward.group_count);
         reverse_entry = reverse.entry;
     }
@@ -155,6 +191,64 @@ pub inline fn compile_comptime(comptime pattern: []const u8, comptime options: O
         program.names = &kept;
         break :frozen program;
     };
+}
+
+const testing = std.testing;
+const test_storage_len = 1024;
+
+test "a pattern may hold a class where it holds a [ or a \\" {
+    try testing.expect(!may_hold_class("Sherlock (Holmes)?"));
+    try testing.expect(may_hold_class("a[b]"));
+    try testing.expect(may_hold_class("a\\d"));
+}
+
+/// The first code point of `wide_class`, and the step from each to the next: one code point
+/// apart, so no two join.
+const wide_class_first = 0x100;
+const wide_class_step = 2;
+
+/// A named group, then a class of `count` code points apart from U+0100 on, negated or not.
+fn wide_class(text: []u8, count: usize, negated: bool) []const u8 {
+    const head = if (negated) "(?P<first>a)[^" else "(?P<first>a)[";
+    @memcpy(text[0..head.len], head);
+    var len = head.len;
+    for (0..count) |index| {
+        const code_point: u21 = @intCast(wide_class_first + wide_class_step * index);
+        len += std.unicode.utf8Encode(code_point, text[len..]) catch unreachable;
+    }
+    text[len] = ']';
+    return text[0 .. len + 1];
+}
+
+/// Reads `pattern` after one instruction, with `pass_with` or in a set of `class_ranges_max`
+/// ranges, and requires the pass to keep the group's name.
+fn read_after_one(storage: []Instruction, pattern: []const u8, large: bool) !Builder {
+    var builder: Builder = .{ .instructions = storage, .direction = .forward };
+    _ = try builder.emit(.{ .kind = .fail });
+    var read: syntax_name.Names = .{};
+    var kept: [1]GroupName = undefined;
+    const keep: Keep = .{ .read = &read, .kept = &kept };
+    const done = try if (large) pass_large(&builder, pattern, .{}, .forward, keep) else pass_with(&builder, pattern, .{}, .forward, keep, true);
+    try testing.expectEqualStrings("first", done.names[0].name());
+    return builder;
+}
+
+/// Requires `pass_with` to write the program a pass in a set of `class_ranges_max` ranges writes.
+fn expect_as_large(pattern: []const u8) !void {
+    var storage: [test_storage_len]Instruction = undefined;
+    var large_storage: [test_storage_len]Instruction = undefined;
+    const builder = try read_after_one(&storage, pattern, false);
+    const large = try read_after_one(&large_storage, pattern, true);
+    try testing.expectEqualSlices(Instruction, large_storage[0..large.len], storage[0..builder.len]);
+}
+
+test "a class past the small set reads the pattern again, as a pass in the large set reads it" {
+    var text: [test_storage_len]u8 = undefined;
+    // One range past the small set, and a negation that passes it.
+    try expect_as_large(wide_class(&text, constants.class_ranges_small + 1, false));
+    try expect_as_large(wide_class(&text, constants.class_ranges_small, true));
+    // A class that fits, read as the large set reads it.
+    try expect_as_large(wide_class(&text, 1, true));
 }
 
 test {
