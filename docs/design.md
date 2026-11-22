@@ -8722,6 +8722,13 @@ to 12 are reordered and nothing else changes.
     reversed, an orbit cut to its first member, and no second reading. 1 NOT CAUGHT at first:
     the two sets swapped, which a second reading hid. A pattern with no class now takes the
     empty set alone, so a scan that misses a class refuses it, and the mutation is CAUGHT.
+  - Fourteen hosted runs of `bench-regex` at f2b7425, with this change, on 2026-11-22
+    (`bench/results/2026-11-22-regex-fix-*`). On the N2, stdx compiled `literal: a word` at
+    757,000 to 763,000 patterns a second, against 776,000 to 797,000 at 822c457 and 988748a. It
+    compiled a UUID's pattern at 189,000 to 199,000 in 13 jobs of 14, against 212,000 to 219,000.
+    The two groups of jobs at 1667e8b are gone. On the 5 jobs on an AMD EPYC 9V74, stdx compiled
+    the three patterns of one literal at 1.40 to 1.61 times Rust's speed, where 1667e8b compiled
+    them at 0.59 to 0.73.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
