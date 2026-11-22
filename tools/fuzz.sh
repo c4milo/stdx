@@ -14,12 +14,42 @@
 # Zig 0.16.0's test runner does not compile in fuzz mode in Debug: it hands a builtin.StackTrace to
 # std.debug.writeStackTrace, which takes a debug.StackTrace, on the error-return-trace path. That
 # path exists only in Debug, so every fuzz run here builds ReleaseSafe, with -Drelease.
+#
+# Zig 0.16.0's build runner counts the failed steps before the fuzz phase starts. A test that fails
+# while it is fuzzed prints `error: test '<name>' <how it ended>; input saved to '<path>'`
+# (std/Build/Step/Run.zig), and `zig build` still exits 0. So a module fails when its run exits
+# with another status, or when its log holds a line that begins `error: `. A run that passes prints
+# no such line. tools/fuzz_check.sh checks the verdict.
 
 set -euo pipefail
 
 # Every module whose tests hold a `std.testing.fuzz` call. A module gains its entry in the commit
 # that adds its first fuzz test.
 readonly fuzzed_modules=(codec checksum deflate gzip zlib zstd brotli json base64 regex)
+
+# The most octets of a saved input that the report writes in hex. The report says when it cuts one.
+readonly saved_input_len_max=4096
+
+# Writes in hex the input that the fuzzer saved for a failed test, which a person makes a fixture
+# and a named test (decision 15). $1 is the run's log.
+print_saved_input() {
+  local line path input_len
+  line="$(grep -m 1 "; input saved to '" "$1")" || return 0
+  path="${line##*; input saved to \'}"
+  path="${path%\'}"
+  if [[ ! -f "$path" ]]; then
+    echo "The saved input ${path} is gone."
+    return 0
+  fi
+  input_len="$(wc -c < "$path" | tr -d ' ')"
+  echo "The saved input ${path} holds ${input_len} octets, in hex:"
+  # macOS's od pads each octet to a wider field than GNU's. One space between octets makes the
+  # report read the same on every host.
+  head -c "$saved_input_len_max" "$path" | od -An -tx1 -v | tr -s ' '
+  if [[ "$input_len" -gt "$saved_input_len_max" ]]; then
+    echo "The report cuts the input at ${saved_input_len_max} octets."
+  fi
+}
 
 if [[ $# -lt 1 || $# -gt 3 || ( "$1" == "--list" && $# -ne 1 ) ]]; then
   echo "usage: tools/fuzz.sh <runs> [report.md [module]] | tools/fuzz.sh --list" >&2
@@ -66,7 +96,7 @@ trap 'rm -f "$log"' EXIT
 status=0
 for module in "${modules[@]}"; do
   echo "== fuzz ${module}: ${runs} runs"
-  if zig build "test-${module}" --fuzz="$runs" -Drelease >"$log" 2>&1; then
+  if zig build "test-${module}" --fuzz="$runs" -Drelease >"$log" 2>&1 && ! grep -q '^error: ' "$log"; then
     verdict="no failure"
   else
     verdict="FAILED"
@@ -77,6 +107,11 @@ for module in "${modules[@]}"; do
     echo "## ${module}: ${verdict}"
     echo
     echo '```text'
+    if [[ "$verdict" == "FAILED" ]]; then
+      grep '^error: ' "$log" || true
+      print_saved_input "$log"
+      echo
+    fi
     sed -n '/FUZZING REPORT/,/^====/p' "$log"
     echo '```'
     echo
