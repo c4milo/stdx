@@ -8472,6 +8472,11 @@ to 12 are reordered and nothing else changes.
   - Mutations, each against `zig build test-regex`: 11. 10 CAUGHT, 1 of them after its test was
     added: a pair kept across a cache clear. 1 NOT CAUGHT, an equivalent mutant: a step's
     `dfa_idle_flag`, which no DFA with a plain scan sets.
+  - Hosted at `43d309e`, beside Rust's regex in each job (`bench/results/2026-11-22-regex-*`):
+    a UUID at 1.22 to 1.56 on three x86-64 models and 1.46 to 1.47 on the N2, and the five
+    short-text patterns at 1.05 to 1.60 and at 1.30 to 1.53.
+  - CI's self-hosted check failed from this commit on: four of its tests sized a cache from a
+    program they had not compiled yet. `c0c2667` compiles each one first.
 
   **Part 22c, a literal of one octet compares each block once (decision 86).** Claim R4's
   suffix is often one octet, as `:` in `(?m)^[A-Z][a-z]+:` and `x` in `[a-q][^u-z]{13}x`. Its
@@ -8489,6 +8494,11 @@ to 12 are reordered and nothing else changes.
   - Mutations, each against `zig build test-regex`: 4. 2 CAUGHT: a block whose candidates are
     lost, and one whose candidates are the places of other octets. 2 NOT CAUGHT, each of which
     changes no answer: lanes the loop never reads, and a one-octet literal given the loop of two.
+  - Hosted, against `1b0002a` in each of six jobs, three on the N2 and three on x86-64 (runs
+    44986663680, 44986665628 and 44986667813, `bench/results/2026-11-22-regex-*`):
+    `[a-q][^u-z]{13}x` ran 1.17 to 1.44 times as fast, and `(?m)^[A-Z][a-z]+:` 1.01 to 1.11. In
+    five jobs the other rows stayed within 0.97 to 1.03. The EPYC 9V45's job ran every row 6% to
+    11% slower, those the change does not reach too, and it timed the base first.
 
   **Part 22c, one way to start a searcher (decision 86).** `Searcher.init` and `init_with` were
   two ways to start one type, which decision 30 refuses for json's types. `Searcher.init` now

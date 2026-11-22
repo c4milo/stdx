@@ -57,23 +57,25 @@ compression ratio. The charts come from the first runs on Ubuntu 26.04, at commi
 ### Regular expressions
 
 `bench-regex` compares the `regex` module with Rust's regex crate 1.13.2, Go's regexp 1.27.4, mvzr
-and zig-regex. Eleven jobs ran it at commit 22f6bba on GitHub's hosted runners: five on a Neoverse
-N2, and six on four x86-64 models (`bench/results/2026-11-21-regex-*`). Each number is stdx's
-speed over Rust's in one job, from the lowest job to the highest.
+and zig-regex. Six jobs ran it at commit 43d309e on GitHub's hosted runners: three on a Neoverse
+N2, and three on x86-64, an AMD EPYC 9V45, an Intel Xeon Platinum 8573C and an AMD EPYC 7763
+(`bench/results/2026-11-22-regex-*`). Each number is stdx's speed over Rust's in one job, from the
+lowest job to the highest.
 
-- 12 searches have a literal that every match holds. stdx is slower than Rust's crate on each of
-  them, on every CPU: 0.02 to 0.84 of its speed, and 1/1,900 to 1/2,600 on `[a-q][^u-z]{13}x`,
-  whose lazy DFA does not fit stdx's default cache. Rust's crate finds such a literal with vector code before
-  its automaton runs, and stdx does not yet.
-- 6 searches start with a class and hold no literal. Three run at 1.46 to 2.62 of Rust's speed,
-  and three at 0.92 to 1.22.
-- A pattern that validates a short text runs at 0.88 to 1.07 on the N2, and at 0.76 to 1.07 on the
-  x86-64 models. Which library is faster depends on the CPU.
-- Capture groups run at 0.17 to 0.23 of Rust's speed.
-- stdx compiles a pattern at 0.73 to 44 times Rust's speed. Go's regexp and mvzr compile most
-  patterns faster than stdx.
-- stdx is at least 2.7 times as fast as Go's regexp, mvzr and zig-regex on each search that starts
-  with a class and on each short-text pattern, wherever a library gives Go's answer.
+- 12 searches have a literal that every match holds. On x86-64, stdx runs 11 of them at 0.93 to
+  10.2 of Rust's speed. It runs the search for one of four words at 0.66 to 0.76: Rust's crate
+  finds such a set with Teddy, and stdx does not yet. On the N2, stdx runs 7 of them at 0.84 to
+  0.97, and 5 at 1.04 to 7.24.
+- 6 searches start with a class and hold no literal. stdx runs them at 1.18 to 2.59 on the N2, and
+  at 0.96 to 2.39 on x86-64.
+- A pattern that validates a short text runs at 1.30 to 1.53 on the N2, and at 1.05 to 1.60 on
+  x86-64.
+- Six capture groups run at 0.88 to 0.93 on the N2, and at 0.70 to 0.91 on x86-64.
+- stdx compiles a pattern at 1.5 to 58 times Rust's speed.
+- On each class search, each short-text pattern and the capture groups, stdx is at least 1.66
+  times as fast as Go's regexp, 4.1 times as fast as mvzr and 11 times as fast as zig-regex,
+  wherever a library gives Go's answer. Go's regexp is faster than stdx on one search: a word that
+  is not there, at 0.64 on the N2.
 
 A chart of these numbers waits on two reviews of its method (decision 85).
 
