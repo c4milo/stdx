@@ -23,6 +23,7 @@ const Cache = @import("dfa_cache.zig").Cache;
 const Skip = @import("dfa_skip.zig").Skip;
 const Literal = @import("../literal.zig").Literal;
 const dfa_literal = @import("dfa_literal.zig");
+const dfa_wait = @import("dfa_wait.zig");
 const dfa_reverse = @import("dfa_reverse.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
@@ -219,7 +220,7 @@ pub const Dfa = struct {
         var index = from;
         while (index < haystack.len) {
             if (state == idle) {
-                index = dfa.pass(by_literal, haystack, index);
+                index = dfa_wait.pass(dfa, by_literal, haystack, index);
                 idle = dfa.idle;
                 if (index == haystack.len) break;
             }
@@ -298,72 +299,7 @@ pub const Dfa = struct {
 
     /// True when the scan that starts in `row` skips. Inline: the one test of `scan_forward`.
     inline fn skips_from(dfa: *Dfa, row: u32) bool {
-        return dfa.may_skip and dfa.waits(row);
-    }
-
-    /// Readies the skip where a scan starts in `row`: it ends a rest that is over, and takes
-    /// `row` as the state that waits where the DFA knows none. True when the scan skips.
-    inline fn waits(dfa: *Dfa, row: u32) bool {
-        assert(dfa.may_skip);
-        if (dfa.skip_off and dfa.cache.scanned >= dfa.skip_retry_at) dfa.skip_off = false;
-        if (!dfa.skips()) return false;
-        if (dfa.idle == constants.dfa_unknown) dfa.wait_at(row);
-        assert(dfa.idle == row);
-        return true;
-    }
-
-    /// True when a scan may skip: `may_skip`, and the skip is not resting.
-    fn skips(dfa: *const Dfa) bool {
-        return dfa.may_skip and !dfa.skip_off;
-    }
-
-    /// A visit of a scan to the state that waits, at an octet of the haystack: the offset of the
-    /// next octet that can start a match, which is `from` where its own octet can. With
-    /// `by_literal`, the next place of the literal (claim R2).
-    fn pass(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize) usize {
-        var index = from;
-        if (by_literal) {
-            index = dfa.literal.?.find(haystack, from) orelse haystack.len;
-        } else if (!dfa.skip.starts[haystack[from]]) index = dfa.skip.next(haystack, from + 1);
-        dfa.skip_octets += index - from;
-        dfa.skip_visits += 1;
-        if (dfa.skip_visits == constants.skip_trial_visits) dfa.judge_skip();
-        return index;
-    }
-
-    /// Turns the skip off where its visits passed too few octets to pay for themselves, until
-    /// the scans took `skip_rest_octets` more octets.
-    fn judge_skip(dfa: *Dfa) void {
-        const poor = dfa.skip_octets < @as(u64, dfa.skip_visits) * constants.skip_octets_per_visit_min;
-        dfa.skip_visits = 0;
-        dfa.skip_octets = 0;
-        if (!poor) {
-            dfa.skip_poor_trials = 0;
-            return;
-        }
-        dfa.skip_off = true;
-        dfa.skip_retry_at = dfa.cache.scanned + (@as(u64, constants.skip_rest_octets) << dfa.skip_poor_trials);
-        dfa.skip_poor_trials = @min(dfa.skip_poor_trials + 1, constants.skip_rest_doublings_max);
-        dfa.idle = constants.dfa_unknown;
-    }
-
-    /// Takes `row` as the state that waits for a match to start, and learns once which octets
-    /// can start one: those the state does not answer by staying where it is.
-    fn wait_at(dfa: *Dfa, row: u32) void {
-        if (!dfa.skip_known) {
-            var class_starts: [constants.octet_values]bool = undefined;
-            for (0..dfa.class_count) |class| {
-                const octet = dfa.representatives[class];
-                const matched = dfa.close(row, dfa.context_of(octet), !is_continuation(octet));
-                dfa.step(octet);
-                class_starts[class] = matched or dfa.next.len != 0;
-            }
-            var starts: [constants.octet_values]bool = undefined;
-            for (&starts, dfa.classes) |*start_here, class| start_here.* = class_starts[class];
-            dfa.skip = Skip.init(&starts);
-            dfa.skip_known = true;
-        }
-        dfa.idle = row;
+        return dfa.may_skip and dfa_wait.waits(dfa, row);
     }
 
     /// The entry for one class of octets from a state: the state's threads, each given the
@@ -392,13 +328,13 @@ pub const Dfa = struct {
         if (dfa.cache.clears != clears) dfa.idle = constants.dfa_unknown;
         const row = interned orelse return null;
         // The state with no thread that may still start a match is the one that waits.
-        if (dfa.next.len == 0 and dfa.skips() and dfa.skip_known) dfa.idle = row;
+        if (dfa.next.len == 0 and dfa_wait.skips(dfa) and dfa.skip_known) dfa.idle = row;
         return row | flags;
     }
 
     /// What an octet is to an assertion. A program with no assertion reads none, so its states
     /// keep one context and are fewer.
-    fn context_of(dfa: *const Dfa, octet: u8) Context {
+    pub fn context_of(dfa: *const Dfa, octet: u8) Context {
         return if (dfa.has_looks) Context.of(octet) else .other;
     }
 
@@ -409,7 +345,7 @@ pub const Dfa = struct {
     }
 
     /// Gives an octet to each thread, in order. The instructions that take it are the next state.
-    fn step(dfa: *Dfa, octet: u8) void {
+    pub fn step(dfa: *Dfa, octet: u8) void {
         dfa.next.clear();
         for (dfa.threads[0..dfa.threads_len]) |index| {
             const instruction = dfa.instructions[index];
@@ -430,7 +366,7 @@ pub const Dfa = struct {
 
     /// Builds a state's threads, as `Matcher.close` does, with no slot. True when a thread reached
     /// `match`; under `Kind.first` the build ends there.
-    fn close(dfa: *Dfa, state: u32, ahead: Context, may_start: bool) bool {
+    pub fn close(dfa: *Dfa, state: u32, ahead: Context, may_start: bool) bool {
         const head = dfa.cache.head(state);
         const behind: Context = @enumFromInt(head & context_mask);
         dfa.visited.clear();
@@ -495,4 +431,5 @@ test {
     _ = @import("dfa_cache.zig");
     _ = @import("dfa_skip.zig");
     _ = @import("dfa_suffix.zig");
+    _ = @import("dfa_wait.zig");
 }
