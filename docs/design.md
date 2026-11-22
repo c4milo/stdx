@@ -8525,8 +8525,14 @@ to 12 are reordered and nothing else changes.
   -Dtarget=aarch64-linux-musl -fqemu`: 175 of 175 tests passed.
   - In the container's Xeon, at 32 lanes, best of 135 runs in turns over the bible's first MiB,
     Teddy over the compares: sets of 2 at 0.79 to 0.97, 3 at 0.98 to 1.01, 4 at 1.04 to 1.11, 5
-    at 1.24 to 1.26, and 8 at 1.13 to 1.89. So `teddy_count_min` is 4. The N2's runs decide it
-    for aarch64.
+    at 1.24 to 1.26, and 8 at 1.13 to 1.89. So `teddy_count_min` is 4.
+  - Hosted, against `988748a` in each of six jobs, three on the N2 and three on x86-64 (runs
+    45024984481, 45024986799 and 45024988951, `bench/results/2026-11-22-regex-teddy-*`):
+    `Abraham|Isaac|Jacob|Joseph` ran 1.26 times as fast in each N2 job, and 1.11 to 1.19 times on
+    the EPYC 9V45, the EPYC 9V74 and the Xeon 8370C. It ran at 1.32 of Rust's regex on the N2,
+    and at 0.80 to 0.97 on x86-64. So sets of 4 take Teddy on aarch64 too. In five jobs the other
+    rows stayed within 0.98 to 1.04. The EPYC 9V45's job ran three rows that Teddy does not reach
+    at 0.88 to 0.92, as it timed the base first.
   - Mutations, each against `zig build test-regex` on x86-64 and under qemu for aarch64: 8. 6
     CAUGHT on both: either lookup of a nibble left out, the last octets read at the first, the
     bits of a place's first lane, a literal's bit given to the next literal, and a literal's
