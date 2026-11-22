@@ -1358,6 +1358,18 @@ last part lists what still waits on a ruling.
       Teddy (entry 86), which `codec.Features.ssse3` names. It serves a CPU with SSSE3 and no
       AVX2. Its object builds from x86-64's baseline and SSSE3, whatever the module's CPU, so it
       holds no instruction of AVX, and the tests on a host with AVX2 run its PSHUFB too.
+    - Amended on 2026-11-22: each variant object's root sets its panic handler to
+      `std.debug.FullPanic` over a function that traps. Each object is a compilation of its own,
+      and with std's default handler each carried its own copy of std's stack-trace code, some
+      430 KB of text. A program that used CRC-32, regex and json carried 2.36 MB of text, and now
+      carries 0.67 MB. A kernel's panic traps with no message, and the program's handler reports
+      the stack through the kernel. Each check still calls a panic function, so decision 51's
+      count still reads it.
+      - The alternatives refused: a handler that each module exports and its objects call, which
+        fails to link where a program gives a module and never analyzes its root; a weak
+        reference to it, whose null check the optimizer removed; `std.debug.simple_panic`, whose
+        writer to standard error is 170 KB in each object; and `std.debug.no_panic`, whose checks
+        call nothing, so decision 51 counts none.
     - Detection reads no file and makes no syscall. On x86-64 it runs the CPUID and XGETBV
       instructions. On aarch64 Linux it reads the kernel's hardware capability words with
       `getauxval`, which reads the auxiliary vector the kernel wrote into the process's memory at
@@ -3678,6 +3690,10 @@ last part lists what still waits on a ruling.
       is only a backward branch and inlined loops overlap. A count of sites needs no such guess.
     - The DEFLATE encoder's and decoder's loops: they are generic functions inside the library
       module, with no object of their own, and decision 49 measures their checks' cost already.
+
+    The panic handler of decision 21's amendment of 2026-11-22 moved eight counts: LLVM merges
+    more of a kernel's calls to the cheaper panic functions, and one call can serve several checks.
+    No kernel's source changed. `tools/checkfree_sites.zig` pins the new counts.
 
 52. **Level 6 compares its lazy matches by bits, as libdeflate's level 6 does.** Proposed on
     2026-10-25 and ruled the same day: the owner chose "Plain walk + lazy rule" for a prototype,
