@@ -2,10 +2,10 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const compiler = @import("compile.zig");
-const errors = @import("errors.zig");
-const Instruction = @import("program.zig").Instruction;
+const constants = @import("../constants.zig");
+const compiler = @import("../compile.zig");
+const errors = @import("../errors.zig");
+const Instruction = @import("../program.zig").Instruction;
 
 const storage_len = 16384;
 

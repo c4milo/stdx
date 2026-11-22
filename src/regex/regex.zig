@@ -19,7 +19,7 @@ const compiler = @import("compile.zig");
 pub const compile = compiler.compile;
 pub const compile_comptime = compiler.compile_comptime;
 pub const Options = compiler.Options;
-pub const Flags = @import("syntax_atom.zig").Flags;
+pub const Flags = @import("syntax/syntax_atom.zig").Flags;
 
 const matcher = @import("matcher.zig");
 pub const Matcher = matcher.Matcher;
@@ -30,7 +30,7 @@ pub const Status = matcher.Status;
 pub const Step = matcher.Step;
 pub const Span = matcher.Span;
 
-const searcher = @import("searcher.zig");
+const searcher = @import("searcher/searcher.zig");
 pub const Searcher = searcher.Searcher;
 pub const SearcherClaims = searcher.Claims;
 pub const Matches = searcher.Matches;
@@ -48,10 +48,10 @@ test {
     _ = errors;
     _ = matcher;
     _ = @import("sparse_set.zig");
-    _ = @import("dfa.zig");
+    _ = @import("dfa/dfa.zig");
     _ = @import("literal.zig");
-    _ = @import("dfa_literal.zig");
-    _ = @import("dfa_reverse.zig");
+    _ = @import("dfa/dfa_literal.zig");
+    _ = @import("dfa/dfa_reverse.zig");
     _ = searcher;
     _ = @import("generate_test.zig");
     _ = @import("fuzz_test.zig");
@@ -62,9 +62,9 @@ test {
     _ = @import("utf8_vectors_test.zig");
     _ = @import("scalar_set.zig");
     _ = @import("octet_classes.zig");
-    _ = @import("syntax.zig");
-    _ = @import("syntax_atom.zig");
-    _ = @import("syntax_class.zig");
-    _ = @import("syntax_escape.zig");
-    _ = @import("syntax_posix.zig");
+    _ = @import("syntax/syntax.zig");
+    _ = @import("syntax/syntax_atom.zig");
+    _ = @import("syntax/syntax_class.zig");
+    _ = @import("syntax/syntax_escape.zig");
+    _ = @import("syntax/syntax_posix.zig");
 }

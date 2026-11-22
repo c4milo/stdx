@@ -2,8 +2,8 @@
 //! a match ends, toward where the search started, and says where the match starts.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const Context = @import("program.zig").Context;
+const constants = @import("../constants.zig");
+const Context = @import("../program.zig").Context;
 const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Scan = dfa_file.Scan;

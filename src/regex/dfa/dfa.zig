@@ -13,18 +13,18 @@
 //! whose cost has no such cliff. Cox's RE2 and Rust's regex bound a lazy DFA the same way.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const program_file = @import("program.zig");
+const constants = @import("../constants.zig");
+const program_file = @import("../program.zig");
 const Program = program_file.Program;
 const Instruction = program_file.Instruction;
 const Context = program_file.Context;
-const SparseSet = @import("sparse_set.zig").SparseSet;
+const SparseSet = @import("../sparse_set.zig").SparseSet;
 const Cache = @import("dfa_cache.zig").Cache;
 const Skip = @import("dfa_skip.zig").Skip;
-const Literal = @import("literal.zig").Literal;
+const Literal = @import("../literal.zig").Literal;
 const dfa_literal = @import("dfa_literal.zig");
 const dfa_reverse = @import("dfa_reverse.zig");
-const is_continuation = @import("utf8_ranges.zig").is_continuation;
+const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 const dfa_config = @import("dfa_config.zig");
 pub const Kind = dfa_config.Kind;

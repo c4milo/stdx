@@ -2,11 +2,11 @@
 //! escapes stdx adds from RE2's syntax.
 const std = @import("std");
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const errors = @import("errors.zig");
-const utf8_ranges = @import("utf8_ranges.zig");
-const Look = @import("program.zig").Look;
-const ScalarSet = @import("scalar_set.zig").ScalarSet;
+const constants = @import("../constants.zig");
+const errors = @import("../errors.zig");
+const utf8_ranges = @import("../utf8_ranges.zig");
+const Look = @import("../program.zig").Look;
+const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 
 /// `\d`, `\s` and `\w`, which hold ASCII characters alone, as RE2's do.
 pub const Perl = struct {

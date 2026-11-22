@@ -1,9 +1,9 @@
 //! The classes a bracket expression names as `[:name:]` (decision 86). RFC 9485 §3 holds no such
 //! form: it is RE2's, with RE2's fourteen names, each a set of ASCII characters.
 const std = @import("std");
-const errors = @import("errors.zig");
-const ScalarSet = @import("scalar_set.zig").ScalarSet;
-const ScalarRange = @import("utf8_ranges.zig").ScalarRange;
+const errors = @import("../errors.zig");
+const ScalarSet = @import("../scalar_set.zig").ScalarSet;
+const ScalarRange = @import("../utf8_ranges.zig").ScalarRange;
 
 /// The longest name: `xdigit` and its like have six letters.
 pub const name_len_max = 6;
@@ -59,7 +59,7 @@ pub const Posix = struct {
 };
 
 const testing = std.testing;
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 
 fn holds(set: *const ScalarSet, scalar: u32) bool {
     for (set.slice()) |range| {

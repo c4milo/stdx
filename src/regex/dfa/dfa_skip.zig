@@ -14,7 +14,7 @@
 //! `skip_rest_octets`, since a text's parts differ.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 
 /// The octets from `lo` on, `span` more than one of them.
 const Range = struct { lo: u8, span: u8 };

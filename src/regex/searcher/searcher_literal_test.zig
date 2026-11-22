@@ -4,7 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const searcher_test = @import("searcher_test.zig");
 const Fixture = searcher_test.Fixture;
 

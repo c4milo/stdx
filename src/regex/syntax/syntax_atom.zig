@@ -2,14 +2,14 @@
 //! values written as alternatives of octet ranges.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const errors = @import("errors.zig");
-const fragment = @import("fragment.zig");
+const constants = @import("../constants.zig");
+const errors = @import("../errors.zig");
+const fragment = @import("../fragment.zig");
 const utf8 = @import("utf8");
-const utf8_ranges = @import("utf8_ranges.zig");
+const utf8_ranges = @import("../utf8_ranges.zig");
 const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
-const ScalarSet = @import("scalar_set.zig").ScalarSet;
+const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 
 /// The flags of RE2's syntax that stdx takes, which `(?i)`, `(?m)`, `(?s)` and `(?U)` set.
 pub const Flags = struct {
@@ -90,7 +90,7 @@ pub fn dot(builder: *Builder, flags: Flags) errors.Error!Fragment {
 }
 
 const testing = std.testing;
-const program = @import("program.zig");
+const program = @import("../program.zig");
 const storage_len = 96;
 
 test "a literal past U+007F is one range for each octet of its UTF-8, in the program's order" {

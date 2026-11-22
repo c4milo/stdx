@@ -4,7 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const matcher_test = @import("matcher_test.zig");
-const searcher_test = @import("searcher_test.zig");
+const searcher_test = @import("searcher/searcher_test.zig");
 const Span = @import("matcher.zig").Span;
 
 /// The longest pattern and the longest text the fuzzer gives.

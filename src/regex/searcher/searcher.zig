@@ -11,15 +11,15 @@
 //! the text.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const program_file = @import("program.zig");
+const constants = @import("../constants.zig");
+const program_file = @import("../program.zig");
 const Program = program_file.Program;
-const matcher_file = @import("matcher.zig");
+const matcher_file = @import("../matcher.zig");
 const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
-const dfa_file = @import("dfa.zig");
+const dfa_file = @import("../dfa/dfa.zig");
 const Dfa = dfa_file.Dfa;
-const Literal = @import("literal.zig").Literal;
+const Literal = @import("../literal.zig").Literal;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);

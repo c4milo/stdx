@@ -7962,7 +7962,7 @@ to 12 are reordered and nothing else changes.
 
   **Part 22c, claim R1 built: a scan that waits for a match to start skips to the next octet
   that can start one (decision 86).** The owner asked on 2026-11-21 whether the engine can use
-  vectors. `src/regex/dfa_skip.zig` holds the search for the octet, and `dfa.zig` the state
+  vectors. `src/regex/dfa/dfa_skip.zig` holds the search for the octet, and `dfa.zig` the state
   that waits and the judgment that rests a skip that does not pay.
   **Check:** a searcher that skips gives the matcher's answer from every offset, under each
   cache size, through a cache that clears, and with its skip resting; `Skip.next` gives what a
@@ -8125,10 +8125,10 @@ to 12 are reordered and nothing else changes.
 
   **Part 22c, claim R3 built: the scan goes to the literal after the assertions at a pattern's
   start (decision 86).** R1 and R2 skip nothing in a program with an assertion, and the hosted
-  runners timed `\bPharaoh\b` at 0.021 to 0.039 of Rust's regex. `src/regex/dfa_literal.zig`
+  runners timed `\bPharaoh\b` at 0.021 to 0.039 of Rust's regex. `src/regex/dfa/dfa_literal.zig`
   holds the scan. `Literal.of` walks through the assertions, and `Dfa.build` marks each entry that
   leads to a state with no thread with `dfa_idle_flag`. `scan_reverse` moved to
-  `src/regex/dfa_reverse.zig` and the plain loop to `Dfa.scan_plain`, so that `dfa.zig` keeps
+  `src/regex/dfa/dfa_reverse.zig` and the plain loop to `Dfa.scan_plain`, so that `dfa.zig` keeps
   under 500 lines and `scan_forward` under the complexity limit.
   **Check:** `Literal.of` gives the literal after the assertions, and no pattern with one is its
   literal; a searcher with R3 gives the matcher's answer from every offset under each cache size,

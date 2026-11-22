@@ -8,7 +8,7 @@
 //! the caller's search then leaves the DFA (constants.zig, `dfa_octets_per_state_min`).
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 
 pub const Cache = struct {
     /// The entries: `stride` for each state.

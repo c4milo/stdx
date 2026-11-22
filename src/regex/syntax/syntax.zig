@@ -8,14 +8,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const errors = @import("errors.zig");
+const constants = @import("../constants.zig");
+const errors = @import("../errors.zig");
 const escape = @import("syntax_escape.zig");
 const class = @import("syntax_class.zig");
 const atom = @import("syntax_atom.zig");
-const repeat = @import("repeat.zig");
-const utf8_ranges = @import("utf8_ranges.zig");
-const fragment = @import("fragment.zig");
+const repeat = @import("../repeat.zig");
+const utf8_ranges = @import("../utf8_ranges.zig");
+const fragment = @import("../fragment.zig");
 const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
 const Holes = fragment.Holes;
@@ -102,7 +102,7 @@ pub const Parser = struct {
             .scalar => |scalar| parser.push(try atom.literal(parser.builder, parser.flags, scalar)),
             .look => |look| parser.push(try parser.builder.look(look)),
             .class => |perl| {
-                var set: @import("scalar_set.zig").ScalarSet = .{};
+                var set: @import("../scalar_set.zig").ScalarSet = .{};
                 try perl.add_to(&set);
                 set.normalize();
                 parser.push(try atom.class(parser.builder, &set));

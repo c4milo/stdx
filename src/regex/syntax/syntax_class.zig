@@ -3,13 +3,13 @@
 //! `]` that comes first, and a `-` that starts no range.
 const std = @import("std");
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const errors = @import("errors.zig");
+const constants = @import("../constants.zig");
+const errors = @import("../errors.zig");
 const escape = @import("syntax_escape.zig");
 const utf8 = @import("utf8");
-const utf8_ranges = @import("utf8_ranges.zig");
+const utf8_ranges = @import("../utf8_ranges.zig");
 const atom = @import("syntax_atom.zig");
-const ScalarSet = @import("scalar_set.zig").ScalarSet;
+const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 const posix = @import("syntax_posix.zig");
 const Posix = posix.Posix;
 

@@ -13,13 +13,13 @@
 //! octet, as the plain loop does, and tests one bound.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const program_file = @import("program.zig");
+const constants = @import("../constants.zig");
+const program_file = @import("../program.zig");
 const Context = program_file.Context;
 const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Scan = dfa_file.Scan;
-const Literal = @import("literal.zig").Literal;
+const Literal = @import("../literal.zig").Literal;
 
 /// The scan of `Dfa.scan_forward` from `from`, for a DFA that looks for its literal.
 pub fn scan(dfa: *Dfa, literal: *const Literal, haystack: []const u8, from: usize, earliest: bool) Scan {

@@ -4,18 +4,18 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
-const constants = @import("constants.zig");
-const compiler = @import("compile.zig");
-const generate = @import("generate_test.zig");
-const matcher_test = @import("matcher_test.zig");
-const matcher_file = @import("matcher.zig");
+const constants = @import("../constants.zig");
+const compiler = @import("../compile.zig");
+const generate = @import("../generate_test.zig");
+const matcher_test = @import("../matcher_test.zig");
+const matcher_file = @import("../matcher.zig");
 const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
 const searcher_file = @import("searcher.zig");
 const Searcher = searcher_file.Searcher;
-const Dfa = @import("dfa.zig").Dfa;
-const Program = @import("program.zig").Program;
-const Instruction = @import("program.zig").Instruction;
+const Dfa = @import("../dfa/dfa.zig").Dfa;
+const Program = @import("../program.zig").Program;
+const Instruction = @import("../program.zig").Instruction;
 
 const storage_len = matcher_test.storage_len;
 const groups_len = matcher_test.groups_len;
@@ -131,7 +131,7 @@ test "a DFA takes memory_len_min words and no fewer" {
     const least = Dfa.memory_len_min(&fixture.program);
     const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
     var dfa: Dfa = undefined;
-    const config: @import("dfa.zig").Config = .{ .entry = fixture.program.forward, .kind = .first, .anchored = false };
+    const config: @import("../dfa/dfa.zig").Config = .{ .entry = fixture.program.forward, .kind = .first, .anchored = false };
     try testing.expect(!dfa.init(&fixture.program, config, memory[0 .. least - 1]));
     try testing.expect(dfa.init(&fixture.program, config, memory[0..least]));
     try testing.expectEqual(@as(u32, constants.dfa_states_min), dfa.cache.states_max);
