@@ -54,6 +54,26 @@ pub const Claims = struct {
     one_pass: bool = true,
 };
 
+/// What a searcher knows of claim R6 for its program.
+const OnePass = enum {
+    /// Not judged yet. A judgment walks a closure from each instruction that takes an octet, which
+    /// costs more than the rest of `init` for a pattern with groups (design §8 part 22c).
+    unknown,
+    /// Two paths may take one octet, or the claim is off: the matcher finds the groups.
+    no,
+    /// One thread from the match's start finds the groups.
+    yes,
+    /// One thread finds the groups, and every match starts at the text's start, so it needs no
+    /// DFA either.
+    at_text,
+};
+
+/// Judges claim R6 for the matcher's program, with the matcher's lists.
+fn judge_one_pass(matcher: *Matcher) OnePass {
+    if (!one_pass.check(matcher)) return .no;
+    return if (starts_at_text_start(&matcher.program)) .at_text else .yes;
+}
+
 pub const Searcher = struct {
     matcher: Matcher,
     forward: Dfa,
@@ -67,10 +87,9 @@ pub const Searcher = struct {
     exact: ?Literal,
     /// Claim R4: the literal every match ends with, where the search starts from it.
     suffix: ?Literal,
-    /// Claim R6: true when the forward program is one-pass, so one thread finds the groups.
-    one_pass: bool,
-    /// Claim R6: true when the program is one-pass and every match starts at the text's start.
-    starts_at_text: bool,
+    /// Claim R6: whether one thread finds the groups. Only `captures` reads it, so `init` leaves
+    /// it `unknown`, and the first `captures` judges it.
+    one_pass: OnePass,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -115,8 +134,7 @@ pub const Searcher = struct {
             if (searcher.forward.literal) |literal| searcher.exact = if (literal.exact) literal else null;
         }
         // A program of no group but the whole match needs no thread: the DFAs give its span.
-        searcher.one_pass = claims.one_pass and program.group_count > 1 and one_pass.check(&searcher.matcher);
-        searcher.starts_at_text = searcher.one_pass and starts_at_text_start(program);
+        searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
         searcher.suffix = null;
         const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
         // A literal that starts every match is the better way, and a pattern that starts at the
@@ -158,7 +176,8 @@ pub const Searcher = struct {
     pub fn captures(searcher: *Searcher, haystack: []const u8, from: usize, groups: []?Span) bool {
         assert(from <= haystack.len);
         assert(groups.len == searcher.matcher.program.group_count);
-        if (searcher.starts_at_text) return searcher.captures_at_start(haystack, from, groups);
+        if (searcher.one_pass == .unknown) searcher.one_pass = judge_one_pass(&searcher.matcher);
+        if (searcher.one_pass == .at_text) return searcher.captures_at_start(haystack, from, groups);
         var anchor = from;
         var anchored = false;
         if (searcher.find_by_dfa(haystack, from)) |answer| {
@@ -168,7 +187,7 @@ pub const Searcher = struct {
         }
         searcher.matcher.configure(.{ .captures = .groups, .anchored = anchored });
         // The DFAs found where the match starts, so one thread from there finds its groups.
-        const found = if (anchored and searcher.one_pass) one_pass.find(&searcher.matcher, haystack, anchor) else null;
+        const found = if (anchored and searcher.one_pass == .yes) one_pass.find(&searcher.matcher, haystack, anchor) else null;
         if (found == null and searcher.matcher.find(haystack, anchor) == null) {
             assert(!anchored);
             return false;

@@ -8352,6 +8352,20 @@ to 12 are reordered and nothing else changes.
     `\b(a|ab)c` now catches, and a match started inside the UTF-8 of a scalar value, which the
     empty pattern `()` over a text with `é` now catches.
 
+  **Part 22c, R6's judgment moved to the first `captures` (decision 86).** A program that
+  validates text with `Searcher.init` and `is_match` for each text, as one with a pattern it
+  knows at build time can, paid for the judgment at each `init`, and `is_match` never reads it.
+  **Check:** `init` leaves the judgment unknown, the first `captures` makes it, and a claim that
+  is off leaves it refused; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container:
+  `zig build test-regex`, 167 of 167 tests passed.
+  - In the container, with a vector `memset` linked in as `bench/timing/memset.zig` exports one,
+    `init` for `^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})` took 1,066 ns before and
+    248 ns after. The container orders candidates and publishes no number.
+  - Mutations, each against `zig build test-regex`: 6, each CAUGHT. They judge at `init`, never
+    judge, give no pattern or every pattern the text's start, judge with the claim off, and skip
+    `one_pass.check`.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

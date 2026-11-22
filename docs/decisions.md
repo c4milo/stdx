@@ -5738,9 +5738,9 @@ last part lists what still waits on a ruling.
       - A program is one-pass where, from each instruction a thread can wait at, no two
         instructions its paths reach take the same octet, and no path reaches `match` beside one
         that reaches an instruction that takes an octet. A path through an assertion of the
-        text's end takes no octet after it. `one_pass.check` judges it at `init`, for a program
-        of at most `one_pass_instructions_max`, 1,024, instructions, with each other assertion
-        taken to hold.
+        text's end takes no octet after it. `one_pass.check` judges it at the first `captures`,
+        which alone reads it, for a program of at most `one_pass_instructions_max`, 1,024,
+        instructions, with each other assertion taken to hold.
       - Then each position holds one thread. `one_pass.find` follows its paths as
         `Matcher.follow` does, and writes the matcher's slots, so `Matcher.group` reads them. A
         seed whose paths form one line of saves, jumps and assertions takes no list.

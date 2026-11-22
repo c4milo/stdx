@@ -11,7 +11,10 @@ test "a searcher gives the groups of a one-pass pattern by one thread, and of ot
     try fixture.init(date, 0);
     const words = searcher_test.cache_sizes(&fixture.program).most;
     try fixture.init(date, words);
-    try testing.expect(fixture.searcher.one_pass and fixture.searcher.starts_at_text);
+    // `init` leaves the judgment to the first `captures`.
+    try testing.expectEqual(.unknown, fixture.searcher.one_pass);
+    try fixture.expect_agree("2026-11-22T03:04:05Z", 0);
+    try testing.expectEqual(.at_text, fixture.searcher.one_pass);
     // The matcher's threads take no step: one thread finds the groups, with no DFA.
     fixture.searcher.matcher.work = 0;
     try fixture.expect_agree("2026-11-22T03:04:05Z", 0);
@@ -19,15 +22,16 @@ test "a searcher gives the groups of a one-pass pattern by one thread, and of ot
     try testing.expectEqual(@as(@TypeOf(fixture.searcher.matcher.work), 0), fixture.searcher.matcher.work);
     // A one-pass pattern that may start anywhere: the DFAs find the start, one thread the groups.
     try fixture.init("([0-9]{2}):([0-9]{2})", words);
-    try testing.expect(fixture.searcher.one_pass and !fixture.searcher.starts_at_text);
+    try fixture.expect_agree("at 03:04 and 05:06", 0);
+    try testing.expectEqual(.yes, fixture.searcher.one_pass);
     fixture.searcher.matcher.work = 0;
     try fixture.expect_agree("at 03:04 and 05:06", 0);
     try testing.expectEqual(@as(@TypeOf(fixture.searcher.matcher.work), 0), fixture.searcher.matcher.work);
     // Two threads may take one octet, so the matcher finds the groups.
     try fixture.init("(a|ab)(c)", words);
-    try testing.expect(!fixture.searcher.one_pass);
     try fixture.expect_agree("xabc", 0);
+    try testing.expectEqual(.no, fixture.searcher.one_pass);
     try fixture.init_with(date, .{ .one_pass = false }, words);
-    try testing.expect(!fixture.searcher.one_pass and !fixture.searcher.starts_at_text);
+    try testing.expectEqual(.no, fixture.searcher.one_pass);
     try fixture.expect_agree("2026-11-22T03:04:05Z", 0);
 }
