@@ -100,6 +100,15 @@ pub const group_slots = 2;
 /// The capture groups a program holds at most, the whole match included.
 pub const groups_max = 1 << 12;
 
+/// The octets of a group's name at most, as `year` in `(?P<year>`. A caller that keeps a
+/// program's names gives each `GroupName` this many octets.
+pub const group_name_len_max = 64;
+
+/// The named groups a pattern holds at most. RFC 9485 §8 asks an implementation to bound what a
+/// regexp costs: the parser keeps each name in its own stack frame, and compares each new name
+/// with the names before it, so a name costs at most this many compares.
+pub const group_names_max = 128;
+
 /// A slot that holds no offset.
 pub const slot_unset = std.math.maxInt(u64);
 

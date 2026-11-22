@@ -31,6 +31,7 @@ pub const Step = matcher.Step;
 pub const Span = matcher.Span;
 
 const searcher = @import("searcher/searcher.zig");
+pub const GroupName = program.GroupName;
 pub const Searcher = searcher.Searcher;
 pub const SearcherClaims = searcher.Claims;
 pub const SearcherOptions = searcher.Options;

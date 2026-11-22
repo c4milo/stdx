@@ -109,6 +109,18 @@ pub const Instruction = extern struct {
 /// An entry that names no program.
 pub const no_entry = std.math.maxInt(u32);
 
+/// A named capture group, as `(?P<year>` names one: its group and its name, which `compile`
+/// copies, so a program's names do not hold the pattern.
+pub const GroupName = struct {
+    group: u32,
+    len: u8,
+    octets: [constants.group_name_len_max]u8,
+
+    pub fn name(group_name: *const GroupName) []const u8 {
+        return group_name.octets[0..group_name.len];
+    }
+};
+
 /// A compiled pattern. It holds a slice of the storage the caller gave `compile`, so it lives as
 /// long as that storage, and any number of matchers on any threads may read it.
 pub const Program = struct {
@@ -131,9 +143,21 @@ pub const Program = struct {
     classes: [constants.octet_values]u8,
     /// The classes `classes` names.
     class_count: u16,
+    /// The names of the named groups, in the order they open, where the caller gave `compile`
+    /// storage for them in `Options.names`, and empty where it gave none.
+    names: []const GroupName,
 
     pub fn slot_count(program: *const Program) u32 {
         return program.group_count * constants.group_slots;
+    }
+
+    /// The group a name names, or null where no group holds it or the program keeps no names.
+    pub fn group_index(program: *const Program, group_name: []const u8) ?u32 {
+        assert(program.names.len <= constants.group_names_max);
+        for (program.names) |*named| {
+            if (std.mem.eql(u8, named.name(), group_name)) return named.group;
+        }
+        return null;
     }
 };
 

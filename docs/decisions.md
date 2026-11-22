@@ -5606,8 +5606,17 @@ last part lists what still waits on a ruling.
         with one or two octal digits after it. A digit from 1 to 9 with no octal digit after it
         is a backreference.
     - Refused as unsupported: a backreference and a lookaround, which no automaton of a fixed
-      size matches; `\p{...}`, a named group, and `(?i)` over a scalar value past U+007F, each a
-      later step.
+      size matches; `\p{...}` and `(?i)` over a scalar value past U+007F, each a later step.
+    - Named groups, built on 2026-11-22 (design §8 step 22, part 22c): RE2's `(?P<name>re)` and
+      `(?<name>re)`, each a group as `(re)` is. A name holds letters, digits and `_`, as Go's
+      regexp takes it, and at most `group_name_len_max` octets. A pattern names at most
+      `group_names_max` groups, and no two alike. `compile` copies the names into
+      `Options.names`, storage the caller owns, and `Program.group_index` gives a name's group.
+      With no storage, `compile` checks the names and keeps none. `(?P=name)` is a backreference,
+      and stays refused.
+      - The alternatives refused: names that point into the pattern, which would make a program
+        live as long as its pattern; and a table of names in `Program`, some 9 KiB in every
+        program for names that few patterns hold.
     - Refused as RFC 9485 §3 refuses them, where RE2 takes them: a `]` or a `}` with no `\`
       before it and nothing to close, a `{` that starts no quantifier, and a `[` inside a class
       that starts no named class. Each can be taken later with no change to a pattern that

@@ -163,3 +163,40 @@ test "compile_comptime gives the program compile gives, in storage of the progra
     try testing.expectEqual(@as(?matcher_file.Span, .{ .start = 1, .end = 5 }), matcher.find("xabcc ", 0));
     try testing.expectEqual(@as(?matcher_file.Span, .{ .start = 2, .end = 3 }), matcher.group(1));
 }
+
+const GroupName = program_file.GroupName;
+
+/// A pattern of two named groups, and the same pattern with plain groups.
+const named_pattern = "(?P<year>\\d{4})-(?:x)?(?<month>\\d{2})";
+const plain_pattern = "(\\d{4})-(?:x)?(\\d{2})";
+
+test "compile keeps each name in the caller's storage, and a named group compiles as a group" {
+    var storage: [storage_len]Instruction = undefined;
+    var names: [named_groups + 1]GroupName = undefined;
+    const program = try compiler.compile(named_pattern, .{ .names = &names }, &storage);
+    try testing.expectEqual(@as(usize, named_groups), program.names.len);
+    try testing.expectEqualStrings("year", program.names[0].name());
+    try testing.expectEqual(@as(?u32, 1), program.group_index("year"));
+    try testing.expectEqual(@as(?u32, 2), program.group_index("month"));
+    try testing.expectEqual(@as(?u32, null), program.group_index("day"));
+    try testing.expectEqual(@as(?u32, null), program.group_index("yea"));
+    var plain_storage: [storage_len]Instruction = undefined;
+    const plain = try compiler.compile(plain_pattern, .{}, &plain_storage);
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(plain.instructions), std.mem.sliceAsBytes(program.instructions));
+    try testing.expectEqual(plain.group_count, program.group_count);
+    // Too little storage is refused as for instructions; none keeps no names.
+    var one: [named_groups - 1]GroupName = undefined;
+    try testing.expectError(error.NoSpaceLeft, compiler.compile(named_pattern, .{ .names = &one }, &storage));
+    const unkept = try compiler.compile(named_pattern, .{}, &storage);
+    try testing.expectEqual(@as(usize, 0), unkept.names.len);
+    try testing.expectEqual(@as(?u32, null), unkept.group_index("year"));
+}
+
+/// The named groups of `named_pattern`.
+const named_groups = 2;
+
+test "compile_comptime keeps every name in the binary" {
+    const program = compiler.compile_comptime(named_pattern, .{});
+    try testing.expectEqual(@as(usize, named_groups), program.names.len);
+    try testing.expectEqual(@as(?u32, 2), program.group_index("month"));
+}

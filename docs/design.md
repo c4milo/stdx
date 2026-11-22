@@ -8575,6 +8575,27 @@ to 12 are reordered and nothing else changes.
     CAUGHT once the object built from the baseline, and no searcher taking SSSE3. 1 NOT CAUGHT,
     which changes no answer: the object for sets of 2 and 3 literals too.
 
+  **Part 22c, named groups (decision 86).** `compile` refused `(?P<name>` and `(?<name>`, which
+  RE2, Go's regexp and Rust's regex take, and which a pattern written for RE2 holds.
+  `syntax_name.zig` reads a name and checks it against the names before it, and `compile` copies
+  the names into `Options.names` for `Program.group_index`. Only the forward pass of a pattern
+  that holds `(?` keeps the parser's table of names.
+  **Check:** the forms that compile and the names refused, a name two groups hold, the limits'
+  edges, a program's names and their groups, instructions equal to those of plain groups,
+  storage too small, a program with no names kept, a comptime program's names; the oracle check;
+  mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 111 of 111 steps passed. `zig build differential-regex
+  -Doracles`: 12,437,544 cases, none failed.
+  - Under callgrind, 1,000 compiles each of three patterns with no name, against `a32eae9`: 0.67%
+    more instructions, the search for `(?`. A table of names on both passes had cost 2.3%.
+  - Mutations, each against `zig build test-regex`: 12. 10 CAUGHT: a name of any octet, the
+    empty name, no check for a name two groups hold, the group before for a name, the longest
+    name refused, one name past the limit, no check of the storage's room, no names in a comptime
+    program, `(?P=name)` refused as a bad group, and no pattern taken to hold `(?`. 2 NOT CAUGHT,
+    each of which changes the cost alone: the table of names for every pattern, and for the
+    reverse pass too.
+
   **Part 22c, the history from `0fec1a4` on was written again (the owner's ruling of
   2026-11-22).** Its first 17 commits named Claude as their author and committer, which the
   owner does not allow. Each of the 47 commits kept its tree, its message and its dates, and took

@@ -77,8 +77,16 @@ test "the forms no program of this module holds are refused as unsupported" {
     try expect_refused(error.UnsupportedLookaround, &.{ "(?=a)", "(?!a)", "(?<=a)", "(?<!a)" });
     try expect_refused(error.UnsupportedProperty, &.{ "\\pL", "\\p{Greek}", "\\PL", "[\\p{L}]" });
     try expect_refused(error.UnsupportedCaseFolding, &.{ "(?i)\xC3\xA9", "(?i)[\xC3\xA9]", "(?i:a\xE2\x82\xAC)", "(?i)\\x{e9}", "(?i)[a-\\x{ff}]" });
-    try expect_refused(error.UnsupportedGroupName, &.{ "(?P<n>a)", "(?<n>a)", "(?P=n)", "(?P>n)" });
     try expect_taken(&.{ "(?i)a(?-i)\xC3\xA9", "(?i)[^a]", "(?i)\\W", "(?i).", "(?i)1", "(?i:a)\xE2\x82\xAC" });
+}
+
+test "a named group compiles as a group, and a name that breaks RE2's rules is refused" {
+    try expect_taken(&.{ "(?P<n>a)", "(?<n>a)", "(?P<year>\\d{4})-(?<month>\\d{2})", "(?<a>x)(?<b>y)", "(?<_9>x)", "(?<n>(?<m>x))" });
+    try expect_refused(error.InvalidGroupName, &.{ "(?P<>a)", "(?<>a)", "(?P<a-b>c)", "(?<a b>c)", "(?P<a", "(?<a", "(?P<\xC3\xA9>a)" });
+    try expect_refused(error.DuplicateGroupName, &.{ "(?P<a>x)(?P<a>y)", "(?<a>x)|(?P<a>y)", "(?<n>(?<n>x))" });
+    // `(?P=name)` matches what the named group matched.
+    try expect_refused(error.UnsupportedBackreference, &.{"(?P=n)"});
+    try expect_refused(error.InvalidGroup, &.{ "(?P>n)", "(?Pn)", "(?P" });
 }
 
 test "groups nest to depth_max and no deeper" {

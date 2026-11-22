@@ -29,6 +29,11 @@ pub const Corrupt = error{
     InvalidScalarValue,
     /// A `(?` that starts no group stdx knows.
     InvalidGroup,
+    /// A `(?P<` or a `(?<` whose name is empty, holds a character that is not a letter, a digit
+    /// or `_`, or has no `>`.
+    InvalidGroupName,
+    /// A name that two groups hold.
+    DuplicateGroupName,
     /// A `]` or a `}` with no reverse solidus before it and nothing to close.
     UnescapedCharacter,
 };
@@ -52,8 +57,10 @@ pub const Unsupported = error{
     UnsupportedProperty,
     /// `(?i)` over a scalar value past U+007F: stdx folds the ASCII letters alone.
     UnsupportedCaseFolding,
-    /// `(?P<name>` or `(?<name>`.
-    UnsupportedGroupName,
+    /// A group's name longer than `group_name_len_max`.
+    GroupNameTooLong,
+    /// More named groups than `group_names_max`.
+    GroupNamesTooMany,
 };
 
 /// Every error `compile` returns. `NoSpaceLeft` says the program does not fit the storage the
@@ -76,7 +83,8 @@ const testing = std.testing;
 test "refusal names a limit and a refused form unsupported, and a broken pattern corrupt" {
     try testing.expectEqual(codec.Refusal.unsupported, refusal(error.RepeatTooLarge));
     try testing.expectEqual(codec.Refusal.unsupported, refusal(error.UnsupportedLookaround));
-    try testing.expectEqual(codec.Refusal.unsupported, refusal(error.UnsupportedGroupName));
+    try testing.expectEqual(codec.Refusal.unsupported, refusal(error.GroupNamesTooMany));
+    try testing.expectEqual(codec.Refusal.corrupt, refusal(error.DuplicateGroupName));
     try testing.expectEqual(codec.Refusal.corrupt, refusal(error.InvalidUtf8));
     try testing.expectEqual(codec.Refusal.corrupt, refusal(error.MissingParenthesis));
     try testing.expectEqual(codec.Refusal.corrupt, refusal(error.UnescapedCharacter));

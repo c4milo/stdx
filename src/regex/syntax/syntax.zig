@@ -13,6 +13,7 @@ const errors = @import("../errors.zig");
 const escape = @import("syntax_escape.zig");
 const class = @import("syntax_class.zig");
 const atom = @import("syntax_atom.zig");
+const name = @import("syntax_name.zig");
 const repeat = @import("../repeat.zig");
 const utf8_ranges = @import("../utf8_ranges.zig");
 const fragment = @import("../fragment.zig");
@@ -57,6 +58,9 @@ pub const Parser = struct {
     depth: u32 = 0,
     /// The capture groups so far, the whole match counted.
     group_count: u32 = 1,
+    /// The names of the named groups so far, where the caller asks the parser to keep them.
+    /// Without, the parser reads each name and checks no name against another.
+    names: ?*name.Names = null,
 
     pub fn init(pattern: []const u8, flags: Flags, builder: *Builder) Parser {
         return .{ .reader = codec.Reader.init(pattern), .builder = builder, .flags = flags };
@@ -186,6 +190,11 @@ pub const Parser = struct {
 
     fn open_group(parser: *Parser) Error!void {
         if (escape.take_if(&parser.reader, '?')) return parser.open_modified();
+        try parser.open_capture();
+    }
+
+    /// A group that captures, as `(` opens one.
+    fn open_capture(parser: *Parser) Error!void {
         // RFC 9485 §8: a bound on what a regexp costs. Each group takes two slots in every thread
         // of a matcher.
         if (parser.group_count == constants.groups_max) return error.GroupsTooMany;
@@ -193,7 +202,14 @@ pub const Parser = struct {
         try parser.open_frame(parser.flags, parser.group_count - 1);
     }
 
-    /// A group that starts `(?`: one that captures nothing, or flags.
+    /// A group with a name, after its `<`: the name, then a group as `(` opens one.
+    fn open_named(parser: *Parser) Error!void {
+        const span = try name.take(&parser.reader);
+        if (parser.names) |names| try names.add(parser.reader.octets, parser.group_count, span);
+        try parser.open_capture();
+    }
+
+    /// A group that starts `(?`: one that captures nothing, flags, or a name.
     fn open_modified(parser: *Parser) Error!void {
         // RFC 9485 §3: atom = "(" i-regexp ")", so a pattern does not end inside a group.
         const octet = parser.reader.take_octet() catch return error.MissingParenthesis;
@@ -204,11 +220,18 @@ pub const Parser = struct {
             '<' => {
                 // RFC 9485 §1: no lookahead, and no lookbehind either.
                 if (escape.peek_is(&parser.reader, '=') or escape.peek_is(&parser.reader, '!')) return error.UnsupportedLookaround;
-                // RFC 9485 §1: a regexp has no capture group, and a named one is a later step.
-                return error.UnsupportedGroupName;
+                // RE2's `(?<name>`, which decision 86 takes: a group with a name.
+                try parser.open_named();
             },
-            // RFC 9485 §1: as above, for RE2's older spelling `(?P<name>`.
-            'P' => return error.UnsupportedGroupName,
+            'P' => {
+                // RE2's older spelling, `(?P<name>`.
+                if (escape.take_if(&parser.reader, '<')) return parser.open_named();
+                // RFC 9485 §3 holds no `(?P`, and RE2's `(?P=name)` matches what a named group
+                // matched: a backreference.
+                if (escape.peek_is(&parser.reader, '=')) return error.UnsupportedBackreference;
+                // RFC 9485 §3: no other `(?P` form, and RE2 holds none either.
+                return error.InvalidGroup;
+            },
             else => {
                 parser.reader.unread(1);
                 try parser.open_flags();
@@ -324,4 +347,5 @@ fn set_flag(flags: *Flags, octet: u8, value: bool) bool {
 
 test {
     _ = @import("syntax_test.zig");
+    _ = @import("syntax_name.zig");
 }
