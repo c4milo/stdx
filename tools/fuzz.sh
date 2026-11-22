@@ -43,7 +43,9 @@ print_saved_input() {
   fi
   input_len="$(wc -c < "$path" | tr -d ' ')"
   echo "The saved input ${path} holds ${input_len} octets, in hex:"
-  head -c "$saved_input_len_max" "$path" | od -An -tx1 -v
+  # macOS's od pads each octet to a wider field than GNU's. One space between octets makes the
+  # report read the same on every host.
+  head -c "$saved_input_len_max" "$path" | od -An -tx1 -v | tr -s ' '
   if [[ "$input_len" -gt "$saved_input_len_max" ]]; then
     echo "The report cuts the input at ${saved_input_len_max} octets."
   fi
