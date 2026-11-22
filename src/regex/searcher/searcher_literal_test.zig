@@ -24,6 +24,9 @@ const patterns = [_][]const u8{
     "Pha*",    "PhaPoh(?:Ph|a)", "h \xC3\xA9+", "Ph.h",      "aP[^ ]*", "Ph|Pa",
 };
 
+/// The forward scans of one `expect_agree` of a text that holds a match: `find`, and `captures`.
+const scans_of_expect_agree = 2;
+
 fn fill(generator: *codec.testing.split.Generator, haystack: []u8) void {
     for (haystack) |*octet| octet.* = alphabet[generator.below(alphabet.len)];
 }
@@ -93,6 +96,11 @@ test "a searcher reads no DFA for a pattern that is its literal, and skips to th
     try fixture.expect_agree(haystack, 0);
     try fixture.expect_agree_everywhere(haystack);
     try testing.expect(fixture.searcher.forward.skip_octets >= 2 * constants.skip_lanes);
+    // The skip goes from one place of `Ph` to the next, and stops at no `P` between them: one
+    // visit for each of the two scans of `expect_agree`. R1's skip would stop at each `P`.
+    const visits = fixture.searcher.forward.skip_visits;
+    try fixture.expect_agree("Px" ** (2 * constants.skip_lanes) ++ "Phoh", 0);
+    try testing.expectEqual(visits + scans_of_expect_agree, fixture.searcher.forward.skip_visits);
     // Without a cache the matcher answers alone, and no literal stands in for it: `is_match`
     // readies the matcher to keep no slot, and the matcher reads the text.
     // The searcher before held the literal: a DFA that `init` refused must not hand it on.

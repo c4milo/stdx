@@ -191,8 +191,14 @@ pub const Dfa = struct {
     }
 
     /// A forward scan under claim R1: the state that waits for a match to start stays where it
-    /// is over an octet that starts none, so the scan goes to the next octet that can.
+    /// is over an octet that starts none, so the scan goes to the next octet that can. Claim R2
+    /// takes a copy of the loop of its own, so that R1's loop holds no test of R2.
     fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        if (dfa.literal != null) return dfa.skip_loop(true, haystack, from, earliest, first);
+        return dfa.skip_loop(false, haystack, from, earliest, first);
+    }
+
+    fn skip_loop(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         var state = first;
         var last: ?usize = null;
         const table = dfa.cache.table;
@@ -201,7 +207,7 @@ pub const Dfa = struct {
         var index = from;
         while (index < haystack.len) {
             if (state == idle) {
-                index = dfa.pass(haystack, index);
+                index = dfa.pass(by_literal, haystack, index);
                 idle = dfa.idle;
                 if (index == haystack.len) break;
             }
@@ -299,11 +305,12 @@ pub const Dfa = struct {
     }
 
     /// A visit of a scan to the state that waits, at an octet of the haystack: the offset of the
-    /// next octet that can start a match, which is `from` where its own octet can.
-    fn pass(dfa: *Dfa, haystack: []const u8, from: usize) usize {
+    /// next octet that can start a match, which is `from` where its own octet can. With
+    /// `by_literal`, the next place of the literal (claim R2).
+    fn pass(dfa: *Dfa, comptime by_literal: bool, haystack: []const u8, from: usize) usize {
         var index = from;
-        if (dfa.literal) |*literal| {
-            index = literal.find(haystack, from) orelse haystack.len;
+        if (by_literal) {
+            index = dfa.literal.?.find(haystack, from) orelse haystack.len;
         } else if (!dfa.skip.starts[haystack[from]]) index = dfa.skip.next(haystack, from + 1);
         dfa.skip_octets += index - from;
         dfa.skip_visits += 1;
