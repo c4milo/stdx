@@ -8787,13 +8787,43 @@ to 12 are reordered and nothing else changes.
     alone. Each DFA's lists now cover its own program, and `cache_words_default` is 4 MiB by the
     owner's ruling of 2026-11-22 (decision 86). The date row went from 0.35 to 22 MB/s, and
     `[A-Za-z]{10}\s+[\s\S]{0,100}Result[\s\S]{0,100}\s+[A-Za-z]{10}` from 9.6 to 35 MB/s.
-  - `\p{L}` compiles to about 3,600 instructions, one alternative for each UTF-8 sequence of
-    its ranges, and `\p{L}{8,13}` to 95,512. Its reverse DFA builds more states than the cache
-    holds, so the searcher gives up its DFAs after `dfa_give_ups_max` searches.
+  - `\p{L}` compiled to about 3,600 instructions, one alternative for each UTF-8 sequence of
+    its ranges, and `\p{L}{8,13}` to 95,512. A class of `utf8_compact_ranges_min` ranges or
+    more, one past U+007F, is now one automaton (`syntax_atom_utf8.zig`): the octet ranges its
+    sequences start with in common are taken once, and equal nodes are written once, by
+    Daciuk's incremental construction (decision 86). The reverse program sorts its sequences
+    first, in the storage past the program. `\p{L}` takes 3,951 instructions for both programs
+    in place of 7,350, and `\p{L}{8,13}` 51,312. The letters-ru row went from 0.05 to 1.6 MB/s.
+    A compile of `\p{L}` costs 1.40 times the instructions under callgrind, and took 139 µs in
+    place of 85 µs, built for x86-64-v3. No class of the tuned set is past U+007F, and no
+    compile row of the held-out set holds one.
+  - The reverse DFA of `\p{L}{8,13}` still gives up. Read back from a match's end, the five
+    optional letters keep up to six threads, and each holds the reverse root's transitions that
+    take the octet, up to 121. A state's record then holds about 700 words, and the 594 states of
+    the row need more than the reverse DFA's third of the cache. Rust's crate packs each
+    instruction of a state in about one octet.
   - rebar's dictionary, 2,663 words in one alternation, builds each DFA state through every
     branch.
   - The capture groups of a lexer's and a log's patterns come from the matcher's threads, which
     copy the slots of every group.
+  **Check, the classes:** a class's automaton takes the texts its alternatives take, in both
+  directions, over the UTF-8 of every scalar value to U+07FF and of every 101st past it, and over
+  random octets; `\p{L}`'s automaton takes under three fifths of its alternatives'
+  instructions in each direction; each refusal falls back to the alternatives and leaves the
+  program as it was; the Go differential check of part 22b passes; mutations.
+  **Check passed, the classes, 2026-11-22.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `zig build test-regex` passes, and `zig build differential-regex -Doracles` gives 12,437,543
+    cases with none failed.
+  - Mutations against `zig build test-regex`: 21. CAUGHT, 20: a written node never found again;
+    a shared range compared by its first octet alone; a node found by its octets whatever its
+    targets; the route by the first range, and past the least count; the forward fallback on a
+    full storage, and the reverse error there; a fallback that leaves what it wrote; a node's
+    last transition left open; the root not closed; open nodes with no room check; a key in
+    the forward order, without its last octets, or with no range of two zeros; the keys
+    unsorted, written from the room's start, with no room check, or under the program's
+    growth; a known target written as a hole. NOT CAUGHT, 1: the keys sorted down, which builds
+    the same automaton, since equal prefixes stay adjacent.
   **Check, the cache and the lists:** a DFA's lists cover its own program; the default holds both
   DFAs of a program of 40,000 instructions each way; mutations.
   **Check passed, the cache and the lists, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a

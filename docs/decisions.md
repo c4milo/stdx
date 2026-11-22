@@ -6190,6 +6190,11 @@ last part lists what still waits on a ruling.
       41(2), 2004.
     - X. Wang and others, "Hyperscan: A Fast Multi-pattern Regex Matcher for Modern CPUs", NSDI
       2019.
+    - J. Daciuk, S. Mihov, B. Watson, R. Watson, "Incremental Construction of Minimal Acyclic
+      Finite-State Automata", Computational Linguistics 26(1), 2000: the method by which
+      `syntax_atom_utf8.zig` writes a class of many ranges, added 2026-11-22 (design §8 part
+      22n). regex-automata 0.4.19's `Utf8Compiler` applies it to UTF-8, under the owner's ruling
+      of 2026-11-21 above.
     - M. Bhuiyan and others, "SoK: A Literature and Engineering Review of Regular Expression
       Denial of Service (ReDoS)", `https://arxiv.org/abs/2406.11618`.
     - A. Gallant, "Regex engine internals as a library", 2023,

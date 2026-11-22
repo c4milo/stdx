@@ -11,6 +11,7 @@ const Builder = fragment.Builder;
 const Fragment = fragment.Fragment;
 const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 const unicode = @import("unicode");
+const utf8_compact = @import("syntax_atom_utf8.zig");
 
 /// The flags of RE2's syntax that stdx takes, which `(?i)`, `(?m)`, `(?s)` and `(?U)` set.
 pub const Flags = struct {
@@ -32,9 +33,19 @@ fn sequence(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.
     return whole;
 }
 
-/// Every scalar value of ranges that are in order and apart: one alternative for each sequence
-/// of octet ranges. No two alternatives take the same octets, so their order chooses nothing.
+/// Every scalar value of ranges that are in order and apart: one automaton for a class of many
+/// ranges past U+007F (syntax_atom_utf8.zig), or one alternative for each sequence of octet
+/// ranges. No two alternatives take the same octets, so their order chooses nothing.
 fn scalar_ranges(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
+    if (scalars.len >= constants.utf8_compact_ranges_min and scalars[scalars.len - 1].hi > constants.one_octet_max) {
+        if (try utf8_compact.class(builder, scalars)) |whole| return whole;
+    }
+    return alternatives(builder, scalars);
+}
+
+/// One alternative for each sequence of octet ranges, and one range of octets for the scalar
+/// values of one octet each.
+pub fn alternatives(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
     var whole: ?Fragment = null;
     for (scalars) |range| {
         if (range.hi <= constants.one_octet_max) {

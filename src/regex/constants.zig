@@ -79,6 +79,28 @@ comptime {
     std.debug.assert(class_ranges_small < class_ranges_max);
 }
 
+/// The ranges of scalar values a class holds, one past U+007F, before the compiler writes it as
+/// one automaton (syntax_atom_utf8.zig): under it, one alternative for each sequence of octet
+/// ranges costs about as many instructions and no frame of tables. A case orbit holds at most 4.
+pub const utf8_compact_ranges_min = 8;
+
+/// The transitions the open nodes of a class's automaton hold at most. Forward, the root holds at
+/// most one for each octet, 256, and each node under it one for each continuation octet, 64, so
+/// 448 hold every class. A reverse root holds one for each distinct range of last octets, which a
+/// class of many ranges can push past this: such a class takes one alternative a sequence.
+pub const utf8_open_transitions_max = 512;
+
+/// The slots of the table that finds a written node by its transitions, and the slots a lookup
+/// reads from the home slot of a hash. `\p{L}` writes about 400 nodes in each direction: a node
+/// the table forgot is written again, which costs instructions and changes no match.
+pub const utf8_node_slots = 512;
+pub const utf8_node_probes = 8;
+
+comptime {
+    // A hash finds its home slot with a mask.
+    std.debug.assert(std.math.isPowerOfTwo(utf8_node_slots));
+}
+
 /// The ranges the UTF-8 split of one range of scalar values keeps on its stack. A split leaves at
 /// most one range for each boundary it cuts at: the surrogates, the three lengths, and two for each
 /// continuation octet.

@@ -69,6 +69,7 @@ test {
     _ = @import("octet_classes.zig");
     _ = @import("syntax/syntax.zig");
     _ = @import("syntax/syntax_atom.zig");
+    _ = @import("syntax/syntax_atom_utf8.zig");
     _ = @import("syntax/syntax_class.zig");
     _ = @import("syntax/syntax_escape.zig");
     _ = @import("syntax/syntax_posix.zig");
