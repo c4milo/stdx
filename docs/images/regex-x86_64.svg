@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1608" width="900" height="1608" role="img" aria-labelledby="t d">
-<title id="t">stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 7763 64-Core Processor</title>
-<desc id="d">search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 0, level on 0, behind on 6 of 6 patterns; geometric mean 0.10, from 1/22 to 0.19; level is within 5.0% of 1; against Go regexp: ahead on 2, behind on 4 of 6; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 2, level on 3, behind on 0 of 5 patterns; geometric mean 1.28, from 1.01 to 2.01; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 1, level on 0, behind on 6 of 7 patterns; from 1/2111 to 1.57; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 2 of 7; mvzr: ahead on 4, behind on 1 of 5; zig-regex: ahead on 4, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 0, level on 4, behind on 1 of 5 patterns; geometric mean 0.99, from 0.93 to 1.04; level is within 5.0% of 1; against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 2, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.19; level is within 5.0% of 1; against Go regexp: ahead on 0, behind on 1 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 20, level on 2, behind on 1 of 23 patterns; from 0.76 to 25.63; level is within 5.0% of 1; against Go regexp: ahead on 6, level on 1, behind on 16 of 23; mvzr: ahead on 0, behind on 21 of 21; zig-regex: ahead on 0, behind on 21 of 21.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1811" width="900" height="1811" role="img" aria-labelledby="t d">
+<title id="t">stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 9V74 80-Core Processor</title>
+<desc id="d">search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 0, behind on 0 of 6 rows, 5 patterns; geometric mean over these rows 1.42; from 1.09 to 3.31; against Go regexp: ahead on 6, level on 0, behind on 0 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 4, level on 1, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.50; from 1.006 to 2.02; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 1, behind on 0 of 7 rows, 7 patterns; from 1.003 to 11.01; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.25; from 1.19 to 1.36; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.85, 0.84 to 0.87; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.42 to 35.02; against Go regexp: ahead on 13 (2 inside 5%), level on 0, behind on 10 (1 inside 5%) of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21.</desc>
 <style>
 svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --stdx:#2a78d6; --lose:#d4552b; --tie:#a3a29c; --m0:#1c9e77; --m1:#9467bd; --m2:#b8860b; --m3:#8a8984; }
 @media (prefers-color-scheme: dark) {
@@ -12,697 +12,1085 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 .val { font-size: 10.5px; font-weight: 600; } .tick { font-size: 10.5px; fill: var(--muted); }
 .legend { font-size: 12px; fill: var(--ink2); }
 </style>
-<rect width="900" height="1608" fill="var(--surface)"/>
-<text class="title" x="16" y="26">stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 7763 64-Core Processor</text>
-<text class="sub" x="16" y="46">The median of 3 jobs, runs 44951158272, 44951166966, 44951169916, at commit 22f6bba.</text>
-<text class="sub" x="16" y="62">Each bar is stdx in multiples of the baseline at the line at 1. Every panel shares one logarithmic axis.</text>
-<line x1="20" y1="78" x2="20" y2="90" stroke="var(--ink)" stroke-width="1.5"/><text class="legend" x="28" y="88">Rust regex 1.13.2, rustc 1.100.0, at 1</text>
-<path d="M312.0,79.8 L316.2,87.6 L307.8,87.6 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="320" y="88">Go regexp 1.27.4</text>
-<rect x="446.4" y="80.4" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="458" y="88">mvzr 3efcfe3</text>
-<path d="M560.0,88.2 L564.2,80.4 L555.8,80.4 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/><text class="legend" x="568" y="88">zig-regex 49c5694</text>
-<circle cx="705.0" cy="84.0" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="705.0" cy="84.0" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/><text class="legend" x="713" y="88">stdx with its skip off</text>
-<text class="legend" x="16" y="108">A bar is stdx:</text>
-<rect x="104" y="99" width="12" height="10" rx="2" fill="var(--stdx)"/><text class="legend" x="121" y="108">ahead</text>
-<rect x="162" y="99" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="179" y="108">level</text>
-<rect x="222" y="99" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="239" y="108">behind</text>
-<text class="legend" x="292" y="108">|—| the jobs, lowest to highest</text>
-<path d="M500.0,100.8 L503.2,107.2 L496.8,107.2 Z" fill="var(--surface)" stroke="var(--m0)" stroke-width="1.3"/><rect x="508.8" y="100.8" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/><path d="M524.0,107.2 L527.2,100.8 L520.8,100.8 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<text class="legend" x="534" y="108">after a name: that library has no speed there</text>
-<text class="panel" x="16" y="146">search for a literal: every match in 1 MiB, in multiples of Rust regex's speed</text>
-<text class="sub" x="16" y="163">against Rust regex: ahead on 0, level on 0, behind on 6 of 6 patterns; geometric mean 0.10, from 1/22 to 0.19; level is within 5.0% of 1</text>
-<text class="sub" x="16" y="179">against Go regexp: ahead on 2, behind on 4 of 6; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5</text>
-<line x1="281.6" y1="192" x2="281.6" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="281.6" y="307" text-anchor="middle">1/4096</text>
-<line x1="324.1" y1="192" x2="324.1" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="324.1" y="307" text-anchor="middle">1/1024</text>
-<line x1="366.7" y1="192" x2="366.7" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="366.7" y="307" text-anchor="middle">1/256</text>
-<line x1="409.3" y1="192" x2="409.3" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="409.3" y="307" text-anchor="middle">1/64</text>
-<line x1="451.8" y1="192" x2="451.8" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="451.8" y="307" text-anchor="middle">1/16</text>
-<line x1="494.4" y1="192" x2="494.4" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="494.4" y="307" text-anchor="middle">1/4</text>
-<line x1="537.0" y1="192" x2="537.0" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="537.0" y="307" text-anchor="middle">1</text>
-<line x1="579.6" y1="192" x2="579.6" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="579.6" y="307" text-anchor="middle">4</text>
-<line x1="622.1" y1="192" x2="622.1" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="622.1" y="307" text-anchor="middle">16</text>
-<line x1="664.7" y1="192" x2="664.7" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="664.7" y="307" text-anchor="middle">64</text>
-<line x1="707.3" y1="192" x2="707.3" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="707.3" y="307" text-anchor="middle">256</text>
-<line x1="749.9" y1="192" x2="749.9" y2="294" stroke="var(--grid)"/>
-<text class="tick" x="749.9" y="307" text-anchor="middle">1024</text>
-<text class="row" x="262" y="204.5" text-anchor="end">a word</text>
-<rect x="468.9" y="195.0" width="68.1" height="11" rx="2" fill="var(--lose)"/>
-<line x1="468.6" y1="200.5" x2="469.0" y2="200.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="468.6" y1="197.5" x2="468.6" y2="203.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="469.0" y1="197.5" x2="469.0" y2="203.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M496.9,196.3 L501.1,204.1 L492.7,204.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="347.2" y="196.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M291.1,204.7 L295.3,196.9 L286.9,196.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="410.4" cy="200.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="410.4" cy="200.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="196.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="204.5">0.11</text>
-<text class="row" x="262" y="221.5" text-anchor="end">a word that is not there</text>
-<rect x="462.9" y="212.0" width="74.1" height="11" rx="2" fill="var(--lose)"/>
-<line x1="462.1" y1="217.5" x2="463.7" y2="217.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="462.1" y1="214.5" x2="462.1" y2="220.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="463.7" y1="214.5" x2="463.7" y2="220.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M528.8,213.3 L533.0,221.1 L524.6,221.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="340.1" y="213.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M285.7,221.7 L289.9,213.9 L281.5,213.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="405.2" cy="217.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="405.2" cy="217.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="213.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="221.5">1/11</text>
-<text class="row" x="262" y="238.5" text-anchor="end">one of four words</text>
-<rect x="481.9" y="229.0" width="55.1" height="11" rx="2" fill="var(--lose)"/>
-<line x1="481.9" y1="234.5" x2="482.1" y2="234.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="481.9" y1="231.5" x2="481.9" y2="237.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="482.1" y1="231.5" x2="482.1" y2="237.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M345.6,230.3 L349.8,238.1 L341.4,238.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="307.1" y="230.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M298.0,238.7 L302.2,230.9 L293.8,230.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="448.0" cy="234.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="448.0" cy="234.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="230.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="238.5">0.17</text>
-<path d="M258.0,254.7 L261.2,248.3 L254.8,248.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<rect x="243.8" y="248.3" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/>
-<text class="row" x="237" y="255.5" text-anchor="end">a word in any case</text>
-<rect x="485.2" y="246.0" width="51.8" height="11" rx="2" fill="var(--lose)"/>
-<line x1="485.0" y1="251.5" x2="485.3" y2="251.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="485.0" y1="248.5" x2="485.0" y2="254.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="485.3" y1="248.5" x2="485.3" y2="254.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M367.0,247.3 L371.2,255.1 L362.8,255.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="449.1" cy="251.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="449.1" cy="251.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="247.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="255.5">0.19</text>
-<text class="row" x="262" y="272.5" text-anchor="end">an href attribute</text>
-<rect x="441.8" y="263.0" width="95.2" height="11" rx="2" fill="var(--lose)"/>
-<line x1="441.5" y1="268.5" x2="441.9" y2="268.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="441.5" y1="265.5" x2="441.5" y2="271.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="441.9" y1="265.5" x2="441.9" y2="271.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M460.4,264.3 L464.6,272.1 L456.2,272.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="350.2" y="264.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M291.5,272.7 L295.7,264.9 L287.3,264.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="419.2" cy="268.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="419.2" cy="268.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="264.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="272.5">1/22</text>
-<text class="row" x="262" y="289.5" text-anchor="end">a word, second text</text>
-<rect x="464.4" y="280.0" width="72.6" height="11" rx="2" fill="var(--lose)"/>
-<line x1="464.4" y1="285.5" x2="464.5" y2="285.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="464.4" y1="282.5" x2="464.4" y2="288.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="464.5" y1="282.5" x2="464.5" y2="288.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M495.1,281.3 L499.3,289.1 L490.9,289.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="346.5" y="281.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M298.2,289.7 L302.4,281.9 L294.0,281.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="414.8" cy="285.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="414.8" cy="285.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="281.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="289.5">1/11</text>
-<line x1="537.0" y1="188" x2="537.0" y2="294" stroke="var(--ink)" stroke-width="1.5"/>
-<text class="panel" x="16" y="344">search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed</text>
-<text class="sub" x="16" y="361">against Rust regex: ahead on 2, level on 3, behind on 0 of 5 patterns; geometric mean 1.28, from 1.01 to 2.01; level is within 5.0% of 1</text>
-<text class="sub" x="16" y="377">against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 5, behind on 0 of 5</text>
-<line x1="281.6" y1="390" x2="281.6" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="281.6" y="488" text-anchor="middle">1/4096</text>
-<line x1="324.1" y1="390" x2="324.1" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="324.1" y="488" text-anchor="middle">1/1024</text>
-<line x1="366.7" y1="390" x2="366.7" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="366.7" y="488" text-anchor="middle">1/256</text>
-<line x1="409.3" y1="390" x2="409.3" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="409.3" y="488" text-anchor="middle">1/64</text>
-<line x1="451.8" y1="390" x2="451.8" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="451.8" y="488" text-anchor="middle">1/16</text>
-<line x1="494.4" y1="390" x2="494.4" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="494.4" y="488" text-anchor="middle">1/4</text>
-<line x1="537.0" y1="390" x2="537.0" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="537.0" y="488" text-anchor="middle">1</text>
-<line x1="579.6" y1="390" x2="579.6" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="579.6" y="488" text-anchor="middle">4</text>
-<line x1="622.1" y1="390" x2="622.1" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="622.1" y="488" text-anchor="middle">16</text>
-<line x1="664.7" y1="390" x2="664.7" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="664.7" y="488" text-anchor="middle">64</text>
-<line x1="707.3" y1="390" x2="707.3" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="707.3" y="488" text-anchor="middle">256</text>
-<line x1="749.9" y1="390" x2="749.9" y2="475" stroke="var(--grid)"/>
-<text class="tick" x="749.9" y="488" text-anchor="middle">1024</text>
-<text class="row" x="262" y="402.5" text-anchor="end">two capitalized words</text>
-<rect x="537.0" y="393.0" width="14.0" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="551.0" y1="398.5" x2="551.0" y2="398.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="551.0" y1="395.5" x2="551.0" y2="401.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="551.0" y1="395.5" x2="551.0" y2="401.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M453.8,394.3 L458.0,402.1 L449.6,402.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="466.5" y="394.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M414.8,402.7 L419.0,394.9 L410.6,394.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="537.3" cy="398.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="537.3" cy="398.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="394.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="402.5">1.58</text>
-<text class="tick" x="814" y="402.5">1.579 to 1.580</text>
-<text class="row" x="262" y="419.5" text-anchor="end">a word that ends in ing</text>
-<rect x="537.0" y="410.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="537.7" y1="415.5" x2="537.7" y2="415.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.7" y1="412.5" x2="537.7" y2="418.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.7" y1="412.5" x2="537.7" y2="418.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M447.1,411.3 L451.3,419.1 L442.9,419.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="430.1" y="411.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M399.2,419.7 L403.4,411.9 L395.0,411.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="537.7" cy="415.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="537.7" cy="415.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="411.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="419.5">1.02</text>
-<text class="tick" x="814" y="419.5">1.023 to 1.024</text>
-<text class="row" x="262" y="436.5" text-anchor="end">a word in capitals</text>
-<rect x="537.0" y="427.0" width="21.4" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="558.4" y1="432.5" x2="558.7" y2="432.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="558.4" y1="429.5" x2="558.4" y2="435.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="558.7" y1="429.5" x2="558.7" y2="435.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M456.3,428.3 L460.5,436.1 L452.1,436.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="476.3" y="428.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M418.5,436.7 L422.7,428.9 L414.3,428.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="537.6" cy="432.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="537.6" cy="432.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="428.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="436.5">2.01</text>
-<text class="row" x="262" y="453.5" text-anchor="end">a number</text>
-<rect x="537.0" y="444.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="537.3" y1="449.5" x2="537.5" y2="449.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.3" y1="446.5" x2="537.3" y2="452.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.5" y1="446.5" x2="537.5" y2="452.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M421.5,445.3 L425.7,453.1 L417.3,453.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="431.0" y="445.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M278.1,453.7 L282.3,445.9 L273.9,445.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="499.7" cy="449.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="499.7" cy="449.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="445.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="453.5">1.01</text>
-<text class="tick" x="814" y="453.5">1.01 to 1.02</text>
-<text class="row" x="262" y="470.5" text-anchor="end">two capitalized words, second text</text>
-<rect x="537.0" y="461.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="537.9" y1="466.5" x2="538.0" y2="466.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.9" y1="463.5" x2="537.9" y2="469.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="538.0" y1="463.5" x2="538.0" y2="469.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M455.5,462.3 L459.7,470.1 L451.3,470.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="469.7" y="462.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M424.0,470.7 L428.2,462.9 L419.8,462.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="538.0" cy="466.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="538.0" cy="466.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="462.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="470.5">1.03</text>
-<text class="tick" x="814" y="470.5">1.030 to 1.034</text>
-<line x1="537.0" y1="386" x2="537.0" y2="475" stroke="var(--ink)" stroke-width="1.5"/>
-<text class="panel" x="16" y="525">search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed</text>
-<text class="sub" x="16" y="542">against Rust regex: ahead on 1, level on 0, behind on 6 of 7 patterns; from 1/2111 to 1.57; level is within 5.0% of 1</text>
-<text class="sub" x="16" y="558">against Go regexp: ahead on 5, behind on 2 of 7; mvzr: ahead on 4, behind on 1 of 5; zig-regex: ahead on 4, behind on 0 of 4</text>
-<line x1="281.6" y1="571" x2="281.6" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="281.6" y="703" text-anchor="middle">1/4096</text>
-<line x1="324.1" y1="571" x2="324.1" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="324.1" y="703" text-anchor="middle">1/1024</text>
-<line x1="366.7" y1="571" x2="366.7" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="366.7" y="703" text-anchor="middle">1/256</text>
-<line x1="409.3" y1="571" x2="409.3" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="409.3" y="703" text-anchor="middle">1/64</text>
-<line x1="451.8" y1="571" x2="451.8" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="451.8" y="703" text-anchor="middle">1/16</text>
-<line x1="494.4" y1="571" x2="494.4" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="494.4" y="703" text-anchor="middle">1/4</text>
-<line x1="537.0" y1="571" x2="537.0" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="537.0" y="703" text-anchor="middle">1</text>
-<line x1="579.6" y1="571" x2="579.6" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="579.6" y="703" text-anchor="middle">4</text>
-<line x1="622.1" y1="571" x2="622.1" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="622.1" y="703" text-anchor="middle">16</text>
-<line x1="664.7" y1="571" x2="664.7" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="664.7" y="703" text-anchor="middle">64</text>
-<line x1="707.3" y1="571" x2="707.3" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="707.3" y="703" text-anchor="middle">256</text>
-<line x1="749.9" y1="571" x2="749.9" y2="690" stroke="var(--grid)"/>
-<text class="tick" x="749.9" y="703" text-anchor="middle">1024</text>
-<text class="row" x="262" y="583.5" text-anchor="end">a word between two words</text>
-<rect x="521.7" y="574.0" width="15.3" height="11" rx="2" fill="var(--lose)"/>
-<line x1="521.6" y1="579.5" x2="522.3" y2="579.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="521.6" y1="576.5" x2="521.6" y2="582.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="522.3" y1="576.5" x2="522.3" y2="582.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M476.2,575.3 L480.4,583.1 L472.0,583.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="456.5" y="575.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M395.9,583.7 L400.1,575.9 L391.7,575.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="521.7" cy="579.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="521.7" cy="579.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="575.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="583.5">0.61</text>
-<text class="tick" x="814" y="583.5">0.61 to 0.62</text>
-<text class="row" x="262" y="600.5" text-anchor="end">a number before a unit, second text</text>
-<rect x="478.3" y="591.0" width="58.7" height="11" rx="2" fill="var(--lose)"/>
-<line x1="478.3" y1="596.5" x2="479.0" y2="596.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="478.3" y1="593.5" x2="478.3" y2="599.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="479.0" y1="593.5" x2="479.0" y2="599.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M373.9,592.3 L378.1,600.1 L369.7,600.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="385.6" y="592.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M339.1,600.7 L343.3,592.9 L334.9,592.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="456.9" cy="596.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="456.9" cy="596.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="592.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="600.5">0.15</text>
-<text class="row" x="262" y="617.5" text-anchor="end">a heading's start tag</text>
-<rect x="516.4" y="608.0" width="20.6" height="11" rx="2" fill="var(--lose)"/>
-<line x1="516.4" y1="613.5" x2="516.4" y2="613.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="516.4" y1="610.5" x2="516.4" y2="616.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="516.4" y1="610.5" x2="516.4" y2="616.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M526.7,609.3 L530.9,617.1 L522.5,617.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="431.5" y="609.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M374.0,617.7 L378.2,609.9 L369.8,609.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="495.5" cy="613.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="495.5" cy="613.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="609.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="617.5">0.51</text>
-<text class="tick" x="814" y="617.5">0.512 to 0.512</text>
-<text class="row" x="262" y="634.5" text-anchor="end">a whole word</text>
-<rect x="420.8" y="625.0" width="116.2" height="11" rx="2" fill="var(--lose)"/>
-<line x1="420.8" y1="630.5" x2="420.8" y2="630.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="420.8" y1="627.5" x2="420.8" y2="633.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="420.8" y1="627.5" x2="420.8" y2="633.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M342.0,626.3 L346.2,634.1 L337.8,634.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="342.3" y="626.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M297.5,634.7 L301.7,626.9 L293.3,626.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="420.8" cy="630.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="420.8" cy="630.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="626.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="634.5">1/44</text>
-<path d="M258.0,650.7 L261.2,644.3 L254.8,644.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<rect x="243.8" y="644.3" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/>
-<text class="row" x="237" y="651.5" text-anchor="end">a line's first word, second text</text>
-<rect x="496.5" y="642.0" width="40.5" height="11" rx="2" fill="var(--lose)"/>
-<line x1="496.1" y1="647.5" x2="497.0" y2="647.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="496.1" y1="644.5" x2="496.1" y2="650.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="497.0" y1="644.5" x2="497.0" y2="650.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M429.4,643.3 L433.6,651.1 L425.2,651.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="496.5" cy="647.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="496.5" cy="647.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="643.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="651.5">0.27</text>
-<path d="M258.0,667.7 L261.2,661.3 L254.8,661.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<text class="row" x="248" y="668.5" text-anchor="end">fourteen octets before an x</text>
-<rect x="301.9" y="659.0" width="235.1" height="11" rx="2" fill="var(--lose)"/>
-<line x1="301.6" y1="664.5" x2="303.9" y2="664.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="301.6" y1="661.5" x2="301.6" y2="667.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="303.9" y1="661.5" x2="303.9" y2="667.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M359.2,660.3 L363.4,668.1 L355.0,668.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="370.4" y="660.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="301.4" cy="664.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="301.4" cy="664.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="660.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="668.5">1/2111</text>
-<path d="M258.0,684.7 L261.2,678.3 L254.8,678.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<rect x="243.8" y="678.3" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/>
-<text class="row" x="237" y="685.5" text-anchor="end">a Greek word</text>
-<rect x="537.0" y="676.0" width="13.8" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="550.5" y1="681.5" x2="550.9" y2="681.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="550.5" y1="678.5" x2="550.5" y2="684.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="550.9" y1="678.5" x2="550.9" y2="684.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M480.1,677.3 L484.3,685.1 L475.9,685.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<circle cx="540.5" cy="681.5" r="4.6" fill="none" stroke="var(--surface)" stroke-width="1.6"/><circle cx="540.5" cy="681.5" r="3.4" fill="none" stroke="var(--stdx)" stroke-width="1.8"/>
-<rect x="770" y="677.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="685.5">1.57</text>
-<text class="tick" x="814" y="685.5">1.55 to 1.57</text>
-<line x1="537.0" y1="567" x2="537.0" y2="690" stroke="var(--ink)" stroke-width="1.5"/>
-<text class="panel" x="16" y="740">a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed</text>
-<text class="sub" x="16" y="757">against Rust regex: ahead on 0, level on 4, behind on 1 of 5 patterns; geometric mean 0.99, from 0.93 to 1.04; level is within 5.0% of 1</text>
-<text class="sub" x="16" y="773">against Go regexp: ahead on 5, behind on 0 of 5; mvzr: ahead on 5, behind on 0 of 5; zig-regex: ahead on 2, behind on 0 of 2</text>
-<line x1="281.6" y1="786" x2="281.6" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="281.6" y="884" text-anchor="middle">1/4096</text>
-<line x1="324.1" y1="786" x2="324.1" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="324.1" y="884" text-anchor="middle">1/1024</text>
-<line x1="366.7" y1="786" x2="366.7" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="366.7" y="884" text-anchor="middle">1/256</text>
-<line x1="409.3" y1="786" x2="409.3" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="409.3" y="884" text-anchor="middle">1/64</text>
-<line x1="451.8" y1="786" x2="451.8" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="451.8" y="884" text-anchor="middle">1/16</text>
-<line x1="494.4" y1="786" x2="494.4" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="494.4" y="884" text-anchor="middle">1/4</text>
-<line x1="537.0" y1="786" x2="537.0" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="537.0" y="884" text-anchor="middle">1</text>
-<line x1="579.6" y1="786" x2="579.6" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="579.6" y="884" text-anchor="middle">4</text>
-<line x1="622.1" y1="786" x2="622.1" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="622.1" y="884" text-anchor="middle">16</text>
-<line x1="664.7" y1="786" x2="664.7" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="664.7" y="884" text-anchor="middle">64</text>
-<line x1="707.3" y1="786" x2="707.3" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="707.3" y="884" text-anchor="middle">256</text>
-<line x1="749.9" y1="786" x2="749.9" y2="871" stroke="var(--grid)"/>
-<text class="tick" x="749.9" y="884" text-anchor="middle">1024</text>
-<path d="M258.0,797.7 L261.2,791.3 L254.8,791.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<text class="row" x="248" y="798.5" text-anchor="end">an email address</text>
-<rect x="535.5" y="789.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="535.5" y1="794.5" x2="535.7" y2="794.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="535.5" y1="791.5" x2="535.5" y2="797.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="535.7" y1="791.5" x2="535.7" y2="797.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M470.8,790.3 L475.0,798.1 L466.6,798.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="480.7" y="790.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="790.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="798.5">0.95</text>
-<text class="tick" x="814" y="798.5">0.95 to 0.96</text>
-<text class="row" x="262" y="815.5" text-anchor="end">a UUID</text>
-<rect x="534.8" y="806.0" width="2.2" height="11" rx="2" fill="var(--lose)"/>
-<line x1="534.5" y1="811.5" x2="534.9" y2="811.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="534.5" y1="808.5" x2="534.5" y2="814.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="534.9" y1="808.5" x2="534.9" y2="814.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M481.6,807.3 L485.8,815.1 L477.4,815.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="484.8" y="807.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M428.7,815.7 L432.9,807.9 L424.5,807.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="807.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="815.5">0.93</text>
-<text class="tick" x="814" y="815.5">0.92 to 0.93</text>
-<path d="M258.0,831.7 L261.2,825.3 L254.8,825.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<text class="row" x="248" y="832.5" text-anchor="end">an IPv4 address</text>
-<rect x="537.0" y="823.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="538.2" y1="828.5" x2="538.6" y2="828.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="538.2" y1="825.5" x2="538.2" y2="831.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="538.6" y1="825.5" x2="538.6" y2="831.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M485.7,824.3 L489.9,832.1 L481.5,832.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="466.5" y="824.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="824.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="832.5">1.04</text>
-<text class="tick" x="814" y="832.5">1.04 to 1.05</text>
-<text class="row" x="262" y="849.5" text-anchor="end">a date and time</text>
-<rect x="537.0" y="840.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="537.6" y1="845.5" x2="537.7" y2="845.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.6" y1="842.5" x2="537.6" y2="848.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.7" y1="842.5" x2="537.7" y2="848.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M499.4,841.3 L503.6,849.1 L495.2,849.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="493.4" y="841.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M433.3,849.7 L437.5,841.9 L429.1,841.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="841.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="849.5">1.02</text>
-<text class="tick" x="814" y="849.5">1.019 to 1.023</text>
-<path d="M258.0,865.7 L261.2,859.3 L254.8,859.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<text class="row" x="248" y="866.5" text-anchor="end">a field path</text>
-<rect x="536.7" y="857.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="536.7" y1="862.5" x2="536.9" y2="862.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="536.7" y1="859.5" x2="536.7" y2="865.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="536.9" y1="859.5" x2="536.9" y2="865.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M473.0,858.3 L477.2,866.1 L468.8,866.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="464.0" y="858.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="858.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="866.5">0.99</text>
-<text class="tick" x="814" y="866.5">0.99 to 1.00</text>
-<line x1="537.0" y1="782" x2="537.0" y2="871" stroke="var(--ink)" stroke-width="1.5"/>
-<text class="panel" x="16" y="921">the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed</text>
-<text class="sub" x="16" y="938">against Rust regex: behind, at 0.19; level is within 5.0% of 1</text>
-<text class="sub" x="16" y="954">against Go regexp: ahead on 0, behind on 1 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, behind on 0 of 1</text>
-<line x1="281.6" y1="967" x2="281.6" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="281.6" y="997" text-anchor="middle">1/4096</text>
-<line x1="324.1" y1="967" x2="324.1" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="324.1" y="997" text-anchor="middle">1/1024</text>
-<line x1="366.7" y1="967" x2="366.7" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="366.7" y="997" text-anchor="middle">1/256</text>
-<line x1="409.3" y1="967" x2="409.3" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="409.3" y="997" text-anchor="middle">1/64</text>
-<line x1="451.8" y1="967" x2="451.8" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="451.8" y="997" text-anchor="middle">1/16</text>
-<line x1="494.4" y1="967" x2="494.4" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="494.4" y="997" text-anchor="middle">1/4</text>
-<line x1="537.0" y1="967" x2="537.0" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="537.0" y="997" text-anchor="middle">1</text>
-<line x1="579.6" y1="967" x2="579.6" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="579.6" y="997" text-anchor="middle">4</text>
-<line x1="622.1" y1="967" x2="622.1" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="622.1" y="997" text-anchor="middle">16</text>
-<line x1="664.7" y1="967" x2="664.7" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="664.7" y="997" text-anchor="middle">64</text>
-<line x1="707.3" y1="967" x2="707.3" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="707.3" y="997" text-anchor="middle">256</text>
-<line x1="749.9" y1="967" x2="749.9" y2="984" stroke="var(--grid)"/>
-<text class="tick" x="749.9" y="997" text-anchor="middle">1024</text>
-<rect x="254.8" y="972.3" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/>
-<text class="row" x="248" y="979.5" text-anchor="end">a date and time, six groups</text>
-<rect x="485.5" y="970.0" width="51.4" height="11" rx="2" fill="var(--lose)"/>
-<line x1="485.4" y1="975.5" x2="486.1" y2="975.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="485.4" y1="972.5" x2="485.4" y2="978.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="486.1" y1="972.5" x2="486.1" y2="978.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M510.7,971.3 L514.9,979.1 L506.5,979.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M449.6,979.7 L453.8,971.9 L445.4,971.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="971.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="979.5">0.19</text>
-<line x1="537.0" y1="963" x2="537.0" y2="984" stroke="var(--ink)" stroke-width="1.5"/>
-<text class="panel" x="16" y="1034">a pattern compiled and made ready for its first search, in multiples of Rust regex's speed</text>
-<text class="sub" x="16" y="1051">against Rust regex: ahead on 20, level on 2, behind on 1 of 23 patterns; from 0.76 to 25.63; level is within 5.0% of 1</text>
-<text class="sub" x="16" y="1067">against Go regexp: ahead on 6, level on 1, behind on 16 of 23; mvzr: ahead on 0, behind on 21 of 21; zig-regex: ahead on 0, behind on 21</text>
-<text class="sub" x="16" y="1083">of 21</text>
-<line x1="281.6" y1="1096" x2="281.6" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="281.6" y="1500" text-anchor="middle">1/4096</text>
-<line x1="324.1" y1="1096" x2="324.1" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="324.1" y="1500" text-anchor="middle">1/1024</text>
-<line x1="366.7" y1="1096" x2="366.7" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="366.7" y="1500" text-anchor="middle">1/256</text>
-<line x1="409.3" y1="1096" x2="409.3" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="409.3" y="1500" text-anchor="middle">1/64</text>
-<line x1="451.8" y1="1096" x2="451.8" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="451.8" y="1500" text-anchor="middle">1/16</text>
-<line x1="494.4" y1="1096" x2="494.4" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="494.4" y="1500" text-anchor="middle">1/4</text>
-<line x1="537.0" y1="1096" x2="537.0" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="537.0" y="1500" text-anchor="middle">1</text>
-<line x1="579.6" y1="1096" x2="579.6" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="579.6" y="1500" text-anchor="middle">4</text>
-<line x1="622.1" y1="1096" x2="622.1" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="622.1" y="1500" text-anchor="middle">16</text>
-<line x1="664.7" y1="1096" x2="664.7" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="664.7" y="1500" text-anchor="middle">64</text>
-<line x1="707.3" y1="1096" x2="707.3" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="707.3" y="1500" text-anchor="middle">256</text>
-<line x1="749.9" y1="1096" x2="749.9" y2="1487" stroke="var(--grid)"/>
-<text class="tick" x="749.9" y="1500" text-anchor="middle">1024</text>
-<text class="row" x="262" y="1108.5" text-anchor="end">an email address</text>
-<rect x="537.0" y="1099.0" width="28.2" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="564.9" y1="1104.5" x2="566.4" y2="1104.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="564.9" y1="1101.5" x2="564.9" y2="1107.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="566.4" y1="1101.5" x2="566.4" y2="1107.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M562.9,1100.3 L567.1,1108.1 L558.7,1108.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="652.5" y="1100.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M595.6,1108.7 L599.8,1100.9 L591.4,1100.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1100.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1108.5">2.50</text>
-<text class="row" x="262" y="1125.5" text-anchor="end">a UUID</text>
-<rect x="537.0" y="1116.0" width="35.6" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="572.1" y1="1121.5" x2="574.1" y2="1121.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="572.1" y1="1118.5" x2="572.1" y2="1124.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="574.1" y1="1118.5" x2="574.1" y2="1124.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M557.5,1117.3 L561.7,1125.1 L553.3,1125.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="670.0" y="1117.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M582.1,1125.7 L586.3,1117.9 L577.9,1117.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1117.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1125.5">3.18</text>
-<text class="row" x="262" y="1142.5" text-anchor="end">an IPv4 address</text>
-<rect x="537.0" y="1133.0" width="41.6" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="578.4" y1="1138.5" x2="580.9" y2="1138.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="578.4" y1="1135.5" x2="578.4" y2="1141.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="580.9" y1="1135.5" x2="580.9" y2="1141.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M552.1,1134.3 L556.3,1142.1 L547.9,1142.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="674.7" y="1134.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M584.4,1142.7 L588.6,1134.9 L580.2,1134.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1134.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1142.5">3.88</text>
-<text class="row" x="262" y="1159.5" text-anchor="end">a date and time</text>
-<rect x="537.0" y="1150.0" width="33.4" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="569.6" y1="1155.5" x2="572.0" y2="1155.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="569.6" y1="1152.5" x2="569.6" y2="1158.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="572.0" y1="1152.5" x2="572.0" y2="1158.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M555.3,1151.3 L559.5,1159.1 L551.1,1159.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="658.6" y="1151.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M589.2,1159.7 L593.4,1151.9 L585.0,1151.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1151.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1159.5">2.97</text>
-<text class="row" x="262" y="1176.5" text-anchor="end">a field path</text>
-<rect x="537.0" y="1167.0" width="32.0" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="569.0" y1="1172.5" x2="570.7" y2="1172.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="569.0" y1="1169.5" x2="569.0" y2="1175.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="570.7" y1="1169.5" x2="570.7" y2="1175.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M563.0,1168.3 L567.2,1176.1 L558.8,1176.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="660.0" y="1168.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M600.9,1176.7 L605.1,1168.9 L596.7,1168.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1168.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1176.5">2.84</text>
-<text class="row" x="262" y="1193.5" text-anchor="end">a word</text>
-<rect x="528.5" y="1184.0" width="8.5" height="11" rx="2" fill="var(--lose)"/>
-<line x1="527.5" y1="1189.5" x2="532.1" y2="1189.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="527.5" y1="1186.5" x2="527.5" y2="1192.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="532.1" y1="1186.5" x2="532.1" y2="1192.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M542.4,1185.3 L546.6,1193.1 L538.2,1193.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="651.0" y="1185.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M566.5,1193.7 L570.7,1185.9 L562.3,1185.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1185.5" width="8" height="8" rx="2" fill="var(--lose)"/>
-<text class="val" x="783" y="1193.5">0.76</text>
-<text class="tick" x="814" y="1193.5">0.73 to 0.85</text>
-<text class="row" x="262" y="1210.5" text-anchor="end">a word that is not there</text>
-<rect x="534.5" y="1201.0" width="2.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="533.2" y1="1206.5" x2="537.4" y2="1206.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="533.2" y1="1203.5" x2="533.2" y2="1209.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.4" y1="1203.5" x2="537.4" y2="1209.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M542.8,1202.3 L547.0,1210.1 L538.6,1210.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="650.4" y="1202.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M566.4,1210.7 L570.6,1202.9 L562.2,1202.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1202.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="1210.5">0.92</text>
-<text class="tick" x="814" y="1210.5">0.88 to 1.01</text>
-<text class="row" x="262" y="1227.5" text-anchor="end">one of four words</text>
-<rect x="537.0" y="1218.0" width="57.9" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="594.9" y1="1223.5" x2="597.1" y2="1223.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="594.9" y1="1220.5" x2="594.9" y2="1226.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="597.1" y1="1220.5" x2="597.1" y2="1226.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M585.8,1219.3 L590.0,1227.1 L581.6,1227.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="700.5" y="1219.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M607.4,1227.7 L611.6,1219.9 L603.2,1219.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1219.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1227.5">6.59</text>
-<path d="M258.0,1243.7 L261.2,1237.3 L254.8,1237.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<text class="row" x="248" y="1244.5" text-anchor="end">a word in any case</text>
-<rect x="537.0" y="1235.0" width="99.6" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="636.5" y1="1240.5" x2="639.8" y2="1240.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="636.5" y1="1237.5" x2="636.5" y2="1243.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="639.8" y1="1237.5" x2="639.8" y2="1243.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M650.1,1236.3 L654.3,1244.1 L645.9,1244.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="750.3" y="1236.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1236.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1244.5">25.63</text>
-<text class="row" x="262" y="1261.5" text-anchor="end">an href attribute</text>
-<rect x="537.0" y="1252.0" width="61.6" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="598.5" y1="1257.5" x2="600.8" y2="1257.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="598.5" y1="1254.5" x2="598.5" y2="1260.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="600.8" y1="1254.5" x2="600.8" y2="1260.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M612.4,1253.3 L616.6,1261.1 L608.2,1261.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="721.5" y="1253.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M637.1,1261.7 L641.3,1253.9 L632.9,1253.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1253.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1261.5">7.43</text>
-<text class="row" x="262" y="1278.5" text-anchor="end">a word, second text</text>
-<rect x="537.0" y="1269.0" width="1.5" height="11" rx="2" fill="var(--tie)"/>
-<line x1="537.1" y1="1274.5" x2="540.5" y2="1274.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="537.1" y1="1271.5" x2="537.1" y2="1277.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="540.5" y1="1271.5" x2="540.5" y2="1277.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M542.0,1270.3 L546.2,1278.1 L537.8,1278.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="651.1" y="1270.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M564.7,1278.7 L568.9,1270.9 L560.5,1270.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1270.5" width="8" height="8" rx="2" fill="var(--tie)"/>
-<text class="val" x="783" y="1278.5">1.01</text>
-<text class="tick" x="814" y="1278.5">1.00 to 1.12</text>
-<text class="row" x="262" y="1295.5" text-anchor="end">two capitalized words</text>
-<rect x="537.0" y="1286.0" width="29.6" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="566.6" y1="1291.5" x2="569.0" y2="1291.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="566.6" y1="1288.5" x2="566.6" y2="1294.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="569.0" y1="1288.5" x2="569.0" y2="1294.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M585.2,1287.3 L589.4,1295.1 L581.0,1295.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="661.5" y="1287.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M607.3,1295.7 L611.5,1287.9 L603.1,1287.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1287.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1295.5">2.62</text>
-<text class="row" x="262" y="1312.5" text-anchor="end">a word that ends in ing</text>
-<rect x="537.0" y="1303.0" width="33.4" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="570.1" y1="1308.5" x2="573.5" y2="1308.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="570.1" y1="1305.5" x2="570.1" y2="1311.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="573.5" y1="1305.5" x2="573.5" y2="1311.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M589.5,1304.3 L593.7,1312.1 L585.3,1312.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="683.0" y="1304.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M613.3,1312.7 L617.5,1304.9 L609.1,1304.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1304.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1312.5">2.97</text>
-<text class="row" x="262" y="1329.5" text-anchor="end">a word in capitals</text>
-<rect x="537.0" y="1320.0" width="22.5" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="559.3" y1="1325.5" x2="562.5" y2="1325.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="559.3" y1="1322.5" x2="559.3" y2="1328.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="562.5" y1="1322.5" x2="562.5" y2="1328.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M588.7,1321.3 L592.9,1329.1 L584.5,1329.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="662.9" y="1321.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M609.1,1329.7 L613.3,1321.9 L604.9,1321.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1321.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1329.5">2.08</text>
-<text class="row" x="262" y="1346.5" text-anchor="end">a number</text>
-<rect x="537.0" y="1337.0" width="63.9" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="600.6" y1="1342.5" x2="605.0" y2="1342.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="600.6" y1="1339.5" x2="600.6" y2="1345.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="605.0" y1="1339.5" x2="605.0" y2="1345.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M642.8,1338.3 L647.0,1346.1 L638.6,1346.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="726.2" y="1338.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M663.2,1346.7 L667.4,1338.9 L659.0,1338.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1338.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1346.5">8.00</text>
-<text class="row" x="262" y="1363.5" text-anchor="end">two capitalized words, second text</text>
-<rect x="537.0" y="1354.0" width="29.4" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="566.3" y1="1359.5" x2="568.9" y2="1359.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="566.3" y1="1356.5" x2="566.3" y2="1362.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="568.9" y1="1356.5" x2="568.9" y2="1362.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M585.3,1355.3 L589.5,1363.1 L581.1,1363.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="661.2" y="1355.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M607.9,1363.7 L612.1,1355.9 L603.7,1355.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1355.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1363.5">2.60</text>
-<text class="row" x="262" y="1380.5" text-anchor="end">a word between two words</text>
-<rect x="537.0" y="1371.0" width="30.9" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="567.6" y1="1376.5" x2="570.9" y2="1376.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="567.6" y1="1373.5" x2="567.6" y2="1379.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="570.9" y1="1373.5" x2="570.9" y2="1379.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M575.9,1372.3 L580.1,1380.1 L571.7,1380.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="676.5" y="1372.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M602.1,1380.7 L606.3,1372.9 L597.9,1372.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1372.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1380.5">2.73</text>
-<text class="row" x="262" y="1397.5" text-anchor="end">a number before a unit, second text</text>
-<rect x="537.0" y="1388.0" width="66.9" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="603.6" y1="1393.5" x2="607.0" y2="1393.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="603.6" y1="1390.5" x2="603.6" y2="1396.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="607.0" y1="1390.5" x2="607.0" y2="1396.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M621.0,1389.3 L625.2,1397.1 L616.8,1397.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="715.9" y="1389.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M644.1,1397.7 L648.3,1389.9 L639.9,1389.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1389.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1397.5">8.84</text>
-<text class="row" x="262" y="1414.5" text-anchor="end">a heading's start tag</text>
-<rect x="537.0" y="1405.0" width="62.1" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="598.3" y1="1410.5" x2="600.9" y2="1410.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="598.3" y1="1407.5" x2="598.3" y2="1413.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="600.9" y1="1407.5" x2="600.9" y2="1413.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M619.4,1406.3 L623.6,1414.1 L615.2,1414.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="719.6" y="1406.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M641.6,1414.7 L645.8,1406.9 L637.4,1406.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1406.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1414.5">7.55</text>
-<text class="row" x="262" y="1431.5" text-anchor="end">a whole word</text>
-<rect x="537.0" y="1422.0" width="37.7" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="574.7" y1="1427.5" x2="577.3" y2="1427.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="574.7" y1="1424.5" x2="574.7" y2="1430.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="577.3" y1="1424.5" x2="577.3" y2="1430.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M582.3,1423.3 L586.5,1431.1 L578.1,1431.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="691.5" y="1423.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M605.4,1431.7 L609.6,1423.9 L601.2,1423.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1423.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1431.5">3.42</text>
-<path d="M258.0,1447.7 L261.2,1441.3 L254.8,1441.3 Z" fill="var(--surface)" stroke="var(--m2)" stroke-width="1.3"/>
-<rect x="243.8" y="1441.3" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/>
-<text class="row" x="237" y="1448.5" text-anchor="end">a line's first word, second text</text>
-<rect x="537.0" y="1439.0" width="36.7" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="573.1" y1="1444.5" x2="576.1" y2="1444.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="573.1" y1="1441.5" x2="573.1" y2="1447.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="576.1" y1="1441.5" x2="576.1" y2="1447.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M588.1,1440.3 L592.3,1448.1 L583.9,1448.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1440.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1448.5">3.30</text>
-<text class="row" x="262" y="1465.5" text-anchor="end">fourteen octets before an x</text>
-<rect x="537.0" y="1456.0" width="62.7" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="599.1" y1="1461.5" x2="600.8" y2="1461.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="599.1" y1="1458.5" x2="599.1" y2="1464.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="600.8" y1="1458.5" x2="600.8" y2="1464.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M639.1,1457.3 L643.3,1465.1 L634.9,1465.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="738.9" y="1457.9" width="7.2" height="7.2" fill="var(--m1)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M643.4,1465.7 L647.6,1457.9 L639.2,1457.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1457.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1465.5">7.69</text>
-<rect x="254.8" y="1475.3" width="6.4" height="6.4" fill="var(--surface)" stroke="var(--m1)" stroke-width="1.3"/>
-<text class="row" x="248" y="1482.5" text-anchor="end">a Greek word</text>
-<rect x="537.0" y="1473.0" width="59.0" height="11" rx="2" fill="var(--stdx)"/>
-<line x1="596.0" y1="1478.5" x2="599.3" y2="1478.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="596.0" y1="1475.5" x2="596.0" y2="1481.5" stroke="var(--ink)" stroke-width="1.2"/>
-<line x1="599.3" y1="1475.5" x2="599.3" y2="1481.5" stroke="var(--ink)" stroke-width="1.2"/>
-<path d="M635.5,1474.3 L639.7,1482.1 L631.3,1482.1 Z" fill="var(--m0)" stroke="var(--surface)" stroke-width="1.5"/>
-<path d="M655.3,1482.7 L659.5,1474.9 L651.1,1474.9 Z" fill="var(--m2)" stroke="var(--surface)" stroke-width="1.5"/>
-<rect x="770" y="1474.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
-<text class="val" x="783" y="1482.5">6.84</text>
-<line x1="537.0" y1="1092" x2="537.0" y2="1487" stroke="var(--ink)" stroke-width="1.5"/>
-<text class="legend" x="16" y="1524">A row is level where its whisker touches its panel's band around 1. The band is the most that stdx differed from itself on a row of the</text>
-<text class="legend" x="16" y="1541">panel: stdx timed first in each round over stdx timed again last, as the median of the jobs. It is never under 5%, since a lead under that</text>
-<text class="legend" x="16" y="1558">on one CPU model did not hold on another.</text>
-<text class="legend" x="16" y="1575">A library has no speed on a pattern that it refuses, where its answer is not Go regexp's, and where it has no such call. The report says</text>
-<text class="legend" x="16" y="1592">which.</text>
+<rect width="900" height="1811" fill="var(--surface)"/>
+<text class="title" x="16" y="26">stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 9V74 80-Core Processor</text>
+<text class="sub" x="16" y="46">The median of 5 jobs on AMD EPYC 9V74 80-Core Processor, the CPU model of 5 of 14 jobs, the most of any: runs</text>
+<text class="sub" x="16" y="62">45063408652, 45063422460, 45063430415, 45063442063, 45065561576, at commit f2b7425.</text>
+<text class="sub" x="16" y="78">The bars share one logarithmic axis of stdx over Rust regex. The other libraries stand in the columns at the right.</text>
+<text class="legend" x="16" y="106">A bar is the median of stdx over Rust regex:</text>
+<rect x="300" y="97" width="12" height="10" rx="2" fill="var(--stdx)"/><text class="legend" x="317" y="106">ahead</text>
+<rect x="374" y="97" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="391" y="106">level</text>
+<rect x="448" y="97" width="12" height="10" rx="2" fill="var(--surface)" stroke="var(--tie)" stroke-width="1.2"/><text class="legend" x="465" y="106">unclear</text>
+<rect x="522" y="97" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="539" y="106">behind</text>
+<circle cx="20" cy="120" r="1.6" fill="var(--ink)" fill-opacity="0.45"/><text class="legend" x="28" y="124">a job</text><text class="legend" x="76" y="124">|—| the interval of the median: the jobs' lowest to highest ratio, 94% confidence</text>
+<path d="M20,134.6 L23.4,138 L20,141.4 L16.6,138 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<text class="legend" x="28" y="142">the median of another CPU model's jobs: AMD EPYC 7763 64-Core Processor (4), Intel(R) Xeon(R) 6975P-C (3), AMD EPYC</text>
+<text class="legend" x="28" y="159">9V45 96-Core Processor (1), Intel(R) Xeon(R) 6973P-C (1)</text>
+<text class="panel" x="16" y="199">search for a literal: every match in 1 MiB, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="216">against Rust regex: ahead on 6, level on 0, behind on 0 of 6 rows, 5 patterns; geometric mean over these rows 1.42; from 1.09 to 3.31</text>
+<text class="sub" x="16" y="232">against Go regexp: ahead on 6, level on 0, behind on 0 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level</text>
+<text class="sub" x="16" y="248">on 0, behind on 0 of 5</text>
+<text class="tick" x="590" y="269">stdx ÷ Rust, interval</text>
+<text class="tick" x="752" y="269" text-anchor="end">÷ Go</text>
+<text class="tick" x="818" y="269" text-anchor="end">÷ mvzr</text>
+<text class="tick" x="884" y="269" text-anchor="end">÷ zig-regex</text>
+<line x1="287.6" y1="275" x2="287.6" y2="377" stroke="var(--grid)"/>
+<text class="tick" x="287.6" y="390" text-anchor="middle">1</text>
+<line x1="360.7" y1="275" x2="360.7" y2="377" stroke="var(--grid)"/>
+<text class="tick" x="360.7" y="390" text-anchor="middle">2</text>
+<line x1="433.8" y1="275" x2="433.8" y2="377" stroke="var(--grid)"/>
+<text class="tick" x="433.8" y="390" text-anchor="middle">4</text>
+<line x1="506.9" y1="275" x2="506.9" y2="377" stroke="var(--grid)"/>
+<text class="tick" x="506.9" y="390" text-anchor="middle">8</text>
+<line x1="580.0" y1="275" x2="580.0" y2="377" stroke="var(--grid)"/>
+<text class="tick" x="580.0" y="390" text-anchor="middle">16</text>
+<text class="row" x="242" y="287.5" text-anchor="end">a word</text>
+<rect x="287.6" y="278.0" width="9.1" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="294.3" y1="283.5" x2="298.1" y2="283.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="294.3" y1="280.5" x2="294.3" y2="286.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="298.1" y1="280.5" x2="298.1" y2="286.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="296.6" cy="283.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="297.6" cy="283.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="294.6" cy="283.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="294.3" cy="283.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="298.1" cy="283.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M296.5,280.1 L299.9,283.5 L296.5,286.9 L293.1,283.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M296.4,280.1 L299.8,283.5 L296.4,286.9 L293.0,283.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M324.6,280.1 L328.0,283.5 L324.6,286.9 L321.2,283.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M294.5,280.1 L297.9,283.5 L294.5,286.9 L291.1,283.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="279.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="287.5">1.09</text>
+<text class="tick" x="640" y="287.5">1.07–1.11</text>
+<text class="tick" x="752" y="287.5" text-anchor="end">3.62</text>
+<text class="tick" x="818" y="287.5" text-anchor="end">419</text>
+<text class="tick" x="884" y="287.5" text-anchor="end">3385</text>
+<text class="row" x="242" y="304.5" text-anchor="end">a word that is not there</text>
+<rect x="287.6" y="295.0" width="32.1" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="316.4" y1="300.5" x2="320.2" y2="300.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="316.4" y1="297.5" x2="316.4" y2="303.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="320.2" y1="297.5" x2="320.2" y2="303.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="319.6" cy="300.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.1" cy="300.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="316.4" cy="300.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.5" cy="300.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.2" cy="300.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M320.2,297.1 L323.6,300.5 L320.2,303.9 L316.8,300.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M312.4,297.1 L315.8,300.5 L312.4,303.9 L309.0,300.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M330.7,297.1 L334.1,300.5 L330.7,303.9 L327.3,300.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M309.5,297.1 L312.9,300.5 L309.5,303.9 L306.1,300.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="296.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="304.5">1.36</text>
+<text class="tick" x="640" y="304.5">1.31–1.36</text>
+<text class="tick" x="752" y="304.5" text-anchor="end">1.41</text>
+<text class="tick" x="818" y="304.5" text-anchor="end">627</text>
+<text class="tick" x="884" y="304.5" text-anchor="end">4829</text>
+<text class="row" x="242" y="321.5" text-anchor="end">one of four words</text>
+<rect x="287.6" y="312.0" width="14.8" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="298.7" y1="317.5" x2="303.2" y2="317.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="298.7" y1="314.5" x2="298.7" y2="320.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="303.2" y1="314.5" x2="303.2" y2="320.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="302.3" cy="317.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="303.2" cy="317.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="302.4" cy="317.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="298.7" cy="317.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="302.9" cy="317.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M292.0,314.1 L295.4,317.5 L292.0,320.9 L288.6,317.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M310.1,314.1 L313.5,317.5 L310.1,320.9 L306.7,317.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M312.5,314.1 L315.9,317.5 L312.5,320.9 L309.1,317.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M301.4,314.1 L304.8,317.5 L301.4,320.9 L298.0,317.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="313.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="321.5">1.15</text>
+<text class="tick" x="640" y="321.5">1.11–1.16</text>
+<text class="tick" x="752" y="321.5" text-anchor="end">551</text>
+<text class="tick" x="818" y="321.5" text-anchor="end">1671</text>
+<text class="tick" x="884" y="321.5" text-anchor="end">2986</text>
+<text class="row" x="242" y="338.5" text-anchor="end">a word in any case</text>
+<rect x="287.6" y="329.0" width="126.3" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="410.7" y1="334.5" x2="414.5" y2="334.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="410.7" y1="331.5" x2="410.7" y2="337.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="414.5" y1="331.5" x2="414.5" y2="337.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="413.9" cy="334.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="414.5" cy="334.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="410.7" cy="334.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="412.4" cy="334.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="414.3" cy="334.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M397.1,331.1 L400.5,334.5 L397.1,337.9 L393.7,334.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M398.4,331.1 L401.8,334.5 L398.4,337.9 L395.0,334.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M418.0,331.1 L421.4,334.5 L418.0,337.9 L414.6,334.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M390.4,331.1 L393.8,334.5 L390.4,337.9 L387.0,334.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="330.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="338.5">3.31</text>
+<text class="tick" x="640" y="338.5">3.21–3.33</text>
+<text class="tick" x="752" y="338.5" text-anchor="end">797</text>
+<text class="tick" x="818" y="338.5" text-anchor="end">—</text>
+<text class="tick" x="884" y="338.5" text-anchor="end">—</text>
+<text class="row" x="242" y="355.5" text-anchor="end">an href attribute</text>
+<rect x="287.6" y="346.0" width="24.3" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="311.5" y1="351.5" x2="313.1" y2="351.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="311.5" y1="348.5" x2="311.5" y2="354.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="313.1" y1="348.5" x2="313.1" y2="354.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="311.5" cy="351.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="311.8" cy="351.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="311.8" cy="351.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="313.1" cy="351.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="312.0" cy="351.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M326.0,348.1 L329.4,351.5 L326.0,354.9 L322.6,351.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M304.8,348.1 L308.2,351.5 L304.8,354.9 L301.4,351.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M331.6,348.1 L335.0,351.5 L331.6,354.9 L328.2,351.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M303.9,348.1 L307.3,351.5 L303.9,354.9 L300.5,351.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="347.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="355.5">1.26</text>
+<text class="tick" x="640" y="355.5">1.26–1.27</text>
+<text class="tick" x="752" y="355.5" text-anchor="end">14.72</text>
+<text class="tick" x="818" y="355.5" text-anchor="end">488</text>
+<text class="tick" x="884" y="355.5" text-anchor="end">4579</text>
+<text class="row" x="242" y="372.5" text-anchor="end">a word, second text</text>
+<rect x="287.6" y="363.0" width="16.1" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="302.8" y1="368.5" x2="304.8" y2="368.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="302.8" y1="365.5" x2="302.8" y2="371.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="304.8" y1="365.5" x2="304.8" y2="371.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="304.8" cy="368.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="304.5" cy="368.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="303.7" cy="368.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="302.8" cy="368.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="303.5" cy="368.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M311.5,365.1 L314.9,368.5 L311.5,371.9 L308.1,368.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M300.1,365.1 L303.5,368.5 L300.1,371.9 L296.7,368.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M320.8,365.1 L324.2,368.5 L320.8,371.9 L317.4,368.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M300.3,365.1 L303.7,368.5 L300.3,371.9 L296.9,368.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="364.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="372.5">1.17</text>
+<text class="tick" x="640" y="372.5">1.16–1.18</text>
+<text class="tick" x="752" y="372.5" text-anchor="end">4.35</text>
+<text class="tick" x="818" y="372.5" text-anchor="end">544</text>
+<text class="tick" x="884" y="372.5" text-anchor="end">3288</text>
+<line x1="287.6" y1="271" x2="287.6" y2="377" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="panel" x="16" y="427">search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="444">against Rust regex: ahead on 4, level on 1, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.50; from 1.006 to 2.02</text>
+<text class="sub" x="16" y="460">against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level</text>
+<text class="sub" x="16" y="476">on 0, behind on 0 of 5</text>
+<text class="tick" x="590" y="497">stdx ÷ Rust, interval</text>
+<text class="tick" x="752" y="497" text-anchor="end">÷ Go</text>
+<text class="tick" x="818" y="497" text-anchor="end">÷ mvzr</text>
+<text class="tick" x="884" y="497" text-anchor="end">÷ zig-regex</text>
+<line x1="287.6" y1="503" x2="287.6" y2="588" stroke="var(--grid)"/>
+<text class="tick" x="287.6" y="601" text-anchor="middle">1</text>
+<line x1="360.7" y1="503" x2="360.7" y2="588" stroke="var(--grid)"/>
+<text class="tick" x="360.7" y="601" text-anchor="middle">2</text>
+<line x1="433.8" y1="503" x2="433.8" y2="588" stroke="var(--grid)"/>
+<text class="tick" x="433.8" y="601" text-anchor="middle">4</text>
+<line x1="506.9" y1="503" x2="506.9" y2="588" stroke="var(--grid)"/>
+<text class="tick" x="506.9" y="601" text-anchor="middle">8</text>
+<line x1="580.0" y1="503" x2="580.0" y2="588" stroke="var(--grid)"/>
+<text class="tick" x="580.0" y="601" text-anchor="middle">16</text>
+<text class="row" x="242" y="515.5" text-anchor="end">two capitalized words</text>
+<rect x="287.6" y="506.0" width="48.8" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="335.0" y1="511.5" x2="336.4" y2="511.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="335.0" y1="508.5" x2="335.0" y2="514.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="336.4" y1="508.5" x2="336.4" y2="514.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="335.0" cy="511.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="336.4" cy="511.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="336.4" cy="511.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="336.2" cy="511.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="336.4" cy="511.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M332.4,508.1 L335.8,511.5 L332.4,514.9 L329.0,511.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M338.8,508.1 L342.2,511.5 L338.8,514.9 L335.4,511.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M338.6,508.1 L342.0,511.5 L338.6,514.9 L335.2,511.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M338.0,508.1 L341.4,511.5 L338.0,514.9 L334.6,511.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="507.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="515.5">1.59</text>
+<text class="tick" x="640" y="515.5">1.57–1.59</text>
+<text class="tick" x="752" y="515.5" text-anchor="end">20.43</text>
+<text class="tick" x="818" y="515.5" text-anchor="end">11.40</text>
+<text class="tick" x="884" y="515.5" text-anchor="end">82.94</text>
+<text class="row" x="242" y="532.5" text-anchor="end">a word that ends in ing</text>
+<rect x="287.6" y="523.0" width="50.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="338.1" y1="528.5" x2="338.3" y2="528.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="338.1" y1="525.5" x2="338.1" y2="531.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="338.3" y1="525.5" x2="338.3" y2="531.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="338.1" cy="528.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.3" cy="528.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.2" cy="528.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.3" cy="528.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.3" cy="528.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M334.9,525.1 L338.3,528.5 L334.9,531.9 L331.5,528.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M336.3,525.1 L339.7,528.5 L336.3,531.9 L332.9,528.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M337.4,525.1 L340.8,528.5 L337.4,531.9 L334.0,528.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M332.4,525.1 L335.8,528.5 L332.4,531.9 L329.0,528.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="524.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="532.5">1.62</text>
+<text class="tick" x="640" y="532.5">1.61–1.62</text>
+<text class="tick" x="752" y="532.5" text-anchor="end">26.75</text>
+<text class="tick" x="818" y="532.5" text-anchor="end">43.40</text>
+<text class="tick" x="884" y="532.5" text-anchor="end">141</text>
+<text class="row" x="242" y="549.5" text-anchor="end">a word in capitals</text>
+<rect x="287.6" y="540.0" width="74.3" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="361.0" y1="545.5" x2="362.2" y2="545.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="361.0" y1="542.5" x2="361.0" y2="548.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="362.2" y1="542.5" x2="362.2" y2="548.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="361.0" cy="545.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="361.8" cy="545.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="361.9" cy="545.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="362.2" cy="545.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="361.2" cy="545.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M359.1,542.1 L362.5,545.5 L359.1,548.9 L355.7,545.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M373.7,542.1 L377.1,545.5 L373.7,548.9 L370.3,545.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M380.9,542.1 L384.3,545.5 L380.9,548.9 L377.5,545.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M375.0,542.1 L378.4,545.5 L375.0,548.9 L371.6,545.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="541.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="549.5">2.02</text>
+<text class="tick" x="640" y="549.5">2.01–2.03</text>
+<text class="tick" x="752" y="549.5" text-anchor="end">23.94</text>
+<text class="tick" x="818" y="549.5" text-anchor="end">11.27</text>
+<text class="tick" x="884" y="549.5" text-anchor="end">91.56</text>
+<text class="row" x="242" y="566.5" text-anchor="end">a number</text>
+<rect x="287.6" y="557.0" width="1.5" height="11.1" rx="2" fill="var(--tie)"/>
+<line x1="286.9" y1="562.5" x2="289.4" y2="562.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="286.9" y1="559.5" x2="286.9" y2="565.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="289.4" y1="559.5" x2="289.4" y2="565.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="289.4" cy="562.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="288.2" cy="562.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="288.8" cy="562.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="286.9" cy="562.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="288.0" cy="562.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M286.4,559.1 L289.8,562.5 L286.4,565.9 L283.0,562.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M281.1,559.1 L284.5,562.5 L281.1,565.9 L277.7,562.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M301.6,559.1 L305.0,562.5 L301.6,565.9 L298.2,562.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M281.5,559.1 L284.9,562.5 L281.5,565.9 L278.1,562.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="558.5" width="8" height="8" rx="2" fill="var(--tie)"/>
+<text class="val" x="603" y="566.5">1.006</text>
+<text class="tick" x="640" y="566.5">0.993–1.018</text>
+<text class="tick" x="752" y="566.5" text-anchor="end">38.62</text>
+<text class="tick" x="818" y="566.5" text-anchor="end">25.38</text>
+<text class="tick" x="884" y="566.5" text-anchor="end">4863</text>
+<text class="row" x="242" y="583.5" text-anchor="end">two capitalized words, second text</text>
+<rect x="287.6" y="574.0" width="38.3" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="325.6" y1="579.5" x2="326.3" y2="579.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="325.6" y1="576.5" x2="325.6" y2="582.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="326.3" y1="576.5" x2="326.3" y2="582.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="326.1" cy="579.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="325.6" cy="579.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="325.9" cy="579.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="325.9" cy="579.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="326.3" cy="579.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M322.5,576.1 L325.9,579.5 L322.5,582.9 L319.1,579.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M324.9,576.1 L328.3,579.5 L324.9,582.9 L321.5,579.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M325.6,576.1 L329.0,579.5 L325.6,582.9 L322.2,579.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M325.9,576.1 L329.3,579.5 L325.9,582.9 L322.5,579.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="575.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="583.5">1.44</text>
+<text class="tick" x="640" y="583.5">1.43–1.44</text>
+<text class="tick" x="752" y="583.5" text-anchor="end">17.67</text>
+<text class="tick" x="818" y="583.5" text-anchor="end">9.29</text>
+<text class="tick" x="884" y="583.5" text-anchor="end">54.53</text>
+<line x1="287.6" y1="499" x2="287.6" y2="588" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="panel" x="16" y="638">search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="655">against Rust regex: ahead on 6, level on 1, behind on 0 of 7 rows, 7 patterns; from 1.003 to 11.01</text>
+<text class="sub" x="16" y="671">against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level</text>
+<text class="sub" x="16" y="687">on 0, behind on 0 of 4</text>
+<text class="tick" x="590" y="708">stdx ÷ Rust, interval</text>
+<text class="tick" x="752" y="708" text-anchor="end">÷ Go</text>
+<text class="tick" x="818" y="708" text-anchor="end">÷ mvzr</text>
+<text class="tick" x="884" y="708" text-anchor="end">÷ zig-regex</text>
+<line x1="287.6" y1="714" x2="287.6" y2="833" stroke="var(--grid)"/>
+<text class="tick" x="287.6" y="846" text-anchor="middle">1</text>
+<line x1="360.7" y1="714" x2="360.7" y2="833" stroke="var(--grid)"/>
+<text class="tick" x="360.7" y="846" text-anchor="middle">2</text>
+<line x1="433.8" y1="714" x2="433.8" y2="833" stroke="var(--grid)"/>
+<text class="tick" x="433.8" y="846" text-anchor="middle">4</text>
+<line x1="506.9" y1="714" x2="506.9" y2="833" stroke="var(--grid)"/>
+<text class="tick" x="506.9" y="846" text-anchor="middle">8</text>
+<line x1="580.0" y1="714" x2="580.0" y2="833" stroke="var(--grid)"/>
+<text class="tick" x="580.0" y="846" text-anchor="middle">16</text>
+<text class="row" x="242" y="726.5" text-anchor="end">a word between two words</text>
+<rect x="287.6" y="717.0" width="1.5" height="11.1" rx="2" fill="var(--tie)"/>
+<line x1="287.5" y1="722.5" x2="288.2" y2="722.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="287.5" y1="719.5" x2="287.5" y2="725.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="288.2" y1="719.5" x2="288.2" y2="725.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="288.2" cy="722.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="287.9" cy="722.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="287.8" cy="722.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="287.5" cy="722.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="287.9" cy="722.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M283.2,719.1 L286.6,722.5 L283.2,725.9 L279.8,722.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M283.0,719.1 L286.4,722.5 L283.0,725.9 L279.6,722.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M298.0,719.1 L301.4,722.5 L298.0,725.9 L294.6,722.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M284.3,719.1 L287.7,722.5 L284.3,725.9 L280.9,722.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="718.5" width="8" height="8" rx="2" fill="var(--tie)"/>
+<text class="val" x="603" y="726.5">1.003</text>
+<text class="tick" x="640" y="726.5">1.000–1.006</text>
+<text class="tick" x="752" y="726.5" text-anchor="end">6.46</text>
+<text class="tick" x="818" y="726.5" text-anchor="end">10.20</text>
+<text class="tick" x="884" y="726.5" text-anchor="end">97.92</text>
+<text class="row" x="242" y="743.5" text-anchor="end">a number before a unit, second text</text>
+<rect x="287.6" y="734.0" width="13.6" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="301.0" y1="739.5" x2="301.9" y2="739.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="301.0" y1="736.5" x2="301.0" y2="742.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="301.9" y1="736.5" x2="301.9" y2="742.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="301.9" cy="739.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="301.3" cy="739.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="301.2" cy="739.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="301.0" cy="739.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="301.1" cy="739.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M297.5,736.1 L300.9,739.5 L297.5,742.9 L294.1,739.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M289.3,736.1 L292.7,739.5 L289.3,742.9 L285.9,739.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M298.3,736.1 L301.7,739.5 L298.3,742.9 L294.9,739.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M289.7,736.1 L293.1,739.5 L289.7,742.9 L286.3,739.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="735.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="743.5">1.14</text>
+<text class="tick" x="640" y="743.5">1.14–1.15</text>
+<text class="tick" x="752" y="743.5" text-anchor="end">232</text>
+<text class="tick" x="818" y="743.5" text-anchor="end">136</text>
+<text class="tick" x="884" y="743.5" text-anchor="end">804</text>
+<text class="row" x="242" y="760.5" text-anchor="end">a heading's start tag</text>
+<rect x="287.6" y="751.0" width="239.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="526.1" y1="756.5" x2="526.7" y2="756.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="526.1" y1="753.5" x2="526.1" y2="759.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="526.7" y1="753.5" x2="526.7" y2="759.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="526.1" cy="756.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="526.7" cy="756.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="526.2" cy="756.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="526.7" cy="756.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="526.5" cy="756.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M526.7,753.1 L530.1,756.5 L526.7,759.9 L523.3,756.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M508.2,753.1 L511.6,756.5 L508.2,759.9 L504.8,756.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M522.1,753.1 L525.5,756.5 L522.1,759.9 L518.7,756.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M499.5,753.1 L502.9,756.5 L499.5,759.9 L496.1,756.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="752.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="760.5">9.64</text>
+<text class="tick" x="640" y="760.5">9.60–9.65</text>
+<text class="tick" x="752" y="760.5" text-anchor="end">12.72</text>
+<text class="tick" x="818" y="760.5" text-anchor="end">239</text>
+<text class="tick" x="884" y="760.5" text-anchor="end">2163</text>
+<text class="row" x="242" y="777.5" text-anchor="end">a whole word</text>
+<rect x="287.6" y="768.0" width="7.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="293.5" y1="773.5" x2="296.4" y2="773.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="293.5" y1="770.5" x2="293.5" y2="776.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="296.4" y1="770.5" x2="296.4" y2="776.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="295.3" cy="773.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="296.4" cy="773.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="293.5" cy="773.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="293.9" cy="773.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="295.2" cy="773.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M291.1,770.1 L294.5,773.5 L291.1,776.9 L287.7,773.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M291.1,770.1 L294.5,773.5 L291.1,776.9 L287.7,773.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M313.6,770.1 L317.0,773.5 L313.6,776.9 L310.2,773.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M291.7,770.1 L295.1,773.5 L291.7,776.9 L288.3,773.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="769.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="777.5">1.08</text>
+<text class="tick" x="640" y="777.5">1.06–1.09</text>
+<text class="tick" x="752" y="777.5" text-anchor="end">573</text>
+<text class="tick" x="818" y="777.5" text-anchor="end">496</text>
+<text class="tick" x="884" y="777.5" text-anchor="end">2804</text>
+<text class="row" x="242" y="794.5" text-anchor="end">a line's first word, second text</text>
+<rect x="287.6" y="785.0" width="7.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="291.2" y1="790.5" x2="296.7" y2="790.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="291.2" y1="787.5" x2="291.2" y2="793.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="296.7" y1="787.5" x2="296.7" y2="793.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="296.0" cy="790.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="295.2" cy="790.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="296.7" cy="790.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="295.2" cy="790.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="291.2" cy="790.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M297.0,787.1 L300.4,790.5 L297.0,793.9 L293.6,790.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M295.4,787.1 L298.8,790.5 L295.4,793.9 L292.0,790.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M282.1,787.1 L285.5,790.5 L282.1,793.9 L278.7,790.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M296.0,787.1 L299.4,790.5 L296.0,793.9 L292.6,790.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="786.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="794.5">1.08</text>
+<text class="tick" x="640" y="794.5">1.04–1.09</text>
+<text class="tick" x="752" y="794.5" text-anchor="end">36.98</text>
+<text class="tick" x="818" y="794.5" text-anchor="end">—</text>
+<text class="tick" x="884" y="794.5" text-anchor="end">—</text>
+<text class="row" x="242" y="811.5" text-anchor="end">fourteen octets before an x</text>
+<rect x="287.6" y="802.0" width="253.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="536.9" y1="807.5" x2="541.6" y2="807.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="536.9" y1="804.5" x2="536.9" y2="810.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="541.6" y1="804.5" x2="541.6" y2="810.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="536.9" cy="807.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="540.6" cy="807.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="541.3" cy="807.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="541.6" cy="807.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="538.4" cy="807.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M529.7,804.1 L533.1,807.5 L529.7,810.9 L526.3,807.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M519.0,804.1 L522.4,807.5 L519.0,810.9 L515.6,807.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M531.6,804.1 L535.0,807.5 L531.6,810.9 L528.2,807.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M515.1,804.1 L518.5,807.5 L515.1,810.9 L511.7,807.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="803.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="811.5">11.01</text>
+<text class="tick" x="640" y="811.5">10.64–11.12</text>
+<text class="tick" x="752" y="811.5" text-anchor="end">3240</text>
+<text class="tick" x="818" y="811.5" text-anchor="end">1735</text>
+<text class="tick" x="884" y="811.5" text-anchor="end">—</text>
+<text class="row" x="242" y="828.5" text-anchor="end">a Greek word</text>
+<rect x="287.6" y="819.0" width="44.5" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="331.3" y1="824.5" x2="332.4" y2="824.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="331.3" y1="821.5" x2="331.3" y2="827.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="332.4" y1="821.5" x2="332.4" y2="827.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="331.3" cy="824.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.4" cy="824.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.4" cy="824.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="331.7" cy="824.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.1" cy="824.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M327.9,821.1 L331.3,824.5 L327.9,827.9 L324.5,824.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M330.1,821.1 L333.5,824.5 L330.1,827.9 L326.7,824.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M342.9,821.1 L346.3,824.5 L342.9,827.9 L339.5,824.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M331.4,821.1 L334.8,824.5 L331.4,827.9 L328.0,824.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="820.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="828.5">1.53</text>
+<text class="tick" x="640" y="828.5">1.51–1.53</text>
+<text class="tick" x="752" y="828.5" text-anchor="end">8.13</text>
+<text class="tick" x="818" y="828.5" text-anchor="end">—</text>
+<text class="tick" x="884" y="828.5" text-anchor="end">—</text>
+<line x1="287.6" y1="710" x2="287.6" y2="833" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="panel" x="16" y="883">a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="900">against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.25; from 1.19 to 1.36</text>
+<text class="sub" x="16" y="916">against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level</text>
+<text class="sub" x="16" y="932">on 0, behind on 0 of 2</text>
+<text class="tick" x="590" y="953">stdx ÷ Rust, interval</text>
+<text class="tick" x="752" y="953" text-anchor="end">÷ Go</text>
+<text class="tick" x="818" y="953" text-anchor="end">÷ mvzr</text>
+<text class="tick" x="884" y="953" text-anchor="end">÷ zig-regex</text>
+<line x1="287.6" y1="959" x2="287.6" y2="1044" stroke="var(--grid)"/>
+<text class="tick" x="287.6" y="1057" text-anchor="middle">1</text>
+<line x1="360.7" y1="959" x2="360.7" y2="1044" stroke="var(--grid)"/>
+<text class="tick" x="360.7" y="1057" text-anchor="middle">2</text>
+<line x1="433.8" y1="959" x2="433.8" y2="1044" stroke="var(--grid)"/>
+<text class="tick" x="433.8" y="1057" text-anchor="middle">4</text>
+<line x1="506.9" y1="959" x2="506.9" y2="1044" stroke="var(--grid)"/>
+<text class="tick" x="506.9" y="1057" text-anchor="middle">8</text>
+<line x1="580.0" y1="959" x2="580.0" y2="1044" stroke="var(--grid)"/>
+<text class="tick" x="580.0" y="1057" text-anchor="middle">16</text>
+<text class="row" x="242" y="971.5" text-anchor="end">an email address</text>
+<rect x="287.6" y="962.0" width="18.4" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="305.7" y1="967.5" x2="306.8" y2="967.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="305.7" y1="964.5" x2="305.7" y2="970.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="306.8" y1="964.5" x2="306.8" y2="970.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="306.0" cy="967.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="306.0" cy="967.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="306.8" cy="967.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.9" cy="967.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.7" cy="967.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M317.3,964.1 L320.7,967.5 L317.3,970.9 L313.9,967.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M295.1,964.1 L298.5,967.5 L295.1,970.9 L291.7,967.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M304.0,964.1 L307.4,967.5 L304.0,970.9 L300.6,967.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M293.7,964.1 L297.1,967.5 L293.7,970.9 L290.3,967.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="963.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="971.5">1.19</text>
+<text class="tick" x="640" y="971.5">1.19–1.20</text>
+<text class="tick" x="752" y="971.5" text-anchor="end">10.84</text>
+<text class="tick" x="818" y="971.5" text-anchor="end">7.62</text>
+<text class="tick" x="884" y="971.5" text-anchor="end">—</text>
+<text class="row" x="242" y="988.5" text-anchor="end">a UUID</text>
+<rect x="287.6" y="979.0" width="32.6" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="320.0" y1="984.5" x2="320.6" y2="984.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="320.0" y1="981.5" x2="320.0" y2="987.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="320.6" y1="981.5" x2="320.6" y2="987.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="320.1" cy="984.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.2" cy="984.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.3" cy="984.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.6" cy="984.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.0" cy="984.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M330.9,981.1 L334.3,984.5 L330.9,987.9 L327.5,984.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M313.6,981.1 L317.0,984.5 L313.6,987.9 L310.2,984.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M307.4,981.1 L310.8,984.5 L307.4,987.9 L304.0,984.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M313.7,981.1 L317.1,984.5 L313.7,987.9 L310.3,984.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="980.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="988.5">1.36</text>
+<text class="tick" x="640" y="988.5">1.36–1.37</text>
+<text class="tick" x="752" y="988.5" text-anchor="end">8.41</text>
+<text class="tick" x="818" y="988.5" text-anchor="end">6.79</text>
+<text class="tick" x="884" y="988.5" text-anchor="end">49.58</text>
+<text class="row" x="242" y="1005.5" text-anchor="end">an IPv4 address</text>
+<rect x="287.6" y="996.0" width="20.2" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="307.0" y1="1001.5" x2="309.8" y2="1001.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="307.0" y1="998.5" x2="307.0" y2="1004.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="309.8" y1="998.5" x2="309.8" y2="1004.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="308.1" cy="1001.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.8" cy="1001.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.5" cy="1001.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.0" cy="1001.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="309.8" cy="1001.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M311.1,998.1 L314.5,1001.5 L311.1,1004.9 L307.7,1001.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M294.9,998.1 L298.3,1001.5 L294.9,1004.9 L291.5,1001.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M302.6,998.1 L306.0,1001.5 L302.6,1004.9 L299.2,1001.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M294.8,998.1 L298.2,1001.5 L294.8,1004.9 L291.4,1001.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="997.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1005.5">1.21</text>
+<text class="tick" x="640" y="1005.5">1.20–1.23</text>
+<text class="tick" x="752" y="1005.5" text-anchor="end">6.28</text>
+<text class="tick" x="818" y="1005.5" text-anchor="end">10.58</text>
+<text class="tick" x="884" y="1005.5" text-anchor="end">—</text>
+<text class="row" x="242" y="1022.5" text-anchor="end">a date and time</text>
+<rect x="287.6" y="1013.0" width="30.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="316.4" y1="1018.5" x2="318.0" y2="1018.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="316.4" y1="1015.5" x2="316.4" y2="1021.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="318.0" y1="1015.5" x2="318.0" y2="1021.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="316.4" cy="1018.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.2" cy="1018.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.5" cy="1018.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.0" cy="1018.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.7" cy="1018.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M331.6,1015.1 L335.0,1018.5 L331.6,1021.9 L328.2,1018.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M303.5,1015.1 L306.9,1018.5 L303.5,1021.9 L300.1,1018.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M307.5,1015.1 L310.9,1018.5 L307.5,1021.9 L304.1,1018.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M303.2,1015.1 L306.6,1018.5 L303.2,1021.9 L299.8,1018.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1014.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1022.5">1.33</text>
+<text class="tick" x="640" y="1022.5">1.31–1.33</text>
+<text class="tick" x="752" y="1022.5" text-anchor="end">4.60</text>
+<text class="tick" x="818" y="1022.5" text-anchor="end">5.01</text>
+<text class="tick" x="884" y="1022.5" text-anchor="end">43.10</text>
+<text class="row" x="242" y="1039.5" text-anchor="end">a field path</text>
+<rect x="287.6" y="1030.0" width="18.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line x1="305.2" y1="1035.5" x2="307.6" y2="1035.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="305.2" y1="1032.5" x2="305.2" y2="1038.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="307.6" y1="1032.5" x2="307.6" y2="1038.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="305.2" cy="1035.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.6" cy="1035.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.6" cy="1035.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.5" cy="1035.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.6" cy="1035.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M312.9,1032.1 L316.3,1035.5 L312.9,1038.9 L309.5,1035.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M296.2,1032.1 L299.6,1035.5 L296.2,1038.9 L292.8,1035.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M300.3,1032.1 L303.7,1035.5 L300.3,1038.9 L296.9,1035.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M295.3,1032.1 L298.7,1035.5 L295.3,1038.9 L291.9,1035.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1031.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1039.5">1.19</text>
+<text class="tick" x="640" y="1039.5">1.18–1.21</text>
+<text class="tick" x="752" y="1039.5" text-anchor="end">9.76</text>
+<text class="tick" x="818" y="1039.5" text-anchor="end">11.70</text>
+<text class="tick" x="884" y="1039.5" text-anchor="end">—</text>
+<line x1="287.6" y1="955" x2="287.6" y2="1044" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="panel" x="16" y="1094">the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="1111">against Rust regex: behind, at 0.85, 0.84 to 0.87</text>
+<text class="sub" x="16" y="1127">against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1</text>
+<text class="tick" x="590" y="1148">stdx ÷ Rust, interval</text>
+<text class="tick" x="752" y="1148" text-anchor="end">÷ Go</text>
+<text class="tick" x="818" y="1148" text-anchor="end">÷ mvzr</text>
+<text class="tick" x="884" y="1148" text-anchor="end">÷ zig-regex</text>
+<line x1="287.6" y1="1154" x2="287.6" y2="1171" stroke="var(--grid)"/>
+<text class="tick" x="287.6" y="1184" text-anchor="middle">1</text>
+<line x1="360.7" y1="1154" x2="360.7" y2="1171" stroke="var(--grid)"/>
+<text class="tick" x="360.7" y="1184" text-anchor="middle">2</text>
+<line x1="433.8" y1="1154" x2="433.8" y2="1171" stroke="var(--grid)"/>
+<text class="tick" x="433.8" y="1184" text-anchor="middle">4</text>
+<line x1="506.9" y1="1154" x2="506.9" y2="1171" stroke="var(--grid)"/>
+<text class="tick" x="506.9" y="1184" text-anchor="middle">8</text>
+<line x1="580.0" y1="1154" x2="580.0" y2="1171" stroke="var(--grid)"/>
+<text class="tick" x="580.0" y="1184" text-anchor="middle">16</text>
+<text class="row" x="242" y="1166.5" text-anchor="end">a date and time, six groups</text>
+<rect x="270.5" y="1157.0" width="17.1" height="11.1" rx="2" fill="var(--lose)"/>
+<line x1="269.2" y1="1162.5" x2="272.3" y2="1162.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="269.2" y1="1159.5" x2="269.2" y2="1165.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="272.3" y1="1159.5" x2="272.3" y2="1165.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="272.3" cy="1162.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="269.2" cy="1162.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="270.1" cy="1162.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="270.5" cy="1162.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="270.8" cy="1162.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M270.6,1159.1 L274.0,1162.5 L270.6,1165.9 L267.2,1162.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M260.7,1159.1 L264.1,1162.5 L260.7,1165.9 L257.3,1162.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M279.9,1159.1 L283.3,1162.5 L279.9,1165.9 L276.5,1162.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M263.9,1159.1 L267.3,1162.5 L263.9,1165.9 L260.5,1162.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1158.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<text class="val" x="603" y="1166.5">0.85</text>
+<text class="tick" x="640" y="1166.5">0.84–0.87</text>
+<text class="tick" x="752" y="1166.5" text-anchor="end">1.96</text>
+<text class="tick" x="818" y="1166.5" text-anchor="end">—</text>
+<text class="tick" x="884" y="1166.5" text-anchor="end">15.15</text>
+<line x1="287.6" y1="1150" x2="287.6" y2="1171" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="panel" x="16" y="1221">a pattern compiled and made ready for its first search, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="1238">against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.42 to 35.02</text>
+<text class="sub" x="16" y="1254">against Go regexp: ahead on 13 (2 inside 5%), level on 0, behind on 10 (1 inside 5%) of 23; mvzr: ahead on 0, level on 0, behind on 21 of</text>
+<text class="sub" x="16" y="1270">21; zig-regex: ahead on 1, level on 0, behind on 20 of 21</text>
+<text class="sub" x="16" y="1286">stdx compiles both programs and readies a searcher, Rust's crate runs Regex::new and Go regexp.Compile. A program compiles a pattern once</text>
+<text class="sub" x="16" y="1302">and searches with it many times.</text>
+<text class="tick" x="590" y="1323">stdx ÷ Rust, interval</text>
+<text class="tick" x="752" y="1323" text-anchor="end">÷ Go</text>
+<text class="tick" x="818" y="1323" text-anchor="end">÷ mvzr</text>
+<text class="tick" x="884" y="1323" text-anchor="end">÷ zig-regex</text>
+<line x1="287.6" y1="1329" x2="287.6" y2="1605" stroke="var(--grid)"/>
+<text class="tick" x="287.6" y="1618" text-anchor="middle">1</text>
+<line x1="360.7" y1="1329" x2="360.7" y2="1605" stroke="var(--grid)"/>
+<text class="tick" x="360.7" y="1618" text-anchor="middle">2</text>
+<line x1="433.8" y1="1329" x2="433.8" y2="1605" stroke="var(--grid)"/>
+<text class="tick" x="433.8" y="1618" text-anchor="middle">4</text>
+<line x1="506.9" y1="1329" x2="506.9" y2="1605" stroke="var(--grid)"/>
+<text class="tick" x="506.9" y="1618" text-anchor="middle">8</text>
+<line x1="580.0" y1="1329" x2="580.0" y2="1605" stroke="var(--grid)"/>
+<text class="tick" x="580.0" y="1618" text-anchor="middle">16</text>
+<text class="row" x="242" y="1339.0" text-anchor="end">an email address</text>
+<rect x="287.6" y="1331.1" width="117.2" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="403.7" y1="1335.0" x2="405.4" y2="1335.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="403.7" y1="1332.0" x2="403.7" y2="1338.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="405.4" y1="1332.0" x2="405.4" y2="1338.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="403.7" cy="1335.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="404.7" cy="1335.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="405.0" cy="1335.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="405.4" cy="1335.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="404.8" cy="1335.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M402.4,1331.6 L405.8,1335.0 L402.4,1338.4 L399.0,1335.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M405.0,1331.6 L408.4,1335.0 L405.0,1338.4 L401.6,1335.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M413.9,1331.6 L417.3,1335.0 L413.9,1338.4 L410.5,1335.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M410.7,1331.6 L414.1,1335.0 L410.7,1338.4 L407.3,1335.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1331.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1339.0">3.04</text>
+<text class="tick" x="640" y="1339.0">3.01–3.06</text>
+<text class="tick" x="752" y="1339.0" text-anchor="end">1.28</text>
+<text class="tick" x="818" y="1339.0" text-anchor="end">1/16</text>
+<text class="tick" x="884" y="1339.0" text-anchor="end">0.44</text>
+<text class="row" x="242" y="1351.0" text-anchor="end">a UUID</text>
+<rect x="287.6" y="1343.1" width="133.6" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="419.3" y1="1347.0" x2="422.2" y2="1347.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="419.3" y1="1344.0" x2="419.3" y2="1350.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="422.2" y1="1344.0" x2="422.2" y2="1350.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="421.1" cy="1347.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="419.5" cy="1347.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="422.0" cy="1347.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="422.2" cy="1347.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="419.3" cy="1347.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M416.4,1343.6 L419.8,1347.0 L416.4,1350.4 L413.0,1347.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M429.7,1343.6 L433.1,1347.0 L429.7,1350.4 L426.3,1347.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M433.3,1343.6 L436.7,1347.0 L433.3,1350.4 L429.9,1347.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M442.3,1343.6 L445.7,1347.0 L442.3,1350.4 L438.9,1347.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1343.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1351.0">3.55</text>
+<text class="tick" x="640" y="1351.0">3.49–3.58</text>
+<text class="tick" x="752" y="1351.0" text-anchor="end">1.72</text>
+<text class="tick" x="818" y="1351.0" text-anchor="end">1/25</text>
+<text class="tick" x="884" y="1351.0" text-anchor="end">0.82</text>
+<text class="row" x="242" y="1363.0" text-anchor="end">an IPv4 address</text>
+<rect x="287.6" y="1355.1" width="195.9" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="482.4" y1="1359.0" x2="484.5" y2="1359.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="482.4" y1="1356.0" x2="482.4" y2="1362.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="484.5" y1="1356.0" x2="484.5" y2="1362.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="484.5" cy="1359.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="484.0" cy="1359.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="482.4" cy="1359.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="483.4" cy="1359.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="483.4" cy="1359.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M479.5,1355.6 L482.9,1359.0 L479.5,1362.4 L476.1,1359.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M482.9,1355.6 L486.3,1359.0 L482.9,1362.4 L479.5,1359.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M489.1,1355.6 L492.5,1359.0 L489.1,1362.4 L485.7,1359.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M483.2,1355.6 L486.6,1359.0 L483.2,1362.4 L479.8,1359.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1355.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1363.0">6.41</text>
+<text class="tick" x="640" y="1363.0">6.34–6.47</text>
+<text class="tick" x="752" y="1363.0" text-anchor="end">3.81</text>
+<text class="tick" x="818" y="1363.0" text-anchor="end">1/16</text>
+<text class="tick" x="884" y="1363.0" text-anchor="end">1.45</text>
+<text class="row" x="242" y="1375.0" text-anchor="end">a date and time</text>
+<rect x="287.6" y="1367.1" width="163.1" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="449.3" y1="1371.0" x2="452.6" y2="1371.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="449.3" y1="1368.0" x2="449.3" y2="1374.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="452.6" y1="1368.0" x2="452.6" y2="1374.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="452.6" cy="1371.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.7" cy="1371.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="449.3" cy="1371.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="450.7" cy="1371.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="449.3" cy="1371.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M444.4,1367.6 L447.8,1371.0 L444.4,1374.4 L441.0,1371.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M457.4,1367.6 L460.8,1371.0 L457.4,1374.4 L454.0,1371.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M456.5,1367.6 L459.9,1371.0 L456.5,1374.4 L453.1,1371.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M456.3,1367.6 L459.7,1371.0 L456.3,1374.4 L452.9,1371.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1367.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1375.0">4.69</text>
+<text class="tick" x="640" y="1375.0">4.63–4.78</text>
+<text class="tick" x="752" y="1375.0" text-anchor="end">2.51</text>
+<text class="tick" x="818" y="1375.0" text-anchor="end">1/13</text>
+<text class="tick" x="884" y="1375.0" text-anchor="end">0.88</text>
+<text class="row" x="242" y="1387.0" text-anchor="end">a field path</text>
+<rect x="287.6" y="1379.1" width="129.0" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="414.8" y1="1383.0" x2="417.6" y2="1383.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="414.8" y1="1380.0" x2="414.8" y2="1386.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="417.6" y1="1380.0" x2="417.6" y2="1386.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="417.1" cy="1383.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="417.6" cy="1383.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="416.6" cy="1383.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="414.8" cy="1383.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="415.2" cy="1383.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M416.0,1379.6 L419.4,1383.0 L416.0,1386.4 L412.6,1383.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M420.2,1379.6 L423.6,1383.0 L420.2,1386.4 L416.8,1383.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M427.2,1379.6 L430.6,1383.0 L427.2,1386.4 L423.8,1383.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M426.0,1379.6 L429.4,1383.0 L426.0,1386.4 L422.6,1383.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1379.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1387.0">3.40</text>
+<text class="tick" x="640" y="1387.0">3.34–3.43</text>
+<text class="tick" x="752" y="1387.0" text-anchor="end">1.41</text>
+<text class="tick" x="818" y="1387.0" text-anchor="end">1/18</text>
+<text class="tick" x="884" y="1387.0" text-anchor="end">0.45</text>
+<text class="row" x="242" y="1399.0" text-anchor="end">a word</text>
+<rect x="287.6" y="1391.1" width="37.0" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="322.7" y1="1395.0" x2="332.2" y2="1395.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="322.7" y1="1392.0" x2="322.7" y2="1398.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="332.2" y1="1392.0" x2="332.2" y2="1398.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="325.4" cy="1395.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.2" cy="1395.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="323.7" cy="1395.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="324.6" cy="1395.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.7" cy="1395.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M327.0,1391.6 L330.4,1395.0 L327.0,1398.4 L323.6,1395.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M337.5,1391.6 L340.9,1395.0 L337.5,1398.4 L334.1,1395.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M343.3,1391.6 L346.7,1395.0 L343.3,1398.4 L339.9,1395.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M331.8,1391.6 L335.2,1395.0 L331.8,1398.4 L328.4,1395.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1391.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1399.0">1.42</text>
+<text class="tick" x="640" y="1399.0">1.40–1.53</text>
+<text class="tick" x="752" y="1399.0" text-anchor="end">1.17</text>
+<text class="tick" x="818" y="1399.0" text-anchor="end">1/35</text>
+<text class="tick" x="884" y="1399.0" text-anchor="end">0.58</text>
+<text class="row" x="242" y="1411.0" text-anchor="end">a word that is not there</text>
+<rect x="287.6" y="1403.1" width="42.0" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="327.8" y1="1407.0" x2="338.0" y2="1407.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="327.8" y1="1404.0" x2="327.8" y2="1410.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="338.0" y1="1404.0" x2="338.0" y2="1410.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="330.8" cy="1407.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.0" cy="1407.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.2" cy="1407.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.5" cy="1407.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="327.8" cy="1407.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M330.7,1403.6 L334.1,1407.0 L330.7,1410.4 L327.3,1407.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M346.2,1403.6 L349.6,1407.0 L346.2,1410.4 L342.8,1407.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M346.0,1403.6 L349.4,1407.0 L346.0,1410.4 L342.6,1407.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M340.3,1403.6 L343.7,1407.0 L340.3,1410.4 L336.9,1407.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1403.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1411.0">1.49</text>
+<text class="tick" x="640" y="1411.0">1.46–1.61</text>
+<text class="tick" x="752" y="1411.0" text-anchor="end">1.17</text>
+<text class="tick" x="818" y="1411.0" text-anchor="end">1/35</text>
+<text class="tick" x="884" y="1411.0" text-anchor="end">0.59</text>
+<text class="row" x="242" y="1423.0" text-anchor="end">one of four words</text>
+<rect x="287.6" y="1415.1" width="218.6" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="505.5" y1="1419.0" x2="506.5" y2="1419.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="505.5" y1="1416.0" x2="505.5" y2="1422.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="506.5" y1="1416.0" x2="506.5" y2="1422.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="506.2" cy="1419.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="506.1" cy="1419.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="506.3" cy="1419.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="506.5" cy="1419.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="505.5" cy="1419.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M508.4,1415.6 L511.8,1419.0 L508.4,1422.4 L505.0,1419.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M545.1,1415.6 L548.5,1419.0 L545.1,1422.4 L541.7,1419.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M523.7,1415.6 L527.1,1419.0 L523.7,1422.4 L520.3,1419.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M539.5,1415.6 L542.9,1419.0 L539.5,1422.4 L536.1,1419.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1415.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1423.0">7.95</text>
+<text class="tick" x="640" y="1423.0">7.90–7.97</text>
+<text class="tick" x="752" y="1423.0" text-anchor="end">1.60</text>
+<text class="tick" x="818" y="1423.0" text-anchor="end">1/34</text>
+<text class="tick" x="884" y="1423.0" text-anchor="end">0.80</text>
+<text class="row" x="242" y="1435.0" text-anchor="end">a word in any case</text>
+<rect x="287.6" y="1427.1" width="292.4" height="7.8" rx="2" fill="var(--stdx)"/>
+<path d="M585.0,1431.0 L580.0,1427.0 L580.0,1435.0 Z" fill="var(--ink)"/>
+<line x1="580.0" y1="1431.0" x2="580.0" y2="1431.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="580.0" y1="1428.0" x2="580.0" y2="1434.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="580.0" y1="1428.0" x2="580.0" y2="1434.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="580.0" cy="1431.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1431.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1431.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1431.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1431.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M580.0,1427.6 L583.4,1431.0 L580.0,1434.4 L576.6,1431.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1427.6 L583.4,1431.0 L580.0,1434.4 L576.6,1431.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1427.6 L583.4,1431.0 L580.0,1434.4 L576.6,1431.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1427.6 L583.4,1431.0 L580.0,1434.4 L576.6,1431.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1427.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1435.0">35.02</text>
+<text class="tick" x="640" y="1435.0">34.90–35.77</text>
+<text class="tick" x="752" y="1435.0" text-anchor="end">0.84</text>
+<text class="tick" x="818" y="1435.0" text-anchor="end">1/36</text>
+<text class="tick" x="884" y="1435.0" text-anchor="end">—</text>
+<text class="row" x="242" y="1447.0" text-anchor="end">an href attribute</text>
+<rect x="287.6" y="1439.1" width="245.4" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="532.3" y1="1443.0" x2="533.4" y2="1443.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="532.3" y1="1440.0" x2="532.3" y2="1446.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="533.4" y1="1440.0" x2="533.4" y2="1446.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="532.6" cy="1443.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="533.2" cy="1443.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="532.3" cy="1443.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="533.4" cy="1443.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="532.9" cy="1443.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M537.5,1439.6 L540.9,1443.0 L537.5,1446.4 L534.1,1443.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M548.5,1439.6 L551.9,1443.0 L548.5,1446.4 L545.1,1443.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M552.0,1439.6 L555.4,1443.0 L552.0,1446.4 L548.6,1443.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M547.5,1439.6 L550.9,1443.0 L547.5,1446.4 L544.1,1443.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1439.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1447.0">10.24</text>
+<text class="tick" x="640" y="1447.0">10.18–10.29</text>
+<text class="tick" x="752" y="1447.0" text-anchor="end">0.91</text>
+<text class="tick" x="818" y="1447.0" text-anchor="end">1/43</text>
+<text class="tick" x="884" y="1447.0" text-anchor="end">0.42</text>
+<text class="row" x="242" y="1459.0" text-anchor="end">a word, second text</text>
+<rect x="287.6" y="1451.1" width="45.3" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="331.4" y1="1455.0" x2="337.7" y2="1455.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="331.4" y1="1452.0" x2="331.4" y2="1458.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="337.7" y1="1452.0" x2="337.7" y2="1458.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="333.4" cy="1455.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.7" cy="1455.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="331.4" cy="1455.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.9" cy="1455.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="331.9" cy="1455.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M330.6,1451.6 L334.0,1455.0 L330.6,1458.4 L327.2,1455.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M345.8,1451.6 L349.2,1455.0 L345.8,1458.4 L342.4,1455.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M344.3,1451.6 L347.7,1455.0 L344.3,1458.4 L340.9,1455.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M343.0,1451.6 L346.4,1455.0 L343.0,1458.4 L339.6,1455.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1451.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1459.0">1.54</text>
+<text class="tick" x="640" y="1459.0">1.51–1.61</text>
+<text class="tick" x="752" y="1459.0" text-anchor="end">1.28</text>
+<text class="tick" x="818" y="1459.0" text-anchor="end">1/34</text>
+<text class="tick" x="884" y="1459.0" text-anchor="end">0.63</text>
+<text class="row" x="242" y="1471.0" text-anchor="end">two capitalized words</text>
+<rect x="287.6" y="1463.1" width="170.8" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="458.1" y1="1467.0" x2="458.7" y2="1467.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="458.1" y1="1464.0" x2="458.1" y2="1470.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="458.7" y1="1464.0" x2="458.7" y2="1470.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="458.1" cy="1467.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="458.3" cy="1467.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="458.7" cy="1467.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="458.6" cy="1467.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="458.3" cy="1467.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M460.4,1463.6 L463.8,1467.0 L460.4,1470.4 L457.0,1467.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M470.7,1463.6 L474.1,1467.0 L470.7,1470.4 L467.3,1467.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M475.9,1463.6 L479.3,1467.0 L475.9,1470.4 L472.5,1467.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M468.7,1463.6 L472.1,1467.0 L468.7,1470.4 L465.3,1467.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1463.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1471.0">5.05</text>
+<text class="tick" x="640" y="1471.0">5.04–5.07</text>
+<text class="tick" x="752" y="1471.0" text-anchor="end">1.030</text>
+<text class="tick" x="818" y="1471.0" text-anchor="end">1/13</text>
+<text class="tick" x="884" y="1471.0" text-anchor="end">0.49</text>
+<text class="row" x="242" y="1483.0" text-anchor="end">a word that ends in ing</text>
+<rect x="287.6" y="1475.1" width="180.0" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="466.9" y1="1479.0" x2="469.0" y2="1479.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="466.9" y1="1476.0" x2="466.9" y2="1482.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="469.0" y1="1476.0" x2="469.0" y2="1482.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="469.0" cy="1479.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="467.7" cy="1479.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="467.5" cy="1479.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="466.9" cy="1479.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="467.2" cy="1479.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M469.7,1475.6 L473.1,1479.0 L469.7,1482.4 L466.3,1479.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M475.2,1475.6 L478.6,1479.0 L475.2,1482.4 L471.8,1479.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M479.9,1475.6 L483.3,1479.0 L479.9,1482.4 L476.5,1479.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M471.7,1475.6 L475.1,1479.0 L471.7,1482.4 L468.3,1479.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1475.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1483.0">5.51</text>
+<text class="tick" x="640" y="1483.0">5.48–5.58</text>
+<text class="tick" x="752" y="1483.0" text-anchor="end">0.976</text>
+<text class="tick" x="818" y="1483.0" text-anchor="end">1/23</text>
+<text class="tick" x="884" y="1483.0" text-anchor="end">0.44</text>
+<text class="row" x="242" y="1495.0" text-anchor="end">a word in capitals</text>
+<rect x="287.6" y="1487.1" width="159.8" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="446.8" y1="1491.0" x2="448.8" y2="1491.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="446.8" y1="1488.0" x2="446.8" y2="1494.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="448.8" y1="1488.0" x2="448.8" y2="1494.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="448.0" cy="1491.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="446.9" cy="1491.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="447.4" cy="1491.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="446.8" cy="1491.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="448.8" cy="1491.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M446.9,1487.6 L450.3,1491.0 L446.9,1494.4 L443.5,1491.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M457.1,1487.6 L460.5,1491.0 L457.1,1494.4 L453.7,1491.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M463.7,1487.6 L467.1,1491.0 L463.7,1494.4 L460.3,1491.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M452.7,1487.6 L456.1,1491.0 L452.7,1494.4 L449.3,1491.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1487.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1495.0">4.55</text>
+<text class="tick" x="640" y="1495.0">4.53–4.61</text>
+<text class="tick" x="752" y="1495.0" text-anchor="end">0.80</text>
+<text class="tick" x="818" y="1495.0" text-anchor="end">1/14</text>
+<text class="tick" x="884" y="1495.0" text-anchor="end">0.43</text>
+<text class="row" x="242" y="1507.0" text-anchor="end">a number</text>
+<rect x="287.6" y="1499.1" width="292.4" height="7.8" rx="2" fill="var(--stdx)"/>
+<path d="M585.0,1503.0 L580.0,1499.0 L580.0,1507.0 Z" fill="var(--ink)"/>
+<line x1="580.0" y1="1503.0" x2="580.0" y2="1503.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="580.0" y1="1500.0" x2="580.0" y2="1506.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="580.0" y1="1500.0" x2="580.0" y2="1506.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="580.0" cy="1503.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1503.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1503.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1503.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="580.0" cy="1503.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M580.0,1499.6 L583.4,1503.0 L580.0,1506.4 L576.6,1503.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1499.6 L583.4,1503.0 L580.0,1506.4 L576.6,1503.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1499.6 L583.4,1503.0 L580.0,1506.4 L576.6,1503.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1499.6 L583.4,1503.0 L580.0,1506.4 L576.6,1503.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1499.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1507.0">18.62</text>
+<text class="tick" x="640" y="1507.0">18.44–18.82</text>
+<text class="tick" x="752" y="1507.0" text-anchor="end">0.55</text>
+<text class="tick" x="818" y="1507.0" text-anchor="end">1/28</text>
+<text class="tick" x="884" y="1507.0" text-anchor="end">0.31</text>
+<text class="row" x="242" y="1519.0" text-anchor="end">two capitalized words, second text</text>
+<rect x="287.6" y="1511.1" width="171.6" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="457.8" y1="1515.0" x2="459.5" y2="1515.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="457.8" y1="1512.0" x2="457.8" y2="1518.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="459.5" y1="1512.0" x2="459.5" y2="1518.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="457.8" cy="1515.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="459.2" cy="1515.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="458.9" cy="1515.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="459.5" cy="1515.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="459.5" cy="1515.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M459.9,1511.6 L463.3,1515.0 L459.9,1518.4 L456.5,1515.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M471.3,1511.6 L474.7,1515.0 L471.3,1518.4 L467.9,1515.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M473.7,1511.6 L477.1,1515.0 L473.7,1518.4 L470.3,1515.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M471.2,1511.6 L474.6,1515.0 L471.2,1518.4 L467.8,1515.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1511.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1519.0">5.09</text>
+<text class="tick" x="640" y="1519.0">5.03–5.10</text>
+<text class="tick" x="752" y="1519.0" text-anchor="end">1.033</text>
+<text class="tick" x="818" y="1519.0" text-anchor="end">1/13</text>
+<text class="tick" x="884" y="1519.0" text-anchor="end">0.50</text>
+<text class="row" x="242" y="1531.0" text-anchor="end">a word between two words</text>
+<rect x="287.6" y="1523.1" width="166.7" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="453.3" y1="1527.0" x2="455.1" y2="1527.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="453.3" y1="1524.0" x2="453.3" y2="1530.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="455.1" y1="1524.0" x2="455.1" y2="1530.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="453.3" cy="1527.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="455.1" cy="1527.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="454.3" cy="1527.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="455.0" cy="1527.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="454.3" cy="1527.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M452.7,1523.6 L456.1,1527.0 L452.7,1530.4 L449.3,1527.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M461.3,1523.6 L464.7,1527.0 L461.3,1530.4 L457.9,1527.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M467.4,1523.6 L470.8,1527.0 L467.4,1530.4 L464.0,1527.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M461.6,1523.6 L465.0,1527.0 L461.6,1530.4 L458.2,1527.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1523.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1531.0">4.86</text>
+<text class="tick" x="640" y="1531.0">4.81–4.90</text>
+<text class="tick" x="752" y="1531.0" text-anchor="end">1.30</text>
+<text class="tick" x="818" y="1531.0" text-anchor="end">1/22</text>
+<text class="tick" x="884" y="1531.0" text-anchor="end">0.57</text>
+<text class="row" x="242" y="1543.0" text-anchor="end">a number before a unit, second text</text>
+<rect x="287.6" y="1535.1" width="271.8" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="558.1" y1="1539.0" x2="560.4" y2="1539.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="558.1" y1="1536.0" x2="558.1" y2="1542.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="560.4" y1="1536.0" x2="560.4" y2="1542.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="560.1" cy="1539.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.4" cy="1539.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="559.3" cy="1539.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="559.2" cy="1539.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="558.1" cy="1539.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M564.6,1535.6 L568.0,1539.0 L564.6,1542.4 L561.2,1539.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1535.6 L583.4,1539.0 L580.0,1542.4 L576.6,1539.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M579.8,1535.6 L583.2,1539.0 L579.8,1542.4 L576.4,1539.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1535.6 L583.4,1539.0 L580.0,1542.4 L576.6,1539.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1535.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1543.0">13.15</text>
+<text class="tick" x="640" y="1543.0">13.00–13.29</text>
+<text class="tick" x="752" y="1543.0" text-anchor="end">0.83</text>
+<text class="tick" x="818" y="1543.0" text-anchor="end">1/27</text>
+<text class="tick" x="884" y="1543.0" text-anchor="end">0.41</text>
+<text class="row" x="242" y="1555.0" text-anchor="end">a heading's start tag</text>
+<rect x="287.6" y="1547.1" width="250.4" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="537.3" y1="1551.0" x2="538.4" y2="1551.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="537.3" y1="1548.0" x2="537.3" y2="1554.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="538.4" y1="1548.0" x2="538.4" y2="1554.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="538.4" cy="1551.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="538.3" cy="1551.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="537.9" cy="1551.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="537.3" cy="1551.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="537.9" cy="1551.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M542.7,1547.6 L546.1,1551.0 L542.7,1554.4 L539.3,1551.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M553.1,1547.6 L556.5,1551.0 L553.1,1554.4 L549.7,1551.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M557.2,1547.6 L560.6,1551.0 L557.2,1554.4 L553.8,1551.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M548.4,1547.6 L551.8,1551.0 L548.4,1554.4 L545.0,1551.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1547.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1555.0">10.74</text>
+<text class="tick" x="640" y="1555.0">10.68–10.79</text>
+<text class="tick" x="752" y="1555.0" text-anchor="end">0.73</text>
+<text class="tick" x="818" y="1555.0" text-anchor="end">1/40</text>
+<text class="tick" x="884" y="1555.0" text-anchor="end">0.38</text>
+<text class="row" x="242" y="1567.0" text-anchor="end">a whole word</text>
+<rect x="287.6" y="1559.1" width="179.4" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="466.1" y1="1563.0" x2="468.1" y2="1563.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="466.1" y1="1560.0" x2="466.1" y2="1566.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="468.1" y1="1560.0" x2="468.1" y2="1566.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="468.1" cy="1563.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="467.8" cy="1563.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="466.9" cy="1563.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="466.1" cy="1563.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="466.7" cy="1563.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M464.1,1559.6 L467.5,1563.0 L464.1,1566.4 L460.7,1563.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M478.6,1559.6 L482.0,1563.0 L478.6,1566.4 L475.2,1563.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M480.8,1559.6 L484.2,1563.0 L480.8,1566.4 L477.4,1563.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M479.6,1559.6 L483.0,1563.0 L479.6,1566.4 L476.2,1563.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1559.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1567.0">5.48</text>
+<text class="tick" x="640" y="1567.0">5.44–5.54</text>
+<text class="tick" x="752" y="1567.0" text-anchor="end">1.18</text>
+<text class="tick" x="818" y="1567.0" text-anchor="end">1/36</text>
+<text class="tick" x="884" y="1567.0" text-anchor="end">0.59</text>
+<text class="row" x="242" y="1579.0" text-anchor="end">a line's first word, second text</text>
+<rect x="287.6" y="1571.1" width="168.9" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="455.9" y1="1575.0" x2="459.2" y2="1575.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="455.9" y1="1572.0" x2="455.9" y2="1578.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="459.2" y1="1572.0" x2="459.2" y2="1578.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="456.5" cy="1575.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="459.2" cy="1575.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="458.9" cy="1575.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="456.2" cy="1575.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="455.9" cy="1575.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M459.5,1571.6 L462.9,1575.0 L459.5,1578.4 L456.1,1575.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M459.2,1571.6 L462.6,1575.0 L459.2,1578.4 L455.8,1575.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M471.8,1571.6 L475.2,1575.0 L471.8,1578.4 L468.4,1575.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M458.5,1571.6 L461.9,1575.0 L458.5,1578.4 L455.1,1575.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1571.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1579.0">4.96</text>
+<text class="tick" x="640" y="1579.0">4.94–5.09</text>
+<text class="tick" x="752" y="1579.0" text-anchor="end">0.93</text>
+<text class="tick" x="818" y="1579.0" text-anchor="end">—</text>
+<text class="tick" x="884" y="1579.0" text-anchor="end">—</text>
+<text class="row" x="242" y="1591.0" text-anchor="end">fourteen octets before an x</text>
+<rect x="287.6" y="1583.1" width="206.9" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="493.8" y1="1587.0" x2="495.2" y2="1587.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="493.8" y1="1584.0" x2="493.8" y2="1590.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="495.2" y1="1584.0" x2="495.2" y2="1590.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="495.2" cy="1587.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="494.4" cy="1587.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="494.7" cy="1587.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="493.8" cy="1587.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="494.2" cy="1587.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M487.1,1583.6 L490.5,1587.0 L487.1,1590.4 L483.7,1587.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M503.0,1583.6 L506.4,1587.0 L503.0,1590.4 L499.6,1587.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M516.7,1583.6 L520.1,1587.0 L516.7,1590.4 L513.3,1587.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M503.8,1583.6 L507.2,1587.0 L503.8,1590.4 L500.4,1587.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1583.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1591.0">7.11</text>
+<text class="tick" x="640" y="1591.0">7.06–7.16</text>
+<text class="tick" x="752" y="1591.0" text-anchor="end">0.24</text>
+<text class="tick" x="818" y="1591.0" text-anchor="end">1/122</text>
+<text class="tick" x="884" y="1591.0" text-anchor="end">0.22</text>
+<text class="row" x="242" y="1603.0" text-anchor="end">a Greek word</text>
+<rect x="287.6" y="1595.1" width="272.7" height="7.8" rx="2" fill="var(--stdx)"/>
+<line x1="559.4" y1="1599.0" x2="561.2" y2="1599.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="559.4" y1="1596.0" x2="559.4" y2="1602.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="561.2" y1="1596.0" x2="561.2" y2="1602.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="561.2" cy="1599.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.5" cy="1599.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="559.4" cy="1599.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.3" cy="1599.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="559.7" cy="1599.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M568.7,1595.6 L572.1,1599.0 L568.7,1602.4 L565.3,1599.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1595.6 L583.4,1599.0 L580.0,1602.4 L576.6,1599.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1595.6 L583.4,1599.0 L580.0,1602.4 L576.6,1599.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,1595.6 L583.4,1599.0 L580.0,1602.4 L576.6,1599.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1595.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1603.0">13.27</text>
+<text class="tick" x="640" y="1603.0">13.16–13.38</text>
+<text class="tick" x="752" y="1603.0" text-anchor="end">0.51</text>
+<text class="tick" x="818" y="1603.0" text-anchor="end">—</text>
+<text class="tick" x="884" y="1603.0" text-anchor="end">0.30</text>
+<line x1="287.6" y1="1325" x2="287.6" y2="1605" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="legend" x="16" y="1642">A row is ahead or behind where its interval lies above or below 1, and level where it holds 1 inside 5% of 1. A row whose interval holds 1</text>
+<text class="legend" x="16" y="1659">and reaches past 5% is unclear: its jobs do not settle it. A difference inside 5% is one this chart calls too small to matter, and the</text>
+<text class="legend" x="16" y="1676">counts still name its direction.</text>
+<text class="legend" x="16" y="1693">The columns at the right are stdx's speed over another library's, the median of the jobs. A library has no speed (—) on a pattern that it</text>
+<text class="legend" x="16" y="1710">refuses, where its answer is not Go regexp's, and where it has no such call.</text>
+<text class="legend" x="16" y="1727">stdx timed again, last in each round, differed from stdx timed first by at most 3.6% in any job of any row.</text>
+<text class="legend" x="16" y="1744">On another CPU model, these rows fall on the other side of 1: a number (AMD EPYC 7763 64-Core Processor, 0.989); a number (Intel(R)</text>
+<text class="legend" x="16" y="1761">Xeon(R) 6975P-C, 0.94); a number (Intel(R) Xeon(R) 6973P-C, 0.94); a word between two words (AMD EPYC 7763 64-Core Processor, 0.960); a</text>
+<text class="legend" x="16" y="1778">word between two words (Intel(R) Xeon(R) 6975P-C, 0.958); a word between two words (Intel(R) Xeon(R) 6973P-C, 0.970); a line's first word,</text>
+<text class="legend" x="16" y="1795">second text (AMD EPYC 9V45 96-Core Processor, 0.95).</text>
 </svg>

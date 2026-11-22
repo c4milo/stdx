@@ -1,5 +1,6 @@
 # The README's charts (decision 85): one line each, a benchmark, an architecture, and the committed
-# reports the chart draws from, all from one CPU model. `python3 tools/charts.py` draws them into
+# reports the chart draws from, all from one CPU model. Regex's line lists every job of its runs,
+# and tools/charts_wide.py draws the model most jobs drew. `python3 tools/charts.py` draws them into
 # docs/images/<benchmark>-<architecture>.svg, and `--check` fails when one differs.
 deflate aarch64 bench/results/2026-11-20-deflate-aarch64.md
 deflate x86_64 bench/results/2026-11-20-deflate-x86_64.md
@@ -13,5 +14,5 @@ checksum aarch64 bench/results/2026-11-20-checksum-aarch64.md
 checksum x86_64 bench/results/2026-11-20-checksum-x86_64.md
 base64 aarch64 bench/results/2026-11-20-base64-aarch64.md
 base64 x86_64 bench/results/2026-11-20-base64-x86_64.md
-regex aarch64 bench/results/2026-11-21-regex-aarch64.md bench/results/2026-11-21-regex-second-aarch64.md bench/results/2026-11-21-regex-third-aarch64.md bench/results/2026-11-21-regex-fourth-aarch64.md bench/results/2026-11-21-regex-fifth-aarch64.md
-regex x86_64 bench/results/2026-11-21-regex-x86_64.md bench/results/2026-11-21-regex-fourth-x86_64.md bench/results/2026-11-21-regex-fifth-x86_64.md
+regex aarch64 bench/results/2026-11-22-regex-fix-aarch64.md bench/results/2026-11-22-regex-fix-second-aarch64.md bench/results/2026-11-22-regex-fix-third-aarch64.md bench/results/2026-11-22-regex-fix-fourth-aarch64.md bench/results/2026-11-22-regex-fix-fifth-aarch64.md bench/results/2026-11-22-regex-fix-sixth-aarch64.md bench/results/2026-11-22-regex-fix-seventh-aarch64.md bench/results/2026-11-22-regex-fix-eighth-aarch64.md bench/results/2026-11-22-regex-fix-ninth-aarch64.md bench/results/2026-11-22-regex-fix-tenth-aarch64.md bench/results/2026-11-22-regex-fix-eleventh-aarch64.md bench/results/2026-11-22-regex-fix-twelfth-aarch64.md bench/results/2026-11-22-regex-fix-thirteenth-aarch64.md bench/results/2026-11-22-regex-fix-fourteenth-aarch64.md
+regex x86_64 bench/results/2026-11-22-regex-fix-x86_64.md bench/results/2026-11-22-regex-fix-second-x86_64.md bench/results/2026-11-22-regex-fix-third-x86_64.md bench/results/2026-11-22-regex-fix-fourth-x86_64.md bench/results/2026-11-22-regex-fix-fifth-x86_64.md bench/results/2026-11-22-regex-fix-sixth-x86_64.md bench/results/2026-11-22-regex-fix-seventh-x86_64.md bench/results/2026-11-22-regex-fix-eighth-x86_64.md bench/results/2026-11-22-regex-fix-ninth-x86_64.md bench/results/2026-11-22-regex-fix-tenth-x86_64.md bench/results/2026-11-22-regex-fix-eleventh-x86_64.md bench/results/2026-11-22-regex-fix-twelfth-x86_64.md bench/results/2026-11-22-regex-fix-thirteenth-x86_64.md bench/results/2026-11-22-regex-fix-fourteenth-x86_64.md

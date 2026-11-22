@@ -59,27 +59,37 @@ compression ratio. The charts come from the first runs on Ubuntu 26.04, at commi
 ### Regular expressions
 
 `bench-regex` compares the `regex` module with Rust's regex crate 1.13.2, Go's regexp 1.27.4, mvzr
-and zig-regex. Six jobs ran it at commit d355d8c on GitHub's hosted runners: three on a Neoverse
-N2, and three on x86-64, an AMD EPYC 9V45, an Intel Xeon Platinum 8573C and an AMD EPYC 7763
-(`bench/results/2026-11-22-regex-*`). Each number is stdx's speed over Rust's in one job, from the
-lowest job to the highest.
+and zig-regex. Fourteen runs on GitHub's hosted runners ran it at commit f2b7425
+(`bench/results/2026-11-22-regex-fix-*`). This section reads the 14 jobs on a Neoverse N2, and the
+5 of 14 x86-64 jobs on an AMD EPYC 9V74, the model that the most jobs drew. Each number is stdx's
+speed over Rust's in one job, from the lowest job to the highest.
 
-- 12 searches have a literal that every match holds. On x86-64, stdx runs 11 of them at 0.93 to
-  10.2 of Rust's speed. It runs the search for one of four words at 0.66 to 0.76: Rust's crate
-  finds such a set with Teddy, and stdx does not yet. On the N2, stdx runs 7 of them at 0.84 to
-  0.97, and 5 at 1.04 to 7.24.
-- 6 searches start with a class and hold no literal. stdx runs them at 1.18 to 2.59 on the N2, and
-  at 0.96 to 2.39 on x86-64.
-- A pattern that validates a short text runs at 1.30 to 1.53 on the N2, and at 1.05 to 1.60 on
-  x86-64.
-- Six capture groups run at 0.88 to 0.93 on the N2, and at 0.70 to 0.91 on x86-64.
-- stdx compiles a pattern at 1.5 to 58 times Rust's speed.
-- On each class search, each short-text pattern and the capture groups, stdx is at least 1.66
-  times as fast as Go's regexp, 4.1 times as fast as mvzr and 11 times as fast as zig-regex,
-  wherever a library gives Go's answer. Go's regexp is faster than stdx on one search: a word that
-  is not there, at 0.64 on the N2.
+- 12 searches have a literal that every match holds. On the N2, stdx runs 7 of them at 0.84 to
+  1.00, and 5 at 1.09 to 7.24. On the EPYC 9V74, it runs all 12 at 1.00 to 11.1.
+- 6 searches start with a class and hold no literal. stdx runs them at 1.17 to 2.55 on the N2, and
+  at 0.99 to 2.03 on the EPYC 9V74.
+- A pattern that validates a short text runs at 1.26 to 1.56 on the N2, and at 1.18 to 1.37 on the
+  EPYC 9V74.
+- Six capture groups run at 0.88 to 0.93 on the N2, and at 0.84 to 0.87 on the EPYC 9V74.
+- In the median job, stdx compiles each pattern at 1.52 to 37 times Rust's speed on the N2, and at
+  1.42 to 35 times on the EPYC 9V74.
+- Outside compile, Go's regexp is faster than stdx on one search: a word that is not there, at
+  0.62 to 0.67 on the N2. stdx is at least 4.9 times as fast as mvzr and 10.9 times as fast as
+  zig-regex, wherever a library gives Go's answer.
 
-A chart of these numbers waits on two reviews of its method (decision 85).
+The people who tuned stdx chose these patterns, so they can favor it. Patterns that nobody tuned
+against are a step of their own ([#44](https://github.com/c4milo/stdx/issues/44)). The charts below
+draw these jobs by decision 85's rules: a bar is the median job, and its whisker an interval of
+that median.
+
+![search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 2, level on 0, behind on 4 of 6 rows, 5 patterns; geometric mean over these rows 1.18; from 0.84 to 2.93; against Go regexp: ahead on 5, level on 0, behind on 1 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.67; from 1.18 to 2.54; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 4, level on 0, behind on 3 (1 inside 5%) of 7 rows, 7 patterns; from 0.90 to 7.22; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.36; from 1.27 to 1.49; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.90, 0.88 to 0.92; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.52 to 36.77; against Go regexp: ahead on 11, level on 2, behind on 10 of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 4 (1 inside 5%), level on 0, behind on 17 of 21.](docs/images/regex-aarch64.svg)
+
+<details>
+<summary>x86-64: AMD EPYC 9V74 80-Core Processor</summary>
+
+![search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 0, behind on 0 of 6 rows, 5 patterns; geometric mean over these rows 1.42; from 1.09 to 3.31; against Go regexp: ahead on 6, level on 0, behind on 0 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 4, level on 1, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.50; from 1.006 to 2.02; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 1, behind on 0 of 7 rows, 7 patterns; from 1.003 to 11.01; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.25; from 1.19 to 1.36; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.85, 0.84 to 0.87; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.42 to 35.02; against Go regexp: ahead on 13 (2 inside 5%), level on 0, behind on 10 (1 inside 5%) of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21.](docs/images/regex-x86_64.svg)
+
+</details>
 
 ### Arm Neoverse N2
 

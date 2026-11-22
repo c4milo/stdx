@@ -50,7 +50,8 @@ def tables(path):
             continue
         if not line.startswith("|") or name is None:
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        # A `\|` in a cell is a pipe of the cell's text, not a column's edge.
+        cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
         if all(set(c) <= set("-: ") for c in cells):
             continue
         if head is None:

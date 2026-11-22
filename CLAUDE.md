@@ -467,8 +467,9 @@ Change this section when a step adds or renames a command.
   `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
 - Charts: `python3 tools/charts.py` draws the README's charts, `docs/images/<benchmark>-<arch>.svg`,
   from the committed reports that `bench/charts.txt` names. `tools/charts_wide.py` draws the
-  regex chart, whose libraries differ by orders of magnitude, under rules it states. `--check` fails when a committed chart
-  differs from what its reports draw, and `tools/ci.sh` runs it (decision 85).
+  regex chart, whose libraries differ by orders of magnitude, under rules it states, and
+  `tools/charts_wide_test.py` tests those rules. `--check` fails when a committed chart differs
+  from what its reports draw, and `tools/ci.sh` runs both (decision 85).
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's
   share of lines run and the total. It needs Linux and kcov. The `coverage` job of

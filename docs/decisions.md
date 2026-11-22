@@ -5547,31 +5547,49 @@ last part lists what still waits on a ruling.
     - Several jobs on one CPU model draw their median, with a line from the lowest job to the
       highest.
     - The regex chart, added on 2026-11-21 with entry 86's benchmark, is drawn by
-      `tools/charts_wide.py`. It stays out of the README until the findings of two reviews of
-      its method, by a software engineer and by a data scientist, are applied. Among them: a
-      `\|` in a row's label shifts every column, a missing CPU model draws as `unknown`, and
-      the x86-64 chart draws one of four CPU models where the model decides some rows. Its libraries differ by a factor of thousands, and a review of its
-      first draft asked for the rules below. **owner** They differ from the rules above, for
-      this chart alone, and wait on a ruling.
-      - The panels share one logarithmic axis, as above, but its limits are the chart's lowest
-        and highest value, and its ticks are powers of 4.
-      - A panel holds the rows of one kind of pattern, so no count mixes a search for a
-        literal with a search that starts with a class.
-      - A row is level where its whisker touches a band around 1, and the whisker is the jobs'
-        lowest and highest ratio. Under the rule above, three jobs at 0.99, 1.02 and 1.03 are
-        "ahead" though one of them is behind.
-      - A panel's band is the most that stdx differed from itself on a row of the panel:
-        stdx, timed first in each round, over stdx timed again last in the round, as the
-        median of the jobs. The band holds what repeats from job to job, and the whisker
-        holds the rest. The band is never under 5%: the jobs of one CPU model repeat to 1%,
-        but a row that stood 1% to 3% ahead of Rust's crate on one x86-64 model stood 3% to
-        8% behind on another, from the same binary.
-      - A row's number stands in a column at the right, after a square in the colour of its
-        state, and a ratio under 0.095 is printed as 1/N. A bar of a ratio near 1 is too
-        short to show its colour, so such a row also shows its whisker as two numbers.
-      - A hollow circle is stdx with claim R1 off. A library that has no speed on a row has
-        its mark, hollow, after the row's name. Each panel counts stdx against each library
-        by the bar's rule, since a bar shows one. A panel of unlike patterns prints no mean.
+      `tools/charts_wide.py`, and `tools/charts_wide_test.py` tests its rules. Two reviews of its
+      method, by a software engineer and by a data scientist, found that it misstated results. A
+      review by a staff data scientist found more on 2026-11-22, and the owner ruled the same day
+      to fix them. The chart draws by these rules, for this chart alone:
+      - It draws one CPU model: the model that most of its reports name, and on a tie the model
+        of the first report. It refuses a report that names no model, and a model of fewer than
+        5 jobs. Each other model's median stands as a small diamond, and the notes name each row
+        that falls on the other side of 1 there.
+      - A row's bar is the median of the jobs' ratios of stdx over Rust's crate, and a dot
+        stands for each job, so two groups of jobs show as two groups of dots.
+      - A row's whisker is an interval of that median: the jobs' k-th lowest to k-th highest
+        ratio, with k the largest that holds the median at 95% confidence by the sign test.
+      - A row is ahead or behind where its interval lies above or below 1, level where it holds 1
+        and lies inside 5% of 1, and unclear where it holds 1 and reaches past 5%. A difference
+        inside 5% is one the chart calls too small to matter, and each count still says how many
+        of its rows ahead or behind lie inside 5%.
+      - The axis is stdx over Rust's crate alone: logarithmic, with ticks at powers of 2. The
+        other libraries stand in columns of numbers at the right, with a dash where a library
+        has no speed.
+      - A count names rows and patterns, since one pattern on two texts is two rows. A geometric
+        mean says that it is over these rows. The compile panel's rows are shorter, and its title
+        names what each library times.
+      - The notes print the most that stdx differed from itself timed again in one job.
+      - A `\|` in a cell stays in the cell.
+      - The chart stands in the README's regex section, by the owner's ruling of 2026-11-22: the N2's
+        chart, and the x86-64 chart in a details block that names its CPU model.
+
+      What the rules before did, which these replace:
+      - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
+        so more jobs gave more rows called level.
+      - A band of at least 5% around 1, and the measure of stdx against itself, called level a
+        row of ten jobs that were each 3.6% to 4.4% behind. They also called level a row of two
+        groups of jobs, at 0.71 to 0.73 and 0.92 to 0.95, both behind.
+      - The band came from stdx timed against itself in one job, which agreed to 0.1%, where two
+        jobs on one model differed by 30%. The variance between jobs is what a verdict needs.
+      - One axis of 2^22 held every library, so a loss of 15% to Rust's crate took a few pixels.
+
+      The alternatives refused:
+      - A bootstrap interval, whose draws need a seed for `--check` to repeat byte for byte, and
+        which says no more than the sign test at 5 to 10 jobs.
+      - The lowest and highest job as the interval, for the reason above.
+      - Patterns that nobody tuned against, in this change. They change the benchmark, so they
+        are a step of their own: https://github.com/c4milo/stdx/issues/44.
 
     The alternatives refused:
     - A Zig program, which the owner judged too large for the task.

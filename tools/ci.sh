@@ -57,6 +57,7 @@ run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "package prune" bash tools/prune_packages_check.sh
 run_check "fuzz verdict" bash tools/fuzz_check.sh
 run_check "charts" python3 -I tools/charts.py --check
+run_check "charts tests" python3 -I tools/charts_wide_test.py
 run_check "test" zig build test
 # The unit tests built by Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux: run
 # there, and only compiled on every other runner. The summary shows which, module by module.
