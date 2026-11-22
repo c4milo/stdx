@@ -18,12 +18,30 @@ pub fn has(b: *std.Build, program: []const u8) bool {
 pub fn cargo_archive(b: *std.Build, directory: []const u8, archive: []const u8, sources: []const []const u8) std.Build.LazyPath {
     const cargo = b.addSystemCommand(&.{ "cargo", "build", "--release", "--locked", "--manifest-path", "Cargo.toml" });
     cargo.setCwd(b.path(directory));
+    if (rust_release(b, directory)) |release| cargo.step.dependOn(release);
     const target_dir = cargo.addPrefixedOutputDirectoryArg("--target-dir=", "cargo-target");
     for ([_][]const u8{ "Cargo.toml", "Cargo.lock", "rust-toolchain.toml" }) |file| {
         cargo.addFileInput(b.path(b.pathJoin(&.{ directory, file })));
     }
     for (sources) |source| cargo.addFileInput(b.path(b.pathJoin(&.{ directory, source })));
     return target_dir.path(b, b.pathJoin(&.{ "release", archive }));
+}
+
+/// The name of the step that installs the crates' Rust release, once a build.
+const rust_release_step = "rust-release";
+
+/// The step that installs the Rust release that `directory`'s rust-toolchain.toml names. The first
+/// crate makes it and the rest wait for it. cargo installs a missing release itself, and two cargo
+/// runs at once then write one rustup directory and collide, as in CI runs 44985796997 and
+/// 44986646366. Every crate names the same release. Null where rustup is not on the path.
+fn rust_release(b: *std.Build, directory: []const u8) ?*std.Build.Step {
+    if (b.top_level_steps.get(rust_release_step)) |found| return &found.step;
+    if (!has(b, "rustup")) return null;
+    const step = b.step(rust_release_step, "Install the Rust release the baselines' rust-toolchain.toml names (-Doracles)");
+    const install = b.addSystemCommand(&.{ "rustup", "--quiet", "toolchain", "install" });
+    install.setCwd(b.path(directory));
+    step.dependOn(&install.step);
+    return step;
 }
 
 /// The c-archive of the Go package in `directory`, built by the Go release its go.mod's
