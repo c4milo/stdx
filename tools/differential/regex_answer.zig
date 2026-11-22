@@ -4,6 +4,7 @@
 //! one text serve the next. The other has none, so the matcher answers alone.
 
 const std = @import("std");
+const codec = @import("codec");
 const regex = @import("regex");
 
 /// The most groups the pattern of a case holds, the whole match counted.
@@ -66,6 +67,9 @@ pub const Stdx = struct {
     searchers: [way_count]regex.Searcher = undefined,
     /// The name of the error `compile` gave the pattern, or nothing when it compiled.
     refusal: []const u8 = "",
+    /// The host's CPU features, detected once, so that the check holds each search the host
+    /// runs to the oracle.
+    features: codec.Features = .{},
 
     const way_count = std.meta.fields(Way).len;
 
@@ -77,7 +81,7 @@ pub const Stdx = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator) !Stdx {
-        var stdx: Stdx = .{ .storage = try allocator.alloc(regex.Instruction, storage_len), .memory = undefined };
+        var stdx: Stdx = .{ .storage = try allocator.alloc(regex.Instruction, storage_len), .memory = undefined, .features = codec.Features.detect() };
         for (&stdx.memory, 0..) |*memory, way| {
             memory.* = try allocator.alloc(u64, regex.Searcher.memory_len(storage_len, 2 * groups_max, cache_words(@enumFromInt(way))));
         }
@@ -102,7 +106,7 @@ pub const Stdx = struct {
         const program = &stdx.program;
         for (&stdx.searchers, stdx.memory, 0..) |*searcher, memory, way| {
             const len = regex.Searcher.memory_len(program.forward_len, program.slot_count(), cache_words(@enumFromInt(way)));
-            searcher.init(program, memory[0..len]);
+            searcher.init(program, stdx.features, memory[0..len]);
         }
     }
 

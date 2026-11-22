@@ -16,6 +16,9 @@ pub const json_levels = [_]Level{ .x86_64_avx2, .x86_64_avx512 };
 /// The levels of base64's variant object (decision 68): its decoding step takes AVX2's `vpshufb`.
 pub const base64_levels = [_]Level{.x86_64_avx2};
 
+/// The levels of regex's variant object (decision 86): claims R2 and R5 search 32 octets a step.
+pub const regex_levels = [_]Level{.x86_64_avx2};
+
 /// The levels built for a target of this architecture.
 pub fn levels_of(arch: std.Target.Cpu.Arch) []const Level {
     return switch (arch) {
@@ -74,8 +77,9 @@ pub fn add_levels(
 }
 
 /// Gives a variant object's root the library modules its kernels import, each built for the
-/// level's target as the object is. `json`'s kernels check UTF-8 with the `utf8` module (decision
-/// 86), and the other modules' kernels import none.
+/// level's target as the object is. `json`'s kernels check UTF-8 with the `utf8` module, and
+/// `regex`'s constants name UTF-8's limits from it (decision 86). The other modules' kernels
+/// import none.
 fn add_imports(
     b: *std.Build,
     root: *std.Build.Module,
@@ -83,7 +87,7 @@ fn add_imports(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    if (!comptime std.mem.eql(u8, name, "json")) return;
+    if (!comptime (std.mem.eql(u8, name, "json") or std.mem.eql(u8, name, "regex"))) return;
     root.addImport("utf8", b.createModule(.{
         .root_source_file = b.path("src/utf8/utf8.zig"),
         .target = target,

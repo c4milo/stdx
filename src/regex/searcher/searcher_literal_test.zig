@@ -11,15 +11,15 @@ const Fixture = searcher_test.Fixture;
 /// The octets of a test's haystack: some steps of `skip_lanes` octets, and a part of one.
 const haystack_steps = 6;
 const haystack_tail = 7;
-const haystack_len = haystack_steps * constants.skip_lanes + haystack_tail;
+pub const haystack_len = haystack_steps * constants.skip_lanes + haystack_tail;
 
 /// The octets a haystack draws from. Each pattern below starts and ends its literal with these,
 /// so that the first and the last octet of a literal often stand at their distance where the
 /// whole literal does not, and the search must compare and go on.
-const alphabet = "PhaPoh \xC3\xA9";
+pub const alphabet = "PhaPoh \xC3\xA9";
 
 /// Patterns that are their literal, and patterns that start with one and go on.
-const patterns = [_][]const u8{
+pub const patterns = [_][]const u8{
     "Pharaoh", "Ph",             "PaP",         "\xC3\xA9h", "h",       "(Ph)",  "Ph[ao]+h",
     "Pha*",    "PhaPoh(?:Ph|a)", "h \xC3\xA9+", "Ph.h",      "aP[^ ]*", "Ph|Pa",
 };
@@ -50,10 +50,10 @@ test "a searcher that goes to a literal's places gives what the matcher gives, f
 
 /// The octets a haystack of the assertions' test draws from: word octets, a space and a line
 /// feed, so that each assertion holds at some places of the literal and fails at others.
-const looks_alphabet = "Phah \n_";
+pub const looks_alphabet = "Phah \n_";
 
 /// Patterns with an assertion before, inside or after their literal (claim R3).
-const looks_patterns = [_][]const u8{
+pub const looks_patterns = [_][]const u8{
     "\\bPh", "Ph\\b",      "\\bPh\\b", "\\BPh",      "(?m)^Ph",  "Ph$",       "(?m)Ph$",
     "^Ph",   "\\bPh[ah]+", "a\\bh",    "\\b(?:Ph)+", "\\bha\\B", "(?m)^h a$", "\\bPha*\\b",
 };
@@ -78,11 +78,11 @@ test "a searcher that goes to the literal after an assertion gives what the matc
 
 /// The octets of a test of literals that fold: both cases of each letter, and octets that end
 /// a word or a line.
-const folds_alphabet = "pPhHaA x\n";
+pub const folds_alphabet = "pPhHaA x\n";
 
 /// Patterns with a literal that takes a letter in either case, as a whole pattern, before more of
 /// it, after an assertion, and as the suffix that every match ends with.
-const folds_patterns = [_][]const u8{
+pub const folds_patterns = [_][]const u8{
     "(?i)ph", "(?i)pha+", "(?i:p)h", "(?i)p[ah]+", "\\b(?i)ph\\b", "(?i)ph$", "[ah]+(?i)x", "(?i)hx", "[aX]+(?i)x",
 };
 
@@ -181,10 +181,10 @@ test "a searcher goes on to the literal's next place where the assertion before 
 }
 
 /// The octets of a test of literal sets: the literals' octets, and octets none starts with.
-const sets_alphabet = "abcdxhefg AIJs";
+pub const sets_alphabet = "abcdxhefg AIJs";
 
 /// Patterns whose branches each start with a literal (claim R5).
-const sets_patterns = [_][]const u8{
+pub const sets_patterns = [_][]const u8{
     "Ab|Is|Ja", "Abraham|Isaac|Jacob|Joseph", "(?:ab|cd)+x", "(ab|cd|efg)h", "ab|abc", "ba|ab|ca", "(?:ab|cd)(?:ef|gh)",
 };
 

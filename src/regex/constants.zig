@@ -143,6 +143,10 @@ pub const cache_words_default = 1 << 16;
 /// every x86-64 and aarch64 CPU has (claim R1).
 pub const skip_lanes = 16;
 
+/// The octets one step of claim R2's and R5's searches compares in the variant object of x86-64's
+/// AVX2: the width of its registers. A caller whose `codec.Features` name AVX2 gets it.
+pub const avx2_lanes = 32;
+
 /// The octets of the literal every match starts with that claim R2 keeps at most. A place where
 /// the literal's first and last octets stand costs a comparison of this many octets at most, so a
 /// search stays linear in the text. A longer literal keeps its first octets, which every match

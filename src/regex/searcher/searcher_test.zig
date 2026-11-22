@@ -32,6 +32,8 @@ pub const Fixture = struct {
     program: Program = undefined,
     searcher: Searcher = undefined,
     reference: Matcher = undefined,
+    /// The CPU features the searcher takes: none, unless a test names the host's.
+    features: codec.Features = .{},
 
     /// Compiles `pattern` and gives the searcher `cache_words` words of cache.
     pub fn init(fixture: *Fixture, pattern: []const u8, cache_words: usize) !void {
@@ -43,7 +45,7 @@ pub const Fixture = struct {
         fixture.program = try compiler.compile(pattern, .{}, &fixture.storage);
         if (fixture.program.group_count > groups_len) return error.TestTooManyGroups;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
-        fixture.searcher.init_with(&fixture.program, claims, fixture.memory[0..len]);
+        fixture.searcher.init_with(&fixture.program, claims, fixture.features, fixture.memory[0..len]);
         fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
     }
 
@@ -161,7 +163,7 @@ test "a searcher divides its cache two parts to one, and uses a DFA only where i
 test "a program with no reverse half gives its whole cache to the forward DFA" {
     var fixture: Fixture = .{};
     fixture.program = try compiler.compile("a+b", .{ .reverse = false }, &fixture.storage);
-    fixture.searcher.init(&fixture.program, &fixture.memory);
+    fixture.searcher.init(&fixture.program, .{}, &fixture.memory);
     fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
     try testing.expect(fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
     try fixture.expect_agree_everywhere("xaab ab");

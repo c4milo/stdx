@@ -8366,6 +8366,26 @@ to 12 are reordered and nothing else changes.
     judge, give no pattern or every pattern the text's start, judge with the claim off, and skip
     `one_pass.check`.
 
+  **Part 22c, claims R2 and R5 on AVX2 (decision 86).** At `d7c0d11` the hosted runners timed
+  one literal at 0.71 of Rust's regex on the EPYC 9V74, and four words at 0.53 to 0.64 on x86-64.
+  Rust's crate picks AVX2 at run time there. `Searcher.init` and `init_with` now take the
+  caller's `codec.Features`, as gzip's, zstd's and json's `init` take them, and the module links a
+  variant object of decision 21 that builds `literal_find.zig` and `LiteralSet.find_by` for 32
+  lanes. Each caller of `init` adds the argument.
+  **Check:** the searches of both widths give a plain search's answer from every offset; a
+  searcher with the host's features gives the matcher's answer for the patterns of claims R2 to
+  R5, with each literal wide where the host has AVX2; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container whose
+  Xeon has AVX2: `zig build test-regex`, 168 of 168 tests passed.
+  - Under cachegrind, ten searches for `Sherlock` over the first MiB of `bible.txt` took
+    6,630,881 instructions at 16 lanes and 4,092,948 at 32. Timed in the container, which
+    publishes no number, four words ran 1.27 to 1.35 times faster. One literal ran from 0.98 to
+    1.41 times as fast: the container's cache, not the search, sets its speed.
+  - Mutations, each against `zig build test-regex`: 10. 7 CAUGHT: a literal, a set or a suffix
+    left narrow, an answer of no place taken as a place, a search that starts late, and
+    candidates shifted in both searches. 3 NOT CAUGHT, each of which changes no answer: `find`
+    and `LiteralSet.find` that never take AVX2, and a wide block of the narrow block's steps.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

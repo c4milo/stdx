@@ -15,19 +15,25 @@ const program_file = @import("program.zig");
 const Program = program_file.Program;
 const literal_file = @import("literal.zig");
 
-const Lanes = @Vector(constants.skip_lanes, u8);
-const Mask = std.meta.Int(.unsigned, constants.skip_lanes);
+/// The octets of a block, whatever the width of a step.
 const block_len = constants.literal_steps * constants.skip_lanes;
 const BlockMask = std.meta.Int(.unsigned, block_len);
 
 /// The branches of a split.
 const split_branches = 2;
 
-pub const LiteralSet = struct {
+extern fn stdx_regex_literal_set_find_x86_64_avx2(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
+
+/// An extern struct, so that the variant object, built for other CPU features, reads the same
+/// fields at the same offsets.
+pub const LiteralSet = extern struct {
     /// Each literal's first `len` octets.
     octets: [constants.literal_set_max][constants.literal_len_max]u8,
     count: u8,
     len: u8,
+    /// True when `find` searches `avx2_lanes` octets a step, in the variant object, as
+    /// `Literal.wide` says.
+    wide: bool = false,
 
     /// The literals of the alternation that `program` starts with, or null where a branch starts
     /// with no literal, where the branches are more than `literal_set_max`, or where the shortest
@@ -66,20 +72,30 @@ pub const LiteralSet = struct {
 
     /// The first offset at or after `from` where a literal of the set stands, or null.
     pub fn find(set: *const LiteralSet, haystack: []const u8, from: usize) ?usize {
+        if (literal_file.has_kernels and set.wide) {
+            const found = stdx_regex_literal_set_find_x86_64_avx2(set, haystack.ptr, haystack.len, from);
+            return if (found == literal_file.no_place) null else found;
+        }
+        return set.find_by(constants.skip_lanes, haystack, from);
+    }
+
+    /// `find`, `width` octets a step: `skip_lanes`, or `avx2_lanes` in the variant object.
+    pub fn find_by(set: *const LiteralSet, comptime width: usize, haystack: []const u8, from: usize) ?usize {
         assert(from <= haystack.len);
         assert(set.count >= constants.literal_set_count_min and set.count <= constants.literal_set_max);
         return switch (set.count) {
-            inline constants.literal_set_count_min...constants.literal_set_max => |count| set.find_of(count, haystack, from),
+            inline constants.literal_set_count_min...constants.literal_set_max => |count| set.find_of(width, count, haystack, from),
             else => unreachable,
         };
     }
 
-    fn find_of(set: *const LiteralSet, comptime count: usize, haystack: []const u8, from: usize) ?usize {
+    fn find_of(set: *const LiteralSet, comptime width: usize, comptime count: usize, haystack: []const u8, from: usize) ?usize {
         if (haystack.len - from < set.len) return null;
         // A place of a literal starts before `end`.
         const end = haystack.len - set.len + 1;
         const last = set.len - 1;
-        var wanted: Wanted(count) = undefined;
+        const Search = Lanes(width, count);
+        var wanted: Search.Wanted = undefined;
         inline for (0..count) |literal| {
             wanted.firsts[literal] = @splat(set.octets[literal][0]);
             wanted.lasts[literal] = @splat(set.octets[literal][last]);
@@ -90,8 +106,8 @@ pub const LiteralSet = struct {
         while (end - index >= block_len) : (index += block_len) {
             const firsts = haystack[index..][0..block_len];
             const lasts = haystack[index + last ..][0..block_len];
-            if (!any_candidate(count, firsts, lasts, &wanted)) continue;
-            var mask = candidates(count, firsts, lasts, &wanted);
+            if (!Search.any_candidate(firsts, lasts, &wanted)) continue;
+            var mask = Search.candidates(firsts, lasts, &wanted);
             // Each set bit is one place to compare, at most `block_len` of them.
             while (mask != 0) : (mask &= mask - 1) {
                 const candidate = index + @ctz(mask);
@@ -126,50 +142,59 @@ fn past_saves(program: *const Program, entry: u32) u32 {
     return index;
 }
 
-/// Each literal's first and last octets, in every lane.
-fn Wanted(comptime count: usize) type {
-    return struct { firsts: [count]Lanes, lasts: [count]Lanes };
-}
+/// The search's steps for a vector of `width` octets and a set of `count` literals.
+fn Lanes(comptime width: usize, comptime count: usize) type {
+    comptime assert(block_len % width == 0);
+    return struct {
+        const Vector = @Vector(width, u8);
+        const Mask = std.meta.Int(.unsigned, width);
+        const steps = block_len / width;
 
-/// True when some place of a block holds some literal's first octet in `firsts` and its last
-/// octet at the same place in `lasts`.
-inline fn any_candidate(comptime count: usize, firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted(count)) bool {
-    const all: Lanes = @splat(constants.octet_max);
-    const none: Lanes = @splat(0);
-    var any = none;
-    inline for (0..constants.literal_steps) |step| {
-        const at = step * constants.skip_lanes;
-        const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
-        const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
-        inline for (0..count) |literal| {
-            const first_here = @select(u8, first == wanted.firsts[literal], all, none);
-            const last_here = @select(u8, last == wanted.lasts[literal], all, none);
-            any |= first_here & last_here;
-        }
-    }
-    return @reduce(.Or, any) != 0;
-}
+        /// Each literal's first and last octets, in every lane.
+        const Wanted = struct { firsts: [count]Vector, lasts: [count]Vector };
 
-/// A bit for each place of a block where some literal's first and last octets stand.
-inline fn candidates(comptime count: usize, firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted(count)) BlockMask {
-    var mask: BlockMask = 0;
-    inline for (0..constants.literal_steps) |step| {
-        const at = step * constants.skip_lanes;
-        const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
-        const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
-        var step_mask: Mask = 0;
-        inline for (0..count) |literal| {
-            const both = @select(bool, first == wanted.firsts[literal], last == wanted.lasts[literal], @as(@Vector(constants.skip_lanes, bool), @splat(false)));
-            step_mask |= @as(Mask, @bitCast(both));
+        /// True when some place of a block holds some literal's first octet in `firsts` and its
+        /// last octet at the same place in `lasts`.
+        inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) bool {
+            const all: Vector = @splat(constants.octet_max);
+            const none: Vector = @splat(0);
+            var any = none;
+            inline for (0..steps) |step| {
+                const at = step * width;
+                const first: Vector = firsts[at..][0..width].*;
+                const last: Vector = lasts[at..][0..width].*;
+                inline for (0..count) |literal| {
+                    const first_here = @select(u8, first == wanted.firsts[literal], all, none);
+                    const last_here = @select(u8, last == wanted.lasts[literal], all, none);
+                    any |= first_here & last_here;
+                }
+            }
+            return @reduce(.Or, any) != 0;
         }
-        mask |= @as(BlockMask, step_mask) << at;
-    }
-    return mask;
+
+        /// A bit for each place of a block where some literal's first and last octets stand.
+        inline fn candidates(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) BlockMask {
+            var mask: BlockMask = 0;
+            inline for (0..steps) |step| {
+                const at = step * width;
+                const first: Vector = firsts[at..][0..width].*;
+                const last: Vector = lasts[at..][0..width].*;
+                var step_mask: Mask = 0;
+                inline for (0..count) |literal| {
+                    const both = @select(bool, first == wanted.firsts[literal], last == wanted.lasts[literal], @as(@Vector(width, bool), @splat(false)));
+                    step_mask |= @as(Mask, @bitCast(both));
+                }
+                mask |= @as(BlockMask, step_mask) << at;
+            }
+            return mask;
+        }
+    };
 }
 
 const testing = std.testing;
 const compiler = @import("compile.zig");
-const Generator = @import("codec").testing.split.Generator;
+const codec = @import("codec");
+const Generator = codec.testing.split.Generator;
 
 /// The instructions a test's pattern takes at most, its forward and its reverse program.
 const test_storage_len = 1024;
@@ -241,17 +266,32 @@ fn random_set(generator: *Generator, count: usize) LiteralSet {
     return set;
 }
 
+/// Requires `find` to give `expected` at `skip_lanes` octets a step, and at `avx2_lanes` where
+/// the host has AVX2.
+fn expect_find(set: *LiteralSet, avx2: bool, haystack: []const u8, from: usize, expected: ?usize) !void {
+    set.wide = false;
+    try testing.expectEqual(expected, set.find(haystack, from));
+    if (!avx2) return;
+    set.wide = true;
+    try testing.expectEqual(expected, set.find(haystack, from));
+}
+
+/// The blocks of a test's text, and a part of one, so that a search runs blocks and then the
+/// octets one at a time.
+const test_blocks = 2;
+const test_haystack_len = test_blocks * block_len + constants.skip_lanes + constants.literal_len_max;
+
 test "find gives the first place of a literal of the set from every offset, as a plain search does" {
     var generator = Generator.init(0x5E75);
-    var haystack: [3 * constants.skip_lanes + constants.literal_len_max]u8 = undefined;
+    var haystack: [test_haystack_len]u8 = undefined;
+    // Detection runs CPUID, which a virtual machine traps, so the test asks once.
+    const avx2 = literal_file.has_kernels and codec.Features.detect().avx2;
     for (2..constants.literal_set_max + 1) |count| {
         for (0..32) |_| {
-            const set = random_set(&generator, count);
+            var set = random_set(&generator, count);
             for (&haystack) |*octet| octet.* = "abcd"[generator.below(4)];
             const len = generator.below(haystack.len + 1);
-            for (0..len + 1) |from| {
-                try testing.expectEqual(find_plain(&set, haystack[0..len], from), set.find(haystack[0..len], from));
-            }
+            for (0..len + 1) |from| try expect_find(&set, avx2, haystack[0..len], from, find_plain(&set, haystack[0..len], from));
         }
     }
 }

@@ -102,7 +102,7 @@ test "a searcher with the claim off learns no start octet and gives the same mat
         var plain_memory: [searcher_test.memory_len]u64 = undefined;
         var plain: Searcher = undefined;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
-        plain.init_with(&fixture.program, .{ .start_skip = false }, plain_memory[0..len]);
+        plain.init_with(&fixture.program, .{ .start_skip = false }, .{}, plain_memory[0..len]);
         fill(&generator, &haystack);
         for (0..haystack.len + 1) |from| {
             try testing.expectEqual(plain.find(&haystack, from), fixture.searcher.find(&haystack, from));

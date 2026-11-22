@@ -20,25 +20,35 @@
 //! case and a bit in `folds`, and each compare at that place ORs `case_bit` into the text's octet
 //! first. SSE2 and NEON do that with one instruction a vector.
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const program_file = @import("program.zig");
 const Program = program_file.Program;
+const literal_find = @import("literal_find.zig");
 
-const Lanes = @Vector(constants.skip_lanes, u8);
-const Mask = std.meta.Int(.unsigned, constants.skip_lanes);
-/// A bit for each place of a block of `steps` steps.
-fn BlockMask(comptime steps: usize) type {
-    return std.meta.Int(.unsigned, steps * constants.skip_lanes);
-}
+/// Whether this target has the AVX2 variant object's searches (variants.zig): x86-64 alone
+/// builds it.
+pub const has_kernels = builtin.cpu.arch == .x86_64;
+
+/// What the variant object's searches give where the text holds no place.
+pub const no_place = std.math.maxInt(usize);
+
+extern fn stdx_regex_literal_find_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
+
 /// A bit for each place of a literal.
 pub const Folds = std.meta.Int(.unsigned, constants.literal_len_max);
 
-pub const Literal = struct {
+/// An extern struct, so that the variant object, built for other CPU features, reads the same
+/// fields at the same offsets.
+pub const Literal = extern struct {
     octets: [constants.literal_len_max]u8,
     len: u8,
     /// True when the literal is the whole pattern: a match is one place of the literal.
     exact: bool,
+    /// True when `find` searches `avx2_lanes` octets a step, in the variant object: the caller's
+    /// `codec.Features` name AVX2, and `has_kernels` holds.
+    wide: bool = false,
     /// A bit for each place that takes its octet in either case: `octets` holds the lower case.
     folds: Folds = 0,
 
@@ -88,25 +98,15 @@ pub const Literal = struct {
 
     /// The first offset at or after `from` where the literal stands whole in `haystack`, or null.
     pub fn find(literal: *const Literal, haystack: []const u8, from: usize) ?usize {
-        assert(from <= haystack.len);
-        assert(literal.len >= 1);
-        if (haystack.len - from < literal.len) return null;
-        // A place of the literal starts before `end`.
-        const end = haystack.len - literal.len + 1;
-        // A literal whose first and last places take one case each needs no OR in its loop.
-        const ends_fold = literal.fold_at(0) | literal.fold_at(literal.len - 1) != 0;
-        const wide = literal.lanes(ends_fold, constants.literal_wide_steps, haystack, from, end);
-        if (wide.found) |offset| return offset;
-        const after = literal.lanes(ends_fold, constants.literal_steps, haystack, wide.index, end);
-        if (after.found) |offset| return offset;
-        const first_fold = literal.fold_at(0);
-        for (after.index..end) |index| {
-            if (haystack[index] | first_fold == literal.octets[0] and literal.stands_at(haystack, index)) return index;
+        if (has_kernels and literal.wide) {
+            const found = stdx_regex_literal_find_x86_64_avx2(literal, haystack.ptr, haystack.len, from);
+            return if (found == no_place) null else found;
         }
-        return null;
+        return literal_find.find(constants.skip_lanes, literal, haystack, from);
     }
 
-    fn stands_at(literal: *const Literal, haystack: []const u8, index: usize) bool {
+    /// True when the literal stands whole at `index`, which leaves room for it.
+    pub fn stands_at(literal: *const Literal, haystack: []const u8, index: usize) bool {
         const text = haystack[index..][0..literal.len];
         if (literal.folds == 0) return std.mem.eql(u8, text, literal.slice());
         // At most `literal_len_max` places.
@@ -115,59 +115,7 @@ pub const Literal = struct {
         }
         return true;
     }
-
-    fn lanes(literal: *const Literal, ends_fold: bool, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
-        if (ends_fold) return literal.by_lanes(true, steps, haystack, from, end);
-        return literal.by_lanes(false, steps, haystack, from, end);
-    }
-
-    /// The first place of the literal that a whole block of `steps` steps holds, or the offset
-    /// of the first block that does not fit before `end`. A block tests all its steps before it
-    /// looks for a place in one, so a block with no candidate costs one branch.
-    fn by_lanes(literal: *const Literal, comptime folding: bool, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
-        const block_len = steps * constants.skip_lanes;
-        const last = literal.len - 1;
-        const wanted: Wanted = .{
-            .first = @splat(literal.octets[0]),
-            .last = @splat(literal.octets[last]),
-            .first_fold = @splat(literal.fold_at(0)),
-            .last_fold = @splat(literal.fold_at(last)),
-        };
-        var index = from;
-        // A block reads `block_len` octets from `index` and as many from `index + last`, whose
-        // last is `end + block_len - 2 + last`, under the haystack's length.
-        while (end - index >= block_len) : (index += block_len) {
-            const firsts = haystack[index..][0..block_len];
-            const lasts = haystack[index + last ..][0..block_len];
-            // Most blocks hold no candidate. One reduction says so, where a mask costs a
-            // reduction for each step on Arm, which has no instruction that gathers lane bits.
-            if (!any_candidate(folding, steps, firsts, lasts, &wanted)) continue;
-            var mask = candidates(folding, steps, firsts, lasts, &wanted);
-            // Each set bit is one place to compare, at most `block_len` of them.
-            while (mask != 0) : (mask &= mask - 1) {
-                const candidate = index + @ctz(mask);
-                if (literal.stands_at(haystack, candidate)) return .{ .found = candidate, .index = index };
-            }
-        }
-        return .{ .found = null, .index = index };
-    }
 };
-
-/// What a run of blocks found: the first place of the literal, or the offset it stopped at.
-const Found = struct { found: ?usize, index: usize };
-
-/// The first and last octets a block's lanes are compared with, and what each compare ORs into
-/// the text's octets first.
-const Wanted = struct { first: Lanes, last: Lanes, first_fold: Lanes, last_fold: Lanes };
-
-/// The text's octets of one step at the literal's first and last places, folded where the
-/// literal folds.
-inline fn step_lanes(comptime folding: bool, firsts: anytype, lasts: anytype, comptime at: usize, wanted: *const Wanted) struct { first: Lanes, last: Lanes } {
-    const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
-    const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
-    if (!folding) return .{ .first = first, .last = last };
-    return .{ .first = first | wanted.first_fold, .last = last | wanted.last_fold };
-}
 
 /// Claim R5: the literal that a branch of an alternation starts with at `entry`, with no
 /// assertion and no place that folds. Null where the branch starts with no octet.
@@ -237,38 +185,10 @@ fn case_pair(program: *const Program, split: program_file.Instruction) ?struct {
     return .{ .octet = one.lo | constants.case_bit, .out = one.out };
 }
 
-/// True when some place of a block holds the first octet in `firsts` and the last octet at the
-/// same place in `lasts`.
-inline fn any_candidate(comptime folding: bool, comptime steps: usize, firsts: *const [steps * constants.skip_lanes]u8, lasts: *const [steps * constants.skip_lanes]u8, wanted: *const Wanted) bool {
-    const all: Lanes = @splat(constants.octet_max);
-    const none: Lanes = @splat(0);
-    var any = none;
-    inline for (0..steps) |step| {
-        const lanes = step_lanes(folding, firsts, lasts, step * constants.skip_lanes, wanted);
-        const first_here = @select(u8, lanes.first == wanted.first, all, none);
-        const last_here = @select(u8, lanes.last == wanted.last, all, none);
-        any |= first_here & last_here;
-    }
-    return @reduce(.Or, any) != 0;
-}
-
-/// A bit for each place of a block where the first octet stands in `firsts` and the last octet
-/// at the same place in `lasts`, the block read from the literal's last octet on.
-inline fn candidates(comptime folding: bool, comptime steps: usize, firsts: *const [steps * constants.skip_lanes]u8, lasts: *const [steps * constants.skip_lanes]u8, wanted: *const Wanted) BlockMask(steps) {
-    var mask: BlockMask(steps) = 0;
-    inline for (0..steps) |step| {
-        const at = step * constants.skip_lanes;
-        const lanes = step_lanes(folding, firsts, lasts, at, wanted);
-        const both = @select(bool, lanes.first == wanted.first, lanes.last == wanted.last, @as(@Vector(constants.skip_lanes, bool), @splat(false)));
-        const step_mask: Mask = @bitCast(both);
-        mask |= @as(BlockMask(steps), step_mask) << at;
-    }
-    return mask;
-}
-
 const testing = std.testing;
 const compiler = @import("compile.zig");
-const Generator = @import("codec").testing.split.Generator;
+const codec = @import("codec");
+const Generator = codec.testing.split.Generator;
 
 /// The instructions a test's pattern takes at most, its forward and its reverse program:
 /// `[^u-z]{13}` takes some hundreds.
@@ -391,6 +311,22 @@ test "suffix_of reads the literal every match ends with, in the order of the tex
 const test_wide_blocks = 2;
 const test_haystack_len = (test_wide_blocks * constants.literal_wide_steps + constants.literal_steps + 1) * constants.skip_lanes + constants.literal_len_max;
 
+/// True when the host runs the variant object's search, which the tests then hold to the plain
+/// search too. Detection runs CPUID, which a virtual machine traps, so a test asks once.
+fn test_has_avx2() bool {
+    return has_kernels and codec.Features.detect().avx2;
+}
+
+/// Requires `find` to give `expected` at `skip_lanes` octets a step, and at `avx2_lanes` where
+/// the host has AVX2.
+fn expect_find(literal: *Literal, avx2: bool, haystack: []const u8, from: usize, expected: ?usize) !void {
+    literal.wide = false;
+    try testing.expectEqual(expected, literal.find(haystack, from));
+    if (!avx2) return;
+    literal.wide = true;
+    try testing.expectEqual(expected, literal.find(haystack, from));
+}
+
 /// The first place of `needle` at or after `from`, one offset at a time: what `find` must give.
 fn find_plain(haystack: []const u8, needle: []const u8, from: usize) ?usize {
     return std.mem.indexOfPos(u8, haystack, from, needle);
@@ -411,6 +347,7 @@ fn find_folded_plain(literal: *const Literal, haystack: []const u8, from: usize)
 test "find gives the first place of a literal that folds from every offset, as a plain search does" {
     var generator = Generator.init(0xF01D);
     var haystack: [test_haystack_len]u8 = undefined;
+    const avx2 = test_has_avx2();
     const needles = [_][]const u8{ "a", "ab", "aba", "abcab", "aa", "b" ** constants.literal_len_max, "a@b" };
     for (needles) |needle| {
         var literal: Literal = .{ .octets = undefined, .len = @intCast(needle.len), .exact = true };
@@ -423,7 +360,7 @@ test "find gives the first place of a literal that folds from every offset, as a
             for (&haystack) |*octet| octet.* = "abcABC@`\xFF"[generator.below(9)];
             const len = generator.below(haystack.len + 1);
             for (0..len + 1) |from| {
-                try testing.expectEqual(find_folded_plain(&literal, haystack[0..len], from), literal.find(haystack[0..len], from));
+                try expect_find(&literal, avx2, haystack[0..len], from, find_folded_plain(&literal, haystack[0..len], from));
             }
         }
     }
@@ -432,6 +369,7 @@ test "find gives the first place of a literal that folds from every offset, as a
 test "find gives the first place of the literal from every offset, as a plain search gives it" {
     var generator = Generator.init(0x117E);
     var haystack: [test_haystack_len]u8 = undefined;
+    const avx2 = test_has_avx2();
     const needles = [_][]const u8{ "a", "ab", "aba", "abcab", "aa", "aaa", "b" ** constants.literal_len_max, "a\xFFb" };
     for (needles) |needle| {
         var literal: Literal = .{ .octets = undefined, .len = @intCast(needle.len), .exact = true };
@@ -442,7 +380,7 @@ test "find gives the first place of the literal from every offset, as a plain se
             for (&haystack) |*octet| octet.* = "abc\xFF"[generator.below(4)];
             const len = generator.below(haystack.len + 1);
             for (0..len + 1) |from| {
-                try testing.expectEqual(find_plain(haystack[0..len], needle, from), literal.find(haystack[0..len], from));
+                try expect_find(&literal, avx2, haystack[0..len], from, find_plain(haystack[0..len], needle, from));
             }
         }
     }

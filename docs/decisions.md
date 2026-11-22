@@ -5682,9 +5682,13 @@ last part lists what still waits on a ruling.
         TBL.
       - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
         `stdx, no skip` turns off both.
-      - What R2 does not do yet, from the reading of Rust's crate: AVX2's 32 lanes, which Rust's
-        crate picks at run time on x86-64, and the two octets a table of frequencies ranks
-        rarest. Claim R5 searches for one of several literals.
+      - On x86-64, a caller whose `codec.Features` name AVX2 gets the search of 32 lanes,
+        `avx2_lanes`, which Rust's crate picks at run time too. `Searcher.init` and `init_with`
+        take the features, as entry 30 rules for json's types: one way to start each type, and
+        each caller adds the argument. The search is `literal_find.zig`'s, built a second time in
+        the module's variant object of decision 21, and its blocks keep their octets.
+      - What R2 does not do yet, from the reading of Rust's crate: the two octets a table of
+        frequencies ranks rarest. Claim R5 searches for one of several literals.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two
       octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan
       goes to the next place of that literal (design §8 step 22, part 22c).
@@ -5727,7 +5731,7 @@ last part lists what still waits on a ruling.
         `literal_set_max`, 8, and each one's first octets up to the shortest one's length.
       - `LiteralSet.find` compares each literal's first and last octets at their distance, 16
         octets a step and 4 steps a block, ORs the compares, and compares the literals whole
-        where a pair stands. It needs SSE2 or NEON alone.
+        where a pair stands. It needs SSE2 or NEON alone, and takes AVX2's 32 lanes as R2 does.
       - Rust's crate searches such a set with Teddy, from Hyperscan (Wang and others, NSDI
         2019), which looks up nibbles with PSHUFB or TBL. stdx's build takes neither on x86-64,
         whose baseline is SSE2.
@@ -5774,8 +5778,8 @@ last part lists what still waits on a ruling.
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
     `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
-    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; and `case_bit`,
-    0x20. Claim R5's:
+    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
+    and `avx2_lanes`, 32. Claim R5's:
     `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R6's: `one_pass_instructions_max`,
     1,024. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;

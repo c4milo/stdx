@@ -110,6 +110,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     regex.addImport("codec", codec);
     // A pattern's characters, and the octets a program takes for each (decision 86).
     regex.addImport("utf8", utf8);
+    variants.add_levels(b, regex, "regex", settings.target, settings.optimize, &variants.regex_levels);
 
     return .{
         .codec = codec,

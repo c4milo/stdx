@@ -13,11 +13,11 @@ const haystack_tail = 7;
 const haystack_len = haystack_steps * constants.skip_lanes + haystack_tail;
 
 /// The octets a haystack draws from: the suffixes below, and octets the parts before them take.
-const alphabet = "abx: \n\xC3\xA9";
+pub const alphabet = "abx: \n\xC3\xA9";
 
 /// Patterns that end with a literal whose first octet no part before it takes, and their
 /// literals.
-const suffix_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
+pub const suffix_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
     .{ .pattern = "[ab]+x", .suffix = "x" },
     .{ .pattern = "[ab][ab ]*x:", .suffix = "x:" },
     .{ .pattern = "(?m)^[ab]+:", .suffix = ":" },

@@ -27,6 +27,9 @@ pub const Config = struct {
     /// branches of an alternation start with, where the program has no literal of claim R2 and
     /// no assertion (literal_set.zig). Only with `skip`.
     literal_set: bool = false,
+    /// Whether the searches of claims R2 and R5 run in the variant object of x86-64's AVX2,
+    /// `avx2_lanes` octets a step (`Literal.wide`).
+    wide: bool = false,
 };
 
 /// What a visit of a scan to the state that waits goes to (dfa_wait.zig): the next octet that

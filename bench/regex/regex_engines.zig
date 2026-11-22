@@ -18,6 +18,7 @@
 //! haystack in one call.
 
 const std = @import("std");
+const codec = @import("codec");
 const regex = @import("regex");
 const ZigRegex = @import("zig_regex").Regex;
 const mvzr = @import("mvzr");
@@ -53,6 +54,9 @@ pub const Stdx = struct {
     memory: []u64,
     program: regex.Program,
     searcher: regex.Searcher,
+    /// The host's CPU features, detected once when the side is made, as Rust's crate detects
+    /// them once.
+    features: codec.Features,
 
     fn cache_words(engine: Engine) usize {
         return if (engine == .stdx_matcher) 0 else regex.constants.cache_words_default;
@@ -67,7 +71,7 @@ pub const Stdx = struct {
     pub fn ready(stdx: *Stdx, engine: Engine, pattern: []const u8) bool {
         stdx.program = regex.compile(pattern, .{}, &stdx.storage) catch return false;
         const len = regex.Searcher.memory_len(stdx.program.forward_len, stdx.program.slot_count(), cache_words(engine));
-        stdx.searcher.init_with(&stdx.program, .{ .start_skip = engine != .stdx_no_skip }, stdx.memory[0..len]);
+        stdx.searcher.init_with(&stdx.program, .{ .start_skip = engine != .stdx_no_skip }, stdx.features, stdx.memory[0..len]);
         return true;
     }
 };
@@ -91,6 +95,7 @@ pub fn compile(engine: Engine, arena: std.mem.Allocator, pattern: []const u8) !?
         .stdx, .stdx_no_skip, .stdx_matcher, .stdx_again => {
             const stdx = try arena.create(Stdx);
             stdx.memory = try arena.alloc(u64, Stdx.memory_len(engine));
+            stdx.features = codec.Features.detect();
             if (!stdx.ready(engine, pattern)) return null;
             return switch (engine) {
                 .stdx => .{ .stdx = stdx },
@@ -124,6 +129,7 @@ pub const Scratch = struct {
     pub fn init(arena: std.mem.Allocator) !Scratch {
         const stdx = try arena.create(Stdx);
         stdx.memory = try arena.alloc(u64, Stdx.memory_len(.stdx));
+        stdx.features = codec.Features.detect();
         return .{ .stdx = stdx };
     }
 };

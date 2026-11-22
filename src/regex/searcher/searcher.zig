@@ -19,9 +19,11 @@ const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
 const dfa_file = @import("../dfa/dfa.zig");
 const Dfa = dfa_file.Dfa;
-const Literal = @import("../literal.zig").Literal;
+const Literal = literal_file.Literal;
 const dfa_suffix = @import("../dfa/dfa_suffix.zig");
 const one_pass = @import("../one_pass.zig");
+const codec = @import("codec");
+const literal_file = @import("../literal.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 /// The words of the caches' memory in one word of a searcher's memory.
@@ -68,6 +70,11 @@ const OnePass = enum {
     at_text,
 };
 
+/// Whether claims R2 and R5 search in the variant object of x86-64's AVX2.
+fn wide_of(features: codec.Features) bool {
+    return literal_file.has_kernels and features.avx2;
+}
+
 /// Judges claim R6 for the matcher's program, with the matcher's lists.
 fn judge_one_pass(matcher: *Matcher) OnePass {
     if (!one_pass.check(matcher)) return .no;
@@ -98,14 +105,16 @@ pub const Searcher = struct {
         return Matcher.memory_len(forward_len, slots_len) + cache_words;
     }
 
-    /// Readies a searcher for `program`. The memory is the searcher's until the caller is done
-    /// with it, and holds at least `memory_len` words with no cache.
-    pub fn init(searcher: *Searcher, program: *const Program, memory: []u64) void {
-        searcher.init_with(program, .{}, memory);
+    /// Readies a searcher for `program`, with the CPU features the caller detected once with
+    /// `codec.Features.detect()`, or `codec.Features.target()`. Where they name AVX2, claims R2
+    /// and R5 search `avx2_lanes` octets a step. The memory is the searcher's until the caller is
+    /// done with it, and holds at least `memory_len` words with no cache.
+    pub fn init(searcher: *Searcher, program: *const Program, features: codec.Features, memory: []u64) void {
+        searcher.init_with(program, .{}, features, memory);
     }
 
     /// `init`, with the claims the caller names.
-    pub fn init_with(searcher: *Searcher, program: *const Program, claims: Claims, memory: []u64) void {
+    pub fn init_with(searcher: *Searcher, program: *const Program, claims: Claims, features: codec.Features, memory: []u64) void {
         const matcher_len = Matcher.memory_len(program.forward_len, program.slot_count());
         assert(memory.len >= matcher_len);
         searcher.matcher.init(program, .{ .captures = .groups }, memory[0..matcher_len]);
@@ -114,7 +123,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features) },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(
@@ -141,6 +150,7 @@ pub const Searcher = struct {
         // text's start reads few octets forward.
         if (suffix_on and searcher.forward.literal == null and !starts_at_text_start(program)) {
             searcher.suffix = dfa_suffix.suffix_of(&searcher.reverse, program);
+            if (searcher.suffix) |*suffix| suffix.wide = searcher.forward.config.wide;
         }
     }
 
@@ -325,4 +335,5 @@ test {
     _ = @import("searcher_literal_test.zig");
     _ = @import("searcher_suffix_test.zig");
     _ = @import("searcher_one_pass_test.zig");
+    _ = @import("searcher_wide_test.zig");
 }
