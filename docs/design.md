@@ -8301,6 +8301,20 @@ to 12 are reordered and nothing else changes.
       which holds no alternation at its start, and one taken for a program with an assertion,
       whose DFA never skips. Each condition saves work at `init` alone.
 
+  **Part 22c, the plain loop's branch (decision 86).** The hosted runs on main at `95bde31`
+  timed the plain loop at half the speed of `85d3fe7` on an EPYC 9V74 and faster on a Xeon
+  6975P-C and the Neoverse N2: `stdx, no skip` 305 MB/s against 607 on `[a-z]+ing`, with a spread
+  under 0.3%. The machine code showed why. The slow path joined the loop's latch, so the
+  compiler placed a second latch beside the first, and each octet took two branches: one back to
+  the latch, and one from it over the second latch to the loop's head. At `85d3fe7` each octet
+  took one. `run_plain` now holds the fast path as a loop of its own, which the slow path does
+  not join.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container on an Intel Xeon, which shows no such cost. The loop takes 11 instructions and one
+  branch an octet. `[a-z]+ing` over 1 MiB 20 times: 54 ms at best of five, against 56 at
+  `95bde31` and 60 at `85d3fe7`. `zig build test`, `zig build test-self-hosted` and `zig build
+  differential-regex -Doracles` pass. The hosted runs on an EPYC are the measure.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

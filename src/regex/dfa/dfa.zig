@@ -179,25 +179,19 @@ pub const Dfa = struct {
     inline fn scan_plain(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         var state = first;
         var last: ?usize = null;
-        // The table and the classes stay where they are while a scan runs, so the loop reads them
-        // through locals: a store through `dfa` then reloads neither.
-        const table = dfa.cache.table;
-        const classes = &dfa.classes;
-        // The loop counts the octets it took, and only the slow path adds them to `from`: an offset
-        // kept beside them costs an add and its overflow check an octet.
-        for (haystack[from..], 0..) |octet, taken| {
-            // A row is under the table's length less a stride, and a class under the stride, so
-            // the sum cannot wrap, and the read's bounds check holds it.
-            const entry = table[state +% classes[octet]];
-            if (entry < constants.dfa_dead_flag) {
-                state = entry;
-                continue;
-            }
-            const index = from + taken;
-            const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
-            if (known & constants.dfa_match_flag != 0) last = index;
+        var at = from;
+        // Each turn takes the octets up to one whose entry is no plain row, and that octet, so the
+        // turns are at most the octets from `from` and one.
+        for (0..haystack.len - from + 1) |_| {
+            at = run_plain(dfa.cache.table, &dfa.classes, haystack, at, &state);
+            if (at == haystack.len) break;
+            const octet = haystack[at];
+            const entry = dfa.cache.table[state +% dfa.classes[octet]];
+            const known = dfa.resolve(state, octet, entry, at) orelse return .gave_up;
+            if (known & constants.dfa_match_flag != 0) last = at;
             if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
             state = known & constants.dfa_row_mask;
+            at += 1;
         }
         dfa.tally(haystack.len);
         if (dfa.matches_at_end(state, .edge)) last = haystack.len;
@@ -433,6 +427,27 @@ pub const Dfa = struct {
         }
     }
 };
+
+/// The offset of the first octet at or after `from` whose entry from `state` is no plain row, or
+/// the haystack's length, with `state` moved over the octets before it. A loop of its own, which
+/// no slow path joins: the compiler then gives it one branch an octet. Where the slow path joined
+/// it, its latch took a second, and an EPYC 9V74 ran the loop at half its speed.
+inline fn run_plain(table: []const u32, classes: *const [constants.octet_values]u8, haystack: []const u8, from: usize, state: *u32) usize {
+    var current = state.*;
+    // The loop counts the octets it took, and only its exit adds them to `from`.
+    for (haystack[from..], 0..) |octet, taken| {
+        // A row is under the table's length less a stride, and a class under the stride, so the
+        // sum cannot wrap, and the read's bounds check holds it.
+        const entry = table[current +% classes[octet]];
+        if (entry >= constants.dfa_dead_flag) {
+            state.* = current;
+            return from + taken;
+        }
+        current = entry;
+    }
+    state.* = current;
+    return haystack.len;
+}
 
 fn take(memory: *[]u32, len: usize) []u32 {
     const taken = memory.*[0..len];
