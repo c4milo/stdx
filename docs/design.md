@@ -8386,6 +8386,25 @@ to 12 are reordered and nothing else changes.
     candidates shifted in both searches. 3 NOT CAUGHT, each of which changes no answer: `find`
     and `LiteralSet.find` that never take AVX2, and a wide block of the narrow block's steps.
 
+  **Part 22c, R6's thread takes a run of ranges in a loop of its own (decision 86).** At
+  `151e0cf` the hosted runners timed six groups of a date at 0.65 to 0.78 of Rust's regex. Under
+  cachegrind a capture took about 1,900 instructions for 15 octets: each octet walked its seed's
+  line twice, through an optional octet and an outcome, with the position in memory. Most seeds of
+  a one-pass pattern are a range, so `take_ranges` takes them one instruction an octet, and
+  `straight` walks a line once.
+  **Check:** the searcher's and `one_pass.find`'s tests, with a new one whose run of ranges ends
+  on an octet of another kind than the one before it; the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps, 1,318 tests passed and 6 skipped. `zig build
+  differential-regex -Doracles`: 12,437,544 cases, none failed.
+  - Under cachegrind, 10,240 captures of generated dates took 23,023,977 instructions before and
+    16,095,393 after, 30% fewer. In the container they took 173 to 182 ns a text before and 120
+    to 140 ns after.
+  - Mutations, each against `zig build test-regex`: 10. 8 CAUGHT, 1 of them after its test was
+    added: a run that leaves the context behind it as it was. 2 NOT CAUGHT, each an equivalent
+    mutant: a run that hands a refused octet to the slow step, and an assertion that fails on a
+    line handed to `follow`. Each slow path refuses the same octet or the same assertion.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

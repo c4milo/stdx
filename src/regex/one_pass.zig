@@ -112,24 +112,61 @@ pub fn find(matcher: *Matcher, haystack: []const u8, from: usize) ?Span {
     // No match starts before a continuation octet of UTF-8, as in the matcher.
     if (from < haystack.len and is_continuation(haystack[from])) return finish(matcher, false);
     var seed = matcher.program.forward;
-    // Each turn takes one octet, or ends the search: at most the octets from `from` and one.
-    for (from..haystack.len + 1) |index| {
-        const octet: ?u8 = if (index < haystack.len) haystack[index] else null;
-        const ahead: Context = if (octet) |known| Context.of(known) else .edge;
-        // A seed whose paths are one line needs no list: no branch is tried and undone.
-        const outcome = straight(matcher, seed, octet, ahead) orelse follow(matcher, seed, octet, ahead);
-        switch (outcome) {
+    var index = from;
+    // Each turn takes one octet at least, or ends the search: at most the octets from `from`
+    // and one.
+    for (from..haystack.len + 1) |_| {
+        const run = take_ranges(matcher.program.instructions, haystack, index, seed);
+        if (run.dead) return finish(matcher, false);
+        if (run.index != index) {
+            index = run.index;
+            seed = run.seed;
+            matcher.position = index;
+            matcher.behind = Context.of(haystack[index - 1]);
+        }
+        switch (step(matcher, haystack, index, seed)) {
             .matched => return finish(matcher, true),
             .dead => return finish(matcher, false),
             .took => |next| {
                 seed = next;
-                matcher.position += 1;
-                matcher.behind = ahead;
+                index += 1;
             },
         }
     }
     // At the text's end no instruction takes an octet, so the last turn returned.
     unreachable;
+}
+
+/// The outcome of the paths from `seed` at `index`. Where they take the octet there, the
+/// matcher's position moves past it.
+inline fn step(matcher: *Matcher, haystack: []const u8, index: usize, seed: u32) Outcome {
+    const octet: ?u8 = if (index < haystack.len) haystack[index] else null;
+    const ahead: Context = if (octet) |known| Context.of(known) else .edge;
+    // A seed whose paths are one line needs no list: no branch is tried and undone.
+    const outcome = straight(matcher, seed, octet, ahead) orelse follow(matcher, seed, octet, ahead);
+    if (outcome == .took) {
+        matcher.position = index + 1;
+        matcher.behind = ahead;
+    }
+    return outcome;
+}
+
+/// Where a run of seeds that each take an octet at once ended, as most seeds of a one-pass
+/// pattern do: the offset, the seed there, and whether a seed refused its octet.
+const Run = struct { index: usize, seed: u32, dead: bool };
+
+/// Takes the octets from `from` while the seed is a range, one instruction an octet. Such a seed
+/// writes no slot and reads no assertion, so the run keeps the position in a register.
+inline fn take_ranges(instructions: []const Instruction, haystack: []const u8, from: usize, first: u32) Run {
+    var seed = first;
+    for (haystack[from..], from..) |octet, index| {
+        const instruction = &instructions[seed];
+        if (instruction.kind != .range) return .{ .index = index, .seed = seed, .dead = false };
+        // The seed's one path is this range: where it refuses the octet, no thread is left.
+        if (!instruction.takes(octet)) return .{ .index = index, .seed = seed, .dead = true };
+        seed = instruction.out;
+    }
+    return .{ .index = haystack.len, .seed = seed, .dead = false };
 }
 
 fn finish(matcher: *Matcher, matched: bool) ?Span {
@@ -141,55 +178,31 @@ fn finish(matcher: *Matcher, matched: bool) ?Span {
 }
 
 /// The outcome of a seed whose path is one line of saves, jumps and assertions up to `match` or an
-/// instruction that takes an octet, or null where it meets a split. A first walk finds the line's
-/// end, so a seed that `follow` must take is left as it was.
+/// instruction that takes an octet, or null where it meets a split. The walk writes the line's
+/// saves as it goes. Where it meets a split, `follow` takes the seed and writes the same saves
+/// with the same position, and every path that survives takes them.
 fn straight(matcher: *Matcher, seed: u32, octet: ?u8, ahead: Context) ?Outcome {
     const instructions = matcher.program.instructions;
     var index = seed;
     // A line holds each instruction once at most: a program's paths that take no octet hold no
     // loop that is not split.
     for (0..matcher.program.forward_len) |_| {
-        const instruction = instructions[index];
-        switch (instruction.kind) {
-            .save, .jump, .look => index = instruction.out,
-            .range, .match, .fail => break,
-            .split => return null,
-        }
-    } else return null;
-    return walk_line(matcher, seed, index, octet, ahead);
-}
-
-/// Takes the line from `seed` to `end`, which `straight` found: its saves and its assertions'
-/// verdicts, then `end`.
-fn walk_line(matcher: *Matcher, seed: u32, end: u32, octet: ?u8, ahead: Context) Outcome {
-    if (!take_line(matcher, seed, end, ahead)) return .dead;
-    const last = matcher.program.instructions[end];
-    return switch (last.kind) {
-        .match => .matched,
-        .range => if (octet != null and last.takes(octet.?)) .{ .took = last.out } else .dead,
-        else => .dead,
-    };
-}
-
-/// Writes the line's saves up to `end`. False where an assertion of it does not hold.
-fn take_line(matcher: *Matcher, seed: u32, end: u32, ahead: Context) bool {
-    const instructions = matcher.program.instructions;
-    var index = seed;
-    // The line `straight` walked, once more.
-    for (0..matcher.program.forward_len) |_| {
-        if (index == end) return true;
-        const instruction = instructions[index];
+        const instruction = &instructions[index];
         switch (instruction.kind) {
             .save => if (instruction.arg < matcher.slots_len) {
                 matcher.current()[instruction.arg] = matcher.position;
             },
-            .look => if (!instruction.look.holds(matcher.behind, ahead)) return false,
+            // Every path from the seed passes this assertion.
+            .look => if (!instruction.look.holds(matcher.behind, ahead)) return .dead,
             .jump => {},
-            .range, .match, .fail, .split => unreachable,
+            .range => return if (octet != null and instruction.takes(octet.?)) .{ .took = instruction.out } else .dead,
+            .match => return .matched,
+            .fail => return .dead,
+            .split => return null,
         }
         index = instruction.out;
     }
-    return index == end;
+    return null;
 }
 
 /// Follows the paths from `seed` that take no octet, as `Matcher.follow` does, until one reaches
@@ -322,6 +335,20 @@ test "find gives the match and the groups the matcher gives, anchored at every o
             for (&text) |*octet| octet.* = test_alphabet[generator.below(test_alphabet.len)];
             for (0..text.len + 1) |from| try expect_agree(&fixture, &reference, &text, from);
         }
+    }
+}
+
+test "the octets a run of ranges takes set the context an assertion after them reads" {
+    var fixture: Fixture = .{};
+    var reference: Fixture = .{};
+    // A step takes `-`, and a run takes `a`: `\b` reads `a` behind it, not `-`.
+    const pattern = "(-a)\\b-";
+    try fixture.init(pattern);
+    try reference.init(pattern);
+    try testing.expect(check(&fixture.matcher));
+    try testing.expect(find(&fixture.matcher, "-a-", 0) != null);
+    for ([_][]const u8{ "-a-", "--a-", "-a--a-" }) |text| {
+        for (0..text.len + 1) |from| try expect_agree(&fixture, &reference, text, from);
     }
 }
 
