@@ -8201,6 +8201,26 @@ to 12 are reordered and nothing else changes.
       which a copy of the suffix that starts in a match's part before it also holds; and a
       reverse scan bounded by the place before, which stops there in any case.
 
+  **Part 22c, the DFA loops' octet (decision 86).** Under callgrind the plain loop of the forward
+  DFA took 16 instructions an octet in ReleaseSafe, and the short texts that a pattern validates
+  spent 42% of their instructions there. Three of the 16 served no check that can fail:
+  - The loop kept the octet's offset beside the slice it walks, with an add and an overflow check
+    an octet. It now counts the octets it took, and only the slow path adds them to `from`.
+  - The sum of a row and a class had an overflow check of its own. A row is under
+    `dfa_row_mask` and a class under 256, so the sum cannot wrap, and the bounds check of the
+    table read that follows holds it. The four loops add with `+%`.
+  - The loops of claims R1 and R3 were inlined into `scan_forward`, and the plain loop reloaded
+    the table's pointer from the stack on each octet. Both are now `noinline`.
+  **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container, the
+  instructions counted by cachegrind for a build of the baseline CPU. The plain loop takes 12
+  instructions an octet. `scan_forward` over the five validations of `bench-regex`, 4,096 texts
+  each 20 times, took 149.5 million instructions against 190.1 million. Over 1 MiB three times:
+  `[a-z]+ing` 43.7 million against 62.7 million, two capitalized words 30.5 against 32.3,
+  `[0-9]+` 24.3 against 24.1, where the call of R1's loop that is no longer inlined costs a few
+  instructions a match. `zig build test`: 99 of 99 steps, 1,304 tests passed and 6 skipped.
+  `zig build test-self-hosted`: 49 of 49 steps. The change holds no new check, so it has no
+  mutation.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

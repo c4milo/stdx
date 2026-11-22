@@ -174,12 +174,17 @@ pub const Dfa = struct {
         // through locals: a store through `dfa` then reloads neither.
         const table = dfa.cache.table;
         const classes = &dfa.classes;
-        for (haystack[from..], from..) |octet, index| {
-            const entry = table[state + classes[octet]];
+        // The loop counts the octets it took, and only the slow path adds them to `from`: an offset
+        // kept beside them costs an add and its overflow check an octet.
+        for (haystack[from..], 0..) |octet, taken| {
+            // A row is under the table's length less a stride, and a class under the stride, so
+            // the sum cannot wrap, and the read's bounds check holds it.
+            const entry = table[state +% classes[octet]];
             if (entry < constants.dfa_dead_flag) {
                 state = entry;
                 continue;
             }
+            const index = from + taken;
             const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
             if (known & constants.dfa_match_flag != 0) last = index;
             if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
@@ -193,7 +198,7 @@ pub const Dfa = struct {
     /// A forward scan under claim R1: the state that waits for a match to start stays where it
     /// is over an octet that starts none, so the scan goes to the next octet that can. Claim R2
     /// takes a copy of the loop of its own, so that R1's loop holds no test of R2.
-    fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+    noinline fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         if (dfa.literal != null) return dfa.skip_loop(true, haystack, from, earliest, first);
         return dfa.skip_loop(false, haystack, from, earliest, first);
     }
@@ -212,7 +217,8 @@ pub const Dfa = struct {
                 if (index == haystack.len) break;
             }
             const octet = haystack[index];
-            const entry = table[state + classes[octet]];
+            // As in `scan_plain`, the sum of a row and a class cannot wrap.
+            const entry = table[state +% classes[octet]];
             index += 1;
             if (entry < constants.dfa_dead_flag) {
                 state = entry;

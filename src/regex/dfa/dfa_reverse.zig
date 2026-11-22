@@ -22,7 +22,8 @@ pub fn scan(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Scan {
     while (index > from) {
         index -= 1;
         const octet = haystack[index];
-        const entry = table[state + classes[octet]];
+        // As in `Dfa.scan_plain`, the sum of a row and a class cannot wrap.
+        const entry = table[state +% classes[octet]];
         if (entry < constants.dfa_dead_flag) {
             state = entry;
             continue;

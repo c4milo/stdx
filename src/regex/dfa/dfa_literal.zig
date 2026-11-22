@@ -22,7 +22,7 @@ const Scan = dfa_file.Scan;
 const Literal = @import("../literal.zig").Literal;
 
 /// The scan of `Dfa.scan_forward` from `from`, for a DFA that looks for its literal.
-pub fn scan(dfa: *Dfa, literal: *const Literal, haystack: []const u8, from: usize, earliest: bool) Scan {
+pub noinline fn scan(dfa: *Dfa, literal: *const Literal, haystack: []const u8, from: usize, earliest: bool) Scan {
     assert(dfa.looks_for_literal());
     var last: ?usize = null;
     var index = from;
@@ -52,12 +52,15 @@ fn run(dfa: *Dfa, haystack: []const u8, from: usize, first: u32, earliest: bool,
     const table = dfa.cache.table;
     const classes = &dfa.classes;
     var state = first;
-    for (haystack[from..], from..) |octet, index| {
-        const entry = table[state + classes[octet]];
+    // As in `Dfa.scan_plain`: the loop counts the octets it took, and the sum of a row and a
+    // class cannot wrap.
+    for (haystack[from..], 0..) |octet, taken| {
+        const entry = table[state +% classes[octet]];
         if (entry < constants.dfa_flags_min) {
             state = entry;
             continue;
         }
+        const index = from + taken;
         const known = dfa.resolve(state, octet, entry, index) orelse return .{ .done = .gave_up };
         if (known & constants.dfa_match_flag != 0) last.* = index;
         if (known & constants.dfa_dead_flag != 0 or (earliest and last.* != null)) return .{ .done = Scan.of(last.*) };
