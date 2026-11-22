@@ -6,7 +6,8 @@ const constants = @import("../constants.zig");
 const literal_file = @import("../literal.zig");
 const Literal = literal_file.Literal;
 const literal_find = @import("../literal_find.zig");
-const LiteralSet = @import("../literal_set.zig").LiteralSet;
+const literal_set = @import("../literal_set.zig");
+const LiteralSet = literal_set.LiteralSet;
 const level = @import("variant_level").level;
 
 fn find_literal(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize {
@@ -14,7 +15,7 @@ fn find_literal(literal: *const Literal, haystack: [*]const u8, haystack_len: us
 }
 
 fn find_literal_set(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize {
-    return set.find_by(constants.avx2_lanes, haystack[0..haystack_len], from) orelse literal_file.no_place;
+    return set.find_by(constants.avx2_lanes, haystack[0..haystack_len], from, literal_set.no_limit) orelse literal_file.no_place;
 }
 
 comptime {

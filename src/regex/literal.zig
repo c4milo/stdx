@@ -34,6 +34,10 @@ pub const has_kernels = builtin.cpu.arch == .x86_64;
 /// What the variant object's searches give where the text holds no place.
 pub const no_place = std.math.maxInt(usize);
 
+/// The places a search with `wide` set judges before it calls the variant object: one block of
+/// `literal_steps` steps.
+pub const near_len = constants.literal_steps * constants.skip_lanes;
+
 extern fn stdx_regex_literal_find_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
 
 /// A bit for each place of a literal.
@@ -99,10 +103,21 @@ pub const Literal = extern struct {
     /// The first offset at or after `from` where the literal stands whole in `haystack`, or null.
     pub fn find(literal: *const Literal, haystack: []const u8, from: usize) ?usize {
         if (has_kernels and literal.wide) {
-            const found = stdx_regex_literal_find_x86_64_avx2(literal, haystack.ptr, haystack.len, from);
-            return if (found == no_place) null else found;
+            // The variant object's search is a call no compiler inlines. A place within a block
+            // of `from`, as in a text where the literal is common, is found without a call.
+            const near = @min(haystack.len, from + near_len);
+            if (literal_find.find_before(constants.skip_lanes, literal, haystack, from, near)) |offset| return offset;
+            return find_far(literal, haystack, near);
         }
         return literal_find.find(constants.skip_lanes, literal, haystack, from);
+    }
+
+    /// The variant object's search from `near`, out of line, so that `find` stays small enough
+    /// for its callers to inline.
+    noinline fn find_far(literal: *const Literal, haystack: []const u8, near: usize) ?usize {
+        if (haystack.len - near < literal.len) return null;
+        const found = stdx_regex_literal_find_x86_64_avx2(literal, haystack.ptr, haystack.len, near);
+        return if (found == no_place) null else found;
     }
 
     /// True when the literal stands whole at `index`, which leaves room for it.

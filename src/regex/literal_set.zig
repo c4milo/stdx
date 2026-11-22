@@ -22,6 +22,9 @@ const BlockMask = std.meta.Int(.unsigned, block_len);
 /// The branches of a split.
 const split_branches = 2;
 
+/// The limit of a search that judges every place to the haystack's end.
+pub const no_limit = std.math.maxInt(usize);
+
 extern fn stdx_regex_literal_set_find_x86_64_avx2(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
 
 /// An extern struct, so that the variant object, built for other CPU features, reads the same
@@ -73,26 +76,39 @@ pub const LiteralSet = extern struct {
     /// The first offset at or after `from` where a literal of the set stands, or null.
     pub fn find(set: *const LiteralSet, haystack: []const u8, from: usize) ?usize {
         if (literal_file.has_kernels and set.wide) {
-            const found = stdx_regex_literal_set_find_x86_64_avx2(set, haystack.ptr, haystack.len, from);
-            return if (found == literal_file.no_place) null else found;
+            // As `Literal.find` does: a place near `from` is found with no call.
+            const near = @min(haystack.len, from + literal_file.near_len);
+            if (set.find_by(constants.skip_lanes, haystack, from, near)) |offset| return offset;
+            return set.find_far(haystack, near);
         }
-        return set.find_by(constants.skip_lanes, haystack, from);
+        return set.find_by(constants.skip_lanes, haystack, from, no_limit);
     }
 
-    /// `find`, `width` octets a step: `skip_lanes`, or `avx2_lanes` in the variant object.
-    pub fn find_by(set: *const LiteralSet, comptime width: usize, haystack: []const u8, from: usize) ?usize {
+    /// The variant object's search from `near`, out of line, as `Literal.find_far` is.
+    noinline fn find_far(set: *const LiteralSet, haystack: []const u8, near: usize) ?usize {
+        if (haystack.len - near < set.len) return null;
+        const found = stdx_regex_literal_set_find_x86_64_avx2(set, haystack.ptr, haystack.len, near);
+        return if (found == literal_file.no_place) null else found;
+    }
+
+    /// `find`, `width` octets a step: `skip_lanes`, or `avx2_lanes` in the variant object. It
+    /// judges the places that start before `limit` alone.
+    pub fn find_by(set: *const LiteralSet, comptime width: usize, haystack: []const u8, from: usize, limit: usize) ?usize {
         assert(from <= haystack.len);
         assert(set.count >= constants.literal_set_count_min and set.count <= constants.literal_set_max);
+        if (haystack.len - from < set.len) return null;
+        // A place of a literal starts before `end`.
+        const end = if (limit == no_limit) haystack.len - set.len + 1 else @min(haystack.len - set.len + 1, limit);
+        if (end <= from) return null;
         return switch (set.count) {
-            inline constants.literal_set_count_min...constants.literal_set_max => |count| set.find_of(width, count, haystack, from),
+            inline constants.literal_set_count_min...constants.literal_set_max => |count| set.find_of(width, count, haystack, from, end),
             else => unreachable,
         };
     }
 
-    fn find_of(set: *const LiteralSet, comptime width: usize, comptime count: usize, haystack: []const u8, from: usize) ?usize {
-        if (haystack.len - from < set.len) return null;
-        // A place of a literal starts before `end`.
-        const end = haystack.len - set.len + 1;
+    /// The first place of a literal of the set that starts at or after `from` and before `end`,
+    /// where the haystack holds the set's `len` octets from each such place.
+    fn find_of(set: *const LiteralSet, comptime width: usize, comptime count: usize, haystack: []const u8, from: usize, end: usize) ?usize {
         const last = set.len - 1;
         const Search = Lanes(width, count);
         var wanted: Search.Wanted = undefined;

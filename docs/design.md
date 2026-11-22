@@ -8424,6 +8424,33 @@ to 12 are reordered and nothing else changes.
     state again, clear no slot at a growth, at a clear or at `init`, and keep a slot found
     before a growth.
 
+  **Part 22c, the AVX2 searches start with one block inline (decision 86).** The `bench`
+  workflow ran `c704aed` against `151e0cf` three times (runs 44980111489, 44980113793 and
+  44980115904). The first run's x86-64 job failed while cargo built another benchmark's baseline.
+  The other two drew a Xeon 6975P-C and a Xeon Platinum 8573C, and all three Arm jobs drew a
+  Neoverse N2.
+  - On the Xeons one literal ran 1.01 to 1.14 times as fast as at `151e0cf`, at 1.01 to 1.20 of
+    Rust's regex, and four words 1.28 to 1.35 times, at 0.82 to 0.88. The N2 moved by under 2%.
+  - Three rows whose places stand close together ran slower: `the [a-z]+ of` at 0.86 to 0.88 of
+    its speed at `151e0cf`, `[0-9][0-9,]* km` at 0.93 to 0.94, and `(?m)^[A-Z][a-z]+:` at 0.79.
+    Under cachegrind the AVX2 search ran fewer instructions than the narrow one there. Each
+    search paid the call into the variant object, which no compiler inlines.
+  `Literal.find` and `LiteralSet.find` now search one block of `literal_steps` steps inline, and
+  call the variant object from the block's end, in a function out of line. `by_lanes` is inline
+  too: as a call it cost the narrow search 4% more instructions on `the [a-z]+ of`.
+  **Check:** the searches' tests at both widths from every offset; the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps, 1,319 tests passed and 6 skipped. `zig build
+  differential-regex -Doracles`: 12,437,544 cases, none failed.
+  - Under cachegrind the narrow search ran within 1% of `008d6fd`'s instructions on six rows.
+    In the container, AVX2 against the narrow search in one process: `the [a-z]+ of` 0.85 to
+    0.90 before and 1.03 to 1.04 after, `[0-9][0-9,]* km` 0.78 to 1.04 before and 1.06 to 1.08
+    after. `(?m)^[A-Z][a-z]+:` ran at 0.73 to 0.92 before and 0.94 to 1.14 after.
+  - Mutations, each against `zig build test-regex`: 7. 4 CAUGHT: a first block that misses its
+    last place, and a far search that starts one place late, each for a literal and a set. 3 NOT
+    CAUGHT, each of which changes no answer: no first block, and a first block that ignores its
+    limit, for a literal and a set.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

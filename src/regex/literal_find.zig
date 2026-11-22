@@ -20,8 +20,24 @@ pub fn find(comptime width: usize, literal: *const Literal, haystack: []const u8
     assert(from <= haystack.len);
     assert(literal.len >= 1);
     if (haystack.len - from < literal.len) return null;
-    // A place of the literal starts before `end`.
-    const end = haystack.len - literal.len + 1;
+    return search(width, literal, haystack, from, haystack.len - literal.len + 1);
+}
+
+/// `find`, for the places that start before `limit` alone. `Literal.find` searches one block this
+/// way before it calls the variant object, so a text where places stand close together pays no
+/// call for each.
+pub fn find_before(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, limit: usize) ?usize {
+    assert(from <= haystack.len);
+    assert(literal.len >= 1);
+    if (haystack.len - from < literal.len) return null;
+    const end = @min(haystack.len - literal.len + 1, limit);
+    if (end <= from) return null;
+    return search(width, literal, haystack, from, end);
+}
+
+/// The first place of the literal that starts at or after `from` and before `end`, where the
+/// haystack holds the literal's octets from each such place.
+inline fn search(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, end: usize) ?usize {
     // A literal whose first and last places take one case each needs no OR in its loop.
     const ends_fold = literal.fold_at(0) | literal.fold_at(literal.len - 1) != 0;
     const wide = lanes(width, literal, ends_fold, wide_block_len / width, haystack, from, end);
@@ -45,15 +61,17 @@ fn Wanted(comptime width: usize) type {
     return struct { first: Vector, last: Vector, first_fold: Vector, last_fold: Vector };
 }
 
-fn lanes(comptime width: usize, literal: *const Literal, ends_fold: bool, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
+/// The run of blocks for a literal whose ends fold or not. Inline, as it only picks a loop.
+inline fn lanes(comptime width: usize, literal: *const Literal, ends_fold: bool, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
     if (ends_fold) return by_lanes(width, literal, true, steps, haystack, from, end);
     return by_lanes(width, literal, false, steps, haystack, from, end);
 }
 
 /// The first place of the literal that a whole block of `steps` steps holds, or the offset of
 /// the first block that does not fit before `end`. A block tests all its steps before it looks
-/// for a place in one, so a block with no candidate costs one branch.
-fn by_lanes(comptime width: usize, literal: *const Literal, comptime folding: bool, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
+/// for a place in one, so a block with no candidate costs one branch. Inline: as a call, its
+/// per-search setup costs a text whose places stand close together about 4% more instructions.
+inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime folding: bool, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
     comptime assert(block_len % width == 0 and wide_block_len % width == 0);
     const steps_len = steps * width;
     const last = literal.len - 1;
