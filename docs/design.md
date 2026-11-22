@@ -76,7 +76,7 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `utf8` | UTF-8: a validator that takes one octet at a time, and the octets of one code point (decisions 28 and 86) | nothing | 3629 |
 | `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64`, `utf8` | 8259, 7464 |
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
-| `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40) | nothing | none |
+| `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
 | `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8` | 9485 |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
@@ -8359,7 +8359,7 @@ to 12 are reordered and nothing else changes.
   is off leaves it refused; mutations.
   **Check passed, 2026-11-22.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container:
   `zig build test-regex`, 167 of 167 tests passed.
-  - In the container, with a vector `memset` linked in as `bench/timing/memset.zig` exports one,
+  - In the container, with a vector `memset` linked in as the benchmarks export one,
     `init` for `^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})` took 1,066 ns before and
     248 ns after. The container orders candidates and publishes no number.
   - Mutations, each against `zig build test-regex`: 6, each CAUGHT. They judge at `init`, never

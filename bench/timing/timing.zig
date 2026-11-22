@@ -7,6 +7,7 @@
 //! octets, is then timed over millions of repetitions without a clock read between them.
 
 const std = @import("std");
+const platform = @import("platform");
 
 /// Hardware counters, for bench-profile.
 pub const counters = @import("counters.zig");
@@ -15,9 +16,9 @@ pub const counters = @import("counters.zig");
 pub const inputs = @import("inputs.zig");
 
 comptime {
-    // Every benchmark program imports this module, so each exports the vector `memset` of
-    // memset.zig on Linux, for stdx and for the baselines' C code alike.
-    _ = @import("memset.zig");
+    // Every benchmark program imports this module, so each exports platform's vector `memset` on
+    // Linux under Zig 0.16, for stdx and for the baselines' C code alike (decision 41).
+    if (platform.memset_applies) @export(&platform.memset, .{ .name = "memset" });
 }
 
 test {

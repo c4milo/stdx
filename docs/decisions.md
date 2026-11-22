@@ -2727,9 +2727,21 @@ last part lists what still waits on a ruling.
     Zstandard decoder's repeated blocks, which decoded 3.40 times as fast through `codec.fill` on
     the N2 (design §8 step 11), and brotli's runs of zeros in a context map. With their own
     `memset`, the benchmarks no longer show those costs. So stdx calls `@memset`, and a program on
-    Linux under Zig 0.16 that wants these fills fast exports a `memset` of its own, as
-    `bench/timing/memset.zig` does for the benchmarks (pepegrillo's `performance_zig.md`, "Copies
-    and fills"). A library exports none, since its caller's program owns the symbol.
+    Linux under Zig 0.16 that wants these fills fast exports a `memset` of its own, as the
+    benchmarks do (pepegrillo's `performance_zig.md`, "Copies and fills"). A library exports none,
+    since its caller's program owns the symbol.
+
+    **Amended by the owner on 2026-11-22: the program exports `platform.memset`.** Five projects
+    each kept a copy of the same vector `memset` for their programs: stdx's benchmarks, colibri's
+    test endpoints, cocuyo's and rotor's benchmarks, and stompy's roles. A dependent that wanted
+    the fills fast had to write a sixth. stdx's `platform` module, which a program calls once at
+    start and no library module imports, now holds one: `platform.memset`, with
+    `platform.memset_applies` true on Linux under Zig 0.16. A program exports it from its root,
+    `if (platform.memset_applies) @export(&platform.memset, .{ .name = "memset" })`. Each call to
+    `memset` in the program then runs it, from stdx's modules and from the program's C code.
+    `bench/timing/timing.zig` exports it for every benchmark program. The library still exports
+    none. The alternative refused: a `memset` that `platform` exports itself, which would collide
+    with a program that exports its own.
 
     Measured with the benchmarks' own `memset` (design §8 step 11), the removal encoded the 1 KiB
     bodies 2% to 15% faster on both architectures, and fields.c and js-16k at level 9 4% to 6%

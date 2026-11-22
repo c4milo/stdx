@@ -90,6 +90,12 @@ pub fn add(b: *std.Build, options: Options) void {
         .target = b.graph.host,
         .optimize = .ReleaseSafe,
     });
+    // Each benchmark program exports platform's `memset` through it (decision 41).
+    timing.addImport("platform", b.createModule(.{
+        .root_source_file = b.path("src/platform/platform.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    }));
     const corpus_names = host_module(b, "tools/corpus/corpus.zig");
     // The library as a caller shipping one binary for every CPU of an architecture runs it: built
     // for the architecture's baseline, so each SIMD path runs because detection found its

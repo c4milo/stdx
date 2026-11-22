@@ -29,6 +29,10 @@
 //!
 //! The module imports nothing. It runs CPUID itself rather than import `codec`'s, so the module
 //! graph gives it no edge.
+//!
+//! The module also holds `memset`, a vector `memset` that a program exports from its root on Linux
+//! under Zig 0.16, where `memset_applies` holds (platform_memset.zig, decision 41 as amended).
+//! Each call to `memset` in the program then runs it: from stdx's modules and from its C code.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -38,6 +42,12 @@ pub const constants = @import("constants.zig");
 const platform_x86 = @import("platform_x86.zig");
 const platform_linux = @import("platform_linux.zig");
 const answer_file = @import("platform_answer.zig");
+const memset_file = @import("platform_memset.zig");
+
+/// A vector `memset`, which a program exports as `memset` where `memset_applies` holds.
+pub const memset = memset_file.memset;
+/// True on Linux under Zig 0.16, where a program exports `memset`.
+pub const memset_applies = memset_file.applies;
 const both = answer_file.both;
 const unanswered = answer_file.unanswered;
 
@@ -248,6 +258,7 @@ const testing = std.testing;
 test {
     _ = platform_x86;
     _ = platform_linux;
+    _ = memset_file;
 }
 
 /// A `Cpu` with every SHA answer `sha`: the tests of `aes_clmul` and `dit` vary those alone.
