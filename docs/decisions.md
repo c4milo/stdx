@@ -5672,6 +5672,14 @@ last part lists what still waits on a ruling.
         2026-11-21 let this entry read for its method. memmem picks the two octets that its
         table of octet frequencies ranks rarest. stdx takes the first and the last octet and
         keeps no table.
+      - A place of the literal may fold: `(?i)` compiles an ASCII letter as a split between two
+        instructions that take one octet each, the two octets differing in `case_bit`, 0x20, and
+        leading to one instruction. The literal keeps the lower case and a bit in
+        `Literal.folds`, and each compare ORs 0x20 into the text's octet at that place:
+        `x | 0x20` equals the lower case for the two octets and for no other. SSE2 and NEON do it
+        with one instruction a vector, and a literal whose first and last places fold takes a
+        loop of its own. Rust's crate searches such a literal with Teddy, which needs PSHUFB or
+        TBL.
       - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
         `stdx, no skip` turns off both.
       - What R2 does not do yet, from the reading of Rust's crate: a search for one of several
@@ -5735,7 +5743,7 @@ last part lists what still waits on a ruling.
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
     `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
-    32; `literal_prefix_len_min`, 2; and `literal_steps`, 4. Claim R1's: `skip_lanes`, 16;
+    32; `literal_prefix_len_min`, 2; `literal_steps`, 4; and `case_bit`, 0x20. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
 

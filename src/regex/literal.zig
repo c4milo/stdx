@@ -14,6 +14,11 @@
 //! distance stand together far less often than one octet alone does, so a step leaves few places
 //! to compare. A comparison reads at most `literal_len_max` octets and each step moves on, so a
 //! search stays linear in the text.
+//!
+//! A place of the literal may take an ASCII letter in either case, as `(?i)` compiles it: a split
+//! between two instructions whose octets differ in `case_bit` alone. The literal keeps the lower
+//! case and a bit in `folds`, and each compare at that place ORs `case_bit` into the text's octet
+//! first. SSE2 and NEON do that with one instruction a vector.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
@@ -23,12 +28,16 @@ const Program = program_file.Program;
 const Lanes = @Vector(constants.skip_lanes, u8);
 const Mask = std.meta.Int(.unsigned, constants.skip_lanes);
 const BlockMask = std.meta.Int(.unsigned, block_len);
+/// A bit for each place of a literal.
+pub const Folds = std.meta.Int(.unsigned, constants.literal_len_max);
 
 pub const Literal = struct {
     octets: [constants.literal_len_max]u8,
     len: u8,
     /// True when the literal is the whole pattern: a match is one place of the literal.
     exact: bool,
+    /// A bit for each place that takes its octet in either case: `octets` holds the lower case.
+    folds: Folds = 0,
 
     /// The literal every match of `program` starts with, or null where it has none that pays: a
     /// literal shorter than `literal_prefix_len_min` that more of the pattern follows. With
@@ -51,12 +60,27 @@ pub const Literal = struct {
         var found = walk(program, program.reverse, true);
         if (found.literal.len == 0 or found.reached_match) return null;
         std.mem.reverse(u8, found.literal.octets[0..found.literal.len]);
+        // The places' bits follow their octets: bit i goes to bit len - 1 - i.
+        const unused: std.math.Log2Int(Folds) = @intCast(constants.literal_len_max - found.literal.len);
+        found.literal.folds = @bitReverse(found.literal.folds) >> unused;
         found.literal.exact = false;
         return .{ .literal = found.literal, .before = found.stop };
     }
 
+    fn push(literal: *Literal, octet: u8, fold: bool) void {
+        assert(literal.len < constants.literal_len_max);
+        literal.octets[literal.len] = octet;
+        if (fold) literal.folds |= @as(Folds, 1) << @intCast(literal.len);
+        literal.len += 1;
+    }
+
     pub fn slice(literal: *const Literal) []const u8 {
         return literal.octets[0..literal.len];
+    }
+
+    /// What a compare ORs into the text's octet at `place`: `case_bit` where the place folds.
+    pub fn fold_at(literal: *const Literal, place: usize) u8 {
+        return if (literal.folds >> @intCast(place) & 1 != 0) constants.case_bit else 0;
     }
 
     /// The first offset at or after `from` where the literal stands whole in `haystack`, or null.
@@ -66,25 +90,38 @@ pub const Literal = struct {
         if (haystack.len - from < literal.len) return null;
         // A place of the literal starts before `end`.
         const end = haystack.len - literal.len + 1;
-        const after = literal.by_lanes(haystack, from, end);
+        // A literal whose first and last places take one case each needs no OR in its loop.
+        const ends_fold = literal.fold_at(0) | literal.fold_at(literal.len - 1) != 0;
+        const after = if (ends_fold) literal.by_lanes(true, haystack, from, end) else literal.by_lanes(false, haystack, from, end);
         if (after.found) |offset| return offset;
+        const first_fold = literal.fold_at(0);
         for (after.index..end) |index| {
-            if (haystack[index] == literal.octets[0] and literal.stands_at(haystack, index)) return index;
+            if (haystack[index] | first_fold == literal.octets[0] and literal.stands_at(haystack, index)) return index;
         }
         return null;
     }
 
     fn stands_at(literal: *const Literal, haystack: []const u8, index: usize) bool {
-        return std.mem.eql(u8, haystack[index..][0..literal.len], literal.slice());
+        const text = haystack[index..][0..literal.len];
+        if (literal.folds == 0) return std.mem.eql(u8, text, literal.slice());
+        // At most `literal_len_max` places.
+        for (text, literal.slice(), 0..) |octet, wanted, place| {
+            if (octet | literal.fold_at(place) != wanted) return false;
+        }
+        return true;
     }
 
     /// The first place of the literal that a whole block of `literal_steps` steps holds, or the
     /// offset of the first block that does not fit before `end`. A block tests all its steps
     /// before it looks for a place in one, so a block with no candidate costs one branch.
-    fn by_lanes(literal: *const Literal, haystack: []const u8, from: usize, end: usize) struct { found: ?usize, index: usize } {
+    fn by_lanes(literal: *const Literal, comptime folding: bool, haystack: []const u8, from: usize, end: usize) struct { found: ?usize, index: usize } {
         const last = literal.len - 1;
-        const first_octets: Lanes = @splat(literal.octets[0]);
-        const last_octets: Lanes = @splat(literal.octets[last]);
+        const wanted: Wanted = .{
+            .first = @splat(literal.octets[0]),
+            .last = @splat(literal.octets[last]),
+            .first_fold = @splat(literal.fold_at(0)),
+            .last_fold = @splat(literal.fold_at(last)),
+        };
         var index = from;
         // A block reads `block_len` octets from `index` and as many from `index + last`, whose
         // last is `end + block_len - 2 + last`, under the haystack's length.
@@ -93,8 +130,8 @@ pub const Literal = struct {
             const lasts = haystack[index + last ..][0..block_len];
             // Most blocks hold no candidate. One reduction says so, where a mask costs a
             // reduction for each step on Arm, which has no instruction that gathers lane bits.
-            if (!any_candidate(firsts, lasts, first_octets, last_octets)) continue;
-            var mask = candidates(firsts, lasts, first_octets, last_octets);
+            if (!any_candidate(folding, firsts, lasts, &wanted)) continue;
+            var mask = candidates(folding, firsts, lasts, &wanted);
             // Each set bit is one place to compare, at most `block_len` of them.
             while (mask != 0) : (mask &= mask - 1) {
                 const candidate = index + @ctz(mask);
@@ -104,6 +141,19 @@ pub const Literal = struct {
         return .{ .found = null, .index = index };
     }
 };
+
+/// The first and last octets a block's lanes are compared with, and what each compare ORs into
+/// the text's octets first.
+const Wanted = struct { first: Lanes, last: Lanes, first_fold: Lanes, last_fold: Lanes };
+
+/// The text's octets of one step at the literal's first and last places, folded where the
+/// literal folds.
+inline fn step_lanes(comptime folding: bool, firsts: *const [block_len]u8, lasts: *const [block_len]u8, at: usize, wanted: *const Wanted) struct { first: Lanes, last: Lanes } {
+    const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
+    const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
+    if (!folding) return .{ .first = first, .last = last };
+    return .{ .first = first | wanted.first_fold, .last = last | wanted.last_fold };
+}
 
 /// A literal every match ends with, and the first instruction of the reverse program after it.
 pub const Suffix = struct { literal: Literal, before: u32 };
@@ -122,15 +172,22 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
     var literal: Literal = .{ .octets = undefined, .len = 0, .exact = false };
     var passed_look = false;
     var index = entry;
-    // Each instruction is read once: the walk follows `out` and stops at a split.
+    // Each instruction is read once: the walk follows `out`, and past a split that `case_pair`
+    // takes, its two instructions' one `out`.
     for (0..program.instructions.len) |_| {
         const instruction = program.instructions[index];
+        var next = instruction.out;
         switch (instruction.kind) {
             .save, .jump => {},
             .range => {
                 if (instruction.lo != instruction.hi or literal.len == constants.literal_len_max) break;
-                literal.octets[literal.len] = instruction.lo;
-                literal.len += 1;
+                literal.push(instruction.lo, false);
+            },
+            .split => {
+                if (literal.len == constants.literal_len_max) break;
+                const pair = case_pair(program, instruction) orelse break;
+                literal.push(pair.octet, true);
+                next = pair.out;
             },
             .match => {
                 literal.exact = !passed_look;
@@ -140,27 +197,36 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
                 if (!through_looks) break;
                 passed_look = true;
             },
-            .split, .fail => break,
+            .fail => break,
         }
-        index = instruction.out;
+        index = next;
     }
     return .{ .literal = literal, .stop = index, .reached_match = false };
+}
+
+/// The lower case and the next instruction of a split whose two branches each take one octet,
+/// the two differing in `case_bit` alone and leading to one instruction: `(?i)`'s ASCII letter.
+fn case_pair(program: *const Program, split: program_file.Instruction) ?struct { octet: u8, out: u32 } {
+    const one = program.instructions[split.out];
+    const other = program.instructions[split.arg];
+    if (one.kind != .range or other.kind != .range or one.out != other.out) return null;
+    if (one.lo != one.hi or other.lo != other.hi) return null;
+    if (one.lo ^ other.lo != constants.case_bit) return null;
+    return .{ .octet = one.lo | constants.case_bit, .out = one.out };
 }
 
 const block_len = constants.literal_steps * constants.skip_lanes;
 
 /// True when some place of a block holds the first octet in `firsts` and the last octet at the
 /// same place in `lasts`.
-inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u8, first_octets: Lanes, last_octets: Lanes) bool {
+inline fn any_candidate(comptime folding: bool, firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) bool {
     const all: Lanes = @splat(constants.octet_max);
     const none: Lanes = @splat(0);
     var any = none;
     inline for (0..constants.literal_steps) |step| {
-        const at = step * constants.skip_lanes;
-        const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
-        const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
-        const first_here = @select(u8, first == first_octets, all, none);
-        const last_here = @select(u8, last == last_octets, all, none);
+        const lanes = step_lanes(folding, firsts, lasts, step * constants.skip_lanes, wanted);
+        const first_here = @select(u8, lanes.first == wanted.first, all, none);
+        const last_here = @select(u8, lanes.last == wanted.last, all, none);
         any |= first_here & last_here;
     }
     return @reduce(.Or, any) != 0;
@@ -168,13 +234,12 @@ inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u
 
 /// A bit for each place of a block where the first octet stands in `firsts` and the last octet
 /// at the same place in `lasts`, the block read from the literal's last octet on.
-inline fn candidates(firsts: *const [block_len]u8, lasts: *const [block_len]u8, first_octets: Lanes, last_octets: Lanes) BlockMask {
+inline fn candidates(comptime folding: bool, firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) BlockMask {
     var mask: BlockMask = 0;
     inline for (0..constants.literal_steps) |step| {
         const at = step * constants.skip_lanes;
-        const first: Lanes = firsts[at..][0..constants.skip_lanes].*;
-        const last: Lanes = lasts[at..][0..constants.skip_lanes].*;
-        const both = @select(bool, first == first_octets, last == last_octets, @as(@Vector(constants.skip_lanes, bool), @splat(false)));
+        const lanes = step_lanes(folding, firsts, lasts, at, wanted);
+        const both = @select(bool, lanes.first == wanted.first, lanes.last == wanted.last, @as(@Vector(constants.skip_lanes, bool), @splat(false)));
         const step_mask: Mask = @bitCast(both);
         mask |= @as(BlockMask, step_mask) << at;
     }
@@ -224,10 +289,32 @@ test "of reads the literal every match starts with, and says whether the pattern
 }
 
 test "of gives no literal where a match may start otherwise, or where one octet starts it" {
-    const none = [_][]const u8{ "", "(?i)ph", "ab|ac", "a*b", "[ab]c", "\\bab", "^ab", "a+", "f[op]", ".a" };
+    const none = [_][]const u8{ "", "(?i)p+", "ab|ac", "a*b", "[ab]c", "\\bab", "^ab", "a+", "f[op]", ".a", "[Pq]h", "(?:Pa|pb)", "[A-Ca-c]x" };
     for (none) |pattern| {
         if (try literal_of(pattern) != null) return error.TestUnexpectedLiteral;
     }
+}
+
+test "of reads a letter in either case as one place that folds" {
+    const cases = [_]struct { pattern: []const u8, octets: []const u8, folds: Folds, exact: bool }{
+        .{ .pattern = "(?i)pharaoh", .octets = "pharaoh", .folds = 0x7F, .exact = true },
+        .{ .pattern = "(?i)Ph", .octets = "ph", .folds = 0b11, .exact = true },
+        .{ .pattern = "(?i:p)h", .octets = "ph", .folds = 0b01, .exact = true },
+        .{ .pattern = "(?i)p1", .octets = "p1", .folds = 0b01, .exact = true },
+        // Two octets that differ in `case_bit` alone fold, letters or not.
+        .{ .pattern = "[@`]x", .octets = "`x", .folds = 0b01, .exact = true },
+        .{ .pattern = "(?i)ph+", .octets = "ph", .folds = 0b11, .exact = false },
+    };
+    for (cases) |case| {
+        const literal = (try literal_of(case.pattern)) orelse return error.TestExpectedLiteral;
+        try testing.expectEqualStrings(case.octets, literal.slice());
+        try testing.expectEqual(case.folds, literal.folds);
+        try testing.expectEqual(case.exact, literal.exact);
+    }
+    // A suffix's places keep their bits in the order of the text.
+    const suffix = (try suffix_of_pattern("[ab]+(?i:x)y")) orelse return error.TestExpectedLiteral;
+    try testing.expectEqualStrings("xy", suffix.slice());
+    try testing.expectEqual(@as(Folds, 0b01), suffix.folds);
 }
 
 test "through assertions, of reads the literal after them, and no pattern with one is its literal" {
@@ -282,6 +369,39 @@ test "suffix_of reads the literal every match ends with, in the order of the tex
 /// The first place of `needle` at or after `from`, one offset at a time: what `find` must give.
 fn find_plain(haystack: []const u8, needle: []const u8, from: usize) ?usize {
     return std.mem.indexOfPos(u8, haystack, from, needle);
+}
+
+/// The first place at or after `from` where `literal` stands, its folded places in either case,
+/// one offset at a time: what `find` must give.
+fn find_folded_plain(literal: *const Literal, haystack: []const u8, from: usize) ?usize {
+    if (haystack.len < literal.len or from > haystack.len - literal.len) return null;
+    for (from..haystack.len - literal.len + 1) |index| {
+        var stands = true;
+        for (literal.slice(), 0..) |wanted, place| stands = stands and haystack[index + place] | literal.fold_at(place) == wanted;
+        if (stands) return index;
+    }
+    return null;
+}
+
+test "find gives the first place of a literal that folds from every offset, as a plain search does" {
+    var generator = Generator.init(0xF01D);
+    var haystack: [3 * constants.skip_lanes + constants.literal_len_max]u8 = undefined;
+    const needles = [_][]const u8{ "a", "ab", "aba", "abcab", "aa", "b" ** constants.literal_len_max, "a@b" };
+    for (needles) |needle| {
+        var literal: Literal = .{ .octets = undefined, .len = @intCast(needle.len), .exact = true };
+        @memcpy(literal.octets[0..needle.len], needle);
+        for (0..64) |_| {
+            // Each place folds or not, and the text holds both cases, `@` and its fold, and one
+            // octet more.
+            literal.folds = @truncate(generator.next());
+            for (literal.octets[0..needle.len], 0..) |*octet, place| octet.* = needle[place] | literal.fold_at(place);
+            for (&haystack) |*octet| octet.* = "abcABC@`\xFF"[generator.below(9)];
+            const len = generator.below(haystack.len + 1);
+            for (0..len + 1) |from| {
+                try testing.expectEqual(find_folded_plain(&literal, haystack[0..len], from), literal.find(haystack[0..len], from));
+            }
+        }
+    }
 }
 
 test "find gives the first place of the literal from every offset, as a plain search gives it" {

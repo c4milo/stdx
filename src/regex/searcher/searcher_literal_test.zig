@@ -76,6 +76,39 @@ test "a searcher that goes to the literal after an assertion gives what the matc
     }
 }
 
+/// The octets of a test of literals that fold: both cases of each letter, and octets that end
+/// a word or a line.
+const folds_alphabet = "pPhHaA x\n";
+
+/// Patterns with a literal that takes a letter in either case, as a whole pattern, before more of
+/// it, after an assertion, and as the suffix that every match ends with.
+const folds_patterns = [_][]const u8{
+    "(?i)ph", "(?i)pha+", "(?i:p)h", "(?i)p[ah]+", "\\b(?i)ph\\b", "(?i)ph$", "[ah]+(?i)x", "(?i)hx", "[aX]+(?i)x",
+};
+
+test "a searcher that goes to a literal that folds gives what the matcher gives" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0xF01E);
+    var haystack: [haystack_len]u8 = undefined;
+    for (folds_patterns) |pattern| {
+        try fixture.init(pattern, 0);
+        const sizes = searcher_test.cache_sizes(&fixture.program);
+        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
+            try fixture.init(pattern, cache_words);
+            for (0..8) |_| {
+                for (&haystack) |*octet| octet.* = folds_alphabet[generator.below(folds_alphabet.len)];
+                try fixture.expect_agree_everywhere(&haystack);
+            }
+        }
+    }
+    // The first place of the suffix folds, and the part before it takes the upper case.
+    try fixture.init("[aX]+(?i)x", searcher_test.cache_sizes(&fixture.program).most);
+    try testing.expect(fixture.searcher.suffix == null);
+    try fixture.init("[ah]+(?i)x", searcher_test.cache_sizes(&fixture.program).most);
+    try testing.expectEqualStrings("x", fixture.searcher.suffix.?.slice());
+    try fixture.expect_agree_everywhere("aXahX ax");
+}
+
 test "a searcher reads no DFA for a pattern that is its literal, and skips to the literal of one that goes on" {
     var fixture: Fixture = .{};
     const sizes_of = searcher_test.cache_sizes;

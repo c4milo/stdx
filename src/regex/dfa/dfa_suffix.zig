@@ -16,6 +16,7 @@
 //! forward DFA from the start, since its rule lets a match go on past the place.
 const std = @import("std");
 const assert = std.debug.assert;
+const constants = @import("../constants.zig");
 const Program = @import("../program.zig").Program;
 const Literal = @import("../literal.zig").Literal;
 const Dfa = @import("dfa.zig").Dfa;
@@ -26,7 +27,10 @@ const Dfa = @import("dfa.zig").Dfa;
 pub fn suffix_of(reverse: *Dfa, program: *const Program) ?Literal {
     assert(reverse.config.entry == program.reverse);
     const suffix = Literal.suffix_of(program) orelse return null;
-    if (before_takes(reverse, suffix.before, suffix.literal.octets[0])) return null;
+    const first = suffix.literal.octets[0];
+    if (before_takes(reverse, suffix.before, first)) return null;
+    // A first place that folds takes its octet in either case.
+    if (suffix.literal.fold_at(0) != 0 and before_takes(reverse, suffix.before, first ^ constants.case_bit)) return null;
     return suffix.literal;
 }
 

@@ -154,6 +154,11 @@ pub const literal_len_max = 32;
 /// branch for each 64 octets, not one for each 16.
 pub const literal_steps = 4;
 
+/// The bit in which the two cases of an ASCII letter differ (RFC 20's chart). `(?i)` takes a
+/// letter as a split between its two cases, and claim R2 compares `octet | case_bit` with the
+/// lower case: equal for the two octets that differ in this bit alone, and for no other.
+pub const case_bit = 0x20;
+
 /// The shortest literal that claim R2 searches for where more of the pattern follows it. One
 /// octet is claim R1's skip, which judges `skip_ranges_max` ranges a step.
 pub const literal_prefix_len_min = 2;

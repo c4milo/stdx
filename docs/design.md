@@ -8236,6 +8236,24 @@ to 12 are reordered and nothing else changes.
   by `find`'s test from every offset; a block that always holds a candidate, and a lane with
   either octet taken as one, NOT CAUGHT, since each candidate is still compared whole.
 
+  **Part 22c, claim R2's places that fold (decision 86).** The hosted runners timed `(?i)pharaoh`
+  at 0.19 to 0.26 of Rust's regex on x86-64 and 0.68 on the Neoverse N2: `(?i)` splits each
+  letter between its two cases, and the walk of `Literal.of` stopped at the first split. It now
+  takes a split whose two instructions each take one octet, differing in `case_bit` alone and
+  leading to one instruction, as one place that folds. Claim R4's rule checks both cases of a
+  suffix's first place.
+  **Check:** `Literal.of` gives each folded literal and its bits, and none for a split of two
+  classes or of branches that go on apart; `find` gives a plain search's place from every
+  offset with random places folded; a searcher gives the matcher's answer for nine patterns
+  over a text of both cases; the oracle check passes; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. In the container, which orders candidates and publishes no number, R2 ran
+  `(?i)pharaoh` at 7.2 to 9.2 times R1 alone, 10 to 17 GB/s, `(?i)the lord` at 6.9 to 7.6
+  times, and `\b(?i)pharaoh\b` at 18 to 30 times. Mutations, each against `zig build
+  test-regex`: 13, each CAUGHT by a named test. One was NOT CAUGHT at first: a split of two
+  classes, as in `[A-Ca-c]`, taken as a place that folds. `Literal.of`'s test of patterns with no
+  literal now holds it.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that
