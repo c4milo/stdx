@@ -5753,6 +5753,20 @@ last part lists what still waits on a ruling.
       - RE2 and Rust's crate keep a one-pass DFA for this case, a table of transitions with the
         slots each one writes. stdx keeps no table, so the search needs no memory of its own.
       - `SearcherClaims.one_pass` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
+    - Claim R7: a forward scan with no skip takes two octets for one read of the cache, where the
+      program has at most `pair_classes_max`, 32, classes (design §8 step 22, part 22c).
+      - A plain scan's reads form a chain: each read gives the row of the next. On a core whose
+        loads take four or five cycles, the chain bounds the scan, as it bounds Rust's crate's.
+        A row of pairs, one entry for each pair of classes, halves it. Multi-stride automata do
+        the same in hardware (Brodie, Taylor and Cytron, ISCA 2006; Becchi and Crowley, ANCS
+        2008).
+      - An entry holds the pair row of the state two octets on, so the loop keeps one add and
+        one read a turn. A pair whose step meets a match or a dead state holds `pair_single`,
+        and the scan takes its two octets one at a time, so the claim changes no answer.
+      - The cache gives a pair row to its first `pair_states_max`, 64, states, in at most a
+        quarter of its memory, so a pattern of many states keeps three quarters of them. A
+        cache that clears while a pair is built keeps no entry for it.
+      - `SearcherClaims.pairs` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one
@@ -5782,7 +5796,8 @@ last part lists what still waits on a ruling.
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
     and `avx2_lanes`, 32. Claim R5's:
     `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R6's: `one_pass_instructions_max`,
-    1,024. Claim R1's: `skip_lanes`, 16;
+    1,024. Claim R7's: `pair_classes_max`, 32; `pair_states_max`, 64; and `pair_memory_parts`,
+    4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
 

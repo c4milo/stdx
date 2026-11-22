@@ -171,6 +171,17 @@ pub const literal_set_max = 8;
 /// The fewest literals claim R5 searches for: one literal is claim R2's.
 pub const literal_set_count_min = 2;
 
+/// The most classes of octets a program may hold for claim R7's pair rows: a state's pair row
+/// takes the square of the classes, 1,024 entries at most. The assertions' contexts split a
+/// validation's classes, so that a UUID's pattern holds 16 and an email address's 21.
+pub const pair_classes_max = 32;
+
+/// The states claim R7 gives a pair row at most, and the part of a cache their rows take at
+/// most: a quarter. The cache's first states get them, which a validation's few states and a
+/// search's start states are. The rest of the cache keeps three quarters of its states.
+pub const pair_states_max = 64;
+pub const pair_memory_parts = 4;
+
 /// The forward instructions a program may hold for a searcher to judge at `init` whether it is
 /// one-pass (claim R6). The judgment walks a closure from each instruction that takes an octet,
 /// so it costs at most this many walks of this many instructions.

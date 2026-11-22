@@ -16,6 +16,12 @@ const slots_growth = 2;
 pub const Cache = struct {
     /// The entries: `stride` for each state.
     table: []u32,
+    /// Claim R7's entries: `pair_stride` for each of the first `pair_states` states, one for each
+    /// pair of classes. An entry is the pair row of the state two octets on, or a mark that the
+    /// two octets take the table. A state interned later has no pair row.
+    pairs: []u32,
+    pair_stride: u32,
+    pair_states: u32,
     /// Where each state's record starts in `arena`.
     records: []u32,
     /// The states by the hash of their records: a state's number plus one, or zero.
@@ -41,18 +47,40 @@ pub const Cache = struct {
         return states * (stride + constants.dfa_words_per_state + constants.dfa_record_words);
     }
 
-    /// Divides `memory` between as many states as it holds.
-    pub fn init(cache: *Cache, memory: []u32, stride: u32) void {
-        const states = memory.len / (stride + constants.dfa_words_per_state + constants.dfa_record_words);
+    /// The words of pair rows a cache of `words_len` words gives claim R7: at most
+    /// `pair_states_max` rows, in at most a quarter of the memory, and none where the rest would
+    /// hold fewer than `dfa_states_min` states.
+    pub fn pair_words(words_len: usize, stride: u32, pair_stride: u32) usize {
+        if (pair_stride == 0) return 0;
+        const rows = @min(constants.pair_states_max, words_len / constants.pair_memory_parts / pair_stride);
+        const words = rows * pair_stride;
+        if (words_len - words < memory_len_min_of(stride)) return 0;
+        return words;
+    }
+
+    fn memory_len_min_of(stride: u32) usize {
+        return memory_len(constants.dfa_states_min, stride);
+    }
+
+    /// Divides `memory` between as many states as it holds, and the pair rows `pair_words` gives.
+    pub fn init(cache: *Cache, memory: []u32, stride: u32, pair_stride: u32) void {
+        const pairs_len = pair_words(memory.len, stride, pair_stride);
+        const pair_states: u32 = if (pairs_len == 0) 0 else @intCast(pairs_len / pair_stride);
+        const rest = memory[pairs_len..];
+        const states = rest.len / (stride + constants.dfa_words_per_state + constants.dfa_record_words);
         assert(states >= constants.dfa_states_min);
         const states_max: usize = @min(states, constants.dfa_row_mask / stride);
         const slots_len = states_max * (constants.dfa_words_per_state - 1);
+        const rows = states_max * stride;
         cache.* = .{
-            .table = memory[0 .. states_max * stride],
-            .records = memory[states_max * stride ..][0..states_max],
-            .slots = memory[states_max * (stride + 1) ..][0..slots_len],
+            .table = rest[0..rows],
+            .pairs = memory[0..pairs_len],
+            .pair_stride = if (pair_states == 0) 0 else pair_stride,
+            .pair_states = pair_states,
+            .records = rest[rows..][0..states_max],
+            .slots = rest[rows + states_max ..][0..slots_len],
             .slots_used = @intCast(@min(slots_len, constants.dfa_slots_first)),
-            .arena = memory[states_max * (stride + constants.dfa_words_per_state) ..],
+            .arena = rest[rows + states_max * constants.dfa_words_per_state ..],
             .stride = stride,
             .states_max = @intCast(states_max),
             .state_count = 0,
@@ -147,6 +175,7 @@ pub const Cache = struct {
         @memcpy(cache.arena[cache.arena_len + constants.dfa_record_head ..][0..instructions.len], instructions);
         cache.arena_len += @intCast(constants.dfa_record_head + instructions.len);
         @memset(cache.table[state * cache.stride ..][0..cache.stride], constants.dfa_unknown);
+        if (state < cache.pair_states) @memset(cache.pairs[state * cache.pair_stride ..][0..cache.pair_stride], constants.dfa_unknown);
         return state * cache.stride;
     }
 
@@ -174,7 +203,7 @@ const test_memory_len = test_states * (test_stride + constants.dfa_words_per_sta
 test "intern gives one row to one record, and another to a record that differs in a word" {
     var memory: [test_memory_len]u32 = undefined;
     var cache: Cache = undefined;
-    cache.init(&memory, test_stride);
+    cache.init(&memory, test_stride, 0);
     try testing.expectEqual(@as(u32, test_states), cache.states_max);
     const first = cache.intern(1, &.{ 4, 9 }).?;
     try testing.expectEqual(first, cache.intern(1, &.{ 4, 9 }).?);
@@ -196,7 +225,7 @@ test "intern gives one row to one record, and another to a record that differs i
 test "a full cache forgets its states and goes on, the first time" {
     var memory: [test_memory_len]u32 = undefined;
     var cache: Cache = undefined;
-    cache.init(&memory, test_stride);
+    cache.init(&memory, test_stride, 0);
     for (0..test_states) |state| try testing.expect(cache.intern(0, &.{@intCast(state)}) != null);
     try testing.expectEqual(@as(u32, 0), cache.clears);
     cache.starts[0] = 0;
@@ -220,7 +249,7 @@ fn fill(cache: *Cache, first: u32) ?u32 {
 test "a cache that fills again within ten octets a state gives up, and one that scanned more goes on" {
     var memory: [test_memory_len]u32 = undefined;
     var cache: Cache = undefined;
-    cache.init(&memory, test_stride);
+    cache.init(&memory, test_stride, 0);
     try testing.expect(fill(&cache, 0) != null);
     try testing.expectEqual(@as(u32, 1), cache.clears);
     // The second fill scans exactly ten octets a state: not under the limit, so the cache clears.
@@ -238,7 +267,7 @@ test "a cache that fills again within ten octets a state gives up, and one that 
 test "a record longer than the whole arena is refused, with the cache left empty" {
     var memory: [test_memory_len]u32 = undefined;
     var cache: Cache = undefined;
-    cache.init(&memory, test_stride);
+    cache.init(&memory, test_stride, 0);
     var long: [test_memory_len]u32 = undefined;
     for (&long, 0..) |*word, index| word.* = @intCast(index);
     try testing.expectEqual(@as(?u32, null), cache.intern(0, &long));
@@ -249,7 +278,7 @@ test "a record longer than the whole arena is refused, with the cache left empty
 test "two records that differ in their flags alone are two states, where their hashes meet" {
     var memory: [test_memory_len]u32 = undefined;
     var cache: Cache = undefined;
-    cache.init(&memory, test_stride);
+    cache.init(&memory, test_stride, 0);
     const instructions = [_]u32{ 3, 8 };
     const first_flags: u32 = 1;
     // The flags after `first_flags` whose record falls in the same slot of the hash table.
@@ -274,7 +303,7 @@ test "the hash table grows as states join, reads no slot init did not write, and
     var memory: [grow_memory_len]u32 = undefined;
     @memset(&memory, grow_fill);
     var cache: Cache = undefined;
-    cache.init(&memory, test_stride);
+    cache.init(&memory, test_stride, 0);
     try testing.expectEqual(@as(u32, constants.dfa_slots_first), cache.slots_used);
     var rows: [grow_states]u32 = undefined;
     for (&rows, 0..) |*row, state| row.* = cache.intern(0, &.{@intCast(state)}).?;

@@ -8451,6 +8451,28 @@ to 12 are reordered and nothing else changes.
     CAUGHT, each of which changes no answer: no first block, and a first block that ignores its
     limit, for a literal and a set.
 
+  **Part 22c, claim R7 built: a forward scan takes two octets a read (decision 86).** At
+  `e2a7db9` the hosted x86-64 runners validated a UUID at 0.83 to 0.89 of Rust's regex and an
+  email address at 0.86 to 0.98. A plain scan's reads form a chain, each read the row of the
+  next, and that chain set both libraries' speed: some 6 cycles an octet in the container.
+  `src/regex/dfa/dfa_pairs.zig` holds a row of pairs for each of the cache's first states.
+  **Check:** for 9 patterns of at most 32 classes, a searcher with pair rows gives the matcher's
+  answers from every offset, in the most cache and in the least that holds pair rows, as one
+  with the claim off does; a pattern of 2^8 states gives the matcher's answers past the states
+  with pair rows; a program of more than 32 classes gets none; a pair whose first step clears
+  the cache keeps no entry; the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps, 1,323 tests passed and 6 skipped. `zig build
+  differential-regex -Doracles`: 12,437,544 cases, none failed.
+  - In the container, with the claim off and on in one process, a UUID took 54 to 73 ns a text
+    off and 35 to 36 ns on, an email address 50 to 51 ns and 33 to 36 ns, and a date and time 49
+    to 50 ns and 32 to 34 ns. `[a-z]+ing` over the bible ran 1.56 times as fast, and two
+    capitalized words over the second text 1.30 times. Each other search row ran within the
+    container's noise, and the rows that read back from a suffix ran the same instructions.
+  - Mutations, each against `zig build test-regex`: 11. 10 CAUGHT, 1 of them after its test was
+    added: a pair kept across a cache clear. 1 NOT CAUGHT, an equivalent mutant: a step's
+    `dfa_idle_flag`, which no DFA with a plain scan sets.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

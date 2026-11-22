@@ -54,6 +54,9 @@ pub const Claims = struct {
     /// R6: where the forward program is one-pass, `captures` follows one thread from the match's
     /// start, in place of the matcher's threads (one_pass.zig).
     one_pass: bool = true,
+    /// R7: where the forward program has at most `pair_classes_max` classes of octets, a forward
+    /// scan with no skip takes two octets for one read of the cache (dfa_pairs.zig).
+    pairs: bool = true,
 };
 
 /// What a searcher knows of claim R6 for its program.
@@ -123,7 +126,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features) },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .pairs = claims.pairs },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(
@@ -336,4 +339,5 @@ test {
     _ = @import("searcher_suffix_test.zig");
     _ = @import("searcher_one_pass_test.zig");
     _ = @import("searcher_wide_test.zig");
+    _ = @import("searcher_pairs_test.zig");
 }

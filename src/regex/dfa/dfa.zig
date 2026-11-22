@@ -26,6 +26,7 @@ const LiteralSet = @import("../literal_set.zig").LiteralSet;
 const dfa_literal = @import("dfa_literal.zig");
 const dfa_wait = @import("dfa_wait.zig");
 const dfa_reverse = @import("dfa_reverse.zig");
+const dfa_pairs = @import("dfa_pairs.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 const dfa_config = @import("dfa_config.zig");
@@ -53,6 +54,10 @@ pub const Dfa = struct {
     /// One octet of each class, which stands for the class when a state is built.
     representatives: [constants.octet_values]u8,
     class_count: u32,
+    /// Claim R7: the shift from a row of the table to the state's pair row, and each octet's
+    /// class times the class count. The cache's `pair_stride` is zero where the claim is off.
+    pair_shift: u5,
+    first_columns: [constants.octet_values]u16,
     cache: Cache,
     /// The instructions the state being built passed through.
     visited: SparseSet,
@@ -124,6 +129,8 @@ pub const Dfa = struct {
             .classes = program.classes,
             .representatives = undefined,
             .class_count = program.class_count,
+            .pair_shift = 0,
+            .first_columns = undefined,
             .visited = SparseSet.init(take(&rest, len), take(&rest, len)),
             .next = SparseSet.init(take(&rest, len), take(&rest, len)),
             .threads = take(&rest, len),
@@ -154,8 +161,22 @@ pub const Dfa = struct {
         if (config.literal_set and config.skip and dfa.literal == null and !program.has_looks) dfa.literals = LiteralSet.of(program);
         if (dfa.literal) |*literal| literal.wide = config.wide;
         if (dfa.literals) |*set| set.wide = config.wide;
-        dfa.cache.init(rest, stride_of(program));
+        const stride = stride_of(program);
+        const pair_stride = dfa.pair_stride_of(program, config, rest.len);
+        dfa.cache.init(rest, stride, pair_stride);
         return true;
+    }
+
+    /// Claim R7's pair stride: zero where the claim is off, the program has too many classes,
+    /// or the memory holds no pair row beside `dfa_states_min` states.
+    fn pair_stride_of(dfa: *Dfa, program: *const Program, config: Config, memory_len: usize) u32 {
+        if (!config.pairs) return 0;
+        const stride = stride_of(program);
+        const shift = dfa_pairs.shift_of(program, stride) orelse return 0;
+        if (Cache.pair_words(memory_len, stride, stride << shift) == 0) return 0;
+        dfa.pair_shift = shift;
+        dfa.first_columns = dfa_pairs.first_columns(&dfa.classes, dfa.class_count);
+        return stride << shift;
     }
 
     pub fn looks_for_literal(dfa: *const Dfa) bool {
@@ -185,6 +206,11 @@ pub const Dfa = struct {
         // Each turn takes the octets up to one whose entry is no plain row, and that octet, so the
         // turns are at most the octets from `from` and one.
         for (0..haystack.len - from + 1) |_| {
+            switch (dfa_pairs.turn(dfa, haystack, &at, earliest, &state, &last)) {
+                .done => |scan| return scan,
+                .next => continue,
+                .table => {},
+            }
             at = run_plain(dfa.cache.table, &dfa.classes, haystack, at, &state);
             if (at == haystack.len) break;
             const octet = haystack[at];
