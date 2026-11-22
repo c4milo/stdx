@@ -8512,6 +8512,27 @@ to 12 are reordered and nothing else changes.
   container. `zig build test`: 105 of 105 steps passed. `zig build -Doracles` built every
   program. `zig build differential-regex -Doracles`: 12,437,544 cases, none failed.
 
+  **Part 22c, claim R5 takes Teddy from four literals (decision 86).** At `d355d8c` the hosted
+  x86-64 runners searched `Abraham|Isaac|Jacob|Joseph` at 0.66 to 0.76 of Rust's regex, which
+  takes Teddy. The compares of claim R5 cost two for each literal, and Teddy's lookups cost four
+  whatever the count. `src/regex/literal_teddy.zig` looks up the literals' first and last octets
+  with TBL on aarch64 and with VPSHUFB in the AVX2 object, from `teddy_count_min` literals.
+  **Check:** `find` gives a plain search's answer from every offset, for sets of 2 to 8 literals
+  of octets that differ in one nibble alone, at both widths; the tables hold each literal's bit
+  and no other; the regex tests under qemu for aarch64; the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps passed. `zig build test-regex
+  -Dtarget=aarch64-linux-musl -fqemu`: 175 of 175 tests passed.
+  - In the container's Xeon, at 32 lanes, best of 135 runs in turns over the bible's first MiB,
+    Teddy over the compares: sets of 2 at 0.79 to 0.97, 3 at 0.98 to 1.01, 4 at 1.04 to 1.11, 5
+    at 1.24 to 1.26, and 8 at 1.13 to 1.89. So `teddy_count_min` is 4. The N2's runs decide it
+    for aarch64.
+  - Mutations, each against `zig build test-regex` on x86-64 and under qemu for aarch64: 8. 6
+    CAUGHT on both: either lookup of a nibble left out, the last octets read at the first, the
+    bits of a place's first lane, a literal's bit given to the next literal, and a literal's
+    whole compare left out. 2 NOT CAUGHT on both, each of which changes no answer: the last
+    octet's tables left out, and Teddy taken for no set.
+
   **Part 22c, the history from `0fec1a4` on was written again (the owner's ruling of
   2026-11-22).** Its first 17 commits named Claude as their author and committer, which the
   owner does not allow. Each of the 47 commits kept its tree, its message and its dates, and took

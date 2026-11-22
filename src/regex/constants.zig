@@ -171,6 +171,25 @@ pub const literal_set_max = 8;
 /// The fewest literals claim R5 searches for: one literal is claim R2's.
 pub const literal_set_count_min = 2;
 
+/// The fewest literals for which claim R5 takes Teddy (literal_teddy.zig), where the target has
+/// its lookups. A step of Teddy costs four lookups whatever the count, and a step of the compares
+/// two compares for each literal. At 32 lanes on a Xeon, Teddy ran sets of 2 at 0.79 to 0.97 of
+/// the compares' speed, 3 at 0.98 to 1.01 and 4 at 1.04 to 1.11 (design §8 step 22, part 22c).
+pub const teddy_count_min = 4;
+
+/// The entries of one of Teddy's tables: one for each value of a nibble, the 16 lanes that NEON's
+/// TBL and x86-64's PSHUFB look up in.
+pub const nibbles = 16;
+
+/// The bits of a nibble, and the mask of an octet's low nibble.
+pub const nibble_bits = 4;
+pub const nibble_mask = 0x0F;
+
+comptime {
+    // Teddy gives each literal one bit of an octet.
+    std.debug.assert(literal_set_max <= @bitSizeOf(u8));
+}
+
 /// The most classes of octets a program may hold for claim R7's pair rows: a state's pair row
 /// takes the square of the classes, 1,024 entries at most. The assertions' contexts split a
 /// validation's classes, so that a UUID's pattern holds 16 and an email address's 21.

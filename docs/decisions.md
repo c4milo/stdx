@@ -5746,9 +5746,19 @@ last part lists what still waits on a ruling.
       - `LiteralSet.find` compares each literal's first and last octets at their distance, 16
         octets a step and 4 steps a block, ORs the compares, and compares the literals whole
         where a pair stands. It needs SSE2 or NEON alone, and takes AVX2's 32 lanes as R2 does.
-      - Rust's crate searches such a set with Teddy, from Hyperscan (Wang and others, NSDI
-        2019), which looks up nibbles with PSHUFB or TBL. stdx's build takes neither on x86-64,
-        whose baseline is SSE2.
+      - From `teddy_count_min` literals, 4, a target with a lookup of nibbles takes Teddy, from
+        Hyperscan (Wang and others, NSDI 2019), as Rust's crate does (`literal_teddy.zig`):
+        aarch64's own build with NEON's TBL, and x86-64's AVX2 object with VPSHUFB. The baseline
+        of x86-64, SSE2, has neither, and keeps the compares.
+      - Each literal takes one bit of an octet. Four tables of 16 entries give the literals'
+        bits by the low and the high nibble of their first octet and of their last. A step costs
+        four lookups whatever the count, where the compares cost two for each literal. The
+        tables find the places the compares find, so the two differ in their cost alone.
+      - The alternative refused: Hyperscan's tables of the first three octets. On a Xeon they
+        took six lookups a step and ran at about 12.6 GB/s whatever the set, under the compares'
+        16.6 for three absent literals. They passed every place of `the` to the whole compare,
+        and ran `thou|thee` at 0.71 of the compares' speed, where the first and last octets ran
+        it at 0.97.
       - R5 runs only with R1, so `stdx, no skip` turns it off, and `SearcherClaims.literal_set`
         turns it off alone.
     - Claim R6: where the forward program is one-pass, `Searcher.captures` follows one thread

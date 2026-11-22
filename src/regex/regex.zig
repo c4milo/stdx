@@ -52,6 +52,7 @@ test {
     _ = @import("dfa/dfa.zig");
     _ = @import("literal.zig");
     _ = @import("literal_set.zig");
+    _ = @import("literal_teddy.zig");
     _ = @import("one_pass.zig");
     _ = @import("dfa/dfa_literal.zig");
     _ = @import("dfa/dfa_reverse.zig");
