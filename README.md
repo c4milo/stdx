@@ -57,7 +57,7 @@ compression ratio. The charts come from the first runs on Ubuntu 26.04, at commi
 ### Regular expressions
 
 `bench-regex` compares the `regex` module with Rust's regex crate 1.13.2, Go's regexp 1.27.4, mvzr
-and zig-regex. Six jobs ran it at commit 43d309e on GitHub's hosted runners: three on a Neoverse
+and zig-regex. Six jobs ran it at commit d355d8c on GitHub's hosted runners: three on a Neoverse
 N2, and three on x86-64, an AMD EPYC 9V45, an Intel Xeon Platinum 8573C and an AMD EPYC 7763
 (`bench/results/2026-11-22-regex-*`). Each number is stdx's speed over Rust's in one job, from the
 lowest job to the highest.

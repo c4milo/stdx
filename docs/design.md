@@ -8085,7 +8085,7 @@ to 12 are reordered and nothing else changes.
     step's 16 octets through a slice of its own, and the compiler kept a bounds check and an
     overflow check on each: 6 GB/s. A block of 64 octets read through two slices of fixed
     length took them out.
-  - The hosted runners' `bench-regex`, with main's `85d3fe7` as its base in the same job: runs
+  - The hosted runners' `bench-regex`, with main's `c744e83` as its base in the same job: runs
     44959202445, 44959204770 and 44959207420, each with an x86-64 job and an arm64 job. The
     x86-64 jobs ran on an EPYC 9V45, an EPYC 7763 and an EPYC 9V74, and the arm64 jobs on a
     Neoverse N2.
@@ -8254,9 +8254,9 @@ to 12 are reordered and nothing else changes.
   classes, as in `[A-Ca-c]`, taken as a place that folds. `Literal.of`'s test of patterns with no
   literal now holds it.
 
-  **Part 22c, a search's calls (decision 86).** The first hosted run on main at `dbbb884`, on a
-  Xeon 6975P-C and a Neoverse N2, timed `[0-9]+` at 0.84 and 0.82 of main's `85d3fe7`. It finds
-  8,288 matches a MiB, each a search with a forward and a reverse scan. At `85d3fe7` the
+  **Part 22c, a search's calls (decision 86).** The first hosted run on main at `b13a663`, on a
+  Xeon 6975P-C and a Neoverse N2, timed `[0-9]+` at 0.84 and 0.82 of main's `c744e83`. It finds
+  8,288 matches a MiB, each a search with a forward and a reverse scan. At `c744e83` the
   compiler inlined both scans into `Searcher.find`, so a search made no call. Claims R2 to R4 made
   the scans too large to inline: a search called `scan_forward`, the skip loop, `Dfa.start`,
   `Dfa.waits` and the reverse scan, and stored about 29 words more.
@@ -8265,8 +8265,8 @@ to 12 are reordered and nothing else changes.
     R3's scan and claim R4's search.
   **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
   container. `[0-9]+` over 1 MiB three times: 23.3 million instructions, against 22.8 million at
-  `85d3fe7` and 24.3 million at `16d437c`. Sixty searches of the MiB, in turns: 41 ms at best
-  of five, against 40 at `85d3fe7` and 47 at `16d437c`. The five validations, setup included:
+  `c744e83` and 24.3 million at `344aaf1`. Sixty searches of the MiB, in turns: 41 ms at best
+  of five, against 40 at `c744e83` and 47 at `344aaf1`. The five validations, setup included:
   381.7 million instructions against 445.9 million, and 441 ms against 489 at best of five.
   `zig build test`, `zig build test-self-hosted` and `zig build differential-regex -Doracles`
   pass: 1,308 tests, and 12,437,544 cases with none failed. No check changed.
@@ -8301,22 +8301,22 @@ to 12 are reordered and nothing else changes.
       which holds no alternation at its start, and one taken for a program with an assertion,
       whose DFA never skips. Each condition saves work at `init` alone.
 
-  **Part 22c, the plain loop's branch (decision 86).** The hosted runs on main at `95bde31`
-  timed the plain loop at half the speed of `85d3fe7` on an EPYC 9V74 and faster on a Xeon
+  **Part 22c, the plain loop's branch (decision 86).** The hosted runs on main at `562768f`
+  timed the plain loop at half the speed of `c744e83` on an EPYC 9V74 and faster on a Xeon
   6975P-C and the Neoverse N2. `[a-z]+ing` ran at 292 MB/s against 556, and `stdx, no skip`,
   which runs the plain loop alone, at 305 against 607 over `Pharaoh`'s text, each with a spread
   under 0.3%. The machine code showed why. The slow path joined the loop's latch, so the
   compiler placed a second latch beside the first, and each octet took two branches: one back to
-  the latch, and one from it over the second latch to the loop's head. At `85d3fe7` each octet
+  the latch, and one from it over the second latch to the loop's head. At `c744e83` each octet
   took one. `run_plain` now holds the fast path as a loop of its own, which the slow path does
   not join.
   **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
   container on an Intel Xeon, which shows no such cost. The loop takes 11 instructions and one
   branch an octet. `[a-z]+ing` over 1 MiB 20 times: 54 ms at best of five, against 56 at
-  `95bde31` and 60 at `85d3fe7`. `zig build test`, `zig build test-self-hosted` and `zig build
+  `562768f` and 60 at `c744e83`. `zig build test`, `zig build test-self-hosted` and `zig build
   differential-regex -Doracles` pass. The hosted runs on an EPYC are the measure.
 
-  **Part 22c, claim R2's wide blocks (decision 86).** At `95bde31` a search for one literal ran
+  **Part 22c, claim R2's wide blocks (decision 86).** At `562768f` a search for one literal ran
   at 0.86 to 0.96 of Rust's regex on the Xeon 6975P-C and the N2, and at 0.59 to 0.68 on the
   EPYCs. A block of 64 octets pays its bounds checks, its reduction and its branch once. A block
   of `literal_wide_steps`, 128 octets, now pays them for twice the octets, and one block of
@@ -8366,7 +8366,7 @@ to 12 are reordered and nothing else changes.
     judge, give no pattern or every pattern the text's start, judge with the claim off, and skip
     `one_pass.check`.
 
-  **Part 22c, claims R2 and R5 on AVX2 (decision 86).** At `d7c0d11` the hosted runners timed
+  **Part 22c, claims R2 and R5 on AVX2 (decision 86).** At `a99c508` the hosted runners timed
   one literal at 0.71 of Rust's regex on the EPYC 9V74, and four words at 0.53 to 0.64 on x86-64.
   Rust's crate picks AVX2 at run time there. `Searcher.init` and `init_with` now take the
   caller's `codec.Features`, as gzip's, zstd's and json's `init` take them, and the module links a
@@ -8387,7 +8387,7 @@ to 12 are reordered and nothing else changes.
     and `LiteralSet.find` that never take AVX2, and a wide block of the narrow block's steps.
 
   **Part 22c, R6's thread takes a run of ranges in a loop of its own (decision 86).** At
-  `151e0cf` the hosted runners timed six groups of a date at 0.65 to 0.78 of Rust's regex. Under
+  `859d58b` the hosted runners timed six groups of a date at 0.65 to 0.78 of Rust's regex. Under
   cachegrind a capture took about 1,900 instructions for 15 octets: each octet walked its seed's
   line twice, through an optional octet and an outcome, with the position in memory. Most seeds of
   a one-pass pattern are a range, so `take_ranges` takes them one instruction an octet, and
@@ -8406,7 +8406,7 @@ to 12 are reordered and nothing else changes.
     line handed to `follow`. Each slow path refuses the same octet or the same assertion.
 
   **Part 22c, a DFA cache writes the slots of its hash table that it uses (decision 86).** At
-  `d7c0d11` the hosted runners compiled and readied `Pharaoh` at 0.70 to 0.82 of Rust's regex.
+  `a99c508` the hosted runners compiled and readied `Pharaoh` at 0.70 to 0.82 of Rust's regex.
   `Cache.init` wrote zero to the whole hash table, two slots for each state the memory holds,
   some 32 KiB a DFA in the default cache. A searcher made ready for each check of a short text,
   as connect-zig's protovalidate does, paid it every time. The table now starts at
@@ -8425,14 +8425,14 @@ to 12 are reordered and nothing else changes.
     before a growth.
 
   **Part 22c, the AVX2 searches start with one block inline (decision 86).** The `bench`
-  workflow ran `c704aed` against `151e0cf` three times (runs 44980111489, 44980113793 and
+  workflow ran `15af929` against `859d58b` three times (runs 44980111489, 44980113793 and
   44980115904). The first run's x86-64 job failed while cargo built another benchmark's baseline.
   The other two drew a Xeon 6975P-C and a Xeon Platinum 8573C, and all three Arm jobs drew a
   Neoverse N2.
-  - On the Xeons one literal ran 1.01 to 1.14 times as fast as at `151e0cf`, at 1.01 to 1.20 of
+  - On the Xeons one literal ran 1.01 to 1.14 times as fast as at `859d58b`, at 1.01 to 1.20 of
     Rust's regex, and four words 1.28 to 1.35 times, at 0.82 to 0.88. The N2 moved by under 2%.
   - Three rows whose places stand close together ran slower: `the [a-z]+ of` at 0.86 to 0.88 of
-    its speed at `151e0cf`, `[0-9][0-9,]* km` at 0.93 to 0.94, and `(?m)^[A-Z][a-z]+:` at 0.79.
+    its speed at `859d58b`, `[0-9][0-9,]* km` at 0.93 to 0.94, and `(?m)^[A-Z][a-z]+:` at 0.79.
     Under cachegrind the AVX2 search ran fewer instructions than the narrow one there. Each
     search paid the call into the variant object, which no compiler inlines.
   `Literal.find` and `LiteralSet.find` now search one block of `literal_steps` steps inline, and
@@ -8442,7 +8442,7 @@ to 12 are reordered and nothing else changes.
   **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
   container. `zig build test`: 105 of 105 steps, 1,319 tests passed and 6 skipped. `zig build
   differential-regex -Doracles`: 12,437,544 cases, none failed.
-  - Under cachegrind the narrow search ran within 1% of `008d6fd`'s instructions on six rows.
+  - Under cachegrind the narrow search ran within 1% of `3462cff`'s instructions on six rows.
     In the container, AVX2 against the narrow search in one process: `the [a-z]+ of` 0.85 to
     0.90 before and 1.03 to 1.04 after, `[0-9][0-9,]* km` 0.78 to 1.04 before and 1.06 to 1.08
     after. `(?m)^[A-Z][a-z]+:` ran at 0.73 to 0.92 before and 0.94 to 1.14 after.
@@ -8452,7 +8452,7 @@ to 12 are reordered and nothing else changes.
     limit, for a literal and a set.
 
   **Part 22c, claim R7 built: a forward scan takes two octets a read (decision 86).** At
-  `e2a7db9` the hosted x86-64 runners validated a UUID at 0.83 to 0.89 of Rust's regex and an
+  `4f16ca0` the hosted x86-64 runners validated a UUID at 0.83 to 0.89 of Rust's regex and an
   email address at 0.86 to 0.98. A plain scan's reads form a chain, each read the row of the
   next, and that chain set both libraries' speed: some 6 cycles an octet in the container.
   `src/regex/dfa/dfa_pairs.zig` holds a row of pairs for each of the cache's first states.
@@ -8472,11 +8472,11 @@ to 12 are reordered and nothing else changes.
   - Mutations, each against `zig build test-regex`: 11. 10 CAUGHT, 1 of them after its test was
     added: a pair kept across a cache clear. 1 NOT CAUGHT, an equivalent mutant: a step's
     `dfa_idle_flag`, which no DFA with a plain scan sets.
-  - Hosted at `43d309e`, beside Rust's regex in each job (`bench/results/2026-11-22-regex-*`):
+  - Hosted at `d355d8c`, beside Rust's regex in each job (`bench/results/2026-11-22-regex-*`):
     a UUID at 1.22 to 1.56 on three x86-64 models and 1.46 to 1.47 on the N2, and the five
     short-text patterns at 1.05 to 1.60 and at 1.30 to 1.53.
   - CI's self-hosted check failed from this commit on: four of its tests sized a cache from a
-    program they had not compiled yet. `c0c2667` compiles each one first.
+    program they had not compiled yet. `5ec05d9` compiles each one first.
 
   **Part 22c, a literal of one octet compares each block once (decision 86).** Claim R4's
   suffix is often one octet, as `:` in `(?m)^[A-Z][a-z]+:` and `x` in `[a-q][^u-z]{13}x`. Its
@@ -8488,13 +8488,13 @@ to 12 are reordered and nothing else changes.
   **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
   container. `zig build test`: 105 of 105 steps passed. `zig build differential-regex
   -Doracles`: 12,437,544 cases, none failed.
-  - Under cachegrind, against `85f532c`, at 16 lanes and at 32: `(?m)^[A-Z][a-z]+:` over the
+  - Under cachegrind, against `652513d`, at 16 lanes and at 32: `(?m)^[A-Z][a-z]+:` over the
     second text took 7.6% and 6.7% fewer instructions, and `[a-q][^u-z]{13}x` over the bible 14%
     and 7.7% fewer. `Pharaoh` and `the [a-z]+ of` moved by under 1.2%.
   - Mutations, each against `zig build test-regex`: 4. 2 CAUGHT: a block whose candidates are
     lost, and one whose candidates are the places of other octets. 2 NOT CAUGHT, each of which
     changes no answer: lanes the loop never reads, and a one-octet literal given the loop of two.
-  - Hosted, against `1b0002a` in each of six jobs, three on the N2 and three on x86-64 (runs
+  - Hosted, against `89d224f` in each of six jobs, three on the N2 and three on x86-64 (runs
     44986663680, 44986665628 and 44986667813, `bench/results/2026-11-22-regex-*`):
     `[a-q][^u-z]{13}x` ran 1.17 to 1.44 times as fast, and `(?m)^[A-Z][a-z]+:` 1.01 to 1.11. In
     five jobs the other rows stayed within 0.97 to 1.03. The EPYC 9V45's job ran every row 6% to
@@ -8511,6 +8511,21 @@ to 12 are reordered and nothing else changes.
   **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
   container. `zig build test`: 105 of 105 steps passed. `zig build -Doracles` built every
   program. `zig build differential-regex -Doracles`: 12,437,544 cases, none failed.
+
+  **Part 22c, the history from `0fec1a4` on was written again (the owner's ruling of
+  2026-11-22).** Its first 17 commits named Claude as their author and committer, which the
+  owner does not allow. Each of the 47 commits kept its tree, its message and its dates, and took
+  a new hash. The documents name the new hashes. The commit messages and the reports of
+  `bench/results/2026-11-22-regex-*` keep the old ones, and the hosted runs name them too:
+  - `85d3fe7` is now `c744e83`.
+  - `95bde31` is now `562768f`.
+  - `34b291b` is now `da341b7`.
+  - `d7c0d11` is now `a99c508`.
+  - `151e0cf` is now `859d58b`.
+  - `c704aed` is now `15af929`.
+  - `e2a7db9` is now `4f16ca0`.
+  - `1b0002a` is now `89d224f`.
+  - `43d309e` is now `d355d8c`.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
