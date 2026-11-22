@@ -151,11 +151,11 @@ test "a searcher with claim R2 off, or with R1 off, searches for no literal" {
     var fixture: Fixture = .{};
     try fixture.init("Pharaoh", 0);
     const words = searcher_test.cache_sizes(&fixture.program).most;
-    try fixture.init_with("Pharaoh", .{ .literal = false }, words);
+    try fixture.init_claims("Pharaoh", .{ .literal = false }, words);
     try testing.expect(fixture.searcher.exact == null);
     try testing.expect(fixture.searcher.forward.literal == null);
     try fixture.expect_agree("xx Pharaoh xx", 0);
-    try fixture.init_with("Ph[ao]+h", .{ .start_skip = false }, words);
+    try fixture.init_claims("Ph[ao]+h", .{ .start_skip = false }, words);
     try testing.expect(fixture.searcher.forward.literal == null);
     try fixture.expect_agree("xx Phoh xx", 0);
     // An assertion before the literal: claim R3 goes to the literal after it.
@@ -163,7 +163,7 @@ test "a searcher with claim R2 off, or with R1 off, searches for no literal" {
     try testing.expectEqualStrings("Ph", fixture.searcher.forward.literal.?.slice());
     try testing.expect(fixture.searcher.forward.looks_for_literal());
     try fixture.expect_agree("xPh Ph", 0);
-    try fixture.init_with("\\bPh", .{ .literal = false }, words);
+    try fixture.init_claims("\\bPh", .{ .literal = false }, words);
     try testing.expect(!fixture.searcher.forward.looks_for_literal());
 }
 
@@ -217,9 +217,9 @@ test "a searcher goes from one place of a literal set to the next, and stops at 
     const visits = fixture.searcher.forward.skip_visits;
     try fixture.expect_agree(haystack, 0);
     try testing.expectEqual(visits + scans_of_expect_agree, fixture.searcher.forward.skip_visits);
-    try fixture.init_with("Ab|Is", .{ .literal_set = false }, words);
+    try fixture.init_claims("Ab|Is", .{ .literal_set = false }, words);
     try testing.expect(fixture.searcher.forward.literals == null);
     try fixture.expect_agree(haystack, 0);
-    try fixture.init_with("Ab|Is", .{ .start_skip = false }, words);
+    try fixture.init_claims("Ab|Is", .{ .start_skip = false }, words);
     try testing.expect(fixture.searcher.forward.literals == null);
 }

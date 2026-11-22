@@ -70,7 +70,7 @@ pub const Stdx = struct {
     pub fn ready(stdx: *Stdx, engine: Engine, pattern: []const u8) bool {
         stdx.program = regex.compile(pattern, .{}, &stdx.storage) catch return false;
         const len = regex.Searcher.memory_len(stdx.program.forward_len, stdx.program.slot_count(), cache_words(engine));
-        stdx.searcher.init_with(&stdx.program, .{ .start_skip = engine != .stdx_no_skip }, stdx.features, stdx.memory[0..len]);
+        stdx.searcher.init(&stdx.program, &.{ .features = stdx.features, .claims = .{ .start_skip = engine != .stdx_no_skip } }, stdx.memory[0..len]);
         return true;
     }
 };

@@ -31,7 +31,7 @@ test "a searcher gives the groups of a one-pass pattern by one thread, and of ot
     try fixture.init("(a|ab)(c)", words);
     try fixture.expect_agree("xabc", 0);
     try testing.expectEqual(.no, fixture.searcher.one_pass);
-    try fixture.init_with(date, .{ .one_pass = false }, words);
+    try fixture.init_claims(date, .{ .one_pass = false }, words);
     try testing.expectEqual(.no, fixture.searcher.one_pass);
     try fixture.expect_agree("2026-11-22T03:04:05Z", 0);
 }

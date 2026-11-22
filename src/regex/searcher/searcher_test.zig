@@ -37,15 +37,15 @@ pub const Fixture = struct {
 
     /// Compiles `pattern` and gives the searcher `cache_words` words of cache.
     pub fn init(fixture: *Fixture, pattern: []const u8, cache_words: usize) !void {
-        return fixture.init_with(pattern, .{}, cache_words);
+        return fixture.init_claims(pattern, .{}, cache_words);
     }
 
     /// `init`, with the claims a test names.
-    pub fn init_with(fixture: *Fixture, pattern: []const u8, claims: searcher_file.Claims, cache_words: usize) !void {
+    pub fn init_claims(fixture: *Fixture, pattern: []const u8, claims: searcher_file.Claims, cache_words: usize) !void {
         fixture.program = try compiler.compile(pattern, .{}, &fixture.storage);
         if (fixture.program.group_count > groups_len) return error.TestTooManyGroups;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
-        fixture.searcher.init_with(&fixture.program, claims, fixture.features, fixture.memory[0..len]);
+        fixture.searcher.init(&fixture.program, &.{ .features = fixture.features, .claims = claims }, fixture.memory[0..len]);
         fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
     }
 
@@ -163,7 +163,7 @@ test "a searcher divides its cache two parts to one, and uses a DFA only where i
 test "a program with no reverse half gives its whole cache to the forward DFA" {
     var fixture: Fixture = .{};
     fixture.program = try compiler.compile("a+b", .{ .reverse = false }, &fixture.storage);
-    fixture.searcher.init(&fixture.program, .{}, &fixture.memory);
+    fixture.searcher.init(&fixture.program, &.{ .features = .{} }, &fixture.memory);
     fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
     try testing.expect(fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
     try fixture.expect_agree_everywhere("xaab ab");
@@ -185,7 +185,7 @@ test "a pattern whose states outgrow the cache clears it, gives up, and still an
     const pattern = "(a|b)*a(a|b){8}c";
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init_with(pattern, no_suffix, cache_sizes(&fixture.program).least);
+    try fixture.init_claims(pattern, no_suffix, cache_sizes(&fixture.program).least);
     var generator = codec.testing.split.Generator.init(7);
     var text: [600]u8 = undefined;
     letters(&generator, &text);
@@ -194,7 +194,7 @@ test "a pattern whose states outgrow the cache clears it, gives up, and still an
     try testing.expect(fixture.searcher.forward.cache.clears > 1);
     try testing.expect(fixture.searcher.give_ups > 0);
     // With room for its states, the same search never gives up.
-    try fixture.init_with(pattern, no_suffix, cache_words_max);
+    try fixture.init_claims(pattern, no_suffix, cache_words_max);
     try fixture.expect_agree(&text, 0);
     try testing.expectEqual(@as(u32, 0), fixture.searcher.give_ups);
     try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.cache.clears);
@@ -204,7 +204,7 @@ test "a searcher stops trying its DFA after dfa_give_ups_max searches gave up" {
     const pattern = "(a|b)*a(a|b){8}c";
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init_with(pattern, no_suffix, cache_sizes(&fixture.program).least);
+    try fixture.init_claims(pattern, no_suffix, cache_sizes(&fixture.program).least);
     var generator = codec.testing.split.Generator.init(11);
     var text: [600]u8 = undefined;
     for (0..2 * constants.dfa_give_ups_max) |_| {

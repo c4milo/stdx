@@ -106,7 +106,7 @@ pub const Stdx = struct {
         const program = &stdx.program;
         for (&stdx.searchers, stdx.memory, 0..) |*searcher, memory, way| {
             const len = regex.Searcher.memory_len(program.forward_len, program.slot_count(), cache_words(@enumFromInt(way)));
-            searcher.init(program, stdx.features, memory[0..len]);
+            searcher.init(program, &.{ .features = stdx.features }, memory[0..len]);
         }
     }
 

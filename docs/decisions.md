@@ -5669,8 +5669,9 @@ last part lists what still waits on a ruling.
         a visit, the skip rests for 64 KiB of scans and is then tried again, since the parts of
         a text differ. Each trial that fails after another doubles the rest, up to 16 times.
         The counts change the work alone, and never an answer.
-      - `Searcher.init_with` takes `SearcherClaims`, whose `start_skip` turns the claim off.
-        `bench-regex` times that searcher as `stdx, no skip`, beside the claim on, in one run.
+      - `SearcherOptions.claims`, a `SearcherClaims`, holds `start_skip`, which turns the claim
+        off. `bench-regex` times that searcher as `stdx, no skip`, beside the claim on, in one
+        run.
     - Claim R2: where every match starts with a literal of two octets or more, R1's skip goes to
       the next place of that literal. Where the pattern is that literal and nothing else, the
       searcher reads no DFA: each place of the literal is a match (design §8 step 22, part 22c).
@@ -5695,10 +5696,11 @@ last part lists what still waits on a ruling.
       - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
         `stdx, no skip` turns off both.
       - On x86-64, a caller whose `codec.Features` name AVX2 gets the search of 32 lanes,
-        `avx2_lanes`, which Rust's crate picks at run time too. `Searcher.init` and `init_with`
-        take the features, as entry 30 rules for json's types: one way to start each type, and
-        each caller adds the argument. The search is `literal_find.zig`'s, built a second time in
-        the module's variant object of decision 21, and its blocks keep their octets.
+        `avx2_lanes`, which Rust's crate picks at run time too. `Searcher.init` takes the
+        features in its `SearcherOptions`, as entry 30 rules for json's types: one way to start
+        each type, and each caller adds the argument. The search is `literal_find.zig`'s, built
+        a second time in the module's variant object of decision 21, and its blocks keep their
+        octets.
       - What R2 does not do yet, from the reading of Rust's crate: the two octets a table of
         frequencies ranks rarest. Claim R5 searches for one of several literals.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two

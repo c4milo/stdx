@@ -99,10 +99,10 @@ test "a searcher with claim R4 off, or with R1 off, reads back from no suffix" {
     var fixture: Fixture = .{};
     try fixture.init("[ab]+x", 0);
     const words = searcher_test.cache_sizes(&fixture.program).most;
-    try fixture.init_with("[ab]+x", .{ .suffix = false }, words);
+    try fixture.init_claims("[ab]+x", .{ .suffix = false }, words);
     try testing.expect(fixture.searcher.suffix == null);
     try fixture.expect_agree("ab abx", 0);
-    try fixture.init_with("[ab]+x", .{ .start_skip = false }, words);
+    try fixture.init_claims("[ab]+x", .{ .start_skip = false }, words);
     try testing.expect(fixture.searcher.suffix == null);
     try fixture.expect_agree("ab abx", 0);
 }

@@ -40,7 +40,7 @@ fn fill(generator: *codec.testing.split.Generator, haystack: []u8) void {
 /// that the forward DFA reads the text and skips.
 fn init_roomy(fixture: *Fixture, pattern: []const u8) !void {
     try fixture.init(pattern, 0);
-    try fixture.init_with(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).most);
+    try fixture.init_claims(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).most);
 }
 
 const patterns = [_][]const u8{
@@ -102,7 +102,7 @@ test "a searcher with the claim off learns no start octet and gives the same mat
         var plain_memory: [searcher_test.memory_len]u64 = undefined;
         var plain: Searcher = undefined;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
-        plain.init_with(&fixture.program, .{ .start_skip = false }, .{}, plain_memory[0..len]);
+        plain.init(&fixture.program, &.{ .features = .{}, .claims = .{ .start_skip = false } }, plain_memory[0..len]);
         fill(&generator, &haystack);
         for (0..haystack.len + 1) |from| {
             try testing.expectEqual(plain.find(&haystack, from), fixture.searcher.find(&haystack, from));
@@ -136,7 +136,7 @@ test "a skip follows the state that waits through a cache that clears" {
     const letter_that_decides = clear_run_len - clear_decides_from_end;
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
-    try fixture.init_with(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).least);
+    try fixture.init_claims(pattern, searcher_test.no_suffix, searcher_test.cache_sizes(&fixture.program).least);
     var generator = codec.testing.split.Generator.init(0xC1EA);
     var haystack: [clear_runs * (clear_gap_len + clear_run_len)]u8 = undefined;
     for (0..clear_runs) |run| {

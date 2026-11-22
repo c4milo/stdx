@@ -67,7 +67,7 @@ test "a searcher that takes two octets a read gives what the matcher gives, in c
         try fixture.init(pattern, small);
         try expect_agree_random(&fixture, &generator);
         // The claim off gives the same answers, with no pair row.
-        try fixture.init_with(pattern, .{ .pairs = false }, searcher_test.cache_sizes(&fixture.program).most);
+        try fixture.init_claims(pattern, .{ .pairs = false }, searcher_test.cache_sizes(&fixture.program).most);
         try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.cache.pair_states);
         try expect_agree_random(&fixture, &generator);
     }

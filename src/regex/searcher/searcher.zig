@@ -59,6 +59,17 @@ pub const Claims = struct {
     pairs: bool = true,
 };
 
+/// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
+/// decision 30 rules for json's types.
+pub const Options = struct {
+    /// The CPU features the caller detected once with `codec.Features.detect()`, or
+    /// `codec.Features.target()`. Where they name AVX2, claims R2 and R5 search `avx2_lanes`
+    /// octets a step.
+    features: codec.Features,
+    /// Every claim, unless the tests or the benchmark turn one off, as a codec's options do.
+    claims: Claims = .{},
+};
+
 /// What a searcher knows of claim R6 for its program.
 const OnePass = enum {
     /// Not judged yet. A judgment walks a closure from each instruction that takes an octet, which
@@ -108,16 +119,12 @@ pub const Searcher = struct {
         return Matcher.memory_len(forward_len, slots_len) + cache_words;
     }
 
-    /// Readies a searcher for `program`, with the CPU features the caller detected once with
-    /// `codec.Features.detect()`, or `codec.Features.target()`. Where they name AVX2, claims R2
-    /// and R5 search `avx2_lanes` octets a step. The memory is the searcher's until the caller is
-    /// done with it, and holds at least `memory_len` words with no cache.
-    pub fn init(searcher: *Searcher, program: *const Program, features: codec.Features, memory: []u64) void {
-        searcher.init_with(program, .{}, features, memory);
-    }
-
-    /// `init`, with the claims the caller names.
-    pub fn init_with(searcher: *Searcher, program: *const Program, claims: Claims, features: codec.Features, memory: []u64) void {
+    /// Readies a searcher for `program`, with the options the caller passes. The memory is the
+    /// searcher's until the caller is done with it, and holds at least `memory_len` words with no
+    /// cache. `init` copies the options and keeps no pointer to them.
+    pub fn init(searcher: *Searcher, program: *const Program, options: *const Options, memory: []u64) void {
+        const claims = options.claims;
+        const features = options.features;
         const matcher_len = Matcher.memory_len(program.forward_len, program.slot_count());
         assert(memory.len >= matcher_len);
         searcher.matcher.init(program, .{ .captures = .groups }, memory[0..matcher_len]);

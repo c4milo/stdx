@@ -8490,6 +8490,18 @@ to 12 are reordered and nothing else changes.
     lost, and one whose candidates are the places of other octets. 2 NOT CAUGHT, each of which
     changes no answer: lanes the loop never reads, and a one-octet literal given the loop of two.
 
+  **Part 22c, one way to start a searcher (decision 86).** `Searcher.init` and `init_with` were
+  two ways to start one type, which decision 30 refuses for json's types. `Searcher.init` now
+  takes a `*const SearcherOptions`, a new public name of `regex`. It holds the caller's
+  `codec.Features`, which has no default, and `SearcherClaims`, all on unless a test or the
+  benchmark turns one off, as a codec's options hold its claims. The options take 18 octets, so
+  they pass as `*const` (pepegrillo's API guide, section 3.5). A program that depends on stdx
+  changes each call of `init`.
+  **Check:** the tests, the oracle check and the benchmark start each searcher through `init`.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps passed. `zig build -Doracles` built every
+  program. `zig build differential-regex -Doracles`: 12,437,544 cases, none failed.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that
