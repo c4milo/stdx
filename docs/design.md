@@ -8551,6 +8551,15 @@ to 12 are reordered and nothing else changes.
   - Mutations, each against `zig build test-regex`: 7, each CAUGHT, 1 after its test was added:
     the next search a set's length on, which stepped over a match that overlaps a prefix.
 
+  **Part 22c, a set calls the AVX2 object with no inline block (decision 86).** `85f532c` made
+  `Literal.find` and `LiteralSet.find` search one block inline before the call. The profile
+  above put 274 instructions a match in a set's inline block, its 16-lane compares, and the
+  call costs fewer. `LiteralSet.find` now calls the object from its first octet.
+  **Check:** the searcher's and the set's tests, at both widths.
+  **Check passed, 2026-11-22.** In the container, best of 135 runs in turns: eight sets ran 1.01
+  to 1.23 times as fast, `(?:the|and)[ ,]`, whose matches stand closest, 1.06 times. It changes
+  where a search starts and no answer, so it carries no mutation.
+
   **Part 22c, the history from `0fec1a4` on was written again (the owner's ruling of
   2026-11-22).** Its first 17 commits named Claude as their author and committer, which the
   owner does not allow. Each of the 47 commits kept its tree, its message and its dates, and took
