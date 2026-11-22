@@ -6149,8 +6149,18 @@ last part lists what still waits on a ruling.
 87. **Cryptography is chapulin's, and every library reaches chapulin through stdx.** Ruled by the
     owner on 2026-11-22, in two answers: all crypto in stdx comes from chapulin, and none of the
     owner's Zig libraries names chapulin directly, only through stdx.
-    - stdx writes no cryptographic primitive. `stdx.hash` holds checksums alone, CRC-32, Adler-32
-      and XXH64, as `std.hash` holds Zig's apart from `std.crypto`.
+    - Hashing is split in two, as Zig splits `std.hash` from `std.crypto`. The owner ruled the
+      split the same day.
+      - chapulin holds every cryptographic hash and MAC: SHA-1, SHA-256, SHA-384, SHA-512, SHA-3,
+        SHAKE, HMAC, HKDF and PBKDF2. Its own TLS, QUIC, ML-KEM and ML-DSA need them, and its
+        proofs cover them. `stdx.crypto` exports them, and stdx writes none of its own.
+      - stdx holds the checksums and the hashes of hash tables, in Zig, under `stdx.hash`:
+        CRC-32, Adler-32 and XXH64, which gzip, zlib and Zstandard carry in their formats (RFC
+        1952 §8, RFC 1950 §9, RFC 8878 §3.1.1). chapulin needs none of them. A codec that needed
+        chapulin would make each program that reads gzip compile chapulin's C.
+      - A new hash is chapulin's when an adversary must not forge it or find two inputs that give
+        one value, as a keyed hash such as SipHash guards a hash table. It is stdx's when it finds
+        damage by accident or spreads keys over a table's buckets.
     - `stdx.crypto` is chapulin's Zig module. stdx pins chapulin by commit and hash as a lazy
       dependency, and builds its objects only for a dependent that opts in with a build option. A
       dependent that does not opt in fetches no chapulin and compiles no C.
@@ -6164,8 +6174,9 @@ last part lists what still waits on a ruling.
       (https://github.com/c4milo/stdx/issues/42): which objects stdx offers and through which
       options (colibri builds a TCP object and a QUIC object today, each with KEYLOG off, and on
       for its tests); how a program's one CPU probe, `stdx.platform`, gives chapulin its `cpu`
-      value; and where the hook chapulin calls on a failed assertion, `ch_assert_fail`, is
-      defined.
+      value; where the hook chapulin calls on a failed assertion, `ch_assert_fail`, is defined;
+      and AEGIS, which stompy's checksum runs on through `std.crypto`, and which chapulin does
+      not hold: chapulin adds it, or stompy keeps Zig's.
 
     The alternatives refused:
     - No crypto in stdx, each library pinning chapulin itself. Two pins or two sets of options in
@@ -6173,3 +6184,5 @@ last part lists what still waits on a ruling.
     - A `stdx.crypto` whose `chapulin` import the program binds, as cocuyo's `cocuyo_quic` takes
       colibri's `quic`. Each library would still name chapulin.
     - The checksums moved into chapulin, which holds cryptography alone.
+    - SHA-2, SHA-3 and their kin written again in Zig in stdx, which would split the code that
+      chapulin's proofs and constant-time checks cover.
