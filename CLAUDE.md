@@ -352,6 +352,9 @@ Change this section when a step adds or renames a command.
   holds a `std.testing.fuzz` test, or over the one named, for `<runs>` runs each (`20K`, `2M`), and
   refuses to run when its list of modules misses one; `tools/fuzz.sh --list` prints that list as
   JSON. It builds ReleaseSafe: Zig 0.16.0's test runner does not compile in fuzz mode in Debug.
+  Zig 0.16.0's `zig build --fuzz` exits 0 when a test fails while it is fuzzed, so a module fails
+  when its log holds a line that begins `error: `, and the report writes the saved input in hex.
+  `tools/fuzz_check.sh`, which `tools/ci.sh` runs, checks that verdict with a stand-in `zig`.
   `tools/ci.sh` runs a short pass on every push, and the `fuzz` workflow a long one every night,
   one job per module on each runner, keeping each job's corpus in GitHub's cache (decision 20).
   A person may run the workflow for one module, named in its `module` input.
