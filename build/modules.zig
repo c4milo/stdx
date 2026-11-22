@@ -48,6 +48,8 @@ pub const Modules = struct {
     /// Regular expressions that match in linear time, RFC 9485's grammar and RE2's additions
     /// (decision 86).
     regex: *std.Build.Module,
+    /// Every module above, grouped by category as `std` groups its own (decision 6 as amended).
+    stdx: *std.Build.Module,
 };
 
 /// Whether a graph's modules are exported by name. build.zig exports the graph a dependent imports;
@@ -112,6 +114,22 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     regex.addImport("utf8", utf8);
     variants.add_levels(b, regex, "regex", settings.target, settings.optimize, &variants.regex_levels);
 
+    // The root a program imports, which names each module under its category (decision 6 as
+    // amended). No codec imports it, nor `platform` through it.
+    const stdx = library(b, "stdx", settings);
+    stdx.addImport("codec", codec);
+    stdx.addImport("checksum", checksum);
+    stdx.addImport("deflate", deflate);
+    stdx.addImport("zlib", zlib);
+    stdx.addImport("gzip", gzip);
+    stdx.addImport("zstd", zstd);
+    stdx.addImport("brotli", brotli);
+    stdx.addImport("utf8", utf8);
+    stdx.addImport("json", json);
+    stdx.addImport("base64", base64);
+    stdx.addImport("platform", platform);
+    stdx.addImport("regex", regex);
+
     return .{
         .codec = codec,
         .checksum = checksum,
@@ -125,6 +143,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .base64 = base64,
         .platform = platform,
         .regex = regex,
+        .stdx = stdx,
     };
 }
 

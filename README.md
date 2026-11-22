@@ -6,9 +6,11 @@
 [![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
 [![release](https://img.shields.io/github/v/release/c4milo/stdx)](https://github.com/c4milo/stdx/releases/latest)
 
-The HTTP content codings in wide use, for Zig, each with an encoder and a decoder: `gzip`,
-`deflate`, `br` and `zstd`. Beside them are JSON and base 64. All of it is written from the RFCs,
-uses no allocator, and does no I/O.
+Zig's standard library, extended, and grouped as `std` groups its own: compression
+(`stdx.compress`: gzip, zlib, DEFLATE, zstd and brotli, each with an encoder and a decoder),
+checksums (`stdx.hash`), Unicode (`stdx.unicode`), JSON, base 64, regular expressions, and the CPU
+probe a program runs once (`stdx.platform`). All of it is written from the RFCs, uses no
+allocator, and does no I/O.
 
 A codec is a struct that your program places where it likes: on the stack, in a static, or inside
 its own state. Your program gives it the octets it has and the room it has. The codec writes what
@@ -124,15 +126,15 @@ Add stdx to your `build.zig.zon`:
 zig fetch --save git+https://github.com/c4milo/stdx#v0.2.0
 ```
 
-Then import the modules your program uses in `build.zig`:
+Then import it in `build.zig`:
 
 ```zig
 const stdx = b.dependency("stdx", .{ .target = target, .release = true });
-exe.root_module.addImport("codec", stdx.module("codec"));
-exe.root_module.addImport("gzip", stdx.module("gzip"));
+exe.root_module.addImport("stdx", stdx.module("stdx"));
 ```
 
-Each module is separate, so a program compiles only the codecs it imports.
+Zig compiles only the parts a program uses. Each module is also exported under its own name, as
+`stdx.module("gzip")`, for a program that imports one alone.
 
 stdx builds in Debug or ReleaseSafe only, because its assertions stay on
 ([decision 17](docs/decisions.md)). `.release = true` selects ReleaseSafe. stdx takes no
@@ -143,44 +145,46 @@ stdx builds in Debug or ReleaseSafe only, because its assertions stay on
 Decode a gzip body into a buffer:
 
 ```zig
-const codec = @import("codec");
-const gzip = @import("gzip");
+const stdx = @import("stdx");
 
 /// Decodes the gzip file `body` into `output`, and returns the decoded octets.
-fn gunzip(features: codec.Features, body: []const u8, output: []u8) ![]u8 {
-    var decoder: gzip.Decoder = undefined; // about 44 KiB
+fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
+    var decoder: stdx.compress.gzip.Decoder = undefined; // about 44 KiB
     decoder.init(features);
     const whole = try decoder.decode_all(body, output);
     return output[0..whole.written];
 }
 ```
 
-- Call `codec.Features.detect()` once when the program starts, and pass the result to each
+- Call `stdx.codec.Features.detect()` once when the program starts, and pass the result to each
   codec's `init`. It tells the codecs which SIMD instructions the CPU has.
 - `decode_all` returns `error.NoSpaceLeft` when `output` fills first, and `error.Truncated` when
-  the input ends inside a stream. A corrupt stream returns a `gzip.Error`, with one value for each
-  cause.
+  the input ends inside a stream. A corrupt stream returns a `stdx.compress.gzip.Error`, with one
+  value for each cause.
 - For input that arrives in pieces, call `decode` with each piece. It returns the octets it read
   and wrote, and a status: `needs_input`, `needs_room` or `done`.
 
 ## Modules
 
-| Module | What it holds |
+| Name | What it holds |
 |---|---|
-| `codec` | The streaming contract every codec shares, and `Features` (decision 11) |
-| `checksum` | CRC-32, Adler-32 and XXH64 |
-| `deflate` | DEFLATE, RFC 1951: an encoder and a decoder |
-| `zlib` | The zlib container, RFC 1950: the HTTP `deflate` coding |
-| `gzip` | The gzip container, RFC 1952: the HTTP `gzip` coding |
-| `zstd` | Zstandard, RFC 8878 and RFC 9659: the HTTP `zstd` coding |
-| `brotli` | brotli, RFC 7932: the HTTP `br` coding |
-| `utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
-| `json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
-| `base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
-| `platform` | What the CPU offers, probed once when a program starts (decision 40) |
-| `regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, flags and named classes (decision 86) |
+| `stdx.compress.deflate` | DEFLATE, RFC 1951: an encoder and a decoder |
+| `stdx.compress.zlib` | The zlib container, RFC 1950: the HTTP `deflate` coding |
+| `stdx.compress.gzip` | The gzip container, RFC 1952: the HTTP `gzip` coding |
+| `stdx.compress.zstd` | Zstandard, RFC 8878 and RFC 9659: the HTTP `zstd` coding |
+| `stdx.compress.brotli` | brotli, RFC 7932: the HTTP `br` coding |
+| `stdx.hash` | CRC-32, Adler-32 and XXH64 |
+| `stdx.unicode.utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
+| `stdx.json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
+| `stdx.base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
+| `stdx.regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, named groups, flags and named classes (decision 86) |
+| `stdx.platform` | What the CPU offers, probed once when a program starts (decision 40), and a vector `memset` (decision 41) |
+| `stdx.codec` | The streaming contract every codec shares, and `Features` (decision 11) |
 
-`platform` is the one module that may make a system call: `sysctlbyname` on macOS.
+Each is also a module of its own, under its own name: `deflate`, `zlib`, `gzip`, `zstd`, `brotli`,
+`checksum`, `utf8`, `json`, `base64`, `regex`, `platform` and `codec`.
+
+`stdx.platform` is the one module that may make a system call: `sysctlbyname` on macOS.
 
 ## Development
 

@@ -106,6 +106,18 @@ last part lists what still waits on a ruling.
    Entry 27 adds an eighth module, `json`, exported the same way, and entry 40 a ninth,
    `platform`, which no other module imports.
 
+   Amended by the owner on 2026-11-22: stdx is no longer compression codecs alone, so its modules
+   are grouped by category, as `std` groups its own. A module `stdx` names each under its category:
+   `stdx.compress` holds `deflate`, `zlib`, `gzip`, `zstd` and `brotli`, `stdx.hash` is
+   `checksum`, and `stdx.unicode` holds `utf8`, beside `stdx.json`, `stdx.base64`, `stdx.regex`,
+   `stdx.platform` and `stdx.codec`. A program imports `stdx` alone and links every variant
+   object, some 10 KB each since decision 21's amendment of the same day. Each module stays a
+   module of its own, so the graph of design §3 still holds each codec to its imports, and each is
+   still exported by name, so a dependent that imports one keeps working.
+   - The alternative refused: a module for each category, as `@import("compress")`. It saves a
+     program the objects of the other categories, which the same amendment made small, and asks
+     a program for one import for each category.
+
 ## Tooling and checks
 
 7. **stdx's developer tooling comes from pepegrillo, a lazy Zig package pinned by hash.** Ruled by

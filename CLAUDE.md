@@ -1,14 +1,16 @@
 # stdx rules
 
-stdx is a library of compression codecs, written from the RFCs: DEFLATE with its zlib and gzip
-containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it holds a JSON
-encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and `platform`, which
-a program calls once when it starts to learn what its CPU offers (decision 40). It holds RFC
-4648's base 64 too, in its own module (decision 68), and `regex`, regular expressions matched in
-time linear in the text (decision 86). `json` and `regex` read RFC 3629's UTF-8 through one
-module, `utf8`. Home:
-github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's
-brotli and Wuffs on the workloads it measures, with no heap and no I/O.
+stdx extends Zig's standard library, written from the RFCs, and groups its modules as `std` groups
+its own (decision 6 as amended): `stdx.compress`, `stdx.hash`, `stdx.unicode`, `stdx.json`,
+`stdx.base64`, `stdx.regex` and `stdx.platform`. It began as compression codecs: DEFLATE with its
+zlib and gzip containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it
+holds a JSON encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and
+`platform`, which a program calls once when it starts to learn what its CPU offers (decision 40). It
+holds RFC 4648's base 64 too, in its own module (decision 68), and `regex`, regular expressions
+matched in time linear in the text (decision 86). `json` and `regex` read RFC 3629's UTF-8 through
+one module, `utf8`. Home: github.com/c4milo/stdx. It aims to match or beat zlib, zlib-ng,
+libdeflate, libzstd, Google's brotli and Wuffs on the workloads it measures, with no heap and no
+I/O.
 
 It is a standalone library. colibri is its first consumer: colibri's h11 decodes HTTP/1.1's `gzip`
 and `deflate` transfer codings with it, and its qlog writes JSON text sequences with `json`. Other
@@ -74,9 +76,10 @@ The architecture depends on every rule in this section.
    only (decision 17); the one loop that runs without them is decision 16's ruled exception.
    Hostile input returns an error value and fails closed; no input reaches an assertion.
 8. **One module per codec, plus the checksums, JSON, `platform`, `regex` and `utf8`.** Each is
-   exported by name with `b.addModule`, so a dependent reaches it with
-   `dependency.module("gzip")` (decision 6). The library keeps no process-wide mutable state, so
-   a dependent may run codecs on as many threads as it likes.
+   exported by name with `b.addModule`, so a dependent reaches it with `dependency.module("gzip")`
+   (decision 6). The module `stdx` names each under its category, as `stdx.compress.gzip`, and no
+   other module imports it (decision 6 as amended). The library keeps no process-wide mutable state,
+   so a dependent may run codecs on as many threads as it likes.
 9. **Invariants are code.** Every numbered invariant in `docs/invariants.md` names the check that
    proves it: a comptime assert, a runtime assertion, a lint rule or a seeded check.
 

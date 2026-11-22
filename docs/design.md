@@ -13,10 +13,12 @@ is listed there.
 
 ## 1. Thesis and scope
 
-stdx is compression codecs written from the RFCs, with no heap and no I/O, that a project places
-wherever its memory lives and drives from whatever I/O model it has. Version one holds DEFLATE with
-its zlib and gzip containers, Zstandard and brotli, each with an encoder and a decoder (decision 1),
-in the order decision 13 proposes.
+stdx extends Zig's standard library, written from the RFCs, with no heap and no I/O, for a project
+that places stdx's state wherever its memory lives and drives it from whatever I/O model it has. It
+groups its modules as `std` groups its own (decision 6 as amended): `stdx.compress`, `stdx.hash`,
+`stdx.unicode`, `stdx.json`, `stdx.base64`, `stdx.regex` and `stdx.platform`. It began as
+compression codecs, and `stdx.compress` holds DEFLATE with its zlib and gzip containers, Zstandard
+and brotli, each with an encoder and a decoder (decision 1), in the order decision 13 proposes.
 
 The aim is to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's brotli and Wuffs on the
 workloads stdx measures: the corpora of decision 15, measured the way decision 10 fixes. Decision 14
@@ -78,11 +80,12 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
 | `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8` | 9485 |
+| `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform` and `codec`, as `std` groups its own (decision 6 as amended) | every module above | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
 and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision 73).
 `json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
-reaches it. No module reaches `platform`, and none reaches `regex`.
+reaches it. No module but `stdx` reaches `platform`, and no module reaches `regex` or `stdx`.
 No library module receives a package: pepegrillo, the oracles and the corpora are requested by
 `build.zig` for `tools/` and `bench/` only, after the point a dependent's build stops.
 

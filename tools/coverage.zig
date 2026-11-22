@@ -22,6 +22,7 @@ const directories = [_][]const u8{
     "src/platform",
     "src/regex",
     "src/utf8",
+    "src/stdx",
 };
 
 pub fn main(init: std.process.Init) !void {

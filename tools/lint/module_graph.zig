@@ -62,8 +62,9 @@ pub const Module = struct {
 };
 
 /// The graph of docs/design.md §3, with `codec` as decision 11 rules it, `json` as decisions 27 and
-/// 73 do, `platform` as decision 40 does, and `regex` and `utf8` as decision 86 does. No module
-/// imports `platform`, the one module that may make a syscall.
+/// 73 do, `platform` as decision 40 does, `regex` and `utf8` as decision 86 does, and `stdx` as
+/// decision 6 as amended does. No module but `stdx` imports `platform`, the one module that may
+/// make a syscall, and `stdx` only names it for a program.
 pub const expected_graph = [_]Module{
     .{ .name = "codec", .imports = &.{} },
     .{ .name = "checksum", .imports = &.{} },
@@ -77,6 +78,7 @@ pub const expected_graph = [_]Module{
     .{ .name = "base64", .imports = &.{"codec"} },
     .{ .name = "platform", .imports = &.{} },
     .{ .name = "regex", .imports = &.{ "codec", "utf8" } },
+    .{ .name = "stdx", .imports = &.{ "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "json", "base64", "platform", "regex" } },
 };
 
 /// Longest path the rule builds for the file it reads beside build/modules.zig.
