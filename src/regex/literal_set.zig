@@ -41,12 +41,17 @@ pub const LiteralSet = extern struct {
     wide: bool = false,
     /// Teddy's tables of the literals, which `of` builds.
     teddy: literal_teddy.Tables = undefined,
+    /// Each literal's length, at most `literal_len_max`.
+    lens: [constants.literal_set_max]u8 = undefined,
+    /// True when each literal is its whole branch: a match is then the first place where a
+    /// literal stands whole, and there the first literal of the set that does (`find_exact`).
+    exact: bool = false,
 
     /// The literals of the alternation that `program` starts with, or null where a branch starts
     /// with no literal, where the branches are more than `literal_set_max`, or where the shortest
     /// literal is under `literal_prefix_len_min`.
     pub fn of(program: *const Program) ?LiteralSet {
-        var set: LiteralSet = .{ .octets = undefined, .count = 0, .len = constants.literal_len_max };
+        var set: LiteralSet = .{ .octets = undefined, .count = 0, .len = constants.literal_len_max, .exact = true };
         var stack: [constants.literal_set_max]u32 = undefined;
         stack[0] = program.forward;
         var stack_len: usize = 1;
@@ -67,6 +72,8 @@ pub const LiteralSet = extern struct {
             }
             const literal = literal_file.branch_of(program, entry) orelse return null;
             @memcpy(set.octets[set.count][0..literal.len], literal.slice());
+            set.lens[set.count] = literal.len;
+            set.exact = set.exact and literal.exact;
             set.len = @min(set.len, literal.len);
             set.count += 1;
         }
@@ -87,6 +94,31 @@ pub const LiteralSet = extern struct {
             return set.find_far(haystack, near);
         }
         return set.find_by(constants.skip_lanes, haystack, from, no_limit);
+    }
+
+    /// Where `exact` holds: the first place at or after `from` where a literal stands whole, and
+    /// the end of the first literal of the set that stands there. The set keeps the alternation's
+    /// order, the first branch first, so this is the match RE2's leftmost-first rule picks.
+    pub fn find_exact(set: *const LiteralSet, haystack: []const u8, from: usize) ?Place {
+        assert(set.exact);
+        assert(from <= haystack.len);
+        var at = from;
+        // Each turn passes one place where the set's first `len` octets stand, so the turns are at
+        // most the octets from `from`.
+        while (at <= haystack.len) {
+            const start = set.find(haystack, at) orelse return null;
+            if (set.whole_at(haystack, start)) |len| return .{ .start = start, .end = start + len };
+            at = start + 1;
+        }
+        return null;
+    }
+
+    /// The length of the first literal of the set that stands whole at `index`, or null.
+    fn whole_at(set: *const LiteralSet, haystack: []const u8, index: usize) ?usize {
+        for (set.octets[0..set.count], set.lens[0..set.count]) |*octets, len| {
+            if (haystack.len - index >= len and std.mem.eql(u8, haystack[index..][0..len], octets[0..len])) return len;
+        }
+        return null;
     }
 
     /// The variant object's search from `near`, out of line, as `Literal.find_far` is.
@@ -166,6 +198,9 @@ pub const LiteralSet = extern struct {
         return false;
     }
 };
+
+/// A match of an exact set: the octets from `start` to `end`.
+pub const Place = struct { start: usize, end: usize };
 
 /// Follows saves and jumps from `entry`, which take no octet: each instruction once.
 fn past_saves(program: *const Program, entry: u32) u32 {

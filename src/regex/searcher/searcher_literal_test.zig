@@ -207,19 +207,46 @@ test "a searcher that goes to the places of a literal set gives what the matcher
 }
 
 test "a searcher goes from one place of a literal set to the next, and stops at no octet between" {
+    // A class follows the set, so the DFA reads each match.
+    const pattern = "(?:Ab|Is)[xy]";
     var fixture: Fixture = .{};
-    try fixture.init("Ab|Is", 0);
+    try fixture.init(pattern, 0);
     const words = searcher_test.cache_sizes(&fixture.program).most;
-    try fixture.init("Ab|Is", words);
+    try fixture.init(pattern, words);
+    try testing.expect(!fixture.searcher.exact_set);
     // R1's skip would stop at each `A` and `I`; the set's search makes one visit a scan.
-    const haystack = "AxIx" ** constants.skip_lanes ++ "Is";
+    const haystack = "AxIx" ** constants.skip_lanes ++ "Isx";
     try fixture.expect_agree(haystack, 0);
     const visits = fixture.searcher.forward.skip_visits;
     try fixture.expect_agree(haystack, 0);
     try testing.expectEqual(visits + scans_of_expect_agree, fixture.searcher.forward.skip_visits);
-    try fixture.init_claims("Ab|Is", .{ .literal_set = false }, words);
+    try fixture.init_claims(pattern, .{ .literal_set = false }, words);
     try testing.expect(fixture.searcher.forward.literals == null);
     try fixture.expect_agree(haystack, 0);
-    try fixture.init_claims("Ab|Is", .{ .start_skip = false }, words);
+    try fixture.init_claims(pattern, .{ .start_skip = false }, words);
     try testing.expect(fixture.searcher.forward.literals == null);
+}
+
+test "a set of literals and nothing else gives its matches with no DFA, its first branch first" {
+    var fixture: Fixture = .{};
+    const cases = [_]struct { pattern: []const u8, haystack: []const u8 }{
+        .{ .pattern = "ab|abc", .haystack = "xabcx abc ab" },
+        .{ .pattern = "abc|ab", .haystack = "xabcx abc ab" },
+        .{ .pattern = "Abraham|Isaac|Jacob|Joseph", .haystack = "Isaac and Jacob, Josep, Joseph, Abrah Abraham" },
+        .{ .pattern = "(?:ab|cd)", .haystack = "acdab" ++ "x" ** constants.skip_lanes ++ "abcd" },
+        // At 0 the prefix `aa` stands and no literal does; the match `aab` starts one octet on.
+        .{ .pattern = "aab|ab", .haystack = "aaab xaab" },
+    };
+    for (cases) |case| {
+        try fixture.init(case.pattern, 0);
+        try fixture.init(case.pattern, searcher_test.cache_sizes(&fixture.program).most);
+        try testing.expect(fixture.searcher.exact_set);
+        for (0..case.haystack.len + 1) |from| try fixture.expect_agree(case.haystack, from);
+        // The searcher read every match from the set: its DFAs took no visit.
+        try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.skip_visits);
+    }
+    // With claim R5 off, the DFAs read the same matches.
+    try fixture.init_claims("ab|abc", .{ .literal_set = false }, searcher_test.cache_sizes(&fixture.program).most);
+    try testing.expect(!fixture.searcher.exact_set);
+    try fixture.expect_agree("xabcx abc ab", 0);
 }

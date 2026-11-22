@@ -5759,6 +5759,10 @@ last part lists what still waits on a ruling.
         16.6 for three absent literals. They passed every place of `the` to the whole compare,
         and ran `thou|thee` at 0.71 of the compares' speed, where the first and last octets ran
         it at 0.97.
+      - Where every branch is its literal and nothing more, `LiteralSet.exact` holds, and the
+        searcher runs no DFA, as claim R2 does for one literal. A match is the first place where a
+        literal stands whole, and there the first literal of the set that does: the set keeps the
+        alternation's order, so this is RE2's leftmost-first match.
       - R5 runs only with R1, so `stdx, no skip` turns it off, and `SearcherClaims.literal_set`
         turns it off alone.
     - Claim R6: where the forward program is one-pass, `Searcher.captures` follows one thread

@@ -8533,6 +8533,24 @@ to 12 are reordered and nothing else changes.
     whole compare left out. 2 NOT CAUGHT on both, each of which changes no answer: the last
     octet's tables left out, and Teddy taken for no set.
 
+  **Part 22c, a set of literals and nothing else runs no DFA (decision 86).** In the container,
+  Teddy searched `Abraham|Isaac|Jacob|Joseph` at 16.2 GB/s where the bible held no match, and at
+  7.9 over its matches: some 900 instructions a match, about half of them in the forward and the
+  reverse DFA. Rust's crate runs no automaton for an alternation of literals. `LiteralSet.exact`
+  holds where each branch is its literal, and the searcher then takes each match from the set.
+  **Check:** a searcher gives the matcher's answers from every offset for exact sets, the first
+  branch first where two literals stand at one place, and an overlapping match after a prefix
+  that stands alone, with no DFA visit; a set that a class follows is not exact; the oracle
+  check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps passed. `zig build differential-regex
+  -Doracles`: 12,437,544 cases, none failed.
+  - Against `822c457`, best of 135 runs in turns over the bible's first MiB: sets whose matches
+    the bible holds ran 1.14 to 1.32 times as fast at 32 lanes and 1.10 to 1.30 at 16. A set with
+    no match, and a set that a class follows, ran at 1.00 to 1.01.
+  - Mutations, each against `zig build test-regex`: 7, each CAUGHT, 1 after its test was added:
+    the next search a set's length on, which stepped over a match that overlaps a prefix.
+
   **Part 22c, the history from `0fec1a4` on was written again (the owner's ruling of
   2026-11-22).** Its first 17 commits named Claude as their author and committer, which the
   owner does not allow. Each of the 47 commits kept its tree, its message and its dates, and took

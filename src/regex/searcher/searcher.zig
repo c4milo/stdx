@@ -106,6 +106,9 @@ pub const Searcher = struct {
     give_ups: u32,
     /// Claim R2: the pattern, where it is a literal and nothing else.
     exact: ?Literal,
+    /// Claim R5: true where the pattern is an alternation of literals and nothing else, so that
+    /// the forward DFA's literal set gives each match and no DFA runs.
+    exact_set: bool,
     /// Claim R4: the literal every match ends with, where the search starts from it.
     suffix: ?Literal,
     /// Claim R6: whether one thread finds the groups. Only `captures` reads it, so `init` leaves
@@ -147,11 +150,7 @@ pub const Searcher = struct {
 
     /// Readies the claims that read what the DFAs and the matcher found at `init`.
     fn init_claims(searcher: *Searcher, program: *const Program, claims: Claims) void {
-        // A DFA that `init` refused holds no literal. Without a cache the matcher answers alone.
-        searcher.exact = null;
-        if (searcher.forward_ready) {
-            if (searcher.forward.literal) |literal| searcher.exact = if (literal.exact) literal else null;
-        }
+        searcher.init_exact();
         // A program of no group but the whole match needs no thread: the DFAs give its span.
         searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
         searcher.suffix = null;
@@ -164,9 +163,21 @@ pub const Searcher = struct {
         }
     }
 
+    /// Readies claims R2 and R5 where the pattern is a literal or a set of literals and nothing
+    /// else, so that the forward DFA's literals give each match.
+    fn init_exact(searcher: *Searcher) void {
+        searcher.exact = null;
+        searcher.exact_set = false;
+        // A DFA that `init` refused holds no literal. Without a cache the matcher answers alone.
+        if (!searcher.forward_ready) return;
+        if (searcher.forward.literal) |literal| searcher.exact = if (literal.exact) literal else null;
+        if (searcher.forward.literals) |set| searcher.exact_set = set.exact;
+    }
+
     /// True when the haystack holds a match.
     pub fn is_match(searcher: *Searcher, haystack: []const u8) bool {
         if (searcher.exact) |*literal| return literal.find(haystack, 0) != null;
+        if (searcher.exact_set) return searcher.forward.literals.?.find_exact(haystack, 0) != null;
         if (searcher.suffix != null) {
             if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
         } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
@@ -231,6 +242,10 @@ pub const Searcher = struct {
         if (searcher.exact) |*literal| {
             const start = literal.find(haystack, from) orelse return .{ .span = null };
             return .{ .span = .{ .start = start, .end = start + literal.len } };
+        }
+        if (searcher.exact_set) {
+            const place = searcher.forward.literals.?.find_exact(haystack, from) orelse return .{ .span = null };
+            return .{ .span = .{ .start = place.start, .end = place.end } };
         }
         if (!searcher.forward_ready or !searcher.reverse_ready) return null;
         if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
