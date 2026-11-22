@@ -215,6 +215,11 @@ pub const skip_rest_doublings_max = 4;
 /// two slots of the hash table, which is kept at most half full.
 pub const dfa_words_per_state = 3;
 
+/// The slots of a cache's hash table that `init` and a clear write: room for 32 states. The table
+/// doubles as states join, so that a searcher made ready for a short text writes 256 octets of
+/// its table, where the default cache's whole table is some 32 KiB.
+pub const dfa_slots_first = 64;
+
 /// The words of a state's record a cache plans for when it divides its memory: the record's two
 /// leading words, and the instructions of a state of the usual size.
 pub const dfa_record_words = 12;

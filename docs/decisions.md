@@ -5777,7 +5777,8 @@ last part lists what still waits on a ruling.
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
     96 open groups; `class_ranges_max`, 128 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
-    `dfa_give_ups_max`, 8; and `cache_words_default`, 2^16 words. Claim R2's: `literal_len_max`,
+    `dfa_give_ups_max`, 8; `cache_words_default`, 2^16 words; and `dfa_slots_first`, 64, the slots
+    of a cache's hash table that `init` and a clear write before the table doubles. Claim R2's: `literal_len_max`,
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
     and `avx2_lanes`, 32. Claim R5's:
     `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R6's: `one_pass_instructions_max`,

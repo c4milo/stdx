@@ -8405,6 +8405,25 @@ to 12 are reordered and nothing else changes.
     mutant: a run that hands a refused octet to the slow step, and an assertion that fails on a
     line handed to `follow`. Each slow path refuses the same octet or the same assertion.
 
+  **Part 22c, a DFA cache writes the slots of its hash table that it uses (decision 86).** At
+  `d7c0d11` the hosted runners compiled and readied `Pharaoh` at 0.70 to 0.82 of Rust's regex.
+  `Cache.init` wrote zero to the whole hash table, two slots for each state the memory holds,
+  some 32 KiB a DFA in the default cache. A searcher made ready for each check of a short text,
+  as connect-zig's protovalidate does, paid it every time. The table now starts at
+  `dfa_slots_first` slots and doubles as states join, placing each state again by its hash.
+  **Check:** a cache whose memory holds a pattern of ones and zeros before `init` grows twice,
+  finds each of 100 states, and goes back to the first slots at a clear; the searcher's tests;
+  the oracle check; mutations.
+  **Check passed, 2026-11-22.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux 6.18, in a cloud
+  container. `zig build test`: 105 of 105 steps, 1,319 tests passed and 6 skipped. `zig build
+  differential-regex -Doracles`: 12,437,544 cases, none failed.
+  - Under cachegrind, 2,000 compiles and `init`s of `Pharaoh` took 42,774,401 instructions before
+    and 28,716,426 after; of `[0-9]+`, 46,130,406 and 27,284,418. In the container, with a vector
+    `memset`, one of `Pharaoh` took 3.1 to 3.4 µs before and 1.04 to 1.07 µs after.
+  - Mutations, each against `zig build test-regex`: 6, each CAUGHT. They grow no table, place no
+    state again, clear no slot at a growth, at a clear or at `init`, and keep a slot found
+    before a growth.
+
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,
   zig-regex and mvzr: every match of a pattern in a haystack of 1 MiB, a pattern that

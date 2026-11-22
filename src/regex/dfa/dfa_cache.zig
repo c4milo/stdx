@@ -10,6 +10,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
+/// The factor by which a growth multiplies the slots in use.
+const slots_growth = 2;
+
 pub const Cache = struct {
     /// The entries: `stride` for each state.
     table: []u32,
@@ -17,6 +20,9 @@ pub const Cache = struct {
     records: []u32,
     /// The states by the hash of their records: a state's number plus one, or zero.
     slots: []u32,
+    /// The slots in use: a prefix of `slots` that doubles as states join, so that `init` and a
+    /// clear write `dfa_slots_first` slots, not the whole table.
+    slots_used: u32,
     arena: []u32,
     stride: u32,
     states_max: u32,
@@ -45,6 +51,7 @@ pub const Cache = struct {
             .table = memory[0 .. states_max * stride],
             .records = memory[states_max * stride ..][0..states_max],
             .slots = memory[states_max * (stride + 1) ..][0..slots_len],
+            .slots_used = @intCast(@min(slots_len, constants.dfa_slots_first)),
             .arena = memory[states_max * (stride + constants.dfa_words_per_state) ..],
             .stride = stride,
             .states_max = @intCast(states_max),
@@ -55,7 +62,7 @@ pub const Cache = struct {
             .scanned = 0,
             .scanned_at_clear = 0,
         };
-        @memset(cache.slots, 0);
+        @memset(cache.slots[0..cache.slots_used], 0);
     }
 
     /// The first word of a state's record: its flags.
@@ -82,13 +89,35 @@ pub const Cache = struct {
 
     /// The slot of the hash table that holds the state, or the empty slot where it belongs.
     fn slot_of(cache: *const Cache, flags: u32, instructions: []const u32) usize {
-        var slot = hash(flags, instructions) % cache.slots.len;
-        for (0..cache.slots.len) |_| {
-            const entry = cache.slots[slot];
+        const used = cache.slots[0..cache.slots_used];
+        var slot = hash(flags, instructions) % used.len;
+        for (0..used.len) |_| {
+            const entry = used[slot];
             if (entry == 0 or cache.holds(entry - 1, flags, instructions)) return slot;
-            slot = (slot + 1) % cache.slots.len;
+            slot = (slot + 1) % used.len;
         }
         unreachable;
+    }
+
+    /// True when one more state would fill more than half the slots in use, and the table has
+    /// slots left to take. A full table holds `states_max` states, half its slots.
+    fn must_grow(cache: *const Cache) bool {
+        const slots_per_state = constants.dfa_words_per_state - 1;
+        return cache.slots_used < cache.slots.len and (cache.state_count + 1) * slots_per_state > cache.slots_used;
+    }
+
+    /// Doubles the slots in use, or takes them all, and places each state again by its hash.
+    fn grow(cache: *Cache) void {
+        assert(cache.must_grow());
+        cache.slots_used = @intCast(@min(cache.slots.len, @as(usize, cache.slots_used) * slots_growth));
+        @memset(cache.slots[0..cache.slots_used], 0);
+        // At most `states_max` states.
+        for (0..cache.state_count) |state| {
+            const row: u32 = @intCast(state * cache.stride);
+            const slot = cache.slot_of(cache.head(row), cache.seeds(row));
+            assert(cache.slots[slot] == 0);
+            cache.slots[slot] = @intCast(state + 1);
+        }
     }
 
     fn has_room(cache: *const Cache, instructions_len: usize) bool {
@@ -103,6 +132,10 @@ pub const Cache = struct {
         if (cache.slots[slot] != 0) return (cache.slots[slot] - 1) * cache.stride;
         if (!cache.has_room(instructions.len)) {
             if (!cache.clear() or !cache.has_room(instructions.len)) return null;
+            slot = cache.slot_of(flags, instructions);
+        }
+        if (cache.must_grow()) {
+            cache.grow();
             slot = cache.slot_of(flags, instructions);
         }
         const state = cache.state_count;
@@ -127,7 +160,8 @@ pub const Cache = struct {
         cache.state_count = 0;
         cache.arena_len = 0;
         cache.starts = @splat(constants.dfa_unknown);
-        @memset(cache.slots, 0);
+        cache.slots_used = @intCast(@min(cache.slots.len, constants.dfa_slots_first));
+        @memset(cache.slots[0..cache.slots_used], 0);
         return !thrashing;
     }
 };
@@ -220,12 +254,38 @@ test "two records that differ in their flags alone are two states, where their h
     const first_flags: u32 = 1;
     // The flags after `first_flags` whose record falls in the same slot of the hash table.
     var second_flags: u32 = first_flags + 1;
-    const slot = Cache.hash(first_flags, &instructions) % cache.slots.len;
-    while (Cache.hash(second_flags, &instructions) % cache.slots.len != slot) second_flags += 1;
+    const slot = Cache.hash(first_flags, &instructions) % cache.slots_used;
+    while (Cache.hash(second_flags, &instructions) % cache.slots_used != slot) second_flags += 1;
     const first = cache.intern(first_flags, &instructions).?;
     const second = cache.intern(second_flags, &instructions).?;
     try testing.expect(first != second);
     try testing.expectEqual(first, cache.intern(first_flags, &instructions).?);
     try testing.expectEqual(second, cache.intern(second_flags, &instructions).?);
     try testing.expectEqual(second_flags, cache.head(second));
+}
+
+/// The states of the growth test's cache: enough that its table doubles twice.
+const grow_states = 100;
+const grow_memory_len = grow_states * (test_stride + constants.dfa_words_per_state + constants.dfa_record_words);
+/// What the growth test's memory holds before `init`: no slot of it may be read as a state.
+const grow_fill = 0xA5A5_A5A5;
+
+test "the hash table grows as states join, reads no slot init did not write, and finds each state" {
+    var memory: [grow_memory_len]u32 = undefined;
+    @memset(&memory, grow_fill);
+    var cache: Cache = undefined;
+    cache.init(&memory, test_stride);
+    try testing.expectEqual(@as(u32, constants.dfa_slots_first), cache.slots_used);
+    var rows: [grow_states]u32 = undefined;
+    for (&rows, 0..) |*row, state| row.* = cache.intern(0, &.{@intCast(state)}).?;
+    try testing.expectEqual(@as(u32, @intCast(cache.slots.len)), cache.slots_used);
+    for (rows, 0..) |row, state| {
+        try testing.expectEqual(@as(u32, @intCast(state * test_stride)), row);
+        try testing.expectEqual(row, cache.intern(0, &.{@intCast(state)}).?);
+    }
+    try testing.expectEqual(@as(u32, grow_states), cache.state_count);
+    // A clear goes back to the first slots.
+    try testing.expect(cache.clear());
+    try testing.expectEqual(@as(u32, constants.dfa_slots_first), cache.slots_used);
+    try testing.expectEqual(@as(u32, 0), cache.intern(0, &.{1}).?);
 }
