@@ -31,9 +31,12 @@ pub const Literal = struct {
     exact: bool,
 
     /// The literal every match of `program` starts with, or null where it has none that pays: a
-    /// literal shorter than `literal_prefix_len_min` that more of the pattern follows.
-    pub fn of(program: *const Program) ?Literal {
+    /// literal shorter than `literal_prefix_len_min` that more of the pattern follows. With
+    /// `through_looks` the walk goes through assertions, which take no octet, so the literal
+    /// stands where a match starts, and the match is the literal only where no assertion stood.
+    pub fn of(program: *const Program, through_looks: bool) ?Literal {
         var literal: Literal = .{ .octets = undefined, .len = 0, .exact = false };
+        var passed_look = false;
         var index = program.forward;
         // Each instruction is read once: the walk follows `out` and stops at a split.
         for (0..program.forward_len) |_| {
@@ -47,10 +50,15 @@ pub const Literal = struct {
                     index = instruction.out;
                 },
                 .match => {
-                    literal.exact = true;
+                    literal.exact = !passed_look;
                     break;
                 },
-                .split, .look, .fail => break,
+                .look => {
+                    if (!through_looks) break;
+                    passed_look = true;
+                    index = instruction.out;
+                },
+                .split, .fail => break,
             }
         }
         if (literal.len == 0) return null;
@@ -132,7 +140,13 @@ const test_storage_len = 256;
 fn literal_of(pattern: []const u8) !?Literal {
     var storage: [test_storage_len]program_file.Instruction = undefined;
     const program = try compiler.compile(pattern, .{}, &storage);
-    return Literal.of(&program);
+    return Literal.of(&program, false);
+}
+
+fn literal_through_looks(pattern: []const u8) !?Literal {
+    var storage: [test_storage_len]program_file.Instruction = undefined;
+    const program = try compiler.compile(pattern, .{}, &storage);
+    return Literal.of(&program, true);
 }
 
 fn expect_literal(pattern: []const u8, octets: []const u8, exact: bool) !void {
@@ -162,6 +176,26 @@ test "of gives no literal where a match may start otherwise, or where one octet 
     for (none) |pattern| {
         if (try literal_of(pattern) != null) return error.TestUnexpectedLiteral;
     }
+}
+
+test "through assertions, of reads the literal after them, and no pattern with one is its literal" {
+    const cases = [_]struct { pattern: []const u8, octets: []const u8 }{
+        .{ .pattern = "\\bPharaoh\\b", .octets = "Pharaoh" },
+        .{ .pattern = "(?m)^ab", .octets = "ab" },
+        .{ .pattern = "\\Bab", .octets = "ab" },
+        .{ .pattern = "a\\bb", .octets = "ab" },
+        .{ .pattern = "ab$", .octets = "ab" },
+    };
+    for (cases) |case| {
+        const literal = (try literal_through_looks(case.pattern)) orelse return error.TestExpectedLiteral;
+        try testing.expectEqualStrings(case.octets, literal.slice());
+        try testing.expect(!literal.exact);
+    }
+    // With no assertion the walk is the same.
+    const plain = (try literal_through_looks("Pharaoh")) orelse return error.TestExpectedLiteral;
+    try testing.expect(plain.exact);
+    try testing.expect(try literal_through_looks("\\b(?:ab|ac)") == null);
+    try testing.expect(try literal_through_looks("\\ba") == null);
 }
 
 /// The first place of `needle` at or after `from`, one offset at a time: what `find` must give.

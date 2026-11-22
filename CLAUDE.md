@@ -429,7 +429,7 @@ Change this section when a step adds or renames a command.
   libc++ there, and a host without cargo or go builds it without serde_json or Go's jsontext. `bench/run.sh <report.md> bench-json -Doracles`
   pins and records it, and the `bench` workflow offers it.
 - regex benchmark: `zig build bench-regex -Doracles` times the `regex` module, by a searcher with
-  its cache, by one with claims R1 and R2 off and by the matcher alone, beside Rust's `regex` crate, Go's
+  its cache, by one with claims R1 to R3 off and by the matcher alone, beside Rust's `regex` crate, Go's
   regexp, zig-regex and mvzr, every candidate interleaved in one run. Its four tables are every
   match of a pattern in a haystack of 1 MiB, a pattern that validates 65,536 short texts, the
   same with capture groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's

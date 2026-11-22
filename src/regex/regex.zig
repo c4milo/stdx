@@ -50,6 +50,8 @@ test {
     _ = @import("sparse_set.zig");
     _ = @import("dfa.zig");
     _ = @import("literal.zig");
+    _ = @import("dfa_literal.zig");
+    _ = @import("dfa_reverse.zig");
     _ = searcher;
     _ = @import("generate_test.zig");
     _ = @import("fuzz_test.zig");

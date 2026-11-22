@@ -8085,8 +8085,21 @@ to 12 are reordered and nothing else changes.
     step's 16 octets through a slice of its own, and the compiler kept a bounds check and an
     overflow check on each: 6 GB/s. A block of 64 octets read through two slices of fixed
     length took them out.
-  - The hosted runners' `bench-regex`, with main's `85d3fe7` as its base in the same job, is
-    the measure. No number is claimed before it.
+  - The hosted runners' `bench-regex`, with main's `85d3fe7` as its base in the same job: runs
+    44959202445, 44959204770 and 44959207420, each with an x86-64 job and an arm64 job. The
+    x86-64 jobs ran on an EPYC 9V45, an EPYC 7763 and an EPYC 9V74, and the arm64 jobs on a
+    Neoverse N2.
+    - The rows R2 takes, as R2's stdx over the base's, on x86-64 and then on the N2: `Pharaoh`
+      4.77 to 5.21 and 2.06 to 2.07; `Sherlock`, which the text does not hold, 5.29 to 5.74
+      and 2.16 to 2.17; `Population` 5.48 to 6.71 and 2.66 to 2.69; `href="[^"]*"` 15.5 to
+      15.9 and 6.69 to 6.71; `<h[1-6][^>]*>` 12.3 to 13.3 and 6.41 to 6.43; `the [a-z]+ of`
+      1.84 to 1.97 and 1.88.
+    - Over Rust's regex in the same jobs: the four searches of one literal 0.51 to 0.79 on
+      x86-64 and 0.59 to 0.64 on the N2; `<h[1-6][^>]*>` 6.29 to 6.63 and 5.34; `the [a-z]+ of`
+      1.13 to 1.18 and 1.21.
+    - The rows R2 does not take ran at 0.94 to 1.01 of the base. On the N2, whose spread is
+      under 1%, `[0-9]+` ran at 0.96 to 0.97, two capitalized words at 0.97 and the Greek word
+      at 0.94 to 0.95. Each visit of R1's skip now tests whether the DFA holds a literal.
   - A fault found on the way: `Searcher.init` read the literal of a forward DFA that `Dfa.init`
     had refused, and so had not set. The searcher now takes a literal only from a DFA that is
     ready, and a test starts from a searcher that held one.
@@ -8109,6 +8122,42 @@ to 12 are reordered and nothing else changes.
   - The mutations of claim R1, run again after its tests moved to patterns that start with no
     literal of two octets: 37, of which 30 CAUGHT by a named test, 5 by a halt, and the same 2
     NOT CAUGHT.
+
+  **Part 22c, claim R3 built: the scan goes to the literal after the assertions at a pattern's
+  start (decision 86).** R1 and R2 skip nothing in a program with an assertion, and the hosted
+  runners timed `\bPharaoh\b` at 0.021 to 0.039 of Rust's regex. `src/regex/dfa_literal.zig`
+  holds the scan. `Literal.of` walks through the assertions, and `Dfa.build` marks each entry that
+  leads to a state with no thread with `dfa_idle_flag`. `scan_reverse` moved to
+  `src/regex/dfa_reverse.zig` and the plain loop to `Dfa.scan_plain`, so that `dfa.zig` keeps
+  under 500 lines and `scan_forward` under the complexity limit.
+  **Check:** `Literal.of` gives the literal after the assertions, and no pattern with one is its
+  literal; a searcher with R3 gives the matcher's answer from every offset under each cache size,
+  for 14 patterns with an assertion before, inside or after the literal; a failed assertion at a
+  place makes the scan pass the octets up to the next place; the oracle check passes; mutations.
+
+  **Check passed, part 22c, claim R3, 2026-11-21.** Zig 0.16.0 and Go 1.27.4 on x86-64 Linux
+  6.18, in a cloud container. `zig build test`: 99 of 99 steps, 1,297 tests passed and 6
+  skipped. `zig build test-self-hosted`: 49 of 49 steps. `zig build differential-regex
+  -Doracles`: 12,437,544 cases, none failed.
+  - In the container, which orders candidates and publishes no number, R3 ran `\bPharaoh\b` at
+    35 to 38 times R1 and R2 alone, and `(?m)^Population` at 38 to 40 times. `\bthe\b`, whose
+    literal stands every few words, ran at 2.9 times.
+  - The hosted runners' `bench-regex`, with `54ac2b4` as its base, is the measure. No number is
+    claimed before it.
+  - Mutations, each against `zig build test-regex`: 16, of which 11 CAUGHT by a named test, 3
+    CAUGHT by a halt, and 2 NOT CAUGHT.
+    - CAUGHT by a named test: no entry marked as one with no thread, which was NOT CAUGHT until
+      a test required the scan to pass the octets after a failed assertion; every entry marked;
+      R3 on for a program with no assertion; the literal read only up to an assertion; a
+      pattern with an assertion taken as its literal; an assertion not counted as passed; the
+      scan that waits again at the octet it read last; the start state at the text's start with
+      an octet behind it; no match judged at the text's end; a match under `Kind.first` that
+      keeps the restart; the octets the scan passes not counted.
+    - CAUGHT by a halt: the plain loop run for a DFA that looks for its literal, a flagged
+      entry read as a plain row, and the start state at a place with no octet behind it.
+    - NOT CAUGHT: a match not kept at an entry with no thread, which no entry can be, and
+      `Dfa.build` now asserts it; and an earliest search that goes on past its first match,
+      which changes the work alone.
 
   **Part 22l, built: the benchmark (decision 86, the owner's ruling of 2026-11-21).**
   `zig build bench-regex -Doracles` times the module beside Rust's `regex` crate, Go's regexp,

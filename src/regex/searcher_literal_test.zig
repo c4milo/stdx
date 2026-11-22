@@ -45,6 +45,34 @@ test "a searcher that goes to a literal's places gives what the matcher gives, f
     }
 }
 
+/// The octets a haystack of the assertions' test draws from: word octets, a space and a line
+/// feed, so that each assertion holds at some places of the literal and fails at others.
+const looks_alphabet = "Phah \n_";
+
+/// Patterns with an assertion before, inside or after their literal (claim R3).
+const looks_patterns = [_][]const u8{
+    "\\bPh", "Ph\\b",      "\\bPh\\b", "\\BPh",      "(?m)^Ph",  "Ph$",       "(?m)Ph$",
+    "^Ph",   "\\bPh[ah]+", "a\\bh",    "\\b(?:Ph)+", "\\bha\\B", "(?m)^h a$", "\\bPha*\\b",
+};
+
+test "a searcher that goes to the literal after an assertion gives what the matcher gives" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0x100C);
+    var haystack: [haystack_len]u8 = undefined;
+    for (looks_patterns) |pattern| {
+        try fixture.init(pattern, 0);
+        const sizes = searcher_test.cache_sizes(&fixture.program);
+        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
+            try fixture.init(pattern, cache_words);
+            try testing.expect(fixture.searcher.forward.looks_for_literal());
+            for (0..8) |_| {
+                for (&haystack) |*octet| octet.* = looks_alphabet[generator.below(looks_alphabet.len)];
+                try fixture.expect_agree_everywhere(&haystack);
+            }
+        }
+    }
+}
+
 test "a searcher reads no DFA for a pattern that is its literal, and skips to the literal of one that goes on" {
     var fixture: Fixture = .{};
     const sizes_of = searcher_test.cache_sizes;
@@ -58,6 +86,8 @@ test "a searcher reads no DFA for a pattern that is its literal, and skips to th
     try fixture.init("Ph[ao]+h", sizes_of(&fixture.program).most);
     try testing.expect(fixture.searcher.exact == null);
     try testing.expectEqualStrings("Ph", fixture.searcher.forward.literal.?.slice());
+    // With no assertion, R1's state that waits takes the skip, not claim R3's scan.
+    try testing.expect(!fixture.searcher.forward.looks_for_literal());
     // The skip passed the octets before each place of `Ph`: a visit passed more than one octet.
     const haystack = "xxxxxxxxxxxxxxxxxxxxPhoh" ++ "x" ** (2 * constants.skip_lanes) ++ "Phah";
     try fixture.expect_agree(haystack, 0);
@@ -87,8 +117,24 @@ test "a searcher with claim R2 off, or with R1 off, searches for no literal" {
     try fixture.init_with("Ph[ao]+h", .{ .start_skip = false }, words);
     try testing.expect(fixture.searcher.forward.literal == null);
     try fixture.expect_agree("xx Phoh xx", 0);
-    // An assertion before the literal: the state that waits differs by the octet behind it.
+    // An assertion before the literal: claim R3 goes to the literal after it.
     try fixture.init("\\bPh", words);
-    try testing.expect(fixture.searcher.forward.literal == null);
+    try testing.expectEqualStrings("Ph", fixture.searcher.forward.literal.?.slice());
+    try testing.expect(fixture.searcher.forward.looks_for_literal());
     try fixture.expect_agree("xPh Ph", 0);
+    try fixture.init_with("\\bPh", .{ .literal = false }, words);
+    try testing.expect(!fixture.searcher.forward.looks_for_literal());
+}
+
+test "a searcher goes on to the literal's next place where the assertion before it fails" {
+    var fixture: Fixture = .{};
+    try fixture.init("\\bPh", 0);
+    try fixture.init("\\bPh", searcher_test.cache_sizes(&fixture.program).most);
+    // The first place of `Ph` stands after a word octet, so `\b` fails there. The scan waits
+    // again, and passes the octets up to the next place.
+    const haystack = "xPh" ++ "x" ** (2 * constants.skip_lanes) ++ " Ph";
+    try fixture.expect_agree_everywhere(haystack);
+    const skipped = fixture.searcher.forward.skip_octets;
+    try fixture.expect_agree(haystack, 0);
+    try testing.expect(fixture.searcher.forward.skip_octets - skipped >= 2 * constants.skip_lanes);
 }

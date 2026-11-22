@@ -22,6 +22,8 @@ const SparseSet = @import("sparse_set.zig").SparseSet;
 const Cache = @import("dfa_cache.zig").Cache;
 const Skip = @import("dfa_skip.zig").Skip;
 const Literal = @import("literal.zig").Literal;
+const dfa_literal = @import("dfa_literal.zig");
+const dfa_reverse = @import("dfa_reverse.zig");
 const is_continuation = @import("utf8_ranges.zig").is_continuation;
 
 const dfa_config = @import("dfa_config.zig");
@@ -64,14 +66,18 @@ pub const Dfa = struct {
     mark: usize,
     /// Claim R1. The octets a match can start with, known once a scan asked for them.
     skip: Skip,
-    /// Claim R2. The literal every match starts with, where the skip goes instead.
+    /// Claim R2. The literal every match starts with, where the skip goes instead. In a program
+    /// with an assertion, the literal after the assertions at its start (claim R3).
     literal: ?Literal,
+    /// Claim R3: the program holds an assertion and `literal`, and the scan goes to the literal
+    /// from each state with no thread, which `build` marks with `dfa_idle_flag`.
+    looking: bool,
     skip_known: bool,
     /// The row of the state that waits for a match to start, with no thread: a scan in it may
     /// skip. `dfa_unknown` where the DFA skips nothing, or the cache holds no such state now.
     idle: u32,
     /// The visits of scans to that state since the skip was last judged, and the octets the
-    /// visits passed.
+    /// visits passed. Claim R3's scan adds the octets it passes, and judges none.
     skip_visits: u32,
     skip_octets: u64,
     /// True while the skip is off because it was judged poor, until the scans took
@@ -122,7 +128,8 @@ pub const Dfa = struct {
             .reached = false,
             .mark = 0,
             .skip = undefined,
-            .literal = if (config.literal and config.skip) Literal.of(program) else null,
+            .literal = if (config.literal and config.skip) Literal.of(program, program.has_looks) else null,
+            .looking = false,
             .skip_known = false,
             .idle = constants.dfa_unknown,
             .skip_visits = 0,
@@ -136,8 +143,13 @@ pub const Dfa = struct {
             const reversed: u8 = @intCast(constants.octet_max - octet);
             dfa.representatives[dfa.classes[reversed]] = reversed;
         }
+        dfa.looking = program.has_looks and dfa.literal != null;
         dfa.cache.init(rest, stride_of(program));
         return true;
+    }
+
+    pub fn looks_for_literal(dfa: *const Dfa) bool {
+        return dfa.looking;
     }
 
     /// The offset where the forward program's match from `from` ends, as the matcher finds it, or
@@ -145,10 +157,18 @@ pub const Dfa = struct {
     pub fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
         assert(from <= haystack.len);
         const behind: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
-        var state = dfa.start(behind) orelse return .gave_up;
+        const state = dfa.start(behind) orelse return .gave_up;
         dfa.mark = from;
-        // Claim R1 has a loop of its own, so a scan that does not skip pays one test for it.
+        // Claims R1 and R3 have loops of their own, so a scan that takes neither pays two tests.
+        if (dfa.looking) return dfa_literal.scan(dfa, &dfa.literal.?, haystack, from, earliest);
         if (dfa.skips_from(state)) return dfa.scan_skipping(haystack, from, earliest, state);
+        return dfa.scan_plain(haystack, from, earliest, state);
+    }
+
+    /// A forward scan that takes no claim: one entry of the table an octet. Inline, so that a
+    /// scan of a short text makes no call more than it made before the claims.
+    inline fn scan_plain(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+        var state = first;
         var last: ?usize = null;
         // The table and the classes stay where they are while a scan runs, so the loop reads them
         // through locals: a store through `dfa` then reloads neither.
@@ -215,38 +235,11 @@ pub const Dfa = struct {
         return .{ .state = known & constants.dfa_row_mask };
     }
 
-    /// The least offset at or after `from` where a match that ends at `end` starts. The DFA runs
-    /// the reverse program from `end` toward `from`.
-    pub fn scan_reverse(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Scan {
-        assert(from <= end and end <= haystack.len);
-        const behind: Context = if (end == haystack.len) .edge else Context.of(haystack[end]);
-        var state = dfa.start(behind) orelse return .gave_up;
-        var last: ?usize = null;
-        dfa.mark = end;
-        const table = dfa.cache.table;
-        const classes = &dfa.classes;
-        var index = end;
-        while (index > from) {
-            index -= 1;
-            const octet = haystack[index];
-            const entry = table[state + classes[octet]];
-            if (entry < constants.dfa_dead_flag) {
-                state = entry;
-                continue;
-            }
-            const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
-            if (known & constants.dfa_match_flag != 0) last = index + 1;
-            if (known & constants.dfa_dead_flag != 0) return Scan.of(last);
-            state = known & constants.dfa_row_mask;
-        }
-        dfa.tally(from);
-        const ahead: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
-        if (dfa.matches_at_end(state, ahead)) last = from;
-        return Scan.of(last);
-    }
+    /// The reverse scan, in a file of its own.
+    pub const scan_reverse = dfa_reverse.scan;
 
     /// Adds the octets a scan took since its last count, which the cache weighs its states by.
-    fn tally(dfa: *Dfa, index: usize) void {
+    pub fn tally(dfa: *Dfa, index: usize) void {
         dfa.cache.scanned += if (index > dfa.mark) index - dfa.mark else dfa.mark - index;
         dfa.mark = index;
     }
@@ -254,7 +247,7 @@ pub const Dfa = struct {
     /// The entry of a state for an octet: the table's, or one built now. Null when the DFA gives
     /// up. Inline, so a scan that meets an entry the table holds makes no call: a short text
     /// that no pattern matches ends at such an entry.
-    inline fn resolve(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize) ?u32 {
+    pub inline fn resolve(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize) ?u32 {
         return if (entry != constants.dfa_unknown) entry else dfa.build_entry(state, octet, index);
     }
 
@@ -270,7 +263,7 @@ pub const Dfa = struct {
     }
 
     /// The state a scan starts in, behind which stands an octet of `behind`'s context.
-    fn start(dfa: *Dfa, behind: Context) ?u32 {
+    pub fn start(dfa: *Dfa, behind: Context) ?u32 {
         const context: Context = if (dfa.has_looks) behind else .other;
         var row = dfa.cache.starts[@intFromEnum(context)];
         if (row == constants.dfa_unknown) {
@@ -363,9 +356,15 @@ pub const Dfa = struct {
         const may_start = dfa.config.kind == .longest or !is_continuation(octet);
         const matched = dfa.close(state, dfa.context_of(octet), may_start);
         dfa.step(octet);
-        const flags: u32 = if (matched) constants.dfa_match_flag else 0;
+        var flags: u32 = if (matched) constants.dfa_match_flag else 0;
         const restart = head & restart_bit != 0 and dfa.restarts_after(matched);
         if (dfa.next.len == 0 and !restart) return constants.dfa_dead_flag | flags;
+        // Claim R3: no thread, and a match may start; the scan goes to the literal from here. Under
+        // `Kind.first` a match ends the restart, so such a state follows no match: the scan loses none.
+        if (dfa.next.len == 0 and dfa.looking) {
+            assert(!matched);
+            flags |= constants.dfa_idle_flag;
+        }
         const next_head = @intFromEnum(dfa.context_of(octet)) | (if (restart) @as(u32, restart_bit) else 0);
         const clears = dfa.cache.clears;
         const interned = dfa.cache.intern(next_head, dfa.next.slice());
@@ -400,7 +399,7 @@ pub const Dfa = struct {
 
     /// True when a state matches where the scan stops, with an octet of `ahead`'s context, or
     /// none, after it.
-    fn matches_at_end(dfa: *Dfa, state: u32, ahead: Context) bool {
+    pub fn matches_at_end(dfa: *Dfa, state: u32, ahead: Context) bool {
         const column = state + dfa.class_count + @intFromEnum(ahead);
         const known = dfa.cache.table[column];
         if (known != constants.dfa_unknown) return known & constants.dfa_match_flag != 0;

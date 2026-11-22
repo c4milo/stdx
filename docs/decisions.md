@@ -5675,9 +5675,23 @@ last part lists what still waits on a ruling.
       - R2 runs only with R1, and `SearcherClaims.literal` turns it off. `bench-regex`'s
         `stdx, no skip` turns off both.
       - What R2 does not do yet, from the reading of Rust's crate: a search for one of several
-        literals (Teddy), a literal that ends every match with a reverse scan from it, the skip
-        under an assertion such as `\b`, and AVX2's 32 lanes, which Rust's crate picks at run
-        time on x86-64.
+        literals (Teddy), a literal that ends every match with a reverse scan from it, and AVX2's
+        32 lanes, which Rust's crate picks at run time on x86-64.
+    - Claim R3: where a program holds an assertion, and every match starts with a literal of two
+      octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan
+      goes to the next place of that literal (design §8 step 22, part 22c).
+      - R1's skip needs one state that waits for a match whatever octet stands behind it. A
+        program with an assertion has one such state for each context, so R1 is off for it. R3
+        starts the DFA at each place of the literal, in the start state of the octet behind it.
+        No match starts before a place, so the answer is the one the DFA gives with no skip.
+      - For such a program `Literal.of` walks through the assertions. A pattern with an
+        assertion is never its literal, so its searcher always reads its DFA.
+      - `Dfa.build` marks with `dfa_idle_flag` each entry that leads to a state with no thread,
+        from which a match may still start. Under `Kind.first` no such entry follows a match,
+        and `build` asserts it. At such an entry the scan goes on to the literal's next place.
+        Its loop tests one bound an octet, as the plain loop does.
+      - Rust's crate runs its prefilter inside its lazy DFA the same way, and starts again after
+        a look-behind assertion. R3 runs only with R1 and R2, so `stdx, no skip` turns it off too.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one

@@ -104,11 +104,16 @@ pub const groups_max = 1 << 12;
 pub const slot_unset = std.math.maxInt(u64);
 
 /// The bits of a table entry of the lazy DFA. An entry is the place of a state's row, with
-/// `dfa_match_flag` where a match ended before the octet that led to it and `dfa_dead_flag` where
-/// no later octet can change the search's answer. An entry of all ones is not yet computed.
+/// `dfa_match_flag` where a match ended before the octet that led to it, `dfa_dead_flag` where
+/// no later octet can change the search's answer, and `dfa_idle_flag` where the state holds no
+/// thread and may start a match, in a DFA that skips to a literal from there (claim R3). An
+/// entry under `dfa_flags_min` is a row and nothing else. An entry of all ones is not yet
+/// computed.
 pub const dfa_match_flag = 0x8000_0000;
 pub const dfa_dead_flag = 0x4000_0000;
-pub const dfa_row_mask = 0x3FFF_FFFF;
+pub const dfa_idle_flag = 0x2000_0000;
+pub const dfa_flags_min = dfa_idle_flag;
+pub const dfa_row_mask = 0x1FFF_FFFF;
 pub const dfa_unknown = 0xFFFF_FFFF;
 
 /// The fewest states a cache must have room for before a `Searcher` uses the lazy DFA. Under it
@@ -207,6 +212,7 @@ comptime {
     std.debug.assert(targets_per_instruction * instructions_max < hole_none);
     std.debug.assert(hole_flag & hole_none == 0);
     std.debug.assert(1 << context_bits == context_count);
-    std.debug.assert(dfa_match_flag | dfa_dead_flag | dfa_row_mask == dfa_unknown);
+    std.debug.assert(dfa_match_flag | dfa_dead_flag | dfa_idle_flag | dfa_row_mask == dfa_unknown);
+    std.debug.assert(dfa_row_mask + 1 == dfa_flags_min);
     std.debug.assert(dfa_record_words > dfa_record_head);
 }
