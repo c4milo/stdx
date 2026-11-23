@@ -740,7 +740,10 @@ last part lists what still waits on a ruling.
 
     **The corpora.** Each is a lazy package pinned by hash, fetched by `tools/` and `bench/` and
     never by the library:
-    - Silesia, the 12-file corpus at `https://sun.aei.polsl.pl/~sdeor/corpus/silesia.zip`.
+    - Silesia, the 12-file corpus at `https://sun.aei.polsl.pl/~sdeor/corpus/silesia.zip`;
+      since 2026-11-23 from the `corpora` release of this repository, a copy of the zip that the
+      pinned hash verifies, after sun.aei.polsl.pl stopped answering (a GitHub runner got
+      HostUnreachable from it that day). The owner ruled the mirror the same day.
     - Canterbury: `cantrbry.tar.gz` and `large.tar.gz` from `https://corpus.canterbury.ac.nz`;
       since 2026-09-29 from the `corpora` release of this repository, a copy of the two tarballs
       that the pinned hashes verify, after canterbury.ac.nz put its site behind a bot-management

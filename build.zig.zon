@@ -63,7 +63,7 @@
             .lazy = true,
         },
         .silesia = .{
-            .url = "https://sun.aei.polsl.pl/~sdeor/corpus/silesia.zip",
+            .url = "https://github.com/c4milo/stdx/releases/download/corpora/silesia.zip",
             .hash = "N-V-__8AABTtoQyteKi1AL0OUreAhQnDUMebvAFWz2P-oFvH",
             .lazy = true,
         },
