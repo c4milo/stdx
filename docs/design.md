@@ -9090,6 +9090,21 @@ to 12 are reordered and nothing else changes.
     2.06 to 8.38 times Rust's speed, and the context pattern at 0.91.
   - `tools/charts_wide.py` draws a chart from five jobs of one model or more, so
     `bench/charts.txt` and the README keep part 22m's runs.
+  **Measured, 2026-11-23, at 4bd3bda.** Eighteen runs of the `bench` workflow, runs
+  [45127322370](https://github.com/c4milo/stdx/actions/runs/45127322370) to
+  [45127387921](https://github.com/c4milo/stdx/actions/runs/45127387921), wrote
+  `bench/results/2026-11-23-regex-matches-*`. They ran before the table of heads, the
+  backtracker's steps and the inline `find_before` above.
+  - On the 18 jobs of the Neoverse N2, stdx ran 23 of the 31 searches ahead of Rust's crate, at
+    1.02 to 2.54, 1 level, and 7 behind, at 0.57 to 0.93. In the median job, rebar's two rows of
+    `.*.*=.*` went from 0.60 and 0.63 at fbfd351 to 1.15 and 1.16, and Cloudflare's whole pattern
+    from 0.85 to 1.26. It compiled the 10 patterns at 1.27 to 10.7 times Rust's speed.
+  - The x86-64 jobs drew five models, 10 of them the AMD EPYC 7763. On those, stdx ran 20
+    searches ahead, at 1.01 to 1.74, 4 level, and 7 behind, at 0.56 to 0.96. The two rows of
+    `.*.*=.*` went from 0.65 and 0.67 to 1.17 and 1.15, and the whole pattern from 0.96 to 1.20.
+    `(?i)Sherlock Holmes` stayed at 0.66, as the table of heads came after these runs. It
+    compiled 9 patterns at 2.04 to 8.56 times Rust's speed, and the context pattern at 0.92.
+  - `bench/charts.txt` names the 36 reports, and the README draws them on its charts.
   **Check, the backtracker's steps:** the backtracker gives the matcher's groups over generated
   patterns and texts; the Go differential check passes; mutations.
   **Check passed, the backtracker's steps, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
