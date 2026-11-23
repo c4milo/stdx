@@ -8777,6 +8777,18 @@ to 12 are reordered and nothing else changes.
     carriage return or its line feed, an empty haystack with a line, a repair that replaces each
     octet of a broken sequence or takes any octet as its follow, a broken sequence at the end
     kept, and a line range that starts a line late or ends a line early.
+  **Measured, 2026-11-23.** Fourteen runs of the `bench` workflow at c8a2b4f, runs
+  [45102054128](https://github.com/c4milo/stdx/actions/runs/45102054128) to
+  [45102094978](https://github.com/c4milo/stdx/actions/runs/45102094978), wrote
+  `bench/results/2026-11-23-regex-packed-*`.
+  - On the 14 jobs of the Neoverse N2, stdx ran 19 of the 31 searches ahead of Rust's crate, at
+    1.07 to 2.45, and 12 behind, at 0.22 to 0.93. It compiled the 10 patterns at 1.29 to 10.7
+    times Rust's speed.
+  - On the 7 x86-64 jobs of the AMD EPYC 7763, the model most jobs drew, it ran 17 ahead, at 1.04
+    to 1.74, 1 level, and 13 behind, at 0.19 to 0.99. It compiled 9 patterns at 2.03 to 8.51
+    times, and the context pattern at 0.90 to 0.91.
+  - `bench/charts.txt` names the 28 reports, and the README draws them on its own charts. Part
+    22n holds the work on the rows behind.
 
   **Part 22n, in progress: the held-out set's gaps.** Part 22m's set found rows where stdx runs
   at a ten-thousandth to a tenth of Rust's crate. On x86-64 Linux 6.18 in a cloud container, a
