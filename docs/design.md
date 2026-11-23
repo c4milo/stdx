@@ -8971,6 +8971,32 @@ to 12 are reordered and nothing else changes.
 
     The six groups' lines hold 20 octets, so the work of each search outside the table weighs
     more there. The other rows of part 22n's tables did not move past the noise.
+  - rebar's quick AWS key search asks whether each of 890,906 lines of a Python file, 35 octets
+    each on average, holds one of four literals. A line holds fewer places than Teddy's block
+    of 64, so claim R5 took Teddy's tables one offset at a time. A text that short now takes one
+    block of copies of its octets, zero past its end, and its places from its end on are
+    cleared (`literal_teddy.find_short`, decision 86). Under callgrind, the file's first 2 MB
+    took 26.3 million instructions in place of 59.3 million. In three passes of 10 warm runs, the
+    row ran at 834 to 871 MB/s in place of 471 to 472, where Rust's crate gave 697 in the local
+    run of part 22m.
+    - Teddy's `find` keeps its own tail. Called from its block loop, the short search moved the
+      loop: the tables' lookups took memory where they kept registers, and `Steps.first`, with
+      two callers, left the loop. rebar's alternation of five names ran at 0.55 to 0.87 of its
+      speed in each of six forms. Called from `find_by` alone, with a loop of its own over the
+      places, it leaves the row at 10,749 to 10,811 MB/s, where it ran at 10,674 to 10,853.
+  **Check, the short Teddy search:** a set's search gives the plain search's place from every
+  offset, by the compares, by SSSE3's Teddy and by AVX2's, in texts of every length up to two
+  blocks and a part; a short text gives no place whose literal would end past it, where the
+  literals end in octet 0; the Go differential check passes; mutations.
+  **Check passed, the short Teddy search, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 7. CAUGHT, 6: no place past the end cleared; the
+    place at the end kept, NOT CAUGHT until literals that end in octet 0 joined the tests; a
+    copy of one octet fewer; a place that reads the first lane's buckets, or leaves out its
+    step; copies that start at the place. NOT CAUGHT, 1: a short text left to the scalar
+    search, which gives the same places more slowly.
   **Check, the one-pass table:** one-pass gives the matcher's groups by the table and by the walk
   alone, anchored at every offset; the matcher's own search and the backtracker leave no table, and
   the next search builds one that gives the same groups; a program of more than 32 slots, or whose

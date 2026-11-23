@@ -129,7 +129,10 @@ pub const LiteralSet = extern struct {
         const end = haystack.len - set.len + 1;
         assert(end > from);
         if (comptime literal_teddy.runs(width)) {
-            if (set.count >= constants.teddy_count_min) return literal_teddy.find(width, set, haystack, from, end);
+            if (set.count >= constants.teddy_count_min) {
+                if (end - from < block_len) return literal_teddy.find_short(width, set, haystack, from, end);
+                return literal_teddy.find(width, set, haystack, from, end);
+            }
         }
         // Past `literal_compare_max` literals the compares cost more than one offset at a time.
         if (set.count > constants.literal_compare_max) return set.find_scalar(haystack, from, end);
@@ -169,8 +172,9 @@ pub const LiteralSet = extern struct {
 
     /// The first place at or after `from` and before `end` where a literal of the set stands,
     /// one offset at a time. Teddy's tables give, in four lookups, the buckets whose literals'
-    /// two octets may stand there, so an offset where none does costs no compare. A text shorter
-    /// than a block, such as a line, is searched all this way.
+    /// two octets may stand there, so an offset where none does costs no compare. A target with
+    /// Teddy searches a text shorter than a block by one block of copies instead
+    /// (`literal_teddy.find_short`).
     pub fn find_scalar(set: *const LiteralSet, haystack: []const u8, from: usize, end: usize) ?usize {
         assert(end <= haystack.len - set.len + 1);
         for (from..end) |candidate| {
@@ -435,5 +439,24 @@ test "find gives the first place of a literal of the set from every offset, as a
             const len = generator.below(haystack.len + 1);
             for (0..len + 1) |from| try expect_find(&set, kernels, haystack[0..len], from, find_plain(&set, haystack[0..len], from));
         }
+    }
+}
+
+test "a short text gives no place whose literal would end past it, where the literals end in 0" {
+    // Teddy's short search holds zero past the text's end, the last octet of each literal here.
+    var set: LiteralSet = .{ .octets = undefined, .count = 4, .len = 2 };
+    for (set.octets[0..set.count], "xyzw") |*octets, first| {
+        octets[0] = first;
+        octets[1] = 0;
+    }
+    set.prepare();
+    const features = codec.Features.detect();
+    const kernels: Kernels = .{
+        .ssse3 = literal_file.has_kernels and features.ssse3,
+        .avx2 = literal_file.has_kernels and features.avx2,
+    };
+    const texts = [_][]const u8{ "abx", "aaaaaaaaaaaaaaaaaaaay", "w\x00", "abw\x00x", "x\x00" ++ "a" ** 40 ++ "z" };
+    for (texts) |text| {
+        for (0..text.len + 1) |from| try expect_find(&set, kernels, text, from, find_plain(&set, text, from));
     }
 }

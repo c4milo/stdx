@@ -105,6 +105,55 @@ pub fn find(comptime width: usize, set: *const LiteralSet, haystack: []const u8,
     return set.find_scalar(haystack, index, end);
 }
 
+/// `find` where the places from `index` to `end` are fewer than a block's, as in a line: one block
+/// of copies of the octets there, where `find` would take each place by `find_scalar`. Past the
+/// haystack's end a copy holds zero, and the bits of each place from `end` on are cleared, so no
+/// place past `end` is compared. `find` keeps its own loop: a change to it moved its block loop,
+/// and rebar's alternation of five names ran at 0.6 to 0.9 of its speed.
+pub fn find_short(comptime width: usize, set: *const LiteralSet, haystack: []const u8, index: usize, end: usize) ?usize {
+    comptime assert(runs(width));
+    const Search = Steps(width);
+    const lookups: Search.Lookups = .of(&set.teddy);
+    const places = end - index;
+    assert(places > 0 and places < block_len);
+    var firsts: [block_len]u8 = @splat(0);
+    var lasts: [block_len]u8 = @splat(0);
+    copy_from(&firsts, haystack, index + set.first_at);
+    copy_from(&lasts, haystack, index + set.last_at);
+    var bits: [Search.steps]Search.Vector = undefined;
+    if (!Search.any(&firsts, &lasts, &lookups, &bits)) return null;
+    clear_from(width, &bits, places);
+    // A loop of its own, where `Search.first` would take a second caller and leave `find`'s
+    // block loop.
+    const none: Search.Vector = @splat(0);
+    inline for (0..Search.steps) |step| {
+        const lanes: [width]u8 = bits[step];
+        var candidates: Search.Mask = @bitCast(bits[step] != none);
+        // Each set bit is one place, at most `width` of them.
+        while (candidates != 0) : (candidates &= candidates - 1) {
+            const place = index + step * width + @ctz(candidates);
+            if (set.stands_among(lanes[@ctz(candidates)], haystack, place)) return place;
+        }
+    }
+    return null;
+}
+
+/// Clears each step's bits of the lanes from `places` on.
+inline fn clear_from(comptime width: usize, bits: *[block_len / width]@Vector(width, u8), places: usize) void {
+    const lanes = std.simd.iota(u8, width);
+    const none: @Vector(width, u8) = @splat(0);
+    inline for (bits, 0..) |*step_bits, step| {
+        const left: u8 = @intCast(@min(width, places -| step * width));
+        step_bits.* = @select(u8, lanes < @as(@Vector(width, u8), @splat(left)), step_bits.*, none);
+    }
+}
+
+/// Copies the haystack's octets from `start` to the block, as many as it holds.
+fn copy_from(block: *[block_len]u8, haystack: []const u8, start: usize) void {
+    const len = @min(block_len, haystack.len - start);
+    @memcpy(block[0..len], haystack[start..][0..len]);
+}
+
 /// The steps of a block for a vector of `width` octets.
 fn Steps(comptime width: usize) type {
     comptime assert(block_len % width == 0 and width % constants.nibbles == 0);

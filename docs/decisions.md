@@ -5919,6 +5919,11 @@ last part lists what still waits on a ruling.
         the compares cost two for each literal. A bucket of one literal gives that literal's
         places exactly. A bucket of several also gives places where one literal's nibble stands
         beside another's, and the whole compare refuses them.
+      - A text that holds fewer places than a block of 64, such as a line, takes one block of
+        copies of its octets, zero past its end, and clears the places from its end on
+        (`literal_teddy.find_short`, added 2026-11-23, design §8 part 22n). Before, it took
+        Teddy's tables one offset at a time, about 20 instructions an octet, and rebar's quick
+        AWS key search over 890,906 lines ran at half of Rust's speed.
       - The two offsets (`literal_set_fingerprint.zig` and `literal_rank.zig`, added 2026-11-22).
         stdx holds no table of how often each octet stands in a text, so it ranks an octet by
         its kind. In a set whose octets are mostly past ASCII, a UTF-8 continuation octet is the
