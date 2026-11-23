@@ -110,7 +110,7 @@ fn take_once(taken: *Octets, range: Instruction) bool {
 
 /// What one position's paths gave: a match, no thread, or the instruction after the one that
 /// took the position's octet.
-pub const Outcome = union(enum) { matched, dead, took: u32 };
+const Outcome = union(enum) { matched, dead, took: u32 };
 
 /// The match that starts at `from`, as the matcher finds it anchored there, with its groups in
 /// the matcher's slots. Null where no match starts there. The matcher must keep every group's
@@ -152,7 +152,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, from: usize) ?Span {
 
 /// The outcome of the paths from `seed` at `index`. Where they take the octet there, the
 /// matcher's position moves past it.
-pub inline fn step(matcher: *Matcher, haystack: []const u8, index: usize, seed: u32) Outcome {
+inline fn step(matcher: *Matcher, haystack: []const u8, index: usize, seed: u32) Outcome {
     const octet: ?u8 = if (index < haystack.len) haystack[index] else null;
     const ahead: Context = if (octet) |known| Context.of(known) else .edge;
     // A seed whose paths are one line needs no list: no branch is tried and undone.
@@ -430,6 +430,8 @@ const test_patterns = [_][]const u8{
     "x(a*)*b",
     // A loop of a split of two nodes, whose exit leads to a node: `a` is the second node's.
     "([ab0]*)x",
+    // An assertion in a loop that saves no slot: `\b` holds before the first `a` of a run alone.
+    "(?:\\ba|-)+(x)",
     // An empty match, which no position inside the UTF-8 of a scalar value starts.
     "()",
 };

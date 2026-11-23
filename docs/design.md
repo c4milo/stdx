@@ -9009,6 +9009,27 @@ to 12 are reordered and nothing else changes.
     instructions in place of 12.6 million, and in three passes of 20 warm runs the row ran at 74
     to 78 MB/s in place of 54 to 55, where Rust's crate gave 66. The lexer took 454.4 million
     instructions in place of 453.3 million, and ran at 4.49 to 4.61 MB/s in place of 4.50 to 4.69.
+  - A one-pass entry whose paths met an assertion kept the walk, so each line of the tuned set's six
+    groups walked its `^` and its `$`, through `straight`'s switches. Such an entry now holds the
+    contexts behind and ahead it was filled for, and a search fills it again where they differ
+    (decision 86). The loop of a row does not repeat it, as `(?:\ba|-)+(x)` shows after `-a`.
+    Under callgrind 6,000 lines took 8.36 million instructions in place of 8.46 million, and the
+    branch simulator counted 292 indirect mispredictions in place of 53,101. In three passes of
+    20 warm runs, the 65,536 lines ran at 238 to 239 MB/s in place of 184 to 188, and parse-line
+    at 313 to 324 MB/s in place of 277 to 282.
+  **Check, the entries of contexts:** one-pass gives the matcher's groups by the table and by the
+  walk, anchored at every offset, for patterns with `\b`, `$` and an assertion in a loop; a loop
+  does not repeat an entry of contexts after `-a`; a search fills entries that keep their contexts;
+  the Go differential check passes; mutations.
+  **Check passed, the entries of contexts, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 7. CAUGHT, 6: an entry of other contexts kept; a
+    path that met an assertion and keeps no contexts; the context ahead read from the octet
+    behind; the two contexts swapped; an entry of contexts that says it matched where it took;
+    and a loop that repeats an entry of contexts, NOT CAUGHT until the texts after `-a` joined the
+    table's tests. NOT CAUGHT, 1: an entry of contexts filled at each read, the same answers.
   **Check, the lazy loops:** the backtracker gives the matcher's groups over generated patterns
   and texts, lazy loops among them; the Go differential check passes; mutations.
   **Check passed, the lazy loops, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18, in a

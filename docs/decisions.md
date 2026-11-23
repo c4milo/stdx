@@ -5989,8 +5989,9 @@ last part lists what still waits on a ruling.
         backtracker write them, and the next one-pass search builds the table again. A program
         of more than 32 slots, or whose rows do not fit, keeps the walk above.
       - A search fills an entry the first time it reads it, by the paths `follow` takes. An
-        entry whose paths meet an assertion stays a walk of its position, since one entry cannot
-        say what holds in each context.
+        entry whose paths meet an assertion holds for the contexts behind and ahead of the
+        position it was filled at, and keeps them. A search that reads it at other contexts fills
+        it again, and the loop of a row does not repeat it.
       - `SearcherClaims.one_pass` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
     - Claim R7: a forward scan with no skip takes two octets for one read of the cache, where the
       program has at most `pair_classes_max`, 32, classes (design §8 step 22, part 22c).

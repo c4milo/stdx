@@ -10,7 +10,8 @@
 //! `Matcher.one_pass_table` back to `none`: the next search then builds the table again. Its
 //! entries start unknown, and a search fills each one the first time it needs it, by the paths
 //! `one_pass.follow` takes. An entry whose paths pass an assertion depends on the octets around
-//! the position, so the search walks that position as `one_pass.find` does.
+//! the position, so it keeps the contexts behind and ahead that it was filled for, and a search
+//! fills it again where it meets other contexts.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
@@ -24,14 +25,24 @@ const one_pass = @import("one_pass.zig");
 /// The slots an entry's mask holds, its low bits: a program of more keeps no table.
 const mask_bits = @bitSizeOf(u32);
 
-/// The bits of an entry's kind, at its top. The bits between the mask and the kind hold the first
-/// entry of the next seed's row.
+/// The bits of an entry's kind, at its top, and below them the contexts behind and ahead that an
+/// entry whose paths pass an assertion was filled for. The bits between the mask and the
+/// contexts hold the first entry of the next seed's row.
 const kind_bits = 3;
 const kind_shift = @bitSizeOf(u64) - kind_bits;
-const next_mask = (@as(u64, 1) << (kind_shift - mask_bits)) - 1;
+const context_bits = 2;
+/// The bits of the two contexts, behind and then ahead.
+const contexts_bits = context_bits + context_bits;
+const contexts_shift = kind_shift - contexts_bits;
+const contexts_mask = (1 << contexts_bits) - 1;
+const next_mask = (@as(u64, 1) << (contexts_shift - mask_bits)) - 1;
 
-/// What an entry says. A table starts with every entry zero, so `unknown`.
-const Kind = enum(u3) { unknown, took, matched, dead, walk };
+/// What an entry says. A table starts with every entry zero, so `unknown`. The kinds from
+/// `took_looked` on say the same as the three before them, for their contexts alone.
+const Kind = enum(u3) { unknown, took, matched, dead, took_looked, matched_looked, dead_looked };
+
+/// What a thread does with an octet, whatever the entry's contexts.
+const Outcome = enum { took, matched, dead };
 
 /// The row of an instruction that is no seed.
 const no_row = std.math.maxInt(u16);
@@ -40,6 +51,7 @@ comptime {
     // A row number fits the map from instructions to rows, and a row's first entry its field.
     assert(constants.one_pass_instructions_max < no_row);
     assert(@typeInfo(Kind).@"enum".fields.len <= 1 << kind_bits);
+    assert(@typeInfo(Context).@"enum".fields.len <= 1 << context_bits);
 }
 
 /// The table in the matcher's tables of slots: the row of each instruction, the seed of each
@@ -120,13 +132,37 @@ fn add_row(table: Table, seed: u32, rows: u32) u32 {
     return rows + 1;
 }
 
-fn make(kind: Kind, mask: u32, next: u32) u64 {
+fn make(kind: Kind, contexts: u4, mask: u32, next: u32) u64 {
     assert(next <= next_mask);
-    return @as(u64, @intFromEnum(kind)) << kind_shift | @as(u64, next) << mask_bits | mask;
+    return @as(u64, @intFromEnum(kind)) << kind_shift | @as(u64, contexts) << contexts_shift | @as(u64, next) << mask_bits | mask;
 }
 
 fn kind_of(entry: u64) Kind {
     return @enumFromInt(entry >> kind_shift);
+}
+
+fn is_looked(entry: u64) bool {
+    return @intFromEnum(kind_of(entry)) >= @intFromEnum(Kind.took_looked);
+}
+
+fn outcome_of(entry: u64) Outcome {
+    return switch (kind_of(entry)) {
+        .took, .took_looked => .took,
+        .matched, .matched_looked => .matched,
+        .dead, .dead_looked => .dead,
+        .unknown => unreachable,
+    };
+}
+
+fn contexts_of(entry: u64) u4 {
+    return @intCast(entry >> contexts_shift & contexts_mask);
+}
+
+/// The contexts behind and ahead of the position `index`, as one entry keeps them.
+fn contexts_at(haystack: []const u8, index: usize) u4 {
+    const behind: Context = if (index == 0) .edge else Context.of(haystack[index - 1]);
+    const ahead: Context = if (index == haystack.len) .edge else Context.of(haystack[index]);
+    return @intCast(@as(u8, @intFromEnum(behind)) << context_bits | @intFromEnum(ahead));
 }
 
 fn mask_of(entry: u64) u32 {
@@ -162,17 +198,18 @@ const Turn = union(enum) { next: At, done: bool };
 inline fn turn(table: Table, matcher: *Matcher, haystack: []const u8, at: At) Turn {
     const octet: ?u8 = if (at.index < haystack.len) haystack[at.index] else null;
     const column = if (octet) |known| matcher.program.classes[known] else table.columns - 1;
-    var entry = table.entries[at.base + column];
-    if (kind_of(entry) == .unknown) entry = fill(table, matcher, at.base + column, octet);
-    switch (kind_of(entry)) {
-        .took => return .{ .next = took(table, matcher, haystack, at, at.base + column) },
+    const place = at.base + column;
+    var entry = table.entries[place];
+    if (kind_of(entry) == .unknown or (is_looked(entry) and contexts_of(entry) != contexts_at(haystack, at.index))) {
+        entry = fill(table, matcher, place, octet, contexts_at(haystack, at.index));
+    }
+    switch (outcome_of(entry)) {
+        .took => return .{ .next = took(table, matcher, haystack, at, place) },
         .matched => {
             save(matcher, entry, at.index);
             return .{ .done = true };
         },
         .dead => return .{ .done = false },
-        .walk => return walk(table, matcher, haystack, at),
-        .unknown => unreachable,
     }
 }
 
@@ -183,7 +220,8 @@ inline fn took(table: Table, matcher: *Matcher, haystack: []const u8, at: At, pl
     save(matcher, entry, at.index);
     const next = next_of(entry);
     var index = at.index + 1;
-    if (next == at.base and mask_of(entry) == 0) index = loop_end(table, &matcher.program.classes, haystack, index, place);
+    // An entry of other contexts would repeat for octets whose contexts it was not filled for.
+    if (next == at.base and mask_of(entry) == 0 and !is_looked(entry)) index = loop_end(table, &matcher.program.classes, haystack, index, place);
     return .{ .base = next, .index = index };
 }
 
@@ -207,46 +245,64 @@ fn loop_end(table: Table, classes: *const [constants.octet_values]u8, haystack: 
     return haystack.len;
 }
 
-/// A position whose paths pass an assertion: `one_pass.step` walks it with the octets around it.
-fn walk(table: Table, matcher: *Matcher, haystack: []const u8, at: At) Turn {
-    matcher.position = at.index;
-    matcher.behind = if (at.index == 0) .edge else Context.of(haystack[at.index - 1]);
-    return switch (one_pass.step(matcher, haystack, at.index, table.seed_at(at.base))) {
-        .took => |next| .{ .next = .{ .base = table.base_of(next), .index = at.index + 1 } },
-        .matched => .{ .done = true },
-        .dead => .{ .done = false },
-    };
-}
-
-/// Fills the entry at `place` for `octet`, and gives it.
-fn fill(table: Table, matcher: *Matcher, place: u32, octet: ?u8) u64 {
-    const entry = closure(table, matcher, table.seed_at(place - place % table.columns), octet);
+/// Fills the entry at `place` for `octet`, under the contexts around its position, and gives it.
+fn fill(table: Table, matcher: *Matcher, place: u32, octet: ?u8, contexts: u4) u64 {
+    var walk: Closure = .{ .table = table, .matcher = matcher, .octet = octet, .contexts = contexts };
+    const entry = walk.entry(table.seed_at(place - place % table.columns));
     assert(kind_of(entry) != .unknown);
     table.entries[place] = entry;
     return entry;
 }
 
-/// The entry of `seed` for `octet`: the paths from the seed in the matcher's order, as
-/// `one_pass.follow` takes them, each instruction once.
-fn closure(table: Table, matcher: *Matcher, seed: u32, octet: ?u8) u64 {
-    matcher.visited.clear();
-    matcher.stack[0] = seed;
-    matcher.stack_values[0] = 0;
-    var stack_len: u32 = 1;
-    // Each instruction starts a path once.
-    while (stack_len > 0) {
-        assert(stack_len <= matcher.program.forward_len);
-        stack_len -= 1;
-        const first = matcher.stack[stack_len];
-        const mask: u32 = @intCast(matcher.stack_values[stack_len]);
-        if (path(table, matcher, first, mask, octet, &stack_len)) |entry| return entry;
-    }
-    return make(.dead, 0, 0);
-}
+/// The walk that fills an entry: the paths from a seed in the matcher's order, as
+/// `one_pass.follow` takes them, each instruction once, each assertion judged in `contexts`.
+const Closure = struct {
+    table: Table,
+    matcher: *Matcher,
+    octet: ?u8,
+    contexts: u4,
+    /// True once a path met an assertion, so that the entry holds for `contexts` alone.
+    looked: bool = false,
 
-/// One path from `first`, whose saves so far are `saved`: its entry where it matches, takes the
-/// octet or meets an assertion, or null where it ends. A split pushes its other branch.
-fn path(table: Table, matcher: *Matcher, first: u32, saved: u32, octet: ?u8, stack_len: *u32) ?u64 {
+    fn entry(walk: *Closure, seed: u32) u64 {
+        const matcher = walk.matcher;
+        matcher.visited.clear();
+        matcher.stack[0] = seed;
+        matcher.stack_values[0] = 0;
+        var stack_len: u32 = 1;
+        // Each instruction starts a path once.
+        while (stack_len > 0) {
+            assert(stack_len <= matcher.program.forward_len);
+            stack_len -= 1;
+            const first = matcher.stack[stack_len];
+            const mask: u32 = @intCast(matcher.stack_values[stack_len]);
+            if (path(walk, first, mask, &stack_len)) |found| return found;
+        }
+        return walk.make_of(.dead, 0, 0);
+    }
+
+    /// An entry of `outcome`, of the kind that keeps the contexts where a path met an assertion.
+    fn make_of(walk: *const Closure, outcome: Outcome, mask: u32, next: u32) u64 {
+        const plain: Kind = switch (outcome) {
+            .took => .took,
+            .matched => .matched,
+            .dead => .dead,
+        };
+        if (!walk.looked) return make(plain, 0, mask, next);
+        return make(@enumFromInt(@intFromEnum(plain) + @intFromEnum(Kind.took_looked) - @intFromEnum(Kind.took)), walk.contexts, mask, next);
+    }
+
+    fn holds(walk: *const Closure, look: program_file.Look) bool {
+        const behind: Context = @enumFromInt(walk.contexts >> context_bits);
+        const ahead: Context = @enumFromInt(walk.contexts & ((1 << context_bits) - 1));
+        return look.holds(behind, ahead);
+    }
+};
+
+/// One path from `first`, whose saves so far are `saved`: its entry where it matches or takes
+/// the octet, or null where it ends. A split pushes its other branch.
+fn path(walk: *Closure, first: u32, saved: u32, stack_len: *u32) ?u64 {
+    const matcher = walk.matcher;
     const instructions = matcher.program.instructions;
     var index = first;
     var mask = saved;
@@ -264,13 +320,16 @@ fn path(table: Table, matcher: *Matcher, first: u32, saved: u32, octet: ?u8, sta
                 matcher.stack_values[stack_len.*] = mask;
                 stack_len.* += 1;
             },
-            // An assertion holds in some contexts and not in others, which one entry cannot say.
-            .look => return make(.walk, 0, 0),
-            .range, .ranges => {
-                const next = program_file.step(instructions, index, octet orelse return null) orelse return null;
-                return make(.took, mask, table.base_of(next));
+            // An assertion holds in some contexts and not in others: the entry keeps its own.
+            .look => {
+                walk.looked = true;
+                if (!walk.holds(instruction.look)) return null;
             },
-            .match => return make(.matched, mask, 0),
+            .range, .ranges => {
+                const next = program_file.step(instructions, index, walk.octet orelse return null) orelse return null;
+                return walk.make_of(.took, mask, walk.table.base_of(next));
+            },
+            .match => return walk.make_of(.matched, mask, 0),
             .fail => return null,
         }
         index = instruction.out;
@@ -351,7 +410,7 @@ test "a program of more slots than a mask holds, or whose table does not fit, ke
     try testing.expectEqual(matcher_file.OnePassTable.absent, fixture.matcher.one_pass_table);
 }
 
-test "the entries a search filled serve the next search, and each kind gives the walk's answer" {
+test "the entries a search filled serve the next search, and each kind gives the matcher's answer" {
     var fixture: Fixture = .{};
     // A loop, saves on a choice's way out, an assertion and a match at the text's end.
     try fixture.init("([0-9]+)-(x|yz)?\\b([ab]*)$");
@@ -364,12 +423,12 @@ test "the entries a search filled serve the next search, and each kind gives the
     var rows: usize = 0;
     for (table.rows_of) |row| rows += @intFromBool(row != no_row);
     var filled: usize = 0;
-    var walked: usize = 0;
+    var looked: usize = 0;
     for (table.entries[0 .. rows * table.columns]) |entry| {
         filled += @intFromBool(kind_of(entry) != .unknown);
-        walked += @intFromBool(kind_of(entry) == .walk);
+        looked += @intFromBool(kind_of(entry) != .unknown and is_looked(entry));
     }
-    try testing.expect(filled > 0 and walked > 0);
+    try testing.expect(filled > 0 and looked > 0);
 }
 
 test "the text's end has a column of its own, apart from the first class's" {
@@ -378,4 +437,11 @@ test "the text's end has a column of its own, apart from the first class's" {
     try fixture.init("([\\x00-a]*)$");
     for ([_][]const u8{ "\x00", "\x00\x00", "a\x00", "", "\x00b" }) |text| try fixture.expect_agree(text);
     try testing.expectEqual(matcher_file.OnePassTable.held, fixture.matcher.one_pass_table);
+}
+
+test "a loop does not repeat an entry that holds for its own contexts alone" {
+    var fixture: Fixture = .{};
+    // `\b` holds before the `a` after `-` and not before the `a` after it.
+    try fixture.init("(?:\\ba|-)+(x)");
+    for ([_][]const u8{ "-aax", "-a-ax", "a-ax", "-ax", "aax", "-a-aax" }) |text| try fixture.expect_agree(text);
 }
