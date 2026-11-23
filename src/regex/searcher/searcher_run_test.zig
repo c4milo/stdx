@@ -6,9 +6,9 @@ const searcher_test = @import("searcher_test.zig");
 const Fixture = searcher_test.Fixture;
 const Claims = @import("searcher.zig").Claims;
 
-/// Patterns whose matches run long: through every octet of a line, into a word, and read back
-/// from a literal at the end.
-const patterns = [_][]const u8{ ".*.*=.*", ".*=", "[a-z]+", "\\w+=\\w*", "(?s).*x", "[a-z]*a[a-z]*" };
+/// Patterns whose matches run long: through every octet of a line, into a word, read back from a
+/// literal at the end, and over letters of two octets, whose matches end before every second one.
+const patterns = [_][]const u8{ ".*.*=.*", ".*=", "[a-z]+", "\\w+=\\w*", "(?s).*x", "[a-z]*a[a-z]*", "[а-я]{3,5}", "[α-ω]+" };
 
 /// Texts with long runs, lines that end them, and runs that reach the text's ends.
 const texts = [_][]const u8{
@@ -16,6 +16,8 @@ const texts = [_][]const u8{
     "abc=def\nghij=klmn=op\n\n=qq",
     "aaaa xyz=aaaa\nqq x aaaaaaaa=",
     "=\n=aaaaaaaaaaaaaaaaaaaaaaaaaaa x",
+    "αβγδε ζη θικλμνξ ο",
+    "Шерлок Холмс и доктор Ватсон",
 };
 
 /// The claims a test runs under: all of them, none of R7's pairs, and no skip, which leaves the

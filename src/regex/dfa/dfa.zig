@@ -198,7 +198,7 @@ pub const Dfa = struct {
     /// no claim, so that a text with many matches makes no call for each: a search inlines it.
     pub inline fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
         assert(from <= haystack.len);
-        const behind: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
+        const behind: Context = if (from == 0) .edge else dfa.context_of(haystack[from - 1]);
         const state = dfa.start(behind) orelse return .gave_up;
         dfa.mark = from;
         // Claims R1 and R3 have loops of their own, so a scan that takes neither pays two tests.
@@ -230,7 +230,7 @@ pub const Dfa = struct {
             if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
             state = known & constants.dfa_row_mask;
             at += 1;
-            if (known & constants.dfa_match_flag != 0) dfa.take_matches(haystack, &at, &state, &last);
+            if (dfa.take_matches(known & constants.dfa_match_flag != 0, haystack, &at, &state, &last)) |scan| return scan;
         }
         dfa.tally(haystack.len);
         if (dfa.matches_at_end(state, .edge)) last = haystack.len;
@@ -282,7 +282,7 @@ pub const Dfa = struct {
                 .done => |scan| return scan,
                 .state => |row| state = row,
             }
-            if (last == index - 1) dfa.take_matches(haystack, &index, &state, &last);
+            if (dfa.take_matches(last == index - 1, haystack, &index, &state, &last)) |scan| return scan;
             // The state just built may be the one that waits, and a cache that cleared gave it a
             // new row.
             idle = dfa.idle;
@@ -302,12 +302,17 @@ pub const Dfa = struct {
         return .{ .state = known & constants.dfa_row_mask };
     }
 
-    /// After an entry that a match ended before, the octets from `at` whose entries are matches
-    /// too, in the loop of matches (dfa_run.zig). Only a scan that wants the last match takes it.
-    inline fn take_matches(dfa: *const Dfa, haystack: []const u8, at: *usize, state: *u32, last: *?usize) void {
+    /// Where a match ended before the octet at `at - 1`, the octets from `at` whose entries are
+    /// rows, in the loop of matches (dfa_run.zig). Only a scan that wants the last match takes
+    /// it. The scan's answer where the entry that ended the run is dead.
+    inline fn take_matches(dfa: *const Dfa, matched: bool, haystack: []const u8, at: *usize, state: *u32, last: *?usize) ?Scan {
+        if (!matched) return null;
         assert(last.* == at.* - 1);
-        at.* = dfa_run.matched(dfa.cache.table, &dfa.classes, haystack, at.*, state);
-        last.* = at.* - 1;
+        var ended = at.* - 1;
+        at.* = dfa_run.matched(dfa.cache.table, &dfa.classes, haystack, at.*, state, &ended);
+        last.* = ended;
+        if (at.* == haystack.len) return null;
+        return dfa_run.end_of_run(dfa.cache.table, &dfa.classes, haystack, at.*, state.*, last.*, at.*);
     }
 
     /// The reverse scan, in a file of its own.

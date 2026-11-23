@@ -13,7 +13,7 @@ const dfa_run = @import("dfa_run.zig");
 /// the reverse program from `end` toward `from`. Inline: a search makes one for each match.
 pub inline fn scan(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Scan {
     assert(from <= end and end <= haystack.len);
-    const behind: Context = if (end == haystack.len) .edge else Context.of(haystack[end]);
+    const behind: Context = if (end == haystack.len) .edge else dfa.context_of(haystack[end]);
     var state = dfa.start(behind) orelse return .gave_up;
     var last: ?usize = null;
     dfa.mark = end;
@@ -39,16 +39,20 @@ pub inline fn scan(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Sca
 
 /// What the reverse scan does with an entry at `index` that is no plain row: the entry is built
 /// where the table does not hold it, and a match that starts after the octet is kept in `last`.
-/// The loop of matches then takes the octets before it whose entries start a match too. The
-/// scan's answer where no earlier octet can change it.
+/// The loop of matches then takes the octets before it whose entries are rows. The scan's
+/// answer where no earlier octet can change it.
 inline fn settle(dfa: *Dfa, haystack: []const u8, from: usize, index: *usize, state: *u32, entry: u32, last: *?usize) ?Scan {
     const known = dfa.resolve(state.*, haystack[index.*], entry, index.*) orelse return .gave_up;
     if (known & constants.dfa_match_flag != 0) last.* = index.* + 1;
     if (known & constants.dfa_dead_flag != 0) return Scan.of(last.*);
     state.* = known & constants.dfa_row_mask;
     if (known & constants.dfa_match_flag != 0) {
-        index.* = dfa_run.matched_back(dfa.cache.table, &dfa.classes, haystack, from, index.*, state);
-        last.* = index.* + 1;
+        var started = index.* + 1;
+        index.* = dfa_run.matched_back(dfa.cache.table, &dfa.classes, haystack, from, index.*, state, &started);
+        last.* = started;
+        if (index.* == from) return null;
+        // A match that starts after the octet before `index` starts at `index`.
+        return dfa_run.end_of_run(dfa.cache.table, &dfa.classes, haystack, index.* - 1, state.*, last.*, index.*);
     }
     return null;
 }

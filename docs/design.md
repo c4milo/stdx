@@ -9074,6 +9074,28 @@ to 12 are reordered and nothing else changes.
       warm runs ran at 17,764 to 19,903 MB/s in place of 17,477 to 19,083. `the [a-z]+ of` ran at
       685 to 688 MB/s in place of 652 to 655, and the `href` and `Pharaoh` rows did not move past
       the noise.
+  - The runs at 4bd3bda gave rebar's `letters-ru`, `\p{L}{8,13}` over Russian, 0.78 to 0.80 of
+    Rust's speed. Over the same text with each word cut to seven letters, which no match takes,
+    stdx and Rust's crate both ran at 549 MB/s. So each match cost the gap: 90 ns, where Rust's
+    crate took 36. A letter past U+007F takes two octets, and a match ends before the first of
+    each. The loop of matches took flagged rows alone, so it took one octet, and the scan left
+    its loop at the next. It now takes plain rows too, and keeps the last octet whose entry had
+    the flag. Where the entry that stops it is dead, the scan ends there, forward and read back,
+    with no turn of its own loop (decision 86). Under callgrind a warm pass took 5.25 million
+    instructions in place of 5.71 million, and `[α-ω]+` over 1 MiB of Greek words 57.9 million
+    in place of 116.7 million. In passes of 60 warm runs, `letters-ru` ran at 336 to 338 MB/s in
+    place of 323 to 328, where Rust's crate ran at 422 to 430, and the Greek row at 162 MB/s in
+    place of 137. Of the tuned rows, `the [a-z]+ of` ran 3.5% faster and the others did not move
+    past the noise.
+    - Without the read back, a match cost 39 ns, and the read back 42 ns more. Over 20,000 words
+      of eight letters, Rust's crate ran at 604 to 648 MB/s, faster than its scan of a text with
+      no match: the read back of one match runs beside the scan to the next. Its loops take 7.8
+      instructions an octet, and stdx's 13.
+    - The same text read with `\p{L}{40,45}`, which matches nothing, ran at 11 MB/s, where Rust's
+      crate ran at 549. From `\p{L}{28,33}` on, the reverse program holds 59,637 instructions or
+      more. The reverse DFA's lists take six words an instruction, more than the third of the
+      4 MiB cache it gets, so it is not ready, and the search leaves both DFAs for the matcher.
+      No row of the benchmark meets it.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9105,6 +9127,23 @@ to 12 are reordered and nothing else changes.
     `(?i)Sherlock Holmes` stayed at 0.66, as the table of heads came after these runs. It
     compiled 9 patterns at 2.04 to 8.56 times Rust's speed, and the context pattern at 0.92.
   - `bench/charts.txt` names the 36 reports, and the README draws them on its charts.
+  **Check, the runs over plain rows:** a run of matches takes plain rows and keeps the last
+  flagged octet, forward and read back, and gives the scan's answer at a dead entry; the searcher
+  gives the matcher's spans and groups from every offset for patterns of letters of two octets,
+  with every claim, with no pairs and with no skip, in a cache that holds its states and in one
+  that clears; the Go differential check passes; mutations.
+  **Check passed, the runs over plain rows, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64
+  Linux 6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 12. CAUGHT, 11: a plain row that ends the run,
+    forward and read back; a plain row that keeps a match, forward and read back; the last match
+    one octet late forward and one octet early read back; an entry not built that ends the scan;
+    a dead entry with a match that keeps the run's last; a dead entry after a run that goes on,
+    caught by the test of `end_of_run` alone, as the scan gives the same answers; the run read
+    back that ends one octet early; and a run taken after no match. NOT CAUGHT, 1, the same
+    answers: the scan forward reads the context of a program with no assertion, which its start
+    state does not read.
   **Check, the backtracker's steps:** the backtracker gives the matcher's groups over generated
   patterns and texts; the Go differential check passes; mutations.
   **Check passed, the backtracker's steps, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
