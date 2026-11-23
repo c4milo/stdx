@@ -292,7 +292,7 @@ pub const Dfa = struct {
     /// What a forward scan does with an entry that is no plain state: the entry is built where
     /// the table does not hold it, a match that ended before the octet at `index` is kept in
     /// `last`, and the scan ends where no later octet can change its answer.
-    fn settle(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize, earliest: bool, last: *?usize) union(enum) { done: Scan, state: u32 } {
+    inline fn settle(dfa: *Dfa, state: u32, octet: u8, entry: u32, index: usize, earliest: bool, last: *?usize) union(enum) { done: Scan, state: u32 } {
         const known = dfa.resolve(state, octet, entry, index) orelse return .{ .done = .gave_up };
         if (known & constants.dfa_match_flag != 0) last.* = index;
         if (known & constants.dfa_dead_flag != 0 or (earliest and last.* != null)) return .{ .done = Scan.of(last.*) };

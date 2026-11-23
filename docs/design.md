@@ -8984,6 +8984,14 @@ to 12 are reordered and nothing else changes.
       two callers, left the loop. rebar's alternation of five names ran at 0.55 to 0.87 of its
       speed in each of six forms. Called from `find_by` alone, with a loop of its own over the
       places, it leaves the row at 10,749 to 10,811 MB/s, where it ran at 10,674 to 10,853.
+  - rebar's simplified Cloudflare pattern, `.*.*=.*`, matches at each octet after its `=`, so
+    each entry its forward DFA reads holds the match flag. Claim R1's loop took each such entry
+    to `Dfa.settle`, a call, where the plain scan takes it inline. `settle` is now inline too, and
+    only the build of an entry the table lacks stays a call. Under callgrind two scans of the
+    10,001 octets took 1.28 million instructions in place of 1.60 million. In three passes of 40
+    warm runs, the row ran at 233 MB/s in place of 165 to 191, where Rust's crate gave 227 in the
+    local run of part 22m. letters-en and the lexer took 17.0 and 453 million instructions in
+    both builds, and the other rows did not move past the noise.
   **Check, the short Teddy search:** a set's search gives the plain search's place from every
   offset, by the compares, by SSSE3's Teddy and by AVX2's, in texts of every length up to two
   blocks and a part; a short text gives no place whose literal would end past it, where the
