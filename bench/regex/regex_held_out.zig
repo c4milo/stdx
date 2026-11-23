@@ -1,6 +1,7 @@
 //! bench-regex's held-out set (decision 86 as amended): rebar's curated benchmarks whose engines
 //! name Go's regexp or RE2, which regex_rebar.zig lists. The people who tuned stdx chose the
-//! patterns of the other tables; rebar's author chose these, and no claim is judged on them.
+//! patterns of the other tables; rebar's author chose these. Design §8 part 22n tuned stdx on
+//! them since, so they no longer show how stdx runs on patterns its tuning did not see.
 //!
 //! Each benchmark's pattern and haystack are built as rebar builds them, from the files of rebar's
 //! commit that the build fetches. Every candidate's answer is held to the count rebar's definition
@@ -255,7 +256,7 @@ fn report_section(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, fil
 /// The held-out set's two tables: the searches in megabytes of haystack a second, and the
 /// compiles in thousands of patterns a second.
 pub fn report(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, files: []const File) !void {
-    try out.print("The held-out set: every benchmark of rebar's curated set, at commit {s}, whose engines name Go's regexp or RE2. rebar's author chose its patterns and haystacks, and no claim of decision 86 is judged on them. A candidate's answer is held to the count rebar gives Go's regexp, and a candidate that refuses a pattern or answers otherwise is named so and not timed. zig-regex and mvzr are not timed on it: the tables above time them at a hundredth to a four-thousandth of stdx's speed, and its haystacks hold up to 32 MB.\n\n", .{rebar.commit});
+    try out.print("The held-out set: every benchmark of rebar's curated set, at commit {s}, whose engines name Go's regexp or RE2. rebar's author chose its patterns and haystacks, and design §8 part 22n tuned stdx on them since. A candidate's answer is held to the count rebar gives Go's regexp, and a candidate that refuses a pattern or answers otherwise is named so and not timed. zig-regex and mvzr are not timed on it: the tables above time them at a hundredth to a four-thousandth of stdx's speed, and its haystacks hold up to 32 MB.\n\n", .{rebar.commit});
     const stdx: Stdx = .{ .first = try held.Held.create(arena, features), .again = try held.Held.create(arena, features) };
     try report_section(io, out, arena, files, stdx, .searches);
     try report_section(io, out, arena, files, stdx, .compiles);

@@ -454,7 +454,8 @@ Change this section when a step adds or renames a command.
   timed, and stdx must give Go's answer. Last, it times the held-out set: every benchmark of
   rebar's curated set whose engines name Go's regexp or RE2, under rebar's own models, patterns and
   haystacks, each answer held to rebar's count, which `bench/regex/rebar_cases.py` writes into
-  `bench/regex/regex_rebar.zig` and no claim is judged on. `-- --held-out` times that set alone. It
+  `bench/regex/regex_rebar.zig`. Design §8 part 22n tuned stdx on that set since, so it is held
+  out no longer (decision 86). `-- --held-out` times that set alone. It
   needs cargo and go on the path. The `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the

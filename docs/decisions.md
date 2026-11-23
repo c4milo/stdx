@@ -5594,7 +5594,8 @@ last part lists what still waits on a ruling.
         chart, and the x86-64 chart in a details block that names its CPU model.
       - The held-out set of entry 86 draws on a chart of its own, `regex-rebar`, by the same rules,
         with Go's column alone at the right: the owner asked on 2026-11-22 to chart rebar's
-        results, and a reader keeps the tuned rows and the held-out rows apart.
+        results, and a reader keeps the tuned rows and the held-out rows apart. From design §8
+        part 22n, stdx is tuned on both sets, and the chart's notes say so (entry 86).
 
       What the rules before did, which these replace:
       - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
@@ -6341,9 +6342,20 @@ last part lists what still waits on a ruling.
           a four-thousandth of stdx's speed, and the set's haystacks hold up to 32 MB.
         - No claim is judged on a held-out row, and no constant is chosen with one. The report
           counts the set apart from the tuned rows, and a chart of its own draws it (entry 85).
+        - Design §8 part 22n works on the rows where the set found stdx behind, so from part 22n
+          the set is held out no longer (2026-11-23). Part 22n counted the instructions of all 41
+          rows, in all 13 of rebar's groups, and changed stdx by what they showed:
+          - Claim R9 came from the rows of `14-quadratic` and `06-cloud-flare-redos`, and its
+            `stay_octets_per_visit_min` from `10-bounded-repeat/capitals`.
+          - Claim R10 came from the rows of the `count` model.
+          - The owner ruled `cache_words_default` after the DFAs of `03-date` and
+            `10-bounded-repeat` did not start.
+          - The set's counts now say what the tuned rows' counts say: how stdx runs on patterns
+            that its tuning saw. The names `--held-out`, `regex_held_out.zig` and `regex-rebar`
+            stay.
         - rebar's author also wrote Rust's crate, and rebar's `BIAS.md` says its curated set may
-          favor that crate. The set takes away the bias toward stdx, and can hold one toward the
-          baseline. A row stdx loses on it is no less a loss for that.
+          favor that crate. Until part 22n, the set took away the bias toward stdx, and it can
+          hold one toward the baseline. A row stdx loses on it is no less a loss for that.
         - `tools/corpus/fetch.sh` fetches the set's 15 files from rebar's commit with
           `-Doracles`, about 45 MB, each pinned by SHA-256.
         - The alternatives refused: rebar's patterns on the corpora stdx already pins, which

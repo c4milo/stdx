@@ -97,10 +97,11 @@ jobs by decision 85's rules: a bar is the median job, and its whisker an interva
 
 The same runs time every benchmark of rebar's curated set whose engines name Go's regexp or RE2:
 31 searches and 10 compiles, each under rebar's own model, pattern and haystack. Nobody who tuned
-stdx chose them, and no claim of decision 86 is judged on them
-([#44](https://github.com/c4milo/stdx/issues/44)). Design §8 part 22n works on the causes of the
-rows where stdx is behind, so later runs of this set are not untouched by the tuning. rebar's
-author also wrote Rust's crate, and rebar's BIAS.md says the set may favor it.
+stdx chose them ([#44](https://github.com/c4milo/stdx/issues/44)). Design §8 part 22n then counted
+every row and changed stdx by what they showed: claims R9 and R10 and the size of the cache came
+from these rows. So this set is tuned now, as the tables above are, and it no longer shows how stdx
+runs on patterns its tuning did not see. rebar's author also wrote Rust's crate, and rebar's
+BIAS.md says the set may favor it.
 
 - On the N2, stdx runs 24 of the 31 searches at 1.03 to 6.46, 2 at 1.00 to 1.06, and 5 at 0.82 to
   0.99.

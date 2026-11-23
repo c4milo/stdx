@@ -8791,7 +8791,8 @@ to 12 are reordered and nothing else changes.
     22n holds the work on the rows behind.
 
   **Part 22n, in progress: the held-out set's gaps.** Part 22m's set found rows where stdx runs
-  at a ten-thousandth to a tenth of Rust's crate. On x86-64 Linux 6.18 in a cloud container, a
+  at a ten-thousandth to a tenth of Rust's crate. This part tunes stdx on those rows, so from
+  here the set is held out no longer (decision 86). On x86-64 Linux 6.18 in a cloud container, a
   driver that counts one search's work found each cause:
   - The lazy DFAs of rebar's date pattern under `(?i)`, 28,422 instructions, and of its bounded
     repeats, did not start. A DFA's lists took six words for each instruction of both programs
