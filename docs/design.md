@@ -9288,6 +9288,38 @@ to 12 are reordered and nothing else changes.
     The pair row, the clear and the new entry were NOT CAUGHT until their tests joined. NOT
     CAUGHT, 1, the same answers: a skip with no step of lanes, which reads one octet at a time.
     Only its speed shows it.
+  - Under the `count` model, rebar's runner counts the matches of Rust's crate with
+    `find_iter(..).count()`, which finds each match's end alone and reads no match back to its
+    start. stdx's side found each match's span. Claim R10's `Matches.count` counts from the ends
+    (decision 86), and the held-out set's `count` rows call it.
+    - One warm pass of each held-out row under callgrind, ReleaseSafe for x86-64-v3, at 6498684
+      and with the claim: `letters-ru` takes 3.80 million instructions in place of 5.19 million,
+      26.7% fewer, where Rust's crate takes 3.23 million. `letters-en` takes 16.6% fewer, the
+      quadratic rows 7% to 15% fewer, `date` and `words/all-english` 5% fewer, and the
+      case-insensitive literal rows 8% to 16% fewer. `extract` and the lexer row keep the
+      18% and 9% of the commit before, and every other row is within 0.4%.
+    - The first version also counted a literal's matches by their ends, through `find`, and the
+      single literals' rows took 3.7% more. With both of its helpers inline, `capitals` took
+      5.3% more and `dictionary` 3.6% more, as the scan's code moved. So a count by a literal's
+      claim keeps `next`, and the count of ends makes a call of its own.
+  **Check, the count of ends:** `Matches.count` gives the count of the matches `next` gives, for
+  18 patterns of empty matches, of matches that touch, of scalar values of two octets and of each
+  claim of a literal, in every cache, with the claim on and off, and for 300 generated patterns;
+  it leaves no match for `next`; it reads no match back; a count by a literal's claims or claim R4
+  reads no forward DFA; it takes the forward DFA where the reverse DFA did not start; a count that
+  gives up counts its give-ups and stops at the limit; the Go differential check passes;
+  mutations.
+  **Check passed, the count of ends, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18,
+  in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 12. CAUGHT, 11: a count that reads every match
+    back; one that passes by a literal's claims, or by claim R4; one that tries a DFA past the
+    limit of give-ups, or counts no give-up; one that keeps an empty match that touches the last,
+    searches again from it, keeps no last end, or leaves matches for `next`; one that takes a
+    forward DFA that is not ready; and one that counts a literal's ends. NOT CAUGHT, 1: the
+    scan's assertion of a table, deleted. No test can expect a panic in its own process, and the
+    mutation of the forward DFA that is not ready shows the assertion fire.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

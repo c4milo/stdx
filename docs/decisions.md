@@ -6099,6 +6099,17 @@ last part lists what still waits on a ruling.
       - The flag shares its bit with claim R3's, which marks the entries into a state with no
         thread. A DFA of claim R3 takes no claim R9.
       - `Claims.stays` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
+    - Claim R10, added 2026-11-23 (design §8 part 22n): `Matches.count` counts the matches that
+      `next` would give from each one's end alone. A searcher with no claim of a literal finds
+      the end by its forward DFA, and reads no match back to its start.
+      - A search starts at the last match's end, so a match that ends there is the empty match
+        that touches the one before. Go's regexp leaves it out, so the count searches again one
+        octet on, as `next` does.
+      - Rust's crate counts the same way: `find_iter(..).count()` finds each match's end alone
+        (regex 1.13.2, `Matches::count`), and rebar's runner counts its `count` model so.
+      - The forward DFA alone finds the end, so a count takes it where the reverse DFA did not
+        start. A DFA that `init` refused has an empty table, and each scan asserts a table.
+      - `Claims.count_ends` turns it off.
       - A program of no group but the whole match takes the DFAs' span, and runs neither.
       - `SearcherClaims.backtrack` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 
@@ -6290,6 +6301,9 @@ last part lists what still waits on a ruling.
         - Each benchmark runs under rebar's own model, pattern and haystack: count,
           count-spans, count-captures, grep, grep-captures or compile. Every candidate's answer
           is held to the count rebar's definition gives Go's regexp.
+        - Under the count model, rebar's runner asks Rust's crate for `find_iter(..).count()`,
+          which finds each match's end alone. stdx's side calls `Matches.count`, which counts the
+          same way (claim R10, added 2026-11-23). Go's regexp has no such call.
         - Rust's crate takes rebar's `unicode` and `case-insensitive` options and the NFA size
           limit of rebar's harness. stdx and Go's regexp take `(?i)`, as rebar gives Go.
         - zig-regex and mvzr are not timed on it. The tables above time them at a hundredth to

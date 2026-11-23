@@ -74,8 +74,12 @@ pub const Held = struct {
     /// The matches, or with `spans` the sum of their lengths.
     fn count(held: *Held, haystack: []const u8, spans: bool) u64 {
         var matches: regex.Matches = .{ .searcher = &held.searcher, .haystack = haystack };
+        // rebar's `count` model takes the count alone, which rebar's runner asks Rust's crate for
+        // with `find_iter(..).count()`: the crate finds each match's end alone, as
+        // `Matches.count` does (claim R10).
+        if (!spans) return matches.count();
         var sum: u64 = 0;
-        while (matches.next()) |span| sum += if (spans) span.len() else 1;
+        while (matches.next()) |span| sum += span.len();
         return sum;
     }
 

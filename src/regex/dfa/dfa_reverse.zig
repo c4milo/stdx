@@ -12,7 +12,7 @@ const dfa_run = @import("dfa_run.zig");
 /// The least offset at or after `from` where a match that ends at `end` starts. The DFA runs
 /// the reverse program from `end` toward `from`. Inline: a search makes one for each match.
 pub inline fn scan(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Scan {
-    assert(from <= end and end <= haystack.len);
+    assert(from <= end and end <= haystack.len and dfa.cache.table.len > 0);
     const behind: Context = if (end == haystack.len) .edge else dfa.context_of(haystack[end]);
     var state = dfa.start(behind) orelse return .gave_up;
     var last: ?usize = null;

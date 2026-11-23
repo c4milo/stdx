@@ -129,7 +129,11 @@ pub const Dfa = struct {
     /// must not be used.
     pub fn init(dfa: *Dfa, program: *const Program, config: Config, memory: []u32) bool {
         const block = Block.of(program, config.entry);
-        if (memory.len < memory_len_min_of(program, block)) return false;
+        if (memory.len < memory_len_min_of(program, block)) {
+            // A scan of a DFA that `init` refused is a programmer's error, which each scan asserts.
+            dfa.cache.table = &.{};
+            return false;
+        }
         assert(config.valid());
         const len = block.len;
         const nodes = block.nodes;
@@ -209,7 +213,7 @@ pub const Dfa = struct {
     /// with `earliest` the first offset where any match ends. Inline, with the loops of R1 and of
     /// no claim, so that a text with many matches makes no call for each: a search inlines it.
     pub inline fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool) Scan {
-        assert(from <= haystack.len);
+        assert(from <= haystack.len and dfa.cache.table.len > 0);
         const behind: Context = if (from == 0) .edge else dfa.context_of(haystack[from - 1]);
         const state = dfa.start(behind) orelse return .gave_up;
         dfa.mark = from;

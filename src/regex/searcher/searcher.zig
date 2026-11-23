@@ -66,6 +66,9 @@ pub const Claims = struct {
     /// past the run of such octets, `skip_lanes` octets a step (dfa_stay.zig). It rests for a
     /// state whose runs are too short for a skip to pay.
     stays: bool = true,
+    /// R10: `Matches.count` finds the end of each match by the forward DFA alone, and reads no
+    /// match back to its start. Rust's crate counts its matches the same way.
+    count_ends: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -146,6 +149,8 @@ pub const Searcher = struct {
     one_pass: OnePass,
     /// Claim R8: whether `captures` takes the backtracker over a span the DFAs found.
     backtrack: bool,
+    /// Claim R10: whether a count finds the end of each match by the forward DFA alone.
+    count_ends: bool,
     /// True where every match starts at the text's start, so the forward DFA's match starts at
     /// `from` and no reverse scan runs, as Rust's crate runs none for an anchored search.
     at_text: bool,
@@ -189,6 +194,7 @@ pub const Searcher = struct {
         // A program of no group but the whole match needs no thread: the DFAs give its span.
         searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
         searcher.backtrack = claims.backtrack;
+        searcher.count_ends = claims.count_ends;
         searcher.at_text = starts_at_text_start(program);
         searcher.suffix = null;
         const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
@@ -321,6 +327,28 @@ pub const Searcher = struct {
         return .{ .span = .{ .start = start, .end = end } };
     }
 
+    /// Where the first match at or after `from` ends, or null where none does, for a searcher
+    /// that `counts_ends`. Where its forward DFA is ready and has not given up too often, the
+    /// DFA finds the end alone, with no read back to the start. Otherwise `find` finds the match.
+    fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
+        assert(searcher.counts_ends());
+        if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
+            switch (searcher.forward.scan_forward(haystack, from, false)) {
+                .gave_up => searcher.give_ups += 1,
+                .none => return null,
+                .found => |end| return end,
+            }
+        }
+        const span = searcher.find(haystack, from) orelse return null;
+        return @intCast(span.end);
+    }
+
+    /// Claim R10: true where a count finds each match's end alone. A literal's claims find the
+    /// match with no DFA, and claim R4 finds its start first, so their counts take `find`.
+    fn counts_ends(searcher: *const Searcher) bool {
+        return searcher.count_ends and searcher.exact == null and !searcher.exact_set and searcher.suffix == null;
+    }
+
     fn gave_up(searcher: *Searcher) ?Answer {
         searcher.give_ups += 1;
         return null;
@@ -416,6 +444,41 @@ pub const Matches = struct {
         return span;
     }
 
+    /// The count of the matches `next` would give from here, which leaves none for `next` to
+    /// give. A count needs each match's end alone (claim R10).
+    pub fn count(matches: *Matches) u64 {
+        var total: u64 = 0;
+        const by_ends = matches.searcher.counts_ends();
+        // Each turn counts a match that ends past the last one, or the first match: at most the
+        // haystack's offsets and one. No match is left after that many.
+        for (0..matches.haystack.len + 1) |_| {
+            if (matches.position > matches.haystack.len) break;
+            const end = if (by_ends) matches.next_end() else matches.next_span_end();
+            matches.position = end orelse break;
+            matches.last_end = end;
+            total += 1;
+        }
+        matches.position = matches.haystack.len + 1;
+        return total;
+    }
+
+    /// The end of the match `next` gives, for a searcher that finds each match whole.
+    fn next_span_end(matches: *Matches) ?usize {
+        const span = matches.next() orelse return null;
+        return @intCast(span.end);
+    }
+
+    /// The end of the match `next` would give. A search starts at the last match's end, so a
+    /// match that ends there is an empty one that touches the match before it, and the search
+    /// goes on one octet on, as `next` does.
+    fn next_end(matches: *Matches) ?usize {
+        const end = matches.searcher.find_end(matches.haystack, matches.position) orelse return null;
+        if (matches.last_end != end) return end;
+        const from = end + 1;
+        if (from > matches.haystack.len) return null;
+        return matches.searcher.find_end(matches.haystack, from);
+    }
+
     fn find_after(matches: *Matches, empty: Span) ?Span {
         const from: usize = @intCast(empty.end + 1);
         if (from > matches.haystack.len) return null;
@@ -432,5 +495,6 @@ test {
     _ = @import("searcher_wide_test.zig");
     _ = @import("searcher_pairs_test.zig");
     _ = @import("searcher_stay_test.zig");
+    _ = @import("searcher_count_test.zig");
     _ = @import("searcher_run_test.zig");
 }
