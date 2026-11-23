@@ -30,20 +30,37 @@ comptime {
 /// the haystack's length, with `state` moved over the octets before it.
 pub inline fn plain(table: []const u32, classes: *const Classes, haystack: []const u8, from: usize, state: *u32) usize {
     var current = state.*;
-    // The loop counts the octets it took, and only its exit adds them to `from`.
-    for (haystack[from..], 0..) |octet, taken| {
+    var index = from;
+    // `plain_unroll` octets a turn, with one test of the loop for them all: each turn takes them.
+    for (0..(haystack.len - from) / plain_unroll) |_| {
+        const octets = haystack[index..][0..plain_unroll];
+        inline for (octets, 0..) |octet, lane| {
+            const entry = table[current +% classes[octet]];
+            if (entry >= constants.dfa_flags_min) {
+                state.* = current;
+                return index + lane;
+            }
+            current = entry;
+        }
+        index += plain_unroll;
+    }
+    // The loop counts the octets it took, and only its exit adds them to `index`.
+    for (haystack[index..], 0..) |octet, taken| {
         // A row is under the table's length less a stride, and a class under the stride, so the
         // sum cannot wrap, and the read's bounds check holds it.
         const entry = table[current +% classes[octet]];
         if (entry >= constants.dfa_flags_min) {
             state.* = current;
-            return from + taken;
+            return index + taken;
         }
         current = entry;
     }
     state.* = current;
     return haystack.len;
 }
+
+/// The octets one turn of `plain`'s loop takes.
+const plain_unroll = 4;
 
 /// The offset of the first octet at or after `from` whose entry from `state` is no row, with the
 /// match flag or none, or the haystack's length, with `state` moved over the octets before it.

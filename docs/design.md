@@ -9338,6 +9338,27 @@ to 12 are reordered and nothing else changes.
   build test-regex`: 4, all CAUGHT: a block of unset groups that writes no null; a block with one
   unset group judged unset; groups after the blocks not copied; and a block that copies one group
   fewer.
+  - A DFA's plain loop read an octet and its entry, and tested both the entry and the loop's
+    bound, at each octet. It now takes `plain_unroll`, 4, octets a turn, with one test of the
+    bound for them all, as the forward search of Rust's crate does (regex-automata 0.4.19,
+    `hybrid/search.rs`). Each octet's entry is still tested, and the octets after the last whole
+    turn take the loop as before.
+    - One warm pass under callgrind, ReleaseSafe for x86-64-v3, at 1afd384 and with four octets
+      a turn: `letters-ru` takes 3.26 million instructions in place of 3.81 million, 14.2% fewer,
+      where Rust's crate takes 3.23 million. `long-english` takes 16.3% fewer, `capitals` and
+      `aws-keys/full` 10.1% fewer, `letters-en` 9.4%, `ruff-noqa/real` 8.9% and `dictionary`
+      6.0%. `aws-keys/quick` takes 0.8% more, the quadratic rows 0.3% to 0.6% more, and every
+      other row is within 0.2%.
+    - The loop's reads form a chain, each giving the row of the next, so its time on a wide core
+      is the chain's: in this container `letters-ru` ran at 330 to 337 MB/s in place of 325 to
+      335. The runners say what it gives on each core.
+  **Check, four octets a turn:** the searcher's tests and the Go differential check pass;
+  mutations.
+  **Check passed, four octets a turn, 2026-11-23.** `zig build test` passes, and `zig build
+  differential-regex -Doracles` gives 12,437,544 cases with none failed. Mutations against `zig
+  build test-regex`: 4, all CAUGHT: a turn that leaves at an octet and gives the turn's first; a
+  turn that steps one octet too few; a turn that leaves and keeps the state it left from; and the
+  octets after the turns not read.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
