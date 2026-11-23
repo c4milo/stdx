@@ -9398,6 +9398,43 @@ to 12 are reordered and nothing else changes.
     the 9V74, 42 ahead and 7 behind, at 0.80 to 0.96, `extract` the lowest.
   - The README and its charts keep the runs at 4bd3bda until runs with the literal searches of
     the next entries.
+  - Claims R2 and R5 on NEON (decision 86 as amended). A block that held a candidate took each
+    step's places by an AND, a byte permute and an add across the lanes, five instructions a
+    step, and tested the whole block by UMAXV. SHRN gives four bits a place in one instruction,
+    so a block's test is SHRN, FMOV and a branch, and a step's places are a word of their own
+    (`lane_places.zig`). x86-64 keeps one mask a block. A candidate's compare called
+    `std.mem.eql`, about 50 instructions for 15 octets on aarch64, and now reads words of 8
+    octets (`literal_compare.zig`). A block with a candidate is marked unlikely: without the
+    hint, LLVM reloaded the wanted octets from the stack at each block on x86-64.
+    - One warm pass at a281f4c and with the change, ReleaseSafe for the Neoverse N2 and counted
+      from qemu's log of blocks: `sherlock-en` takes 562 thousand instructions in place of 639
+      thousand, 12.1% fewer, `href="[^"]*"` over 1 MiB of HTML 12.8% fewer, `Pharaoh` over 1 MiB
+      of the Bible 9.4% fewer, `(?i)pharaoh` 9.9% and Teddy's four names 9.8% fewer. Under
+      callgrind for x86-64-v3 the first three take 10.2%, 12.6% and 8.7% fewer.
+    - Run [45225369790](https://github.com/c4milo/stdx/actions/runs/45225369790) measured the
+      change against a281f4c in one job each. On the N2, `Pharaoh` ran at 1.04 of Rust's speed
+      in place of 0.89, the absent `Sherlock` at 1.09 in place of 0.95, the href attribute at
+      0.98 in place of 0.81, and `sherlock-ru` at 0.94 in place of 0.78.
+    - A mask for each step cost x86-64 a branch for each step, which a text of many candidates
+      mispredicts. On that run's Xeon 6975P, `the [a-z]+ of` and `(?m)^[A-Z][a-z]+:` ran 9% and
+      12% slower with 12% and 8% fewer instructions, so x86-64 keeps its mask a block.
+  **Check, the places by SHRN and the compare by words:** SHRN's places and x86-64's give one bit
+  each, lowest first; the compare by words gives what a compare of each octet gives at every
+  length to `literal_len_max`, with folds; the searcher's tests pass on x86-64 and on aarch64;
+  the Go differential check passes; mutations.
+  **Check passed, the places by SHRN and the compare by words, 2026-11-23.** Zig 0.16.0 and Go
+  1.24.7 on x86-64 Linux 6.18, in a cloud container, with qemu-aarch64 8.2.2 for aarch64.
+  - `zig build test` and `zig build test-regex -Dtarget=aarch64-linux -fqemu` pass, and `zig
+    build differential-regex -Doracles` gives 12,437,544 cases with none failed.
+  - Mutations against `zig build test-regex`, for aarch64 under qemu where marked: 18. CAUGHT, 16:
+    SHRN by zero, which drops the odd lanes (aarch64); each nibble's four bits kept (aarch64); a
+    place read as its bit's offset (aarch64); no block with a candidate (aarch64, and x86-64);
+    Teddy's bits read with no CMTST, in the test of a block and in its places (aarch64); a
+    literal's and a set's step taken at the block's first (aarch64, and x86-64's mask); the
+    block's last step left out; the last word not compared; a fold not ORed; no word before the
+    last; the fold octets not written. NOT CAUGHT, 2, the same answers: SHRN by three, which
+    keeps a bit of each lane where the mask reads it, as a shift of one to four does; and no
+    words of 4, whose octets the loop of octets compares.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

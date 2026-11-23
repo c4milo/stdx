@@ -18,13 +18,14 @@ const program_file = @import("program.zig");
 const Program = program_file.Program;
 const literal_file = @import("literal.zig");
 const literal_teddy = @import("literal_teddy.zig");
+const literal_set_lanes = @import("literal_set_lanes.zig");
+const literal_compare = @import("literal_compare.zig");
 
 /// The octets of a literal's head: one word.
 pub const head_len = @sizeOf(u64);
 
 /// The octets of a block, whatever the width of a step.
 const block_len = constants.literal_steps * constants.skip_lanes;
-const BlockMask = std.meta.Int(.unsigned, block_len);
 
 extern fn stdx_regex_literal_set_find_x86_64_avx2(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
 extern fn stdx_regex_literal_set_find_x86_64_ssse3(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
@@ -104,7 +105,7 @@ pub const LiteralSet = extern struct {
     /// The length of the first literal of the set that stands whole at `index`, or null.
     fn whole_at(set: *const LiteralSet, haystack: []const u8, index: usize) ?usize {
         for (set.octets[0..set.count], set.lens[0..set.count]) |*octets, len| {
-            if (haystack.len - index >= len and std.mem.eql(u8, haystack[index..][0..len], octets[0..len])) return len;
+            if (haystack.len - index >= len and literal_compare.equal(haystack[index..][0..len], octets[0..len])) return len;
         }
         return null;
     }
@@ -150,7 +151,7 @@ pub const LiteralSet = extern struct {
     fn find_of(set: *const LiteralSet, comptime width: usize, comptime count: usize, haystack: []const u8, from: usize, end: usize) ?usize {
         const first = set.first_at;
         const last = set.last_at;
-        const Search = Lanes(width, count);
+        const Search = literal_set_lanes.Lanes(width, count);
         var wanted: Search.Wanted = undefined;
         inline for (0..count) |literal| {
             wanted.firsts[literal] = @splat(set.octets[literal][first]);
@@ -162,12 +163,10 @@ pub const LiteralSet = extern struct {
         while (end - index >= block_len) : (index += block_len) {
             const firsts = haystack[index + first ..][0..block_len];
             const lasts = haystack[index + last ..][0..block_len];
-            if (!Search.any_candidate(firsts, lasts, &wanted)) continue;
-            var mask = Search.candidates(firsts, lasts, &wanted);
-            // Each set bit is one place to compare, at most `block_len` of them.
-            while (mask != 0) : (mask &= mask - 1) {
-                const candidate = index + @ctz(mask);
-                if (set.stands_at(haystack, candidate)) return candidate;
+            if (Search.any_candidate(firsts, lasts, &wanted)) {
+                // As in claim R2's loop (literal_find.zig): the wanted octets stay in registers.
+                @branchHint(.unlikely);
+                if (literal_set_lanes.first_stands(Search, set, firsts, lasts, &wanted, haystack, index)) |place| return place;
             }
         }
         return set.find_scalar(haystack, index, end);
@@ -238,7 +237,7 @@ pub const LiteralSet = extern struct {
     /// True when the octets of `literal` past its head stand at `index` past the text's head.
     inline fn tail_at(set: *const LiteralSet, literal: usize, haystack: []const u8, index: usize) bool {
         if (set.len <= head_len) return true;
-        return std.mem.eql(u8, haystack[index + head_len ..][0 .. set.len - head_len], set.octets[literal][head_len..set.len]);
+        return literal_compare.equal(haystack[index + head_len ..][0 .. set.len - head_len], set.octets[literal][head_len..set.len]);
     }
 };
 
@@ -255,55 +254,6 @@ pub fn slot_of(head: u64) usize {
 
 /// A match of an exact set: the octets from `start` to `end`.
 pub const Place = struct { start: usize, end: usize };
-
-/// The search's steps for a vector of `width` octets and a set of `count` literals.
-fn Lanes(comptime width: usize, comptime count: usize) type {
-    comptime assert(block_len % width == 0);
-    return struct {
-        const Vector = @Vector(width, u8);
-        const Mask = std.meta.Int(.unsigned, width);
-        const steps = block_len / width;
-
-        /// Each literal's octets at `first_at` and `last_at`, in every lane.
-        const Wanted = struct { firsts: [count]Vector, lasts: [count]Vector };
-
-        /// True when some place of a block holds some literal's octet at `first_at` in `firsts`
-        /// and its octet at `last_at` at the same place in `lasts`.
-        inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) bool {
-            const all: Vector = @splat(constants.octet_max);
-            const none: Vector = @splat(0);
-            var any = none;
-            inline for (0..steps) |step| {
-                const at = step * width;
-                const first: Vector = firsts[at..][0..width].*;
-                const last: Vector = lasts[at..][0..width].*;
-                inline for (0..count) |literal| {
-                    const first_here = @select(u8, first == wanted.firsts[literal], all, none);
-                    const last_here = @select(u8, last == wanted.lasts[literal], all, none);
-                    any |= first_here & last_here;
-                }
-            }
-            return @reduce(.Or, any) != 0;
-        }
-
-        /// A bit for each place of a block where some literal's two octets stand.
-        inline fn candidates(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) BlockMask {
-            var mask: BlockMask = 0;
-            inline for (0..steps) |step| {
-                const at = step * width;
-                const first: Vector = firsts[at..][0..width].*;
-                const last: Vector = lasts[at..][0..width].*;
-                var step_mask: Mask = 0;
-                inline for (0..count) |literal| {
-                    const both = @select(bool, first == wanted.firsts[literal], last == wanted.lasts[literal], @as(@Vector(width, bool), @splat(false)));
-                    step_mask |= @as(Mask, @bitCast(both));
-                }
-                mask |= @as(BlockMask, step_mask) << at;
-            }
-            return mask;
-        }
-    };
-}
 
 const testing = std.testing;
 const compiler = @import("compile.zig");

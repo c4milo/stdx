@@ -20,6 +20,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const LiteralSet = @import("literal_set.zig").LiteralSet;
+const lane_places = @import("lane_places.zig");
 
 /// The octets of a block, whatever the width of a step, as `literal_set.zig`'s blocks.
 const block_len = constants.literal_steps * constants.skip_lanes;
@@ -125,14 +126,14 @@ pub fn find_short(comptime width: usize, set: *const LiteralSet, haystack: []con
     clear_from(width, &bits, places);
     // A loop of its own, where `Search.first` would take a second caller and leave `find`'s
     // block loop.
-    const none: Search.Vector = @splat(0);
     inline for (0..Search.steps) |step| {
         const lanes: [width]u8 = bits[step];
-        var candidates: Search.Mask = @bitCast(bits[step] != none);
+        var candidates = Search.Step.of(Search.set_lanes(bits[step]));
         // Each set bit is one place, at most `width` of them.
         while (candidates != 0) : (candidates &= candidates - 1) {
-            const place = index + step * width + @ctz(candidates);
-            if (set.stands_among(lanes[@ctz(candidates)], haystack, place)) return place;
+            const lane = Search.Step.first(candidates);
+            const place = index + step * width + lane;
+            if (set.stands_among(lanes[lane], haystack, place)) return place;
         }
     }
     return null;
@@ -159,7 +160,7 @@ fn Steps(comptime width: usize) type {
     comptime assert(block_len % width == 0 and width % constants.nibbles == 0);
     return struct {
         const Vector = @Vector(width, u8);
-        const Mask = std.meta.Int(.unsigned, width);
+        const Step = lane_places.Places(width);
         const steps = block_len / width;
 
         /// The tables as vectors, each 16 entries repeated for each 16 lanes, as VPSHUFB looks
@@ -205,19 +206,25 @@ fn Steps(comptime width: usize) type {
                 bits[step] = first_bits & bits_of(last_octets, lookups.last_low, lookups.last_high);
                 all |= bits[step];
             }
-            return @reduce(.Or, all) != 0;
+            return Step.any(set_lanes(all));
+        }
+
+        /// All ones in each lane of `bits` that holds a bucket's bit, and zero in the others, as
+        /// `Step` reads them: CMTST on NEON.
+        inline fn set_lanes(bits: Vector) Vector {
+            const none: Vector = @splat(0);
+            return @select(u8, bits != none, @as(Vector, @splat(constants.octet_max)), none);
         }
 
         /// The first place of the block from `index` where a literal whose bit `bits` holds
         /// stands whole.
         fn first(set: *const LiteralSet, haystack: []const u8, index: usize, bits: *const [steps]Vector) ?usize {
-            const none: Vector = @splat(0);
             inline for (0..steps) |step| {
                 const lanes: [width]u8 = bits[step];
-                var places: Mask = @bitCast(bits[step] != none);
+                var places = Step.of(set_lanes(bits[step]));
                 // Each set bit is one place, at most `width` of them.
                 while (places != 0) : (places &= places - 1) {
-                    const lane = @ctz(places);
+                    const lane = Step.first(places);
                     const place = index + step * width + lane;
                     if (set.stands_among(lanes[lane], haystack, place)) return place;
                 }

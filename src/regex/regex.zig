@@ -59,6 +59,9 @@ test {
     _ = @import("literal_set_fingerprint.zig");
     _ = @import("literal_rank.zig");
     _ = @import("literal_teddy.zig");
+    _ = @import("lane_places.zig");
+    _ = @import("literal_compare.zig");
+    _ = @import("literal_set_lanes.zig");
     _ = @import("one_pass.zig");
     _ = @import("one_pass_table.zig");
     _ = @import("backtrack.zig");

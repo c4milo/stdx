@@ -5898,6 +5898,13 @@ last part lists what still waits on a ruling.
         each type, and each caller adds the argument. The search is `literal_find.zig`'s, built
         a second time in the module's variant object of decision 21, and its blocks keep their
         octets.
+      - NEON has no instruction that gathers one bit a lane, which x86-64's PMOVMSKB does. Since
+        2026-11-23, a block that holds a candidate takes each step's places on aarch64 by SHRN,
+        which narrows each lane of 16 bits by four bits and gives four bits a place in one
+        instruction (`lane_places.zig`, design §8 part 22n). Each step's places are then a word
+        of their own; x86-64 keeps one mask a block. A candidate's compare reads the literal a
+        word of 8 octets at a time, the last word ending where the literal does
+        (`literal_compare.zig`).
       - Claim R5 searches for one of several literals.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two
       octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan
