@@ -9499,6 +9499,22 @@ to 12 are reordered and nothing else changes.
   build test-regex`: 5, all CAUGHT: a DFA with a literal scanned with no search first; a text
   with no literal scanned from its start; the scan from the text's start where a literal stands;
   a set taken for no literal; a place one past the literal's.
+  **Measured, 2026-11-23, at 8dc8c1d.** Eighteen runs of the `bench` workflow, runs
+  [45243455127](https://github.com/c4milo/stdx/actions/runs/45243455127) to
+  [45243558241](https://github.com/c4milo/stdx/actions/runs/45243558241), wrote
+  `bench/results/2026-11-23-regex-literals-*`. They ran after the places by SHRN, the literal
+  before `is_match`'s scan, Teddy's short block in place and the walk of a literal, and before
+  the scan from 0.
+  - On the 18 jobs of the Neoverse N2, in the median job, stdx ran 42 of the 49 searches ahead of
+    Rust's crate, at 1.02 to 8.20, one level, and 6 behind, at 0.87 to 0.99. At a281f4c it ran 36
+    ahead and 12 behind. `aws-keys/quick` ran at 0.95, where it ran at 0.74, `sherlock-en` at
+    0.96 and `sherlock-ru` at 0.99, where they ran at 0.79 and 0.78, and the href attribute at
+    0.99, where it ran at 0.81.
+  - On the 10 jobs of the EPYC 7763, stdx ran 43 searches ahead, at 1.01 to 9.73, one level, and
+    5 behind, at 0.82 to 0.98, the lexer row the lowest. At a281f4c it ran 39 ahead and 10 behind.
+  - The five patterns that validate a short text ran 5% to 9% slower than at a281f4c on both
+    models. The scan from 0, above, is the fix, which the next runs measure.
+  - `bench/charts.txt` names the 36 reports, and the README draws them on its charts.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
