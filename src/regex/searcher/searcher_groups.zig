@@ -1,39 +1,30 @@
-//! The copy of a match's groups from the matcher's slots into the caller's spans (searcher.zig,
-//! decision 86).
+//! The capture groups of a match, read in place from the searcher's slots (searcher.zig, decision
+//! 86).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
-const matcher_file = @import("../matcher.zig");
-const Matcher = matcher_file.Matcher;
-const Span = matcher_file.Span;
+const Span = @import("../matcher.zig").Span;
 
-/// The groups of the matcher's match, read from its slots in one pass: what `Matcher.group`
-/// gives for each, with no call for each.
-pub fn copy_groups(matcher: *const Matcher, groups: []?Span) void {
-    assert(matcher.finished and matcher.matched);
-    const slots = matcher.best();
-    assert(slots.len == groups.len * constants.group_slots);
-    // Most groups of a pattern of many took no part in a match: `copy_lanes` at a time, the
-    // slots of such groups are judged in one compare. A pattern of fewer groups keeps one loop.
-    const blocks = groups.len / copy_lanes;
-    for (0..blocks) |block| {
-        const first = block * copy_lanes;
-        const lanes: @Vector(copy_lanes * constants.group_slots, u64) = slots[first * constants.group_slots ..][0 .. copy_lanes * constants.group_slots].*;
-        if (@reduce(.And, lanes == @as(@TypeOf(lanes), @splat(constants.slot_unset)))) {
-            @memset(groups[first..][0..copy_lanes], null);
-            continue;
-        }
-        for (first..first + copy_lanes) |index| copy_group(slots, groups, index);
+/// The capture groups of a match, the whole match first: two slots for each group, which the
+/// searcher's search wrote and which `get` reads in place, as Rust's crate reads its slots. They
+/// hold until the searcher's next search. A copy into spans cost rebar's lexer row, whose 89
+/// groups are unset but for one or two, 15% of its instructions (design §8 part 22n).
+pub const Groups = struct {
+    slots: []const u64,
+
+    /// The groups, the whole match counted.
+    pub fn len(groups: Groups) usize {
+        assert(groups.slots.len % constants.group_slots == 0);
+        return groups.slots.len / constants.group_slots;
     }
-    for (blocks * copy_lanes..groups.len) |index| copy_group(slots, groups, index);
-}
 
-/// The groups `copy_groups` judges in one compare. A copy of the lexer row of rebar's, whose 89
-/// groups are unset but for one or two, took 9.5% fewer instructions (design §8 part 22n).
-const copy_lanes = 8;
-
-inline fn copy_group(slots: []const u64, groups: []?Span, index: usize) void {
-    const start = slots[index * constants.group_slots];
-    const end = slots[index * constants.group_slots + 1];
-    groups[index] = if (start == constants.slot_unset or end == constants.slot_unset) null else .{ .start = start, .end = end };
-}
+    /// The span of group `index`, or null where the group took no part in the match.
+    pub fn get(groups: Groups, index: usize) ?Span {
+        const pair = groups.slots[index * constants.group_slots ..][0..constants.group_slots];
+        // As `Matcher.group` reads them: a path that passes a group's opening save passes its
+        // closing save, so a finished search leaves both slots set or neither.
+        if (pair[0] == constants.slot_unset or pair[1] == constants.slot_unset) return null;
+        assert(pair[0] <= pair[1]);
+        return .{ .start = pair[0], .end = pair[1] };
+    }
+};

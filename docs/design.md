@@ -9278,15 +9278,15 @@ to 12 are reordered and nothing else changes.
   x86-64 Linux 6.18, in a cloud container.
   - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
     with none failed.
-  - Mutations against `zig build test-regex`: 20. CAUGHT, 19: a build that marks no entry, or
-    marks one that leads elsewhere or one built while the cache cleared; a skip that passes one octet more, keeps no match, or keeps
-    it one octet late; exits that are the octets that stay, or that count an entry not built as
-    one that stays; a judge that finds no state poor, or leaves a poor state its flags or its
-    pair row; a state that takes a record still in trial; records that outlast a clear; exits
-    not learned again after a new entry that stays; a skip at the match flag; the plain loop,
-    the loop of matches or the skip loop that takes a flagged entry; and claim R3 with R9 on.
-    The pair row, the clear and the new entry were NOT CAUGHT until their tests joined. NOT
-    CAUGHT, 1, the same answers: a skip with no step of lanes, which reads one octet at a time.
+  - Mutations against `zig build test-regex`: 20. CAUGHT, 19: a build that marks no entry, or marks
+    one that leads elsewhere or one built while the cache cleared; a skip that passes one octet
+    more, keeps no match, or keeps it one octet late; exits that are the octets that stay, or that
+    count an entry not built as one that stays; a judge that finds no state poor, or leaves a poor
+    state its flags or its pair row; a state that takes a record still in trial; records that
+    outlast a clear; exits not learned again after a new entry that stays; a skip at the match flag;
+    the plain loop, the loop of matches or the skip loop that takes a flagged entry; and claim R3
+    with R9 on. The pair row, the clear and the new entry were NOT CAUGHT until their tests joined.
+    NOT CAUGHT, 1, the same answers: a skip with no step of lanes, which reads one octet at a time.
     Only its speed shows it.
   - Under the `count` model, rebar's runner counts the matches of Rust's crate with
     `find_iter(..).count()`, which finds each match's end alone and reads no match back to its
@@ -9359,6 +9359,28 @@ to 12 are reordered and nothing else changes.
   build test-regex`: 4, all CAUGHT: a turn that leaves at an octet and gives the turn's first; a
   turn that steps one octet too few; a turn that leaves and keeps the state it left from; and the
   octets after the turns not read.
+  - `Searcher.captures` copied each group into the caller's `?Span` values. No program calls it
+    yet, so its groups are now `SearcherGroups`: the slots the search wrote, read in place until
+    the searcher's next search, as Rust's crate reads its `CaptureLocations` (decision 86 as
+    amended). The copy of eight groups at once, the commit before, goes with the copy. A program
+    whose one group is the whole match keeps the DFAs' span in two slots of the searcher.
+    - One warm pass under callgrind, ReleaseSafe for x86-64-v3, at a8db6d7 and with the view,
+      the harness reading each group with `get` as rebar's runner reads Rust's: the lexer row
+      takes 447 million instructions in place of 467 million, 4.3% fewer, where Rust's crate
+      takes 426 million. `parse-line` takes 5.0% fewer, `aws-keys/full` 1.7%, `ruff-noqa/real`
+      1.6%, `extract` 1.3% and `ruff-noqa/tweaked` 1.1%, and every other row is within 0.3%.
+  **Check, groups read in place:** the searcher's tests hold each group to the matcher's, from
+  every offset; a pattern of 18 groups gives each as the matcher gives it; a program whose one
+  group is the whole match takes it from the DFAs, and the matcher finishes no search; the
+  benchmark and the differential tool build with `-Doracles`; the Go differential check passes;
+  mutations.
+  **Check passed, groups read in place, 2026-11-23.** `zig build test` and `zig build -Doracles`
+  pass, and `zig build differential-regex -Doracles` gives 12,437,544 cases with none failed.
+  Mutations against `zig build test-regex`: 5. CAUGHT, 4: every group null; a count of slots in
+  place of groups; a whole match whose ends swap; and a program of one group that takes the
+  matcher. NOT CAUGHT, 1, the same answers: a group with one slot set read as a span. A path
+  that passes a group's opening save passes its closing save, so no finished search leaves one
+  slot set, and `Matcher.group`, the reference, makes the same test.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

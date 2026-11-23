@@ -36,6 +36,7 @@ pub const Searcher = searcher.Searcher;
 pub const SearcherClaims = searcher.Claims;
 pub const SearcherOptions = searcher.Options;
 pub const Matches = searcher.Matches;
+pub const SearcherGroups = searcher.Groups;
 
 const errors = @import("errors.zig");
 pub const Error = errors.Error;

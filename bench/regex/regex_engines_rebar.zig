@@ -37,7 +37,6 @@ const storage_len = 1 << 22;
 pub const Held = struct {
     storage: []regex.Instruction,
     memory: []u64 = &.{},
-    groups: []?regex.Span = &.{},
     program: regex.Program = undefined,
     searcher: regex.Searcher = undefined,
     features: codec.Features,
@@ -50,13 +49,12 @@ pub const Held = struct {
     }
 
     /// Compiles `pattern` and readies its searcher with the default cache: what a caller does
-    /// before its first search. False where stdx refuses the pattern. The memory and the groups
-    /// grow on the first call for a pattern, and a later call for it takes what the first left.
+    /// before its first search. False where stdx refuses the pattern. The memory grows on the
+    /// first call for a pattern, and a later call for it takes what the first left.
     pub fn ready(held: *Held, pattern: []const u8) bool {
         held.program = regex.compile(pattern, .{}, held.storage) catch return false;
         const len = regex.Searcher.memory_len(held.program.forward_len, held.program.slot_count(), regex.constants.cache_words_default);
         if (held.memory.len < len) held.memory = held.arena.alloc(u64, len) catch return false;
-        if (held.groups.len != held.program.group_count) held.groups = held.arena.alloc(?regex.Span, held.program.group_count) catch return false;
         held.searcher.init(&held.program, &.{ .features = held.features }, held.memory[0..len]);
         return true;
     }
@@ -91,13 +89,14 @@ pub const Held = struct {
         var last_end: ?u64 = null;
         // Each turn moves `from` on by an octet at least, or ends.
         for (0..haystack.len + 2) |_| {
-            if (from > haystack.len or !held.searcher.captures(haystack, from, held.groups)) break;
-            const span = held.groups[0].?;
+            if (from > haystack.len) break;
+            const groups = held.searcher.captures(haystack, from) orelse break;
+            const span = groups.get(0).?;
             if (span.len() == 0 and last_end == span.end) {
                 from = @intCast(span.end + 1);
                 continue;
             }
-            for (held.groups) |group| sum += @intFromBool(group != null);
+            for (0..groups.len()) |index| sum += @intFromBool(groups.get(index) != null);
             from = @intCast(span.end);
             last_end = span.end;
         }

@@ -6110,6 +6110,12 @@ last part lists what still waits on a ruling.
       - The forward DFA alone finds the end, so a count takes it where the reverse DFA did not
         start. A DFA that `init` refused has an empty table, and each scan asserts a table.
       - `Claims.count_ends` turns it off.
+    - `Searcher.captures` gives a match's groups as `SearcherGroups`: the slots the search wrote,
+      read in place, which hold until the searcher's next search (amended 2026-11-23, design §8
+      part 22n). It copied each group into the caller's `?Span` values before. rebar's lexer row
+      has 89 groups, unset but for one or two in each match, and the copy cost it 15% of its
+      instructions. Rust's crate writes its slots into the caller's `CaptureLocations` and reads
+      a span from them where asked. No program called `captures` yet, so the change broke none.
       - A program of no group but the whole match takes the DFAs' span, and runs neither.
       - `SearcherClaims.backtrack` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 

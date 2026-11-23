@@ -26,7 +26,6 @@ const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
 const literal_file = @import("../literal.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
-const copy_groups = @import("searcher_groups.zig").copy_groups;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -129,6 +128,8 @@ fn forward_part(program: *const Program, cache_len: usize) usize {
     return forward_len;
 }
 
+pub const Groups = @import("searcher_groups.zig").Groups;
+
 pub const Searcher = struct {
     matcher: Matcher,
     forward: Dfa,
@@ -155,6 +156,8 @@ pub const Searcher = struct {
     /// True where every match starts at the text's start, so the forward DFA's match starts at
     /// `from` and no reverse scan runs, as Rust's crate runs none for an anchored search.
     at_text: bool,
+    /// The slots of the whole match, where it is a program's one group and the DFAs found it.
+    whole: [constants.group_slots]u64,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -245,38 +248,41 @@ pub const Searcher = struct {
         return searcher.matcher.find(haystack, from);
     }
 
-    /// The first match at or after `from`, with the span of each capture group in `groups`: the
-    /// whole match first. A group that took no part in the match is null. False when the haystack
-    /// holds no match, and `groups` is then left as it was.
-    pub fn captures(searcher: *Searcher, haystack: []const u8, from: usize, groups: []?Span) bool {
+    /// The first match at or after `from`, with the span of each capture group: the whole match
+    /// first, and null for a group that took no part in the match. Null where the haystack holds
+    /// no match. The groups hold until the searcher's next search.
+    pub fn captures(searcher: *Searcher, haystack: []const u8, from: usize) ?Groups {
         assert(from <= haystack.len);
-        assert(groups.len == searcher.matcher.program.group_count);
         if (searcher.one_pass == .unknown) searcher.one_pass = judge_one_pass(&searcher.matcher);
-        if (searcher.one_pass == .at_text) return searcher.captures_at_start(haystack, from, groups);
+        if (searcher.one_pass == .at_text) return searcher.captures_at_start(haystack, from);
         var anchor = from;
         var anchored = false;
         if (searcher.find_by_dfa(haystack, from)) |answer| {
-            const span = answer.span orelse return false;
+            const span = answer.span orelse return null;
             // A program of no group but the whole match: the DFAs gave every group.
-            if (groups.len == 1) {
-                groups[0] = span;
-                return true;
+            if (searcher.matcher.program.group_count == 1) {
+                searcher.whole = .{ span.start, span.end };
+                return .{ .slots = &searcher.whole };
             }
             anchor = @intCast(span.start);
             anchored = true;
             searcher.matcher.configure(.{ .captures = .groups, .anchored = true });
-            if (searcher.groups_in_span(haystack, anchor, @intCast(span.end)) != null) {
-                copy_groups(&searcher.matcher, groups);
-                return true;
-            }
+            if (searcher.groups_in_span(haystack, anchor, @intCast(span.end)) != null) return searcher.matched_groups();
         }
         searcher.matcher.configure(.{ .captures = .groups, .anchored = anchored });
         if (searcher.matcher.find(haystack, anchor) == null) {
             assert(!anchored);
-            return false;
+            return null;
         }
-        copy_groups(&searcher.matcher, groups);
-        return true;
+        return searcher.matched_groups();
+    }
+
+    /// The groups of the matcher's match, in its slots.
+    fn matched_groups(searcher: *const Searcher) Groups {
+        assert(searcher.matcher.finished and searcher.matcher.matched);
+        const slots = searcher.matcher.best();
+        assert(slots.len == @as(usize, searcher.matcher.program.group_count) * constants.group_slots);
+        return .{ .slots = slots };
     }
 
     /// The groups of the match from `start` to `end`, which the DFAs found, by one thread where
@@ -290,11 +296,10 @@ pub const Searcher = struct {
 
     /// Claim R6 for a program whose every match starts at the text's start: a match starts at
     /// `from` or nowhere, so one thread from there finds it and its groups, with no DFA.
-    fn captures_at_start(searcher: *Searcher, haystack: []const u8, from: usize, groups: []?Span) bool {
+    fn captures_at_start(searcher: *Searcher, haystack: []const u8, from: usize) ?Groups {
         searcher.matcher.configure(.{ .captures = .groups, .anchored = true });
-        if (one_pass.find(&searcher.matcher, haystack, from) == null) return false;
-        copy_groups(&searcher.matcher, groups);
-        return true;
+        if (one_pass.find(&searcher.matcher, haystack, from) == null) return null;
+        return searcher.matched_groups();
     }
 
     /// The match as the two DFAs find it, or null when the searcher has no DFA for the search or

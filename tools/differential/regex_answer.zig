@@ -115,10 +115,10 @@ pub const Stdx = struct {
         if (stdx.refusal.len != 0) return .{ .kind = .refused, .refusal = stdx.refusal };
         const program = &stdx.program;
         const searcher = &stdx.searchers[@intFromEnum(way)];
-        var groups: [groups_max]?regex.Span = undefined;
-        if (!searcher.captures(text, 0, groups[0..program.group_count])) return .{ .kind = .none };
+        const groups = searcher.captures(text, 0) orelse return .{ .kind = .none };
         var result: Answer = .{ .kind = .match, .groups = program.group_count };
-        for (groups[0..program.group_count], 0..) |group, index| {
+        for (0..groups.len()) |index| {
+            const group = groups.get(index);
             result.offsets[2 * index] = if (group) |span| @intCast(span.start) else -1;
             result.offsets[2 * index + 1] = if (group) |span| @intCast(span.end) else -1;
         }

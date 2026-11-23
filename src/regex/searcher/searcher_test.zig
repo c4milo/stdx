@@ -57,12 +57,12 @@ pub const Fixture = struct {
     pub fn expect_agree(fixture: *Fixture, haystack: []const u8, from: usize) !void {
         const expected = fixture.reference.find(haystack, from);
         try testing.expectEqual(expected, fixture.searcher.find(haystack, from));
-        var groups: [groups_len]?Span = @splat(null);
-        const count = fixture.program.group_count;
-        try testing.expectEqual(expected != null, fixture.searcher.captures(haystack, from, groups[0..count]));
-        if (expected == null) return;
+        const found = fixture.searcher.captures(haystack, from);
+        try testing.expectEqual(expected != null, found != null);
+        const groups = found orelse return;
+        try testing.expectEqual(@as(usize, fixture.program.group_count), groups.len());
         // The reference keeps its match until its next search.
-        for (groups[0..count], 0..) |group, index| try testing.expectEqual(fixture.reference.group(@intCast(index)), group);
+        for (0..groups.len()) |index| try testing.expectEqual(fixture.reference.group(@intCast(index)), groups.get(index));
     }
 
     pub fn expect_agree_everywhere(fixture: *Fixture, haystack: []const u8) !void {

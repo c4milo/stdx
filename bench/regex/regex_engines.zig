@@ -263,13 +263,11 @@ pub fn matching(pattern: Pattern, batch: Texts) usize {
 
 fn stdx_groups(stdx: *Stdx, batch: Texts) usize {
     var texts = batch.in_turn();
-    var spans: [groups_max]?regex.Span = undefined;
-    const found = spans[0..stdx.program.group_count];
     var sum: usize = 0;
     while (texts.next()) |text| {
-        if (!stdx.searcher.captures(text, 0, found)) continue;
-        for (found) |group| {
-            if (group) |span| sum += @intCast(span.start + span.end);
+        const found = stdx.searcher.captures(text, 0) orelse continue;
+        for (0..found.len()) |index| {
+            if (found.get(index)) |span| sum += @intCast(span.start + span.end);
         }
     }
     return sum;
