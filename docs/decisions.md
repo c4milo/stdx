@@ -5954,6 +5954,14 @@ last part lists what still waits on a ruling.
       - A whole compare reads each literal's first 8 octets as one word, `heads`, so each
         literal of a bucket costs one compare of words. Before, a call of `std.mem.eql` for each
         of 16 literals cost 640 instructions a candidate.
+      - A table of `literal_set_slots`, 128, slots finds the literals of a candidate's head
+        (amended 2026-11-23, design §8 part 22n). A slot holds a literal's place, at a hash of
+        its head, Knuth's product by 2^64 over the golden ratio, or the next empty slot past it.
+        The table is at most half full, so a lookup takes about one probe. Before, a candidate
+        compared each literal of each bucket its bits name: `(?i)Sherlock`'s 40 literals of five
+        lowercase octets met a candidate every 400 octets, at about 200 instructions each.
+      - Teddy's bits still name the buckets of a candidate, and an assertion holds that the
+        literal the table finds is in one of them.
       - The alternative refused: Hyperscan's tables of the first three octets. On a Xeon they
         took six lookups a step and ran at about 12.6 GB/s whatever the set, under the compares'
         16.6 for three absent literals. They passed every place of `the` to the whole compare,
@@ -6079,8 +6087,8 @@ last part lists what still waits on a ruling.
     of a cache's hash table that `init` and a clear write before the table doubles. Claim R2's: `literal_len_max`,
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
     and `avx2_lanes`, 32. Claim R5's: `literal_set_max`, 64; `literal_set_count_min`, 2;
-    `literal_fork_len_max`, 8; `literal_compare_max`, 8; `teddy_count_min`, 4; and
-    `teddy_buckets`, 8. Claim R6's: `one_pass_instructions_max`,
+    `literal_fork_len_max`, 8; `literal_compare_max`, 8; `teddy_count_min`, 4;
+    `teddy_buckets`, 8; and `literal_set_slots`, 128. Claim R6's: `one_pass_instructions_max`,
     1,024. The program's: `ranges_scan_len`, 4. Claim R7's: `pair_classes_max`, 32; `pair_states_max`, 64; and `pair_memory_parts`,
     4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;

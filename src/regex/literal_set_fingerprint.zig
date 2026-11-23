@@ -26,7 +26,24 @@ pub fn prepare(set: *LiteralSet) void {
     set.last_at = offsets.last;
     fill_buckets(set);
     fill_heads(set);
+    fill_slots(set);
     set.teddy = .of(set);
+}
+
+/// Writes the table of the heads: each literal's place in the first empty slot from the one its
+/// head hashes to.
+fn fill_slots(set: *LiteralSet) void {
+    @memset(&set.slots, 0);
+    for (set.heads[0..set.count], 1..) |head, entry| {
+        var slot = literal_set.slot_of(head);
+        // The table holds at most half its slots, so an empty slot stands within `count` turns.
+        for (0..constants.literal_set_slots) |_| {
+            if (set.slots[slot] == 0) break;
+            slot = (slot + 1) & (constants.literal_set_slots - 1);
+        }
+        assert(set.slots[slot] == 0);
+        set.slots[slot] = @intCast(entry);
+    }
 }
 
 /// Writes the head of each literal of `order`, its first `head_len` octets or its `len` where

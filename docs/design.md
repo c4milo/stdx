@@ -9040,6 +9040,19 @@ to 12 are reordered and nothing else changes.
     matches are short. `[α-ω]+` over 1 MiB of Greek words took 11% fewer instructions and 14%
     more branches, with the same mispredictions, and its time did not move past the noise. The
     lexer took 0.4% fewer instructions.
+  - The same runs gave `(?i)Sherlock Holmes` 0.66 of Rust's speed on the EPYC 7763. Its set is
+    40 literals of five lowercase octets, and Teddy's offsets 0 and 4 met a candidate about
+    every 400 octets of rebar's English text. Each candidate compared each literal of each
+    bucket its bits named, about 200 instructions under callgrind. A table of 128 slots now
+    finds a candidate's literals by a hash of its head, in about one probe (decision 86). Two
+    passes of the text took 3.14 million instructions in place of 3.76 million, and the
+    alternation under `(?i)` 6.46 million in place of 7.45 million. Built for the baseline CPU,
+    in three passes of 15 warm runs, the row ran at 6,923 to 7,175 MB/s in place of 4,841 to
+    4,880, where Rust's crate gave 6,606 in the local run of part 22m. The other sets did not
+    move past the noise.
+    - The check stays a call from Teddy's loop. Inline there, or called without the bucket's
+      bits, it moved Teddy's tables from registers to the stack, and the English alternation
+      ran at 0.92 of its speed.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9056,6 +9069,18 @@ to 12 are reordered and nothing else changes.
     2.06 to 8.38 times Rust's speed, and the context pattern at 0.91.
   - `tools/charts_wide.py` draws a chart from five jobs of one model or more, so
     `bench/charts.txt` and the README keep part 22m's runs.
+  **Check, the table of heads:** a set's search gives the plain search's place from every
+  offset, for random sets of 2 to 64 literals, by the compares, by SSSE3's Teddy and by AVX2's;
+  the Go differential check passes; mutations.
+  **Check passed, the table of heads, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 7. CAUGHT, 6: a probe that does not move past a
+    slot; a slot that takes a literal without its head; a head that stands for its whole
+    literal; a literal that overwrites a slot another holds; a probe that ends at the first slot
+    of another literal; and every bucket taken for the first. NOT CAUGHT, 1, the same answers:
+    every head hashed to one slot.
   **Check, the loops of matches:** a run of matches stops at an entry that is dead, plain or not
   built, and at the text's ends, read forward and back; the searcher gives the matcher's spans and
   groups from every offset for patterns whose matches run long, with every claim, with no pairs

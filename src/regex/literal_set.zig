@@ -63,6 +63,9 @@ pub const LiteralSet = extern struct {
     heads: [constants.literal_set_max]u64 = undefined,
     /// The bits of a word that the set's first `len` octets fill.
     head_mask: u64 = undefined,
+    /// A table of the heads: each slot holds one more than the place in `heads` of a literal
+    /// whose head hashes to it or to a slot before it, or zero. `prepare` fills it.
+    slots: [constants.literal_set_slots]u8 = undefined,
 
     /// The literals one of which every match of `program` starts with (literal_set_paths.zig).
     pub const of = @import("literal_set_paths.zig").of;
@@ -184,32 +187,43 @@ pub const LiteralSet = extern struct {
         return null;
     }
 
-    /// True when a literal of the set stands whole at `index`: at most `literal_set_max`
-    /// compares of `len` octets.
-    pub fn stands_at(set: *const LiteralSet, haystack: []const u8, index: usize) bool {
-        return set.stands_between(0, set.count, haystack, index);
-    }
-
-    /// True when a literal of a bucket whose bit `bits` holds stands whole at `index`: a compare
-    /// of `len` octets for each literal of each bucket, as Teddy's tables give them
-    /// (literal_teddy.zig).
+    /// True when a literal of the set stands whole at `index`, where Teddy's tables give the
+    /// buckets of `bits`: the literal's bucket is one of them.
     pub fn stands_among(set: *const LiteralSet, bits: u8, haystack: []const u8, index: usize) bool {
-        var left = bits;
-        // Each set bit is one bucket, at most `teddy_buckets` of them.
-        while (left != 0) : (left &= left - 1) {
-            const bucket = @ctz(left);
-            if (set.stands_between(set.bucket_starts[bucket], set.bucket_starts[bucket + 1], haystack, index)) return true;
-        }
-        return false;
+        const place = set.place_at(haystack, index) orelse return false;
+        assert(bits >> set.bucket_of(place) & 1 != 0);
+        return true;
     }
 
-    /// True when a literal of `order` from `start` to `end` stands whole at `index`.
-    inline fn stands_between(set: *const LiteralSet, start: usize, end: usize, haystack: []const u8, index: usize) bool {
+    /// True when a literal of the set stands whole at `index`.
+    pub fn stands_at(set: *const LiteralSet, haystack: []const u8, index: usize) bool {
+        return set.place_at(haystack, index) != null;
+    }
+
+    /// The place in `heads` of a literal that stands whole at `index`, or null. The text's head
+    /// finds the slots of the literals that share its hash, about one, and each that shares the
+    /// head compares its tail.
+    inline fn place_at(set: *const LiteralSet, haystack: []const u8, index: usize) ?usize {
         const head = set.head_at(haystack, index);
-        for (set.heads[start..end], start..) |literal_head, place| {
-            if (literal_head == head and set.tail_at(set.order[place], haystack, index)) return true;
+        var slot = slot_of(head);
+        // The table is at most half full, so a probe meets an empty slot within `count` turns.
+        for (0..constants.literal_set_slots) |_| {
+            const entry = set.slots[slot];
+            if (entry == 0) return null;
+            const place = entry - 1;
+            if (set.heads[place] == head and set.tail_at(set.order[place], haystack, index)) return place;
+            slot = (slot + 1) & (constants.literal_set_slots - 1);
         }
-        return false;
+        return null;
+    }
+
+    /// The bucket that holds the literal at `place` of `order`.
+    fn bucket_of(set: *const LiteralSet, place: usize) u3 {
+        assert(place < set.count);
+        for (0..constants.teddy_buckets) |bucket| {
+            if (place < set.bucket_starts[bucket + 1]) return @intCast(bucket);
+        }
+        unreachable;
     }
 
     /// The text's first `head_len` octets from `index`, or its `len` where fewer, in the order
@@ -227,6 +241,17 @@ pub const LiteralSet = extern struct {
         return std.mem.eql(u8, haystack[index + head_len ..][0 .. set.len - head_len], set.octets[literal][head_len..set.len]);
     }
 };
+
+/// Knuth's multiplier for a hash of a word: 2^64 divided by the golden ratio, odd.
+const head_hash = 0x9E37_79B9_7F4A_7C15;
+
+/// The shift that keeps the top bits of a product, as many as name a slot.
+const head_shift: u6 = @bitSizeOf(u64) - std.math.log2(constants.literal_set_slots);
+
+/// The slot a head hashes to: the top bits of its product with `head_hash`.
+pub fn slot_of(head: u64) usize {
+    return @intCast((head *% head_hash) >> head_shift);
+}
 
 /// A match of an exact set: the octets from `start` to `end`.
 pub const Place = struct { start: usize, end: usize };

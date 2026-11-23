@@ -234,6 +234,11 @@ pub const literal_wide_steps = 8;
 /// Teddy holds them in `teddy_buckets` buckets of several literals each.
 pub const literal_set_max = 64;
 
+/// The slots of a set's table of heads (literal_set.zig): twice `literal_set_max`, so the table
+/// is at most half full, and a lookup takes about one probe where it took a compare for each
+/// literal of each bucket a place fits. A power of two, so a probe wraps by a mask.
+pub const literal_set_slots = literal_set_max + literal_set_max;
+
 /// Teddy's buckets, one bit of an octet each. Literals whose octets at Teddy's two offsets share
 /// their low nibbles share a bucket (literal_set_fingerprint.zig), and a place whose octets fit a
 /// bucket compares each literal of it.
@@ -273,6 +278,9 @@ pub const nibble_mask = 0x0F;
 comptime {
     // Teddy gives each bucket one bit of an octet.
     std.debug.assert(teddy_buckets <= @bitSizeOf(u8));
+    std.debug.assert(std.math.isPowerOfTwo(literal_set_slots));
+    // A slot holds one more than a literal's place, in an octet.
+    std.debug.assert(literal_set_max < std.math.maxInt(u8));
     std.debug.assert(literal_compare_max <= literal_set_max);
 }
 
