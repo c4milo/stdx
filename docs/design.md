@@ -9381,6 +9381,23 @@ to 12 are reordered and nothing else changes.
   matcher. NOT CAUGHT, 1, the same answers: a group with one slot set read as a span. A path
   that passes a group's opening save passes its closing save, so no finished search leaves one
   slot set, and `Matcher.group`, the reference, makes the same test.
+  **Measured, 2026-11-23, at a281f4c.** Eighteen runs of the `bench` workflow, runs
+  [45215324030](https://github.com/c4milo/stdx/actions/runs/45215324030) to
+  [45215476620](https://github.com/c4milo/stdx/actions/runs/45215476620), wrote
+  `bench/results/2026-11-23-regex-groups-*`. They ran after claims R9 and R10, the backtracker's
+  steps inline, the copy of eight groups, the plain loop of four octets a turn and the groups
+  read in place.
+  - On the 18 jobs of the Neoverse N2, in the median job, stdx ran 36 of the 49 searches ahead
+    of Rust's crate, at 1.01 to 7.35, one level, and 12 behind, at 0.74 to 0.965. `extract` ran
+    at 1.04, where it ran at 0.65 at 871c6df, the lexer row at 1.03, where it ran at 0.80, and
+    `letters-ru` at 1.06, where it ran at 0.80. Behind were the literal searches:
+    `aws-keys/quick` at 0.74, `sherlock-ru` and `sherlock-en` at 0.78 and 0.79, an href
+    attribute at 0.81, and eight more at 0.85 to 0.965.
+  - The x86-64 jobs drew six models, 8 of them the AMD EPYC 7763 and 5 the EPYC 9V74. On the
+    7763, stdx ran 39 searches ahead and 10 behind, at 0.80 to 0.99, the lexer row the lowest; on
+    the 9V74, 42 ahead and 7 behind, at 0.80 to 0.96, `extract` the lowest.
+  - The README and its charts keep the runs at 4bd3bda until runs with the literal searches of
+    the next entries.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
