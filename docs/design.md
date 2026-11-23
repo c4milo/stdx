@@ -8824,6 +8824,67 @@ to 12 are reordered and nothing else changes.
     The tail now asks Teddy's tables, four lookups, for the literals whose first and last octets
     stand there, and compares those alone. The row went from 101 to 433 to 487 MB/s, where
     Rust's crate gave 735 and Go's regexp 439 in the local run of part 22m.
+  - `(?i)Sherlock` held no set of claim R5, whose `literal_set_max` was 8: its `s` has three
+    case forms, the long s among them. The owner ruled 64 on 2026-11-22, as many as Rust's crate
+    gives Teddy (decision 86). `LiteralSet.of` now reads the program's paths one octet a round,
+    and `(?i)Sherlock` is 40 literals of five octets. Three changes then made the larger sets
+    pay. The best of 40 warm runs of the driver gave each one's measure, in MB/s:
+    - The two octets Teddy compares. A Russian set's first and last octets were lead octets,
+      which stand at every other octet of a Cyrillic text. The set now takes the two offsets
+      whose octets rank rarest by their kind. With the first and last octets in their place,
+      `(?i)Шерлок Холмс` ran at 1,454 against 5,192, the Russian alternation at 1,006 against
+      5,483, and the same under `(?i)` at 513 against 1,413. A rank that held every lead
+      octet common took `(?i)Sherlock Holmes` from 3,244 to 2,113, for the long s's lead octet
+      at its first offset. So an octet past ASCII ranks rarest in a set of ASCII words.
+    - The buckets. A literal took the bucket of its place modulo 8, so a word's case forms
+      filled every bucket with a mix of nibbles. Literals whose two octets share their low
+      nibbles now share a bucket, as Rust's crate groups its literals by the low nibbles of
+      their first octets.
+    - The compare. A candidate called `std.mem.eql` once for each of 16 literals, 640
+      instructions under callgrind. Each literal's first 8 octets are now one word: the word
+      compare took `(?i)Sherlock Holmes` from 3,244 to 5,785, and the English alternation under
+      `(?i)` from 1,193 to 1,650.
+
+    | Row | bc7110b | Sets of 64, forks to 4 octets | Rust's crate, part 22m |
+    | --- | ---: | ---: | ---: |
+    | `(?i)Sherlock Holmes` | 1,050 | 5,790 | 6,606 |
+    | `(?i)Шерлок Холмс` | 3,220 | 6,180 | 4,734 |
+    | the English alternation | 10,250 | 10,930 | 7,495 |
+    | the English alternation under `(?i)` | 533 | 1,800 | 1,669 |
+    | the Russian alternation | 1,230 | 4,590 to 6,530 | 4,116 |
+    | the Russian alternation under `(?i)` | 527 | 1,585 | 1,010 |
+
+    Rust's crate ran in bench-regex's harness, and stdx in the driver, both on this container.
+    The owner then ruled forks to 8 octets on 2026-11-23 (decision 86). In two passes of the
+    driver each, `(?i)Шерлок Холмс` ran at 8,140 and 7,808 MB/s in place of 4,429 and 6,077, and
+    the Russian alternation under `(?i)` at 1,829 and 1,835 in place of 1,580 and 1,597. Forks to
+    5 octets cut the alternation's Cyrillic letters in two, and ran it at 889 and 714. The English
+    rows did not move past the noise.
+  **Check, the literal sets:** `of` reads a set from the program's paths, with its count and its
+  length, and none where a path ends short, a branch takes a class or an assertion, or one
+  literal stands alone; a round past `literal_set_max` paths keeps the round before; `prepare`
+  ranks each kind of octet, picks the offsets of an English set, a Cyrillic set and a set with
+  a capital, puts a word's case forms in one bucket and other words in others, and spreads 64
+  keys over 8 buckets; Teddy's tables give exactly the literals at every pair of octets where
+  each bucket holds one; sets of 2 to 64 literals of 2 to 12 octets, in texts with their
+  literals planted whole and with one octet changed, give the plain search's place from every
+  offset, by the compares, by SSSE3's Teddy and by AVX2's; the Go differential check passes;
+  mutations.
+  **Check passed, the literal sets, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18,
+  in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,543 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 28, all CAUGHT. The rank: a continuation octet
+    commonest past ASCII; a lead octet commonest in an ASCII set; a space rare; no set past
+    ASCII; an offset at its rarest rank; a tie kept for the first pair, or given to the last.
+    The buckets: a key of the first octet alone, or of high nibbles; keys modulo the buckets;
+    the literals unsorted; the last buckets ending at zero. The heads: a mask of every octet;
+    heads in the literals' order; a short text's head shifted by half; a tail that always
+    stands, or read for the wrong literal; a bucket that compares its first literal alone. The
+    offsets: the compares' first octets read at the place; the scalar search's last octet at
+    the set's end; the tables' first octet at 0; Teddy's first octets read at the place. The
+    paths: a fork past `literal_fork_len_max` octets; no set where a round passes the limit; a match not whole;
+    the preferred branch second; a range of several octets taken; a path of one octet kept.
   **Check, the trie:** the trie takes an alternation of more than `literal_set_max` literals
   and nothing else; 300 sets of 9 to 40 literals a seed draws over three letters match as the
   parser's program does, by the matcher and the searcher, from every start; escaped, grouped

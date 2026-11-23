@@ -5849,33 +5849,65 @@ last part lists what still waits on a ruling.
       - R4 does not run where every match starts at the text's start, or where a literal starts
         every match. It runs only with R1, so `stdx, no skip` turns it off, and
         `SearcherClaims.suffix` turns it off alone.
-    - Claim R5: where the forward program starts with an alternation, each branch starts with a
-      literal, and no one literal starts every match, R1's skip goes to the next place of one of
-      them, as in `Abraham|Isaac|Jacob|Joseph` (design §8 step 22, part 22c).
-      - `LiteralSet.of` walks the splits from the entry, and reads each branch's literal as
-        claim R2 does, with no assertion and no place that folds. It keeps at most
-        `literal_set_max`, 8, and each one's first octets up to the shortest one's length.
-      - `LiteralSet.find` compares each literal's first and last octets at their distance, 16
-        octets a step and 4 steps a block, ORs the compares, and compares the literals whole
-        where a pair stands. It needs SSE2 or NEON alone, and takes AVX2's 32 lanes as R2 does.
+    - Claim R5: where every match starts with one of several literals, and no one literal starts
+      every match, R1's skip goes to the next place of one of them, as in
+      `Abraham|Isaac|Jacob|Joseph` (design §8 step 22, parts 22c and 22n).
+      - `LiteralSet.of` reads each path from the forward program's entry, one octet a round
+        (`literal_set_paths.zig`, amended 2026-11-22). A path passes saves and jumps, and takes
+        the octet of an instruction that takes one octet alone. A split forks it in two, the
+        preferred branch first, while it holds fewer than `literal_fork_len_max`, 8, octets. A
+        path ends at `match`, at an assertion and at an instruction that takes more than one
+        octet. A round that would hold more than `literal_set_max` paths is not taken. The set
+        keeps each path's octets up to the shortest one's length, at least
+        `literal_prefix_len_min`, 2. So `(?i)Sherlock` is 40 literals of five octets, a case form
+        of `sherl` or of `ſher` each.
+      - `literal_set_max` is 64 by the owner's ruling of 2026-11-22, as many as Rust's crate
+        gives Teddy. It was 8, so `(?i)Sherlock`, whose `s` has three case forms, held no set.
+      - `literal_fork_len_max` is 8 by the owner's ruling of 2026-11-23: four letters of a script
+        of two octets a letter, such as Cyrillic. At 4, `(?i)Шерлок Холмс` held two letters and
+        ran at about 5,250 MB/s, and at 8 at about 8,000. An ASCII word under `(?i)` reaches
+        `literal_set_max` first.
+      - `LiteralSet.find` compares each literal's octets at two offsets, `first_at` and
+        `last_at`, 16 octets a step and 4 steps a block, ORs the compares, and compares the
+        literals whole where a pair stands. It needs SSE2 or NEON alone, and takes AVX2's 32
+        lanes as R2 does. Past `literal_compare_max` literals, 8, it takes Teddy's tables one
+        offset at a time.
       - From `teddy_count_min` literals, 4, a target with a lookup of nibbles takes Teddy, from
         Hyperscan (Wang and others, NSDI 2019), as Rust's crate does (`literal_teddy.zig`):
         aarch64's own build with NEON's TBL, x86-64's AVX2 object with VPSHUFB, and its SSSE3
         object with PSHUFB, for a CPU with SSSE3 and no AVX2. The baseline of x86-64, SSE2, has
         no lookup, and keeps the compares, as Rust's Teddy needs SSSE3 too.
-      - Each literal takes one bit of an octet. Four tables of 16 entries give the literals'
-        bits by the low and the high nibble of their first octet and of their last. A step costs
-        four lookups whatever the count, where the compares cost two for each literal. The
-        tables find the places the compares find, so the two differ in their cost alone.
+      - Teddy puts the literals in `teddy_buckets` buckets, 8, one bit of an octet each. Four
+        tables of 16 entries give the buckets' bits by the low and the high nibble of the
+        literals' octets at the two offsets. A step costs four lookups whatever the count, where
+        the compares cost two for each literal. A bucket of one literal gives that literal's
+        places exactly. A bucket of several also gives places where one literal's nibble stands
+        beside another's, and the whole compare refuses them.
+      - The two offsets (`literal_set_fingerprint.zig`, added 2026-11-22). stdx holds no table of
+        how often each octet stands in a text, so it ranks an octet by its kind. In a set whose
+        octets are mostly past ASCII, a UTF-8 continuation octet is the rarest, and a lead octet
+        the commonest: 0xD0 and 0xD1 start every Cyrillic letter. In any other set, every octet
+        past ASCII is the rarest. A capital, a digit or a mark is rarer than a lowercase letter
+        or a space. An offset takes the worst rank of its octets, and the set takes the two
+        offsets of the least sum, the widest apart where sums tie. So an English set keeps its
+        first and last octets, and `(?i)Шерлок` takes the continuations of `Ш` and `е`.
+      - The buckets. Literals whose octets at the two offsets share their low nibbles share a
+        bucket, as the case forms of a word do. The bucket's tables then take those forms' octets
+        and few others. Where more than 8 pairs of low nibbles stand, the pairs in their order
+        share the buckets evenly. Rust's crate puts literals whose first octets share their low
+        nibbles in one bucket too.
+      - A whole compare reads each literal's first 8 octets as one word, `heads`, so each
+        literal of a bucket costs one compare of words. Before, a call of `std.mem.eql` for each
+        of 16 literals cost 640 instructions a candidate.
       - The alternative refused: Hyperscan's tables of the first three octets. On a Xeon they
         took six lookups a step and ran at about 12.6 GB/s whatever the set, under the compares'
         16.6 for three absent literals. They passed every place of `the` to the whole compare,
         and ran `thou|thee` at 0.71 of the compares' speed, where the first and last octets ran
         it at 0.97.
-      - Where every branch is its literal and nothing more, `LiteralSet.exact` holds, and the
-        searcher runs no DFA, as claim R2 does for one literal. A match is the first place where a
-        literal stands whole, and there the first literal of the set that does: the set keeps the
-        alternation's order, so this is RE2's leftmost-first match.
+      - Where every path ends at `match`, `LiteralSet.exact` holds, and the searcher runs no DFA,
+        as claim R2 does for one literal. A match is the first place where a literal stands
+        whole, and there the first literal of the set that does: the set keeps the alternation's
+        order, so this is RE2's leftmost-first match.
       - A set calls the AVX2 object from its first octet. `Literal.find` searches one block inline
         first, but a set's 16-lane compares cost more than the call.
       - R5 runs only with R1, so `stdx, no skip` turns it off, and `SearcherClaims.literal_set`
@@ -5968,8 +6000,9 @@ last part lists what still waits on a ruling.
     `dfa_give_ups_max`, 8; `cache_words_default`, 2^19 words; and `dfa_slots_first`, 64, the slots
     of a cache's hash table that `init` and a clear write before the table doubles. Claim R2's: `literal_len_max`,
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
-    and `avx2_lanes`, 32. Claim R5's:
-    `literal_set_max`, 8, and `literal_set_count_min`, 2. Claim R6's: `one_pass_instructions_max`,
+    and `avx2_lanes`, 32. Claim R5's: `literal_set_max`, 64; `literal_set_count_min`, 2;
+    `literal_fork_len_max`, 8; `literal_compare_max`, 8; `teddy_count_min`, 4; and
+    `teddy_buckets`, 8. Claim R6's: `one_pass_instructions_max`,
     1,024. Claim R7's: `pair_classes_max`, 32; `pair_states_max`, 64; and `pair_memory_parts`,
     4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
@@ -6192,7 +6225,7 @@ last part lists what still waits on a ruling.
       `\p{...}` and for `(?i)` past ASCII, which the owner ruled on 2026-11-22 (above). With them
       the module takes RFC 9485 §3's `\p{...}`.
     - **owner** The values of `depth_max` and `groups_max`, which no source fixes. The owner
-      ruled `class_ranges_max` and `cache_words_default` on 2026-11-22.
+      ruled `class_ranges_max`, `cache_words_default` and `literal_set_max` on 2026-11-22.
 
     **The sources.** Each was read for this entry on 2026-11-21, the papers at the address shown.
     - K. Thompson, "Regular Expression Search Algorithm", CACM 11(6), 1968.

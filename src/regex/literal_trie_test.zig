@@ -38,46 +38,79 @@ fn takes(pattern: []const u8) !bool {
     return (try literal_trie.alternation(&builder, pattern, false)) != null;
 }
 
+/// The room a test's pattern takes, its fillers included.
+const pattern_room = 1024;
+
+/// `head`, then `|` and filler literals `z00`, `z01` and on, until the pattern holds `total`
+/// literals. No filler starts as a literal of a head does, or ends as one ends.
+fn filled(buffer: *[pattern_room]u8, head: []const u8, total: usize) []const u8 {
+    @memcpy(buffer[0..head.len], head);
+    var len = head.len;
+    // The bars of the head that no `\\` escapes.
+    var count: usize = 1;
+    for (head, 0..) |octet, index| count += @intFromBool(octet == '|' and (index == 0 or head[index - 1] != '\\'));
+    var filler: usize = 0;
+    while (count < total) : ({
+        count += 1;
+        filler += 1;
+    }) {
+        const written = std.fmt.bufPrint(buffer[len..], "|z{d:0>2}", .{filler}) catch unreachable;
+        len += written.len;
+    }
+    return buffer[0..len];
+}
+
+/// The literals a pattern of the trie holds at least.
+const trie_literals = constants.literal_set_max + 1;
+
+/// `takes` of `head` filled to `trie_literals` literals.
+fn takes_filled(head: []const u8) !bool {
+    var buffer: [pattern_room]u8 = undefined;
+    return takes(filled(&buffer, head, trie_literals));
+}
+
 test "the trie takes an alternation of more than literal_set_max literals, and nothing else" {
-    try testing.expect(try takes("a|b|c|d|e|f|g|h|i"));
-    try testing.expect(try takes("(?:a)|b|(?:c)|d|e|f|g|h|\\.\\+"));
-    try testing.expect(try takes("\xC3\xA9|b|c|d|e|f|g|h|\xE6\x97\xA5"));
+    try testing.expect(try takes_filled("a|b|c"));
+    try testing.expect(try takes_filled("(?:a)|b|(?:c)|\\.\\+"));
+    try testing.expect(try takes_filled("\xC3\xA9|b|\xE6\x97\xA5"));
     // A literal in the same set twice, and one that starts another.
-    try testing.expect(try takes("ab|a|abc|b|c|d|e|f|ab"));
+    try testing.expect(try takes_filled("ab|a|abc|b|ab"));
     // No more than `literal_set_max` literals: claim R5's exact set is the better way. An
     // escaped `|` passes the count of bars, and the scan counts the literals.
-    try testing.expect(!try takes("a|b|c|d|e|f|g|h"));
-    try testing.expect(!try takes("a\\||b|c|d|e|f|g|h"));
+    var buffer: [pattern_room]u8 = undefined;
+    try testing.expect(!try takes(filled(&buffer, "a", constants.literal_set_max)));
+    try testing.expect(!try takes(filled(&buffer, "a\\|", constants.literal_set_max)));
     // Anything but literals, each alone or in `(?:` and `)`.
     const others = [_][]const u8{
-        "a|b|c|d|e|f|g|h|i*",    "a|b|c|d|e|f|g|h|",    "a|b|c|d|e|f|g|h|[i]",   "a|b|c|d|e|f|g|h|\\d",
-        "(?:a|b|c|d|e|f|g|h|i)", "(a)|b|c|d|e|f|g|h|i", "(?i)a|b|c|d|e|f|g|h|i", "a|b|c|d|e|f|g|h|(?:i",
-        "a|b|c|d|e|f|g|h|i)",    "a|b|c|d|e|f|g|h|.",   "a|b|c|d|e|f|g|h|^i",    "(?:a)b|c|d|e|f|g|h|i|j",
+        "i*",     "|a", "[i]", "\\d",    "(?:a|b)", "(a)", "(?i)a", "(?:i", "i)",
+        "\\x61b", ".",  "^i",  "(?:a)b",
     };
     for (others) |pattern| {
-        if (try takes(pattern)) return error.TestUnexpectedTrie;
+        if (try takes_filled(pattern)) return error.TestUnexpectedTrie;
     }
     // A pattern that is no UTF-8: the parser refuses it.
-    try testing.expect(!try takes("a|b|c|d|e|f|g|h|\xFF"));
+    try testing.expect(!try takes_filled("a|\xFF"));
 }
 
 test "a forward node whose end stands between two answers of one branch takes the parser" {
     // After `ab`, `abc` comes before `a` and `abd` after it: `a` wins over `abd` and loses to
     // `abc`, so no order of `a`'s node puts its end.
-    try testing.expect(!try takes("abc|a|abd|x|y|z|w|v|u"));
+    try testing.expect(!try takes_filled("abc|a|abd"));
     // `abc` starts `abcd` and comes first, so no match through `abc`'s branch takes `abcd`:
     // the branch's answers all come before `ab`, which ends after them.
-    try testing.expect(try takes("abc|ab|abcd|x|y|z|w|v|u"));
-    try testing.expect(try takes("ab|abc|abcd|x|y|z|w|v|u"));
-    try testing.expect(try takes("abcd|abc|ab|x|y|z|w|v|u"));
+    try testing.expect(try takes_filled("abc|ab|abcd"));
+    try testing.expect(try takes_filled("ab|abc|abcd"));
+    try testing.expect(try takes_filled("abcd|abc|ab"));
 }
 
-/// The literals a seed draws: 9 to 40, each of 1 to 5 octets of `alphabet`, so that many start
-/// others and some stand twice.
-const literals_min = constants.literal_set_max + 1;
-const literals_max = 40;
-const literal_len_max = 5;
-const alphabet = "abc";
+/// The literals a seed draws: 65 to 100, each of 2 to 6 octets of `alphabet`, so that some start
+/// others and a few stand twice.
+const literals_min = trie_literals;
+const literals_extra_max = 35;
+const literals_max = literals_min + literals_extra_max;
+const literal_len_min = 2;
+const literal_len_max = 6;
+const alphabet = "abcdefgh";
 const random_sets = 300;
 const texts_per_set = 8;
 const text_len = 24;
@@ -99,7 +132,7 @@ fn random_pattern(generator: *Generator, buffer: []u8) []const u8 {
             @memcpy(buffer[len..][0..opener.len], opener);
             len += opener.len;
         }
-        for (0..1 + generator.below(literal_len_max)) |_| {
+        for (0..literal_len_min + generator.below(literal_len_max - literal_len_min + 1)) |_| {
             buffer[len] = alphabet[generator.below(alphabet.len)];
             len += 1;
         }
@@ -140,17 +173,18 @@ test "a trie matches as the parser's program does, from every start, by matcher 
             }
         }
     }
-    // Three letters nest the literals' starts densely, so many sets have a node with no order
-    // for its end: the seed gave 73 tries of 300 sets. The bound keeps the test reading tries,
-    // and not the parser's programs alone.
-    try testing.expect(taken * 5 > random_sets);
+    // Some sets hold a node with no order for its end: the seed gave 235 tries of 300 sets. The
+    // bound keeps the test reading tries, and not the parser's programs alone.
+    try testing.expect(taken * 2 > random_sets);
 }
 
 /// Requires the trie's program of `pattern` to match each text as the parser's program does.
-fn expect_as_parsed(pattern: []const u8, texts: []const []const u8) !void {
+fn expect_as_parsed(head: []const u8, texts: []const []const u8) !void {
     var trie: Fixture = .{};
     var parsed: Fixture = .{};
     var wrapped: [storage_len]u8 = undefined;
+    var buffer: [pattern_room]u8 = undefined;
+    const pattern = filled(&buffer, head, trie_literals);
     try testing.expect(try takes(pattern));
     try trie.init(pattern);
     try parsed.init(try std.fmt.bufPrint(&wrapped, "(?:{s})", .{pattern}));
@@ -167,7 +201,8 @@ test "a trie of escaped, grouped and UTF-8 literals matches as the parser's prog
 }
 
 test "a trie with no room past its program for its lists takes the parser" {
-    const pattern = "abc|abd|abe|x|y|z|w|v|u|t";
+    var buffer: [pattern_room]u8 = undefined;
+    const pattern = filled(&buffer, "abc|abd|abe", trie_literals);
     var storage: [storage_len]program_file.Instruction = undefined;
     // The least storage in which the trie builds.
     var least: usize = 0;
@@ -205,26 +240,53 @@ fn reverse_root(program: *const program_file.Program) u32 {
     return root;
 }
 
-/// Requires the node `steps` single ranges past the reverse root to have two branches, each a
-/// range: the literals' last octets after those steps, `a` and `b`.
-fn expect_two_branches(pattern: []const u8, steps: usize) !void {
-    var fixture: Fixture = .{};
-    try fixture.init(pattern);
-    const instructions = fixture.program.instructions;
-    var node = reverse_root(&fixture.program);
-    for (0..steps) |_| {
-        try testing.expectEqual(program_file.Kind.range, instructions[node].kind);
-        node = instructions[node].out;
+/// The branches of the node at `node` that take `octet` alone: the ranges its splits lead to.
+fn branches_taking(program: *const program_file.Program, node: u32, octet: u8, found: *[storage_len]u32) []const u32 {
+    var stack: [storage_len]u32 = undefined;
+    stack[0] = node;
+    var stack_len: usize = 1;
+    var count: usize = 0;
+    for (0..program.instructions.len) |_| {
+        if (stack_len == 0) break;
+        stack_len -= 1;
+        const instruction = program.instructions[stack[stack_len]];
+        switch (instruction.kind) {
+            .split => {
+                stack[stack_len] = instruction.arg;
+                stack[stack_len + 1] = instruction.out;
+                stack_len += constants.targets_per_instruction;
+            },
+            .range => if (instruction.lo == octet and instruction.hi == octet) {
+                found[count] = stack[stack_len];
+                count += 1;
+            },
+            else => {},
+        }
     }
-    try testing.expectEqual(program_file.Kind.split, instructions[node].kind);
-    try testing.expectEqual(program_file.Kind.range, instructions[instructions[node].out].kind);
-    try testing.expectEqual(program_file.Kind.range, instructions[instructions[node].arg].kind);
+    return found[0..count];
+}
+
+/// Requires the node past `prefix`, read from the reverse root, to hold one branch that takes
+/// `a` and one that takes `b`: the literals' octets before `prefix`.
+fn expect_one_branch_each(head: []const u8, prefix: []const u8) !void {
+    var fixture: Fixture = .{};
+    var buffer: [pattern_room]u8 = undefined;
+    try fixture.init(filled(&buffer, head, trie_literals));
+    var found: [storage_len]u32 = undefined;
+    var node = reverse_root(&fixture.program);
+    for (prefix) |octet| {
+        const branches = branches_taking(&fixture.program, node, octet, &found);
+        try testing.expectEqual(1, branches.len);
+        node = fixture.program.instructions[branches[0]].out;
+    }
+    try testing.expectEqual(1, branches_taking(&fixture.program, node, 'a', &found).len);
+    try testing.expectEqual(1, branches_taking(&fixture.program, node, 'b', &found).len);
 }
 
 test "the reverse program of literals that end alike reads each last octet once" {
     // Sorted from the first octet, the literals end in `a` and `b` in turn, so a trie built in
     // that order would hold a branch for each literal there.
-    try expect_two_branches("pa|qb|ra|sb|ta|ub|va|wb|xa|yb", 0);
+    try expect_one_branch_each("pa|qb|ra|sb|ta|ub|va|wb|xa|yb", "");
     // The same past eight octets that every literal ends with, which a sort key holds whole.
-    try expect_two_branches("pazzzzzzzz|qbzzzzzzzz|razzzzzzzz|sbzzzzzzzz|tazzzzzzzz|ubzzzzzzzz|vazzzzzzzz|wbzzzzzzzz|xazzzzzzzz|ybzzzzzzzz", 8);
+    try expect_one_branch_each("pazzzzzzzz|qbzzzzzzzz|razzzzzzzz|sbzzzzzzzz|tazzzzzzzz|ubzzzzzzzz|vazzzzzzzz|wbzzzzzzzz|xazzzzzzzz|ybzzzzzzzz", "zzzzzzzz");
 }

@@ -300,8 +300,9 @@ test "a cache that clears on a text with few states for its length goes on witho
     }
     @memcpy(text[text.len - word_len ..], "b=1");
     var fixture: Fixture = .{};
-    try fixture.init(&pattern, 0);
-    try fixture.init(&pattern, cache_sizes(&fixture.program).least);
+    // Claim R5 would take the forty words as an exact set, and run no DFA.
+    try fixture.init_claims(&pattern, .{ .literal_set = false }, 0);
+    try fixture.init_claims(&pattern, .{ .literal_set = false }, cache_sizes(&fixture.program).least);
     try fixture.expect_agree(&text, 0);
     try testing.expectEqual(@as(?Span, .{ .start = text.len - word_len, .end = text.len }), fixture.searcher.find(&text, 0));
     try testing.expect(fixture.searcher.forward.cache.clears > 0);

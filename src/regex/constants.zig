@@ -222,10 +222,30 @@ pub const literal_steps = 4;
 /// A block of `literal_steps` then takes what is left before the octets one at a time.
 pub const literal_wide_steps = 8;
 
-/// The literals claim R5 searches for at most, one of which every match starts with. Each costs
+/// The literals claim R5 searches for at most, one of which every match starts with: 64, as many
+/// as Rust's regex crate gives Teddy. The owner ruled it on 2026-11-22 (decision 86 as amended):
+/// `(?i)Sherlock` starts with 24 variants of its first four letters, `s` having three case forms.
+/// Teddy holds them in `teddy_buckets` buckets of several literals each.
+pub const literal_set_max = 64;
+
+/// Teddy's buckets, one bit of an octet each. Literals whose octets at Teddy's two offsets share
+/// their low nibbles share a bucket (literal_set_fingerprint.zig), and a place whose octets fit a
+/// bucket compares each literal of it.
+pub const teddy_buckets = 8;
+
+/// The most literals claim R5 compares with each lane where the target has no Teddy. Each costs
 /// two compares and an AND a vector, so eight cost about two instructions an octet, under the
-/// forward DFA's dozen. A pattern with more branches takes claim R1's skip.
-pub const literal_set_max = 8;
+/// forward DFA's dozen. A larger set takes Teddy's tables one offset at a time there.
+pub const literal_compare_max = 8;
+
+/// The octets a path of claim R5's literals holds before a split ends it, as `LiteralSet.of`
+/// reads them. Each split forks a path in two, so a split past this many octets stops the path,
+/// and a loop forks no path without end. Eight octets are four letters of a script of two octets
+/// a letter, such as Cyrillic, where `(?i)Шерлок` gives 16 literals. An ASCII word under `(?i)`
+/// reaches `literal_set_max` first. The owner ruled 8 on 2026-11-23 (decision 86): at 4,
+/// `(?i)Шерлок Холмс` held two letters and ran at about 5,250 MB/s, and at 8 at about 8,000. A
+/// run of single octets goes on past it, to `literal_len_max`.
+pub const literal_fork_len_max = 8;
 
 /// The fewest literals claim R5 searches for: one literal is claim R2's.
 pub const literal_set_count_min = 2;
@@ -245,8 +265,9 @@ pub const nibble_bits = 4;
 pub const nibble_mask = 0x0F;
 
 comptime {
-    // Teddy gives each literal one bit of an octet.
-    std.debug.assert(literal_set_max <= @bitSizeOf(u8));
+    // Teddy gives each bucket one bit of an octet.
+    std.debug.assert(teddy_buckets <= @bitSizeOf(u8));
+    std.debug.assert(literal_compare_max <= literal_set_max);
 }
 
 /// The most classes of octets a program may hold for claim R7's pair rows: a state's pair row

@@ -132,14 +132,6 @@ pub const Literal = extern struct {
     }
 };
 
-/// Claim R5: the literal that a branch of an alternation starts with at `entry`, with no
-/// assertion and no place that folds. Null where the branch starts with no octet.
-pub fn branch_of(program: *const Program, entry: u32) ?Literal {
-    const found = walk(program, entry, false);
-    if (found.literal.len == 0 or found.literal.folds != 0) return null;
-    return found.literal;
-}
-
 /// A literal every match ends with, and the first instruction of the reverse program after it.
 pub const Suffix = struct { literal: Literal, before: u32 };
 

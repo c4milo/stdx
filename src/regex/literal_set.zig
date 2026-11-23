@@ -1,14 +1,16 @@
 //! Claim R5 (decision 86): the literals one of which every match starts with, as in
 //! `Abraham|Isaac|Jacob|Joseph`, and the search for the next place of one.
 //!
-//! A forward program that starts with an alternation splits into branches. Where each branch
-//! starts with a literal, every match starts with one of them, and no match starts where none
-//! stands. `LiteralSet.of` keeps each literal's first `len` octets, the length of the shortest,
-//! so that every literal's first and last octets stand at one distance. Where the target has
-//! NEON's TBL, or AVX2's VPSHUFB in the variant object, `find` takes Teddy (literal_teddy.zig),
-//! whose step costs the same for two literals as for eight. Elsewhere it compares the text with
-//! each literal's first and last octets, `skip_lanes` octets a step, as claim R2 does for one,
-//! which needs SSE2 alone. Either compares each literal whole where its first octets stand.
+//! `LiteralSet.of` reads the literals from the paths of the forward program
+//! (literal_set_paths.zig). Every match starts with one of them, and no match starts where none
+//! stands. The set keeps each literal's first `len` octets, the length of the shortest, so that
+//! every literal's octets at two offsets, `first_at` and `last_at`, stand at one distance.
+//! `prepare` chooses the offsets and Teddy's buckets (literal_set_fingerprint.zig). Where the
+//! target has NEON's TBL, or AVX2's VPSHUFB in the variant object, `find` takes Teddy
+//! (literal_teddy.zig), whose step costs the same for two literals as for eight. Elsewhere it
+//! compares the text with each literal's two octets, `skip_lanes` octets a step, as claim R2 does
+//! for one, which needs SSE2 alone. Either compares each literal whole where its two octets
+//! stand.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
@@ -17,12 +19,12 @@ const Program = program_file.Program;
 const literal_file = @import("literal.zig");
 const literal_teddy = @import("literal_teddy.zig");
 
+/// The octets of a literal's head: one word.
+pub const head_len = @sizeOf(u64);
+
 /// The octets of a block, whatever the width of a step.
 const block_len = constants.literal_steps * constants.skip_lanes;
 const BlockMask = std.meta.Int(.unsigned, block_len);
-
-/// The branches of a split.
-const split_branches = 2;
 
 extern fn stdx_regex_literal_set_find_x86_64_avx2(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
 extern fn stdx_regex_literal_set_find_x86_64_ssse3(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
@@ -47,44 +49,26 @@ pub const LiteralSet = extern struct {
     /// True when each literal is its whole branch: a match is then the first place where a
     /// literal stands whole, and there the first literal of the set that does (`find_exact`).
     exact: bool = false,
+    /// The two offsets below `len` whose octets Teddy's tables and the compares take, the rarest
+    /// by their kind (literal_set_fingerprint.zig).
+    first_at: u8 = 0,
+    last_at: u8 = 0,
+    /// The literals by bucket: Teddy's bucket `b` holds `order[bucket_starts[b]..][0..n]`, with
+    /// `n` the next start less its own.
+    order: [constants.literal_set_max]u8 = undefined,
+    bucket_starts: [constants.teddy_buckets + 1]u8 = undefined,
+    /// The first `head_len` octets of each literal of `order`, or its `len` where fewer, as one
+    /// little-endian word, so that a compare of a place costs one compare of words for each
+    /// literal, and a bucket's words stand together.
+    heads: [constants.literal_set_max]u64 = undefined,
+    /// The bits of a word that the set's first `len` octets fill.
+    head_mask: u64 = undefined,
 
-    /// The literals of the alternation that `program` starts with, or null where a branch starts
-    /// with no literal, where the branches are more than `literal_set_max`, or where the shortest
-    /// literal is under `literal_prefix_len_min`.
-    pub fn of(program: *const Program) ?LiteralSet {
-        var set: LiteralSet = .{ .octets = undefined, .count = 0, .len = constants.literal_len_max, .exact = true };
-        var stack: [constants.literal_set_max]u32 = undefined;
-        stack[0] = program.forward;
-        var stack_len: usize = 1;
-        // Each turn takes one branch, or splits one in two. A set has at most `literal_set_max`
-        // branches, so it has at most one split fewer.
-        for (0..split_branches * constants.literal_set_max) |_| {
-            if (stack_len == 0) break;
-            stack_len -= 1;
-            const entry = past_saves(program, stack[stack_len]);
-            const instruction = program.instructions[entry];
-            // A split of a letter's two cases is two branches too, each with one case.
-            if (instruction.kind == .split) {
-                if (set.count + stack_len + split_branches > constants.literal_set_max) return null;
-                stack[stack_len] = instruction.arg;
-                stack[stack_len + 1] = instruction.out;
-                stack_len += split_branches;
-                continue;
-            }
-            const literal = literal_file.branch_of(program, entry) orelse return null;
-            @memcpy(set.octets[set.count][0..literal.len], literal.slice());
-            set.lens[set.count] = literal.len;
-            set.exact = set.exact and literal.exact;
-            set.len = @min(set.len, literal.len);
-            set.count += 1;
-        }
-        // The bound on the branches bounds the turns: at most `literal_set_max` branches and
-        // one split fewer.
-        assert(stack_len == 0);
-        if (set.count < constants.literal_set_count_min or set.len < constants.literal_prefix_len_min) return null;
-        set.teddy = .of(&set);
-        return set;
-    }
+    /// The literals one of which every match of `program` starts with (literal_set_paths.zig).
+    pub const of = @import("literal_set_paths.zig").of;
+
+    /// Writes the offsets, the buckets and Teddy's tables of the set's literals.
+    pub const prepare = @import("literal_set_fingerprint.zig").prepare;
 
     /// The first offset at or after `from` where a literal of the set stands, or null.
     pub fn find(set: *const LiteralSet, haystack: []const u8, from: usize) ?usize {
@@ -147,8 +131,10 @@ pub const LiteralSet = extern struct {
         if (comptime literal_teddy.runs(width)) {
             if (set.count >= constants.teddy_count_min) return literal_teddy.find(width, set, haystack, from, end);
         }
+        // Past `literal_compare_max` literals the compares cost more than one offset at a time.
+        if (set.count > constants.literal_compare_max) return set.find_scalar(haystack, from, end);
         return switch (set.count) {
-            inline constants.literal_set_count_min...constants.literal_set_max => |count| set.find_of(width, count, haystack, from, end),
+            inline constants.literal_set_count_min...constants.literal_compare_max => |count| set.find_of(width, count, haystack, from, end),
             else => unreachable,
         };
     }
@@ -156,18 +142,19 @@ pub const LiteralSet = extern struct {
     /// The first place of a literal of the set that starts at or after `from` and before `end`,
     /// where the haystack holds the set's `len` octets from each such place.
     fn find_of(set: *const LiteralSet, comptime width: usize, comptime count: usize, haystack: []const u8, from: usize, end: usize) ?usize {
-        const last = set.len - 1;
+        const first = set.first_at;
+        const last = set.last_at;
         const Search = Lanes(width, count);
         var wanted: Search.Wanted = undefined;
         inline for (0..count) |literal| {
-            wanted.firsts[literal] = @splat(set.octets[literal][0]);
+            wanted.firsts[literal] = @splat(set.octets[literal][first]);
             wanted.lasts[literal] = @splat(set.octets[literal][last]);
         }
         var index = from;
-        // A block reads `block_len` octets from `index` and as many from `index + last`, whose
-        // last is `end + block_len - 2 + last`, under the haystack's length.
+        // A block reads `block_len` octets from `index + first` and as many from `index + last`,
+        // whose last is `end + block_len - 2 + last`, under the haystack's length.
         while (end - index >= block_len) : (index += block_len) {
-            const firsts = haystack[index..][0..block_len];
+            const firsts = haystack[index + first ..][0..block_len];
             const lasts = haystack[index + last ..][0..block_len];
             if (!Search.any_candidate(firsts, lasts, &wanted)) continue;
             var mask = Search.candidates(firsts, lasts, &wanted);
@@ -181,14 +168,13 @@ pub const LiteralSet = extern struct {
     }
 
     /// The first place at or after `from` and before `end` where a literal of the set stands,
-    /// one offset at a time. Teddy's tables give, in four lookups, the literals whose first and
-    /// last octets stand there, so an offset where none does costs no compare. A text shorter
+    /// one offset at a time. Teddy's tables give, in four lookups, the buckets whose literals'
+    /// two octets may stand there, so an offset where none does costs no compare. A text shorter
     /// than a block, such as a line, is searched all this way.
     pub fn find_scalar(set: *const LiteralSet, haystack: []const u8, from: usize, end: usize) ?usize {
         assert(end <= haystack.len - set.len + 1);
-        const last = set.len - 1;
         for (from..end) |candidate| {
-            const bits = set.teddy.bits_at(haystack[candidate], haystack[candidate + last]);
+            const bits = set.teddy.bits_at(haystack[candidate + set.first_at], haystack[candidate + set.last_at]);
             if (bits != 0 and set.stands_among(bits, haystack, candidate)) return candidate;
         }
         return null;
@@ -197,39 +183,49 @@ pub const LiteralSet = extern struct {
     /// True when a literal of the set stands whole at `index`: at most `literal_set_max`
     /// compares of `len` octets.
     pub fn stands_at(set: *const LiteralSet, haystack: []const u8, index: usize) bool {
-        const text = haystack[index..][0..set.len];
-        for (set.octets[0..set.count]) |*octets| {
-            if (std.mem.eql(u8, text, octets[0..set.len])) return true;
+        return set.stands_between(0, set.count, haystack, index);
+    }
+
+    /// True when a literal of a bucket whose bit `bits` holds stands whole at `index`: a compare
+    /// of `len` octets for each literal of each bucket, as Teddy's tables give them
+    /// (literal_teddy.zig).
+    pub fn stands_among(set: *const LiteralSet, bits: u8, haystack: []const u8, index: usize) bool {
+        var left = bits;
+        // Each set bit is one bucket, at most `teddy_buckets` of them.
+        while (left != 0) : (left &= left - 1) {
+            const bucket = @ctz(left);
+            if (set.stands_between(set.bucket_starts[bucket], set.bucket_starts[bucket + 1], haystack, index)) return true;
         }
         return false;
     }
 
-    /// True when a literal whose bit `bits` holds stands whole at `index`: a compare of `len`
-    /// octets for each bit, as Teddy's tables give them (literal_teddy.zig).
-    pub fn stands_among(set: *const LiteralSet, bits: u8, haystack: []const u8, index: usize) bool {
-        const text = haystack[index..][0..set.len];
-        var left = bits;
-        // Each set bit is one literal, at most `literal_set_max` of them.
-        while (left != 0) : (left &= left - 1) {
-            if (std.mem.eql(u8, text, set.octets[@ctz(left)][0..set.len])) return true;
+    /// True when a literal of `order` from `start` to `end` stands whole at `index`.
+    inline fn stands_between(set: *const LiteralSet, start: usize, end: usize, haystack: []const u8, index: usize) bool {
+        const head = set.head_at(haystack, index);
+        for (set.heads[start..end], start..) |literal_head, place| {
+            if (literal_head == head and set.tail_at(set.order[place], haystack, index)) return true;
         }
         return false;
+    }
+
+    /// The text's first `head_len` octets from `index`, or its `len` where fewer, in the order
+    /// of `heads`. The haystack holds the set's `len` octets from `index`.
+    inline fn head_at(set: *const LiteralSet, haystack: []const u8, index: usize) u64 {
+        if (haystack.len - index >= head_len) return std.mem.readInt(u64, haystack[index..][0..head_len], .little) & set.head_mask;
+        var head: u64 = 0;
+        for (haystack[index..][0..set.len], 0..) |octet, place| head |= @as(u64, octet) << @intCast(place * @bitSizeOf(u8));
+        return head;
+    }
+
+    /// True when the octets of `literal` past its head stand at `index` past the text's head.
+    inline fn tail_at(set: *const LiteralSet, literal: usize, haystack: []const u8, index: usize) bool {
+        if (set.len <= head_len) return true;
+        return std.mem.eql(u8, haystack[index + head_len ..][0 .. set.len - head_len], set.octets[literal][head_len..set.len]);
     }
 };
 
 /// A match of an exact set: the octets from `start` to `end`.
 pub const Place = struct { start: usize, end: usize };
-
-/// Follows saves and jumps from `entry`, which take no octet: each instruction once.
-fn past_saves(program: *const Program, entry: u32) u32 {
-    var index = entry;
-    for (0..program.instructions.len) |_| {
-        const instruction = program.instructions[index];
-        if (instruction.kind != .save and instruction.kind != .jump) return index;
-        index = instruction.out;
-    }
-    return index;
-}
 
 /// The search's steps for a vector of `width` octets and a set of `count` literals.
 fn Lanes(comptime width: usize, comptime count: usize) type {
@@ -239,11 +235,11 @@ fn Lanes(comptime width: usize, comptime count: usize) type {
         const Mask = std.meta.Int(.unsigned, width);
         const steps = block_len / width;
 
-        /// Each literal's first and last octets, in every lane.
+        /// Each literal's octets at `first_at` and `last_at`, in every lane.
         const Wanted = struct { firsts: [count]Vector, lasts: [count]Vector };
 
-        /// True when some place of a block holds some literal's first octet in `firsts` and its
-        /// last octet at the same place in `lasts`.
+        /// True when some place of a block holds some literal's octet at `first_at` in `firsts`
+        /// and its octet at `last_at` at the same place in `lasts`.
         inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) bool {
             const all: Vector = @splat(constants.octet_max);
             const none: Vector = @splat(0);
@@ -261,7 +257,7 @@ fn Lanes(comptime width: usize, comptime count: usize) type {
             return @reduce(.Or, any) != 0;
         }
 
-        /// A bit for each place of a block where some literal's first and last octets stand.
+        /// A bit for each place of a block where some literal's two octets stand.
         inline fn candidates(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) BlockMask {
             var mask: BlockMask = 0;
             inline for (0..steps) |step| {
@@ -307,10 +303,22 @@ test "of reads the literal each branch of an alternation starts with, cut to the
     }
     const counts = [_]struct { pattern: []const u8, count: u8, len: u8 }{
         .{ .pattern = "ab|cd", .count = 2, .len = 2 },
-        .{ .pattern = "(?:ab|cd)+x", .count = 2, .len = 2 },
+        // The loop forks each path into `ab`, `cd` and `x` at 2, 4 and 6 octets, and ends it at
+        // `literal_fork_len_max`: 2 paths of 3 octets, 4 of 5, 8 of 7 and 16 of 8, 30 in all.
+        .{ .pattern = "(?:ab|cd)+x", .count = 30, .len = 3 },
         // Each branch's literal goes on past the group: `abh`, `cdh` and `efgh`.
         .{ .pattern = "(ab|cd|efg)h", .count = 3, .len = 3 },
         .{ .pattern = "a1|b2|c3|d4|e5|f6|g7|h8", .count = 8, .len = 2 },
+        .{ .pattern = "a1|b2|c3|d4|e5|f6|g7|h8|i9", .count = 9, .len = 2 },
+        // Each letter's case forms fork the paths: two for each of `a` to `d`.
+        .{ .pattern = "(?i)ab|cd", .count = 8, .len = 2 },
+        // `s` has three case forms, the long s among them, whose UTF-8 is two octets. A sixth
+        // octet would fork 40 paths into 80, past `literal_set_max`, so each keeps five: 32 of
+        // `S` and `s` to `sherl`, and 8 of the long s to `sher`.
+        .{ .pattern = "(?i)sherlock", .count = 40, .len = 5 },
+        // The third letters would fork the 36 paths of two letters into 72, past
+        // `literal_set_max`, so the paths keep two octets each.
+        .{ .pattern = "(?i)abc|def|ghi|jlm|nop|qrt|uvw|xyz|bcd", .count = 36, .len = 2 },
     };
     for (counts) |case| {
         const one = (try set_of(case.pattern)) orelse return error.TestExpectedSet;
@@ -319,10 +327,9 @@ test "of reads the literal each branch of an alternation starts with, cut to the
     }
 }
 
-test "of gives no set where a branch starts with no literal, or too short a one, or too many" {
+test "of gives no set where a branch starts with no literal, or too short a one, or one alone" {
     const none = [_][]const u8{
-        "ab|c",    "a|b", "ab|cd|",                     "(?i)ab|cd", "(?:ab|cd)*x", "ab|[cd]e", "\\bab|cd",
-        "Pharaoh", "ab",  "a1|b2|c3|d4|e5|f6|g7|h8|i9",
+        "ab|c", "a|b", "ab|cd|", "(?:ab|cd)*x", "ab|[cd]e", "\\bab|cd", "Pharaoh", "ab",
     };
     for (none) |pattern| {
         if (try set_of(pattern) != null) return error.TestUnexpectedSet;
@@ -345,18 +352,34 @@ fn find_plain(set: *const LiteralSet, haystack: []const u8, from: usize) ?usize 
 /// and `a` and `b` in their low one, so Teddy needs both of its lookups.
 const test_letters = "abq\xe1";
 
-/// The octets of a test's text: the literals' octets and one that no literal holds.
-const test_text_octets = test_letters ++ "d";
-const test_len_choices = 3;
+/// The octet of a test's text that no literal holds.
+const test_absent = 'd';
 
-/// A set of `count` literals of two to four octets.
+/// The octets of a test's text: the literals' octets and one that no literal holds.
+const test_text_octets = test_letters ++ .{test_absent};
+
+/// The octets past a head that a test's longest literals hold, so that some sets compare a tail.
+const test_tail_len_max = 4;
+
+/// The lengths a test's set takes: `literal_prefix_len_min` octets to `test_tail_len_max` past a
+/// head.
+const test_len_choices = head_len + test_tail_len_max - constants.literal_prefix_len_min + 1;
+
+/// The literals a test writes into its text, some of them with one octet made `test_absent`, so
+/// that a long literal stands whole at some places and all but one octet at others.
+const test_plants = 4;
+
+/// One plant in this many loses an octet.
+const test_misses_one_in = 2;
+
+/// A set of `count` literals of `literal_prefix_len_min` to `head_len + test_tail_len_max` octets.
 fn random_set(generator: *Generator, count: usize) LiteralSet {
     const len = constants.literal_prefix_len_min + generator.below(test_len_choices);
     var set: LiteralSet = .{ .octets = undefined, .count = @intCast(count), .len = @intCast(len) };
     for (set.octets[0..count]) |*octets| {
         for (octets[0..set.len]) |*octet| octet.* = test_letters[generator.below(test_letters.len)];
     }
-    set.teddy = .of(&set);
+    set.prepare();
     return set;
 }
 
@@ -379,6 +402,17 @@ fn expect_find(set: *LiteralSet, kernels: Kernels, haystack: []const u8, from: u
     try testing.expectEqual(expected, set.find(haystack, from));
 }
 
+/// Writes `test_plants` literals of the set at places of the text a seed draws, one in
+/// `test_misses_one_in` of them with one octet made `test_absent`.
+fn plant(generator: *Generator, set: *const LiteralSet, haystack: []u8) void {
+    for (0..test_plants) |_| {
+        const place = generator.below(haystack.len - set.len + 1);
+        const text = haystack[place..][0..set.len];
+        @memcpy(text, set.octets[generator.below(set.count)][0..set.len]);
+        if (generator.below(test_misses_one_in) == 0) text[generator.below(set.len)] = test_absent;
+    }
+}
+
 /// The blocks of a test's text, and a part of one, so that a search runs blocks and then the
 /// octets one at a time.
 const test_blocks = 2;
@@ -397,6 +431,7 @@ test "find gives the first place of a literal of the set from every offset, as a
         for (0..32) |_| {
             var set = random_set(&generator, count);
             for (&haystack) |*octet| octet.* = test_text_octets[generator.below(test_text_octets.len)];
+            plant(&generator, &set, &haystack);
             const len = generator.below(haystack.len + 1);
             for (0..len + 1) |from| try expect_find(&set, kernels, haystack[0..len], from, find_plain(&set, haystack[0..len], from));
         }
