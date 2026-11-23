@@ -9169,6 +9169,19 @@ to 12 are reordered and nothing else changes.
     on the 9V74, the first from 0.69 to 0.93. The quadratic rows fell to 0.65 to 0.76 of their
     ratios at 4bd3bda on both models.
   - The README and its charts keep the runs at 4bd3bda until runs with that fix.
+  **Measured, 2026-11-23, at 871c6df.** Eighteen runs of the `bench` workflow, runs
+  [45159239987](https://github.com/c4milo/stdx/actions/runs/45159239987) to
+  [45159340522](https://github.com/c4milo/stdx/actions/runs/45159340522), wrote
+  `bench/results/2026-11-23-regex-fixed-*`. They ran after `dfa_run_plain_rows_max`.
+  - On the 18 jobs of the Neoverse N2, stdx ran 23 of the 31 searches ahead of Rust's crate, at
+    1.01 to 2.46, and 8 behind, at 0.64 to 0.93. In the median job, rebar's `14-quadratic` rows
+    ran at 1.28, 1.435 and 1.55, where they ran at 0.96 to 1.04 at aa9cc13 and at 1.30 to 1.53
+    at 4bd3bda. The tuned row of Greek words ran at 1.77, and `(?i)Sherlock Holmes` at 1.25. It
+    compiled the 10 patterns at 1.29 to 10.7 times Rust's speed.
+  - The x86-64 jobs drew seven models, four jobs at most of one. On the four of the EPYC 7763,
+    the quadratic rows ran at 1.11, 1.31 and 1.49, where they ran at 1.105 to 1.43 at 4bd3bda,
+    and `(?i)Sherlock Holmes` at 0.89. `tools/charts_wide.py` draws a chart from five jobs of
+    one model or more, so `bench/charts.txt` and the README keep the runs at 4bd3bda.
   **Check, the lists of nodes:** a block's nodes leave out the ranges a `ranges` node holds, in
   both programs; the compiler's counts equal a count of each program one by one, for every
   pattern the searcher's tests compile and for `\p{L}`, whose pass runs again in the large set
