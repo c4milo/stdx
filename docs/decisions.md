@@ -6018,7 +6018,9 @@ last part lists what still waits on a ruling.
         the matcher's own search and claim R6's table write. Where the span's bits or the stack
         do not fit, the matcher finds the groups. A path does not push an alternative whose saves and jumps lead
         to a range that does not take the octet there, or to an assertion that does not hold, so
-        the alternatives of a class leave no entry behind an octet a path took.
+        the alternatives of a class leave no entry behind an octet a path took. Where a split's
+        other branch is a node, as in a lazy loop, a path does not follow a preferred branch that
+        fails at once either: the node's path goes on with no entry (added 2026-11-23).
       - RE2's BitState and Rust's crate's `BoundedBacktracker` search the same way (Cox,
         "Regular Expression Matching in the Wild", 2010). Both give the bitmap memory of its own.
       - A program of no group but the whole match takes the DFAs' span, and runs neither.

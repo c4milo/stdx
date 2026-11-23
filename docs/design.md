@@ -8999,6 +8999,25 @@ to 12 are reordered and nothing else changes.
     million, and in three passes of 20 warm runs the row ran at 42 to 54 MB/s in place of 48,
     where Rust's crate gave 66 in the local run of part 22m. The backtracker takes three quarters
     of what is left.
+  - In that pattern's lazy loops, such as `(.*?) \{`, the split's preferred branch is the way
+    out. At each octet the loop takes, the backtracker followed that branch's saves, pushed an
+    entry to undo each one, failed at the way out's first range, and popped the entries. A split
+    whose other branch is a node now judges its preferred branch first, as `push` judges a
+    branch it pushes, and where the branch fails at once the node's path goes on with no entry
+    (decision 86). A chain of an alternation's splits keeps `push`: at every split the lexer
+    row took 6% more instructions. Under callgrind two passes of the log took 9.2 million
+    instructions in place of 12.6 million, and in three passes of 20 warm runs the row ran at 74
+    to 78 MB/s in place of 54 to 55, where Rust's crate gave 66. The lexer took 454.4 million
+    instructions in place of 453.3 million, and ran at 4.49 to 4.61 MB/s in place of 4.50 to 4.69.
+  **Check, the lazy loops:** the backtracker gives the matcher's groups over generated patterns
+  and texts, lazy loops among them; the Go differential check passes; mutations.
+  **Check passed, the lazy loops, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 4. CAUGHT, 2: a pruned split that goes on from its
+    preferred branch, and a lazy loop that never leaves. NOT CAUGHT, 2, each the same answers:
+    every split pruned, and any instruction taken for a node.
   **Check, the text's start:** the searcher gives the matcher's match and groups from every offset
   for patterns that start with `^` and `\A` and are not one-pass; the Go differential check
   passes; mutations.

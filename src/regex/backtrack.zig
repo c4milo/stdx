@@ -138,8 +138,11 @@ const Search = struct {
     /// Where a path goes on: an instruction, at an offset.
     const Next = struct { index: u32, at: usize };
 
+    /// Where one instruction of a path goes on, or how the path ended.
+    const Step = union(enum) { next: Next, done: Outcome };
+
     /// One instruction of a path at `at`: where its path goes on, or how the path ended.
-    fn step(search: *Search, index: u32, at: usize) union(enum) { next: Next, done: Outcome } {
+    fn step(search: *Search, index: u32, at: usize) Step {
         const instruction = search.instructions[index];
         switch (instruction.kind) {
             .match => {
@@ -148,7 +151,7 @@ const Search = struct {
             },
             .fail => return .{ .done = .failed },
             .jump => {},
-            .split => if (!search.push(instruction.arg, at)) return .{ .done = .full },
+            .split => return search.split(instruction, at),
             .save => if (instruction.arg < search.slots.len) {
                 if (!search.push_restore(instruction.arg)) return .{ .done = .full };
                 search.slots[instruction.arg] = at;
@@ -163,6 +166,18 @@ const Search = struct {
                 return .{ .next = .{ .index = next, .at = at + 1 } };
             },
         }
+        return .{ .next = .{ .index = instruction.out, .at = at } };
+    }
+
+    /// A split at `at`: its other branch pushed, and its preferred branch followed. In a lazy
+    /// loop, whose other branch is its node, where the way out fails at once, as it does at each
+    /// octet the loop takes, the node's path goes on with no entry pushed. A chain of an
+    /// alternation's splits keeps `push`, whose walk skips the branches that fail.
+    fn split(search: *Search, instruction: Instruction, at: usize) Step {
+        if (is_node(search.instructions[instruction.arg]) and search.fails_at_once(instruction.out, at)) {
+            return .{ .next = .{ .index = instruction.arg, .at = at } };
+        }
+        if (!search.push(instruction.arg, at)) return .{ .done = .full };
         return .{ .next = .{ .index = instruction.out, .at = at } };
     }
 
@@ -255,6 +270,10 @@ const Search = struct {
         return if (at == search.haystack.len) .edge else Context.of(search.haystack[at]);
     }
 };
+
+fn is_node(instruction: Instruction) bool {
+    return instruction.kind == .range or instruction.kind == .ranges;
+}
 
 test {
     _ = @import("backtrack_test.zig");
