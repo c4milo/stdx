@@ -5814,6 +5814,13 @@ last part lists what still waits on a ruling.
         where they took 439, and the row runs at 417 to 446 MB/s, where Rust's crate runs at 407.
       - A lookup packs the seeds into the DFA's lists of threads and of its stack, which hold
         nothing the lookup reads, so it takes no memory of its own.
+    - A DFA builds a state with six lists: two sets, each a list of its members and a list that
+      finds a member by its instruction, the threads and the stack. Only nodes join them, and a
+      `ranges` node holds about five ranges after it. So the two lists that find a member take a
+      word for each instruction of the DFA's program, and the other four a word for each node
+      (amended 2026-11-23, design §8 part 22n). The compiler counts each program's nodes as it
+      writes them (`Program.forward_nodes`). With a word an instruction in each list, the
+      reverse DFA of `\p{L}{28,33}` did not start in its third of the cache.
     - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
       DFA's table has one entry a class.
     - A scan takes octets in a loop of its own while each entry is a plain row. Once a match

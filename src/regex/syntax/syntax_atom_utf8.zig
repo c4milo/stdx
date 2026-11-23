@@ -109,9 +109,9 @@ const Compiler = struct {
         const keys = room[capacity - count ..];
         std.sort.pdq(Key, keys, {}, key_less);
         const sort_begin = builder.len + (capacity - count) * @sizeOf(Key) / @sizeOf(Instruction);
-        var below: Builder = .{ .instructions = builder.instructions[0..sort_begin], .len = builder.len, .direction = builder.direction };
+        var below: Builder = .{ .instructions = builder.instructions[0..sort_begin], .len = builder.len, .direction = builder.direction, .held = builder.held };
         compiler.builder = &below;
-        defer builder.len = below.len;
+        defer builder.* = .{ .instructions = builder.instructions, .len = below.len, .direction = builder.direction, .held = below.held };
         for (keys) |key| {
             const sequence = sequence_of_key(key);
             try compiler.add(sequence.ranges[0..sequence.len]);

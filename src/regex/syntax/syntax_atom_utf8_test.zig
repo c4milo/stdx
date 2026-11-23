@@ -275,12 +275,14 @@ test "a reverse class with too little room past its program takes its alternativ
         var builder: Builder = .{ .instructions = storage[0..room], .direction = .reverse };
         try testing.expectEqual(null, try compact.class(&builder, greek));
         try testing.expectEqual(0, builder.len);
+        try testing.expectEqual(0, builder.held);
     }
     // The sequences would fit in the storage, but not past the program: the sort writes nothing.
     var builder: Builder = .{ .instructions = &storage, .direction = .reverse };
     for (0..written_before) |_| _ = try builder.emit(.{ .kind = .match });
     try testing.expectEqual(null, try compact.class(&builder, greek));
     try testing.expectEqual(written_before, builder.len);
+    try testing.expectEqual(0, builder.held);
     for (storage[0..written_before]) |instruction| try testing.expectEqual(program.Kind.match, instruction.kind);
     // Forward, the program grows in the storage alone, which is too small.
     builder = .{ .instructions = &storage, .direction = .forward };

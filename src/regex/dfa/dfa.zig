@@ -36,9 +36,11 @@ pub const Config = dfa_config.Config;
 pub const Scan = dfa_config.Scan;
 const Block = dfa_config.Block;
 
-/// The lists a DFA builds a state with, each as long as the program: two sets of two lists, the
-/// threads and the stack.
-pub const lists_len = 6;
+/// The lists a DFA builds a state with: two sets, each a list of its members and a list that
+/// finds a member by its instruction, the threads and the stack. The lists that find a member
+/// are as long as the program, and the other four as its nodes (`Block.nodes`).
+pub const sparse_lists = 2;
+pub const node_lists = 4;
 
 /// The bit of a record's first word that says a match may still start at the state.
 const restart_bit = 1 << constants.context_bits;
@@ -101,13 +103,15 @@ pub const Dfa = struct {
 
     /// The words a DFA of the program at `entry` needs for its cache to hold `dfa_states_min` states.
     pub fn memory_len_min(program: *const Program, entry: u32) usize {
-        return scratch_len(program, entry) + Cache.memory_len(constants.dfa_states_min, stride_of(program));
+        return memory_len_min_of(program, Block.of(program, entry));
     }
 
-    /// The lists cover the instructions of the DFA's own program, which a search never leaves:
-    /// the forward program, or the reverse one, which the compiler writes after it.
-    fn scratch_len(program: *const Program, entry: u32) usize {
-        return lists_len * Block.of(program, entry).len + 1;
+    /// `memory_len_min` for a block counted once, as counting its nodes reads the program. The
+    /// lists cover the DFA's own program, which a search never leaves: the forward program, or
+    /// the reverse one, which the compiler writes after it.
+    fn memory_len_min_of(program: *const Program, block: Block) usize {
+        const lists = sparse_lists * @as(usize, block.len) + node_lists * @as(usize, block.nodes) + 1;
+        return lists + Cache.memory_len(constants.dfa_states_min, stride_of(program));
     }
 
     /// A row of the table: one entry for each class of octets, and one for each context the text
@@ -119,15 +123,16 @@ pub const Dfa = struct {
     /// Readies a DFA in `memory`. False when the memory is under `memory_len_min`, and the DFA
     /// must not be used.
     pub fn init(dfa: *Dfa, program: *const Program, config: Config, memory: []u32) bool {
-        if (memory.len < memory_len_min(program, config.entry)) return false;
+        const block = Block.of(program, config.entry);
+        if (memory.len < memory_len_min_of(program, block)) return false;
         assert(!config.skip or (config.kind == .first and !config.anchored));
         assert(!config.literal or config.skip);
         assert(!config.literal_set or config.skip);
-        const block = Block.of(program, config.entry);
         const len = block.len;
+        const nodes = block.nodes;
         var rest = memory;
         // The threads, then the stack: the cache packs a record in them when neither is in use.
-        const lists = take(&rest, len + len + 1);
+        const lists = take(&rest, nodes + nodes + 1);
         dfa.* = .{
             .instructions = program.instructions,
             .config = config,
@@ -138,11 +143,11 @@ pub const Dfa = struct {
             .class_count = program.class_count,
             .pair_shift = 0,
             .first_columns = undefined,
-            .visited = SparseSet.init_at(take(&rest, len), take(&rest, len), block.base),
-            .next = SparseSet.init_at(take(&rest, len), take(&rest, len), block.base),
-            .threads = lists[0..len],
+            .visited = SparseSet.init_at(take(&rest, nodes), take(&rest, len), block.base),
+            .next = SparseSet.init_at(take(&rest, nodes), take(&rest, len), block.base),
+            .threads = lists[0..nodes],
             .threads_len = 0,
-            .stack = lists[len..],
+            .stack = lists[nodes..],
             .stack_len = 0,
             .reached = false,
             .mark = 0,

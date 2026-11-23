@@ -14,6 +14,8 @@ const Span = matcher_file.Span;
 const searcher_file = @import("searcher.zig");
 const Searcher = searcher_file.Searcher;
 const dfa_file = @import("../dfa/dfa.zig");
+const dfa_config = @import("../dfa/dfa_config.zig");
+const Cache = @import("../dfa/dfa_cache.zig").Cache;
 const Dfa = dfa_file.Dfa;
 const Program = @import("../program.zig").Program;
 const Instruction = @import("../program.zig").Instruction;
@@ -44,6 +46,7 @@ pub const Fixture = struct {
     /// `init`, with the claims a test names.
     pub fn init_claims(fixture: *Fixture, pattern: []const u8, claims: searcher_file.Claims, cache_words: usize) !void {
         fixture.program = try compiler.compile(pattern, .{}, &fixture.storage);
+        try expect_nodes(&fixture.program);
         if (fixture.program.group_count > groups_len) return error.TestTooManyGroups;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
         fixture.searcher.init(&fixture.program, &.{ .features = fixture.features, .claims = claims }, fixture.memory[0..len]);
@@ -170,6 +173,31 @@ test "a searcher divides its cache two parts to one, and uses a DFA only where i
     try testing.expect(!fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
 }
 
+/// Holds the compiler's counts of nodes, kept as it writes and forgets instructions, to a count
+/// of each program's instructions one by one.
+fn expect_nodes(program: *const Program) !void {
+    try testing.expectEqual(dfa_config.nodes_of(program.instructions[0..program.forward_len]), program.forward_nodes);
+    try testing.expectEqual(dfa_config.nodes_of(program.instructions[program.forward_len..]), program.reverse_nodes);
+}
+
+test "a DFA's lists hold its nodes alone, and find a member by any instruction" {
+    var fixture: Fixture = .{};
+    fixture.program = try compiler.compile("[ac-eg]+x", .{}, &fixture.storage);
+    const program = &fixture.program;
+    const block = dfa_config.Block.of(program, program.forward);
+    try testing.expect(block.nodes < block.len);
+    const stride = @as(u32, program.class_count) + constants.context_count;
+    const lists = dfa_file.sparse_lists * @as(usize, block.len) + dfa_file.node_lists * @as(usize, block.nodes) + 1;
+    const least = Dfa.memory_len_min(program, program.forward);
+    try testing.expectEqual(lists + Cache.memory_len(constants.dfa_states_min, stride), least);
+    // The forward DFA runs in memory that holds its least and no more.
+    const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
+    var dfa: Dfa = undefined;
+    const config: dfa_file.Config = .{ .entry = program.forward, .kind = .first, .anchored = false };
+    try testing.expect(dfa.init(program, config, memory[0..least]));
+    try testing.expectEqual(dfa_file.Scan{ .found = 6 }, dfa.scan_forward("xxagcx", 0, false));
+}
+
 test "a DFA's lists cover its own program, and not the other one" {
     var fixture: Fixture = .{};
     // The groups' saves are in the forward program alone, so it is the longer of the two.
@@ -179,7 +207,8 @@ test "a DFA's lists cover its own program, and not the other one" {
     try testing.expect(program.forward_len > reverse_len);
     const forward_least = Dfa.memory_len_min(program, program.forward);
     const reverse_least = Dfa.memory_len_min(program, program.reverse);
-    try testing.expectEqual(dfa_file.lists_len * (program.forward_len - reverse_len), forward_least - reverse_least);
+    // The program has no `ranges` node, so each of its instructions is a node.
+    try testing.expectEqual((dfa_file.sparse_lists + dfa_file.node_lists) * (program.forward_len - reverse_len), forward_least - reverse_least);
     // The reverse DFA runs in memory that holds its own least and no more.
     const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
     var dfa: Dfa = undefined;
@@ -197,10 +226,13 @@ const default_room_instructions = 40_000;
 test "the default cache gives both DFAs of a large program their least" {
     var fixture: Fixture = .{};
     var program = try compiler.compile("a", .{}, &fixture.storage);
-    // The least reads the program's lengths alone, so its instructions need not exist.
+    // The least reads the program's lengths and its counts of nodes alone, so its instructions
+    // need not exist. Each instruction is a node, the most a DFA's lists hold.
     const many: [*]const Instruction = @ptrCast(&fixture.storage);
     program.instructions = many[0 .. 2 * default_room_instructions];
     program.forward_len = default_room_instructions;
+    program.forward_nodes = default_room_instructions;
+    program.reverse_nodes = default_room_instructions;
     const cache_len = constants.cache_words_default * narrow_per_word;
     const forward_part = cache_len / constants.dfa_cache_parts * constants.dfa_forward_parts;
     try testing.expect(Dfa.memory_len_min(&program, 0) <= forward_part);

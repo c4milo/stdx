@@ -21,9 +21,11 @@ pub const SparseSet = struct {
         return init_at(dense, sparse, 0);
     }
 
-    /// A set of the values from `base` to `base + dense.len`, not that one.
+    /// A set of the values from `base` to `base + sparse.len`, not that one, which holds at most
+    /// `dense.len` of them at once. A DFA's sets take any instruction of its program and hold its
+    /// nodes alone.
     pub fn init_at(dense: []u32, sparse: []u32, base: u32) SparseSet {
-        assert(dense.len == sparse.len);
+        assert(dense.len <= sparse.len);
         @memset(sparse, 0);
         return .{ .dense = dense, .sparse = sparse, .base = base };
     }
@@ -36,6 +38,7 @@ pub const SparseSet = struct {
     /// Adds a value. False when the set held it.
     pub fn insert(set: *SparseSet, value: u32) bool {
         if (set.contains(value)) return false;
+        assert(set.len < set.dense.len);
         set.sparse[value - set.base] = set.len;
         set.dense[set.len] = value;
         set.len += 1;

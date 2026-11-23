@@ -9105,6 +9105,21 @@ to 12 are reordered and nothing else changes.
       more. The reverse DFA's lists take six words an instruction, more than the third of the
       4 MiB cache it gets, so it is not ready, and the search leaves both DFAs for the matcher.
       No row of the benchmark meets it.
+  - Rust's crate gives each of its two lazy DFAs a cache of 2 MiB. Its DFAs of `\p{L}{50,55}`
+    start, and from `\p{L}{60,65}` on they do not, and the row above runs at 16 to 18 MB/s. Its
+    NFA of `\p{L}` holds 303 states forward and 1,240 reverse, where stdx's program holds 219
+    nodes and 604. A node is a `ranges` instruction and the ranges it holds, about five, and a
+    DFA's six lists took a word for each instruction. Only nodes join the lists, so four of them
+    now take a word for each node, and the two that find a member by its instruction keep a
+    word for each instruction (decision 86). The reverse DFA of `\p{L}{35,40}` now starts, where
+    `\p{L}{25,30}` was the last that did. `\p{L}{28,33}` runs at 510 to 527 MB/s in place of 6.7,
+    where Rust's crate runs at 544. `\p{L}{35,40}` starts with little room past its least, its
+    cache clears, and it runs at 32 MB/s. From `\p{L}{37,42}` on, the DFAs still do not start.
+    - The compiler counts each program's nodes as it writes and forgets instructions
+      (`Program.forward_nodes`). A DFA that counted them at its start took a compile of rebar's
+      `compile-context` 6.6% more instructions. A compile of `\p{L}{8,13}` and a search of one
+      octet now take 6.14 million instructions in place of 6.04 million, and `compile-context`
+      2.60 million in place of 2.58 million.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9154,6 +9169,25 @@ to 12 are reordered and nothing else changes.
     on the 9V74, the first from 0.69 to 0.93. The quadratic rows fell to 0.65 to 0.76 of their
     ratios at 4bd3bda on both models.
   - The README and its charts keep the runs at 4bd3bda until runs with that fix.
+  **Check, the lists of nodes:** a block's nodes leave out the ranges a `ranges` node holds, in
+  both programs; the compiler's counts equal a count of each program one by one, for every
+  pattern the searcher's tests compile and for `\p{L}`, whose pass runs again in the large set
+  and whose reverse program sorts past the program; a class that falls back forgets what it
+  held; a DFA's least memory is two lists as long as its program and four as its nodes; a DFA
+  runs in that memory and no more; the default cache still holds both DFAs of a program of
+  40,000 nodes each way; the Go differential check passes; mutations.
+  **Check passed, the lists of nodes, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 9. CAUGHT, 8: a write that counts no range a
+    node holds; a truncate that keeps the ranges it forgets; the sort's builder counting from
+    zero, or not handing its count back; a pass run again that keeps the first pass's count,
+    after a test of a class before `\p{L}` joined; reverse nodes that count the forward ranges;
+    a least that counts each instruction for every list; and sets' members one fewer than the
+    nodes. NOT CAUGHT, 1, the same answers: threads one fewer than the nodes. A program's
+    threads are its `range` and `ranges` nodes, fewer than all its nodes, so the list never
+    fills.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

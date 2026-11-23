@@ -50,11 +50,15 @@ pub const Builder = struct {
     instructions: []Instruction,
     len: u32 = 0,
     direction: Direction,
+    /// The ranges that the `ranges` nodes written so far hold after them: the instructions that
+    /// are no node (`Program.forward_nodes`).
+    held: u32 = 0,
 
     pub fn emit(builder: *Builder, instruction: Instruction) Error!u32 {
         if (builder.len == builder.instructions.len) return error.NoSpaceLeft;
         assert(builder.len < constants.instructions_max);
         builder.instructions[builder.len] = instruction;
+        if (instruction.kind == .ranges) builder.held += instruction.arg;
         builder.len += 1;
         return builder.len - 1;
     }
@@ -251,9 +255,12 @@ pub const Builder = struct {
         };
     }
 
-    /// Forgets every instruction from `begin` on.
+    /// Forgets every instruction from `begin` on, and the ranges its nodes held.
     pub fn truncate(builder: *Builder, begin: u32) void {
         assert(begin <= builder.len);
+        for (builder.instructions[begin..builder.len]) |instruction| {
+            if (instruction.kind == .ranges) builder.held -= instruction.arg;
+        }
         builder.len = begin;
     }
 };

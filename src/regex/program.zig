@@ -170,6 +170,10 @@ pub const Program = struct {
     instructions: []const Instruction,
     /// The instructions of the forward program, which come first.
     forward_len: u32,
+    /// The nodes of the forward program and of the reverse one: every instruction but the
+    /// ranges that a `ranges` node holds after it. A DFA's lists hold nodes alone (dfa_config.zig).
+    forward_nodes: u32,
+    reverse_nodes: u32,
     /// Where the forward program starts. It writes slots 0 and 1 around the whole match.
     forward: u32,
     /// Where the reverse program starts, or `no_entry`. It matches each match read backward and

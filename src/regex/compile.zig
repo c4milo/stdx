@@ -86,7 +86,7 @@ fn pass_with(builder: *Builder, pattern: []const u8, flags: atom.Flags, directio
     if (!classes) return pass_in(builder, pattern, flags, direction, keep, &.{});
     const begin = builder.len;
     if (pass_small(builder, pattern, flags, direction, keep)) |done| return done else |err| if (err != error.ClassTooLarge) return err;
-    builder.len = begin;
+    builder.truncate(begin);
     if (keep.read) |read| read.len = 0;
     return pass_large(builder, pattern, flags, direction, keep);
 }
@@ -161,6 +161,7 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
     const holds_class = may_hold_class(pattern);
     const forward = try pass(&builder, pattern, options.flags, .forward, options.names, holds_class);
     const forward_len = builder.len;
+    const forward_held = builder.held;
     var reverse_entry: u32 = program_file.no_entry;
     if (options.reverse) {
         const reverse = try pass(&builder, pattern, options.flags, .reverse, &.{}, holds_class);
@@ -173,6 +174,8 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
     return .{
         .instructions = instructions,
         .forward_len = forward_len,
+        .forward_nodes = forward_len - forward_held,
+        .reverse_nodes = (builder.len - forward_len) - (builder.held - forward_held),
         .forward = forward.entry,
         .reverse = reverse_entry,
         .group_count = forward.group_count,
