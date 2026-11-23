@@ -9017,6 +9017,22 @@ to 12 are reordered and nothing else changes.
     branch simulator counted 292 indirect mispredictions in place of 53,101. In three passes of
     20 warm runs, the 65,536 lines ran at 238 to 239 MB/s in place of 184 to 188, and parse-line
     at 313 to 324 MB/s in place of 277 to 282.
+  **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
+  [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
+  [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
+  `bench/results/2026-11-23-regex-context-*`.
+  - On the 14 jobs of the Neoverse N2, stdx ran 20 of the 31 searches ahead of Rust's crate, at
+    1.08 to 2.41, and 11 behind, at 0.60 to 0.92. parse-line went from 0.22 at c8a2b4f to 1.30,
+    the unstructured log from 0.32 to 0.62, and the quick AWS key search from 0.41 to 0.75. The
+    tuned set's six groups went from 0.78 to 1.00. It compiled the 10 patterns at 1.31 to 10.7
+    times Rust's speed.
+  - The x86-64 jobs drew five models, and four jobs at most of one: the AMD EPYC 7763 and the
+    EPYC 9V74 alike. On the four of the EPYC 7763, part 22m's model, stdx ran 20 searches ahead,
+    at 1.01 to 1.73, and 11 behind, at 0.58 to 0.96. parse-line went from 0.22 to 1.23, the log
+    from 0.33 to 0.58, and the quick AWS key search from 0.55 to 1.02. It compiled 9 patterns at
+    2.06 to 8.38 times Rust's speed, and the context pattern at 0.91.
+  - `tools/charts_wide.py` draws a chart from five jobs of one model or more, so
+    `bench/charts.txt` and the README keep part 22m's runs.
   **Check, the entries of contexts:** one-pass gives the matcher's groups by the table and by the
   walk, anchored at every offset, for patterns with `\b`, `$` and an assertion in a loop; a loop
   does not repeat an entry of contexts after `-a`; a search fills entries that keep their contexts;
