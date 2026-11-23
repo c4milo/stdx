@@ -84,6 +84,12 @@ comptime {
 /// ranges costs about as many instructions and no frame of tables. A case orbit holds at most 4.
 pub const utf8_compact_ranges_min = 8;
 
+/// The ranges of a `ranges` node that `program.step` reads in order before it halves the rest.
+/// A run of like octets lands in one of the first ranges, ASCII in the first one or two, and a
+/// branch the core predicts lets it read the next instruction before the range's ends are read.
+/// Halving makes each read wait on the one before: four reads for the 10 ranges of `[^;]`.
+pub const ranges_scan_len = 4;
+
 /// The transitions the open nodes of a class's automaton hold at most. Forward, the root holds at
 /// most one for each octet, 256, and each node under it one for each continuation octet, 64, so
 /// 448 hold every class. A reverse root holds one for each distinct range of last octets, which a

@@ -85,7 +85,6 @@ fn push_new(matcher: *Matcher, stack_len: usize, index: u32) usize {
     return stack_len + 1;
 }
 
-/// Adds the octets of a range to `taken`. False where one of them was there.
 /// Adds the octets the `range` or the `ranges` node at `index` takes to `taken`. False where one
 /// of them was there already.
 fn take_node_once(instructions: []const Instruction, index: u32, taken: *Octets) bool {
@@ -167,17 +166,69 @@ inline fn step(matcher: *Matcher, haystack: []const u8, index: usize, seed: u32)
 /// pattern do: the offset, the seed there, and whether a seed refused its octet.
 const Run = struct { index: usize, seed: u32, dead: bool };
 
-/// Takes the octets from `from` while the seed is a range, one instruction an octet. Such a seed
+/// Takes the octets from `from` while the seed takes each at once, one seed an octet. Such a seed
 /// writes no slot and reads no assertion, so the run keeps the position in a register.
 inline fn take_ranges(instructions: []const Instruction, haystack: []const u8, from: usize, first: u32) Run {
     var seed = first;
-    for (haystack[from..], from..) |octet, index| {
-        const kind = instructions[seed].kind;
-        if (kind != .range and kind != .ranges) return .{ .index = index, .seed = seed, .dead = false };
-        // The seed's one path is this node: where it refuses the octet, no thread is left.
-        seed = program_file.step(instructions, seed, octet) orelse return .{ .index = index, .seed = seed, .dead = true };
+    var index = from;
+    // Each turn takes one octet at least.
+    while (index < haystack.len) {
+        switch (take_at_once(instructions, seed, haystack[index])) {
+            .next => |next| {
+                index += 1;
+                if (next == seed) index = loop_end(instructions, haystack, index, seed);
+                seed = next;
+            },
+            .other => return .{ .index = index, .seed = seed, .dead = false },
+            .dead => return .{ .index = index, .seed = seed, .dead = true },
+        }
     }
     return .{ .index = haystack.len, .seed = seed, .dead = false };
+}
+
+/// Where the loop of `x+` or `x*` at the split `seed` stops: the first octet from `from` that its
+/// choice does not take back to the seed. The choice is the same at each octet, so the reads of
+/// its ranges wait on no octet before.
+fn loop_end(instructions: []const Instruction, haystack: []const u8, from: usize, seed: u32) usize {
+    const choice = instructions[seed].out;
+    assert(instructions[seed].kind == .split and is_choice(instructions, choice));
+    for (haystack[from..], from..) |octet, index| {
+        if (choice_step(instructions, choice, octet) != seed) return index;
+    }
+    return haystack.len;
+}
+
+/// What a seed does with an octet that a choice takes at once: the instruction after the choice;
+/// no thread left; or other, where the seed's paths need `step`.
+const AtOnce = union(enum) { next: u32, other, dead };
+
+/// A seed that is a choice has no other path. A seed that is a split whose preferred branch is a
+/// choice is the loop of `x+` or `x*`. Where that choice takes the octet, its path is the first
+/// that the matcher tries, and so the thread: no other node the seed reaches takes the octet, and
+/// the seed reaches no `match` (`closure_is_one_pass`). The path holds no save, so the thread
+/// writes no slot.
+inline fn take_at_once(instructions: []const Instruction, seed: u32, octet: u8) AtOnce {
+    // Where the seed's choice refuses the octet, no thread is left.
+    if (is_choice(instructions, seed)) return if (choice_step(instructions, seed, octet)) |next| .{ .next = next } else .dead;
+    const instruction = instructions[seed];
+    if (instruction.kind != .split or !is_choice(instructions, instruction.out)) return .other;
+    return if (choice_step(instructions, instruction.out, octet)) |next| .{ .next = next } else .other;
+}
+
+/// True for a node, and for a split of two nodes, as a class of two ranges compiles. A choice
+/// writes no slot, and the matcher tries its preferred node first.
+inline fn is_choice(instructions: []const Instruction, index: u32) bool {
+    const instruction = instructions[index];
+    if (is_node(instruction)) return true;
+    return instruction.kind == .split and is_node(instructions[instruction.out]) and is_node(instructions[instruction.arg]);
+}
+
+/// The instruction after the node of the choice at `index` that takes the octet, the preferred
+/// node first.
+inline fn choice_step(instructions: []const Instruction, index: u32, octet: u8) ?u32 {
+    const instruction = instructions[index];
+    if (instruction.kind != .split) return program_file.step(instructions, index, octet);
+    return program_file.step(instructions, instruction.out, octet) orelse program_file.step(instructions, instruction.arg, octet);
 }
 
 fn finish(matcher: *Matcher, matched: bool) ?Span {
@@ -191,12 +242,15 @@ fn finish(matcher: *Matcher, matched: bool) ?Span {
 /// The outcome of a seed whose path is one line of saves, jumps and assertions up to `match` or an
 /// instruction that takes an octet, or null where it meets a split. The walk writes the line's
 /// saves as it goes. Where it meets a split, `follow` takes the seed and writes the same saves
-/// with the same position, and every path that survives takes them.
+/// with the same position, and every path that survives takes them. A split with a node as a
+/// branch is part of the line: `split_branch` gives the one branch that survives.
 fn straight(matcher: *Matcher, seed: u32, octet: ?u8, ahead: Context) ?Outcome {
     const instructions = matcher.program.instructions;
     var index = seed;
     // A line holds each instruction once at most: a program's paths that take no octet hold no
-    // loop that is not split.
+    // loop that is not split. A line through splits may go round a loop, as `(a*)*` does where no
+    // node takes the octet: each lap does as the first did, so the walk meets the bound and
+    // `follow` finds no thread.
     for (0..matcher.program.forward_len) |_| {
         const instruction = &instructions[index];
         switch (instruction.kind) {
@@ -212,11 +266,45 @@ fn straight(matcher: *Matcher, seed: u32, octet: ?u8, ahead: Context) ?Outcome {
             },
             .match => return .matched,
             .fail => return .dead,
-            .split => return null,
+            .split => switch (split_branch(instructions, instruction.*, octet) orelse return null) {
+                .took => |next| return .{ .took = next },
+                .other => |other| {
+                    index = other;
+                    continue;
+                },
+            },
         }
         index = instruction.out;
     }
     return null;
+}
+
+/// What a split with a choice as a branch leaves of its paths: the choice's path, which takes the
+/// octet; or the other branch, where the choice refuses it.
+const Branch = union(enum) { took: u32, other: u32 };
+
+/// A split whose branch is a choice, as the loop of `x+` or `x*` compiles. A choice that refuses
+/// the octet ends its paths, which write no slot, so the split's paths are the other branch's. A
+/// preferred choice that takes the octet is the thread (`take_at_once`). Null for any other split,
+/// and where the other branch's choice takes the octet: the preferred branch's paths, which the
+/// matcher tries first, may reach that node through a save, as `(a*)*b` does.
+inline fn split_branch(instructions: []const Instruction, split: Instruction, octet: ?u8) ?Branch {
+    if (is_choice(instructions, split.out)) {
+        const next = choice_step_at(instructions, split.out, octet) orelse return .{ .other = split.arg };
+        return .{ .took = next };
+    }
+    if (!is_choice(instructions, split.arg)) return null;
+    if (choice_step_at(instructions, split.arg, octet) != null) return null;
+    return .{ .other = split.out };
+}
+
+/// `choice_step`, where no octet stands at the text's end.
+inline fn choice_step_at(instructions: []const Instruction, index: u32, octet: ?u8) ?u32 {
+    return choice_step(instructions, index, octet orelse return null);
+}
+
+inline fn is_node(instruction: Instruction) bool {
+    return instruction.kind == .range or instruction.kind == .ranges;
 }
 
 /// Follows the paths from `seed` that take no octet, as `Matcher.follow` does, until one reaches
@@ -335,6 +423,11 @@ const test_patterns = [_][]const u8{
     "(a(b)?)x",
     "\\b(a)(b)\\b",
     "(?:(a)|(b))+x",
+    // After `x`, a split whose other branch is `b`, which its preferred branch reaches through
+    // the group's saves: the thread takes them.
+    "x(a*)*b",
+    // A loop of a split of two nodes, whose exit leads to a node: `a` is the second node's.
+    "([ab0]*)x",
     // An empty match, which no position inside the UTF-8 of a scalar value starts.
     "()",
 };

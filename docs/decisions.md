@@ -5743,9 +5743,13 @@ last part lists what still waits on a ruling.
       takes an octet that one of the `range` instructions after it takes, in ascending order and
       apart, and goes on from that range. A matcher, the DFAs, one-pass and the backtracker keep
       one thread at the node, where a split of each range kept one thread for each range: `[^ ]`
-      held ten. Each engine finds the range by halving
-      (`program.step`). Rust's crate keeps such a node as one state with its ranges, a sparse
-      state of its NFA.
+      held ten. Each engine finds the range by `program.step`, which reads the first
+      `ranges_scan_len`, 4, ranges in order and halves the rest. Rust's crate keeps such a node as
+      one state with its ranges, a sparse state of its NFA, and reads them in order.
+      - A run of like octets lands in one of the first ranges, so the core predicts the branch
+        and reads the next instruction before the range's ends are read. Halving makes each read
+        wait on the one before: one-pass's run took 17 ns an octet of `[^;]+`, whose node holds
+        10 ranges, with four reads in a chain (design §8 part 22n).
       - The forward automaton of a class of many ranges (`syntax_atom_utf8.zig`) writes each
         node this way: two sequences that share the octets before a node take apart octets there.
       - A class of three sequences or more whose first ranges stand apart is one node, each range
@@ -5956,6 +5960,14 @@ last part lists what still waits on a ruling.
       - Then each position holds one thread. `one_pass.find` follows its paths as
         `Matcher.follow` does, and writes the matcher's slots, so `Matcher.group` reads them. A
         seed whose paths form one line of saves, jumps and assertions takes no list.
+      - A choice is a node, or a split of two nodes, as a class of two ranges compiles. A split
+        whose preferred branch is a choice that takes the octet goes on from it, as the matcher
+        tries that branch first. A split whose branch is a choice that refuses the octet goes on
+        from its other branch. So the loop of `x+` and `x*` takes no list, and while its choice
+        leads back to the split, a tight loop reads the octets with no read that waits on the
+        octet before (added 2026-11-23, design §8 part 22n).
+      - A split whose other branch is a choice that takes the octet takes the list: the preferred
+        branch's paths may reach the same node through a save, as `(a*)*b` does.
       - Where every match starts at the text's start, a match starts at `from` or nowhere, so
         `captures` runs no DFA. Elsewhere the DFAs find the match's start, as before.
       - RE2 and Rust's crate keep a one-pass DFA for this case, a table of transitions with the
@@ -6036,7 +6048,7 @@ last part lists what still waits on a ruling.
     and `avx2_lanes`, 32. Claim R5's: `literal_set_max`, 64; `literal_set_count_min`, 2;
     `literal_fork_len_max`, 8; `literal_compare_max`, 8; `teddy_count_min`, 4; and
     `teddy_buckets`, 8. Claim R6's: `one_pass_instructions_max`,
-    1,024. Claim R7's: `pair_classes_max`, 32; `pair_states_max`, 64; and `pair_memory_parts`,
+    1,024. The program's: `ranges_scan_len`, 4. Claim R7's: `pair_classes_max`, 32; `pair_states_max`, 64; and `pair_memory_parts`,
     4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.

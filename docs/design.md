@@ -8914,6 +8914,53 @@ to 12 are reordered and nothing else changes.
 
     Four more passes of the lexer row, in turns, gave 4.33 to 4.64 at 4f1abb2 and 4.18 to 5.11
     now. The date, capitals and ucd rows did not move past the noise.
+  - rebar's parse-line row finds the groups of each line of the Unicode Character Database by
+    claim R6. Its fields are loops such as `([^;]+);`. At each octet, one-pass left its run at the
+    loop's split and went through `follow`, which clears a set and pushes a stack: 243
+    instructions an octet under callgrind, over the file's first 300,000 octets. Four changes
+    took it (decision 86):
+    - The run goes on from a split whose preferred branch is a choice that takes the octet, and
+      a line goes on through a split whose choice refuses it: 46.5 million instructions in place
+      of 72.9 million, and no faster, at 17 ns an octet.
+    - `program.step` reads a node's first 4 ranges in order, then halves the rest. Halving made
+      each read of `[^;]`'s 10 ranges wait on the one before. The row ran at 96 MB/s in place
+      of 53.
+    - While a loop's choice leads back to its split, a tight loop takes the octets and reads only
+      the choice's ranges: 125 to 131 MB/s in four passes.
+    - A split of two nodes is a choice too, as `[A-Z0-9]` compiles. No position goes through
+      `follow`: 30.5 million instructions, and 125 to 143 MB/s in seven passes.
+
+    The best of 10 warm runs of the driver, in three passes each, in MB/s:
+
+    | Row | c8a2b4f | Now | Rust's crate, part 22m |
+    | --- | ---: | ---: | ---: |
+    | parse-line | 50.17, 55.61, 51.71 | 137.35, 138.09, 136.51 | 165.85 |
+    | unstructured log | 31.90, 29.93, 31.11 | 48.42, 48.82, 48.41 | 66.10 |
+    | lexer | 4.05, 4.35, 3.76 | 4.49, 4.43, 4.50 | 4.51 |
+
+    The backtracker of the unstructured log row steps nodes by `program.step` too. letters-en ran
+    at 388 to 431 MB/s at c8a2b4f and at 368 to 388 now, in four passes of 40 warm runs in turns,
+    with 17.0 million instructions under callgrind in both: its DFA's loop is the same code. The
+    other rows of part 22n's tables did not move past the noise.
+  **Check, the one-pass loops:** `program.step` takes each range's ends and refuses an octet
+  between two ranges among the first 4 and among the rest; one-pass gives the matcher's groups,
+  anchored at every offset, for loops of a node and of a split of two nodes, and where a split's
+  preferred branch reaches the other branch's node through a save, as `x(a*)*b` and `(a*)*b` do;
+  the Go differential check passes; mutations.
+  **Check passed, the one-pass loops, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18,
+  in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 13. CAUGHT, 10: the run that takes the other
+    branch's choice, or a line that does; a choice that tries its preferred node alone; a split
+    with one node taken as a choice; a loop that stops where its choice leads back; a refused
+    choice that leaves the wrong branch, preferred or other; a range that takes no octet at its
+    last; a scan that takes an octet between two ranges; a halving that keeps a range that
+    starts above the octet. The first and the third were NOT CAUGHT until `x(a*)*b` and
+    `([ab0]*)x` joined one-pass's patterns. NOT CAUGHT, 3: a seed whose choice refuses the
+    octet left to `step`; a loop of one choice taken an octet a turn; and a halving from the
+    first range, where each range the scan passed starts at or below the octet. Each gives the
+    same answers by a slower path.
   **Check, the packed records:** a record gives back its seeds in order, a difference of one or
   two octets where the seeds stand near and of five at most; an encoding one octet short is
   refused; a record longer than the region is refused and leaves the cache empty; long records

@@ -122,21 +122,28 @@ pub inline fn step(instructions: []const Instruction, index: u32, octet: u8) ?u3
     return step_ranges(instructions, index, octet);
 }
 
-/// `step` of a `ranges`, whose ranges are found by halving: at most eight steps for 256 ranges.
+/// `step` of a `ranges`: its first `ranges_scan_len` ranges in order, then the rest by halving, at
+/// most eight steps for 256 ranges. The ranges ascend and stand apart.
 pub fn step_ranges(instructions: []const Instruction, index: u32, octet: u8) ?u32 {
     const instruction = instructions[index];
     assert(instruction.kind == .ranges);
     assert(instruction.arg >= 1 and instruction.arg <= constants.octet_values);
     const members = instructions[index + 1 ..][0..instruction.arg];
+    const scanned = @min(members.len, constants.ranges_scan_len);
+    for (members[0..scanned]) |member| {
+        // An octet under a range stands between it and the one before.
+        if (octet < member.lo) return null;
+        if (octet <= member.hi) return member.out;
+    }
     // The ranges below `low` start at or below `octet`, and those from `high` above it.
-    var low: usize = 0;
+    var low: usize = scanned;
     var high: usize = members.len;
     // Each turn halves the ranges left, so the turns are at most the bits of their count.
     while (low < high) {
         const middle = low + ((high - low) >> 1);
         if (members[middle].lo <= octet) low = middle + 1 else high = middle;
     }
-    if (low == 0) return null;
+    if (low == scanned) return null;
     const member = members[low - 1];
     assert(member.kind == .range);
     return if (octet <= member.hi) member.out else null;
@@ -245,5 +252,26 @@ test "reversing an assertion twice gives it back, and swaps the side it reads" {
                 try testing.expectEqual(look.holds(behind, ahead), look.reversed().holds(ahead, behind));
             }
         }
+    }
+}
+
+test "step takes each octet that one of a node's ranges takes, by the scan and by halving" {
+    // Six ranges: the first `ranges_scan_len` by the scan, the rest by halving.
+    const ranges = [_][2]u8{ .{ 0x00, 0x09 }, .{ 0x0B, 0x0B }, .{ 0x20, 0x3A }, .{ 0x3C, 0x7F }, .{ 0xC2, 0xDF }, .{ 0xF0, 0xF4 } };
+    comptime assert(ranges.len > constants.ranges_scan_len);
+    // A range's target is its place past the node, so a wrong range gives a wrong target.
+    const target_base = 100;
+    var instructions: [ranges.len + 1]Instruction = undefined;
+    instructions[0] = .{ .kind = .ranges, .arg = ranges.len };
+    for (ranges, 1..) |range, index| {
+        instructions[index] = .{ .kind = .range, .lo = range[0], .hi = range[1], .out = @intCast(target_base + index) };
+    }
+    for (0..constants.octet_values) |value| {
+        const octet: u8 = @intCast(value);
+        var expected: ?u32 = null;
+        for (ranges, 1..) |range, index| {
+            if (octet >= range[0] and octet <= range[1]) expected = @intCast(target_base + index);
+        }
+        try testing.expectEqual(expected, step(&instructions, 0, octet));
     }
 }
