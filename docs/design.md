@@ -9320,6 +9320,24 @@ to 12 are reordered and nothing else changes.
     forward DFA that is not ready; and one that counts a literal's ends. NOT CAUGHT, 1: the
     scan's assertion of a table, deleted. No test can expect a panic in its own process, and the
     mutation of the forward DFA that is not ready shows the assertion fire.
+  - A capture copies each group's two slots into the caller's `?Span` values. rebar's lexer row
+    has 89 groups, one for each kind of token, and each match sets the whole match's group and
+    one other, so the copy of each match judged 89 groups one at a time. `copy_groups` now judges
+    the slots of `copy_lanes`, 8, groups in one compare, and writes 8 nulls where every slot is
+    unset. A pattern of fewer than 8 groups keeps the one loop.
+    - One warm pass under callgrind, ReleaseSafe for x86-64-v3, at 0a409b7 and with the change:
+      the lexer row takes 467 million instructions in place of 515 million, 9.5% fewer, where
+      Rust's crate takes 426 million. `parse-line`, whose groups are mostly set, takes 1.3% more:
+      a compare that finds a set slot is followed by the copy of each group. Pairs of groups
+      took the lexer row 3.1% fewer, and blocks of four 8.4% fewer.
+  **Check, the copy of groups:** a pattern of 18 groups and the whole match, two blocks of 8 and
+  3 groups after them, gives each group as the matcher gives it from every offset of a text that
+  sets each in turn; mutations.
+  **Check passed, the copy of groups, 2026-11-23.** `zig build test` passes, and `zig build
+  differential-regex -Doracles` gives 12,437,544 cases with none failed. Mutations against `zig
+  build test-regex`: 4, all CAUGHT: a block of unset groups that writes no null; a block with one
+  unset group judged unset; groups after the blocks not copied; and a block that copies one group
+  fewer.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

@@ -26,6 +26,7 @@ const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
 const literal_file = @import("../literal.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
+const copy_groups = @import("searcher_groups.zig").copy_groups;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -380,19 +381,6 @@ pub const Searcher = struct {
     }
 };
 
-/// The groups of the matcher's match, read from its slots in one pass: what `Matcher.group`
-/// gives for each, with no call for each.
-fn copy_groups(matcher: *const Matcher, groups: []?Span) void {
-    assert(matcher.finished and matcher.matched);
-    const slots = matcher.best();
-    assert(slots.len == groups.len * constants.group_slots);
-    for (groups, 0..) |*group, index| {
-        const start = slots[index * constants.group_slots];
-        const end = slots[index * constants.group_slots + 1];
-        group.* = if (start == constants.slot_unset or end == constants.slot_unset) null else .{ .start = start, .end = end };
-    }
-}
-
 /// True when every match starts at the text's start: the forward program asserts it before it
 /// takes an octet or splits.
 fn starts_at_text_start(program: *const Program) bool {
@@ -496,5 +484,6 @@ test {
     _ = @import("searcher_pairs_test.zig");
     _ = @import("searcher_stay_test.zig");
     _ = @import("searcher_count_test.zig");
+    _ = @import("searcher_groups_test.zig");
     _ = @import("searcher_run_test.zig");
 }
