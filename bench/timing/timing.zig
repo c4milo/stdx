@@ -133,22 +133,22 @@ test "a rotated run times each operation once, and each rotated one a place earl
     for (0..operations_len) |place| try std.testing.expectEqual(place, rotated_index(run_count - 1, place, 0));
 }
 
-/// The additions of the slower operation in the test of `time_rotated`.
-const test_additions = 1 << 12;
+/// The steps of the slower operation in the test of `time_rotated`.
+const test_steps = 1 << 12;
 
 fn run_nothing(_: *const anyopaque) void {}
 
-fn run_additions(_: *const anyopaque) void {
-    var sum: usize = 0;
-    for (0..test_additions) |index| sum +%= index;
-    std.mem.doNotOptimizeAway(sum);
+/// Each step hands its index to `doNotOptimizeAway`, so that no build mode folds the loop into
+/// one sum: a ReleaseSafe build of an addition loop did, and timed it as fast as `run_nothing`.
+fn run_steps(_: *const anyopaque) void {
+    for (0..test_steps) |index| std.mem.doNotOptimizeAway(index);
 }
 
 test "time_rotated gives each operation its own time, whatever place a run times it at" {
     const context: u8 = 0;
     const operations = [_]Operation{
         .{ .context = &context, .run_once = run_nothing },
-        .{ .context = &context, .run_once = run_additions },
+        .{ .context = &context, .run_once = run_steps },
     };
     var runs: [operations.len][run_count]f64 = undefined;
     time_rotated(std.testing.io, &operations, &runs, operations.len);
