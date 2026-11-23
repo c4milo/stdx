@@ -475,8 +475,11 @@ Change this section when a step adds or renames a command.
 - Charts: `python3 tools/charts.py` draws the README's charts, `docs/images/<benchmark>-<arch>.svg`,
   from the committed reports that `bench/charts.txt` names. `tools/charts_wide.py` draws the
   regex chart, whose libraries differ by orders of magnitude, under rules it states, and
-  `tools/charts_wide_test.py` tests those rules. `--check` fails when a committed chart differs
-  from what its reports draw, and `tools/ci.sh` runs both (decision 85).
+  `tools/charts_wide_test.py` tests those rules. `tools/chart_docs.py` then gives each chart's
+  image in README.md and docs/benchmarks.md the chart's title as its alt text, and writes each
+  chart's verdicts into docs/benchmarks.md; `tools/chart_docs_test.py` tests it. `--check` fails
+  when a committed chart or page differs from what its reports draw, and `tools/ci.sh` runs it
+  and both tests (decision 85).
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's
   share of lines run and the total. It needs Linux and kcov. The `coverage` job of

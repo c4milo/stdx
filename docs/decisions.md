@@ -5592,6 +5592,12 @@ last part lists what still waits on a ruling.
       - A `\|` in a cell stays in the cell.
       - The chart stands in the README's regex section, by the owner's ruling of 2026-11-22: the N2's
         chart, and the x86-64 chart in a details block that names its CPU model.
+      - Each image of a chart in the README and in `docs/benchmarks.md` takes the chart's title as
+        its alt text, and `docs/benchmarks.md` lists the verdicts of each panel. `tools/charts.py`
+        writes both, and `--check` fails where a page differs (2026-11-23). A review found the
+        README's own counts, written by hand from the range of the jobs, at odds with its charts:
+        24 of rebar's searches ahead in the text, and 25 on the chart. Each alt text held about
+        2,200 characters, which a screen reader reads whole.
       - The held-out set of entry 86 draws on a chart of its own, `regex-rebar`, by the same rules,
         with Go's column alone at the right: the owner asked on 2026-11-22 to chart rebar's
         results, and a reader keeps the tuned rows and the held-out rows apart. From design §8

@@ -84,12 +84,12 @@ stdx's speed over Rust's in one job, from the lowest job to the highest.
 The people who tuned stdx chose these patterns, so they can favor it. The charts below draw these
 jobs by decision 85's rules: a bar is the median job, and its whisker an interval of that median.
 
-![search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 1 (1 inside 5%) of 6 rows, 5 patterns; geometric mean over these rows 1.40; from 0.988 to 3.81; against Go regexp: ahead on 5, level on 0, behind on 1 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5 (1 inside 5%), level on 0, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.41; from 1.047 to 2.39; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 7, level on 0, behind on 0 of 7 rows, 7 patterns; from 1.05 to 8.19; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 3, level on 0, behind on 2 of 5 rows, 5 patterns; geometric mean over these rows 1.13; from 0.93 to 1.34; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, inside 5%, at 0.964, 0.960 to 0.972; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.23 to 28.23; against Go regexp: ahead on 8 (2 inside 5%), level on 3, behind on 12 of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21](docs/images/regex-aarch64.svg)
+![stdx's regular expressions against libraries in Rust, Go and Zig, on Neoverse-N2](docs/images/regex-aarch64.svg)
 
 <details>
 <summary>x86-64: AMD EPYC 7763 64-Core Processor</summary>
 
-![search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 0, behind on 0 of 6 rows, 5 patterns; geometric mean over these rows 1.44; from 1.07 to 3.26; against Go regexp: ahead on 6, level on 0, behind on 0 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 4, level on 0, behind on 1 (1 inside 5%) of 5 rows, 4 patterns; geometric mean over these rows 1.26; from 0.977 to 1.89; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5. search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 7 (1 inside 5%), level on 0, behind on 0 of 7 rows, 7 patterns; from 1.015 to 9.73; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4. a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 4 (1 inside 5%), level on 1, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.23; from 0.997 to 1.51; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2. the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.82, 0.80 to 0.82; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1. a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.20 to 27.34; against Go regexp: ahead on 7, level on 3, behind on 13 (1 inside 5%) of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21](docs/images/regex-x86_64.svg)
+![stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 7763 64-Core Processor](docs/images/regex-x86_64.svg)
 
 </details>
 
@@ -113,43 +113,43 @@ BIAS.md says the set may favor it.
   compiles 9 at 1.91 to 8.35 times, and the context pattern at 0.89 to 0.90.
 - Go's regexp is faster than stdx on no search of the set, on either model.
 
-![rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 25 (3 inside 5%), level on 1, behind on 5 (2 inside 5%) of 31 rows, 31 patterns; geometric mean over these rows 1.43; from 0.87 to 6.36; against Go regexp: ahead on 31, level on 0, behind on 0 of 31. rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 3.84; from 1.22 to 10.01; against Go regexp: ahead on 8, level on 0, behind on 2 of 10](docs/images/regex-rebar-aarch64.svg)
+![stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on Neoverse-N2](docs/images/regex-rebar-aarch64.svg)
 
 <details>
 <summary>x86-64: AMD EPYC 7763 64-Core Processor</summary>
 
-![rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 26 (3 inside 5%), level on 1, behind on 4 of 31 rows, 31 patterns; geometric mean over these rows 1.36; from 0.83 to 5.35; against Go regexp: ahead on 31, level on 0, behind on 0 of 31. rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 9, level on 0, behind on 1 of 10 rows, 10 patterns; geometric mean over these rows 3.41; from 0.89 to 8.15; against Go regexp: ahead on 8, level on 0, behind on 2 of 10](docs/images/regex-rebar-x86_64.svg)
+![stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on AMD EPYC 7763 64-Core Processor](docs/images/regex-rebar-x86_64.svg)
 
 </details>
 
 ### Arm Neoverse N2
 
-![gzip decoding, in multiples of libdeflate's speed: ahead on 31, level on 2, behind on 6 of 39 files; 0.92 to 1.71. gzip encoding: speed in multiples of libdeflate's level 6, against compression ratio: no other library's point is both faster and smaller than any of stdx's 3 levels](docs/images/deflate-aarch64.svg)
+![stdx's DEFLATE against its baselines, on Neoverse-N2](docs/images/deflate-aarch64.svg)
 
-![Zstandard decoding, in multiples of libzstd's speed: ahead on 11, level on 3, behind on 25 of 39 files; 0.92 to 1.09. Zstandard encoding: speed in multiples of libzstd's level 3, against compression ratio: 2 of stdx's 2 levels have a faster and smaller point: level 1 by libzstd 3; level 3 by libzstd 3](docs/images/zstd-aarch64.svg)
+![stdx's Zstandard against its baselines, on Neoverse-N2](docs/images/zstd-aarch64.svg)
 
-![brotli decoding, in multiples of Google's speed: ahead on 39, level on 0, behind on 0 of 39 files; 1.10 to 3.36. brotli encoding: speed in multiples of Google's quality 5, against compression ratio: no other library's point is both faster and smaller than any of stdx's 2 levels](docs/images/brotli-aarch64.svg)
+![stdx's brotli against its baselines, on Neoverse-N2](docs/images/brotli-aarch64.svg)
 
-![JSON decoding, in multiples of simdjson's speed: ahead on 8, level on 0, behind on 1 of 9 rows (of 63 workloads, 1 behind); 0.87 to 5.36. JSON encoding, in multiples of simdjson's speed: ahead on 7, level on 0, behind on 1 of 8 rows (of 62 workloads, 1 behind); 0.80 to 11.18. TextWriter's methods, in multiples of serde_json's speed: ahead on 8, level on 0, behind on 0 of 8 rows (of 62 workloads, 0 behind); 1.64 to 16.35](docs/images/json-aarch64.svg)
+![stdx's JSON against its baselines, on Neoverse-N2](docs/images/json-aarch64.svg)
 
-![CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 3, level on 0, behind on 1 of 4 sizes; 0.70 to 1.68. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.69 to 1.31. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 1, level on 2, behind on 1 of 4 sizes; 0.86 to 1.04](docs/images/checksum-aarch64.svg)
+![stdx's checksums against its baselines, on Neoverse-N2](docs/images/checksum-aarch64.svg)
 
-![base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.84 to 1.19. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.82 to 1.70](docs/images/base64-aarch64.svg)
+![stdx's base64 against its baselines, on Neoverse-N2](docs/images/base64-aarch64.svg)
 
 <details>
 <summary>x86-64: Intel Xeon Platinum 8370C, AMD EPYC 7763 and AMD EPYC 9V45</summary>
 
-![gzip decoding, in multiples of libdeflate's speed: ahead on 22, level on 6, behind on 11 of 39 files; 0.89 to 1.98. gzip encoding: speed in multiples of libdeflate's level 6, against compression ratio: no other library's point is both faster and smaller than any of stdx's 3 levels](docs/images/deflate-x86_64.svg)
+![stdx's DEFLATE against its baselines, on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz](docs/images/deflate-x86_64.svg)
 
-![Zstandard decoding, in multiples of libzstd's speed: ahead on 31, level on 4, behind on 4 of 39 files; 0.88 to 1.27. Zstandard encoding: speed in multiples of libzstd's level 3, against compression ratio: 2 of stdx's 2 levels have a faster and smaller point: level 1 by libzstd 3; level 3 by libzstd 3](docs/images/zstd-x86_64.svg)
+![stdx's Zstandard against its baselines, on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz](docs/images/zstd-x86_64.svg)
 
-![brotli decoding, in multiples of Google's speed: ahead on 38, level on 1, behind on 0 of 39 files; 1.03 to 3.32. brotli encoding: speed in multiples of Google's quality 5, against compression ratio: no other library's point is both faster and smaller than any of stdx's 2 levels](docs/images/brotli-x86_64.svg)
+![stdx's brotli against its baselines, on AMD EPYC 7763 64-Core Processor](docs/images/brotli-x86_64.svg)
 
-![JSON decoding, in multiples of simdjson's speed: ahead on 3, level on 1, behind on 5 of 9 rows (of 63 workloads, 5 behind); 0.63 to 4.09. JSON encoding, in multiples of simdjson's speed: ahead on 5, level on 2, behind on 1 of 8 rows (of 62 workloads, 1 behind); 0.52 to 21.60. TextWriter's methods, in multiples of serde_json's speed: ahead on 8, level on 0, behind on 0 of 8 rows (of 62 workloads, 0 behind); 1.42 to 36.67](docs/images/json-x86_64.svg)
+![stdx's JSON against its baselines, on AMD EPYC 9V45 96-Core Processor](docs/images/json-x86_64.svg)
 
-![CRC-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 0, level on 2, behind on 2 of 4 sizes; 0.79 to 1.00. Adler-32 by octets a call, the path the CPU runs, in multiples of libdeflate's speed: ahead on 2, level on 0, behind on 2 of 4 sizes; 0.72 to 1.19. XXH64 by octets a call, the path the CPU runs, in multiples of libzstd's speed: ahead on 0, level on 2, behind on 2 of 4 sizes; 0.82 to 1.00](docs/images/checksum-x86_64.svg)
+![stdx's checksums against its baselines, on AMD EPYC 7763 64-Core Processor](docs/images/checksum-x86_64.svg)
 
-![base64 encoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 5, level on 0, behind on 0 of 5 sizes; 1.35 to 4.40. base64 decoding by octets a call, in multiples of Rust's base64 crate's speed: ahead on 4, level on 0, behind on 1 of 5 sizes; 0.87 to 5.05](docs/images/base64-x86_64.svg)
+![stdx's base64 against its baselines, on AMD EPYC 7763 64-Core Processor](docs/images/base64-x86_64.svg)
 
 </details>
 

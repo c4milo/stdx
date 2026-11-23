@@ -2,7 +2,10 @@
 """Draws the README's charts from committed bench reports, and checks the committed charts.
 
     python3 tools/charts.py           draws every chart that bench/charts.txt names
-    python3 tools/charts.py --check   fails when a committed chart differs from what it draws
+    python3 tools/charts.py --check   fails when a committed chart or page differs from what it draws
+
+It then writes what README.md and docs/benchmarks.md say of each chart, through chart_docs.py:
+each image's alt text, the chart's title, and each panel's verdict in docs/benchmarks.md.
 
 bench/charts.txt names, one line each, a benchmark, an architecture and the committed reports
 that the chart draws from: one report, or several jobs on one CPU model. A chart is one SVG under
@@ -27,6 +30,7 @@ speed over the files, total octets over total time, in multiples of one baseline
 the same job, against its compression ratio, total octets over total compressed octets. The title
 names each stdx level that another library's point beats in both speed and size.
 """
+import collections
 import math
 import os
 import re
@@ -37,6 +41,12 @@ import sys
 sys.dont_write_bytecode = True
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import chart_docs  # noqa: E402
+
+# A drawn chart: its SVG, its title, and the claim of each panel, which chart_docs.py writes into
+# the pages that show it.
+Chart = collections.namedtuple("Chart", "svg title claims")
 NUM = re.compile(r"^\s*(-?\d+(?:\.\d+)?)")
 LOW, HIGH = 0.25, 4.0
 
@@ -485,7 +495,6 @@ def versions(paths, lib):
 
 def draw(benchmark, paths):
     if benchmark not in SPECS:
-        sys.path.insert(0, os.path.join(ROOT, "tools"))
         import charts_wide
         return charts_wide.draw(sys.modules[__name__], benchmark, paths)
     name, specs = SPECS[benchmark]
@@ -532,7 +541,7 @@ def draw(benchmark, paths):
             f'<title id="t">{esc(title)}</title>', f'<desc id="d">{esc(". ".join(descs))}.</desc>', STYLE,
             f'<rect width="{WIDTH}" height="{height}" fill="var(--surface)"/>',
             f'<text class="title" x="16" y="26">{esc(title)}</text>', f'<text class="sub" x="16" y="46">{esc(sub)}</text>']
-    return "\n".join(head + body + legend + ["</svg>", ""])
+    return Chart("\n".join(head + body + legend + ["</svg>", ""]), title, descs)
 
 
 def manifest():
@@ -544,18 +553,27 @@ def manifest():
 
 def main():
     check = sys.argv[1:] == ["--check"]
-    stale = []
+    stale, titles, claims = [], {}, {}
     for benchmark, arch, reports in manifest():
-        svg = draw(benchmark, reports)
-        out = os.path.join(ROOT, "docs", "images", f"{benchmark}-{arch}.svg")
+        chart = draw(benchmark, reports)
+        name = f"{benchmark}-{arch}"
+        titles[name], claims[name] = chart.title, chart.claims
+        out = os.path.join(ROOT, "docs", "images", f"{name}.svg")
         if check:
-            if not os.path.exists(out) or open(out, encoding="utf-8").read() != svg:
+            if not os.path.exists(out) or open(out, encoding="utf-8").read() != chart.svg:
                 stale.append(out)
         else:
             os.makedirs(os.path.dirname(out), exist_ok=True)
-            open(out, "w", encoding="utf-8").write(svg)
+            open(out, "w", encoding="utf-8").write(chart.svg)
+    try:
+        if check:
+            stale += chart_docs.stale(ROOT, titles, claims)
+        else:
+            chart_docs.write(ROOT, titles, claims)
+    except ValueError as error:
+        sys.exit(f"charts.py: {error}")
     if stale:
-        sys.exit("charts.py: these charts differ from what their reports draw; run python3 tools/charts.py:\n  " + "\n  ".join(stale))
+        sys.exit("charts.py: these charts and pages differ from what their reports draw; run python3 tools/charts.py:\n  " + "\n  ".join(stale))
 
 
 if __name__ == "__main__":

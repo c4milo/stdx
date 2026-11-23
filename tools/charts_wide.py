@@ -502,4 +502,4 @@ def draw(kit, benchmark, paths):
             f'<rect width="{kit.WIDTH}" height="{height}" fill="var(--surface)"/>',
             f'<text class="title" x="16" y="26">{kit.esc(title)}</text>']
     head += [f'<text class="sub" x="16" y="{46 + 16 * k}">{kit.esc(sub)}</text>' for k, sub in enumerate(subs)]
-    return "\n".join(head + legend + body + notes + ["</svg>", ""])
+    return kit.Chart("\n".join(head + legend + body + notes + ["</svg>", ""]), title, descs)
