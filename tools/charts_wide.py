@@ -88,13 +88,13 @@ PANELS = {
               "stdx compiles both programs and readies a searcher, Rust's crate runs Regex::new and Go "
               "regexp.Compile. A program compiles a pattern once and searches with it many times."),
     ]),
-    # The held-out set: a benchmark of its own, which nobody who tuned stdx chose. Design §8 part
-    # 22n tuned stdx on it since (decision 86).
+    # The held-out set: a benchmark of its own, which rebar's author chose. Design §8 part 22n
+    # tuned stdx on it since (decision 86).
     "regex-rebar": ("regular expressions on rebar's curated set", "Rust's regex and Go's regexp", [
         Panel(HELD_SEARCH, r"", "rebar's curated searches", True, None,
               "Each row is a benchmark of rebar's curated set whose engines name Go's regexp or RE2, under rebar's "
-              "own model, pattern and haystack. Nobody who tuned stdx chose them, but design §8 part 22n tuned stdx on "
-              "them since, so they no longer show how stdx runs on patterns its tuning did not see. rebar's author also "
+              "own model, pattern and haystack. rebar's author chose them, and design §8 part 22n tuned stdx on them "
+              "since, so they no longer show how stdx runs on patterns its tuning did not see. rebar's author also "
               "wrote Rust's crate, and rebar's BIAS.md says the set may favor that crate.", ["Go regexp"]),
         Panel(HELD_COMPILE, r"", "rebar's curated compiles", True, 12, None, ["Go regexp"]),
     ]),

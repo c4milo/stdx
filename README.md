@@ -32,8 +32,8 @@ On GitHub's Arm Neoverse N2 runner:
 - No level of zlib, zlib-ng or libdeflate encodes gzip both faster and smaller than any of stdx's
   levels 1, 6 and 9.
 - `json`'s `TextWriter` writes JSON at 1.64 to 16.35 times serde_json's speed.
-- `regex` runs 17 of its 18 searches faster than Rust's regex crate, and 25 of rebar's 31. The
-  people who tuned stdx chose the first set, and tuned stdx on the second.
+- `regex` runs 17 of its 18 searches faster than Rust's regex crate, and 25 of rebar's 31. stdx
+  was tuned on both sets.
 - stdx decodes Zstandard slower than libzstd on 25 of the 39 files. libzstd's level 3 is both
   faster and smaller than stdx's levels 1 and 3.
 
@@ -178,7 +178,7 @@ again.
 ### Regular expressions
 
 The median of 18 runs at commit 8dc8c1d, against Rust's regex crate 1.13.2, Go's regexp, mvzr and
-zig-regex. The people who tuned stdx chose these patterns, so the patterns can favor stdx.
+zig-regex. These patterns were written for this benchmark, and stdx was tuned on them.
 
 ![stdx's regular expressions against libraries in Rust, Go and Zig, on Neoverse-N2](docs/images/regex-aarch64.svg)
 
@@ -192,8 +192,7 @@ zig-regex. The people who tuned stdx chose these patterns, so the patterns can f
 #### rebar's curated set
 
 Every benchmark of rebar's curated set whose engines name Go's regexp or RE2, from the same runs.
-Nobody who tuned stdx chose them, but stdx was tuned on them since
-([decision 86](docs/decisions.md)).
+rebar's author chose them, and stdx was tuned on them since ([decision 86](docs/decisions.md)).
 
 ![stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on Neoverse-N2](docs/images/regex-rebar-aarch64.svg)
 

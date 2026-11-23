@@ -181,7 +181,8 @@ regexp, mvzr and zig-regex. Each library's answer must equal Go's before it is t
 - Eighteen runs ran it at commit 8dc8c1d (`bench/results/2026-11-23-regex-literals-*`). The N2
   chart draws all 18 jobs. The x86-64 chart draws the 10 jobs on an AMD EPYC 7763, the model that
   the most jobs drew.
-- The people who tuned stdx chose these patterns, so the patterns can favor stdx.
+- These patterns were written for this benchmark, and stdx was tuned on them. So they can favor
+  stdx.
 - The validation rows ran 5% to 9% slower at 8dc8c1d than at a281f4c. Commit 49aaef7 came after
   these runs and removes that cost (design §8 part 22n).
 - From commit a382474, each round times the libraries in another order. These runs came before
@@ -218,7 +219,7 @@ regexp, mvzr and zig-regex. Each library's answer must equal Go's before it is t
 The same runs time every benchmark of rebar's curated set whose engines name Go's regexp or RE2.
 That is 31 searches and 10 compiles, each under rebar's own model, pattern and haystack.
 
-- Nobody who tuned stdx chose these benchmarks
+- rebar's author chose these benchmarks, not this benchmark's
   ([#44](https://github.com/c4milo/stdx/issues/44)).
 - Design §8 part 22n then measured every row and changed stdx by what the rows showed. So this set
   is tuned now, as the set above is. It no longer shows how stdx runs on patterns that its tuning

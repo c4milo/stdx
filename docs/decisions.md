@@ -6336,8 +6336,9 @@ last part lists what still waits on a ruling.
           stdx refuses, such as `\p{L}`; and no row shows a pattern that takes a backtracking
           matcher a time exponential in the text, where a candidate could run for hours.
       - The held-out set, by the owner's ruling of 2026-11-22 on a staff data scientist's
-        review. The people who tuned stdx chose every pattern above, and several claims were
-        judged on those rows, so a count over them can say more about the choice than the engine.
+        review. Every pattern above was written for this benchmark, by the work that tuned stdx,
+        and several claims were judged on those rows. So a count over them can say more about the
+        choice than the engine.
         - The set is every benchmark of rebar's curated set, at commit 463d00f, whose engines
           name Go's regexp or RE2: 41 of its 55. The rule names no row by what stdx does on it,
           and `bench/regex/rebar_cases.py` writes `bench/regex/regex_rebar.zig` by it.

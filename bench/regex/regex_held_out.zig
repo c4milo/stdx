@@ -1,6 +1,6 @@
 //! bench-regex's held-out set (decision 86 as amended): rebar's curated benchmarks whose engines
-//! name Go's regexp or RE2, which regex_rebar.zig lists. The people who tuned stdx chose the
-//! patterns of the other tables; rebar's author chose these. Design §8 part 22n tuned stdx on
+//! name Go's regexp or RE2, which regex_rebar.zig lists. The patterns of the other tables were
+//! written for this benchmark; rebar's author chose these. Design §8 part 22n tuned stdx on
 //! them since, so they no longer show how stdx runs on patterns its tuning did not see.
 //!
 //! Each benchmark's pattern and haystack are built as rebar builds them, from the files of rebar's

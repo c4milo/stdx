@@ -23,8 +23,8 @@
 //! is named so in its cell and is not timed. stdx must give Go's answer, or the benchmark fails:
 //! a fast wrong answer is no result.
 //!
-//! Last, regex_held_out.zig times the held-out set: rebar's curated benchmarks, which nobody who
-//! tuned stdx chose, under their own models and haystacks.
+//! Last, regex_held_out.zig times the held-out set: rebar's curated benchmarks, which rebar's
+//! author chose, under their own models and haystacks.
 //!
 //! Usage: `bench_regex [--held-out] <name>=<path>...`, the corpus files and rebar's files. It
 //! prints Markdown to standard output. `--held-out` times the held-out set alone.

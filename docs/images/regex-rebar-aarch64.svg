@@ -30,8 +30,8 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="sub" x="16" y="213">rows 1.43; from 0.87 to 6.36</text>
 <text class="sub" x="16" y="229">against Go regexp: ahead on 31, level on 0, behind on 0 of 31</text>
 <text class="sub" x="16" y="245">Each row is a benchmark of rebar's curated set whose engines name Go's regexp or RE2, under rebar's own model, pattern and haystack.</text>
-<text class="sub" x="16" y="261">Nobody who tuned stdx chose them, but design §8 part 22n tuned stdx on them since, so they no longer show how stdx runs on patterns its</text>
-<text class="sub" x="16" y="277">tuning did not see. rebar's author also wrote Rust's crate, and rebar's BIAS.md says the set may favor that crate.</text>
+<text class="sub" x="16" y="261">rebar's author chose them, and design §8 part 22n tuned stdx on them since, so they no longer show how stdx runs on patterns its tuning</text>
+<text class="sub" x="16" y="277">did not see. rebar's author also wrote Rust's crate, and rebar's BIAS.md says the set may favor that crate.</text>
 <text class="tick" x="590" y="298">stdx ÷ Rust, interval</text>
 <text class="tick" x="884" y="298" text-anchor="end">÷ Go</text>
 <rect x="287.6" y="304" width="11.1" height="527" fill="var(--grid)"/>

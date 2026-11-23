@@ -23,7 +23,7 @@ HEADER = '''//! bench-regex's held-out set (decision 86 as amended): every bench
 //! whose engines name Go's regexp or RE2, the engines of stdx's syntax. bench/regex/rebar_cases.py
 //! wrote this file from the definitions of rebar at `commit`; regenerate it, never edit it. Its
 //! patterns and haystacks are rebar's, and its answers are the counts rebar's definitions give Go's
-//! regexp. Nobody who tuned stdx chose these rows, but design §8 part 22n tuned stdx on them since.
+//! regexp. rebar's author chose these rows, and design §8 part 22n tuned stdx on them since.
 
 /// The commit of rebar whose definitions and files the set takes.
 pub const commit = "{commit}";
