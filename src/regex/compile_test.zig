@@ -59,17 +59,19 @@ test "a program says whether it holds an assertion, and one that reads the octet
 
 test "the options' flags are the flags a pattern starts under" {
     var storage: [storage_len]Instruction = undefined;
+    // `k`'s orbit is `K`, `k` and the Kelvin sign: three sequences, one node, `K` its first range.
     const folded = try compiler.compile("k", .{ .flags = .{ .case_insensitive = true } }, &storage);
-    try testing.expectEqual(@as(u8, 'K'), folded.instructions[0].lo);
+    try testing.expectEqual(program_file.Kind.ranges, folded.instructions[0].kind);
+    try testing.expectEqual(@as(u8, 'K'), folded.instructions[1].lo);
     const lines = try compiler.compile("^", .{ .flags = .{ .multi_line = true } }, &storage);
     try testing.expectEqual(program_file.Look.behind_line, lines.instructions[0].look);
     const plain = try compiler.compile("^", .{}, &storage);
     try testing.expectEqual(program_file.Look.behind_text, plain.instructions[0].look);
 }
 
-/// True when the instruction's kind goes on to `out`.
+/// True when the instruction's kind goes on to `out`. A `ranges` goes on from its ranges.
 fn has_out(kind: program_file.Kind) bool {
-    return kind != .match and kind != .fail;
+    return kind != .match and kind != .fail and kind != .ranges;
 }
 
 /// Every target of each half names an instruction of that half, and no hole is left open.
@@ -90,6 +92,7 @@ fn expect_whole(program: *const Program) !void {
 fn expect_targets(instruction: Instruction, first: u32, end: u32) !void {
     if (has_out(instruction.kind)) try testing.expect(instruction.out >= first and instruction.out < end);
     if (instruction.kind == .split) try testing.expect(instruction.arg >= first and instruction.arg < end);
+    if (instruction.kind == .ranges) try testing.expect(instruction.arg > 1 and instruction.arg <= constants.octet_values);
 }
 
 test "every target of a program names an instruction of its own half, for generated patterns" {

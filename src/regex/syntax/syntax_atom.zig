@@ -12,6 +12,7 @@ const Fragment = fragment.Fragment;
 const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 const unicode = @import("unicode");
 const utf8_compact = @import("syntax_atom_utf8.zig");
+const ranges_node = @import("syntax_atom_ranges.zig");
 
 /// The flags of RE2's syntax that stdx takes, which `(?i)`, `(?m)`, `(?s)` and `(?U)` set.
 pub const Flags = struct {
@@ -34,12 +35,14 @@ fn sequence(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.
 }
 
 /// Every scalar value of ranges that are in order and apart: one automaton for a class of many
-/// ranges past U+007F (syntax_atom_utf8.zig), or one alternative for each sequence of octet
-/// ranges. No two alternatives take the same octets, so their order chooses nothing.
+/// ranges past U+007F (syntax_atom_utf8.zig), one `ranges` node where the sequences' first ranges
+/// stand apart (syntax_atom_ranges.zig), or one alternative for each sequence of octet ranges. No
+/// two alternatives take the same octets, so their order chooses nothing.
 fn scalar_ranges(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
     if (scalars.len >= constants.utf8_compact_ranges_min and scalars[scalars.len - 1].hi > constants.one_octet_max) {
         if (try utf8_compact.class(builder, scalars)) |whole| return whole;
     }
+    if (try ranges_node.node(builder, scalars)) |whole| return whole;
     return alternatives(builder, scalars);
 }
 
@@ -238,7 +241,7 @@ test "a range of one octet a scalar value writes the program its split writes" {
     const sets = [_][]const utf8_ranges.ScalarRange{
         &.{.{ .lo = 0, .hi = constants.one_octet_max }},
         &.{ .{ .lo = 'A', .hi = 'Z' }, .{ .lo = 'a', .hi = 'z' } },
-        &.{ .{ .lo = '0', .hi = '9' }, .{ .lo = 0x7F, .hi = 0x80 } },
+        &.{.{ .lo = 0x7F, .hi = 0x80 }},
         &.{ .{ .lo = 'k', .hi = 'k' }, .{ .lo = 0x212A, .hi = 0x212A } },
     };
     for (sets) |scalars| {
@@ -277,6 +280,7 @@ fn first_octets(storage: []const program.Instruction, entry: u32, octet: u8) boo
         len -= 1;
         const instruction = storage[stack[len]];
         if (instruction.kind == .range) taken = taken or instruction.takes(octet);
+        if (instruction.kind == .ranges) taken = taken or program.step(storage, stack[len], octet) != null;
         if (instruction.kind != .split) continue;
         stack[len] = instruction.out;
         stack[len + 1] = instruction.arg;

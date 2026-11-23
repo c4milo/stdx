@@ -1,8 +1,10 @@
 //! A compiled pattern: instructions that read one octet at a time (decision 86).
 //!
 //! A program is Thompson's automaton in Pike's instruction form. A scalar value past U+007F is a
-//! sequence of octet ranges, so one program runs on octets and no matcher decodes UTF-8. Every
-//! instruction names its targets, so a fragment of a program stands anywhere in it.
+//! sequence of octet ranges, so one program runs on octets and no matcher decodes UTF-8. A node of
+//! a class is one `ranges` instruction and the apart ranges after it, so a matcher keeps one
+//! thread for the node. Every instruction names its targets, so a fragment of a program stands
+//! anywhere in it.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
@@ -11,6 +13,11 @@ const constants = @import("constants.zig");
 pub const Kind = enum(u8) {
     /// Take one octet from `lo` to `hi`, both included, then go to `out`.
     range,
+    /// Take one octet that one of the next `arg` instructions takes, then go to that one's `out`.
+    /// The `arg` instructions are ranges in ascending order and apart, a node of a class, and no
+    /// other instruction goes to one of them: a matcher keeps one thread for the node, where a
+    /// split of each range would keep one for each range.
+    ranges,
     /// Go to `out` first and to `arg` second: `out` is the choice a match prefers.
     split,
     /// Write the position into slot `arg`, then go to `out`.
@@ -105,6 +112,35 @@ pub const Instruction = extern struct {
         return instruction.lo <= octet and octet <= instruction.hi;
     }
 };
+
+/// The instruction a matcher goes to after the instruction at `index`, a `range` or a `ranges`,
+/// takes `octet`, or null where it does not take it. Inline for a `range`, the commonest; a
+/// `ranges` is found in a call of its own.
+pub inline fn step(instructions: []const Instruction, index: u32, octet: u8) ?u32 {
+    const instruction = instructions[index];
+    if (instruction.kind == .range) return if (instruction.takes(octet)) instruction.out else null;
+    return step_ranges(instructions, index, octet);
+}
+
+/// `step` of a `ranges`, whose ranges are found by halving: at most eight steps for 256 ranges.
+pub fn step_ranges(instructions: []const Instruction, index: u32, octet: u8) ?u32 {
+    const instruction = instructions[index];
+    assert(instruction.kind == .ranges);
+    assert(instruction.arg >= 1 and instruction.arg <= constants.octet_values);
+    const members = instructions[index + 1 ..][0..instruction.arg];
+    // The ranges below `low` start at or below `octet`, and those from `high` above it.
+    var low: usize = 0;
+    var high: usize = members.len;
+    // Each turn halves the ranges left, so the turns are at most the bits of their count.
+    while (low < high) {
+        const middle = low + ((high - low) >> 1);
+        if (members[middle].lo <= octet) low = middle + 1 else high = middle;
+    }
+    if (low == 0) return null;
+    const member = members[low - 1];
+    assert(member.kind == .range);
+    return if (octet <= member.hi) member.out else null;
+}
 
 /// An entry that names no program.
 pub const no_entry = std.math.maxInt(u32);

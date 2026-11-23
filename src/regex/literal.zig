@@ -198,6 +198,8 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
                 literal.exact = !passed_look;
                 return .{ .literal = literal, .stop = index, .reached_match = true };
             },
+            // A node of a class takes more than one octet.
+            .ranges => break,
             .look => {
                 if (!through_looks) break;
                 passed_look = true;

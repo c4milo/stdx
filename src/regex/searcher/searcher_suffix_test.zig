@@ -36,7 +36,12 @@ pub const suffix_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
 
 /// Patterns that end with a literal whose first octet a part before it takes: claim R4 would
 /// give a later start, or a shorter match, than the matcher.
-const refused = [_][]const u8{ "(?:a..|)x", "[ax]+x", "(?:xa)+", "x+", "(?:x:|a)+x:", "[^b]+x", "(?:a.\\B|)x" };
+const refused = [_][]const u8{
+    "(?:a..|)x", "[ax]+x",       "(?:xa)+", "x+", "(?:x:|a)+x:", "[^b]+x", "(?:a.\\B|)x",
+    // A class of three octets is one `ranges` node, read back too: one that takes the suffix's
+    // first octet, and one past which the walk reaches it.
+    "[ :x]+x",   "(?:x[ :b]|)x",
+};
 
 /// Texts on which a search that took a suffix it must refuse, or passed a place it must read,
 /// gives another answer than the matcher.

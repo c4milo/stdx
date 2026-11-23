@@ -8867,6 +8867,55 @@ to 12 are reordered and nothing else changes.
     the driver, the best of 40 warm runs each, the row ran at 25,450 and 27,590 MB/s in place of
     7,227 and 8,956, where Rust's crate gave 19,648 in the local run of part 22m. `Sherlock
     Holmes` and `夏洛克·福尔摩斯` did not move past the noise.
+  - A class compiled to a tree of `range` instructions joined by splits, so each engine kept one
+    thread for each of a node's ranges. The backtracker of the unstructured log row walked each
+    of `[^ ]`'s ten sequences at each octet, and each of the lazy DFAs' states listed every range.
+    A node of a class is now one `ranges` instruction and its ranges, by the owner's ruling of
+    2026-11-23 (decision 86), wherever its ranges stand apart: each node of a class's forward
+    automaton, and a class of three sequences or more that start apart. Read back, a node whose
+    ranges overlap keeps its splits. Under callgrind, two passes of the unstructured log row took
+    16.6 million instructions in place of 52.1 million, and the lexer row 917.9 million in place
+    of 975.8 million. `\p{L}` takes 1,345 instructions forward and 1,771 read back. The best of 10
+    warm runs of the driver, in two passes each, in MB/s:
+
+    | Row | 5a86d7b | Now | Rust's crate, part 22m |
+    | --- | ---: | ---: | ---: |
+    | letters-ru | 1.71, 1.77 | 14.03, 13.40 | 406.89 |
+    | letters-en | 400.19, 367.69 | 407.77, 451.58 | 437.62 |
+    | unstructured log | 16.30, 16.46 | 30.82, 32.15 | 66.10 |
+    | context | 21.92, 18.91 | 25.57, 24.48 | 56.63 |
+    | lexer | 4.30, 4.18 | 4.37, 4.53 | 4.51 |
+
+    A compile writes each class's sequences once more. The best of 7 runs of 100 compiles, in
+    ns, in place of 5a86d7b's: the date pattern 215,184 for 210,941, the lexer 38,247 for 37,965,
+    `\p{L}{8,13}` 297,250 for 315,925, the context pattern 50,907 for 52,398, ucd-parse 9,506 for
+    8,597, and the unstructured log's pattern 5,859 for 5,275.
+    The reverse DFA of `\p{L}{8,13}` still gives up: each state lists the reverse root's ranges
+    that overlap, about 700 words a state. Rust's crate keeps the same ranges and packs each of
+    a state's threads in about one octet.
+  **Check, the ranges:** `step` finds the range of a node by halving, and refuses an octet
+  between its ranges and past its last; each engine keeps one thread at a node and steps it; a
+  forward node of `\p{L}` is a `ranges` and its reverse root is splits; a class of three
+  sequences that start apart is one node, read back only where each is one octet, and a class of
+  two, or whose sequences share a lead octet, keeps its split; claim R4 refuses a suffix whose
+  first octet a node takes, or one past it; one-pass refuses two paths through a node that take
+  one octet; the Go differential check passes; mutations.
+  **Check passed, the ranges, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 22. CAUGHT, 20: the halving that keeps a range
+    starting at the octet below it, a range that takes an octet past its last, or reads one range
+    too many; no thread at a node in the matcher or the DFA; the suffix check that reads no node,
+    or walks past none; one-pass that takes a node's octets but its last; the backtracker that
+    steps a node by its first range, or prunes one that takes the octet; a set's paths that end at
+    a node, or take no program that starts with one; a copied node's count moved; a node of ranges
+    that share one octet taken as apart; every node joined by splits; a node's ranges read from its
+    entry; a node of two sequences; sequences that share a lead octet taken as apart; a reverse
+    node of longer sequences; a longer sequence that leaves at its first range. NOT CAUGHT, 2:
+    one-pass's runs that stop at a node, which the slower path finishes with the same answer; and
+    a node of more sequences than octets, which no class reaches, since its first ranges stand
+    apart.
   **Check, the literal's offsets:** `prepare` takes the ends of a literal whose octets rank
   alike, the capitals inside a lowercase one, and the continuation octets of a Cyrillic one;
   `of` and `suffix_of` write them; needles whose offsets stand inside give the plain search's

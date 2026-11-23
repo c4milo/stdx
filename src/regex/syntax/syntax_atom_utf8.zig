@@ -27,15 +27,13 @@ const Instruction = program.Instruction;
 const OctetRange = utf8_ranges.OctetRange;
 const ScalarRange = utf8_ranges.ScalarRange;
 const Sequence = utf8_ranges.Sequence;
+const node_file = @import("syntax_atom_utf8_node.zig");
+const exit = node_file.exit;
+const Transition = node_file.Transition;
 
-/// The target of a transition that leaves the class: a hole of the class's fragment.
-const exit = std.math.maxInt(u32);
-
-const Transition = struct { lo: u8, hi: u8, next: u32 };
-
-/// A node the program holds, under the hash of its transitions: its first range instruction and
-/// its count of transitions. A count of zero marks an empty slot.
-const Slot = struct { hash: u32 = 0, first: u32 = 0, count: u32 = 0 };
+/// A node the program holds, under the hash of its transitions: its entry, its first range, and its
+/// count of transitions (syntax_atom_utf8_node.zig). A count of zero marks an empty slot.
+const Slot = struct { hash: u32 = 0, entry: u32 = 0, ranges: u32 = 0, count: u32 = 0 };
 
 const Error = fragment.Error;
 
@@ -202,8 +200,8 @@ const Compiler = struct {
 
     fn holds(compiler: *const Compiler, slot: Slot, node: []const Transition) bool {
         if (slot.count != node.len) return false;
-        const written = compiler.builder.instructions[slot.first..][0..slot.count];
-        for (node, written) |transition, instruction| {
+        const ranges = compiler.builder.instructions[slot.ranges..][0..slot.count];
+        for (node, ranges) |transition, instruction| {
             assert(instruction.kind == .range);
             if (instruction.lo != transition.lo or instruction.hi != transition.hi) return false;
             // A transition to the class's end is a hole, which no later step of the class fills.
@@ -214,35 +212,24 @@ const Compiler = struct {
         return true;
     }
 
-    /// Writes one range for each transition, then the splits that join them, the last first,
-    /// so that the entry is the last instruction written.
+    /// Writes a node: a `ranges` and its ranges where its transitions stand apart, and its ranges
+    /// joined by splits where they overlap (syntax_atom_utf8_node.zig).
     fn emit(compiler: *Compiler, node: []const Transition, hash: u32) fragment.Error!Slot {
         const builder = compiler.builder;
-        const first = builder.len;
-        for (node) |transition| {
-            if (transition.next == exit) {
-                const piece = try builder.range(transition.lo, transition.hi);
-                compiler.holes = builder.join(compiler.holes, piece.holes);
-            } else {
-                _ = try builder.emit(.{ .kind = .range, .lo = transition.lo, .hi = transition.hi, .out = transition.next });
-            }
+        const count: u32 = @intCast(node.len);
+        if (node_file.apart(node)) {
+            const entry = try node_file.write_apart(builder, &compiler.holes, node);
+            return .{ .hash = hash, .entry = entry, .ranges = entry + @intFromBool(count > 1), .count = count };
         }
-        var entry = builder.len - 1;
-        for (1..node.len) |back| {
-            const index: u32 = @intCast(node.len - 1 - back);
-            entry = try builder.emit(.{ .kind = .split, .out = first + index, .arg = entry });
-        }
-        const slot: Slot = .{ .hash = hash, .first = first, .count = @intCast(node.len) };
-        assert(entry_of(slot) == entry);
-        return slot;
+        const ranges = builder.len;
+        const entry = try node_file.write_split(builder, &compiler.holes, node);
+        return .{ .hash = hash, .entry = entry, .ranges = ranges, .count = count };
     }
 };
 
-/// A node of `count` transitions is its ranges, then `count - 1` splits, the last its entry.
 fn entry_of(slot: Slot) u32 {
     assert(slot.count > 0);
-    const splits = slot.count - 1;
-    return slot.first + slot.count + splits - 1;
+    return slot.entry;
 }
 
 fn hash_of(node: []const Transition) u32 {
@@ -303,22 +290,22 @@ test "a written node holds only transitions with its own octets and targets" {
     const target = try builder.emit(.{ .kind = .fail });
     const other = try builder.emit(.{ .kind = .fail });
     const node = [_]Transition{
-        .{ .lo = constants.continuation_min, .hi = constants.continuation_max, .next = target },
         .{ .lo = 'a', .hi = 'a', .next = exit },
+        .{ .lo = constants.continuation_min, .hi = constants.continuation_max, .next = target },
     };
     const slot = try compiler.emit(&node, hash_of(&node));
     try testing.expect(compiler.holds(slot, &node));
     var moved = node;
-    moved[0].next = other;
+    moved[1].next = other;
     try testing.expect(!compiler.holds(slot, &moved));
     var leaves = node;
-    leaves[0].next = exit;
+    leaves[1].next = exit;
     try testing.expect(!compiler.holds(slot, &leaves));
     var stays = node;
-    stays[1].next = target;
+    stays[0].next = target;
     try testing.expect(!compiler.holds(slot, &stays));
     var narrower = node;
-    narrower[0].hi = constants.continuation_max - 1;
+    narrower[1].hi = constants.continuation_max - 1;
     try testing.expect(!compiler.holds(slot, &narrower));
     try testing.expect(!compiler.holds(slot, node[0..1]));
 }

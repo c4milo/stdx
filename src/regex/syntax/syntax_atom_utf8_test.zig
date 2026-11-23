@@ -68,13 +68,12 @@ const Walk = struct {
             seeds_len = 0;
             var left = false;
             for (walk.threads[0..threads_len]) |index| {
-                const instruction = instructions[index];
-                if (!instruction.takes(octet)) continue;
-                if (instruction.out & constants.hole_flag != 0) {
+                const next = program.step(instructions, index, octet) orelse continue;
+                if (next & constants.hole_flag != 0) {
                     left = true;
                     continue;
                 }
-                walk.seeds[seeds_len] = instruction.out;
+                walk.seeds[seeds_len] = next;
                 seeds_len += 1;
             }
             if (taken == text.len - 1) return left;
@@ -100,7 +99,7 @@ const Walk = struct {
             walk.mark[index] = walk.generation;
             const instruction = instructions[index];
             switch (instruction.kind) {
-                .range => {
+                .range, .ranges => {
                     walk.threads[threads_len] = index;
                     threads_len += 1;
                 },
@@ -212,6 +211,14 @@ test "a class's automaton takes the texts its alternatives take, in both directi
 const size_numerator = 3;
 const size_denominator = 5;
 
+test "forward, a node of \\p{L} is a ranges; read back, its root, whose ranges overlap, is splits" {
+    var automaton: Built = .{};
+    try build(&automaton, unicode.property("L").?, .forward, false);
+    try testing.expectEqual(program.Kind.ranges, automaton.instructions()[automaton.entry].kind);
+    try build(&automaton, unicode.property("L").?, .reverse, false);
+    try testing.expectEqual(program.Kind.split, automaton.instructions()[automaton.entry].kind);
+}
+
 test "the automaton of \\p{L} takes under three fifths of the instructions of its alternatives" {
     var automaton: Built = .{};
     var alternatives: Built = .{};
@@ -314,15 +321,17 @@ test "a class of utf8_compact_ranges_min ranges or more, one past U+007F, is one
     try class_program(&parsed, ranges[0 .. ranges.len - 1]);
     try build(&alternatives, ranges[0 .. ranges.len - 1], .forward, true);
     try testing.expectEqualSlices(Instruction, alternatives.instructions(), parsed.instructions());
-    // Every range of one octet: the alternatives, whatever the count.
+    // Every range of one octet: no automaton, whatever the count, but one node of the ranges
+    // (syntax_atom_ranges.zig).
     var ascii: [constants.utf8_compact_ranges_min]ScalarRange = undefined;
     for (&ascii, 0..) |*range, index| {
         const value: u32 = @intCast('a' + 2 * index);
         range.* = .{ .lo = value, .hi = value };
     }
     try class_program(&parsed, &ascii);
-    try build(&alternatives, &ascii, .forward, true);
-    try testing.expectEqualSlices(Instruction, alternatives.instructions(), parsed.instructions());
+    const head = parsed.instructions()[0];
+    try testing.expectEqual(program.Kind.ranges, head.kind);
+    try testing.expectEqual(@as(u32, ascii.len), head.arg);
 }
 
 test "a reverse class whose program would reach its sorted sequences takes its alternatives" {

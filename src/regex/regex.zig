@@ -75,6 +75,8 @@ test {
     _ = @import("syntax/syntax.zig");
     _ = @import("syntax/syntax_atom.zig");
     _ = @import("syntax/syntax_atom_utf8.zig");
+    _ = @import("syntax/syntax_atom_utf8_node.zig");
+    _ = @import("syntax/syntax_atom_ranges.zig");
     _ = @import("syntax/syntax_class.zig");
     _ = @import("syntax/syntax_escape.zig");
     _ = @import("syntax/syntax_posix.zig");

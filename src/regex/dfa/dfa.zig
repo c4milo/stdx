@@ -391,8 +391,7 @@ pub const Dfa = struct {
     pub fn step(dfa: *Dfa, octet: u8) void {
         dfa.next.clear();
         for (dfa.threads[0..dfa.threads_len]) |index| {
-            const instruction = dfa.instructions[index];
-            if (instruction.takes(octet)) _ = dfa.next.insert(instruction.out);
+            if (program_file.step(dfa.instructions, index, octet)) |next| _ = dfa.next.insert(next);
         }
     }
 
@@ -450,7 +449,7 @@ pub const Dfa = struct {
                 return instruction.out;
             },
             .look => return if (instruction.look.holds(behind, ahead)) instruction.out else null,
-            .range => {
+            .range, .ranges => {
                 dfa.threads[dfa.threads_len] = index;
                 dfa.threads_len += 1;
                 return null;

@@ -261,7 +261,8 @@ pub const Builder = struct {
 fn has_out(kind: program.Kind) bool {
     return switch (kind) {
         .range, .split, .save, .look, .jump => true,
-        .match, .fail => false,
+        // A node's count of ranges is no target, and its ranges follow it.
+        .ranges, .match, .fail => false,
     };
 }
 

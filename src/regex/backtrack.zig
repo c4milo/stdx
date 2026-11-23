@@ -123,18 +123,23 @@ const Search = struct {
         // Each step visits a pair for the first time, so the steps are at most the pairs.
         for (0..search.instructions.len * search.positions) |_| {
             if (!search.visit(instruction_index, position)) return .failed;
-            const instruction = search.instructions[instruction_index];
-            switch (search.step(instruction, position)) {
-                .next => |next| position = next,
+            switch (search.step(instruction_index, position)) {
+                .next => |next| {
+                    instruction_index = next.index;
+                    position = next.at;
+                },
                 .done => |outcome| return outcome,
             }
-            instruction_index = instruction.out;
         }
         return .failed;
     }
 
-    /// One instruction of a path at `at`: the offset its path goes on from, or how the path ended.
-    fn step(search: *Search, instruction: Instruction, at: usize) union(enum) { next: usize, done: Outcome } {
+    /// Where a path goes on: an instruction, at an offset.
+    const Next = struct { index: u32, at: usize };
+
+    /// One instruction of a path at `at`: where its path goes on, or how the path ended.
+    fn step(search: *Search, index: u32, at: usize) union(enum) { next: Next, done: Outcome } {
+        const instruction = search.instructions[index];
         switch (instruction.kind) {
             .match => {
                 assert(at == search.end);
@@ -150,10 +155,14 @@ const Search = struct {
             .look => if (!instruction.look.holds(search.behind(at), search.ahead(at))) return .{ .done = .failed },
             .range => {
                 if (!search.takes(instruction, at)) return .{ .done = .failed };
-                return .{ .next = at + 1 };
+                return .{ .next = .{ .index = instruction.out, .at = at + 1 } };
+            },
+            .ranges => {
+                const next = search.taken(index, at) orelse return .{ .done = .failed };
+                return .{ .next = .{ .index = next, .at = at + 1 } };
             },
         }
-        return .{ .next = at };
+        return .{ .next = .{ .index = instruction.out, .at = at } };
     }
 
     /// Marks a pair as visited. False where it was.
@@ -205,6 +214,7 @@ const Search = struct {
             const instruction = search.instructions[next];
             switch (instruction.kind) {
                 .range => return !search.takes(instruction, at),
+                .ranges => return search.taken(next, at) == null,
                 .look => if (!instruction.look.holds(search.behind(at), search.ahead(at))) return true,
                 .save, .jump => {},
                 .fail => return true,
@@ -218,6 +228,13 @@ const Search = struct {
     /// True where the range takes the octet at `at`, which is before the span's end.
     fn takes(search: *const Search, range: Instruction, at: usize) bool {
         return at < search.end and range.takes(search.haystack[at]);
+    }
+
+    /// The instruction the `ranges` at `index` goes to after it takes the octet at `at`, which is
+    /// before the span's end, or null where it does not take it.
+    fn taken(search: *const Search, index: u32, at: usize) ?u32 {
+        if (at >= search.end) return null;
+        return program_file.step_ranges(search.instructions, index, search.haystack[at]);
     }
 
     /// Pushes an entry that gives `slot` its value back when the search returns to it.

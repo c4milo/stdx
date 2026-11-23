@@ -49,7 +49,7 @@ pub fn of(program: *const Program) ?LiteralSet {
     // A program that starts with neither one octet nor a split starts with no literal, and its
     // search does not pay for the paths' frame.
     const first = program.instructions[past_saves(program, program.forward)];
-    if (first.kind != .split and !(first.kind == .range and first.lo == first.hi)) return null;
+    if (first.kind != .split and first.kind != .ranges and !(first.kind == .range and first.lo == first.hi)) return null;
     return read(program);
 }
 
@@ -98,7 +98,7 @@ fn fork(program: *const Program, path: Path, forked: *Paths) bool {
     // program has instructions holds a loop of splits and jumps, and ends the read.
     for (0..program.instructions.len) |_| {
         const index = walk.pop() orelse return true;
-        if (!visit(program.instructions[index], path, &walk, forked)) return false;
+        if (!visit(program, index, path, &walk, forked)) return false;
     }
     return false;
 }
@@ -123,15 +123,26 @@ const Walk = struct {
 };
 
 /// One instruction of a path's walk. False where `forked` or the walk has no room.
-fn visit(instruction: program_file.Instruction, path: Path, walk: *Walk, forked: *Paths) bool {
+fn visit(program: *const Program, index: u32, path: Path, walk: *Walk, forked: *Paths) bool {
+    const instruction = program.instructions[index];
     return switch (instruction.kind) {
         .save, .jump => walk.push(instruction.out),
-        // A path past `literal_fork_len_max` octets ends at a split.
+        // A path past `literal_fork_len_max` octets ends at a split, or at a node of a class.
         .split => if (path.len >= constants.literal_fork_len_max) forked.add(ended(path, false)) else walk.push(instruction.arg) and walk.push(instruction.out),
+        .ranges => if (path.len >= constants.literal_fork_len_max) forked.add(ended(path, false)) else fork_members(program, index, path, forked),
         .range => forked.add(took(path, instruction)),
         .match => forked.add(ended(path, true)),
         .look, .fail => forked.add(ended(path, false)),
     };
+}
+
+/// The paths after a node of a class: one for each of its ranges, in their order, each as `took`
+/// gives it. The ranges take apart octets, so their order chooses nothing.
+fn fork_members(program: *const Program, index: u32, path: Path, forked: *Paths) bool {
+    for (program.instructions[index + 1 ..][0..program.instructions[index].arg]) |member| {
+        if (!forked.add(took(path, member))) return false;
+    }
+    return true;
 }
 
 /// The path after `range`: its octet added where the range takes one octet alone, and ended

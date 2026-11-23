@@ -55,10 +55,11 @@ fn closure_is_one_pass(matcher: *Matcher, seed: u32) bool {
     for (0..matcher.program.forward_len) |_| {
         if (stack_len == 0) break;
         stack_len -= 1;
-        const instruction = instructions[matcher.stack[stack_len]];
+        const index = matcher.stack[stack_len];
+        const instruction = instructions[index];
         switch (instruction.kind) {
-            .range => {
-                if (!take_once(&taken, instruction)) return false;
+            .range, .ranges => {
+                if (!take_node_once(instructions, index, &taken)) return false;
                 takes = true;
             },
             .match => matches = true,
@@ -85,6 +86,17 @@ fn push_new(matcher: *Matcher, stack_len: usize, index: u32) usize {
 }
 
 /// Adds the octets of a range to `taken`. False where one of them was there.
+/// Adds the octets the `range` or the `ranges` node at `index` takes to `taken`. False where one
+/// of them was there already.
+fn take_node_once(instructions: []const Instruction, index: u32, taken: *Octets) bool {
+    const instruction = instructions[index];
+    if (instruction.kind == .range) return take_once(taken, instruction);
+    for (instructions[index + 1 ..][0..instruction.arg]) |member| {
+        if (!take_once(taken, member)) return false;
+    }
+    return true;
+}
+
 fn take_once(taken: *Octets, range: Instruction) bool {
     // At most `octet_values` octets.
     for (range.lo..@as(usize, range.hi) + 1) |octet| {
@@ -160,11 +172,10 @@ const Run = struct { index: usize, seed: u32, dead: bool };
 inline fn take_ranges(instructions: []const Instruction, haystack: []const u8, from: usize, first: u32) Run {
     var seed = first;
     for (haystack[from..], from..) |octet, index| {
-        const instruction = &instructions[seed];
-        if (instruction.kind != .range) return .{ .index = index, .seed = seed, .dead = false };
-        // The seed's one path is this range: where it refuses the octet, no thread is left.
-        if (!instruction.takes(octet)) return .{ .index = index, .seed = seed, .dead = true };
-        seed = instruction.out;
+        const kind = instructions[seed].kind;
+        if (kind != .range and kind != .ranges) return .{ .index = index, .seed = seed, .dead = false };
+        // The seed's one path is this node: where it refuses the octet, no thread is left.
+        seed = program_file.step(instructions, seed, octet) orelse return .{ .index = index, .seed = seed, .dead = true };
     }
     return .{ .index = haystack.len, .seed = seed, .dead = false };
 }
@@ -195,7 +206,10 @@ fn straight(matcher: *Matcher, seed: u32, octet: ?u8, ahead: Context) ?Outcome {
             // Every path from the seed passes this assertion.
             .look => if (!instruction.look.holds(matcher.behind, ahead)) return .dead,
             .jump => {},
-            .range => return if (octet != null and instruction.takes(octet.?)) .{ .took = instruction.out } else .dead,
+            .range, .ranges => {
+                const known = octet orelse return .dead;
+                return .{ .took = program_file.step(instructions, index, known) orelse return .dead };
+            },
             .match => return .matched,
             .fail => return .dead,
             .split => return null,
@@ -250,9 +264,10 @@ fn visit(matcher: *Matcher, index: u32, octet: ?u8, ahead: Context) union(enum) 
             return .{ .next = instruction.out };
         },
         .look => return .{ .next = if (instruction.look.holds(matcher.behind, ahead)) instruction.out else null },
-        .range => {
+        .range, .ranges => {
             const known = octet orelse return .{ .next = null };
-            return if (instruction.takes(known)) .{ .done = .{ .took = instruction.out } } else .{ .next = null };
+            const next = program_file.step(matcher.program.instructions, index, known) orelse return .{ .next = null };
+            return .{ .done = .{ .took = next } };
         },
         .match => return .{ .done = .matched },
         .fail => return .{ .next = null },
@@ -293,13 +308,15 @@ test "check takes a program where each octet leads one thread on, and refuses on
         "(a|b)c",
         "(a)|b",
         "(\\bab)",
+        // A class of three octets is one `ranges` node.
+        "([ :x])c",
     };
     for (one_pass_patterns) |pattern| {
         try fixture.init(pattern);
         if (!check(&fixture.matcher)) return error.TestExpectedOnePass;
     }
     // Two threads take one octet, or a match stands beside an octet.
-    const other_patterns = [_][]const u8{ "(a|ab)c", "a*a", "(a+)(a+)", "(.*)x", "([a-z]+)", "(a|b)*", "x(a?)a", "\\b(a|ab)c" };
+    const other_patterns = [_][]const u8{ "(a|ab)c", "a*a", "(a+)(a+)", "(.*)x", "([a-z]+)", "(a|b)*", "x(a?)a", "\\b(a|ab)c", "([ :x])|(x)" };
     for (other_patterns) |pattern| {
         try fixture.init(pattern);
         if (check(&fixture.matcher)) return error.TestUnexpectedOnePass;

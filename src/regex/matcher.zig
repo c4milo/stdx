@@ -396,7 +396,7 @@ pub const Matcher = struct {
                 return instruction.out;
             },
             .look => return if (instruction.look.holds(matcher.behind, ahead_context)) instruction.out else null,
-            .range, .match => {
+            .range, .ranges, .match => {
                 matcher.threads[matcher.threads_len] = index;
                 matcher.threads_len += 1;
                 @memcpy(matcher.slots(matcher.thread_slots, index), matcher.current());
@@ -413,10 +413,9 @@ pub const Matcher = struct {
         work_file.add(&matcher.work, matcher.threads_len);
         matcher.seeds.clear();
         for (matcher.threads[0..matcher.threads_len]) |index| {
-            const instruction = matcher.program.instructions[index];
-            if (!instruction.takes(octet)) continue;
-            if (!matcher.seeds.insert(instruction.out)) continue;
-            @memcpy(matcher.slots(matcher.seed_slots, instruction.out), matcher.slots(matcher.thread_slots, index));
+            const next = program_file.step(matcher.program.instructions, index, octet) orelse continue;
+            if (!matcher.seeds.insert(next)) continue;
+            @memcpy(matcher.slots(matcher.seed_slots, next), matcher.slots(matcher.thread_slots, index));
         }
         matcher.position += 1;
         matcher.behind = Context.of(octet);

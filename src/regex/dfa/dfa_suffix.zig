@@ -17,7 +17,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
-const Program = @import("../program.zig").Program;
+const program_file = @import("../program.zig");
+const Program = program_file.Program;
 const Literal = @import("../literal.zig").Literal;
 const Dfa = @import("dfa.zig").Dfa;
 
@@ -44,9 +45,17 @@ fn before_takes(dfa: *Dfa, before: u32, octet: u8) bool {
     for (0..dfa.instructions.len) |_| {
         if (stack_len == 0) return false;
         stack_len -= 1;
-        const instruction = dfa.instructions[dfa.stack[stack_len]];
+        const index = dfa.stack[stack_len];
+        const instruction = dfa.instructions[index];
         switch (instruction.kind) {
             .range => if (instruction.takes(octet)) return true,
+            .ranges => {
+                if (program_file.step(dfa.instructions, index, octet) != null) return true;
+                // A node's ranges are reached through it alone, so the walk goes on to their
+                // targets from here.
+                for (dfa.instructions[index + 1 ..][0..instruction.arg]) |member| stack_len = push(dfa, stack_len, member.out);
+                continue;
+            },
             .match, .fail => continue,
             .save, .jump, .look => {},
             .split => stack_len = push(dfa, stack_len, instruction.arg),

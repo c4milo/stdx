@@ -5739,6 +5739,24 @@ last part lists what still waits on a ruling.
       preferred branch, a save of a capture slot, an assertion, and `match`.
     - A scalar value past U+007F is a sequence of octet ranges, as RE2 compiles it, so one
       program runs on octets and no matcher decodes UTF-8.
+    - A node of a class is one `ranges` instruction, by the owner's ruling of 2026-11-23: it
+      takes an octet that one of the `range` instructions after it takes, in ascending order and
+      apart, and goes on from that range. A matcher, the DFAs, one-pass and the backtracker keep
+      one thread at the node, where a split of each range kept one thread for each range: `[^ ]`
+      held ten. Each engine finds the range by halving
+      (`program.step`). Rust's crate keeps such a node as one state with its ranges, a sparse
+      state of its NFA.
+      - The forward automaton of a class of many ranges (`syntax_atom_utf8.zig`) writes each
+        node this way: two sequences that share the octets before a node take apart octets there.
+      - A class of three sequences or more whose first ranges stand apart is one node, each range
+        going on to the rest of its sequence (`syntax_atom_ranges.zig`): `[^ ]`, `.`, `[A-Za-z_]`.
+        Two sequences keep their split, which claim R2 reads as a letter in either case.
+      - Read back, sequences that end in continuation octets overlap: `[D0][80-8F]` and
+        `[D1][80-BF]` both start from `80-8F`. Such a node keeps its ranges joined by splits, as
+        Rust's crate keeps it by default (regex-automata 0.4.19, `Config::shrink`). Cut into apart
+        pieces whose shared targets are joined, the reverse automaton of `\p{L}` took 8,765
+        instructions or more where its ranges joined by splits take 1,771, and `\p{L}{8,13}` took too
+        many for its reverse DFA to start.
     - The parser builds no tree and never recurses. It keeps one frame for each open group, and
       a range quantifier copies its operand's block.
     - A loop over an operand that matches the empty string is built as `(x+)?`, the rewrite RE2
