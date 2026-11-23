@@ -9483,6 +9483,22 @@ to 12 are reordered and nothing else changes.
   `zig build test-regex`: 4. CAUGHT, 3: a match that ends an octet short, whose test never ends;
   a match that starts an octet early; a walk that ends no search past the text. NOT CAUGHT, 1,
   the same answers: no shortcut, where `Searcher.find` finds the same places.
+  - `is_match` keeps its scan from 0 for a DFA with no literal. The search before the scan gave
+    every scan a start held in a variable, which the inlined scan could not fold as it folds 0.
+    The five patterns that validate a short text hold no literal, and in run
+    [45232452154](https://github.com/c4milo/stdx/actions/runs/45232452154) they ran 5% to 9%
+    slower on the N2 and 6% to 12% slower on a Xeon 6975P. A DFA with claim R2's literal or R5's
+    set now scans in `scan_from_literal`, out of line, and one with neither scans as at a281f4c.
+    - One warm pass over 40,000 short lines of email addresses, half of them valid: the email
+      pattern takes 2.1% fewer instructions than at a281f4c on x86-64, and 1.2% more on aarch64.
+      `aws-keys/quick`'s lines take 21.5% fewer than at a281f4c on x86-64 and 23.7% fewer on
+      aarch64, where the scan inline took 25.0% and 28.8% fewer.
+  **Check, the scan from 0:** a text that holds no literal of a DFA with one builds no state, and
+  one that holds it is scanned from its place; mutations.
+  **Check passed, the scan from 0, 2026-11-23.** `zig build test` passes. Mutations against `zig
+  build test-regex`: 5, all CAUGHT: a DFA with a literal scanned with no search first; a text
+  with no literal scanned from its start; the scan from the text's start where a literal stands;
+  a set taken for no literal; a place one past the literal's.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

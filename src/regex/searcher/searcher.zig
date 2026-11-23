@@ -229,9 +229,11 @@ pub const Searcher = struct {
         if (searcher.suffix != null) {
             if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
         } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
-            // A text that holds no literal of claim R2 or R5 holds no match, with no scan to set up.
-            const from = dfa_wait.first_start(&searcher.forward, haystack, 0) orelse return false;
-            switch (searcher.forward.scan_forward(haystack, from, true)) {
+            const scan = if (dfa_wait.has_literal(&searcher.forward))
+                searcher.scan_from_literal(haystack) orelse return false
+            else
+                searcher.forward.scan_forward(haystack, 0, true);
+            switch (scan) {
                 .gave_up => searcher.give_ups += 1,
                 .none => return false,
                 .found => return true,
@@ -240,6 +242,15 @@ pub const Searcher = struct {
         searcher.matcher.configure(.{ .captures = .none });
         searcher.matcher.start(null, 0);
         return searcher.matcher.search(haystack, .last).status == .match;
+    }
+
+    /// `is_match`'s forward scan for a DFA with claim R2's literal or R5's set: a text that holds
+    /// none of them holds no match, and gets null with no scan to set up. Out of line, so that
+    /// `is_match` keeps its scan from 0, a constant its inlined start folds: with this scan inline
+    /// too, a grep of short lines with no literal ran 5% to 9% slower on the N2.
+    noinline fn scan_from_literal(searcher: *Searcher, haystack: []const u8) ?dfa_file.Scan {
+        const from = dfa_wait.first_start(&searcher.forward, haystack, 0) orelse return null;
+        return searcher.forward.scan_forward(haystack, from, true);
     }
 
     /// The first match at or after `from`, or null. To find the match after one, search from its

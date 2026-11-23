@@ -42,13 +42,18 @@ pub fn pass(dfa: *Dfa, comptime how: Pass, haystack: []const u8, from: usize) us
     return index;
 }
 
+/// True where the DFA holds claim R2's literal or R5's set, which every match starts with.
+pub inline fn has_literal(dfa: *const Dfa) bool {
+    return dfa.literal != null or dfa.literals != null;
+}
+
 /// The first offset at or after `from` where a match can start by claim R2 or R5: the next place
-/// of the DFA's literal, or of one of its literals, or `from` where it holds neither. Null where
-/// no literal stands from `from` on, so that no match starts there.
+/// of the DFA's literal, or of one of its literals. Null where none stands from `from` on, so that
+/// no match starts there.
 pub fn first_start(dfa: *const Dfa, haystack: []const u8, from: usize) ?usize {
+    assert(has_literal(dfa));
     if (dfa.literal) |*literal| return literal.find(haystack, from);
-    if (dfa.literals) |*set| return set.find(haystack, from);
-    return from;
+    return dfa.literals.?.find(haystack, from);
 }
 
 /// Turns the skip off where its visits passed too few octets to pay for themselves, until
