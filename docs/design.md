@@ -9017,6 +9017,29 @@ to 12 are reordered and nothing else changes.
     branch simulator counted 292 indirect mispredictions in place of 53,101. In three passes of
     20 warm runs, the 65,536 lines ran at 238 to 239 MB/s in place of 184 to 188, and parse-line
     at 313 to 324 MB/s in place of 277 to 282.
+  - The runs at fbfd351 below gave rebar's two rows of `.*.*=.*` 0.60 to 0.67 of Rust's speed,
+    where the driver had them level. The driver was built for x86-64-v3, and `bench-regex`
+    builds stdx for the baseline CPU. Built so, the driver ran 10,000 lines of the short row's
+    text at 124 MB/s, where x86-64-v3 gave 175. After the `=`, each entry the forward DFA reads
+    holds the match flag. Claim R7 then took each pair through `dfa_pairs.steps`, a call that
+    kept the pair's entry again, and the plain scan left its loop at each octet: about 40
+    instructions an octet. A scan now takes a run of entries with the match flag in a loop of
+    its own, forward and read back, and a pair marked `pair_single` goes to the table
+    (`dfa_run.zig`, decision 86). Under
+    callgrind, two passes of 1,000 lines of the short row's text took 5.7 million instructions in
+    place of 16.1 million, and 11 passes of the long row 2.7 million in place of 5.8 million.
+    Built for the baseline CPU, in three passes of warm runs, in MB/s:
+
+    | Row | fbfd351 | Now |
+    | --- | ---: | ---: |
+    | the long row, 10,001 octets | 233, 226, 219 | 230, 246, 230 |
+    | 10,000 lines of the short row's text | 162, 161, 158 | 225, 223, 205 |
+
+    The long row reads its line back through plain rows, which no loop of matches changes. Rows
+    of the tuned set took from 2% fewer to 1.9% more instructions, `[0-9]+` the most: its runs of
+    matches are short. `[α-ω]+` over 1 MiB of Greek words took 11% fewer instructions and 14%
+    more branches, with the same mispredictions, and its time did not move past the noise. The
+    lexer took 0.4% fewer instructions.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9033,6 +9056,21 @@ to 12 are reordered and nothing else changes.
     2.06 to 8.38 times Rust's speed, and the context pattern at 0.91.
   - `tools/charts_wide.py` draws a chart from five jobs of one model or more, so
     `bench/charts.txt` and the README keep part 22m's runs.
+  **Check, the loops of matches:** a run of matches stops at an entry that is dead, plain or not
+  built, and at the text's ends, read forward and back; the searcher gives the matcher's spans and
+  groups from every offset for patterns whose matches run long, with every claim, with no pairs
+  and with no skip, in a cache that holds its states and in one that clears; the Go differential
+  check passes; mutations.
+  **Check passed, the loops of matches, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 9. CAUGHT, 7: a dead or unbuilt entry taken for a
+    match row; the last match one octet late; the run forward past the octet it stopped at; the
+    run read back past the octet it stopped at; the last match read back one octet early; the
+    skip loop's run after no match; and the run forward that keeps the flag in its row. NOT
+    CAUGHT, 2, each the same answers: no run in the plain scan, and a single pair back to its
+    steps.
   **Check, the entries of contexts:** one-pass gives the matcher's groups by the table and by the
   walk, anchored at every offset, for patterns with `\b`, `$` and an assertion in a loop; a loop
   does not repeat an entry of contexts after `-a`; a search fills entries that keep their contexts;

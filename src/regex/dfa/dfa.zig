@@ -27,6 +27,7 @@ const dfa_literal = @import("dfa_literal.zig");
 const dfa_wait = @import("dfa_wait.zig");
 const dfa_reverse = @import("dfa_reverse.zig");
 const dfa_pairs = @import("dfa_pairs.zig");
+const dfa_run = @import("dfa_run.zig");
 const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 const dfa_config = @import("dfa_config.zig");
@@ -220,7 +221,7 @@ pub const Dfa = struct {
                 .next => continue,
                 .table => {},
             }
-            at = run_plain(dfa.cache.table, &dfa.classes, haystack, at, &state);
+            at = dfa_run.plain(dfa.cache.table, &dfa.classes, haystack, at, &state);
             if (at == haystack.len) break;
             const octet = haystack[at];
             const entry = dfa.cache.table[state +% dfa.classes[octet]];
@@ -229,6 +230,7 @@ pub const Dfa = struct {
             if (known & constants.dfa_dead_flag != 0 or (earliest and last != null)) return Scan.of(last);
             state = known & constants.dfa_row_mask;
             at += 1;
+            if (known & constants.dfa_match_flag != 0) dfa.take_matches(haystack, &at, &state, &last);
         }
         dfa.tally(haystack.len);
         if (dfa.matches_at_end(state, .edge)) last = haystack.len;
@@ -280,6 +282,7 @@ pub const Dfa = struct {
                 .done => |scan| return scan,
                 .state => |row| state = row,
             }
+            if (last == index - 1) dfa.take_matches(haystack, &index, &state, &last);
             // The state just built may be the one that waits, and a cache that cleared gave it a
             // new row.
             idle = dfa.idle;
@@ -297,6 +300,14 @@ pub const Dfa = struct {
         if (known & constants.dfa_match_flag != 0) last.* = index;
         if (known & constants.dfa_dead_flag != 0 or (earliest and last.* != null)) return .{ .done = Scan.of(last.*) };
         return .{ .state = known & constants.dfa_row_mask };
+    }
+
+    /// After an entry that a match ended before, the octets from `at` whose entries are matches
+    /// too, in the loop of matches (dfa_run.zig). Only a scan that wants the last match takes it.
+    inline fn take_matches(dfa: *const Dfa, haystack: []const u8, at: *usize, state: *u32, last: *?usize) void {
+        assert(last.* == at.* - 1);
+        at.* = dfa_run.matched(dfa.cache.table, &dfa.classes, haystack, at.*, state);
+        last.* = at.* - 1;
     }
 
     /// The reverse scan, in a file of its own.
@@ -464,27 +475,6 @@ pub const Dfa = struct {
         }
     }
 };
-
-/// The offset of the first octet at or after `from` whose entry from `state` is no plain row, or
-/// the haystack's length, with `state` moved over the octets before it. A loop of its own, which
-/// no slow path joins: the compiler then gives it one branch an octet. Where the slow path joined
-/// it, its latch took a second, and an EPYC 9V74 ran the loop at half its speed.
-inline fn run_plain(table: []const u32, classes: *const [constants.octet_values]u8, haystack: []const u8, from: usize, state: *u32) usize {
-    var current = state.*;
-    // The loop counts the octets it took, and only its exit adds them to `from`.
-    for (haystack[from..], 0..) |octet, taken| {
-        // A row is under the table's length less a stride, and a class under the stride, so the
-        // sum cannot wrap, and the read's bounds check holds it.
-        const entry = table[current +% classes[octet]];
-        if (entry >= constants.dfa_dead_flag) {
-            state.* = current;
-            return from + taken;
-        }
-        current = entry;
-    }
-    state.* = current;
-    return haystack.len;
-}
 
 fn take(memory: *[]u32, len: usize) []u32 {
     const taken = memory.*[0..len];

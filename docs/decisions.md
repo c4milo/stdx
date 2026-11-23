@@ -5801,6 +5801,16 @@ last part lists what still waits on a ruling.
         nothing the lookup reads, so it takes no memory of its own.
     - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
       DFA's table has one entry a class.
+    - A scan takes octets in a loop of its own while each entry is a plain row. A second loop
+      takes them while each entry is a row that a match ended before (`dfa_run.zig`, added
+      2026-11-23, design §8 part 22n). Where the second loop stops, the scan keeps the run's last
+      match: where it ends, or read back, where it starts.
+      - Where the scan left its loop at each such entry, rebar's `.*.*=.*` took about 40
+        instructions an octet after its `=`: claim R7's pair turn, and a call for each two
+        octets. It takes 11 now.
+      - A run of one octet enters and leaves the loop. Each letter of a word past U+007F gives
+        one: `[α-ω]+` over Greek words takes 11% fewer instructions and 14% more branches, with
+        the same mispredictions.
     - Claim R1: a forward DFA that waits for a match to start goes to the next octet that can
       start one (design §8 step 22, part 22c). The state that waits takes every other octet and
       stays where it is, so the scan reads no table entry for them.
@@ -6002,7 +6012,8 @@ last part lists what still waits on a ruling.
         2008).
       - An entry holds the pair row of the state two octets on, so the loop keeps one add and
         one read a turn. A pair whose step meets a match or a dead state holds `pair_single`,
-        and the scan takes its two octets one at a time, so the claim changes no answer.
+        and the scan takes its two octets by the table, one at a time, so the claim changes no
+        answer. A run of matches then takes the loop of matches (amended 2026-11-23).
       - The cache gives a pair row to its first `pair_states_max`, 64, states, in at most a
         quarter of its memory, so a pattern of many states keeps three quarters of them. A
         cache that clears while a pair is built keeps no entry for it.

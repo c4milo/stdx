@@ -412,4 +412,5 @@ test {
     _ = @import("searcher_one_pass_test.zig");
     _ = @import("searcher_wide_test.zig");
     _ = @import("searcher_pairs_test.zig");
+    _ = @import("searcher_run_test.zig");
 }

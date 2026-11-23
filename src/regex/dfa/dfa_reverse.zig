@@ -7,6 +7,7 @@ const Context = @import("../program.zig").Context;
 const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Scan = dfa_file.Scan;
+const dfa_run = @import("dfa_run.zig");
 
 /// The least offset at or after `from` where a match that ends at `end` starts. The DFA runs
 /// the reverse program from `end` toward `from`. Inline: a search makes one for each match.
@@ -28,13 +29,26 @@ pub inline fn scan(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Sca
             state = entry;
             continue;
         }
-        const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
-        if (known & constants.dfa_match_flag != 0) last = index + 1;
-        if (known & constants.dfa_dead_flag != 0) return Scan.of(last);
-        state = known & constants.dfa_row_mask;
+        if (settle(dfa, haystack, from, &index, &state, entry, &last)) |answer| return answer;
     }
     dfa.tally(from);
     const ahead: Context = if (from == 0) .edge else Context.of(haystack[from - 1]);
     if (dfa.matches_at_end(state, ahead)) last = from;
     return Scan.of(last);
+}
+
+/// What the reverse scan does with an entry at `index` that is no plain row: the entry is built
+/// where the table does not hold it, and a match that starts after the octet is kept in `last`.
+/// The loop of matches then takes the octets before it whose entries start a match too. The
+/// scan's answer where no earlier octet can change it.
+inline fn settle(dfa: *Dfa, haystack: []const u8, from: usize, index: *usize, state: *u32, entry: u32, last: *?usize) ?Scan {
+    const known = dfa.resolve(state.*, haystack[index.*], entry, index.*) orelse return .gave_up;
+    if (known & constants.dfa_match_flag != 0) last.* = index.* + 1;
+    if (known & constants.dfa_dead_flag != 0) return Scan.of(last.*);
+    state.* = known & constants.dfa_row_mask;
+    if (known & constants.dfa_match_flag != 0) {
+        index.* = dfa_run.matched_back(dfa.cache.table, &dfa.classes, haystack, from, index.*, state);
+        last.* = index.* + 1;
+    }
+    return null;
 }

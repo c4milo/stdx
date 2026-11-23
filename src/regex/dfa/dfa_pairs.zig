@@ -59,8 +59,7 @@ pub inline fn run(dfa: *const Dfa, haystack: []const u8, from: usize, state: *u3
     while (haystack.len - index >= pair_octets) {
         // A pair row is under the pairs' length less a pair stride, and a column under the
         // stride, so the sum cannot wrap, and the read's bounds check holds it.
-        const column = @as(u32, dfa.first_columns[haystack[index]]) + dfa.classes[haystack[index + 1]];
-        const entry = pairs[current +% column];
+        const entry = pairs[current +% column_of(dfa, haystack, index)];
         if (entry >= constants.dfa_flags_min) break;
         current = entry;
         index += pair_octets;
@@ -74,12 +73,15 @@ pub inline fn run(dfa: *const Dfa, haystack: []const u8, from: usize, state: *u3
 pub const Turn = union(enum) { done: Scan, next, table };
 
 /// One turn of a plain scan under claim R7, from a state with a pair row: a run of pairs, and
-/// the two octets after it one at a time. The table takes the turn from a state with no pair
-/// row, and the last octet of a text.
+/// the two octets after it one at a time, where their pair is still to build. The table takes
+/// the turn from a state with no pair row, at the last octet of a text, and at a pair marked
+/// `pair_single`, whose octets it takes as the pair's steps would: it then takes a run of
+/// matches in a loop of its own (dfa_run.zig).
 pub inline fn turn(dfa: *Dfa, haystack: []const u8, at: *usize, earliest: bool, state: *u32, last: *?usize) Turn {
     if (state.* >= dfa.cache.pair_states * dfa.cache.stride) return .table;
     at.* = run(dfa, haystack, at.*, state);
     if (haystack.len - at.* < pair_octets) return .table;
+    if (dfa.cache.pairs[(state.* << dfa.pair_shift) +% column_of(dfa, haystack, at.*)] == pair_single) return .table;
     switch (steps(dfa, haystack, at.*, earliest, state, last)) {
         .done => |scan| return .{ .done = scan },
         .next => |next| at.* = next,
@@ -95,7 +97,7 @@ pub const Steps = union(enum) { done: Scan, next: usize };
 pub fn steps(dfa: *Dfa, haystack: []const u8, at: usize, earliest: bool, state: *u32, last: *?usize) Steps {
     assert(haystack.len - at >= pair_octets);
     const row = state.*;
-    const column = @as(u32, dfa.first_columns[haystack[at]]) + dfa.classes[haystack[at + 1]];
+    const column = column_of(dfa, haystack, at);
     const clears = dfa.cache.clears;
     var plain = true;
     var current = row;
@@ -114,6 +116,11 @@ pub fn steps(dfa: *Dfa, haystack: []const u8, at: usize, earliest: bool, state: 
     keep(dfa, row, column, clears, current, plain);
     state.* = current;
     return .{ .next = at + pair_octets };
+}
+
+/// The column of the pair of octets at `at` in a pair row.
+inline fn column_of(dfa: *const Dfa, haystack: []const u8, at: usize) u32 {
+    return @as(u32, dfa.first_columns[haystack[at]]) + dfa.classes[haystack[at + 1]];
 }
 
 /// Keeps a pair's entry, where the cache did not clear while the pair was built. A state with no

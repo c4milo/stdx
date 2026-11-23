@@ -64,6 +64,7 @@ test {
     _ = @import("literal_trie.zig");
     _ = @import("dfa/dfa_literal.zig");
     _ = @import("dfa/dfa_reverse.zig");
+    _ = @import("dfa/dfa_run.zig");
     _ = searcher;
     _ = @import("generate_test.zig");
     _ = @import("fuzz_test.zig");
