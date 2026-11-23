@@ -98,8 +98,7 @@ pub const Dfa = struct {
     /// `skip_rest_doublings_max`: each doubles the rest.
     skip_poor_trials: u6,
 
-    /// The words of memory a DFA of the program at `entry` needs before its cache holds
-    /// `dfa_states_min` states.
+    /// The words a DFA of the program at `entry` needs for its cache to hold `dfa_states_min` states.
     pub fn memory_len_min(program: *const Program, entry: u32) usize {
         return scratch_len(program, entry) + Cache.memory_len(constants.dfa_states_min, stride_of(program));
     }
@@ -126,6 +125,8 @@ pub const Dfa = struct {
         const block = Block.of(program, config.entry);
         const len = block.len;
         var rest = memory;
+        // The threads, then the stack: the cache packs a record in them when neither is in use.
+        const lists = take(&rest, len + len + 1);
         dfa.* = .{
             .instructions = program.instructions,
             .config = config,
@@ -138,9 +139,9 @@ pub const Dfa = struct {
             .first_columns = undefined,
             .visited = SparseSet.init_at(take(&rest, len), take(&rest, len), block.base),
             .next = SparseSet.init_at(take(&rest, len), take(&rest, len), block.base),
-            .threads = take(&rest, len),
+            .threads = lists[0..len],
             .threads_len = 0,
-            .stack = take(&rest, len + 1),
+            .stack = lists[len..],
             .stack_len = 0,
             .reached = false,
             .mark = 0,
@@ -171,7 +172,7 @@ pub const Dfa = struct {
         }
         const stride = stride_of(program);
         const pair_stride = dfa.pair_stride_of(program, config, rest.len);
-        dfa.cache.init(rest, stride, pair_stride);
+        dfa.cache.init(rest, stride, pair_stride, std.mem.sliceAsBytes(lists));
         return true;
     }
 
@@ -414,7 +415,8 @@ pub const Dfa = struct {
         dfa.visited.clear();
         dfa.threads_len = 0;
         dfa.reached = false;
-        for (dfa.cache.seeds(state)) |seed| {
+        var seeds = dfa.cache.seeds(state);
+        while (seeds.next()) |seed| {
             dfa.follow(seed, behind, ahead);
             if (dfa.reached and dfa.config.kind == .first) return true;
         }

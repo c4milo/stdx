@@ -8893,6 +8893,45 @@ to 12 are reordered and nothing else changes.
     The reverse DFA of `\p{L}{8,13}` still gives up: each state lists the reverse root's ranges
     that overlap, about 700 words a state. Rust's crate keeps the same ranges and packs each of
     a state's threads in about one octet.
+  - A lazy DFA's record kept a word for each of a state's seeds, and the cache planned 12 words a
+    record. A record now keeps each seed as its difference from the one before it, in octets of
+    seven bits (decision 86). The rows take the cache's region from its start and the records
+    from its end, so a state of a long record takes the room that a state of a short one leaves.
+    Read back, `\p{L}{8,13}` builds 594 states of 437 seeds each on the Russian text: 439 words a
+    state with a word a seed, and 133 packed, 1.2 octets a seed. At 4f1abb2 its reverse DFA and
+    the context row's gave up 8 times each, and their searches ran on the matcher; now neither
+    gives up. Under callgrind the lexer row took 916.9 million instructions in place of 917.9
+    million, the ucd row 926.6 million for 926.8 million, and the capitals row 107.1 million for
+    106.6 million. The best of 10 warm runs of the driver, in two passes each, in MB/s:
+
+    | Row | 4f1abb2 | Now | Rust's crate, part 22m |
+    | --- | ---: | ---: | ---: |
+    | letters-ru | 13.53, 13.85 | 417.21, 445.77 | 406.89 |
+    | context | 27.27, 28.56 | 82.14, 83.04 | 56.63 |
+    | letters-en | 441.82, 420.48 | 430.11, 428.79 | 437.62 |
+    | unstructured log | 29.70, 29.54 | 29.85, 30.25 | 66.10 |
+    | lexer | 4.35, 4.63 | 4.18, 4.15 | 4.51 |
+
+    Four more passes of the lexer row, in turns, gave 4.33 to 4.64 at 4f1abb2 and 4.18 to 5.11
+    now. The date, capitals and ucd rows did not move past the noise.
+  **Check, the packed records:** a record gives back its seeds in order, a difference of one or
+  two octets where the seeds stand near and of five at most; an encoding one octet short is
+  refused; a record longer than the region is refused and leaves the cache empty; long records
+  take the rows' room and short ones leave it; two records that differ in their flags alone are
+  two states; the hash table finds each state as it grows; the Go differential check passes;
+  mutations.
+  **Check passed, the packed records, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18,
+  in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 13. CAUGHT, 12: a difference whose sign is not
+    folded, or a negative one read back one short; no octet that says more follow; a difference
+    counted one octet short; each octet read at the lowest bits; a record that may overwrite the
+    rows; records kept at one place; a clear that keeps the records' place; two records of one
+    flags taken as one state; a gap that holds the next row; a record that keeps one octet fewer,
+    or whose length counts its seeds. NOT CAUGHT, 1: records packed over the seeds themselves,
+    which gives the same answers, since a difference of two instructions takes at most four
+    octets under `instructions_max`.
   **Check, the ranges:** `step` finds the range of a node by halving, and refuses an octet
   between its ranges and past its last; each engine keeps one thread at a node and steps it; a
   forward node of `\p{L}` is a `ranges` and its reverse root is splits; a class of three

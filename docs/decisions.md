@@ -5780,6 +5780,18 @@ last part lists what still waits on a ruling.
     - Each DFA keeps its states in a cache of a fixed size. A full cache forgets every state and
       goes on. A cache that fills again within 10 octets a state gives up, and the search runs on
       the matcher: RE2's rule, which Rust's regex keeps too. No search fails for lack of memory.
+    - A state's record keeps its seeds, the instructions its threads go on from, in order. Each
+      seed is kept as its difference from the one before it, in octets of seven bits
+      (`dfa_record.zig`, added 2026-11-23, design §8 part 22n). Rust's crate packs its states
+      the same way (regex-automata 0.4.19, `util/determinize/state.rs`).
+      - The rows take the cache's region from its start, and the records take it from its end.
+        So a pattern whose states hold long records keeps fewer states, and one of short records
+        keeps more. Read back, a state of `\p{L}{8,13}` holds hundreds of seeds.
+      - With a word a seed, the reverse DFA of rebar's `letters-ru` cleared its cache again and
+        again, and the row ran at 14 MB/s. Packed, its reverse records take 133 words a state
+        where they took 439, and the row runs at 417 to 446 MB/s, where Rust's crate runs at 407.
+      - A lookup packs the seeds into the DFA's lists of threads and of its stack, which hold
+        nothing the lookup reads, so it takes no memory of its own.
     - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
       DFA's table has one entry a class.
     - Claim R1: a forward DFA that waits for a match to start goes to the next octet that can

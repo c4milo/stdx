@@ -331,13 +331,15 @@ pub const dfa_words_per_state = 3;
 pub const dfa_slots_first = 64;
 
 /// The words of a state's record a cache plans for when it divides its memory: the record's two
-/// leading words, and the instructions of a state of the usual size.
+/// leading words, and the packed seeds of a state of the usual size. A record takes the words its
+/// seeds need, so this sets how many states the cache can count, not the room each one takes.
 pub const dfa_record_words = 12;
 
-/// The words before the instructions in a state's record: its flags and its length.
+/// The words before the packed seeds in a state's record: its flags and the count of the seeds'
+/// octets.
 pub const dfa_record_head = 2;
 
-/// The hash a cache keys its states by: FNV-1a over the words of a record.
+/// The hash a cache keys its states by: FNV-1a over a record's flags and its packed seeds.
 pub const fnv_offset_basis = 0x811C_9DC5;
 pub const fnv_prime = 0x0100_0193;
 

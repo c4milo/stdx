@@ -51,6 +51,7 @@ test {
     _ = matcher;
     _ = @import("sparse_set.zig");
     _ = @import("dfa/dfa.zig");
+    _ = @import("dfa/dfa_record.zig");
     _ = @import("literal.zig");
     _ = @import("literal_set.zig");
     _ = @import("literal_set_paths.zig");
