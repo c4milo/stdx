@@ -9136,6 +9136,24 @@ to 12 are reordered and nothing else changes.
     `(?i)Sherlock Holmes` stayed at 0.66, as the table of heads came after these runs. It
     compiled 9 patterns at 2.04 to 8.56 times Rust's speed, and the context pattern at 0.92.
   - `bench/charts.txt` names the 36 reports, and the README draws them on its charts.
+  **Measured, 2026-11-23, at aa9cc13.** Eighteen runs of the `bench` workflow, runs
+  [45148042292](https://github.com/c4milo/stdx/actions/runs/45148042292) to
+  [45148137098](https://github.com/c4milo/stdx/actions/runs/45148137098), wrote
+  `bench/results/2026-11-23-regex-runs-*`. They ran after the table of heads, the backtracker's
+  steps, the inline `find_before` and the runs over plain rows.
+  - On the 18 jobs of the Neoverse N2, stdx ran 21 of the 31 searches ahead of Rust's crate, at
+    1.01 to 2.47, 1 level, and 9 behind, at 0.64 to 0.97. In the median job,
+    `(?i)Sherlock Holmes` went from 1.08 at 4bd3bda to 1.25, the lexer from 0.72 to 0.80, and
+    the tuned row of Greek words from 1.62 to 1.78. rebar's three `14-quadratic` rows went from
+    1.30, 1.44 and 1.53 to 0.96, 1.00 and 1.04: the runs over plain rows took the `.*` after each
+    match one octet at a time, where claim R7 had taken two. `dfa_run_plain_rows_max` fixes it,
+    above.
+  - The x86-64 jobs drew five models, 8 of them the AMD EPYC 9V74 and 3 the EPYC 7763. On the
+    9V74, stdx ran 19 searches ahead, at 1.05 to 1.84, 2 level, and 10 behind, at 0.57 to 0.98.
+    On the 7763, `(?i)Sherlock Holmes` went from 0.66 to 0.89 and the lexer from 0.675 to 0.71;
+    on the 9V74, the first from 0.69 to 0.93. The quadratic rows fell to 0.65 to 0.76 of their
+    ratios at 4bd3bda on both models.
+  - The README and its charts keep the runs at 4bd3bda until runs with that fix.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
