@@ -5905,6 +5905,10 @@ last part lists what still waits on a ruling.
         of their own; x86-64 keeps one mask a block. A candidate's compare reads the literal a
         word of 8 octets at a time, the last word ending where the literal does
         (`literal_compare.zig`).
+      - Since 2026-11-23, `Searcher.is_match` searches for the literal before it starts the
+        forward DFA. A text where the literal does not stand holds no match, and needs no scan.
+        Otherwise the scan starts at the literal's first place. A grep calls `is_match` once a
+        line, and most lines hold no literal. Claim R5's sets take the same path.
       - Claim R5 searches for one of several literals.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two
       octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan

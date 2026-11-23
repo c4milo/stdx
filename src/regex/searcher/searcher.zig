@@ -21,6 +21,7 @@ const dfa_file = @import("../dfa/dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Literal = literal_file.Literal;
 const dfa_suffix = @import("../dfa/dfa_suffix.zig");
+const dfa_wait = @import("../dfa/dfa_wait.zig");
 const one_pass = @import("../one_pass.zig");
 const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
@@ -228,7 +229,9 @@ pub const Searcher = struct {
         if (searcher.suffix != null) {
             if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
         } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
-            switch (searcher.forward.scan_forward(haystack, 0, true)) {
+            // A text that holds no literal of claim R2 or R5 holds no match, with no scan to set up.
+            const from = dfa_wait.first_start(&searcher.forward, haystack, 0) orelse return false;
+            switch (searcher.forward.scan_forward(haystack, from, true)) {
                 .gave_up => searcher.give_ups += 1,
                 .none => return false,
                 .found => return true,

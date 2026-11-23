@@ -9435,6 +9435,20 @@ to 12 are reordered and nothing else changes.
     last; the fold octets not written. NOT CAUGHT, 2, the same answers: SHRN by three, which
     keeps a bit of each lane where the mask reads it, as a shift of one to four does; and no
     words of 4, whose octets the loop of octets compares.
+  - `Searcher.is_match` searches for claim R2's literal or R5's set before the forward scan
+    (decision 86 as amended). A grep calls it once a line, and most lines hold no literal. Each
+    line still set up and ended a scan around the literal search: 105 of the 465 instructions a
+    line of `aws-keys/quick` took on aarch64. The scan now starts at the literal's place, and a
+    line with no literal takes none.
+    - One warm pass over the first 60,000 lines of `aws-keys/quick`'s text takes 19.9 million
+      instructions in place of 27.9 million on aarch64, 28.8% fewer, and 25.0% fewer on x86-64.
+  **Check, the literal before the scan:** a text that holds no literal builds no state; a text
+  that holds one is scanned from its place, and claim R1's skip passes no octet before it; the Go
+  differential check passes; mutations.
+  **Check passed, the literal before the scan, 2026-11-23.** `zig build test` passes, and `zig
+  build differential-regex -Doracles` gives 12,437,544 cases with none failed. Mutations against
+  `zig build test-regex`: 5, all CAUGHT: no search first; a text with no literal scanned; the
+  scan from the text's start; a set's search left out; a place one past the literal's.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
