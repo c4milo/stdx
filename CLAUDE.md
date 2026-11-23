@@ -447,7 +447,8 @@ Change this section when a step adds or renames a command.
   pins and records it, and the `bench` workflow offers it.
 - regex benchmark: `zig build bench-regex -Doracles` times the `regex` module, by a searcher with
   its cache, by one with claims R1 to R5 off and by the matcher alone, beside Rust's `regex` crate, Go's
-  regexp, zig-regex and mvzr, every candidate interleaved in one run. Its four tables are every
+  regexp, zig-regex and mvzr, every candidate interleaved in one run, each round from one place
+  later than the round before (`timing.time_rotated`). Its four tables are every
   match of a pattern in a haystack of 1 MiB, a pattern that validates 65,536 short texts, the
   same with capture groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's
   before it is timed: a candidate that refuses a pattern or answers otherwise is named so and not

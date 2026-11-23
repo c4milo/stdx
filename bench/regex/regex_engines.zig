@@ -5,7 +5,7 @@
 //! - stdx's `regex`, by a `Searcher` with the default cache; by one with claims R1 to R5 off,
 //!   which skips to no start octet and no literal; and by one with no cache, where the matcher answers alone: the
 //!   reference path. A second searcher like the first is timed last in each round, `stdx,
-//!   again`: stdx over it shows how far one code path differs from itself across a round.
+//!   again`: stdx over it shows how far one code path differs from itself.
 //! - Rust's `regex` crate and Go's regexp, from the libraries of bench/regex/rust and
 //!   bench/regex/go.
 //! - Two libraries in Zig: zig-regex and mvzr, each at the commit build.zig.zon pins. zig-regex's
@@ -23,7 +23,8 @@ const regex = @import("regex");
 const ZigRegex = @import("zig_regex").Regex;
 const mvzr = @import("mvzr");
 
-/// The candidates, in the order a round times them: `stdx_again` is last.
+/// The candidates, in the order the first round times them. Each round after it starts one
+/// candidate later, and `stdx_again` stays last (`timing.time_rotated`).
 pub const Engine = enum { stdx, stdx_no_skip, stdx_matcher, rust, go, zig_regex, mvzr, stdx_again };
 
 /// Each candidate's column, in `Engine`'s order.

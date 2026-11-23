@@ -6308,7 +6308,7 @@ last part lists what still waits on a ruling.
         - A validation has 65,536 texts, each made anew, and the seed chooses which are
           valid. The first 1,024 texts, valid and not in turn, were an input a branch
           predictor learns, the fault entry 45 names.
-        - A last column times stdx again, as the first column does, so the two span a round.
+        - A last column times stdx again, as the first column does, last in each round.
           stdx over that column shows how far one code path differs from itself, and the
           chart takes each panel's band from it.
         - The compile table gives Rust's crate the form of a pattern that it searches with.
@@ -6320,10 +6320,15 @@ last part lists what still waits on a ruling.
           No constant of claim R1 was chosen with the second text or the text in four
           scripts. A pattern with `\b` goes to Rust's crate as `(?-u:\b)`, the ASCII word
           boundary that the others read.
-        - What the reviews asked for and the benchmark does not do: a round still times the
-          candidates in one order; no row shows a pattern that stdx refuses, such as
-          `\p{L}`; and no row shows a pattern that takes a backtracking matcher a time
-          exponential in the text, where a candidate could run for hours.
+        - Each round times the candidates in another order: it starts one candidate later than
+          the round before, and `stdx, again` stays last (`timing.time_rotated`, added
+          2026-11-23). In one order, each candidate took the same place and ran after the same
+          candidate in every round, so an effect of the place stayed with the candidate. A
+          rotation moves each candidate's place. It keeps which candidate runs after which,
+          except at the start of a round.
+        - What the reviews asked for and the benchmark does not do: no row shows a pattern that
+          stdx refuses, such as `\p{L}`; and no row shows a pattern that takes a backtracking
+          matcher a time exponential in the text, where a candidate could run for hours.
       - The held-out set, by the owner's ruling of 2026-11-22 on a staff data scientist's
         review. The people who tuned stdx chose every pattern above, and several claims were
         judged on those rows, so a count over them can say more about the choice than the engine.

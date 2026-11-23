@@ -1051,7 +1051,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="legend" x="16" y="1167">counts still name its direction. A bar ahead or behind inside 5% is drawn lighter, and the shaded band on each panel is 5% of 1.</text>
 <text class="legend" x="16" y="1184">The columns at the right are stdx's speed over another library's, the median of the jobs. A library has no speed (—) on a pattern that it</text>
 <text class="legend" x="16" y="1201">refuses, where its answer is not Go regexp's, and where it has no such call.</text>
-<text class="legend" x="16" y="1218">stdx timed again, last in each round, differed from stdx timed first by at most 20.8% in any job of any row.</text>
+<text class="legend" x="16" y="1218">stdx timed again, last in each round, differed from stdx by at most 20.8% in any job of any row.</text>
 <text class="legend" x="16" y="1235">On another CPU model, these rows fall on the other side of 1: 01-literal/sherlock-en (AMD EPYC 9V45 96-Core Processor, 1.026);</text>
 <text class="legend" x="16" y="1252">01-literal/sherlock-en (Intel(R) Xeon(R) 6975P-C, 1.001); 01-literal/sherlock-en (INTEL(R) XEON(R) PLATINUM 8573C, 1.024);</text>
 <text class="legend" x="16" y="1269">01-literal/sherlock-en (AMD EPYC 9V74 80-Core Processor, 1.10); 01-literal/sherlock-en (Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz,</text>

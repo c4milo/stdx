@@ -9808,6 +9808,20 @@ to 12 are reordered and nothing else changes.
     program, the reverse lists from offset zero or as long as the whole program, a set that
     tests or adds a value without its base, a set that keeps no base, and the default back to
     2^16 words.
+  **Check, the order of a round (decision 86):** each run of `timing.time_rotated` times each
+  operation once, the rotated ones from one place later than the run before and the others at
+  the end, and gives each time to its own operation; a row of bench-regex rotates every
+  candidate but `stdx, again`, which stays last; mutations.
+  **Check passed, the order of a round, 2026-11-23.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - The timing module's tests pass under `zig test` with the `platform` module; `zig build
+    test-oracle -Doracles` runs them too. `zig build test-differential-regex` now runs
+    `regex_table.zig`'s tests, and they pass.
+  - Mutations: 9, all CAUGHT. Against the timing module's tests: no rotation, a rotation of the
+    operations past `rotated_len` or of the one at it, and a time given to the operation of its
+    place. Against `zig build test-differential-regex`: each run as the first, a row timed by
+    `time_interleaved`, `stdx, again` rotated, `stdx, again` kept back where it is not last,
+    and a cell read with no check of its tag.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a

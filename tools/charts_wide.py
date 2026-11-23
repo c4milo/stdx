@@ -444,7 +444,7 @@ def notes_svg(kit, y, data, drift, has_others):
              f"A bar ahead or behind inside {MARGIN:.0%} is drawn lighter, and the shaded band on each panel is {MARGIN:.0%} of 1.",
              f"The columns at the right are stdx's speed over another library's, the median of the jobs. "
              f"A library has no speed (—) on a pattern that it refuses, where its answer is not Go regexp's, and where it has no such call.",
-             f"stdx timed again, last in each round, differed from stdx timed first by at most {drift:.1%} in any job of any row."]
+             f"stdx timed again, last in each round, differed from stdx by at most {drift:.1%} in any job of any row."]
     if has_others:
         moved = flipped(data)
         notes.append("On another CPU model, these rows fall on the other side of 1: " + ("; ".join(moved) if moved else "none") + ".")

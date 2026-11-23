@@ -5,9 +5,10 @@
 //!
 //! Each benchmark's pattern and haystack are built as rebar builds them, from the files of rebar's
 //! commit that the build fetches. Every candidate's answer is held to the count rebar's definition
-//! gives Go's regexp before it is timed. stdx, Rust's crate and Go's regexp are timed, with stdx
-//! again last in each round. zig-regex and mvzr are not: the other tables time them at a
-//! hundredth to a four-thousandth of stdx's speed, and a haystack here holds up to 32 MB.
+//! gives Go's regexp before it is timed. stdx, Rust's crate and Go's regexp are timed, each round
+//! from one place later than the round before, with stdx again last in each round. zig-regex and
+//! mvzr are not: the other tables time them at a hundredth to a four-thousandth of stdx's speed,
+//! and a haystack here holds up to 32 MB.
 
 const std = @import("std");
 const codec = @import("codec");

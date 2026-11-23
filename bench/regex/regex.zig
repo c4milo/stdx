@@ -1,10 +1,12 @@
 //! bench-regex: the speed of the `regex` module beside regular expression libraries in Rust, Go
 //! and Zig, for decision 86. The timing is bench/timing/timing.zig's: every candidate of a row
-//! interleaved in one run, the median of five runs with the spread, and the losses shown.
+//! interleaved in one run, the median of five runs with the spread, and the losses shown. Each
+//! run times the candidates in another order (`timing.time_rotated`).
 //!
 //! The candidates are regex_engines.zig's: stdx by a searcher with its default cache, the same
 //! with claims R1 to R5 off, stdx by the matcher alone, Rust's `regex` crate, Go's regexp,
-//! zig-regex and mvzr, and last in each round stdx again, as the first. stdx is built
+//! zig-regex and mvzr, and last in each round stdx again, as the first. Each round starts one
+//! candidate later than the round before, and stdx again stays last. stdx is built
 //! ReleaseSafe and each other library ReleaseFast or its release form, all for the
 //! architecture's baseline CPU (decisions 17 and 75).
 //!
@@ -155,7 +157,7 @@ fn haystack_of(files: []const File, name: []const u8) ![]const u8 {
 }
 
 fn report_searches(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, files: []const File) !void {
-    try out.writeAll("`stdx` is a searcher with its cache and the CPU features it detected at start, as Rust's regex detects them, `stdx, no skip` the same with claims R1 to R5 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
+    try out.writeAll("`stdx` is a searcher with its cache and the CPU features it detected at start, as Rust's regex detects them, `stdx, no skip` the same with claims R1 to R5 off, and `stdx, matcher alone` the matcher with no DFA (decision 86). `stdx, again` is a second searcher like the first, timed last in each round: `stdx / stdx, again` shows how far one code path differs from itself. Each round times the other candidates from one place later than the round before, so none of them takes one place in every round. A candidate that refuses a pattern, gives another answer than Go's regexp or has no such call is named so and not timed. A search finds both ends of each match, and its answer is the count of the matches and the sum of their offsets.\n\n");
     try out.writeAll("The patterns of the search table:\n\n");
     for (cases.searches) |search| {
         try out.print("- {s}, in {s}: `{s}`", .{ search.name, search.file, search.pattern });

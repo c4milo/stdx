@@ -41,7 +41,7 @@ pub const Row = struct {
     /// stdx's speed over its own with claims R1 to R5 off, over Rust's and over Go's.
     pub fn print(row: *const Row, io: std.Io, out: *std.Io.Writer, items: f64) !void {
         var runs: [engine_count][timing.run_count]f64 = undefined;
-        timing.time_interleaved(io, row.operations[0..row.timed], runs[0..row.timed]);
+        timing.time_rotated(io, row.operations[0..row.timed], runs[0..row.timed], row.rotated_len());
         var rates: [engine_count]?f64 = @splat(null);
         for (row.cells, &rates) |cell, *rate| {
             switch (cell) {
@@ -66,6 +66,14 @@ pub const Row = struct {
         }
         try out.writeAll("\n");
     }
+
+    /// The operations a round times in another order each run: all but `stdx, again`, which
+    /// stays last in each round (decision 86).
+    fn rotated_len(row: *const Row) usize {
+        const again = row.cells[@intFromEnum(Engine.stdx_again)];
+        if (again == .timed and again.timed == row.timed - 1) return row.timed - 1;
+        return row.timed;
+    }
 };
 
 /// The candidates a row gives stdx's speed over, a column each: stdx with claims R1 to R5 off,
@@ -83,4 +91,64 @@ pub fn print_head(out: *std.Io.Writer, title: []const u8, first: []const u8, sec
     try out.writeAll("\n|---|---|");
     for (0..engine_count + ratio_bases.len) |_| try out.writeAll("---|");
     try out.writeAll("\n");
+}
+
+/// The most places a test's log holds.
+const log_len_max = 64;
+
+/// The most octets a test's row writes.
+const output_len_max = 1024;
+
+/// The places a test's operations ran at, one entry for each change of operation.
+const Log = struct {
+    places: [log_len_max]u8 = undefined,
+    len: usize = 0,
+
+    fn write(log: *Log, place: u8) void {
+        if (log.len > 0 and log.places[log.len - 1] == place) return;
+        std.debug.assert(log.len < log_len_max);
+        log.places[log.len] = place;
+        log.len += 1;
+    }
+};
+
+/// A test's operation: it writes its place to the log.
+const Recorded = struct {
+    place: u8,
+    log: *Log,
+
+    fn run_once(context: *const anyopaque) void {
+        const recorded: *const Recorded = @ptrCast(@alignCast(context));
+        recorded.log.write(recorded.place);
+    }
+};
+
+test "a row times stdx again last in each round, and starts the others one place later" {
+    var log: Log = .{};
+    const timed = [_]Engine{ .stdx, .rust, .go, .stdx_again };
+    var recorded: [timed.len]Recorded = undefined;
+    var row: Row = .{ .cells = @splat(.none) };
+    for (timed, &recorded, 0..) |engine, *entry, place| {
+        entry.* = .{ .place = @intCast(place), .log = &log };
+        row.add(engine, .{ .context = entry, .run_once = Recorded.run_once });
+    }
+    var buffer: [output_len_max]u8 = undefined;
+    var out: std.Io.Writer = .fixed(&buffer);
+    try row.print(std.testing.io, &out, 1);
+    // A first call of each, then the five rounds: stdx, Rust and Go from places 0, 1, 2, 0 and 1.
+    const expected = [_]u8{ 0, 1, 2, 3, 0, 1, 2, 3, 1, 2, 0, 3, 2, 0, 1, 3, 0, 1, 2, 3, 1, 2, 0, 3 };
+    try std.testing.expectEqualSlices(u8, &expected, log.places[0..log.len]);
+}
+
+test "a row whose stdx again is not timed last rotates every candidate" {
+    var log: Log = .{};
+    var recorded: Recorded = .{ .place = 0, .log = &log };
+    const operation: timing.Operation = .{ .context = &recorded, .run_once = Recorded.run_once };
+    var row: Row = .{ .cells = @splat(.none) };
+    row.add(.stdx, operation);
+    try std.testing.expectEqual(@as(usize, 1), row.rotated_len());
+    row.add(.stdx_again, operation);
+    try std.testing.expectEqual(@as(usize, 1), row.rotated_len());
+    row.add(.rust, operation);
+    try std.testing.expectEqual(@as(usize, 3), row.rotated_len());
 }

@@ -64,7 +64,7 @@ const missing_message = "differential-regex builds its oracle with go; put go on
 /// modules it imports.
 /// The program's root imports the Go oracle's bindings, and its tests call none of them, so they
 /// link with no archive.
-const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = false, program: bool = false }{
+const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = false, program: bool = false, timing: bool = false }{
     .{ .root = "tools/oracle/verdicts_regex.zig" },
     .{ .root = "tools/differential/regex.zig", .codec = true, .regex = true, .program = true },
     // The benchmark's workloads: its patterns and the short texts it generates.
@@ -72,6 +72,8 @@ const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = 
     // The held-out set's line split, its UTF-8 repair and its line ranges.
     .{ .root = "bench/regex/regex_engines_rebar.zig", .codec = true, .regex = true },
     .{ .root = "bench/regex/regex_held_out.zig", .codec = true, .regex = true },
+    // The order a row times its candidates in.
+    .{ .root = "bench/regex/regex_table.zig", .codec = true, .regex = true, .timing = true },
 };
 
 /// What the benchmark says on a host without both toolchains.
@@ -184,10 +186,13 @@ fn add_check(b: *std.Build, step: *std.Build.Step, inputs: Inputs) void {
 pub fn add_tests(b: *std.Build) *std.Build.Step {
     const step = b.step("test-differential-regex", "Run the tests of differential-regex's own parts, which need no oracle");
     const graph = modules.add(b, .{ .target = b.graph.host, .optimize = .Debug, .visibility = .private });
+    const timing = host_module(b, "bench/timing/timing.zig");
+    timing.addImport("platform", graph.platform);
     for (tested) |entry| {
         const module = host_module(b, entry.root);
         if (entry.codec) module.addImport("codec", graph.codec);
         if (entry.regex) module.addImport("regex", graph.regex);
+        if (entry.timing) module.addImport("timing", timing);
         if (entry.program) {
             module.addImport("oracle_regexp", host_module(b, "tools/oracle/oracle_regexp.zig"));
             module.addImport("verdicts", host_module(b, "tools/oracle/verdicts_regex.zig"));
