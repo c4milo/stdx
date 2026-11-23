@@ -5827,6 +5827,11 @@ last part lists what still waits on a ruling.
       - In a word past U+007F, a match ends before every second octet. Where the second loop
         took flagged rows alone, it took one octet of each letter, and the scan left its loop
         at the next (amended 2026-11-23).
+      - The second loop takes at most `dfa_run_plain_rows_max`, three, plain rows one after
+        another: the continuation octets of one UTF-8 sequence. A longer run of them, such as
+        `.*` after a match, goes back to the scan's loop and to claim R7, which takes two octets
+        for one read. Where the second loop took them all, rebar's `14-quadratic` lost a third of
+        its speed (amended 2026-11-23).
     - Claim R1: a forward DFA that waits for a match to start goes to the next octet that can
       start one (design §8 step 22, part 22c). The state that waits takes every other octet and
       stays where it is, so the scan reads no table entry for them.
@@ -6099,8 +6104,10 @@ last part lists what still waits on a ruling.
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
     96 open groups; `class_ranges_max`, 2,048 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
-    `dfa_give_ups_max`, 8; `cache_words_default`, 2^19 words; and `dfa_slots_first`, 64, the slots
-    of a cache's hash table that `init` and a clear write before the table doubles. Claim R2's: `literal_len_max`,
+    `dfa_give_ups_max`, 8; `cache_words_default`, 2^19 words; `dfa_slots_first`, 64, the slots
+    of a cache's hash table that `init` and a clear write before the table doubles; and
+    `dfa_run_plain_rows_max`, 3, the plain rows one after another that a run of matches takes.
+    Claim R2's: `literal_len_max`,
     32; `literal_prefix_len_min`, 2; `literal_steps`, 4; `literal_wide_steps`, 8; `case_bit`, 0x20;
     and `avx2_lanes`, 32. Claim R5's: `literal_set_max`, 64; `literal_set_count_min`, 2;
     `literal_fork_len_max`, 8; `literal_compare_max`, 8; `teddy_count_min`, 4;

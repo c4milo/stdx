@@ -9091,6 +9091,15 @@ to 12 are reordered and nothing else changes.
       of eight letters, Rust's crate ran at 604 to 648 MB/s, faster than its scan of a text with
       no match: the read back of one match runs beside the scan to the next. Its loops take 7.8
       instructions an octet, and stdx's 13.
+    - The runs at aa9cc13 below gave rebar's `14-quadratic`, `.*[^A-Z]|[A-Z]` over a line of
+      `A`, 0.65 to 0.76 of its ratios at 4bd3bda. After each match the `.*` reads plain rows to
+      the line's end, and the run took them one octet at a time, where the scan's loop gives them
+      to claim R7, two octets for one read. A run now stops at a plain row after
+      `dfa_run_plain_rows_max`, three, one after another: the continuation octets of one UTF-8
+      sequence. Over 100 `A`, the row ran at 12.1 MB/s, where it ran at 8.7 at aa9cc13, 12.5 to
+      12.9 before it, and Rust's crate at 11.8. The first plain rows after a match still go one
+      at a time: 4% of the time over 100 `A`. Greek words ran at 157 to 160 MB/s, where they ran
+      at 137 to 144 before the runs over plain rows.
     - The same text read with `\p{L}{40,45}`, which matches nothing, ran at 11 MB/s, where Rust's
       crate ran at 549. From `\p{L}{28,33}` on, the reverse program holds 59,637 instructions or
       more. The reverse DFA's lists take six words an instruction, more than the third of the
@@ -9127,6 +9136,17 @@ to 12 are reordered and nothing else changes.
     `(?i)Sherlock Holmes` stayed at 0.66, as the table of heads came after these runs. It
     compiled 9 patterns at 2.04 to 8.56 times Rust's speed, and the context pattern at 0.92.
   - `bench/charts.txt` names the 36 reports, and the README draws them on its charts.
+  **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
+  `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
+  searcher's tests of long matches pass; the Go differential check passes; mutations.
+  **Check passed, the plain rows of one sequence, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on
+  x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 3, all CAUGHT: a run that takes every plain row,
+    one that stops a plain row early, and a match row that keeps the count of plain rows. The
+    last was NOT CAUGHT until a table whose matches end before every second octet joined the
+    tests.
   **Check, the runs over plain rows:** a run of matches takes plain rows and keeps the last
   flagged octet, forward and read back, and gives the scan's answer at a dead entry; the searcher
   gives the matcher's spans and groups from every offset for patterns of letters of two octets,

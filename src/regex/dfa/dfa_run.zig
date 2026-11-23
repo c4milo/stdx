@@ -50,22 +50,28 @@ pub inline fn plain(table: []const u32, classes: *const Classes, haystack: []con
 /// A match ends before each octet whose entry had the flag, and `last` becomes the last of them.
 /// The loop takes plain rows too: in a text of letters past ASCII, as `\p{L}{8,13}` reads in
 /// Russian, a match ends before every second octet, and a loop of flagged rows alone took one.
+/// It stops at a plain row that follows `dfa_run_plain_rows_max` others, so that the scan's loops
+/// take a long run of them.
 pub inline fn matched(table: []const u32, classes: *const Classes, haystack: []const u8, from: usize, state: *u32, last: *usize) usize {
     var current = state.*;
     var ended = last.*;
+    var plains: u32 = 0;
     // As in `plain`: the loop counts the octets it took, and the sum of a row and a class cannot
     // wrap.
     for (haystack[from..], 0..) |octet, taken| {
         const entry = table[current +% classes[octet]];
-        if (entry < constants.dfa_dead_flag) {
-            current = entry;
-            continue;
-        }
-        if (!is_matched_row(entry)) {
+        const plain_row = entry < constants.dfa_dead_flag;
+        if (!plain_row and !is_matched_row(entry) or plain_row and plains == constants.dfa_run_plain_rows_max) {
             state.* = current;
             last.* = ended;
             return from + taken;
         }
+        if (plain_row) {
+            plains += 1;
+            current = entry;
+            continue;
+        }
+        plains = 0;
         ended = from + taken;
         current = entry - constants.dfa_match_flag;
     }
@@ -123,14 +129,14 @@ const testing = std.testing;
 /// A table of three rows over three classes. Row 0 leads to the match row, with a match, on
 /// class 0; the match row stays where it is, with a match, on class 0; a line feed, class 1, ends
 /// each, with a match from the match row and the dead flag. Class 2 leads from the match row to
-/// the plain row, and from the plain row to nothing built.
+/// the plain row, and from the plain row to itself; the plain row's other entries are not built.
 const test_stride = 3;
 const test_match_row = test_stride;
 const test_plain_row = test_match_row + test_stride;
 const test_table = [_]u32{
     constants.dfa_match_flag | test_match_row, constants.dfa_dead_flag,                            0,
     constants.dfa_match_flag | test_match_row, constants.dfa_match_flag | constants.dfa_dead_flag, test_plain_row,
-    constants.dfa_unknown,                     constants.dfa_unknown,                              constants.dfa_unknown,
+    constants.dfa_unknown,                     constants.dfa_unknown,                              test_plain_row,
 };
 
 /// The classes of the table: an x, a line feed, and every other octet.
@@ -172,6 +178,33 @@ test "a run of matches takes plain rows too, and stops at an entry that is dead 
     state = 0;
     try testing.expectEqual(@as(usize, 1), plain(&test_table, &classes, "yxx", 0, &state));
     try testing.expectEqual(@as(u32, 0), state);
+}
+
+test "a run of matches stops at a plain row after the plain rows of one UTF-8 sequence" {
+    const classes = test_classes();
+    var state: u32 = 0;
+    var last: usize = 9;
+    // The match row, then plain rows from the first `y` on: the run takes three and stops.
+    const at = matched(&test_table, &classes, "xyyyyyx", 0, &state, &last);
+    try expect_run(.{ .at = 1 + constants.dfa_run_plain_rows_max, .state = test_plain_row, .last = 0 }, at, state, last);
+}
+
+/// A table of two rows over the classes of `TestClass`, where a match ends before every second
+/// octet, as in a script of two octets a letter: from the match row an x leads to the plain row,
+/// and from the plain row a line feed leads back to the match row, with a match.
+const test_letter_plain = test_stride;
+const test_letter_table = [_]u32{
+    test_letter_plain,       constants.dfa_dead_flag,  constants.dfa_dead_flag,
+    constants.dfa_dead_flag, constants.dfa_match_flag, constants.dfa_dead_flag,
+};
+
+test "a run of matches counts the plain rows of one sequence, not of the run" {
+    const classes = test_classes();
+    const text = "x\nx\nx\nx\nx\nx\n";
+    var state: u32 = 0;
+    var last: usize = 0;
+    const at = matched(&test_letter_table, &classes, text, 0, &state, &last);
+    try expect_run(.{ .at = text.len, .state = 0, .last = text.len - 1 }, at, state, last);
 }
 
 test "a run of matches read back takes plain rows too, and stops at its start" {

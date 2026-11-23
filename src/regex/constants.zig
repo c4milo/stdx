@@ -177,6 +177,13 @@ pub const dfa_octets_per_state_min = 10;
 /// The searches a `Searcher` lets its lazy DFA give up before it stops trying the DFA.
 pub const dfa_give_ups_max = 8;
 
+/// The plain rows, one after another, that a run of matches takes before it gives the octets back
+/// to the scan's loops (dfa_run.zig): the continuation octets of one UTF-8 sequence. A longer run
+/// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for
+/// one read of the cache. Where the run took them all, rebar's `14-quadratic` ran at 0.7 of its
+/// speed.
+pub const dfa_run_plain_rows_max = utf8_len_max - 1;
+
 /// How a `Searcher` divides its cache: the forward DFA takes this many parts of
 /// `dfa_cache_parts`, and the reverse DFA the rest. The forward DFA reads the whole text and the
 /// reverse one a match alone. RE2 divides its memory the same way.
