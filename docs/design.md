@@ -9068,6 +9068,12 @@ to 12 are reordered and nothing else changes.
       and the lexer's first 30,000 octets 115 million in place of 131 million. In three passes of
       60 warm runs, the log ran at 44.3 to 45.4 MB/s in place of 41.7 to 42.4. `step_ranges`
       inline too took the log back to 6.68 million.
+    - Under ReleaseSafe `literal_find.find_before`, the block that `Literal.find` searches before
+      it calls the variant object, stayed a call at each search. Inline, rebar's English literal
+      took 489 thousand instructions a pass in place of 493 thousand, and in four passes of 150
+      warm runs ran at 17,764 to 19,903 MB/s in place of 17,477 to 19,083. `the [a-z]+ of` ran at
+      685 to 688 MB/s in place of 652 to 655, and the `href` and `Pharaoh` rows did not move past
+      the noise.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote

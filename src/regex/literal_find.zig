@@ -25,8 +25,8 @@ pub fn find(comptime width: usize, literal: *const Literal, haystack: []const u8
 
 /// `find`, for the places that start before `limit` alone. `Literal.find` searches one block this
 /// way before it calls the variant object, so a text where places stand close together pays no
-/// call for each.
-pub fn find_before(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, limit: usize) ?usize {
+/// call for each. Inline: a ReleaseSafe build left it a call at each search.
+pub inline fn find_before(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, limit: usize) ?usize {
     assert(from <= haystack.len);
     assert(literal.len >= 1);
     if (haystack.len - from < literal.len) return null;
