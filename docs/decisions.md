@@ -5869,6 +5869,8 @@ last part lists what still waits on a ruling.
     - Claim R2: where every match starts with a literal of two octets or more, R1's skip goes to
       the next place of that literal. Where the pattern is that literal and nothing else, the
       searcher reads no DFA: each place of the literal is a match (design §8 step 22, part 22c).
+      Since 2026-11-23, `Matches.next` takes such a pattern's next place from the literal
+      itself, where it went through `Searcher.find` (design §8 part 22n).
       - `Literal.of` reads the literal from the forward program: the instructions from the entry
         that each take one octet, through saves, up to `literal_len_max`, 32 octets.
       - `Literal.find` compares the literal's octets at two offsets, `first_at` and `last_at`,

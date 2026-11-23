@@ -7,6 +7,8 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const searcher_test = @import("searcher_test.zig");
 const Fixture = searcher_test.Fixture;
+const Matches = @import("searcher.zig").Matches;
+const Span = @import("../matcher.zig").Span;
 
 /// The octets of a test's haystack: some steps of `skip_lanes` octets, and a part of one.
 const haystack_steps = 6;
@@ -266,4 +268,18 @@ test "is_match scans no DFA for a text where no literal stands, and finds the ma
         try testing.expectEqual(@as(u64, 0), dfa.skip_octets);
         try testing.expect(!fixture.searcher.is_match("aoh Ph h"));
     }
+}
+
+test "the matches of a pattern that is its literal are its places, and the walk ends past the text" {
+    var fixture: Fixture = .{};
+    try fixture.init("Pha", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.exact != null);
+    const haystack = "aPhaPhaxPha";
+    var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = haystack };
+    const literal_len = 3;
+    for ([_]usize{ 1, 4, 8 }) |start| {
+        try testing.expectEqual(@as(?Span, .{ .start = start, .end = start + literal_len }), matches.next());
+    }
+    try testing.expectEqual(@as(?Span, null), matches.next());
+    try testing.expect(matches.position > haystack.len);
 }

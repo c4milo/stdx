@@ -9472,6 +9472,17 @@ to 12 are reordered and nothing else changes.
   -Dtarget=aarch64-linux -fqemu` passes. Mutations against it: 4, all CAUGHT: the tail moved a
   lane too far; the last step read in place past the text's end; the tail not moved; a text
   shorter than a step read from a tail.
+  - `Matches.next` for a pattern that is its literal (decision 86 as amended): each place of the
+    literal is a match, so the walk takes the literal's next place itself, where it called
+    `Searcher.find` and `find_by_dfa` for it. `sherlock-en` takes 4.8% fewer instructions on
+    aarch64 and 6.7% fewer on x86-64, `sherlock-ru` 4.0% and 5.8%, and `Pharaoh` 2.1% and 3.2%.
+    `Matches` moves to `searcher_matches.zig`, which `searcher.zig` exports it from.
+  **Check, the walk of a literal:** the matches of a pattern that is its literal are its places,
+  and the walk ends past the text; mutations.
+  **Check passed, the walk of a literal, 2026-11-23.** `zig build test` passes. Mutations against
+  `zig build test-regex`: 4. CAUGHT, 3: a match that ends an octet short, whose test never ends;
+  a match that starts an octet early; a walk that ends no search past the text. NOT CAUGHT, 1,
+  the same answers: no shortcut, where `Searcher.find` finds the same places.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
