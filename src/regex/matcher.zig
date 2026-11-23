@@ -103,6 +103,10 @@ const slot_rows = 2;
 /// The instruction indexes one word of memory holds.
 const indexes_per_word = @sizeOf(u64) / @sizeOf(u32);
 
+/// What the matcher's two tables of slots hold for claim R6: no table, the table, or nothing
+/// ever, where the program's table does not fit them.
+pub const OnePassTable = enum { none, held, absent };
+
 pub const Matcher = struct {
     program: Program,
     options: Options,
@@ -135,6 +139,9 @@ pub const Matcher = struct {
     finished: bool,
     /// Invariant 18's count, which a test build keeps.
     work: work_file.Work,
+    /// Whether the two tables of slots hold claim R6's table (one_pass_table.zig). The matcher's
+    /// own search and the backtracker write them, and set it back to `none`.
+    one_pass_table: OnePassTable,
 
     /// The words of memory a matcher needs for a program of `instructions_len` forward
     /// instructions and `slots_len` slots a thread.
@@ -189,6 +196,7 @@ pub const Matcher = struct {
             .closed = .none,
             .finished = false,
             .work = work_file.zero,
+            .one_pass_table = .none,
         };
     }
 
@@ -228,6 +236,7 @@ pub const Matcher = struct {
     /// then reads `span` or calls `start`.
     pub fn search(matcher: *Matcher, input: []const u8, piece: Piece) Step {
         assert(!matcher.finished);
+        if (matcher.one_pass_table == .held) matcher.one_pass_table = .none;
         var index: usize = 0;
         while (index <= input.len) : (index += 1) {
             if (matcher.closed != .all) {

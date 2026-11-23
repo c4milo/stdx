@@ -8954,6 +8954,41 @@ to 12 are reordered and nothing else changes.
     at 388 to 431 MB/s at c8a2b4f and at 368 to 388 now, in four passes of 40 warm runs in turns,
     with 17.0 million instructions under callgrind in both: its DFA's loop is the same code. The
     other rows of part 22n's tables did not move past the noise.
+  - parse-line still walked each field's end through `straight`, about 100 instructions, where
+    Rust's one-pass DFA reads one entry. Asked whether a table would cost memory, the owner
+    answered on 2026-11-23 that it is "probably a small memory buffer". One-pass now keeps the
+    table, in the matcher's two tables of slots (`one_pass_table.zig`, decision 86): a row for
+    each seed, a column for each class and the text's end, and an entry that names the next row
+    and the slots its path saves. A search fills an entry the first time it reads it, and an
+    entry whose paths meet an assertion keeps the walk. Under callgrind, the first 300,000
+    octets of the file took 14.6 million instructions in place of 30.5 million. The best of 10
+    warm runs of the driver, in three passes each, in MB/s:
+
+    | Row | 7e21455 | Now | Rust's crate, part 22m |
+    | --- | ---: | ---: | ---: |
+    | parse-line | 137.75, 136.45, 134.62 | 260.06, 264.27, 265.16 | 165.85 |
+    | the tuned set's six groups, 65,536 lines | 165.08, 167.52, 165.19 | 139.31, 177.77, 177.79 | |
+
+    The six groups' lines hold 20 octets, so the work of each search outside the table weighs
+    more there. The other rows of part 22n's tables did not move past the noise.
+  **Check, the one-pass table:** one-pass gives the matcher's groups by the table and by the walk
+  alone, anchored at every offset; the matcher's own search and the backtracker leave no table, and
+  the next search builds one that gives the same groups; a program of more than 32 slots, or whose
+  rows do not fit, keeps no table; a search fills entries the next one reads, and walks one that
+  meets an assertion; the text's end has a column of its own; the Go differential check passes;
+  mutations.
+  **Check passed, the one-pass table, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18,
+  in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 16, all CAUGHT: the matcher's search or the
+    backtracker that keeps the table; a save that writes the next offset; a path that keeps no
+    save; an assertion taken to hold in every entry; a table for a program of any slots, or of
+    rows that do not fit; no row for the program's entry; a loop that goes on at any entry that
+    takes an octet, or that saves; a walk that reads the octet ahead as the one behind, or keeps
+    the search's first position; an entry filled each time; a split that goes on from its other
+    branch first; a new table that keeps what the tables of slots held. The text's end read at
+    the first column was NOT CAUGHT until `([\x00-a]*)$` joined the table's tests.
   **Check, the one-pass loops:** `program.step` takes each range's ends and refuses an octet
   between two ranges among the first 4 and among the rest; one-pass gives the matcher's groups,
   anchored at every offset, for loops of a node and of a split of two nodes, and where a split's

@@ -5971,7 +5971,18 @@ last part lists what still waits on a ruling.
       - Where every match starts at the text's start, a match starts at `from` or nowhere, so
         `captures` runs no DFA. Elsewhere the DFAs find the match's start, as before.
       - RE2 and Rust's crate keep a one-pass DFA for this case, a table of transitions with the
-        slots each one writes. stdx keeps no table, so the search needs no memory of its own.
+        slots each one writes. stdx keeps the same table since 2026-11-23, after the owner
+        answered that it is "probably a small memory buffer" (`one_pass_table.zig`, design §8
+        part 22n). A row for each seed, the program's entry and each range's target, and a
+        column for each class of octets and for the text's end. An entry holds the next seed's
+        row and a mask of the slots its path saves, or says the thread matches or ends.
+      - The table takes the matcher's two tables of slots, 2·m·k words, which a one-pass search
+        does not read, so it takes no memory of its own. The matcher's own search and the
+        backtracker write them, and the next one-pass search builds the table again. A program
+        of more than 32 slots, or whose rows do not fit, keeps the walk above.
+      - A search fills an entry the first time it reads it, by the paths `follow` takes. An
+        entry whose paths meet an assertion stays a walk of its position, since one entry cannot
+        say what holds in each context.
       - `SearcherClaims.one_pass` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
     - Claim R7: a forward scan with no skip takes two octets for one read of the cache, where the
       program has at most `pair_classes_max`, 32, classes (design §8 step 22, part 22c).
@@ -5996,8 +6007,8 @@ last part lists what still waits on a ruling.
         first path that reaches `match` is the matcher's match, which ends at the span's end, so
         no path takes an octet past it.
       - The bits and the stack take the matcher's two tables of slots, 2·m·k words, which only
-        the matcher's own search writes. Where the span's bits or the stack do not fit, the
-        matcher finds the groups. A path does not push an alternative whose saves and jumps lead
+        the matcher's own search and claim R6's table write. Where the span's bits or the stack
+        do not fit, the matcher finds the groups. A path does not push an alternative whose saves and jumps lead
         to a range that does not take the octet there, or to an assertion that does not hold, so
         the alternatives of a class leave no entry behind an octet a path took.
       - RE2's BitState and Rust's crate's `BoundedBacktracker` search the same way (Cox,

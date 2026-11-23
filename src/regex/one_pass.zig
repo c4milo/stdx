@@ -23,6 +23,7 @@ const matcher_file = @import("matcher.zig");
 const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
 const is_continuation = @import("utf8_ranges.zig").is_continuation;
+const one_pass_table = @import("one_pass_table.zig");
 
 /// The bits of a set of octets, a word for each 64.
 const Octets = [constants.octet_values / @bitSizeOf(u64)]u64;
@@ -109,7 +110,7 @@ fn take_once(taken: *Octets, range: Instruction) bool {
 
 /// What one position's paths gave: a match, no thread, or the instruction after the one that
 /// took the position's octet.
-const Outcome = union(enum) { matched, dead, took: u32 };
+pub const Outcome = union(enum) { matched, dead, took: u32 };
 
 /// The match that starts at `from`, as the matcher finds it anchored there, with its groups in
 /// the matcher's slots. Null where no match starts there. The matcher must keep every group's
@@ -122,6 +123,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, from: usize) ?Span {
     for (matcher.current()) |*slot| slot.* = constants.slot_unset;
     // No match starts before a continuation octet of UTF-8, as in the matcher.
     if (from < haystack.len and is_continuation(haystack[from])) return finish(matcher, false);
+    if (one_pass_table.prepare(matcher)) |table| return one_pass_table.run(table, matcher, haystack, from);
     var seed = matcher.program.forward;
     var index = from;
     // Each turn takes one octet at least, or ends the search: at most the octets from `from`
@@ -150,7 +152,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, from: usize) ?Span {
 
 /// The outcome of the paths from `seed` at `index`. Where they take the octet there, the
 /// matcher's position moves past it.
-inline fn step(matcher: *Matcher, haystack: []const u8, index: usize, seed: u32) Outcome {
+pub inline fn step(matcher: *Matcher, haystack: []const u8, index: usize, seed: u32) Outcome {
     const octet: ?u8 = if (index < haystack.len) haystack[index] else null;
     const ahead: Context = if (octet) |known| Context.of(known) else .edge;
     // A seed whose paths are one line needs no list: no branch is tried and undone.
@@ -231,7 +233,7 @@ inline fn choice_step(instructions: []const Instruction, index: u32, octet: u8) 
     return program_file.step(instructions, instruction.out, octet) orelse program_file.step(instructions, instruction.arg, octet);
 }
 
-fn finish(matcher: *Matcher, matched: bool) ?Span {
+pub fn finish(matcher: *Matcher, matched: bool) ?Span {
     if (matched) @memcpy(matcher.best(), matcher.current());
     matcher.matched = matched;
     matcher.finished = true;
@@ -436,15 +438,24 @@ test "find gives the match and the groups the matcher gives, anchored at every o
     var fixture: Fixture = .{};
     var reference: Fixture = .{};
     var generator = Generator.init(0x0E1A);
-    var text: [test_text_len]u8 = undefined;
     for (test_patterns) |pattern| {
-        try fixture.init(pattern);
-        try reference.init(pattern);
-        try testing.expect(check(&fixture.matcher));
-        for (0..test_texts) |_| {
-            for (&text) |*octet| octet.* = test_alphabet[generator.below(test_alphabet.len)];
-            for (0..text.len + 1) |from| try expect_agree(&fixture, &reference, &text, from);
+        // By the table (one_pass_table.zig), then by the walk alone.
+        for ([_]matcher_file.OnePassTable{ .none, .absent }) |table| {
+            try fixture.init(pattern);
+            fixture.matcher.one_pass_table = table;
+            try reference.init(pattern);
+            try testing.expect(check(&fixture.matcher));
+            try expect_agree_on_texts(&fixture, &reference, &generator);
         }
+    }
+}
+
+/// `expect_agree` from every offset of `test_texts` texts the generator draws.
+fn expect_agree_on_texts(fixture: *Fixture, reference: *Fixture, generator: *Generator) !void {
+    var text: [test_text_len]u8 = undefined;
+    for (0..test_texts) |_| {
+        for (&text) |*octet| octet.* = test_alphabet[generator.below(test_alphabet.len)];
+        for (0..text.len + 1) |from| try expect_agree(fixture, reference, &text, from);
     }
 }
 

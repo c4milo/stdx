@@ -50,6 +50,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, start: usize, end: usize) ?
     const bits = @as(usize, matcher.program.forward_len) * positions;
     const words = (bits + bits_per_word - 1) / bits_per_word;
     if (words > matcher.seed_slots.len) return null;
+    if (matcher.one_pass_table == .held) matcher.one_pass_table = .none;
     matcher.start(if (start == 0) null else haystack[start - 1], start);
     // The matcher takes its two tables one after the other, so the stack takes what the bits
     // leave of the first and all of the second.
