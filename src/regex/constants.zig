@@ -153,14 +153,15 @@ pub const slot_unset = std.math.maxInt(u64);
 
 /// The bits of a table entry of the lazy DFA. An entry is the place of a state's row, with
 /// `dfa_match_flag` where a match ended before the octet that led to it, `dfa_dead_flag` where
-/// no later octet can change the search's answer, and `dfa_idle_flag` where the state holds no
-/// thread and may start a match, in a DFA that skips to a literal from there (claim R3). An
-/// entry under `dfa_flags_min` is a row and nothing else. An entry of all ones is not yet
-/// computed.
+/// no later octet can change the search's answer, and `dfa_skip_flag` where the scan skips from
+/// the state: to a literal, from a state that holds no thread and may start a match (claim R3),
+/// or past the octets over which the state stays where it is (claim R9). A DFA takes one of the
+/// two claims at most. An entry under `dfa_flags_min` is a row and nothing else. An entry of all
+/// ones is not yet computed.
 pub const dfa_match_flag = 0x8000_0000;
 pub const dfa_dead_flag = 0x4000_0000;
-pub const dfa_idle_flag = 0x2000_0000;
-pub const dfa_flags_min = dfa_idle_flag;
+pub const dfa_skip_flag = 0x2000_0000;
+pub const dfa_flags_min = dfa_skip_flag;
 pub const dfa_row_mask = 0x1FFF_FFFF;
 pub const dfa_unknown = 0xFFFF_FFFF;
 
@@ -212,7 +213,7 @@ pub const backtrack_skip_splits_max = 64;
 pub const cache_words_default = 1 << 19;
 
 /// The octets one step of a skip judges: 16, the width of SSE2's and NEON's registers, which
-/// every x86-64 and aarch64 CPU has (claim R1).
+/// every x86-64 and aarch64 CPU has (claims R1 and R9).
 pub const skip_lanes = 16;
 
 /// The octets one step of claim R2's and R5's searches compares in the variant object of x86-64's
@@ -334,6 +335,20 @@ pub const skip_scalar_run = 8;
 pub const skip_trial_visits = 256;
 pub const skip_octets_per_visit_min = 8;
 
+/// Claim R9 judges each state that stays from its own visits, as claim R1 judges its skip, and
+/// keeps the skip only where the visits passed this many octets each on average. A visit reads
+/// its first `skip_scalar_run` octets against the table, as the scan's loop reads them, so only
+/// the octets past them gain, and leaving the loop costs a branch the CPU cannot predict. Under 32,
+/// rebar's `ruff-noqa/real` took 2.8% more instructions: its `\s*` stays over indents of a few
+/// spaces (design §8 part 22n).
+pub const stay_octets_per_visit_min = 32;
+
+/// The states a DFA keeps a record of under claim R9: the octets that leave each, as ranges, and
+/// its visits. A record is taken by the state's row, so more states that stay take turns in the
+/// records, and each record is a few words of the DFA itself. The patterns of rebar's rows that
+/// stay over long runs have one or two such states in use at a time.
+pub const stay_records = 8;
+
 /// The octets a DFA scans with its skip off before it tries the skip again. A text changes: one
 /// part's start octets are close together and the next part's are far apart. A trial that fails
 /// costs about a microsecond, and this many octets take a hundred times that. Each trial that
@@ -377,7 +392,7 @@ comptime {
     std.debug.assert(targets_per_instruction * instructions_max < hole_none);
     std.debug.assert(hole_flag & hole_none == 0);
     std.debug.assert(1 << context_bits == context_count);
-    std.debug.assert(dfa_match_flag | dfa_dead_flag | dfa_idle_flag | dfa_row_mask == dfa_unknown);
+    std.debug.assert(dfa_match_flag | dfa_dead_flag | dfa_skip_flag | dfa_row_mask == dfa_unknown);
     std.debug.assert(dfa_row_mask + 1 == dfa_flags_min);
     std.debug.assert(dfa_record_words > dfa_record_head);
 }

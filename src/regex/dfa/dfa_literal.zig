@@ -9,7 +9,7 @@
 //! the one the DFA gives with no skip.
 //!
 //! A state with no thread that may still start a match is such a start state. `Dfa.build` marks
-//! the entries that lead to one with `dfa_idle_flag`, so the scan's loop reads one entry an
+//! the entries that lead to one with `dfa_skip_flag`, so the scan's loop reads one entry an
 //! octet, as the plain loop does, and tests one bound.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -66,7 +66,7 @@ fn run(dfa: *Dfa, haystack: []const u8, from: usize, first: u32, earliest: bool,
         if (known & constants.dfa_dead_flag != 0 or (earliest and last.* != null)) return .{ .done = Scan.of(last.*) };
         // A state with no thread, which follows no match (`Dfa.build`): the next match starts at
         // a place of the literal.
-        if (known & constants.dfa_idle_flag != 0) return .{ .waits = index + 1 };
+        if (known & constants.dfa_skip_flag != 0) return .{ .waits = index + 1 };
         state = known & constants.dfa_row_mask;
     }
     dfa.tally(haystack.len);

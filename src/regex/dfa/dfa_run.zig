@@ -35,7 +35,7 @@ pub inline fn plain(table: []const u32, classes: *const Classes, haystack: []con
         // A row is under the table's length less a stride, and a class under the stride, so the
         // sum cannot wrap, and the read's bounds check holds it.
         const entry = table[current +% classes[octet]];
-        if (entry >= constants.dfa_dead_flag) {
+        if (entry >= constants.dfa_flags_min) {
             state.* = current;
             return from + taken;
         }
@@ -60,7 +60,7 @@ pub inline fn matched(table: []const u32, classes: *const Classes, haystack: []c
     // wrap.
     for (haystack[from..], 0..) |octet, taken| {
         const entry = table[current +% classes[octet]];
-        const plain_row = entry < constants.dfa_dead_flag;
+        const plain_row = entry < constants.dfa_flags_min;
         if (!plain_row and !is_matched_row(entry) or plain_row and plains == constants.dfa_run_plain_rows_max) {
             state.* = current;
             last.* = ended;

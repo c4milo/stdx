@@ -9134,6 +9134,33 @@ to 12 are reordered and nothing else changes.
       instructions of what it took, 5.55 and 3.57 million: their states fit either division.
     - From `\p{L}{80,85}` on, the two leasts do not fit 4 MiB. stdx runs at 10 to 11 MB/s and
       Rust's crate at 18.
+  - A forward scan read each octet of a long run in one state with a read of the table: each
+    search of rebar's `14-quadratic` reads to the text's end in the state that stays over
+    capitals. Claim R9 goes past such a run `skip_lanes` octets a step (decision 86). RE#
+    (Varatalu, Veanes and Ernits, POPL 2025) runs the quadratic rows 12 times as fast as Rust's
+    crate, and skips the same way. A count of the table's reads on rebar's 31 rows that search, with
+    claim R7 off, read these shares of each row's octets in runs of 16 or more in one state:
+    - 4,830% to 49,938% of the text on the quadratic rows, which read it many times, and 93% to
+      100% on the redos rows.
+    - 57% on `capitals`, 32% on `ruff-noqa/real` and 17% on `context`, most of them in runs of
+      fewer than 64.
+    - 0% to 9% on the rows where stdx is behind Rust's crate: `letters-ru`, `aws-keys`,
+      `extract`, `lexer-veryl` and the literal rows.
+  - One warm pass of each row under callgrind, ReleaseSafe for x86-64-v3, at 07c3cca and with
+    the claim:
+    - The quadratic rows take 35%, 40% and 76% fewer instructions, the redos rows 44%, 45% and
+      59% fewer, `aws-keys/full` 6.6% fewer and `letters-ru` 3.1% fewer.
+    - `aws-keys/quick`, `words/all-english`, `ruff-noqa/tweaked` and the case-insensitive
+      literal rows take 1.0% to 1.8% more, and every other row is within 1%. `aws-keys/quick`
+      reads no entry of the table: its cost is in the code of the loop around the claim's
+      test, which the compiler lays out anew.
+    - The first version gave each state the record of its row and judged it by claim R1's 8
+      octets a visit. `capitals` ran 10% slower: its copies of `[a-z]+` stay over words of a few
+      letters, and took records from each other before a trial ended. With each state keeping
+      its record through its trial, it took 11.8% more instructions: three of its states pass 8
+      to 17 octets a visit. Hence `stay_octets_per_visit_min`. Moving `close` to
+      `dfa_close.zig` made `matches_at_end` a call, which each search of a line pays, so it is
+      inline and builds its entry out of line.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9230,6 +9257,30 @@ to 12 are reordered and nothing else changes.
     start; one part of the spare to the forward DFA; the two leasts exactly taken as too little;
     two parts to one under the leasts; no least first for the forward DFA; and a spare that
     leaves out the reverse DFA's least.
+  **Check, the octets a state stays over:** a searcher with claim R9 gives the matcher's spans
+  and groups from every offset for ten patterns whose states stay over runs: of a class, of its
+  complement, of every octet but a line feed, with the match flag and without, and of a set of
+  more ranges than a step judges. It does so in a cache that holds its states, in one that
+  clears, and with the claim off. A state whose runs are long keeps its flag, and one whose runs
+  are short loses it and gets its pair row back; at most `stay_records` states hold the flag; a
+  cache that clears forgets every record; a state that comes to stay over another class learns
+  that its octets no longer leave it; a match ends before each octet that a state with the match
+  flag stays over; a DFA of claim R3 takes no claim R9; the Go differential check passes;
+  mutations.
+  **Check passed, the octets a state stays over, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on
+  x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 20. CAUGHT, 19: a build that marks no entry, or
+    marks one that leads elsewhere or one built while the cache cleared; a skip that passes one octet more, keeps no match, or keeps
+    it one octet late; exits that are the octets that stay, or that count an entry not built as
+    one that stays; a judge that finds no state poor, or leaves a poor state its flags or its
+    pair row; a state that takes a record still in trial; records that outlast a clear; exits
+    not learned again after a new entry that stays; a skip at the match flag; the plain loop,
+    the loop of matches or the skip loop that takes a flagged entry; and claim R3 with R9 on.
+    The pair row, the clear and the new entry were NOT CAUGHT until their tests joined. NOT
+    CAUGHT, 1, the same answers: a skip with no step of lanes, which reads one octet at a time.
+    Only its speed shows it.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

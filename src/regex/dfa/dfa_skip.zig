@@ -17,35 +17,66 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
 /// The octets from `lo` on, `span` more than one of them.
-const Range = struct { lo: u8, span: u8 };
+pub const Range = struct { lo: u8, span: u8 };
 
 const Lanes = @Vector(constants.skip_lanes, u8);
 
-pub const Skip = struct {
-    /// True for each octet a match can start with.
-    starts: [constants.octet_values]bool,
-    /// The octets a match can start with, as ranges. A range that is not used repeats the first.
+/// A set of octets as at most `skip_ranges_max` ranges, which a step judges `skip_lanes` octets
+/// against (claims R1 and R9).
+pub const Ranges = struct {
+    /// The ranges. A range that is not used repeats the first.
     ranges: [constants.skip_ranges_max]Range,
-    /// True when `ranges` hold every octet of `starts`, so a step may judge `skip_lanes` octets.
-    in_ranges: bool,
+    /// True when the ranges hold every octet of the set, so a step may judge `skip_lanes` octets.
+    whole: bool,
 
-    pub fn init(starts: *const [constants.octet_values]bool) Skip {
-        var skip: Skip = .{ .starts = starts.*, .ranges = undefined, .in_ranges = true };
+    pub fn of(set: *const [constants.octet_values]bool) Ranges {
+        var ranges: Ranges = .{ .ranges = undefined, .whole = true };
         var count: usize = 0;
         var octet: usize = 0;
         while (octet < constants.octet_values) {
-            if (!starts[octet]) {
+            if (!set[octet]) {
                 octet += 1;
                 continue;
             }
             const lo = octet;
-            while (octet < constants.octet_values and starts[octet]) octet += 1;
-            if (count < constants.skip_ranges_max) skip.ranges[count] = .{ .lo = @intCast(lo), .span = @intCast(octet - 1 - lo) };
+            while (octet < constants.octet_values and set[octet]) octet += 1;
+            if (count < constants.skip_ranges_max) ranges.ranges[count] = .{ .lo = @intCast(lo), .span = @intCast(octet - 1 - lo) };
             count += 1;
         }
-        skip.in_ranges = count > 0 and count <= constants.skip_ranges_max;
-        if (skip.in_ranges) @memset(skip.ranges[count..], skip.ranges[0]);
-        return skip;
+        ranges.whole = count > 0 and count <= constants.skip_ranges_max;
+        if (ranges.whole) @memset(ranges.ranges[count..], ranges.ranges[0]);
+        return ranges;
+    }
+
+    /// The first offset at or after `from` whose octet is in a range, where a whole step of
+    /// `skip_lanes` octets holds it, or the offset of the first step that does not fit.
+    pub fn first(ranges: *const Ranges, haystack: []const u8, from: usize) usize {
+        assert(ranges.whole);
+        var index = from;
+        while (haystack.len - index >= constants.skip_lanes) : (index += constants.skip_lanes) {
+            const octets: Lanes = haystack[index..][0..constants.skip_lanes].*;
+            var hits: @Vector(constants.skip_lanes, bool) = @splat(false);
+            // An octet is in a range when its distance from the range's first octet, as an
+            // unsigned number, is at most the range's span.
+            inline for (0..constants.skip_ranges_max) |range| {
+                const lo: Lanes = @splat(ranges.ranges[range].lo);
+                const span: Lanes = @splat(ranges.ranges[range].span);
+                hits = @select(bool, octets -% lo <= span, @as(@Vector(constants.skip_lanes, bool), @splat(true)), hits);
+            }
+            if (std.simd.firstTrue(hits)) |lane| return index + lane;
+        }
+        return index;
+    }
+};
+
+pub const Skip = struct {
+    /// True for each octet a match can start with.
+    starts: [constants.octet_values]bool,
+    /// The octets a match can start with, as ranges.
+    ranges: Ranges,
+
+    pub fn init(starts: *const [constants.octet_values]bool) Skip {
+        return .{ .starts = starts.*, .ranges = Ranges.of(starts) };
     }
 
     /// The first offset at or after `from` whose octet can start a match, or the haystack's
@@ -58,30 +89,11 @@ pub const Skip = struct {
         for (haystack[from..near], from..) |octet, index| {
             if (skip.starts[octet]) return index;
         }
-        const far = if (skip.in_ranges) skip.by_lanes(haystack, near) else near;
+        const far = if (skip.ranges.whole) skip.ranges.first(haystack, near) else near;
         for (haystack[far..], far..) |octet, index| {
             if (skip.starts[octet]) return index;
         }
         return haystack.len;
-    }
-
-    /// The first offset at or after `from` whose octet is in a range, where a whole step of
-    /// `skip_lanes` octets holds it, or the offset of the first step that does not fit.
-    fn by_lanes(skip: *const Skip, haystack: []const u8, from: usize) usize {
-        var index = from;
-        while (haystack.len - index >= constants.skip_lanes) : (index += constants.skip_lanes) {
-            const octets: Lanes = haystack[index..][0..constants.skip_lanes].*;
-            var hits: @Vector(constants.skip_lanes, bool) = @splat(false);
-            // An octet is in a range when its distance from the range's first octet, as an
-            // unsigned number, is at most the range's span.
-            inline for (0..constants.skip_ranges_max) |range| {
-                const lo: Lanes = @splat(skip.ranges[range].lo);
-                const span: Lanes = @splat(skip.ranges[range].span);
-                hits = @select(bool, octets -% lo <= span, @as(@Vector(constants.skip_lanes, bool), @splat(true)), hits);
-            }
-            if (std.simd.firstTrue(hits)) |lane| return index + lane;
-        }
-        return index;
     }
 };
 
@@ -104,22 +116,22 @@ fn next_plain(starts: *const [constants.octet_values]bool, haystack: []const u8,
 
 test "init gives the start octets as ranges where three hold them" {
     const one = Skip.init(&starts_of("P"));
-    try testing.expect(one.in_ranges);
-    try testing.expectEqual(Range{ .lo = 'P', .span = 0 }, one.ranges[0]);
-    try testing.expectEqual(one.ranges[0], one.ranges[2]);
+    try testing.expect(one.ranges.whole);
+    try testing.expectEqual(Range{ .lo = 'P', .span = 0 }, one.ranges.ranges[0]);
+    try testing.expectEqual(one.ranges.ranges[0], one.ranges.ranges[2]);
     const letters = Skip.init(&starts_of("AIJpqr"));
-    try testing.expect(letters.in_ranges);
-    try testing.expectEqualSlices(Range, &.{ .{ .lo = 'A', .span = 0 }, .{ .lo = 'I', .span = 1 }, .{ .lo = 'p', .span = 2 } }, &letters.ranges);
+    try testing.expect(letters.ranges.whole);
+    try testing.expectEqualSlices(Range, &.{ .{ .lo = 'A', .span = 0 }, .{ .lo = 'I', .span = 1 }, .{ .lo = 'p', .span = 2 } }, &letters.ranges.ranges);
     const four = Skip.init(&starts_of("aceg"));
-    try testing.expect(!four.in_ranges);
+    try testing.expect(!four.ranges.whole);
     const edges = Skip.init(&starts_of("\x00\xFF"));
-    try testing.expectEqualSlices(Range, &.{ .{ .lo = 0, .span = 0 }, .{ .lo = 0xFF, .span = 0 }, .{ .lo = 0, .span = 0 } }, &edges.ranges);
+    try testing.expectEqualSlices(Range, &.{ .{ .lo = 0, .span = 0 }, .{ .lo = 0xFF, .span = 0 }, .{ .lo = 0, .span = 0 } }, &edges.ranges.ranges);
     const none = Skip.init(&starts_of(""));
-    try testing.expect(!none.in_ranges);
+    try testing.expect(!none.ranges.whole);
     const every: [constants.octet_values]bool = @splat(true);
     const all = Skip.init(&every);
-    try testing.expect(all.in_ranges);
-    try testing.expectEqual(Range{ .lo = 0, .span = 0xFF }, all.ranges[0]);
+    try testing.expect(all.ranges.whole);
+    try testing.expectEqual(Range{ .lo = 0, .span = 0xFF }, all.ranges.ranges[0]);
 }
 
 /// Fills a haystack with octets that start nothing and `count` octets of `set` at places a seed

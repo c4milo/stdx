@@ -40,6 +40,18 @@ pub const Config = struct {
     ssse3: bool = false,
     /// Claim R7: whether a forward scan with no skip takes two octets a read (dfa_pairs.zig).
     pairs: bool = false,
+    /// Claim R9: whether a forward scan goes past the octets over which a state stays where it
+    /// is (dfa_stay.zig). Only for a DFA of `Kind.first` that is not anchored, and not with claim
+    /// R3, which takes `dfa_skip_flag` for its own states.
+    stays: bool = false,
+
+    /// True when the DFA can take each claim the configuration names: a skip and claim R9 only
+    /// in a forward DFA that is not anchored, and claims R2 and R5 only with the skip.
+    pub fn valid(config: Config) bool {
+        const forward = config.kind == .first and !config.anchored;
+        return (!config.skip or forward) and (!config.stays or forward) and
+            (!config.literal or config.skip) and (!config.literal_set or config.skip);
+    }
 };
 
 /// What a visit of a scan to the state that waits goes to (dfa_wait.zig): the next octet that

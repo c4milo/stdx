@@ -5908,7 +5908,7 @@ last part lists what still waits on a ruling.
         No match starts before a place, so the answer is the one the DFA gives with no skip.
       - For such a program `Literal.of` walks through the assertions. A pattern with an
         assertion is never its literal, so its searcher always reads its DFA.
-      - `Dfa.build` marks with `dfa_idle_flag` each entry that leads to a state with no thread,
+      - `Dfa.build` marks with `dfa_skip_flag` each entry that leads to a state with no thread,
         from which a match may still start. Under `Kind.first` no such entry follows a match,
         and `build` asserts it. At such an entry the scan goes on to the literal's next place.
         Its loop tests one bound an octet, as the plain loop does.
@@ -6078,6 +6078,27 @@ last part lists what still waits on a ruling.
         fails at once either: the node's path goes on with no entry (added 2026-11-23).
       - RE2's BitState and Rust's crate's `BoundedBacktracker` search the same way (Cox,
         "Regular Expression Matching in the Wild", 2010). Both give the bitmap memory of its own.
+    - Claim R9, added 2026-11-23 (design §8 part 22n): a forward scan goes past the octets over
+      which its state stays where it is, `skip_lanes` octets a step (`dfa_stay.zig`).
+      - Each search of rebar's `.*[^A-Z]|[A-Z]` reads to the text's end in a state that stays
+        over capitals, and each search of `.*.*=.*` reads to the next equals sign in one state.
+        `Dfa.build` marks an entry that leads back to its own state with `dfa_skip_flag`, so the
+        scan's loops leave there. The skip reads the next `skip_scalar_run` octets against the
+        table, then judges `skip_lanes` octets a step against the ranges of the octets whose
+        entry is another, as claim R1 judges. An entry not yet built counts as another, so the
+        scan's answer is the one it gives with no skip.
+      - RE# (Varatalu, Veanes and Ernits, POPL 2025) skips from each state of its DFA the same
+        way. Rust's crate skips from a state of its full DFA that at most three octets leave
+        (regex-automata 0.4.19, `dfa/accel.rs`), and its lazy DFA skips from none. 230 octets
+        leave the state over capitals.
+      - A run of a few octets costs more to skip than to read. A state takes the flag only while
+        it holds one of `stay_records`, 8, records, and a new state takes no record from a state
+        still in trial. After `skip_trial_visits` visits, a state whose visits passed fewer than
+        `stay_octets_per_visit_min`, 32, octets each on average loses the flag, and claim R7
+        builds its pair row again. A cache that clears forgets every record.
+      - The flag shares its bit with claim R3's, which marks the entries into a state with no
+        thread. A DFA of claim R3 takes no claim R9.
+      - `Claims.stays` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
       - A program of no group but the whole match takes the DFAs' span, and runs neither.
       - `SearcherClaims.backtrack` turns it off. `bench-regex`'s `stdx, no skip` keeps it on.
 
@@ -6130,6 +6151,7 @@ last part lists what still waits on a ruling.
     4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
+    Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32.
 
     **The checks.** Design §8 step 22 holds what each printed, and the mutations.
     - Each form of the syntax has a table of patterns, texts and the groups they must give, and

@@ -62,6 +62,10 @@ pub const Claims = struct {
     /// follows one path at a time over the span, each instruction at each offset once, in place
     /// of the matcher's threads (backtrack.zig).
     backtrack: bool = true,
+    /// R9: where a forward scan reads an octet over which its state stays where it is, it goes
+    /// past the run of such octets, `skip_lanes` octets a step (dfa_stay.zig). It rests for a
+    /// state whose runs are too short for a skip to pay.
+    stays: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -167,7 +171,7 @@ pub const Searcher = struct {
         const forward_len = if (has_reverse) forward_part(program, cache.len) else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs },
+            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs, .stays = claims.stays },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(
@@ -427,5 +431,6 @@ test {
     _ = @import("searcher_one_pass_test.zig");
     _ = @import("searcher_wide_test.zig");
     _ = @import("searcher_pairs_test.zig");
+    _ = @import("searcher_stay_test.zig");
     _ = @import("searcher_run_test.zig");
 }
