@@ -262,7 +262,7 @@ Change this section when a step adds or renames a command.
   the checked reader and writer, decision 16). Every rule `tools/lint/main.zig` registers runs, and a canary
   tree in `build/lint.zig` proves it.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
-  `graph-check`, `platform-check`, `hook-check`, `brotli-tables-check`,
+  `graph-check`, `platform-check`, `hook-check`, `readme-check`, `brotli-tables-check`,
   `brotli-table-budget-check` and `unicode-tables-check`.
   `zig build test-<module>` runs one module's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build test-self-hosted` builds every module's tests with
@@ -480,6 +480,11 @@ Change this section when a step adds or renames a command.
   chart's verdicts into docs/benchmarks.md; `tools/chart_docs_test.py` tests it. `--check` fails
   when a committed chart or page differs from what its reports draw, and `tools/ci.sh` runs it
   and both tests (decision 85).
+- README examples: `zig build readme-check` builds `tools/consumer/`, a project of its own that
+  depends on this tree the way the README says, with a nested `zig build`, and runs its program.
+  It then requires every Zig block of README.md to be an excerpt of that project's `build.zig`
+  or `main.zig` (`tools/readme_examples.zig`). The nested build takes an empty package folder
+  through `--system`, so it writes no `zig-pkg` into `tools/`.
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's
   share of lines run and the total. It needs Linux and kcov. The `coverage` job of

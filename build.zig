@@ -29,6 +29,7 @@ const lean = @import("build/lean.zig");
 const platform_check = @import("build/platform_check.zig");
 const checkfree = @import("build/checkfree.zig");
 const coverage = @import("build/coverage.zig");
+const readme = @import("build/readme.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -170,6 +171,7 @@ pub fn build(b: *std.Build) void {
     });
 
     test_step.dependOn(add_graph_check_step(b));
+    test_step.dependOn(readme.add(b));
     const platform_steps = platform_check.add(b);
     test_step.dependOn(platform_steps.check);
     test_step.dependOn(platform_steps.tests);

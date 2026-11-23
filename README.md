@@ -6,20 +6,25 @@
 [![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
 [![release](https://img.shields.io/github/v/release/c4milo/stdx)](https://github.com/c4milo/stdx/releases/latest)
 
-Zig's standard library, extended, and grouped as `std` groups its own: compression
-(`stdx.compress`: gzip, zlib, DEFLATE, zstd and brotli, each with an encoder and a decoder),
-checksums (`stdx.hash`), Unicode (`stdx.unicode`), JSON, base 64, regular expressions, and the CPU
-probe a program runs once (`stdx.platform`). All of it is written from the RFCs, uses no
-allocator, and does no I/O.
+stdx extends Zig's standard library. It groups its modules as `std` groups its own:
+
+- `stdx.compress`: gzip, zlib, DEFLATE, Zstandard and brotli, each with an encoder and a decoder.
+- `stdx.hash`: CRC-32, Adler-32 and XXH64.
+- `stdx.json` and `stdx.base64`.
+- `stdx.regex`: regular expressions that match in time linear in the text.
+- `stdx.unicode`: Unicode 17.0.0's categories, scripts and case folding, and UTF-8.
+- `stdx.platform`: what the CPU offers, which a program probes once when it starts.
+
+Each module is written from its RFC, or from the specification that it names. stdx allocates no
+memory and does no I/O. The one exception is the probe of `stdx.platform`, which makes one system
+call on macOS.
 
 A codec is a struct that your program places where it likes: on the stack, in a static, or inside
 its own state. Your program gives it the octets it has and the room it has. The codec writes what
 fits, and says whether it needs more input, more room, or is done. Nothing in stdx allocates,
 opens a file, starts a thread or reads a clock, so it fits the hot path of a server.
 
-Its benchmarks time stdx beside zlib, zlib-ng, libdeflate, libzstd, Google's brotli, Wuffs,
-simdjson, yyjson, serde_json and Go's standard library, in one job on GitHub's x86-64 and aarch64
-runners. Each report names the version of each library it times. On the Arm Neoverse N2 runner:
+On GitHub's Arm Neoverse N2 runner:
 
 - stdx decodes brotli faster than Google's decoder on all 39 corpus files, at 1.10 to 3.36 times
   its speed.
@@ -27,62 +32,153 @@ runners. Each report names the version of each library it times. On the Arm Neov
 - No level of zlib, zlib-ng or libdeflate encodes gzip both faster and smaller than any of stdx's
   levels 1, 6 and 9.
 - `json`'s `TextWriter` writes JSON at 1.64 to 16.35 times serde_json's speed.
+- `regex` runs 17 of its 18 searches faster than Rust's regex crate, and 25 of rebar's 31. The
+  people who tuned stdx chose the first set, and tuned stdx on the second.
+- stdx decodes Zstandard slower than libzstd on 25 of the 39 files. libzstd's level 3 is both
+  faster and smaller than stdx's levels 1 and 3.
 
-[Performance](#performance) shows every chart, the rows where stdx is slower included.
+[Performance](#performance) shows every chart. [`docs/benchmarks.md`](docs/benchmarks.md) lists
+the counts of each chart, the losses included.
 
 ## At a glance
 
-| | |
+| Area | What stdx does |
 | --- | --- |
 | Compression | gzip, zlib and raw DEFLATE ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952), [1950](https://www.rfc-editor.org/rfc/rfc1950), [1951](https://www.rfc-editor.org/rfc/rfc1951)), Zstandard ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878), with [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)'s limits for HTTP) and brotli ([RFC 7932](https://www.rfc-editor.org/rfc/rfc7932)) |
 | Encoder levels | DEFLATE 1, 6 and 9 in all three containers, Zstandard 1 and 3, brotli 1 and 5 |
 | Data | JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) with JSON text sequences ([RFC 7464](https://www.rfc-editor.org/rfc/rfc7464)), and base 64 ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)) |
+| Text | Regular expressions in [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485)'s grammar with RE2's syntax, matched in time linear in the text; Unicode 17.0.0's categories, scripts and case folding; UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)) |
 | Checksums | CRC-32, Adler-32 and XXH64, with SIMD paths for x86-64 and aarch64 that the CPU selects at run time |
-| Memory | No allocator anywhere in `src/`, tests included. Each state's size is a comptime constant. |
-| I/O | None. A codec reads octets your program already has and writes into storage it owns. |
-| Streaming | Every call takes any amount of input and resumes where the last one stopped. Each decoder is also a `std.Io.Reader`, and each encoder a `std.Io.Writer`. |
+| Memory | No allocator anywhere in `src/`, tests included. Each codec's state has a comptime size, and a regex searcher takes the memory that its program needs. |
+| I/O | None. A codec reads octets your program already has, and writes into storage that it owns. The probe of `stdx.platform` makes one system call on macOS. |
+| Streaming | Each codec call takes any amount of input and resumes where the last one stopped. Each decoder is also a `std.Io.Reader`, and each encoder a `std.Io.Writer`. |
 | Output | An encoder writes the same octets on every host, in every build mode, and for every split of its input across calls. |
 | Threads | No global state: run codecs on as many threads as you like. |
 | Safety | Assertions stay on in production. Hostile input returns an error value, and the code cites the RFC section behind each refusal. |
-| Testing | Differential checks against zlib, Wuffs, libzstd and Google's brotli over public corpora, and against Go's regexp and RE2's own test logs; a fuzzer every night; and Lean proofs of the UTF-8 and number machines |
+| Testing | Differential checks against zlib, Wuffs, libzstd and Google's brotli over public corpora, and against Go's regexp and RE2's own test logs. A fuzzer every night. Lean proofs of the UTF-8 validator, of the state machine that reads JSON numbers, and of how regex cuts a range of code points into UTF-8. |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
 
+## Status
+
+stdx is before 1.0, and its releases follow SemVer 2.0.0 ([decision 65](docs/decisions.md)). The
+latest release is [0.3.0](https://github.com/c4milo/stdx/releases/tag/v0.3.0), and each release's
+notes list what changed. Open work is in [the issues](https://github.com/c4milo/stdx/issues).
+
+## Install
+
+Run `zig fetch` to add stdx to your `build.zig.zon`:
+
+```bash
+zig fetch --save git+https://github.com/c4milo/stdx#v0.3.0
+```
+
+Then import it in `build.zig`:
+
+```zig
+const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+exe.root_module.addImport("stdx", stdx.module("stdx"));
+```
+
+Zig compiles only the parts that a program uses.
+
+stdx builds in Debug or ReleaseSafe only, because its assertions stay on
+([decision 17](docs/decisions.md)). `.release = true` selects ReleaseSafe. stdx takes no
+`.optimize` option, and a program built ReleaseFast still gets stdx in ReleaseSafe.
+
+## Examples
+
+Both examples come from [`tools/consumer/`](tools/consumer/), a program that `zig build test`
+builds against this tree and runs.
+
+Call `stdx.codec.Features.detect()` once when the program starts, and pass the result to each
+codec and searcher. It tells them which SIMD instructions the CPU has.
+
+### Decode gzip
+
+```zig
+const stdx = @import("stdx");
+
+/// Decodes the gzip file `body` into `output`, and returns the decoded octets.
+fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
+    var decoder: stdx.compress.gzip.Decoder = undefined; // about 44 KiB
+    decoder.init(features);
+    const whole = try decoder.decode_all(body, output);
+    return output[0..whole.written];
+}
+```
+
+- `decode_all` returns `error.NoSpaceLeft` when `output` fills first, and `error.Truncated` when
+  the input ends inside a stream. A corrupt stream returns a `stdx.compress.gzip.Error`, with one
+  value for each cause.
+- For input that arrives in pieces, call `decode` with each piece. It returns the octets it read
+  and wrote, and a status: `needs_input`, `needs_room` or `done`.
+
+### Count the matches of a regular expression
+
+```zig
+const std = @import("std");
+const stdx = @import("stdx");
+
+/// The instructions a pattern of the regex example may take.
+const instructions_len = 256;
+
+/// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 4 MiB
+/// of it is the default cache, and a smaller cache costs speed, never an answer.
+fn count_matches(gpa: std.mem.Allocator, features: stdx.codec.Features, pattern: []const u8, haystack: []const u8) !u64 {
+    var storage: [instructions_len]stdx.regex.Instruction = undefined;
+    const program = try stdx.regex.compile(pattern, .{}, &storage);
+    const cache_words = stdx.regex.constants.cache_words_default;
+    const memory = try gpa.alloc(u64, stdx.regex.Searcher.memory_len(program.forward_len, program.slot_count(), cache_words));
+    defer gpa.free(memory);
+    var searcher: stdx.regex.Searcher = undefined;
+    searcher.init(&program, &.{ .features = features }, memory);
+    var matches: stdx.regex.Matches = .{ .searcher = &searcher, .haystack = haystack };
+    return matches.count();
+}
+```
+
+- `compile` writes the pattern's program into `storage`. It returns a `stdx.regex.Error` for a
+  pattern it refuses, with one value for each cause.
+- The program reads `storage`, and the searcher reads `memory`. Keep both while the searcher runs.
+- `Matches.next` gives each match's span in turn, and `count` counts the matches. A searcher also
+  has `find`, `is_match` and `captures`.
+- The syntax is RE2's, less the forms that need a backtracking matcher
+  ([decision 86](docs/decisions.md)).
+
+## Modules
+
+| Name | What it holds |
+|---|---|
+| `stdx.compress.deflate` | DEFLATE, RFC 1951: an encoder and a decoder |
+| `stdx.compress.zlib` | The zlib container, RFC 1950: the HTTP `deflate` coding |
+| `stdx.compress.gzip` | The gzip container, RFC 1952: the HTTP `gzip` coding |
+| `stdx.compress.zstd` | Zstandard, RFC 8878 and RFC 9659: the HTTP `zstd` coding |
+| `stdx.compress.brotli` | brotli, RFC 7932: the HTTP `br` coding |
+| `stdx.hash` | CRC-32, Adler-32 and XXH64 |
+| `stdx.unicode` | Unicode 17.0.0's general categories, scripts and simple case folding, from tables written from the Unicode Character Database (decision 86) |
+| `stdx.unicode.utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
+| `stdx.json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
+| `stdx.base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
+| `stdx.regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, named groups, flags and named classes, Unicode's properties and its case folding (decision 86) |
+| `stdx.platform` | What the CPU offers, probed once when a program starts (decision 40), and a vector `memset` (decision 41) |
+| `stdx.codec` | The streaming contract every codec shares, and `Features` (decision 11) |
+
+The modules' own names, such as `stdx.module("gzip")`, stay exported as aliases while the
+projects that import them move to `stdx`, and a later release removes them. A new dependent
+imports `stdx` alone.
+
 ## Performance
 
-Each chart shows stdx's speed in multiples of a baseline's, the one each panel's title names, in
-one job on GitHub's hosted runners (decision 20). A blue bar right of the line at 1 is faster, a
-gray bar is inside the noise, and an orange bar is slower. Each encoder's panel plots speed against
-compression ratio. The charts come from the first runs on Ubuntu 26.04, at commit 0dd2e97, and
-`tools/charts.py` draws them from the reports in [`bench/results/`](bench/results/).
+The charts compare stdx with other libraries on GitHub's hosted runners. Every library of a row
+runs in the same job ([decision 20](docs/decisions.md)). [`docs/benchmarks.md`](docs/benchmarks.md)
+says how to read each chart, lists the counts of each panel, and says how to run each benchmark
+again.
 
 ### Regular expressions
 
-`bench-regex` compares the `regex` module with Rust's regex crate 1.13.2, Go's regexp 1.27.4, mvzr
-and zig-regex. Eighteen runs on GitHub's hosted runners ran it at commit 8dc8c1d
-(`bench/results/2026-11-23-regex-literals-*`). This section reads the 18 jobs on a Neoverse N2, and
-the 10 of 18 x86-64 jobs on an AMD EPYC 7763, the model that the most jobs drew. Each number is
-stdx's speed over Rust's in one job, from the lowest job to the highest.
-
-- 6 searches look for a literal. On the N2, stdx runs 1 of them at 0.98 to 1.01, and 5 at 1.04 to
-  3.84. On the EPYC 7763, it runs all 6 at 1.06 to 3.33.
-- 5 searches start with a class. stdx runs them at 1.04 to 2.40 on the N2. On the EPYC 7763, it
-  runs 1 at 0.97 to 1.01, and 4 at 1.04 to 1.90.
-- 7 searches have other shapes. On the N2, stdx runs all 7 at 1.05 to 8.34. On the EPYC 7763, it
-  runs 1 at 1.00 to 1.04, and 6 at 1.03 to 10.02.
-- A pattern that validates a short text runs at 0.93 to 1.37 on the N2, and at 0.94 to 1.53 on the
-  EPYC 7763. The email address and the field path run at 0.93 to 0.95 on the N2, where they ran
-  at about 1.00 at commit a281f4c. Commit 49aaef7, after these runs, restores the scan they lost
-  (design §8 part 22n).
-- Six capture groups run at 0.94 to 0.98 on the N2, and at 0.78 to 0.83 on the EPYC 7763.
-- In the median job, stdx compiles each pattern at 1.23 to 28 times Rust's speed on the N2, and at
-  1.20 to 27 times on the EPYC 7763.
-- Outside compile, Go's regexp is faster than stdx on one search: a word that is not there, at
-  0.73 to 0.77 on the N2. stdx is at least 4.0 times as fast as mvzr and 11.8 times as fast as
-  zig-regex, wherever a library gives Go's answer.
-
-The people who tuned stdx chose these patterns, so they can favor it. The charts below draw these
-jobs by decision 85's rules: a bar is the median job, and its whisker an interval of that median.
+The median of 18 runs at commit 8dc8c1d, against Rust's regex crate 1.13.2, Go's regexp, mvzr and
+zig-regex. The people who tuned stdx chose these patterns, so the patterns can favor stdx.
 
 ![stdx's regular expressions against libraries in Rust, Go and Zig, on Neoverse-N2](docs/images/regex-aarch64.svg)
 
@@ -95,23 +191,9 @@ jobs by decision 85's rules: a bar is the median job, and its whisker an interva
 
 #### rebar's curated set
 
-The same runs time every benchmark of rebar's curated set whose engines name Go's regexp or RE2:
-31 searches and 10 compiles, each under rebar's own model, pattern and haystack. Nobody who tuned
-stdx chose them ([#44](https://github.com/c4milo/stdx/issues/44)). Design §8 part 22n then counted
-every row and changed stdx by what they showed: claims R9 and R10 and the size of the cache came
-from these rows. So this set is tuned now, as the tables above are, and it no longer shows how stdx
-runs on patterns its tuning did not see. rebar's author also wrote Rust's crate, and rebar's
-BIAS.md says the set may favor it.
-
-- On the N2, stdx runs 24 of the 31 searches at 1.03 to 6.46, 2 at 1.00 to 1.06, and 5 at 0.82 to
-  0.99.
-- On the EPYC 7763, it runs 25 at 1.03 to 5.36, 2 at 0.99 to 1.03, and 4 at 0.81 to 0.97.
-- The rows furthest behind: on the N2, the AWS key searches at 0.82 to 0.98 and ruff's noqa
-  comments at 0.84 to 0.88; on the EPYC 7763, the lexer of the Veryl language at 0.81 to 0.85,
-  and a log line turned into JSON at 0.88 to 0.92.
-- stdx compiles all 10 patterns at 1.19 to 10.3 times Rust's speed on the N2. On the EPYC 7763 it
-  compiles 9 at 1.91 to 8.35 times, and the context pattern at 0.89 to 0.90.
-- Go's regexp is faster than stdx on no search of the set, on either model.
+Every benchmark of rebar's curated set whose engines name Go's regexp or RE2, from the same runs.
+Nobody who tuned stdx chose them, but stdx was tuned on them since
+([decision 86](docs/decisions.md)).
 
 ![stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on Neoverse-N2](docs/images/regex-rebar-aarch64.svg)
 
@@ -122,7 +204,11 @@ BIAS.md says the set may favor it.
 
 </details>
 
-### Arm Neoverse N2
+### Compression, JSON, checksums and base 64
+
+One job each, from the first runs on Ubuntu 26.04, at commit 0dd2e97. A blue bar is ahead, a gray
+bar is level inside the noise, and an orange bar is behind. An encoder's panel plots speed against
+compression ratio.
 
 ![stdx's DEFLATE against its baselines, on Neoverse-N2](docs/images/deflate-aarch64.svg)
 
@@ -153,81 +239,6 @@ BIAS.md says the set may favor it.
 
 </details>
 
-## Status
-
-stdx is before 1.0, and its releases follow SemVer 2.0.0 ([decision 65](docs/decisions.md)). The
-latest release is [0.2.0](https://github.com/c4milo/stdx/releases/tag/v0.2.0), and each release's
-notes list what changed. Open work is in [the issues](https://github.com/c4milo/stdx/issues).
-
-## Install
-
-Add stdx to your `build.zig.zon`:
-
-```bash
-zig fetch --save git+https://github.com/c4milo/stdx#v0.2.0
-```
-
-Then import it in `build.zig`:
-
-```zig
-const stdx = b.dependency("stdx", .{ .target = target, .release = true });
-exe.root_module.addImport("stdx", stdx.module("stdx"));
-```
-
-Zig compiles only the parts a program uses. A new dependent imports `stdx` alone.
-
-stdx builds in Debug or ReleaseSafe only, because its assertions stay on
-([decision 17](docs/decisions.md)). `.release = true` selects ReleaseSafe. stdx takes no
-`.optimize` option, and a program built ReleaseFast still gets stdx in ReleaseSafe.
-
-## Example
-
-Decode a gzip body into a buffer:
-
-```zig
-const stdx = @import("stdx");
-
-/// Decodes the gzip file `body` into `output`, and returns the decoded octets.
-fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
-    var decoder: stdx.compress.gzip.Decoder = undefined; // about 44 KiB
-    decoder.init(features);
-    const whole = try decoder.decode_all(body, output);
-    return output[0..whole.written];
-}
-```
-
-- Call `stdx.codec.Features.detect()` once when the program starts, and pass the result to each
-  codec's `init`. It tells the codecs which SIMD instructions the CPU has.
-- `decode_all` returns `error.NoSpaceLeft` when `output` fills first, and `error.Truncated` when
-  the input ends inside a stream. A corrupt stream returns a `stdx.compress.gzip.Error`, with one
-  value for each cause.
-- For input that arrives in pieces, call `decode` with each piece. It returns the octets it read
-  and wrote, and a status: `needs_input`, `needs_room` or `done`.
-
-## Modules
-
-| Name | What it holds |
-|---|---|
-| `stdx.compress.deflate` | DEFLATE, RFC 1951: an encoder and a decoder |
-| `stdx.compress.zlib` | The zlib container, RFC 1950: the HTTP `deflate` coding |
-| `stdx.compress.gzip` | The gzip container, RFC 1952: the HTTP `gzip` coding |
-| `stdx.compress.zstd` | Zstandard, RFC 8878 and RFC 9659: the HTTP `zstd` coding |
-| `stdx.compress.brotli` | brotli, RFC 7932: the HTTP `br` coding |
-| `stdx.hash` | CRC-32, Adler-32 and XXH64 |
-| `stdx.unicode` | Unicode 17.0.0's general categories, scripts and simple case folding, from tables written from the Unicode Character Database (decision 86) |
-| `stdx.unicode.utf8` | UTF-8, RFC 3629: a validator proved in Lean, and the octets of one code point (decisions 28 and 86) |
-| `stdx.json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
-| `stdx.base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
-| `stdx.regex` | Regular expressions matched in time linear in the text: RFC 9485's grammar with RE2's anchors, groups, named groups, flags and named classes, Unicode's properties and its case folding (decision 86) |
-| `stdx.platform` | What the CPU offers, probed once when a program starts (decision 40), and a vector `memset` (decision 41) |
-| `stdx.codec` | The streaming contract every codec shares, and `Features` (decision 11) |
-
-The modules' own names, such as `stdx.module("gzip")`, stay exported as aliases while the
-projects that import them move to `stdx`, and a later release removes them. A new dependent does
-not use them.
-
-`stdx.platform` is the one module that may make a system call: `sysctlbyname` on macOS.
-
 ## Development
 
 ```bash
@@ -242,7 +253,8 @@ zig build test
 - [`docs/invariants.md`](docs/invariants.md) holds the invariants, each with the check that
   proves it.
 - [`docs/performance.md`](docs/performance.md) and [`docs/costs.md`](docs/costs.md) hold the
-  performance method and the measured costs.
+  performance method and the measured costs. [`docs/benchmarks.md`](docs/benchmarks.md) holds
+  the counts of each chart.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) summarizes the rules a change keeps, and
   [`CLAUDE.md`](CLAUDE.md) holds all of them.
 - [`SECURITY.md`](SECURITY.md) says how to report a vulnerability in private.

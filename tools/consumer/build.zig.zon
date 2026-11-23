@@ -1,0 +1,12 @@
+.{
+    .name = .stdx_consumer,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x9207aa7c61f53306,
+    // This tree, as a dependency. A project of its own names a release instead, as the README's
+    // `zig fetch --save` line writes it.
+    .dependencies = .{
+        .stdx = .{ .path = "../.." },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+}
