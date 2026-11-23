@@ -5821,6 +5821,13 @@ last part lists what still waits on a ruling.
       (amended 2026-11-23, design §8 part 22n). The compiler counts each program's nodes as it
       writes them (`Program.forward_nodes`). With a word an instruction in each list, the
       reverse DFA of `\p{L}{28,33}` did not start in its third of the cache.
+    - A searcher gives each DFA its least first, and divides the rest of its cache two parts to
+      one, the forward DFA's two (the owner's ruling of 2026-11-23, design §8 part 22n). RE2
+      divides its memory two parts to one from its start. Rust's crate gives each DFA a cache of
+      its own, of 2 MiB. Divided from its start, a third of 4 MiB held the reverse DFA of
+      `\p{L}{35,40}` and not of `\p{L}{37,42}`, and both ran on the matcher.
+      - Where the two leasts do not fit, no division starts both DFAs. A search needs both, and
+        `is_match` runs the forward DFA alone, so the forward DFA takes the whole cache.
     - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
       DFA's table has one entry a class.
     - A scan takes octets in a loop of its own while each entry is a plain row. Once a match

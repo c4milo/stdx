@@ -184,9 +184,9 @@ pub const dfa_give_ups_max = 8;
 /// speed.
 pub const dfa_run_plain_rows_max = utf8_len_max - 1;
 
-/// How a `Searcher` divides its cache: the forward DFA takes this many parts of
-/// `dfa_cache_parts`, and the reverse DFA the rest. The forward DFA reads the whole text and the
-/// reverse one a match alone. RE2 divides its memory the same way.
+/// How a `Searcher` divides its cache once each DFA has its least: the forward DFA takes this many
+/// parts of `dfa_cache_parts`, and the reverse DFA the rest. The forward DFA reads the whole text
+/// and the reverse one a match alone. RE2 divides its memory two parts to one too.
 pub const dfa_forward_parts = 2;
 pub const dfa_cache_parts = 3;
 

@@ -106,6 +106,21 @@ fn judge_one_pass(matcher: *Matcher) OnePass {
     return if (starts_at_text_start(&matcher.program)) .at_text else .yes;
 }
 
+/// The words of a cache of `cache_len` words that the forward DFA takes, where the program has a
+/// reverse half. Each DFA takes its least, and the two divide the rest: the forward DFA takes
+/// `dfa_forward_parts` of `dfa_cache_parts`, and the reverse DFA the rest (decision 86, the
+/// owner's ruling of 2026-11-23). Where the two leasts do not fit, no division starts both DFAs.
+/// A search needs both, and `is_match` runs the forward DFA alone, so it takes the whole cache.
+fn forward_part(program: *const Program, cache_len: usize) usize {
+    const forward_least = Dfa.memory_len_min(program, program.forward);
+    const reverse_least = Dfa.memory_len_min(program, program.reverse);
+    if (forward_least + reverse_least > cache_len) return cache_len;
+    const spare = cache_len - forward_least - reverse_least;
+    const forward_len = forward_least + spare / constants.dfa_cache_parts * constants.dfa_forward_parts;
+    assert(cache_len - forward_len >= reverse_least);
+    return forward_len;
+}
+
 pub const Searcher = struct {
     matcher: Matcher,
     forward: Dfa,
@@ -149,7 +164,7 @@ pub const Searcher = struct {
         searcher.matcher.init(program, .{ .captures = .groups }, memory[0..matcher_len]);
         const cache: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(memory[matcher_len..]));
         const has_reverse = program.reverse != program_file.no_entry;
-        const forward_len = if (has_reverse) cache.len / constants.dfa_cache_parts * constants.dfa_forward_parts else cache.len;
+        const forward_len = if (has_reverse) forward_part(program, cache.len) else cache.len;
         searcher.forward_ready = searcher.forward.init(
             program,
             .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs },

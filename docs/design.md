@@ -9120,6 +9120,20 @@ to 12 are reordered and nothing else changes.
       `compile-context` 6.6% more instructions. A compile of `\p{L}{8,13}` and a search of one
       octet now take 6.14 million instructions in place of 6.04 million, and `compile-context`
       2.60 million in place of 2.58 million.
+  - A searcher divided its cache two parts to one from its start, so the reverse DFA's least had
+    to fit a third of 4 MiB. It now gives each DFA its least first, and divides the rest two parts
+    to one (decision 86, the owner's ruling of 2026-11-23). Where the two leasts do not fit, the
+    forward DFA takes the whole cache, for `is_match`. Measured with `prof`, ReleaseSafe, and
+    Rust's crate, the best of 4 passes over the first 5,000 lines of rebar's Russian text, while
+    a `zig build test` ran beside them:
+    - `\p{L}{35,40}` to `\p{L}{70,75}` run at 530 to 544 MB/s, where `\p{L}{37,42}` and longer ran
+      on the matcher at 5 to 11. Rust's crate runs at 530 to 549 up to `\p{L}{50,55}`, and at 18
+      from `\p{L}{60,65}` on.
+    - A warm pass of `\p{L}{35,40}` under callgrind takes 3.57 million instructions in place of
+      120.3 million. A warm pass of `\p{L}{8,13}` and of `\p{L}{28,33}` takes within 35
+      instructions of what it took, 5.55 and 3.57 million: their states fit either division.
+    - From `\p{L}{80,85}` on, the two leasts do not fit 4 MiB. stdx runs at 10 to 11 MB/s and
+      Rust's crate at 18.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9201,6 +9215,21 @@ to 12 are reordered and nothing else changes.
     nodes. NOT CAUGHT, 1, the same answers: threads one fewer than the nodes. A program's
     threads are its `range` and `ranges` nodes, fewer than all its nodes, so the list never
     fills.
+  **Check, the division of the cache:** a searcher whose cache holds the two leasts and no more
+  starts both DFAs, where two parts to one from its start would leave the reverse DFA short; with
+  a spare past them, each DFA holds the states of its least and its part of the spare; under the
+  two leasts, the forward DFA holds the states of the whole cache and the reverse DFA does not
+  start; the default cache holds both leasts of a program of 40,000 nodes each way; each test
+  that gives a searcher the least cache gives it the two leasts and no more; the Go differential
+  check passes; mutations.
+  **Check passed, the division of the cache, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64
+  Linux 6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 6, all CAUGHT: two parts to one from the cache's
+    start; one part of the spare to the forward DFA; the two leasts exactly taken as too little;
+    two parts to one under the leasts; no least first for the forward DFA; and a spare that
+    leaves out the reverse DFA's least.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.
