@@ -9449,6 +9449,29 @@ to 12 are reordered and nothing else changes.
   build differential-regex -Doracles` gives 12,437,544 cases with none failed. Mutations against
   `zig build test-regex`: 5, all CAUGHT: no search first; a text with no literal scanned; the
   scan from the text's start; a set's search left out; a place one past the literal's.
+  - Teddy's short block on aarch64 (decision 86 as amended). A text with fewer places than a
+    block was copied into two blocks of zeros: 128 octets stored, two calls of `memcpy`, and
+    loads that read back what the copies had stored. TBL writes zero for an index past its
+    table, so the step the text ends in now comes from its last 16 octets, moved down. The
+    instructions barely move, 1.5% fewer over `aws-keys/quick`'s lines; the loads no longer wait
+    for stores.
+    - Run [45232458195](https://github.com/c4milo/stdx/actions/runs/45232458195) measured it, and
+      x86-64's mask a block, against the commit before. On the N2, `aws-keys/quick` ran 7.5%
+      faster and the rows of sets 2% to 3%. On an EPYC 9V74, `(?m)^[A-Z][a-z]+:` ran 10.5%
+      faster and `the [a-z]+ of` 5.5%.
+    - Run [45232452154](https://github.com/c4milo/stdx/actions/runs/45232452154) measured the
+      three commits against a281f4c. On the N2, `aws-keys/quick` ran at 0.96 of Rust's speed in
+      place of 0.74, the href attribute at 0.99 in place of 0.80, `sherlock-ru` at 0.94 in place
+      of 0.79, and `sherlock-en` at 0.90 in place of 0.80. On a Xeon 6975P, `aws-keys/quick` ran
+      at 1.39 in place of 1.18, and the literal rows 5% to 8% faster. The lexer row ran 6.8%
+      slower there with the same instructions, as on that model in the first run; in this
+      container the two builds ran it alike.
+  **Check, the short block in place:** the set's searches give a plain search's places at every
+  length and offset, on aarch64 under qemu; mutations.
+  **Check passed, the short block in place, 2026-11-23.** `zig build test-regex
+  -Dtarget=aarch64-linux -fqemu` passes. Mutations against it: 4, all CAUGHT: the tail moved a
+  lane too far; the last step read in place past the text's end; the tail not moved; a text
+  shorter than a step read from a tail.
   **Check, the plain rows of one sequence:** a run of matches stops at a plain row after
   `dfa_run_plain_rows_max` others, and counts the plain rows since its last match alone; the
   searcher's tests of long matches pass; the Go differential check passes; mutations.

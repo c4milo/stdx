@@ -25,6 +25,10 @@ const lane_places = @import("lane_places.zig");
 /// The octets of a block, whatever the width of a step, as `literal_set.zig`'s blocks.
 const block_len = constants.literal_steps * constants.skip_lanes;
 
+/// True where `lookup` writes zero in a lane whose index is `width` or more: NEON's TBL, which
+/// reads a table of one register. VPSHUFB and PSHUFB read each index's low four bits alone.
+const tbl_zeroes = builtin.cpu.arch == .aarch64;
+
 /// An extern struct, as `LiteralSet` is, which holds it.
 pub const Tables = extern struct {
     /// The bits of the buckets by the low nibble and by the high nibble of their literals' octet
@@ -107,22 +111,20 @@ pub fn find(comptime width: usize, set: *const LiteralSet, haystack: []const u8,
 }
 
 /// `find` where the places from `index` to `end` are fewer than a block's, as in a line: one block
-/// of copies of the octets there, where `find` would take each place by `find_scalar`. Past the
-/// haystack's end a copy holds zero, and the bits of each place from `end` on are cleared, so no
-/// place past `end` is compared. `find` keeps its own loop: a change to it moved its block loop,
-/// and rebar's alternation of five names ran at 0.6 to 0.9 of its speed.
+/// of the octets there (`padded`), where `find` would take each place by `find_scalar`.
+/// Past the haystack's end the block holds zero, and the bits of each place from `end` on are
+/// cleared, so no place past `end` is compared. `find` keeps its own loop: a change to it moved
+/// its block loop, and rebar's alternation of five names ran at 0.6 to 0.9 of its speed.
 pub fn find_short(comptime width: usize, set: *const LiteralSet, haystack: []const u8, index: usize, end: usize) ?usize {
     comptime assert(runs(width));
     const Search = Steps(width);
     const lookups: Search.Lookups = .of(&set.teddy);
     const places = end - index;
     assert(places > 0 and places < block_len);
-    var firsts: [block_len]u8 = @splat(0);
-    var lasts: [block_len]u8 = @splat(0);
-    copy_from(&firsts, haystack, index + set.first_at);
-    copy_from(&lasts, haystack, index + set.last_at);
+    const firsts = padded(width, haystack, index + set.first_at);
+    const lasts = padded(width, haystack, index + set.last_at);
     var bits: [Search.steps]Search.Vector = undefined;
-    if (!Search.any(&firsts, &lasts, &lookups, &bits)) return null;
+    if (!Search.any_steps(&firsts, &lasts, &lookups, &bits)) return null;
     clear_from(width, &bits, places);
     // A loop of its own, where `Search.first` would take a second caller and leave `find`'s
     // block loop.
@@ -155,6 +157,50 @@ fn copy_from(block: *[block_len]u8, haystack: []const u8, start: usize) void {
     @memcpy(block[0..len], haystack[start..][0..len]);
 }
 
+/// A block's octets, a vector of `width` octets for each step.
+inline fn block_steps(comptime width: usize, block: *const [block_len]u8) [block_len / width]@Vector(width, u8) {
+    var vectors: [block_len / width]@Vector(width, u8) = undefined;
+    inline for (&vectors, 0..) |*vector, step| vector.* = block[step * width ..][0..width].*;
+    return vectors;
+}
+
+/// A block of the haystack's octets from `start`, a vector of `width` octets for each step, with
+/// zero past the haystack's end. Under `tbl_zeroes`, a haystack of a step or more is read in
+/// place: a step it holds whole by one load, and the step it ends in from its last `width`
+/// octets, moved down by TBL with indices from `width` up past the end. Otherwise the octets are
+/// copied into a block of zeros, which costs two calls of `memcpy` and 128 octets of zeros, and
+/// the loads that follow read what the copies stored.
+inline fn padded(comptime width: usize, haystack: []const u8, start: usize) [block_len / width]@Vector(width, u8) {
+    assert(start < haystack.len);
+    if (comptime tbl_zeroes) {
+        if (haystack.len >= width) return shifted(width, haystack, start);
+    }
+    var block: [block_len]u8 = @splat(0);
+    copy_from(&block, haystack, start);
+    return block_steps(width, &block);
+}
+
+/// `padded` for a haystack of `width` octets or more, under `tbl_zeroes`.
+inline fn shifted(comptime width: usize, haystack: []const u8, start: usize) [block_len / width]@Vector(width, u8) {
+    const Vector = @Vector(width, u8);
+    const tail_start = haystack.len - width;
+    const tail: Vector = haystack[tail_start..][0..width].*;
+    const lanes = std.simd.iota(u8, width);
+    var vectors: [block_len / width]Vector = undefined;
+    inline for (&vectors, 0..) |*vector, step| {
+        const at = start + step * width;
+        if (at <= tail_start) {
+            vector.* = haystack[at..][0..width].*;
+        } else {
+            // The lane at `at + lane` is the tail's lane `at - tail_start + lane`, and a lane
+            // past the haystack's end takes an index of `width` or more.
+            const moved: u8 = @intCast(@min(width, at - tail_start));
+            vector.* = lookup(width, tail, lanes + @as(Vector, @splat(moved)));
+        }
+    }
+    return vectors;
+}
+
 /// The steps of a block for a vector of `width` octets.
 fn Steps(comptime width: usize) type {
     comptime assert(block_len % width == 0 and width % constants.nibbles == 0);
@@ -171,7 +217,7 @@ fn Steps(comptime width: usize) type {
             last_low: Vector,
             last_high: Vector,
 
-            fn of(tables: *const Tables) Lookups {
+            inline fn of(tables: *const Tables) Lookups {
                 return .{
                     .first_low = repeated(&tables.first_low),
                     .first_high = repeated(&tables.first_high),
@@ -198,12 +244,15 @@ fn Steps(comptime width: usize) type {
         /// `firsts` and whose octet at `last_at` at the same place in `lasts`, and gives whether
         /// any place holds one.
         inline fn any(firsts: *const [block_len]u8, lasts: *const [block_len]u8, lookups: *const Lookups, bits: *[steps]Vector) bool {
+            return any_steps(&block_steps(width, firsts), &block_steps(width, lasts), lookups, bits);
+        }
+
+        /// `any` for a block already read into a vector for each step.
+        inline fn any_steps(firsts: *const [steps]Vector, lasts: *const [steps]Vector, lookups: *const Lookups, bits: *[steps]Vector) bool {
             var all: Vector = @splat(0);
             inline for (0..steps) |step| {
-                const first_octets: Vector = firsts[step * width ..][0..width].*;
-                const last_octets: Vector = lasts[step * width ..][0..width].*;
-                const first_bits = bits_of(first_octets, lookups.first_low, lookups.first_high);
-                bits[step] = first_bits & bits_of(last_octets, lookups.last_low, lookups.last_high);
+                const first_bits = bits_of(firsts[step], lookups.first_low, lookups.first_high);
+                bits[step] = first_bits & bits_of(lasts[step], lookups.last_low, lookups.last_high);
                 all |= bits[step];
             }
             return Step.any(set_lanes(all));

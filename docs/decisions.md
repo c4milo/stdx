@@ -5982,7 +5982,11 @@ last part lists what still waits on a ruling.
         copies of its octets, zero past its end, and clears the places from its end on
         (`literal_teddy.find_short`, added 2026-11-23, design §8 part 22n). Before, it took
         Teddy's tables one offset at a time, about 20 instructions an octet, and rebar's quick
-        AWS key search over 890,906 lines ran at half of Rust's speed.
+        AWS key search over 890,906 lines ran at half of Rust's speed. On aarch64, since
+        2026-11-23, a text of 16 octets or more is read in place: a step it holds whole by one
+        load, and the step it ends in from its last 16 octets, moved down by TBL, which writes
+        zero for an index past its table. The copies cost two calls of `memcpy` and 128 octets of
+        zeros, and the loads after them read what the copies stored.
       - The two offsets (`literal_set_fingerprint.zig` and `literal_rank.zig`, added 2026-11-22).
         stdx holds no table of how often each octet stands in a text, so it ranks an octet by
         its kind. In a set whose octets are mostly past ASCII, a UTF-8 continuation octet is the
