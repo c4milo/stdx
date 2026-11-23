@@ -14,7 +14,9 @@ states the rules that differ from charts.py's (decision 85 as amended on 2026-11
 - A row is ahead or behind where its whole interval lies above or below 1, and level where the
   interval holds 1 and lies inside MARGIN of 1. A row whose interval holds 1 and reaches past the
   margin is unclear: its jobs do not settle it. A difference inside the margin is one this chart
-  calls too small to matter, and each count still names its direction.
+  calls too small to matter, and each count still names its direction. A row ahead or behind whose
+  interval lies inside the margin is drawn lighter, and a shaded band marks the margin on each
+  panel, so the eye reads a small difference as small (the owner's ruling of 2026-11-23).
 - The axis is stdx over Rust's crate alone, logarithmic, with ticks at powers of 2. A bar past an
   edge stops there with an arrow. The other libraries stand in columns at the right: stdx's speed
   over theirs, the median of the jobs, or a dash where a library has no speed.
@@ -36,6 +38,8 @@ from collections import Counter
 MARGIN = 0.05
 # The confidence of a row's interval of the median.
 CONFIDENCE = 0.95
+# The opacity of a bar ahead or behind whose interval lies inside the margin.
+LIGHT = 0.45
 # The fewest jobs of one CPU model that a chart draws.
 JOBS_MIN = 5
 # The axis's widest limits, and the room past its lowest and highest value.
@@ -282,10 +286,21 @@ def wrap(words, chars=CHARS):
 FILL = {"ahead": "var(--stdx)", "level": "var(--tie)", "behind": "var(--lose)", "unclear": "var(--surface)"}
 
 
+def tint(m):
+    """A row's fill: its state's color, lighter where it is ahead or behind inside the margin."""
+    return f'fill="{FILL[m.state]}"' + (f' fill-opacity="{LIGHT}"' if m.small else "")
+
+
+def band(sx, top, height):
+    """The margin around 1, shaded behind a panel's rows."""
+    low, high = sx(1 / (1 + MARGIN)), sx(1 + MARGIN)
+    return f'<rect x="{low:.1f}" y="{top}" width="{high - low:.1f}" height="{height}" fill="var(--grid)"/>'
+
+
 def bar(kit, row, cy, sx, height):
     a, b = sorted((sx(1), sx(row.base.median)))
     edge = ' stroke="var(--tie)" stroke-width="1.2"' if row.base.state == "unclear" else ""
-    out = [f'<rect x="{a:.1f}" y="{cy - height / 2:.1f}" width="{max(b - a, 1.5):.1f}" height="{height:.1f}" rx="2" fill="{FILL[row.base.state]}"{edge}/>']
+    out = [f'<rect x="{a:.1f}" y="{cy - height / 2:.1f}" width="{max(b - a, 1.5):.1f}" height="{height:.1f}" rx="2" {tint(row.base)}{edge}/>']
     # A bar past an edge of the axis stops there, with an arrow that points past it.
     sign = 1 if row.base.median > math.exp(sx.high) else -1 if row.base.median < math.exp(sx.low) else 0
     if sign:
@@ -323,7 +338,7 @@ def columns(kit, row, cy, marks):
     """The number column, then stdx over each other library."""
     column = kit.WIDTH - RIGHT + 10
     m = row.base
-    out = [f'<rect x="{column}" y="{cy - 4:.1f}" width="8" height="8" rx="2" fill="{FILL[m.state]}"'
+    out = [f'<rect x="{column}" y="{cy - 4:.1f}" width="8" height="8" rx="2" {tint(m)}'
            + (' stroke="var(--tie)" stroke-width="1"' if m.state == "unclear" else "") + "/>",
            f'<text class="val" x="{column + 13}" y="{cy + 4:.1f}">{ratio_text(m.median)}</text>']
     out.append(f'<text class="tick" x="{column + 56}" y="{cy + 4:.1f}">{interval_text(m)}</text>')
@@ -367,6 +382,7 @@ def panel_svg(kit, panel, rows, missing, y, sx):
     top = y + 44 + 16 * len(lines)
     height = row_height * len(rows)
     out += header(kit, top, panel.marks)
+    out.append(band(sx, top, height))
     for tick in ticks_of(sx.low, sx.high):
         out.append(f'<line x1="{sx(tick):.1f}" y1="{top}" x2="{sx(tick):.1f}" y2="{top + height}" stroke="var(--grid)"/>')
         out.append(f'<text class="tick" x="{sx(tick):.1f}" y="{top + height + 13}" text-anchor="middle">{tick_text(tick)}</text>')
@@ -385,6 +401,11 @@ def legend_svg(kit, y, jobs, others):
         edge = ' stroke="var(--tie)" stroke-width="1.2"' if state_name == "unclear" else ""
         out.append(f'<rect x="{x}" y="{y - 9}" width="12" height="10" rx="2" fill="{FILL[state_name]}"{edge}/><text class="legend" x="{x + 17}" y="{y}">{words}</text>')
         x += 74
+    out.append(f'<rect x="{x}" y="{y - 9}" width="6" height="10" fill="var(--stdx)" fill-opacity="{LIGHT}"/>'
+               f'<rect x="{x + 6}" y="{y - 9}" width="6" height="10" fill="var(--lose)" fill-opacity="{LIGHT}"/>'
+               f'<text class="legend" x="{x + 17}" y="{y}">inside {MARGIN:.0%}</text>'
+               f'<rect x="{x + 90}" y="{y - 10}" width="14" height="12" fill="var(--grid)"/>'
+               f'<text class="legend" x="{x + 109}" y="{y}">{MARGIN:.0%} of 1</text>')
     y += 18
     out.append(f'<circle cx="20" cy="{y - 4}" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>'
                f'<text class="legend" x="28" y="{y}">a job</text>'
@@ -417,7 +438,8 @@ def flipped(data):
 def notes_svg(kit, y, data, drift, has_others):
     notes = [f"A row is ahead or behind where its interval lies above or below 1, and level where it holds 1 inside {MARGIN:.0%} of 1. "
              f"A row whose interval holds 1 and reaches past {MARGIN:.0%} is unclear: its jobs do not settle it. "
-             f"A difference inside {MARGIN:.0%} is one this chart calls too small to matter, and the counts still name its direction.",
+             f"A difference inside {MARGIN:.0%} is one this chart calls too small to matter, and the counts still name its direction. "
+             f"A bar ahead or behind inside {MARGIN:.0%} is drawn lighter, and the shaded band on each panel is {MARGIN:.0%} of 1.",
              f"The columns at the right are stdx's speed over another library's, the median of the jobs. "
              f"A library has no speed (—) on a pattern that it refuses, where its answer is not Go regexp's, and where it has no such call.",
              f"stdx timed again, last in each round, differed from stdx timed first by at most {drift:.1%} in any job of any row."]

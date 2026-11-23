@@ -5585,6 +5585,10 @@ last part lists what still waits on a ruling.
         mean says that it is over these rows. The compile panel's rows are shorter, and its title
         names what each library times.
       - The notes print the most that stdx differed from itself timed again in one job.
+      - A row ahead or behind whose interval lies inside 5% of 1 is drawn lighter, in its bar and
+        in its mark in the column of numbers, and a shaded band marks 5% of 1 on each panel. The
+        owner ruled it on 2026-11-23, after a staff data scientist's review found such rows in the
+        color of rows far past 5%: about a fifth of each chart's rows. The verdicts stay as above.
       - A `\|` in a cell stays in the cell.
       - The chart stands in the README's regex section, by the owner's ruling of 2026-11-22: the N2's
         chart, and the x86-64 chart in a details block that names its CPU model.
@@ -5608,6 +5612,10 @@ last part lists what still waits on a ruling.
       - The lowest and highest job as the interval, for the reason above.
       - Patterns that nobody tuned against, in this change. They change the benchmark, so they
         are a step of their own: https://github.com/c4milo/stdx/issues/44.
+      - The margin in the verdict, which the review of 2026-11-23 proposed: a row ahead or behind
+        only where its whole interval lies past 5% of 1. It calls level a row of ten jobs each
+        3.6% to 4.4% behind, the case that the rules of 2026-11-22 replaced. The owner kept the
+        verdicts, and chose the band and the lighter bar.
 
     The alternatives refused:
     - A Zig program, which the owner judged too large for the task.

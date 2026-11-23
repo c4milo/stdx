@@ -10,9 +10,9 @@ import tempfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from charts_wide import (CONFIDENCE, HELD_COMPILE, HELD_SEARCH, MARGIN, PANELS, Measure, Panel, Row, claim,  # noqa: E402
-                         counted, coverage, flipped, interval, interval_text, models_of, pattern, rank, ratio_text, state,
-                         tick_text, ticks_of)
+from charts_wide import (CONFIDENCE, HELD_COMPILE, HELD_SEARCH, LIGHT, MARGIN, PANELS, Measure, Panel, Row, Scale,  # noqa: E402
+                         band, claim, counted, coverage, flipped, interval, interval_text, models_of, panel_svg, pattern,
+                         rank, ratio_text, state, tick_text, ticks_of, tint)
 
 
 def test_interval():
@@ -114,6 +114,31 @@ def test_interval_text():
     assert interval_text(Measure([150.0, 160.0, 170.0, 160.0, 160.0])) == "150–170"
 
 
+def test_tint():
+    """A row ahead or behind inside the margin is drawn lighter; every other row in full."""
+    light = f'fill-opacity="{LIGHT}"'
+    assert LIGHT < 1
+    assert light in tint(Measure([1.01, 1.02, 1.03, 1.02, 1.04])), "ahead inside the margin"
+    assert light in tint(Measure([0.96] * 5)), "behind inside the margin"
+    for ratios in ([1.06, 1.2, 1.3, 1.2, 1.1], [0.8] * 5, [0.99, 1.0, 1.01, 1.0, 1.0], [0.9, 0.97, 1.0, 1.03, 1.08]):
+        assert "fill-opacity" not in tint(Measure(ratios)), ratios
+
+
+def test_band():
+    """Each panel shades the margin around 1, behind its rows."""
+    import charts
+    sx = Scale(charts, (math.log(0.5), math.log(4)))
+    shade = band(sx, 100, 40)
+    low, high = sx(1 / (1 + MARGIN)), sx(1 + MARGIN)
+    assert f'x="{low:.1f}"' in shade and f'width="{high - low:.1f}"' in shade and 'height="40"' in shade, shade
+    assert low < sx(1) < high
+    rows = [Row("other: a word", Measure([1.2] * 5), {}, {}, 0.0), Row("class: a number", Measure([0.9] * 5), {}, {}, 0.0)]
+    out, _ = panel_svg(charts, Panel("Search", r"", "searches", marks=[]), rows, [], 0, sx)
+    shades = [part for part in out if part.startswith("<rect") and 'fill="var(--grid)"' in part]
+    assert len(shades) == 1 and f'x="{low:.1f}"' in shades[0], shades
+    assert out.index(shades[0]) < min(k for k, part in enumerate(out) if 'class="row"' in part), "the band stands behind the rows"
+
+
 def test_charts():
     """The held-out set draws on a chart of its own, with Go's column alone, and the tuned chart
     holds none of its rows."""
@@ -125,7 +150,7 @@ def test_charts():
 
 def main():
     tests = (test_interval, test_state, test_counts, test_models, test_flipped, test_unanswered, test_charts, test_ticks,
-             test_pipe, test_interval_text)
+             test_pipe, test_interval_text, test_tint, test_band)
     for test in tests:
         test()
     print(f"charts_wide_test.py: {len(tests)} tests passed")

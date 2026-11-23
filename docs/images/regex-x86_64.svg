@@ -23,6 +23,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <rect x="374" y="113" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="391" y="122">level</text>
 <rect x="448" y="113" width="12" height="10" rx="2" fill="var(--surface)" stroke="var(--tie)" stroke-width="1.2"/><text class="legend" x="465" y="122">unclear</text>
 <rect x="522" y="113" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="539" y="122">behind</text>
+<rect x="596" y="113" width="6" height="10" fill="var(--stdx)" fill-opacity="0.45"/><rect x="602" y="113" width="6" height="10" fill="var(--lose)" fill-opacity="0.45"/><text class="legend" x="613" y="122">inside 5%</text><rect x="686" y="112" width="14" height="12" fill="var(--grid)"/><text class="legend" x="705" y="122">5% of 1</text>
 <circle cx="20" cy="136" r="1.6" fill="var(--ink)" fill-opacity="0.45"/><text class="legend" x="28" y="140">a job</text><text class="legend" x="76" y="140">|—| the interval of the median: the jobs' 2nd lowest to 2nd highest ratio, 98% confidence</text>
 <path d="M20,150.6 L23.4,154 L20,157.4 L16.6,154 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <text class="legend" x="28" y="158">the median of another CPU model's jobs: AMD EPYC 9V45 96-Core Processor (2), Intel(R) Xeon(R) 6975P-C (1), INTEL(R)</text>
@@ -35,6 +36,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="285" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="285" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="285" text-anchor="end">÷ zig-regex</text>
+<rect x="289.9" y="291" width="10.0" height="102" fill="var(--grid)"/>
 <line x1="294.9" y1="291" x2="294.9" y2="393" stroke="var(--grid)"/>
 <text class="tick" x="294.9" y="406" text-anchor="middle">1</text>
 <line x1="366.2" y1="291" x2="366.2" y2="393" stroke="var(--grid)"/>
@@ -211,6 +213,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="529" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="529" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="529" text-anchor="end">÷ zig-regex</text>
+<rect x="289.9" y="535" width="10.0" height="85" fill="var(--grid)"/>
 <line x1="294.9" y1="535" x2="294.9" y2="620" stroke="var(--grid)"/>
 <text class="tick" x="294.9" y="633" text-anchor="middle">1</text>
 <line x1="366.2" y1="535" x2="366.2" y2="620" stroke="var(--grid)"/>
@@ -300,7 +303,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="818" y="581.5" text-anchor="end">12.14</text>
 <text class="tick" x="884" y="581.5" text-anchor="end">91.00</text>
 <text class="row" x="242" y="598.5" text-anchor="end">a number</text>
-<rect x="292.4" y="589.0" width="2.4" height="11.1" rx="2" fill="var(--lose)"/>
+<rect x="292.4" y="589.0" width="2.4" height="11.1" rx="2" fill="var(--lose)" fill-opacity="0.45"/>
 <line x1="292.1" y1="594.5" x2="294.3" y2="594.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="292.1" y1="591.5" x2="292.1" y2="597.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="294.3" y1="591.5" x2="294.3" y2="597.5" stroke="var(--ink)" stroke-width="1.2"/>
@@ -319,7 +322,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <path d="M291.2,591.1 L294.6,594.5 L291.2,597.9 L287.8,594.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <path d="M296.5,591.1 L299.9,594.5 L296.5,597.9 L293.1,594.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <path d="M300.1,591.1 L303.5,594.5 L300.1,597.9 L296.7,594.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
-<rect x="590" y="590.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<rect x="590" y="590.5" width="8" height="8" rx="2" fill="var(--lose)" fill-opacity="0.45"/>
 <text class="val" x="603" y="598.5">0.977</text>
 <text class="tick" x="646" y="598.5">0.973–0.994</text>
 <text class="tick" x="752" y="598.5" text-anchor="end">40.04</text>
@@ -360,6 +363,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="740" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="740" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="740" text-anchor="end">÷ zig-regex</text>
+<rect x="289.9" y="746" width="10.0" height="119" fill="var(--grid)"/>
 <line x1="294.9" y1="746" x2="294.9" y2="865" stroke="var(--grid)"/>
 <text class="tick" x="294.9" y="878" text-anchor="middle">1</text>
 <line x1="366.2" y1="746" x2="366.2" y2="865" stroke="var(--grid)"/>
@@ -371,7 +375,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <line x1="580.0" y1="746" x2="580.0" y2="865" stroke="var(--grid)"/>
 <text class="tick" x="580.0" y="878" text-anchor="middle">16</text>
 <text class="row" x="242" y="758.5" text-anchor="end">a word between two words</text>
-<rect x="294.9" y="749.0" width="1.5" height="11.1" rx="2" fill="var(--stdx)"/>
+<rect x="294.9" y="749.0" width="1.5" height="11.1" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
 <line x1="295.5" y1="754.5" x2="296.9" y2="754.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="295.5" y1="751.5" x2="295.5" y2="757.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="296.9" y1="751.5" x2="296.9" y2="757.5" stroke="var(--ink)" stroke-width="1.2"/>
@@ -390,7 +394,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <path d="M295.5,751.1 L298.9,754.5 L295.5,757.9 L292.1,754.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <path d="M299.0,751.1 L302.4,754.5 L299.0,757.9 L295.6,754.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <path d="M298.6,751.1 L302.0,754.5 L298.6,757.9 L295.2,754.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
-<rect x="590" y="750.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<rect x="590" y="750.5" width="8" height="8" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
 <text class="val" x="603" y="758.5">1.015</text>
 <text class="tick" x="646" y="758.5">1.006–1.020</text>
 <text class="tick" x="752" y="758.5" text-anchor="end">7.13</text>
@@ -562,6 +566,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="1001" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="1001" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="1001" text-anchor="end">÷ zig-regex</text>
+<rect x="289.9" y="1007" width="10.0" height="85" fill="var(--grid)"/>
 <line x1="294.9" y1="1007" x2="294.9" y2="1092" stroke="var(--grid)"/>
 <text class="tick" x="294.9" y="1105" text-anchor="middle">1</text>
 <line x1="366.2" y1="1007" x2="366.2" y2="1092" stroke="var(--grid)"/>
@@ -677,7 +682,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="818" y="1070.5" text-anchor="end">4.55</text>
 <text class="tick" x="884" y="1070.5" text-anchor="end">36.25</text>
 <text class="row" x="242" y="1087.5" text-anchor="end">a field path</text>
-<rect x="294.9" y="1078.0" width="2.6" height="11.1" rx="2" fill="var(--stdx)"/>
+<rect x="294.9" y="1078.0" width="2.6" height="11.1" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
 <line x1="295.7" y1="1083.5" x2="298.4" y2="1083.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="295.7" y1="1080.5" x2="295.7" y2="1086.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="298.4" y1="1080.5" x2="298.4" y2="1086.5" stroke="var(--ink)" stroke-width="1.2"/>
@@ -696,7 +701,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <path d="M295.3,1080.1 L298.7,1083.5 L295.3,1086.9 L291.9,1083.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <path d="M298.5,1080.1 L301.9,1083.5 L298.5,1086.9 L295.1,1083.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
 <path d="M292.3,1080.1 L295.7,1083.5 L292.3,1086.9 L288.9,1083.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
-<rect x="590" y="1079.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<rect x="590" y="1079.5" width="8" height="8" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
 <text class="val" x="603" y="1087.5">1.026</text>
 <text class="tick" x="646" y="1087.5">1.008–1.035</text>
 <text class="tick" x="752" y="1087.5" text-anchor="end">6.85</text>
@@ -710,6 +715,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="1196" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="1196" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="1196" text-anchor="end">÷ zig-regex</text>
+<rect x="289.9" y="1202" width="10.0" height="17" fill="var(--grid)"/>
 <line x1="294.9" y1="1202" x2="294.9" y2="1219" stroke="var(--grid)"/>
 <text class="tick" x="294.9" y="1232" text-anchor="middle">1</text>
 <line x1="366.2" y1="1202" x2="366.2" y2="1219" stroke="var(--grid)"/>
@@ -757,6 +763,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="1371" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="1371" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="1371" text-anchor="end">÷ zig-regex</text>
+<rect x="289.9" y="1377" width="10.0" height="276" fill="var(--grid)"/>
 <line x1="294.9" y1="1377" x2="294.9" y2="1653" stroke="var(--grid)"/>
 <text class="tick" x="294.9" y="1666" text-anchor="middle">1</text>
 <line x1="366.2" y1="1377" x2="366.2" y2="1653" stroke="var(--grid)"/>
@@ -1369,7 +1376,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <line x1="294.9" y1="1373" x2="294.9" y2="1653" stroke="var(--ink)" stroke-width="1.5"/>
 <text class="legend" x="16" y="1690">A row is ahead or behind where its interval lies above or below 1, and level where it holds 1 inside 5% of 1. A row whose interval holds 1</text>
 <text class="legend" x="16" y="1707">and reaches past 5% is unclear: its jobs do not settle it. A difference inside 5% is one this chart calls too small to matter, and the</text>
-<text class="legend" x="16" y="1724">counts still name its direction.</text>
+<text class="legend" x="16" y="1724">counts still name its direction. A bar ahead or behind inside 5% is drawn lighter, and the shaded band on each panel is 5% of 1.</text>
 <text class="legend" x="16" y="1741">The columns at the right are stdx's speed over another library's, the median of the jobs. A library has no speed (—) on a pattern that it</text>
 <text class="legend" x="16" y="1758">refuses, where its answer is not Go regexp's, and where it has no such call.</text>
 <text class="legend" x="16" y="1775">stdx timed again, last in each round, differed from stdx timed first by at most 12.4% in any job of any row.</text>

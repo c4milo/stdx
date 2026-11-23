@@ -23,6 +23,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <rect x="374" y="113" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="391" y="122">level</text>
 <rect x="448" y="113" width="12" height="10" rx="2" fill="var(--surface)" stroke="var(--tie)" stroke-width="1.2"/><text class="legend" x="465" y="122">unclear</text>
 <rect x="522" y="113" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="539" y="122">behind</text>
+<rect x="596" y="113" width="6" height="10" fill="var(--stdx)" fill-opacity="0.45"/><rect x="602" y="113" width="6" height="10" fill="var(--lose)" fill-opacity="0.45"/><text class="legend" x="613" y="122">inside 5%</text><rect x="686" y="112" width="14" height="12" fill="var(--grid)"/><text class="legend" x="705" y="122">5% of 1</text>
 <circle cx="20" cy="136" r="1.6" fill="var(--ink)" fill-opacity="0.45"/><text class="legend" x="28" y="140">a job</text><text class="legend" x="76" y="140">|—| the interval of the median: the jobs' 5th lowest to 5th highest ratio, 97% confidence</text>
 <text class="panel" x="16" y="180">search for a literal: every match in 1 MiB, in multiples of Rust regex's speed</text>
 <text class="sub" x="16" y="197">against Rust regex: ahead on 5, level on 0, behind on 1 (1 inside 5%) of 6 rows, 5 patterns; geometric mean over these rows 1.40; from</text>
@@ -33,6 +34,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="266" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="266" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="266" text-anchor="end">÷ zig-regex</text>
+<rect x="272.7" y="272" width="10.6" height="102" fill="var(--grid)"/>
 <line x1="278.0" y1="272" x2="278.0" y2="374" stroke="var(--grid)"/>
 <text class="tick" x="278.0" y="387" text-anchor="middle">1</text>
 <line x1="353.5" y1="272" x2="353.5" y2="374" stroke="var(--grid)"/>
@@ -160,7 +162,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="818" y="335.5" text-anchor="end">—</text>
 <text class="tick" x="884" y="335.5" text-anchor="end">—</text>
 <text class="row" x="242" y="352.5" text-anchor="end">an href attribute</text>
-<rect x="276.7" y="343.0" width="1.5" height="11.1" rx="2" fill="var(--lose)"/>
+<rect x="276.7" y="343.0" width="1.5" height="11.1" rx="2" fill="var(--lose)" fill-opacity="0.45"/>
 <line x1="276.5" y1="348.5" x2="277.0" y2="348.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="276.5" y1="345.5" x2="276.5" y2="351.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="277.0" y1="345.5" x2="277.0" y2="351.5" stroke="var(--ink)" stroke-width="1.2"/>
@@ -182,7 +184,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="276.1" cy="348.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <circle cx="276.8" cy="348.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <circle cx="276.5" cy="348.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
-<rect x="590" y="344.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<rect x="590" y="344.5" width="8" height="8" rx="2" fill="var(--lose)" fill-opacity="0.45"/>
 <text class="val" x="603" y="352.5">0.988</text>
 <text class="tick" x="646" y="352.5">0.987–0.991</text>
 <text class="tick" x="752" y="352.5" text-anchor="end">7.44</text>
@@ -227,6 +229,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="510" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="510" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="510" text-anchor="end">÷ zig-regex</text>
+<rect x="272.7" y="516" width="10.6" height="85" fill="var(--grid)"/>
 <line x1="278.0" y1="516" x2="278.0" y2="601" stroke="var(--grid)"/>
 <text class="tick" x="278.0" y="614" text-anchor="middle">1</text>
 <line x1="353.5" y1="516" x2="353.5" y2="601" stroke="var(--grid)"/>
@@ -267,7 +270,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="818" y="528.5" text-anchor="end">15.72</text>
 <text class="tick" x="884" y="528.5" text-anchor="end">71.31</text>
 <text class="row" x="242" y="545.5" text-anchor="end">a word that ends in ing</text>
-<rect x="278.0" y="536.0" width="5.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<rect x="278.0" y="536.0" width="5.0" height="11.1" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
 <line x1="282.9" y1="541.5" x2="283.3" y2="541.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="282.9" y1="538.5" x2="282.9" y2="544.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="283.3" y1="538.5" x2="283.3" y2="544.5" stroke="var(--ink)" stroke-width="1.2"/>
@@ -289,7 +292,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="282.9" cy="541.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <circle cx="283.4" cy="541.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <circle cx="282.7" cy="541.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
-<rect x="590" y="537.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<rect x="590" y="537.5" width="8" height="8" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
 <text class="val" x="603" y="545.5">1.047</text>
 <text class="tick" x="646" y="545.5">1.046–1.050</text>
 <text class="tick" x="752" y="545.5" text-anchor="end">19.36</text>
@@ -391,6 +394,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="721" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="721" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="721" text-anchor="end">÷ zig-regex</text>
+<rect x="272.7" y="727" width="10.6" height="119" fill="var(--grid)"/>
 <line x1="278.0" y1="727" x2="278.0" y2="846" stroke="var(--grid)"/>
 <text class="tick" x="278.0" y="859" text-anchor="middle">1</text>
 <line x1="353.5" y1="727" x2="353.5" y2="846" stroke="var(--grid)"/>
@@ -613,6 +617,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="966" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="966" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="966" text-anchor="end">÷ zig-regex</text>
+<rect x="272.7" y="972" width="10.6" height="85" fill="var(--grid)"/>
 <line x1="278.0" y1="972" x2="278.0" y2="1057" stroke="var(--grid)"/>
 <text class="tick" x="278.0" y="1070" text-anchor="middle">1</text>
 <line x1="353.5" y1="972" x2="353.5" y2="1057" stroke="var(--grid)"/>
@@ -776,6 +781,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="1161" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="1161" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="1161" text-anchor="end">÷ zig-regex</text>
+<rect x="272.7" y="1167" width="10.6" height="17" fill="var(--grid)"/>
 <line x1="278.0" y1="1167" x2="278.0" y2="1184" stroke="var(--grid)"/>
 <text class="tick" x="278.0" y="1197" text-anchor="middle">1</text>
 <line x1="353.5" y1="1167" x2="353.5" y2="1184" stroke="var(--grid)"/>
@@ -787,7 +793,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <line x1="580.0" y1="1167" x2="580.0" y2="1184" stroke="var(--grid)"/>
 <text class="tick" x="580.0" y="1197" text-anchor="middle">16</text>
 <text class="row" x="242" y="1179.5" text-anchor="end">a date and time, six groups</text>
-<rect x="274.0" y="1170.0" width="4.0" height="11.1" rx="2" fill="var(--lose)"/>
+<rect x="274.0" y="1170.0" width="4.0" height="11.1" rx="2" fill="var(--lose)" fill-opacity="0.45"/>
 <line x1="273.6" y1="1175.5" x2="274.9" y2="1175.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="273.6" y1="1172.5" x2="273.6" y2="1178.5" stroke="var(--ink)" stroke-width="1.2"/>
 <line x1="274.9" y1="1172.5" x2="274.9" y2="1178.5" stroke="var(--ink)" stroke-width="1.2"/>
@@ -809,7 +815,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <circle cx="274.9" cy="1175.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <circle cx="273.4" cy="1175.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
 <circle cx="275.9" cy="1175.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
-<rect x="590" y="1171.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<rect x="590" y="1171.5" width="8" height="8" rx="2" fill="var(--lose)" fill-opacity="0.45"/>
 <text class="val" x="603" y="1179.5">0.964</text>
 <text class="tick" x="646" y="1179.5">0.960–0.972</text>
 <text class="tick" x="752" y="1179.5" text-anchor="end">2.25</text>
@@ -826,6 +832,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="752" y="1336" text-anchor="end">÷ Go</text>
 <text class="tick" x="818" y="1336" text-anchor="end">÷ mvzr</text>
 <text class="tick" x="884" y="1336" text-anchor="end">÷ zig-regex</text>
+<rect x="272.7" y="1342" width="10.6" height="276" fill="var(--grid)"/>
 <line x1="278.0" y1="1342" x2="278.0" y2="1618" stroke="var(--grid)"/>
 <text class="tick" x="278.0" y="1631" text-anchor="middle">1</text>
 <line x1="353.5" y1="1342" x2="353.5" y2="1618" stroke="var(--grid)"/>
@@ -1507,7 +1514,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <line x1="278.0" y1="1338" x2="278.0" y2="1618" stroke="var(--ink)" stroke-width="1.5"/>
 <text class="legend" x="16" y="1655">A row is ahead or behind where its interval lies above or below 1, and level where it holds 1 inside 5% of 1. A row whose interval holds 1</text>
 <text class="legend" x="16" y="1672">and reaches past 5% is unclear: its jobs do not settle it. A difference inside 5% is one this chart calls too small to matter, and the</text>
-<text class="legend" x="16" y="1689">counts still name its direction.</text>
+<text class="legend" x="16" y="1689">counts still name its direction. A bar ahead or behind inside 5% is drawn lighter, and the shaded band on each panel is 5% of 1.</text>
 <text class="legend" x="16" y="1706">The columns at the right are stdx's speed over another library's, the median of the jobs. A library has no speed (—) on a pattern that it</text>
 <text class="legend" x="16" y="1723">refuses, where its answer is not Go regexp's, and where it has no such call.</text>
 <text class="legend" x="16" y="1740">stdx timed again, last in each round, differed from stdx timed first by at most 5.8% in any job of any row.</text>
