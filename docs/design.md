@@ -9053,6 +9053,21 @@ to 12 are reordered and nothing else changes.
     - The check stays a call from Teddy's loop. Inline there, or called without the bucket's
       bits, it moved Teddy's tables from registers to the stack, and the English alternation
       ran at 0.92 of its speed.
+  - The driver's root module was ReleaseFast, and bench-regex builds ReleaseSafe. Zig compiles
+    `std` under the root's mode, so in the driver `std.debug.assert` was a hint to the optimizer,
+    and the regex module kept fewer of its checks. The driver then ran rebar's unstructured log
+    at 77 MB/s, where the same tree built ReleaseSafe ran it at 43, and Rust's crate at 72. Each
+    before-and-after pair above holds, as both builds of a pair took one root, but the driver's
+    ratios to Rust's crate since part 22m were too high. The driver's root is now ReleaseSafe,
+    and its ratios come near the runners'. Decision 17 holds the measure of each row.
+    - Under ReleaseSafe the backtracker called `step_ranges`, `push`, `fails_at_once` and
+      `takes` at its steps, and checked each visited pair's product and sum for overflow. The
+      four are now inline but `step_ranges`, which asserts nothing per octet: the builders of
+      a node assert its count. A pair's bit is a sum of u32 values, which cannot overflow. Under
+      callgrind a warm pass of the log took 6.17 million instructions in place of 7.07 million,
+      and the lexer's first 30,000 octets 115 million in place of 131 million. In three passes of
+      60 warm runs, the log ran at 44.3 to 45.4 MB/s in place of 41.7 to 42.4. `step_ranges`
+      inline too took the log back to 6.68 million.
   **Measured, 2026-11-23, at fbfd351.** Fourteen runs of the `bench` workflow, runs
   [45117634053](https://github.com/c4milo/stdx/actions/runs/45117634053) to
   [45117687915](https://github.com/c4milo/stdx/actions/runs/45117687915), wrote
@@ -9069,6 +9084,15 @@ to 12 are reordered and nothing else changes.
     2.06 to 8.38 times Rust's speed, and the context pattern at 0.91.
   - `tools/charts_wide.py` draws a chart from five jobs of one model or more, so
     `bench/charts.txt` and the README keep part 22m's runs.
+  **Check, the backtracker's steps:** the backtracker gives the matcher's groups over generated
+  patterns and texts; the Go differential check passes; mutations.
+  **Check passed, the backtracker's steps, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 3. CAUGHT, 2: a pair's offset taken from the text's
+    start, and a pair's bit that adds the instruction to the offset. NOT CAUGHT, 1, the same
+    answers: no guard on a span past a u32, which no test can hold.
   **Check, the table of heads:** a set's search gives the plain search's place from every
   offset, for random sets of 2 to 64 literals, by the compares, by SSSE3's Teddy and by AVX2's;
   the Go differential check passes; mutations.

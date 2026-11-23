@@ -123,11 +123,11 @@ pub inline fn step(instructions: []const Instruction, index: u32, octet: u8) ?u3
 }
 
 /// `step` of a `ranges`: its first `ranges_scan_len` ranges in order, then the rest by halving, at
-/// most eight steps for 256 ranges. The ranges ascend and stand apart.
+/// most eight steps for 256 ranges. The ranges ascend and stand apart. It asserts nothing, as it
+/// runs for each octet (decision 17): the builders of a node assert its count and write its
+/// members as ranges (`syntax_atom_ranges.node` and `syntax_atom_utf8_node.write_apart`).
 pub fn step_ranges(instructions: []const Instruction, index: u32, octet: u8) ?u32 {
     const instruction = instructions[index];
-    assert(instruction.kind == .ranges);
-    assert(instruction.arg >= 1 and instruction.arg <= constants.octet_values);
     const members = instructions[index + 1 ..][0..instruction.arg];
     const scanned = @min(members.len, constants.ranges_scan_len);
     for (members[0..scanned]) |member| {
@@ -145,7 +145,6 @@ pub fn step_ranges(instructions: []const Instruction, index: u32, octet: u8) ?u3
     }
     if (low == scanned) return null;
     const member = members[low - 1];
-    assert(member.kind == .range);
     return if (octet <= member.hi) member.out else null;
 }
 

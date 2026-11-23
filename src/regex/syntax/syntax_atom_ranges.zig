@@ -65,6 +65,8 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
     const count = gather(builder.direction, scalars, &sequences) orelse return null;
     if (count < node_sequences_min) return null;
     const gathered = sequences[0..count];
+    // `program.step_ranges` reads `arg` members, each a range, and asserts neither.
+    assert(count >= 1 and count <= constants.octet_values);
     const head = try builder.emit(.{ .kind = .ranges, .arg = @intCast(count) });
     var holes: Holes = .{};
     // A sequence of one range leaves the class through a hole. A longer one's range goes on to

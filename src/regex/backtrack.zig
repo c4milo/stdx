@@ -50,6 +50,8 @@ pub fn find(matcher: *Matcher, haystack: []const u8, start: usize, end: usize) ?
     const bits = @as(usize, matcher.program.forward_len) * positions;
     const words = (bits + bits_per_word - 1) / bits_per_word;
     if (words > matcher.seed_slots.len) return null;
+    // The bits of a span fit the matcher's tables, so its positions fit a u32 by far.
+    if (positions > std.math.maxInt(u32)) return null;
     if (matcher.one_pass_table == .held) matcher.one_pass_table = .none;
     matcher.start(if (start == 0) null else haystack[start - 1], start);
     // The matcher takes its two tables one after the other, so the stack takes what the bits
@@ -61,7 +63,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, start: usize, end: usize) ?
         .haystack = haystack,
         .start = start,
         .end = end,
-        .positions = positions,
+        .positions = @intCast(positions),
         .visited = tables[0..words],
         .stack = tables[words..],
         .slots = matcher.best(),
@@ -86,7 +88,9 @@ const Search = struct {
     haystack: []const u8,
     start: usize,
     end: usize,
-    positions: usize,
+    /// The span's offsets and one, which a pair's bit multiplies by its instruction: a u32, so
+    /// the product of two u32 values and an offset fit a u64 with no check.
+    positions: u32,
     visited: []u64,
     stack: []u64,
     stack_len: usize = 0,
@@ -98,7 +102,7 @@ const Search = struct {
         if (!search.push(entry, search.start)) return null;
         // Each entry is pushed by a split or a save that a visit passed, so the entries are at
         // most the pairs and one, and each turn takes one.
-        for (0..search.instructions.len * search.positions + 1) |_| {
+        for (0..search.instructions.len * @as(usize, search.positions) + 1) |_| {
             if (search.stack_len == 0) return false;
             search.stack_len -= entry_words;
             const first = search.stack[search.stack_len];
@@ -122,7 +126,7 @@ const Search = struct {
         var instruction_index = index;
         var position = at;
         // Each step visits a pair for the first time, so the steps are at most the pairs.
-        for (0..search.instructions.len * search.positions) |_| {
+        for (0..search.instructions.len * @as(usize, search.positions)) |_| {
             if (!search.visit(instruction_index, position)) return .failed;
             switch (search.step(instruction_index, position)) {
                 .next => |next| {
@@ -183,7 +187,11 @@ const Search = struct {
 
     /// Marks a pair as visited. False where it was.
     fn visit(search: *Search, index: u32, at: usize) bool {
-        const bit = @as(usize, index) * search.positions + (at - search.start);
+        // The offset is under `positions`: both it and the index are u32 values, so on a 64-bit
+        // target the product and the sum cannot overflow, and the compiler checks neither. The
+        // read's bounds check holds the bit.
+        const offset: u32 = @truncate(at -% search.start);
+        const bit = @as(usize, index) * search.positions + offset;
         const word = &search.visited[bit / bits_per_word];
         const mask = @as(u64, 1) << @intCast(bit % bits_per_word);
         if (word.* & mask != 0) return false;
@@ -194,8 +202,9 @@ const Search = struct {
     /// Pushes the path from `index` at `at`, past the alternatives that would fail at their first
     /// instruction: ranges that do not take the octet at `at`. Each split of a class's
     /// alternatives names a range first, so the alternatives of an octet that a path took leave
-    /// no entry behind it. False where the stack is full.
-    fn push(search: *Search, index: u32, at: usize) bool {
+    /// no entry behind it. False where the stack is full. Inline, as `fails_at_once` is: as calls
+    /// in a ReleaseSafe build, the two took the lexer row 12% more instructions.
+    inline fn push(search: *Search, index: u32, at: usize) bool {
         const first = search.worth(index, at) orelse return true;
         if (search.stack_len + entry_words > search.stack.len) return false;
         search.stack[search.stack_len] = first;
@@ -223,7 +232,7 @@ const Search = struct {
     /// True where the path from `index` at `at` fails before it takes an octet or splits: its
     /// saves and jumps lead to a range that does not take the octet at `at`, or to an assertion
     /// that does not hold there. A save that a failed path passed writes nothing that lasts.
-    fn fails_at_once(search: *const Search, index: u32, at: usize) bool {
+    inline fn fails_at_once(search: *const Search, index: u32, at: usize) bool {
         var next = index;
         // A path that takes no octet and does not split holds no loop: at most the program.
         for (0..search.instructions.len) |_| {
@@ -241,8 +250,9 @@ const Search = struct {
         return false;
     }
 
-    /// True where the range takes the octet at `at`, which is before the span's end.
-    fn takes(search: *const Search, range: Instruction, at: usize) bool {
+    /// True where the range takes the octet at `at`, which is before the span's end. Inline: a
+    /// ReleaseSafe build left it a call at each range a path passes.
+    inline fn takes(search: *const Search, range: Instruction, at: usize) bool {
         return at < search.end and range.takes(search.haystack[at]);
     }
 

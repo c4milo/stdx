@@ -1080,6 +1080,21 @@ last part lists what still waits on a ruling.
     came first there too: level 6's search (entry 48) took a quarter of its instructions with
     every check on. Entry 49 holds the A/B entry 16 asks for and the owner's ruling.
 
+    **regex's measurement, 2026-11-23**, on x86-64 Linux 6.18 in a cloud container, by a driver
+    built for the baseline CPU in turns (design §8 part 22n). Built ReleaseFast, rebar's
+    unstructured log ran at 1.80 times its ReleaseSafe speed, the lexer at 1.21, `Sherlock Holmes`
+    at 1.20, `\p{L}{8,13}` at 1.17 and `(?i)Sherlock Holmes` at 1.07, past this entry's 5%. Under
+    ReleaseSafe the log's pass took 7.07 million instructions, and under ReleaseFast 5.10 million.
+    - The backtracker's checks are not most of it. With safety off in its functions and in
+      `step_ranges`, as an experiment, a pass took the ReleaseFast build's instructions, and the
+      row ran at 47 MB/s in place of 44, where ReleaseFast ran it at 77. Cachegrind counted the
+      same branches mispredicted in both, and the frame pointer and the memory's placement each
+      moved the row by 2% or less. What takes the rest is not yet known.
+    - The checks of a step went by construction first: the backtracker's helpers are inline, a
+      visited pair's bit is a sum of u32 values, and `step_ranges` asserts nothing per octet.
+    - bench-regex holds no ReleaseFast program, as bench-deflate does, so the runners have no
+      measure of it yet.
+
     **The DEFLATE encoder's writer, ruled by the owner on 2026-10-17.** The store loop of
     `write_symbols_stored` asserted each pair's two code entries, against the rule above. The
     checked path keeps those assertions. Once a coded block, `check_entries` requires code bits for

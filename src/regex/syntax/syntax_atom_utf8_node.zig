@@ -37,6 +37,8 @@ pub fn apart(node: []const Transition) bool {
 /// for each, to its target or to a hole of the class joined to `holes`. Gives its entry.
 pub fn write_apart(builder: *Builder, holes: *Holes, node: []const Transition) fragment.Error!u32 {
     assert(node.len > 0 and apart(node));
+    // `program.step_ranges` reads `arg` members, each a range, and asserts neither.
+    assert(node.len <= constants.octet_values);
     const first = builder.len;
     if (node.len > 1) _ = try builder.emit(.{ .kind = .ranges, .arg = @intCast(node.len) });
     for (node) |transition| _ = try write_range(builder, holes, transition);
