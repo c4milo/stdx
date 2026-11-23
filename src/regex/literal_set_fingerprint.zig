@@ -1,15 +1,8 @@
 //! Claim R5's fingerprint (decision 86 as amended): the two offsets of a set's literals whose
 //! octets Teddy's tables and the compares take, and the literals of each of Teddy's buckets.
 //!
-//! The library holds no table of how often each octet stands in a text, so it ranks an octet by
-//! its kind (`rank`). A set whose octets are mostly past ASCII is of a script such as Cyrillic,
-//! and so is its text. There a UTF-8 continuation octet is the rarest, since the script's letters
-//! share 64 of them, and a lead octet the commonest: 0xD0 and 0xD1 start every Cyrillic letter.
-//! In the text of any other set, every octet past ASCII is the rarest, as the long s of
-//! `(?i)sherlock` is in English. A capital, a digit or a mark is rarer than a lowercase letter or
-//! a space. An offset's rank is the worst rank of its octet over the literals. The set takes the
-//! two offsets whose ranks sum the least, the widest apart where sums tie, so an English set keeps
-//! its first and last octets.
+//! The offsets are the two whose worst rank over the literals sums the least, by
+//! `literal_rank.zig`'s rank of each octet's kind.
 //!
 //! Literals whose two octets share their low nibbles share a bucket. The case forms of a word do:
 //! a capital and its lowercase letter differ in their high nibble alone. So their bucket's tables
@@ -19,22 +12,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const literal_rank = @import("literal_rank.zig");
 const literal_set = @import("literal_set.zig");
 const LiteralSet = literal_set.LiteralSet;
-
-/// How often an octet stands in a text, the rarest first.
-pub const Rank = enum(u8) { rarest, rare, common, commonest };
-
-/// The rank of `octet` in a text of a script past ASCII where `past_ascii` holds, and of ASCII
-/// otherwise.
-pub fn rank(octet: u8, past_ascii: bool) Rank {
-    if (octet > constants.one_octet_max) {
-        if (!past_ascii or octet <= constants.continuation_max) return .rarest;
-        return .commonest;
-    }
-    if (octet == ' ' or (octet >= 'a' and octet <= 'z')) return .common;
-    return .rare;
-}
 
 /// Writes the set's offsets, its buckets and Teddy's tables, from its `count` literals of `len`
 /// octets.
@@ -62,33 +42,17 @@ fn fill_heads(set: *LiteralSet) void {
     }
 }
 
-const Offsets = struct { first: u8, last: u8 };
-
-/// The two offsets below `len` whose ranks sum the least, the widest apart where sums tie.
-fn offsets_of(set: *const LiteralSet) Offsets {
+/// The two offsets below `len` whose worst ranks over the literals sum the least.
+fn offsets_of(set: *const LiteralSet) literal_rank.Offsets {
     const past_ascii = mostly_past_ascii(set);
     var ranks: [constants.literal_len_max]u8 = undefined;
     for (ranks[0..set.len], 0..) |*worst, offset| worst.* = worst_rank(set, offset, past_ascii);
-    var best: Offsets = .{ .first = 0, .last = set.len - 1 };
-    for (0..set.len) |first| {
-        for (first + 1..set.len) |last| {
-            const pair: Offsets = .{ .first = @intCast(first), .last = @intCast(last) };
-            if (better(&ranks, pair, best)) best = pair;
-        }
-    }
-    assert(best.first < best.last and best.last < set.len);
-    return best;
-}
-
-fn better(ranks: *const [constants.literal_len_max]u8, pair: Offsets, best: Offsets) bool {
-    const sum = ranks[pair.first] + ranks[pair.last];
-    const best_sum = ranks[best.first] + ranks[best.last];
-    return sum < best_sum or (sum == best_sum and pair.last - pair.first > best.last - best.first);
+    return literal_rank.rarest_pair(ranks[0..set.len]);
 }
 
 fn worst_rank(set: *const LiteralSet, offset: usize, past_ascii: bool) u8 {
     var worst: u8 = 0;
-    for (set.octets[0..set.count]) |*octets| worst = @max(worst, @intFromEnum(rank(octets[offset], past_ascii)));
+    for (set.octets[0..set.count]) |*octets| worst = @max(worst, @intFromEnum(literal_rank.rank(octets[offset], past_ascii)));
     return worst;
 }
 
@@ -98,8 +62,7 @@ fn mostly_past_ascii(set: *const LiteralSet) bool {
     for (set.octets[0..set.count]) |*octets| {
         for (octets[0..set.len]) |octet| past += @intFromBool(octet > constants.one_octet_max);
     }
-    const octets = @as(usize, set.count) * set.len;
-    return past > octets - past;
+    return literal_rank.mostly(past, @as(usize, set.count) * set.len);
 }
 
 /// The low nibbles of a literal's two octets.
@@ -153,26 +116,6 @@ fn set_of(literals: []const []const u8) LiteralSet {
     }
     prepare(&set);
     return set;
-}
-
-test "rank puts continuation octets first in a text past ASCII, and every such octet in ASCII" {
-    for ([_]bool{ false, true }) |past_ascii| {
-        try testing.expectEqual(Rank.rarest, rank(0x80, past_ascii));
-        try testing.expectEqual(Rank.rarest, rank(0xBF, past_ascii));
-        try testing.expectEqual(Rank.rare, rank('A', past_ascii));
-        try testing.expectEqual(Rank.rare, rank('Z', past_ascii));
-        try testing.expectEqual(Rank.rare, rank('7', past_ascii));
-        try testing.expectEqual(Rank.rare, rank('`', past_ascii));
-        try testing.expectEqual(Rank.rare, rank('{', past_ascii));
-        try testing.expectEqual(Rank.rare, rank(0x7F, past_ascii));
-        try testing.expectEqual(Rank.common, rank('a', past_ascii));
-        try testing.expectEqual(Rank.common, rank('z', past_ascii));
-        try testing.expectEqual(Rank.common, rank(' ', past_ascii));
-    }
-    try testing.expectEqual(Rank.commonest, rank(0xC0, true));
-    try testing.expectEqual(Rank.commonest, rank(0xFF, true));
-    try testing.expectEqual(Rank.rarest, rank(0xC0, false));
-    try testing.expectEqual(Rank.rarest, rank(0xFF, false));
 }
 
 test "prepare keeps an English set's first and last octets, and takes a Cyrillic set's continuations" {

@@ -55,6 +55,7 @@ test {
     _ = @import("literal_set.zig");
     _ = @import("literal_set_paths.zig");
     _ = @import("literal_set_fingerprint.zig");
+    _ = @import("literal_rank.zig");
     _ = @import("literal_teddy.zig");
     _ = @import("one_pass.zig");
     _ = @import("backtrack.zig");

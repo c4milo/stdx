@@ -8860,6 +8860,27 @@ to 12 are reordered and nothing else changes.
     the Russian alternation under `(?i)` at 1,829 and 1,835 in place of 1,580 and 1,597. Forks to
     5 octets cut the alternation's Cyrillic letters in two, and ran it at 889 and 714. The English
     rows did not move past the noise.
+  - rebar's Russian literal, `Шерлок Холмс`, ran at 0.30 of Rust's crate in the runs at 233ac06.
+    Claim R2 compared its first and last octets, and the first, 0xD0, starts half of Cyrillic's
+    letters. `Literal.prepare` now takes the two offsets whose octets rank rarest by their kind,
+    as claim R5's sets do (decision 86): the continuation octets of `Ш` and `с`. In two passes of
+    the driver, the best of 40 warm runs each, the row ran at 25,450 and 27,590 MB/s in place of
+    7,227 and 8,956, where Rust's crate gave 19,648 in the local run of part 22m. `Sherlock
+    Holmes` and `夏洛克·福尔摩斯` did not move past the noise.
+  **Check, the literal's offsets:** `prepare` takes the ends of a literal whose octets rank
+  alike, the capitals inside a lowercase one, and the continuation octets of a Cyrillic one;
+  `of` and `suffix_of` write them; needles whose offsets stand inside give the plain search's
+  place from every offset, as they stand and folded, by the library's search and by AVX2's;
+  mutations.
+  **Check passed, the literal's offsets, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux
+  6.18, in a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,543 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 10, all CAUGHT: `of` or `suffix_of` with no
+    offsets; a literal of one octet given a pair; no literal past ASCII; the blocks' first octets
+    read at the place, or compared with the literal's first octet; the loop chosen by the folds
+    of the ends; the tail's octet read at the place; the last fold taken from the first offset;
+    more than half judged at half.
   **Check, the literal sets:** `of` reads a set from the program's paths, with its count and its
   length, and none where a path ends short, a branch takes a class or an assertion, or one
   literal stands alone; a round past `literal_set_max` paths keeps the round before; `prepare`

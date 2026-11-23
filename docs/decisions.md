@@ -5789,14 +5789,17 @@ last part lists what still waits on a ruling.
       searcher reads no DFA: each place of the literal is a match (design §8 step 22, part 22c).
       - `Literal.of` reads the literal from the forward program: the instructions from the entry
         that each take one octet, through saves, up to `literal_len_max`, 32 octets.
-      - `Literal.find` compares the literal's first and last octets at their distance, 16
-        octets a step and 4 steps a block, as Muła (2016) describes. It compares the whole
-        literal only where both stand. A place costs at most 32 octets compared, and each step
-        moves on, so a search stays linear in the text.
+      - `Literal.find` compares the literal's octets at two offsets, `first_at` and `last_at`,
+        at their distance, 16 octets a step and 4 steps a block, as Muła (2016) describes for
+        the first and the last. It compares the whole literal only where both stand. A place
+        costs at most 32 octets compared, and each step moves on, so a search stays linear in the
+        text.
       - Rust's regex crate does the same with memchr's memmem, which the owner's ruling of
         2026-11-21 let this entry read for its method. memmem picks the two octets that its
-        table of octet frequencies ranks rarest. stdx takes the first and the last octet and
-        keeps no table.
+        table of octet frequencies ranks rarest. stdx keeps no table. Since 2026-11-23,
+        `Literal.prepare` takes the two offsets whose octets rank rarest by their kind, as claim
+        R5's sets do (`literal_rank.zig`, below). So `Шерлок Холмс` compares the continuation
+        octets of `Ш` and `с`, where the first octet, 0xD0, starts half of Cyrillic's letters.
       - A place of the literal may fold: `(?i)` compiles an ASCII letter as a split between two
         instructions that take one octet each, the two octets differing in `case_bit`, 0x20, and
         leading to one instruction. The literal keeps the lower case and a bit in
@@ -5813,8 +5816,7 @@ last part lists what still waits on a ruling.
         each type, and each caller adds the argument. The search is `literal_find.zig`'s, built
         a second time in the module's variant object of decision 21, and its blocks keep their
         octets.
-      - What R2 does not do yet, from the reading of Rust's crate: the two octets a table of
-        frequencies ranks rarest. Claim R5 searches for one of several literals.
+      - Claim R5 searches for one of several literals.
     - Claim R3: where a program holds an assertion, and every match starts with a literal of two
       octets or more after the assertions at its start, as in `\bPharaoh\b`, the forward scan
       goes to the next place of that literal (design §8 step 22, part 22c).
@@ -5883,14 +5885,15 @@ last part lists what still waits on a ruling.
         the compares cost two for each literal. A bucket of one literal gives that literal's
         places exactly. A bucket of several also gives places where one literal's nibble stands
         beside another's, and the whole compare refuses them.
-      - The two offsets (`literal_set_fingerprint.zig`, added 2026-11-22). stdx holds no table of
-        how often each octet stands in a text, so it ranks an octet by its kind. In a set whose
-        octets are mostly past ASCII, a UTF-8 continuation octet is the rarest, and a lead octet
-        the commonest: 0xD0 and 0xD1 start every Cyrillic letter. In any other set, every octet
-        past ASCII is the rarest. A capital, a digit or a mark is rarer than a lowercase letter
-        or a space. An offset takes the worst rank of its octets, and the set takes the two
-        offsets of the least sum, the widest apart where sums tie. So an English set keeps its
-        first and last octets, and `(?i)Шерлок` takes the continuations of `Ш` and `е`.
+      - The two offsets (`literal_set_fingerprint.zig` and `literal_rank.zig`, added 2026-11-22).
+        stdx holds no table of how often each octet stands in a text, so it ranks an octet by
+        its kind. In a set whose octets are mostly past ASCII, a UTF-8 continuation octet is the
+        rarest, and a lead octet the commonest: 0xD0 and 0xD1 start every Cyrillic letter. In
+        any other set, every octet past ASCII is the rarest. A capital, a digit or a mark is
+        rarer than a lowercase letter or a space. An offset takes the worst rank of its octets,
+        and the set takes the two offsets of the least sum, the widest apart where sums tie. So
+        an English set keeps its first and last octets, and `(?i)Шерлок` takes the
+        continuations of `Ш` and `л`.
       - The buckets. Literals whose octets at the two offsets share their low nibbles share a
         bucket, as the case forms of a word do. The bucket's tables then take those forms' octets
         and few others. Where more than 8 pairs of low nibbles stand, the pairs in their order
