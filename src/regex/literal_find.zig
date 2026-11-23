@@ -9,6 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const Literal = @import("literal.zig").Literal;
+const lane_places = @import("lane_places.zig");
 
 /// The octets of a narrow and of a wide block, whatever the width of a step.
 const block_len = constants.literal_steps * constants.skip_lanes;
@@ -39,13 +40,13 @@ pub inline fn find_before(comptime width: usize, literal: *const Literal, haysta
 /// haystack holds the literal's octets from each such place.
 inline fn search(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, end: usize) ?usize {
     // A literal whose two compared places take one case each needs no OR in its loop.
-    const ends_fold = literal.fold_at(literal.first_at) | literal.fold_at(literal.last_at) != 0;
+    const ends_fold = literal.fold_octets[literal.first_at] | literal.fold_octets[literal.last_at] != 0;
     const wide = lanes(width, literal, ends_fold, wide_block_len / width, haystack, from, end);
     if (wide.found) |offset| return offset;
     const after = lanes(width, literal, ends_fold, block_len / width, haystack, wide.index, end);
     if (after.found) |offset| return offset;
     const first = literal.first_at;
-    const first_fold = literal.fold_at(first);
+    const first_fold = literal.fold_octets[first];
     for (after.index..end) |index| {
         if (haystack[index + first] | first_fold == literal.octets[first] and literal.stands_at(haystack, index)) return index;
     }
@@ -85,8 +86,8 @@ inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form
     const wanted: Wanted(width) = .{
         .first = @splat(literal.octets[first]),
         .last = @splat(literal.octets[last]),
-        .first_fold = @splat(literal.fold_at(first)),
-        .last_fold = @splat(literal.fold_at(last)),
+        .first_fold = @splat(literal.fold_octets[first]),
+        .last_fold = @splat(literal.fold_octets[last]),
     };
     var index = from;
     // A block reads `steps_len` octets from `index + first` and as many from `index + last`, whose
@@ -94,14 +95,14 @@ inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form
     while (end - index >= steps_len) : (index += steps_len) {
         const firsts = haystack[index + first ..][0..steps_len];
         const lasts = if (form == .single) firsts else haystack[index + last ..][0..steps_len];
-        // Most blocks hold no candidate. One reduction says so, where a mask costs a reduction
-        // for each step on Arm, which has no instruction that gathers lane bits.
-        if (!any_candidate(width, form, steps, firsts, lasts, &wanted)) continue;
-        var mask = candidates(width, form, steps, firsts, lasts, &wanted);
-        // Each set bit is one place to compare, at most `steps_len` of them.
-        while (mask != 0) : (mask &= mask - 1) {
-            const candidate = index + @ctz(mask);
-            if (literal.stands_at(haystack, candidate)) return .{ .found = candidate, .index = index };
+        // Most blocks hold no candidate. One test of all the steps says so.
+        if (any_candidate(width, form, steps, firsts, lasts, &wanted)) {
+            // So LLVM keeps the wanted octets in registers through the loop, and writes them to
+            // the stack around this path's compare, a call, alone.
+            @branchHint(.unlikely);
+            if (first_stands(width, literal, form, steps, firsts, lasts, &wanted, haystack, index)) |place| {
+                return .{ .found = place, .index = index };
+            }
         }
     }
     return .{ .found = null, .index = index };
@@ -122,37 +123,39 @@ fn Pair(comptime width: usize) type {
     return struct { first: @Vector(width, u8), last: @Vector(width, u8) };
 }
 
+/// All ones in each lane of the step at `at` where the octet at `first_at` stands in `firsts`
+/// and the octet at `last_at` at the same place in `lasts`, and zero in the others.
+inline fn both_lanes(comptime width: usize, comptime form: Form, firsts: anytype, lasts: anytype, comptime at: usize, wanted: *const Wanted(width)) @Vector(width, u8) {
+    const all: @Vector(width, u8) = @splat(constants.octet_max);
+    const none: @Vector(width, u8) = @splat(0);
+    const pair = step_lanes(width, form, firsts, lasts, at, wanted);
+    const first_here = @select(u8, pair.first == wanted.first, all, none);
+    if (form == .single) return first_here;
+    return first_here & @select(u8, pair.last == wanted.last, all, none);
+}
+
 /// True when some place of a block holds the octet at `first_at` in `firsts` and the octet at
 /// `last_at` at the same place in `lasts`.
 inline fn any_candidate(comptime width: usize, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width)) bool {
-    const all: @Vector(width, u8) = @splat(constants.octet_max);
-    const none: @Vector(width, u8) = @splat(0);
-    var any = none;
-    inline for (0..steps) |step| {
-        const pair = step_lanes(width, form, firsts, lasts, step * width, wanted);
-        const first_here = @select(u8, pair.first == wanted.first, all, none);
-        if (form == .single) {
-            any |= first_here;
-            continue;
-        }
-        const last_here = @select(u8, pair.last == wanted.last, all, none);
-        any |= first_here & last_here;
-    }
-    return @reduce(.Or, any) != 0;
+    var any: @Vector(width, u8) = @splat(0);
+    inline for (0..steps) |step| any |= both_lanes(width, form, firsts, lasts, step * width, wanted);
+    return lane_places.Places(width).any(any);
 }
 
-/// A bit for each place of a block where the octet at `first_at` stands in `firsts` and the octet
-/// at `last_at` at the same place in `lasts`.
-inline fn candidates(comptime width: usize, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width)) std.meta.Int(.unsigned, steps * width) {
-    const BlockMask = std.meta.Int(.unsigned, steps * width);
-    var mask: BlockMask = 0;
-    inline for (0..steps) |step| {
-        const at = step * width;
-        const pair = step_lanes(width, form, firsts, lasts, at, wanted);
-        const first_here = pair.first == wanted.first;
-        const both = if (form == .single) first_here else @select(bool, first_here, pair.last == wanted.last, @as(@Vector(width, bool), @splat(false)));
-        const step_mask: std.meta.Int(.unsigned, width) = @bitCast(both);
-        mask |= @as(BlockMask, step_mask) << at;
+/// The first place of the block from `index` where the literal stands whole, among those where
+/// its octets at `first_at` and `last_at` stand. A step's places are a word of their own, so that
+/// SHRN's nibbles need no mask wider than a word.
+inline fn first_stands(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize) ?usize {
+    const Step = lane_places.Places(width);
+    var masks: [steps]Step.Mask = undefined;
+    inline for (&masks, 0..) |*mask, step| mask.* = Step.of(both_lanes(width, form, firsts, lasts, step * width, wanted));
+    for (masks, 0..) |step_mask, step| {
+        var mask = step_mask;
+        // Each set bit is one place to compare, at most `width` of them.
+        while (mask != 0) : (mask &= mask - 1) {
+            const candidate = index + step * width + Step.first(mask);
+            if (literal.stands_at(haystack, candidate)) return candidate;
+        }
     }
-    return mask;
+    return null;
 }

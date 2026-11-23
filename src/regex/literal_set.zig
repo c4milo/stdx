@@ -18,13 +18,14 @@ const program_file = @import("program.zig");
 const Program = program_file.Program;
 const literal_file = @import("literal.zig");
 const literal_teddy = @import("literal_teddy.zig");
+const lane_places = @import("lane_places.zig");
+const literal_compare = @import("literal_compare.zig");
 
 /// The octets of a literal's head: one word.
 pub const head_len = @sizeOf(u64);
 
 /// The octets of a block, whatever the width of a step.
 const block_len = constants.literal_steps * constants.skip_lanes;
-const BlockMask = std.meta.Int(.unsigned, block_len);
 
 extern fn stdx_regex_literal_set_find_x86_64_avx2(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
 extern fn stdx_regex_literal_set_find_x86_64_ssse3(set: *const LiteralSet, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
@@ -104,7 +105,7 @@ pub const LiteralSet = extern struct {
     /// The length of the first literal of the set that stands whole at `index`, or null.
     fn whole_at(set: *const LiteralSet, haystack: []const u8, index: usize) ?usize {
         for (set.octets[0..set.count], set.lens[0..set.count]) |*octets, len| {
-            if (haystack.len - index >= len and std.mem.eql(u8, haystack[index..][0..len], octets[0..len])) return len;
+            if (haystack.len - index >= len and literal_compare.equal(haystack[index..][0..len], octets[0..len])) return len;
         }
         return null;
     }
@@ -162,12 +163,10 @@ pub const LiteralSet = extern struct {
         while (end - index >= block_len) : (index += block_len) {
             const firsts = haystack[index + first ..][0..block_len];
             const lasts = haystack[index + last ..][0..block_len];
-            if (!Search.any_candidate(firsts, lasts, &wanted)) continue;
-            var mask = Search.candidates(firsts, lasts, &wanted);
-            // Each set bit is one place to compare, at most `block_len` of them.
-            while (mask != 0) : (mask &= mask - 1) {
-                const candidate = index + @ctz(mask);
-                if (set.stands_at(haystack, candidate)) return candidate;
+            if (Search.any_candidate(firsts, lasts, &wanted)) {
+                // As in claim R2's loop (literal_find.zig): the wanted octets stay in registers.
+                @branchHint(.unlikely);
+                if (Search.first_stands(set, firsts, lasts, &wanted, haystack, index)) |place| return place;
             }
         }
         return set.find_scalar(haystack, index, end);
@@ -238,7 +237,7 @@ pub const LiteralSet = extern struct {
     /// True when the octets of `literal` past its head stand at `index` past the text's head.
     inline fn tail_at(set: *const LiteralSet, literal: usize, haystack: []const u8, index: usize) bool {
         if (set.len <= head_len) return true;
-        return std.mem.eql(u8, haystack[index + head_len ..][0 .. set.len - head_len], set.octets[literal][head_len..set.len]);
+        return literal_compare.equal(haystack[index + head_len ..][0 .. set.len - head_len], set.octets[literal][head_len..set.len]);
     }
 };
 
@@ -261,46 +260,50 @@ fn Lanes(comptime width: usize, comptime count: usize) type {
     comptime assert(block_len % width == 0);
     return struct {
         const Vector = @Vector(width, u8);
-        const Mask = std.meta.Int(.unsigned, width);
+        const Step = lane_places.Places(width);
         const steps = block_len / width;
 
         /// Each literal's octets at `first_at` and `last_at`, in every lane.
         const Wanted = struct { firsts: [count]Vector, lasts: [count]Vector };
 
+        /// All ones in each lane of the step at `at` where some literal's octet at `first_at`
+        /// stands in `firsts` and its octet at `last_at` at the same place in `lasts`.
+        inline fn both_lanes(firsts: *const [block_len]u8, lasts: *const [block_len]u8, comptime at: usize, wanted: *const Wanted) Vector {
+            const all: Vector = @splat(constants.octet_max);
+            const none: Vector = @splat(0);
+            const first: Vector = firsts[at..][0..width].*;
+            const last: Vector = lasts[at..][0..width].*;
+            var both = none;
+            inline for (0..count) |literal| {
+                const first_here = @select(u8, first == wanted.firsts[literal], all, none);
+                const last_here = @select(u8, last == wanted.lasts[literal], all, none);
+                both |= first_here & last_here;
+            }
+            return both;
+        }
+
         /// True when some place of a block holds some literal's octet at `first_at` in `firsts`
         /// and its octet at `last_at` at the same place in `lasts`.
         inline fn any_candidate(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) bool {
-            const all: Vector = @splat(constants.octet_max);
-            const none: Vector = @splat(0);
-            var any = none;
-            inline for (0..steps) |step| {
-                const at = step * width;
-                const first: Vector = firsts[at..][0..width].*;
-                const last: Vector = lasts[at..][0..width].*;
-                inline for (0..count) |literal| {
-                    const first_here = @select(u8, first == wanted.firsts[literal], all, none);
-                    const last_here = @select(u8, last == wanted.lasts[literal], all, none);
-                    any |= first_here & last_here;
-                }
-            }
-            return @reduce(.Or, any) != 0;
+            var any: Vector = @splat(0);
+            inline for (0..steps) |step| any |= both_lanes(firsts, lasts, step * width, wanted);
+            return Step.any(any);
         }
 
-        /// A bit for each place of a block where some literal's two octets stand.
-        inline fn candidates(firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted) BlockMask {
-            var mask: BlockMask = 0;
-            inline for (0..steps) |step| {
-                const at = step * width;
-                const first: Vector = firsts[at..][0..width].*;
-                const last: Vector = lasts[at..][0..width].*;
-                var step_mask: Mask = 0;
-                inline for (0..count) |literal| {
-                    const both = @select(bool, first == wanted.firsts[literal], last == wanted.lasts[literal], @as(@Vector(width, bool), @splat(false)));
-                    step_mask |= @as(Mask, @bitCast(both));
+        /// The first place of the block from `index` where a literal of the set stands whole,
+        /// among those where some literal's two octets stand, a step's places a word each.
+        inline fn first_stands(set: *const LiteralSet, firsts: *const [block_len]u8, lasts: *const [block_len]u8, wanted: *const Wanted, haystack: []const u8, index: usize) ?usize {
+            var masks: [steps]Step.Mask = undefined;
+            inline for (&masks, 0..) |*mask, step| mask.* = Step.of(both_lanes(firsts, lasts, step * width, wanted));
+            for (masks, 0..) |step_mask, step| {
+                var mask = step_mask;
+                // Each set bit is one place to compare, at most `width` of them.
+                while (mask != 0) : (mask &= mask - 1) {
+                    const candidate = index + step * width + Step.first(mask);
+                    if (set.stands_at(haystack, candidate)) return candidate;
                 }
-                mask |= @as(BlockMask, step_mask) << at;
             }
-            return mask;
+            return null;
         }
     };
 }

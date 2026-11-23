@@ -30,6 +30,7 @@ const program_file = @import("program.zig");
 const Program = program_file.Program;
 const literal_find = @import("literal_find.zig");
 const literal_rank = @import("literal_rank.zig");
+const literal_compare = @import("literal_compare.zig");
 
 /// Whether this target has the AVX2 variant object's searches (variants.zig): x86-64 alone
 /// builds it.
@@ -59,6 +60,9 @@ pub const Literal = extern struct {
     wide: bool = false,
     /// A bit for each place that takes its octet in either case: `octets` holds the lower case.
     folds: Folds = 0,
+    /// What a compare ORs into the text's octet at each place: `case_bit` where the place folds,
+    /// and zero elsewhere, as `prepare` writes it from `folds`.
+    fold_octets: [constants.literal_len_max]u8 = @splat(0),
     /// The two offsets below `len` whose octets the search compares, as `prepare` writes them.
     first_at: u8 = 0,
     last_at: u8 = 0,
@@ -80,6 +84,7 @@ pub const Literal = extern struct {
     /// or the one octet of a literal of one.
     pub fn prepare(literal: *Literal) void {
         assert(literal.len >= 1 and literal.len <= constants.literal_len_max);
+        for (&literal.fold_octets, 0..) |*fold, place| fold.* = if (place < literal.len) literal.fold_at(place) else 0;
         if (literal.len == 1) {
             literal.first_at = 0;
             literal.last_at = 0;
@@ -150,13 +155,7 @@ pub const Literal = extern struct {
 
     /// True when the literal stands whole at `index`, which leaves room for it.
     pub fn stands_at(literal: *const Literal, haystack: []const u8, index: usize) bool {
-        const text = haystack[index..][0..literal.len];
-        if (literal.folds == 0) return std.mem.eql(u8, text, literal.slice());
-        // At most `literal_len_max` places.
-        for (text, literal.slice(), 0..) |octet, wanted, place| {
-            if (octet | literal.fold_at(place) != wanted) return false;
-        }
-        return true;
+        return literal_compare.folded(haystack[index..][0..literal.len], &literal.octets, &literal.fold_octets);
     }
 };
 
