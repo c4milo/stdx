@@ -9257,6 +9257,13 @@ to 12 are reordered and nothing else changes.
     start; one part of the spare to the forward DFA; the two leasts exactly taken as too little;
     two parts to one under the leasts; no least first for the forward DFA; and a spare that
     leaves out the reverse DFA's least.
+  - The backtracker of claim R8 made calls of five small functions at each step of a path, as a
+    ReleaseSafe build left them. Inline, one warm pass under callgrind at 6498684 and with them
+    takes rebar's `extract` 5.03 million instructions in place of 6.12 million, 17.8% fewer, and
+    its lexer row 515 million in place of 568 million, 9.4% fewer. Every other row is within
+    0.1%. Rust's crate takes 4.82 million and 426 million. On the lexer row, stdx's copy of each
+    match's hundred groups into `?Span` values costs 77 million of the rest, and Rust's crate
+    reads its slots in place.
   **Check, the octets a state stays over:** a searcher with claim R9 gives the matcher's spans
   and groups from every offset for ten patterns whose states stay over runs: of a class, of its
   complement, of every octet but a line feed, with the match flag and without, and of a set of

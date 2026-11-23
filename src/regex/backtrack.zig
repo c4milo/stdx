@@ -145,8 +145,11 @@ const Search = struct {
     /// Where one instruction of a path goes on, or how the path ended.
     const Step = union(enum) { next: Next, done: Outcome };
 
-    /// One instruction of a path at `at`: where its path goes on, or how the path ended.
-    fn step(search: *Search, index: u32, at: usize) Step {
+    /// One instruction of a path at `at`: where its path goes on, or how the path ended. Inline,
+    /// as are `split`, `worth`, `taken` and `push_restore`: as calls, which a ReleaseSafe build
+    /// made of them, rebar's `extract` row took 22% more instructions and its lexer row 10% more
+    /// (design §8 part 22n).
+    inline fn step(search: *Search, index: u32, at: usize) Step {
         const instruction = search.instructions[index];
         switch (instruction.kind) {
             .match => {
@@ -177,7 +180,7 @@ const Search = struct {
     /// loop, whose other branch is its node, where the way out fails at once, as it does at each
     /// octet the loop takes, the node's path goes on with no entry pushed. A chain of an
     /// alternation's splits keeps `push`, whose walk skips the branches that fail.
-    fn split(search: *Search, instruction: Instruction, at: usize) Step {
+    inline fn split(search: *Search, instruction: Instruction, at: usize) Step {
         if (is_node(search.instructions[instruction.arg]) and search.fails_at_once(instruction.out, at)) {
             return .{ .next = .{ .index = instruction.arg, .at = at } };
         }
@@ -186,7 +189,7 @@ const Search = struct {
     }
 
     /// Marks a pair as visited. False where it was.
-    fn visit(search: *Search, index: u32, at: usize) bool {
+    inline fn visit(search: *Search, index: u32, at: usize) bool {
         // The offset is under `positions`: both it and the index are u32 values, so on a 64-bit
         // target the product and the sum cannot overflow, and the compiler checks neither. The
         // read's bounds check holds the bit.
@@ -216,7 +219,7 @@ const Search = struct {
     /// The first instruction of the path from `index` at `at`, past the preferred branches of
     /// its splits that fail at once, or null where the path itself fails at once. Skipping such a
     /// branch is what visiting it would do, less its bits.
-    fn worth(search: *const Search, index: u32, at: usize) ?u32 {
+    inline fn worth(search: *const Search, index: u32, at: usize) ?u32 {
         var first = index;
         // Each turn passes one split, and the walk stops after `skip_splits_max` of them, so a
         // push costs a bounded walk.
@@ -257,14 +260,15 @@ const Search = struct {
     }
 
     /// The instruction the `ranges` at `index` goes to after it takes the octet at `at`, which is
-    /// before the span's end, or null where it does not take it.
-    fn taken(search: *const Search, index: u32, at: usize) ?u32 {
+    /// before the span's end, or null where it does not take it. `program.step_ranges` is inlined
+    /// here alone: the matcher and the DFAs call it once a state, and the backtracker at each step.
+    inline fn taken(search: *const Search, index: u32, at: usize) ?u32 {
         if (at >= search.end) return null;
-        return program_file.step_ranges(search.instructions, index, search.haystack[at]);
+        return @call(.always_inline, program_file.step_ranges, .{ search.instructions, index, search.haystack[at] });
     }
 
     /// Pushes an entry that gives `slot` its value back when the search returns to it.
-    fn push_restore(search: *Search, slot: u32) bool {
+    inline fn push_restore(search: *Search, slot: u32) bool {
         if (search.stack_len + entry_words > search.stack.len) return false;
         search.stack[search.stack_len] = slot | restore_flag;
         search.stack[search.stack_len + 1] = search.slots[slot];
