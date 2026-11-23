@@ -42,6 +42,15 @@ pub fn pass(dfa: *Dfa, comptime how: Pass, haystack: []const u8, from: usize) us
     return index;
 }
 
+/// The first offset at or after `from` where a match can start by claim R2 or R5: the next place
+/// of the DFA's literal, or of one of its literals, or `from` where it holds neither. Null where
+/// no literal stands from `from` on, so that no match starts there.
+pub fn first_start(dfa: *const Dfa, haystack: []const u8, from: usize) ?usize {
+    if (dfa.literal) |*literal| return literal.find(haystack, from);
+    if (dfa.literals) |*set| return set.find(haystack, from);
+    return from;
+}
+
 /// Turns the skip off where its visits passed too few octets to pay for themselves, until
 /// the scans took `skip_rest_octets` more octets.
 fn judge_skip(dfa: *Dfa) void {

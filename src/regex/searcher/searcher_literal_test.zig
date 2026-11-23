@@ -250,3 +250,20 @@ test "a set of literals and nothing else gives its matches with no DFA, its firs
     try testing.expect(!fixture.searcher.exact_set);
     try fixture.expect_agree("xabcx abc ab", 0);
 }
+
+test "is_match scans no DFA for a text where no literal stands, and finds the match where one does" {
+    var fixture: Fixture = .{};
+    // A literal, and a set of literals, each followed by more of the pattern.
+    for ([_][]const u8{ "Ph[ao]+h", "(?:Ph|Pa)[ao]+h" }) |pattern| {
+        try fixture.init(pattern, searcher_test.cache_words_max);
+        const dfa = &fixture.searcher.forward;
+        try testing.expect(dfa.literal != null or dfa.literals != null);
+        try testing.expect(!fixture.searcher.is_match("aoh aoh hhh Poh"));
+        try testing.expectEqual(@as(u32, 0), dfa.cache.state_count);
+        try testing.expect(fixture.searcher.is_match("aoh Phaoh"));
+        try testing.expect(dfa.cache.state_count > 0);
+        // The scan starts at the literal's place: claim R1's skip passes no octet before it.
+        try testing.expectEqual(@as(u64, 0), dfa.skip_octets);
+        try testing.expect(!fixture.searcher.is_match("aoh Ph h"));
+    }
+}
