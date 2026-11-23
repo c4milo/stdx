@@ -8992,6 +8992,22 @@ to 12 are reordered and nothing else changes.
     warm runs, the row ran at 233 MB/s in place of 165 to 191, where Rust's crate gave 227 in the
     local run of part 22m. letters-en and the lexer took 17.0 and 453 million instructions in
     both builds, and the other rows did not move past the noise.
+  - The unstructured log's pattern starts with `^` and is not one-pass, so `captures` ran the
+    forward DFA, then the reverse DFA back to the match's start, then the backtracker. A match of
+    such a pattern found from `from` starts there, so the reverse scan no longer runs (decision
+    86). Under callgrind two passes of the log took 12.6 million instructions in place of 13.6
+    million, and in three passes of 20 warm runs the row ran at 42 to 54 MB/s in place of 48,
+    where Rust's crate gave 66 in the local run of part 22m. The backtracker takes three quarters
+    of what is left.
+  **Check, the text's start:** the searcher gives the matcher's match and groups from every offset
+  for patterns that start with `^` and `\A` and are not one-pass; the Go differential check
+  passes; mutations.
+  **Check passed, the text's start, 2026-11-23.** Zig 0.16.0 and Go 1.24.7 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `zig build test` passes, and `zig build differential-regex -Doracles` gives 12,437,544 cases
+    with none failed.
+  - Mutations against `zig build test-regex`: 3, all CAUGHT: a start one past `from`; every
+    pattern taken to start at the text's start; and none, which turns claim R4 on for them.
   **Check, the short Teddy search:** a set's search gives the plain search's place from every
   offset, by the compares, by SSSE3's Teddy and by AVX2's, in texts of every length up to two
   blocks and a part; a short text gives no place whose literal would end past it, where the

@@ -5780,6 +5780,9 @@ last part lists what still waits on a ruling.
     - A lazy DFA over the forward program reads the text once and gives the match's end. Each
       state is the matcher's list at one position, built the first time a search reaches it.
     - A lazy DFA over the reverse program reads back from that end and gives the match's start.
+      Where every match starts at the text's start, as `^` makes it, a match found from `from`
+      starts there, so no reverse scan runs (added 2026-11-23, design §8 part 22n). Rust's crate
+      runs no reverse DFA for an anchored search either.
     - The matcher then runs from that start, for a caller that asks for the capture groups.
     - Each DFA keeps its states in a cache of a fixed size. A full cache forgets every state and
       goes on. A cache that fills again within 10 octets a state gives up, and the search runs on

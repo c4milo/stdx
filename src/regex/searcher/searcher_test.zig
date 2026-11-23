@@ -121,6 +121,9 @@ const cases = [_]struct { pattern: []const u8, text: []const u8 }{
     .{ .pattern = "(?s).\\z", .text = "ab\n" },
     .{ .pattern = "\\Aa|b\\z", .text = "bab" },
     .{ .pattern = "zzz", .text = "" },
+    // Every match starts at the text's start, and no thread alone finds the groups.
+    .{ .pattern = "^(a|ab)(c|bcd)(d*)", .text = "abcd abcd" },
+    .{ .pattern = "\\A(a*)(a*)b", .text = "aab aab" },
 };
 
 test "the searcher gives what the matcher gives, from every offset, under every cache size" {

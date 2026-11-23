@@ -127,6 +127,9 @@ pub const Searcher = struct {
     one_pass: OnePass,
     /// Claim R8: whether `captures` takes the backtracker over a span the DFAs found.
     backtrack: bool,
+    /// True where every match starts at the text's start, so the forward DFA's match starts at
+    /// `from` and no reverse scan runs, as Rust's crate runs none for an anchored search.
+    at_text: bool,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -167,11 +170,12 @@ pub const Searcher = struct {
         // A program of no group but the whole match needs no thread: the DFAs give its span.
         searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
         searcher.backtrack = claims.backtrack;
+        searcher.at_text = starts_at_text_start(program);
         searcher.suffix = null;
         const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
         // A literal that starts every match is the better way, and a pattern that starts at the
         // text's start reads few octets forward.
-        if (suffix_on and searcher.forward.literal == null and !starts_at_text_start(program)) {
+        if (suffix_on and searcher.forward.literal == null and !searcher.at_text) {
             searcher.suffix = dfa_suffix.suffix_of(&searcher.reverse, program);
             if (searcher.suffix) |*suffix| suffix.wide = searcher.forward.config.wide;
         }
@@ -286,6 +290,8 @@ pub const Searcher = struct {
             .none => return .{ .span = null },
             .found => |offset| offset,
         };
+        // `^` holds at the text's start alone, so a match found from `from` starts there.
+        if (searcher.at_text) return .{ .span = .{ .start = from, .end = end } };
         const start = switch (searcher.reverse.scan_reverse(haystack, from, end)) {
             .gave_up => return searcher.gave_up(),
             // The forward program matched text that ends at `end`, so the reverse program matches
