@@ -143,9 +143,27 @@ inline fn any_candidate(comptime width: usize, comptime form: Form, comptime ste
 }
 
 /// The first place of the block from `index` where the literal stands whole, among those where
-/// its octets at `first_at` and `last_at` stand. A step's places are a word of their own, so that
-/// SHRN's nibbles need no mask wider than a word.
+/// its octets at `first_at` and `last_at` stand. With a bit a place, the block's places are one
+/// mask, which one loop takes a bit at a time. A loop for each step's mask cost x86-64 a branch
+/// for each step, which a text of many candidates mispredicts: rows whose literal stands every
+/// line or so ran 6% to 12% slower, with fewer instructions (design §8 part 22n).
 inline fn first_stands(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize) ?usize {
+    if (comptime lane_places.narrows(width)) return first_stands_by_step(width, literal, form, steps, firsts, lasts, wanted, haystack, index);
+    const Step = lane_places.Places(width);
+    const BlockMask = std.meta.Int(.unsigned, steps * width);
+    var mask: BlockMask = 0;
+    inline for (0..steps) |step| mask |= @as(BlockMask, Step.of(both_lanes(width, form, firsts, lasts, step * width, wanted))) << step * width;
+    // Each set bit is one place to compare, at most `steps * width` of them.
+    while (mask != 0) : (mask &= mask - 1) {
+        const candidate = index + @ctz(mask);
+        if (literal.stands_at(haystack, candidate)) return candidate;
+    }
+    return null;
+}
+
+/// `first_stands` where SHRN gives the places: a step's places are a word of their own, so that
+/// no mask of four bits a place is wider than a word.
+inline fn first_stands_by_step(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize) ?usize {
     const Step = lane_places.Places(width);
     var masks: [steps]Step.Mask = undefined;
     inline for (&masks, 0..) |*mask, step| mask.* = Step.of(both_lanes(width, form, firsts, lasts, step * width, wanted));
