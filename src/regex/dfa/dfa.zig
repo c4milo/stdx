@@ -335,14 +335,14 @@ pub const Dfa = struct {
 
     /// Claim R9: where the entry the scan read before `at` leads back to its state, the scan goes
     /// past the octets over which the state stays (dfa_stay.zig).
-    inline fn stay_past(dfa: *Dfa, haystack: []const u8, at: *usize, known: u32, last: *?usize) void {
+    pub inline fn stay_past(dfa: *Dfa, haystack: []const u8, at: *usize, known: u32, last: *?usize) void {
         if (known & constants.dfa_skip_flag != 0) at.* = dfa_stay.pass(dfa, haystack, at.*, known & constants.dfa_row_mask, known, last);
     }
 
     /// Where a match ended before the octet at `at - 1`, the octets from `at` whose entries are
     /// rows, in the loop of matches (dfa_run.zig). Only a scan that wants the last match takes
     /// it. The scan's answer where the entry that ended the run is dead.
-    inline fn take_matches(dfa: *const Dfa, matched: bool, haystack: []const u8, at: *usize, state: *u32, last: *?usize) ?Scan {
+    pub inline fn take_matches(dfa: *const Dfa, matched: bool, haystack: []const u8, at: *usize, state: *u32, last: *?usize) ?Scan {
         if (!matched) return null;
         assert(last.* == at.* - 1);
         var ended = at.* - 1;

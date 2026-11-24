@@ -69,11 +69,9 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
     assert(count >= 1 and count <= constants.octet_values);
     const head = try builder.emit(.{ .kind = .ranges, .arg = @intCast(count) });
     var holes: Holes = .{};
-    var lengths: fragment.Lengths = .{ .least = gathered[0].len, .most = gathered[0].len };
     // A sequence of one range leaves the class through a hole. A longer one's range goes on to
     // the rest of its sequence, which the second loop writes after the node's ranges.
     for (gathered) |sequence| {
-        lengths = lengths.either(.{ .least = sequence.len, .most = sequence.len });
         const first = sequence.ranges[0];
         if (sequence.len > 1) {
             _ = try builder.emit(.{ .kind = .range, .lo = first.lo, .hi = first.hi });
@@ -87,7 +85,7 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
         builder.instructions[member].out = rest.entry;
         holes = builder.join(holes, rest.holes);
     }
-    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1, .lengths = lengths };
+    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
 }
 
 /// A class of bytes as one `ranges` node (`Encoding.bytes`). Each member is one byte, so the
@@ -103,7 +101,7 @@ pub fn octets(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragmen
         assert(index == 0 or range.lo > ranges[index - 1].hi);
         holes = builder.join(holes, (try builder.range(range.lo, range.hi)).holes);
     }
-    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1, .lengths = .one };
+    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
 }
 
 /// Writes the class's sequences into `gathered` and gives their count, or null where their first

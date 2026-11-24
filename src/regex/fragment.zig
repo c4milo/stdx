@@ -29,45 +29,6 @@ pub const Holes = struct {
 /// last octet to its first.
 pub const Direction = enum { forward, reverse };
 
-/// The least and the greatest count of bytes that a fragment's matches take (claim R13).
-pub const Lengths = struct {
-    least: u32 = 0,
-    most: u32 = 0,
-
-    /// A greatest count with no bound: the fragment holds a loop that takes a byte.
-    pub const unbounded = std.math.maxInt(u32);
-
-    /// The lengths of one byte.
-    pub const one: Lengths = .{ .least = 1, .most = 1 };
-
-    /// The lengths of a fragment whose matches a tally does not bound.
-    pub const any: Lengths = .{ .least = 0, .most = unbounded };
-
-    /// One fragment after another. A sum past `unbounded` stays there.
-    pub fn then(first: Lengths, second: Lengths) Lengths {
-        return .{ .least = first.least +| second.least, .most = first.most +| second.most };
-    }
-
-    /// One fragment or another.
-    pub fn either(first: Lengths, second: Lengths) Lengths {
-        return .{ .least = @min(first.least, second.least), .most = @max(first.most, second.most) };
-    }
-
-    /// A fragment once or not at all.
-    pub fn optional(lengths: Lengths) Lengths {
-        return .{ .least = 0, .most = lengths.most };
-    }
-
-    /// A fragment once or more. One that takes no byte takes none however often it repeats.
-    pub fn repeated(lengths: Lengths) Lengths {
-        return .{ .least = lengths.least, .most = if (lengths.most == 0) 0 else unbounded };
-    }
-};
-
-comptime {
-    assert(Lengths.unbounded == program.match_len_unbounded);
-}
-
 pub const Fragment = struct {
     /// The first instruction of the block. While the fragment is the last one built, its block
     /// runs from here to the program's end.
@@ -78,8 +39,6 @@ pub const Fragment = struct {
     nullable: bool,
     /// The product of the counts of the range quantifiers nested in the fragment.
     weight: u32,
-    /// The counts of bytes between which each of the fragment's matches lies.
-    lengths: Lengths,
 };
 
 /// Whether a quantifier takes its operand first, or the text after it.
@@ -144,32 +103,32 @@ pub const Builder = struct {
         }
     }
 
-    fn single(builder: *Builder, instruction: Instruction, lengths: Lengths) Error!Fragment {
+    fn single(builder: *Builder, instruction: Instruction, nullable: bool) Error!Fragment {
         const index = try builder.emit(instruction);
-        return .{ .begin = index, .entry = index, .holes = builder.open_out(index), .nullable = lengths.least == 0, .weight = 1, .lengths = lengths };
+        return .{ .begin = index, .entry = index, .holes = builder.open_out(index), .nullable = nullable, .weight = 1 };
     }
 
     /// One octet from `lo` to `hi`.
     pub fn range(builder: *Builder, lo: u8, hi: u8) Error!Fragment {
         assert(lo <= hi);
-        return builder.single(.{ .kind = .range, .lo = lo, .hi = hi }, .one);
+        return builder.single(.{ .kind = .range, .lo = lo, .hi = hi }, false);
     }
 
     /// The empty string.
     pub fn empty(builder: *Builder) Error!Fragment {
-        return builder.single(.{ .kind = .jump }, .{});
+        return builder.single(.{ .kind = .jump }, true);
     }
 
     /// An assertion, as the pattern reads it: the builder turns it around for a reverse program.
     pub fn look(builder: *Builder, forward: Look) Error!Fragment {
         const facing = if (builder.direction == .forward) forward else forward.reversed();
-        return builder.single(.{ .kind = .look, .look = facing }, .{});
+        return builder.single(.{ .kind = .look, .look = facing }, true);
     }
 
     /// No string at all.
     pub fn fail(builder: *Builder) Error!Fragment {
         const index = try builder.emit(.{ .kind = .fail });
-        return .{ .begin = index, .entry = index, .holes = .{}, .nullable = false, .weight = 1, .lengths = .{} };
+        return .{ .begin = index, .entry = index, .holes = .{}, .nullable = false, .weight = 1 };
     }
 
     /// `first` then `second`, in the pattern's order.
@@ -183,7 +142,6 @@ pub const Builder = struct {
             .holes = rest.holes,
             .nullable = first.nullable and second.nullable,
             .weight = @max(first.weight, second.weight),
-            .lengths = first.lengths.then(second.lengths),
         };
     }
 
@@ -196,7 +154,6 @@ pub const Builder = struct {
             .holes = builder.join(first.holes, second.holes),
             .nullable = first.nullable or second.nullable,
             .weight = @max(first.weight, second.weight),
-            .lengths = first.lengths.either(second.lengths),
         };
     }
 
@@ -227,7 +184,6 @@ pub const Builder = struct {
             .holes = builder.join(operand.holes, split.leave),
             .nullable = true,
             .weight = operand.weight,
-            .lengths = operand.lengths.optional(),
         };
     }
 
@@ -241,7 +197,6 @@ pub const Builder = struct {
             .holes = split.leave,
             .nullable = operand.nullable,
             .weight = operand.weight,
-            .lengths = operand.lengths.repeated(),
         };
     }
 
@@ -259,7 +214,6 @@ pub const Builder = struct {
             .holes = split.leave,
             .nullable = true,
             .weight = operand.weight,
-            .lengths = operand.lengths.repeated().optional(),
         };
     }
 
@@ -276,7 +230,6 @@ pub const Builder = struct {
             .holes = builder.open_out(close),
             .nullable = operand.nullable,
             .weight = operand.weight,
-            .lengths = operand.lengths,
         };
     }
 
@@ -299,7 +252,6 @@ pub const Builder = struct {
             .holes = .{ .head = moved_hole(fragment.holes.head, shift), .tail = moved_hole(fragment.holes.tail, shift) },
             .nullable = fragment.nullable,
             .weight = fragment.weight,
-            .lengths = fragment.lengths,
         };
     }
 

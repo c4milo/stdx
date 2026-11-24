@@ -14,6 +14,7 @@ const constants = @import("../constants.zig");
 const Context = @import("../program.zig").Context;
 const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
+const dfa_run = @import("dfa_run.zig");
 
 /// The state a scan from the second start begins in, behind which stands a byte of `behind`'s
 /// context. Null when the DFA gives up.
@@ -44,9 +45,19 @@ pub const Forward = union(enum) {
     }
 };
 
+/// Where the match of a scan that a run of matches ended stops, or null where it found none.
+fn ended(scan: dfa_file.Scan) ?usize {
+    return switch (scan) {
+        .found => |end| end,
+        .none => null,
+        // A run of matches reads entries the table holds, and builds none.
+        .gave_up => unreachable,
+    };
+}
+
 /// The forward program's match that starts at `from`, as the matcher finds it anchored there.
-/// One entry of the table a byte: a search makes such a scan for a place of its literal, and a
-/// match is short beside the text.
+/// The scan takes the loops of `Dfa.scan_plain` but its pairs: a run of plain rows, a state that
+/// stays (claim R9), and a run of matches.
 pub fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize) Forward {
     assert(from <= haystack.len and dfa.cache.table.len > 0);
     assert(dfa.config.kind == .first and dfa.second_entry == dfa.config.entry);
@@ -54,15 +65,32 @@ pub fn scan_forward(dfa: *Dfa, haystack: []const u8, from: usize) Forward {
     var state = start(dfa, behind) orelse return .gave_up;
     var last: ?usize = null;
     dfa.mark = from;
-    for (haystack[from..], from..) |octet, index| {
-        // As in `Dfa.scan_plain`, the sum of a row and a class cannot wrap.
-        const entry = dfa.cache.table[state +% dfa.classes[octet]];
-        const known = dfa.resolve(state, octet, entry, index) orelse return .gave_up;
-        if (known & constants.dfa_match_flag != 0) last = index;
-        if (known & constants.dfa_dead_flag != 0) return Forward.of(last, index);
-        state = known & constants.dfa_row_mask;
+    var at = from;
+    // Each turn takes the bytes up to one whose entry is no plain row, and that byte, so the
+    // turns are at most the bytes from `from` and one.
+    for (0..haystack.len - from + 1) |_| {
+        at = dfa_run.plain(dfa.cache.table, &dfa.classes, haystack, at, &state);
+        if (at == haystack.len) break;
+        if (take(dfa, haystack, &at, &state, &last)) |answer| return answer;
     }
     dfa.tally(haystack.len);
     if (dfa.matches_at_end(state, .edge)) last = haystack.len;
     return Forward.of(last, haystack.len);
+}
+
+/// Takes the byte at `at`, whose entry is no plain row, and the bytes after it over which the
+/// state stays or a match ends. The scan's answer where it ends here.
+inline fn take(dfa: *Dfa, haystack: []const u8, at: *usize, state: *u32, last: *?usize) ?Forward {
+    const octet = haystack[at.*];
+    const entry = dfa.cache.table[state.* +% dfa.classes[octet]];
+    const known = dfa.resolve(state.*, octet, entry, at.*) orelse return .gave_up;
+    const matched = known & constants.dfa_match_flag != 0;
+    if (matched) last.* = at.*;
+    if (known & constants.dfa_dead_flag != 0) return Forward.of(last.*, at.*);
+    state.* = known & constants.dfa_row_mask;
+    at.* += 1;
+    dfa.stay_past(haystack, at, known, last);
+    // The run of matches stopped at a dead entry: the scan stops at its byte.
+    const scan = dfa.take_matches(matched, haystack, at, state, last) orelse return null;
+    return Forward.of(ended(scan), at.*);
 }

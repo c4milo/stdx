@@ -149,9 +149,6 @@ pub fn step_ranges(instructions: []const Instruction, index: u32, octet: u8) ?u3
     return if (octet <= member.hi) member.out else null;
 }
 
-/// A `Program.match_len_max` with no bound.
-pub const match_len_unbounded = std.math.maxInt(u32);
-
 /// An entry that names no program.
 pub const no_entry = std.math.maxInt(u32);
 
@@ -203,12 +200,6 @@ pub const Program = struct {
     reverse: u32,
     /// The capture groups, the whole match counted as group 0.
     group_count: u32,
-    /// The least count of bytes a match takes, and the greatest, or `match_len_unbounded` where
-    /// the pattern holds a loop that takes a byte. An assertion may leave a pattern fewer
-    /// matches, so each match lies between the two, and not every count between them is a
-    /// match's.
-    match_len_min: u32,
-    match_len_max: u32,
     /// True when an assertion reads the octet ahead of a position.
     reads_ahead: bool,
     /// True when the program holds any assertion.

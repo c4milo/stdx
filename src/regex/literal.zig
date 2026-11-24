@@ -106,18 +106,23 @@ pub const Literal = extern struct {
     /// R3 then holds the pattern.
     pub fn suffix_of(program: *const Program) ?Suffix {
         assert(program.reverse != program_file.no_entry);
-        return chain(program, program.reverse, true);
+        var suffix = chain(program, program.reverse, true) orelse return null;
+        suffix.literal.prepare();
+        return suffix;
     }
 
     /// Claim R14: the literal that the reverse program takes from `entry`, an instruction that
     /// takes one byte, and the instruction where the program goes on to the part of a match
-    /// before the literal. Null where the literal is the start of every match.
+    /// before the literal. Null where the literal is the start of every match. The literal is
+    /// not ready for a search: a caller that keeps it calls `prepare`, since a program holds
+    /// many such instructions and keeps one literal at most.
     pub fn chain_of(program: *const Program, entry: u32) ?Suffix {
         assert(program.reverse != program_file.no_entry and entry >= program.forward_len);
         return chain(program, entry, false);
     }
 
-    /// The literal that the reverse program takes from `entry`, in the order of the text.
+    /// The literal that the reverse program takes from `entry`, in the order of the text, not
+    /// yet ready for a search.
     fn chain(program: *const Program, entry: u32, through_looks: bool) ?Suffix {
         var found = walk(program, entry, through_looks);
         if (found.literal.len == 0 or found.reached_match) return null;
@@ -126,7 +131,6 @@ pub const Literal = extern struct {
         const unused: std.math.Log2Int(Folds) = @intCast(constants.literal_len_max - found.literal.len);
         found.literal.folds = @bitReverse(found.literal.folds) >> unused;
         found.literal.exact = false;
-        found.literal.prepare();
         const run = found.literal.first_run();
         // The walk took the literal's last byte first, so its byte `i` is place `len - 1 - i`.
         const run_entry = if (run == 0) found.stop else found.places[found.literal.len - run];

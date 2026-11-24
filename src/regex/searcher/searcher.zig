@@ -20,7 +20,6 @@ const Span = matcher_file.Span;
 const dfa_file = @import("../dfa/dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Literal = literal_file.Literal;
-const dfa_suffix = @import("../dfa/dfa_suffix.zig");
 const dfa_wait = @import("../dfa/dfa_wait.zig");
 const one_pass = @import("../one_pass.zig");
 const backtrack = @import("../backtrack.zig");
@@ -28,14 +27,20 @@ const codec = @import("codec");
 const platform = @import("platform");
 const literal_file = @import("../literal.zig");
 const searcher_edge = @import("searcher_edge.zig");
-const dfa_inner = @import("../dfa/dfa_inner.zig");
 const searcher_inner = @import("searcher_inner.zig");
+const searcher_claim = @import("searcher_claim.zig");
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
 
 /// What a faster way found: the match, or that the text holds none.
-const Answer = struct { span: ?Span };
+pub const Answer = struct { span: ?Span };
+
+/// What a faster way found, for `find` and `captures`, which keep the span beside it. An
+/// answer that held its span came back through memory where the ways joined: stored as two
+/// words and read as one, which no CPU forwards, at 12 to 35 percent of a short search (design
+/// §8 part 22q).
+pub const Outcome = enum { match, none, unknown };
 
 /// The claims of a searcher, each a faster way that must give the answer the plain way gives.
 /// A caller turns one off to measure it, or to rule it out.
@@ -82,8 +87,7 @@ pub const Claims = struct {
     text_end: bool = true,
     /// R13: where every match starts at the text's start and ends at its end, a text shorter
     /// than the pattern's least match, or longer than its greatest, holds no match, and the
-    /// searcher reads none of it. The parser keeps both lengths as it reads the pattern
-    /// (`Program.match_len_min`).
+    /// searcher reads none of it. A walk of the program finds both lengths (dfa_length.zig).
     length: bool = true,
     /// R14: where every match holds a literal after a part that claim R4's rules hold for, and
     /// no other claim finds its matches, the searcher goes to the literal's places. It reads
@@ -183,10 +187,19 @@ pub const Searcher = struct {
     /// there.
     at_end: bool,
     /// Claim R13: the least length of a match that is the whole text, and the greatest less the
-    /// least. A searcher with no such lengths holds zero and the greatest `usize`, which no
-    /// text's length is outside.
+    /// least, once the searcher judged the claim. A searcher with no such lengths holds zero and
+    /// the greatest `usize`, which no text's length is outside.
     len_least: usize,
     len_span: usize,
+    /// Claim R14's account of what its places cost (searcher_inner.zig).
+    inner_account: searcher_inner.Account,
+    /// Claims R4 and R14 where the searcher has not judged them yet, and the bytes of text its
+    /// searches still cover before it does (searcher_claim.zig).
+    deferred: searcher_claim.Deferred,
+    deferred_left: usize,
+    /// True where a claim of searcher_claim.zig finds the match or waits: `at_end`, `suffix`,
+    /// `inner`, claim R13's lengths or `deferred`. A search reads this one flag for them all.
+    by_claim: bool,
     /// The slots of the whole match, where it is a program's one group and the DFAs found it.
     whole: [constants.group_slots]u64,
 
@@ -234,40 +247,7 @@ pub const Searcher = struct {
         searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
         searcher.backtrack = claims.backtrack;
         searcher.count_ends = claims.count_ends;
-        const both_ready = searcher.forward_ready and searcher.reverse_ready;
-        // A pattern that starts at the text's start reads few bytes forward.
-        const at_text_end = searcher_edge.ends_at_text_end(program);
-        searcher.at_end = claims.text_end and both_ready and !searcher.at_text and at_text_end;
-        const bounded = program.match_len_max != program_file.match_len_unbounded;
-        const whole_text = claims.length and searcher.at_text and at_text_end and bounded;
-        searcher.len_least = if (whole_text) program.match_len_min else 0;
-        searcher.len_span = if (whole_text) program.match_len_max - program.match_len_min else std.math.maxInt(usize);
-        searcher.suffix = null;
-        searcher.inner = null;
-        if (claims.start_skip and claims.suffix and both_ready) searcher.init_suffix(program);
-        if (claims.start_skip and claims.inner and both_ready) searcher.init_inner(program);
-    }
-
-    /// Readies claim R14 for a searcher with both DFAs, where no other claim finds its matches.
-    fn init_inner(searcher: *Searcher, program: *const Program) void {
-        if (searcher.suffix != null or searcher.at_end or searcher.at_text) return;
-        if (searcher.forward.literal != null or searcher.forward.literals != null) return;
-        const inner = dfa_inner.inner_of(&searcher.reverse, program) orelse return;
-        searcher.inner = inner.literal;
-        searcher.inner.?.wide = searcher.forward.config.wide;
-        // The reverse DFA's second start reads the part of a match before the literal.
-        searcher.reverse.second_entry = inner.before;
-    }
-
-    /// Readies claim R4 for a searcher with both DFAs, where no better way finds its matches.
-    fn init_suffix(searcher: *Searcher, program: *const Program) void {
-        // A literal that starts every match is the better way, and so is a search from the
-        // text's end. A pattern that starts at the text's start reads few bytes forward.
-        if (searcher.forward.literal != null or searcher.at_end or searcher.at_text) return;
-        // Beside a set of literals, which claim R5 goes to, the first rule alone takes a suffix.
-        const rules: dfa_suffix.Rules = if (searcher.forward.literals == null) .all else .first;
-        searcher.suffix = dfa_suffix.suffix_of(&searcher.reverse, program, rules);
-        if (searcher.suffix) |*suffix| suffix.wide = searcher.forward.config.wide;
+        searcher_claim.ready(searcher, program, claims);
     }
 
     /// Readies claims R2 and R5 where the pattern is a literal or a set of literals and nothing
@@ -291,10 +271,10 @@ pub const Searcher = struct {
     pub fn is_match(searcher: *Searcher, haystack: []const u8) bool {
         if (searcher.exact) |*literal| return literal.find(haystack, 0) != null;
         if (searcher.exact_set) return searcher.forward.literals.?.find_exact(haystack, 0) != null;
-        if (searcher.excludes(haystack.len)) return false;
-        if (searcher.suffix != null or searcher.at_end or searcher.inner != null) {
-            if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
-        } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
+        if (searcher.by_claim) {
+            if (searcher.is_match_by_claim(haystack)) |matched| return matched;
+        }
+        if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
             const scan = if (dfa_wait.has_literal(&searcher.forward))
                 searcher.scan_from_literal(haystack) orelse return false
             else
@@ -310,6 +290,15 @@ pub const Searcher = struct {
         return searcher.matcher.search(haystack, .last).status == .match;
     }
 
+    /// `is_match` for a searcher with a claim of searcher_claim.zig, or null where the forward
+    /// scan of `is_match` answers. A searcher that holds claim R13's lengths holds no other
+    /// claim of that file, and none that waits, so it calls nothing there.
+    inline fn is_match_by_claim(searcher: *Searcher, haystack: []const u8) ?bool {
+        if (searcher.excludes(haystack.len)) return false;
+        if (searcher.len_span != std.math.maxInt(usize)) return null;
+        return searcher_claim.is_match(searcher, haystack);
+    }
+
     /// `is_match`'s forward scan for a DFA with claim R2's literal or R5's set: a text that holds
     /// none of them holds no match, and gets null with no scan to set up. Out of line, so that
     /// `is_match` keeps its scan from 0, a constant its inlined start folds: with this scan inline
@@ -323,7 +312,20 @@ pub const Searcher = struct {
     /// end, or one scalar value past it where the match is empty.
     pub fn find(searcher: *Searcher, haystack: []const u8, from: usize) ?Span {
         assert(from <= haystack.len);
-        if (searcher.find_by_dfa(haystack, from)) |answer| return answer.span;
+        // A claim's search returns by itself, and joins no other answer (`Outcome`).
+        if (searcher.by_claim) return searcher_claim.find_span(searcher, haystack, from);
+        var span: Span = undefined;
+        // A `return` for each outcome: each writes the result where the caller reads it.
+        switch (searcher.find_by_dfa(haystack, from, &span)) {
+            .match => return span,
+            .none => return null,
+            .unknown => {},
+        }
+        return searcher.find_by_matcher(haystack, from);
+    }
+
+    /// The first match at or after `from` as the matcher finds it, where no faster way did.
+    pub fn find_by_matcher(searcher: *Searcher, haystack: []const u8, from: usize) ?Span {
         searcher.matcher.configure(.{ .captures = .span });
         return searcher.matcher.find(haystack, from);
     }
@@ -335,10 +337,21 @@ pub const Searcher = struct {
         assert(from <= haystack.len);
         if (searcher.one_pass == .unknown) searcher.one_pass = judge_one_pass(&searcher.matcher);
         if (searcher.one_pass == .at_text) return searcher.captures_at_start(haystack, from);
+        // As in `find`, a claim's answer joins no other.
+        var span: Span = undefined;
+        if (searcher.by_claim) {
+            const outcome = searcher_claim.find_outcome(searcher, haystack, from, &span);
+            return searcher.captures_of(outcome, span, haystack, from);
+        }
+        return searcher.captures_of(searcher.find_by_dfa(haystack, from, &span), span, haystack, from);
+    }
+
+    /// `captures` once a faster way gave its outcome, and the match's span where it found one.
+    inline fn captures_of(searcher: *Searcher, outcome: Outcome, span: Span, haystack: []const u8, from: usize) ?Groups {
         var anchor = from;
         var anchored = false;
-        if (searcher.find_by_dfa(haystack, from)) |answer| {
-            const span = answer.span orelse return null;
+        if (outcome == .none) return null;
+        if (outcome == .match) {
             // A program of no group but the whole match: the DFAs gave every group.
             if (searcher.matcher.program.group_count == 1) {
                 searcher.whole = .{ span.start, span.end };
@@ -382,92 +395,59 @@ pub const Searcher = struct {
         return searcher.matched_groups();
     }
 
-    /// The match as the two DFAs find it, or null when the searcher has no DFA for the search or
-    /// one gave up.
-    fn find_by_dfa(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
-        if (searcher.exact) |*literal| {
-            const start = literal.find(haystack, from) orelse return .{ .span = null };
-            return .{ .span = .{ .start = start, .end = start + literal.len } };
-        }
-        if (searcher.exact_set) {
-            const place = searcher.forward.literals.?.find_exact(haystack, from) orelse return .{ .span = null };
-            return .{ .span = .{ .start = place.start, .end = place.end } };
-        }
-        if (searcher.excludes(haystack.len)) return .{ .span = null };
-        if (!searcher.forward_ready or !searcher.reverse_ready) return null;
-        if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
-        if (searcher.at_end) return searcher.find_from_end(haystack, from);
-        if (searcher.suffix) |*suffix| return searcher.find_by_suffix(suffix, haystack, from);
-        if (searcher.inner) |*inner| {
-            switch (searcher_inner.find(&searcher.forward, &searcher.reverse, inner, haystack, from)) {
-                .answer => |span| return .{ .span = span },
-                .gave_up => return searcher.gave_up(),
-                .plain => {},
-            }
-        }
-        return searcher.find_plain(haystack, from);
+    /// `find_by_dfa` for searcher_claim.zig, whose claims call it where they leave a search to
+    /// the two DFAs.
+    pub fn find_plain(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
+        var span: Span = undefined;
+        return switch (searcher.find_by_dfa(haystack, from, &span)) {
+            .match => .{ .span = span },
+            .none => .{ .span = null },
+            .unknown => null,
+        };
     }
 
-    /// The match as the two DFAs find it with no claim that goes to a place first: the forward
-    /// DFA finds its end, and the reverse DFA its start. Inline, as `find_by_dfa` held it.
-    inline fn find_plain(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
+    /// The match as the two DFAs find it, written to `span`, or `unknown` when the searcher has
+    /// no DFA for the search or one gave up. Inline, as `find` and `captures` held it before
+    /// searcher_claim.zig: in a function of its own, its skip took 7% more instructions (design
+    /// §8 part 22q).
+    inline fn find_by_dfa(searcher: *Searcher, haystack: []const u8, from: usize, span: *Span) Outcome {
+        if (searcher.exact) |*literal| {
+            const start = literal.find(haystack, from) orelse return .none;
+            span.* = .{ .start = start, .end = start + literal.len };
+            return .match;
+        }
+        if (searcher.exact_set) {
+            const place = searcher.forward.literals.?.find_exact(haystack, from) orelse return .none;
+            span.* = .{ .start = place.start, .end = place.end };
+            return .match;
+        }
+        if (!searcher.forward_ready or !searcher.reverse_ready) return .unknown;
+        if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
         const end = switch (searcher.forward.scan_forward(haystack, from, false)) {
-            .gave_up => return searcher.gave_up(),
-            .none => return .{ .span = null },
+            .gave_up => return searcher.gave_up_unknown(),
+            .none => return .none,
             .found => |offset| offset,
         };
         // `^` holds at the text's start alone, so a match found from `from` starts there.
-        if (searcher.at_text) return .{ .span = .{ .start = from, .end = end } };
-        const start = switch (searcher.reverse.scan_reverse(haystack, from, end)) {
-            .gave_up => return searcher.gave_up(),
+        const start = if (searcher.at_text) from else switch (searcher.reverse.scan_reverse(haystack, from, end)) {
+            .gave_up => return searcher.gave_up_unknown(),
             // The forward program matched text that ends at `end`, so the reverse program matches
             // it read backward.
             .none => unreachable,
             .found => |offset| offset,
         };
-        return .{ .span = .{ .start = start, .end = end } };
+        span.* = .{ .start = start, .end = end };
+        return .match;
     }
 
-    fn gave_up(searcher: *Searcher) ?Answer {
+    inline fn gave_up_unknown(searcher: *Searcher) Outcome {
+        searcher.give_ups += 1;
+        return .unknown;
+    }
+
+    pub fn gave_up(searcher: *Searcher) ?Answer {
         searcher.give_ups += 1;
         return null;
-    }
-
-    /// Claim R12, out of line as `find_by_suffix` is. Every match ends at the text's end, and
-    /// the reverse DFA reads back from there to the least start of a match at or after `from`.
-    /// That is the start of the match a forward search finds first, since no match ends
-    /// elsewhere.
-    noinline fn find_from_end(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
-        return switch (searcher.reverse.scan_reverse(haystack, from, haystack.len)) {
-            .gave_up => searcher.gave_up(),
-            .none => .{ .span = null },
-            .found => |start| .{ .span = .{ .start = start, .end = haystack.len } },
-        };
-    }
-
-    /// Claim R4: the first match at or after `from`, found from the places of the suffix in
-    /// turn. At the first place from which the reverse DFA reads back to a match's start, the
-    /// match ends with the place's suffix (dfa_suffix.zig).
-    /// Out of line, so that `find_by_dfa` stays small enough for its caller to inline.
-    noinline fn find_by_suffix(searcher: *Searcher, suffix: *const Literal, haystack: []const u8, from: usize) ?Answer {
-        var index = from;
-        // Each turn goes on from one octet past the place before, so the turns are at most the
-        // octets from `from` and one.
-        for (0..haystack.len - from + 1) |_| {
-            const place = suffix.find(haystack, index) orelse return .{ .span = null };
-            const end = place + suffix.len;
-            switch (searcher.reverse.scan_reverse(haystack, from, end)) {
-                .none => index = place + 1,
-                .gave_up => return searcher.gave_up(),
-                .found => |start| {
-                    // A program of UTF-8 takes whole sequences, so a match starts at no
-                    // continuation octet.
-                    assert(searcher.matcher.program.encoding.may_start_at(haystack[start]));
-                    return .{ .span = .{ .start = start, .end = end } };
-                },
-            }
-        }
-        return .{ .span = null };
     }
 };
 

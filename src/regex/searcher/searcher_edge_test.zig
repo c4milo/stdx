@@ -215,13 +215,16 @@ test "a searcher whose every match is the whole text refuses a text by its lengt
     for (whole_patterns) |pattern| {
         try fixture.init(pattern, 0);
         const sizes = searcher_test.cache_sizes(&fixture.program);
-        // With no cache the matcher answers alone, and the lengths still refuse a text.
-        for ([_]usize{ sizes.most, sizes.least, sizes.none }) |cache_words| {
+        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
             try fixture.init(pattern, cache_words);
             try testing.expect(refuses_by_length(&fixture));
             try testing.expect(!fixture.searcher.at_end);
             try expect_agree_on_texts(&fixture, &generator);
         }
+        // The walk takes the forward DFA's lists, so a searcher with no cache keeps no lengths.
+        try fixture.init(pattern, sizes.none);
+        try testing.expect(!refuses_by_length(&fixture));
+        try expect_agree_on_texts(&fixture, &generator);
         try fixture.init_claims(pattern, .{ .length = false }, sizes.most);
         try testing.expect(!refuses_by_length(&fixture));
         try expect_agree_on_texts(&fixture, &generator);

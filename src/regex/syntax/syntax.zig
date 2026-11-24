@@ -47,7 +47,6 @@ const Alternation = struct {
     holes: Holes,
     nullable: bool,
     weight: u32,
-    lengths: fragment.Lengths,
 };
 
 const Frame = struct {
@@ -174,7 +173,6 @@ pub const Parser = struct {
             alternation.holes = parser.builder.join(alternation.holes, closed.holes);
             alternation.nullable = alternation.nullable or closed.nullable;
             alternation.weight = @max(alternation.weight, closed.weight);
-            alternation.lengths = alternation.lengths.either(closed.lengths);
         } else {
             frame.alternation = .{
                 .entry = split,
@@ -183,7 +181,6 @@ pub const Parser = struct {
                 .holes = closed.holes,
                 .nullable = closed.nullable,
                 .weight = closed.weight,
-                .lengths = closed.lengths,
             };
         }
     }
@@ -200,7 +197,6 @@ pub const Parser = struct {
                 .holes = parser.builder.join(alternation.holes, whole.holes),
                 .nullable = alternation.nullable or whole.nullable,
                 .weight = @max(alternation.weight, whole.weight),
-                .lengths = alternation.lengths.either(whole.lengths),
             };
         }
         if (frame.group != no_group) whole = try parser.builder.capture(whole, frame.group);

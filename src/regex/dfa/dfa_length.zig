@@ -1,5 +1,5 @@
-//! The least and the greatest count of bytes that a part of a program takes (claim R4's second
-//! rule, decision 86), where a walk of the part finds both within a few levels.
+//! The least and the greatest count of bytes that a program takes, or a part of one (claim R13,
+//! and claim R4's second rule, decision 86), where a walk finds both within its budget.
 //!
 //! The walk takes the program one byte at a time, as a scan does, with every byte at once. A
 //! level holds the instructions a match waits at after as many bytes as the level's number.
@@ -9,14 +9,13 @@
 //!   takes one of the walk's paths: none is shorter than the least, and none longer than the
 //!   greatest.
 //! - The caller names the most levels it has a use for, and the walk gives no lengths where a
-//!   level past them holds an instruction. A part with a loop has a level after every level,
-//!   and stops there.
-//! - A level may hold most of the part's instructions, so the walk also stops at
+//!   level past them holds an instruction. A program with a loop has a level after every
+//!   level, and stops there.
+//! - A level may hold most of the program's instructions, so the walk also stops at
 //!   `length_steps_per_instruction` steps for each instruction.
 //!
-//! The walk takes the DFA's own lists, as claim R4's other walks do, so it needs no memory. The
-//! lengths of a whole pattern come from the parser, which keeps them as it reads the pattern
-//! (`Program.match_len_min`).
+//! The walk takes the DFA's own lists, as claim R4's other walks do, so it needs no memory. A
+//! searcher makes it once its searches covered enough text (searcher_claim.zig).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -24,6 +23,14 @@ const Dfa = @import("dfa.zig").Dfa;
 
 /// The counts of bytes between which every match of a part of a program lies, both included.
 pub const Lengths = struct { least: usize, most: usize };
+
+/// The counts of bytes that a match of the DFA's program takes (claim R13). Null where a match
+/// may take more bytes than the walk's budget has steps, as for a program with a loop, or
+/// where the walk passes its budget.
+pub fn of(dfa: *Dfa) ?Lengths {
+    // A level that holds an instruction takes a step or more, so the budget bounds the levels.
+    return from(dfa, dfa.config.entry, dfa.visited.sparse.len * constants.length_steps_per_instruction);
+}
 
 /// The counts of bytes that the DFA's program takes from `entry` to `match`. Null where a match
 /// may take more than `most_max` bytes, where the walk passes its budget, or where the program
