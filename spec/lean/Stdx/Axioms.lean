@@ -225,6 +225,12 @@ namespace Stdx.Regex
 /-- info: 'Stdx.Regex.Matcher.answerFast_isAnswer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.answerFast_isAnswer
 
+/-- info: 'Stdx.Regex.Matcher.search_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.search_none
+
+/-- info: 'Stdx.Regex.Matcher.isAnswer_of_isAnswerOf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.isAnswer_of_isAnswerOf
+
 /-- info: 'Stdx.Regex.Matcher.exact_of_isExact' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.exact_of_isExact
 

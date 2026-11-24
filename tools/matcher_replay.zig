@@ -10,10 +10,11 @@
 //! - `matcher_replay dump <seed> <count> <file>` writes the programs `compile` gives the
 //!   patterns a seed draws (matcher_replay_dump.zig), and `lake exe vectors --answers <file>`
 //!   answers each search. This program compiles each pattern again, requires the program the
-//!   file lists, and requires the answer of `Matcher.find` and of three searchers: one with
-//!   every claim, one with none, and one with every claim that read a long text first. A
-//!   search from 0 also holds each searcher's `is_match`. A line that begins `differs` says a
-//!   check of the Lean side failed, and fails the replay.
+//!   file lists, and requires the answer of `Matcher.find` and of four searchers: one with
+//!   every claim, one with none, one with every claim that read a long text first, and one
+//!   with every claim and the least cache its DFAs start with. A search from 0 also holds
+//!   each searcher's `is_match`. A line that begins `differs` says a check of the Lean side
+//!   failed, and fails the replay.
 //!
 //! It exits 1 at the first line that fails, and names the line.
 //! src/regex/matcher_vectors_test.zig replays the committed file of one seed as a unit test.
@@ -34,9 +35,18 @@ const pattern_len_max = 2048;
 /// The slots of the whole match, which is all a replay of instructions reads.
 const span_slots = 2;
 
-/// The searchers a compiled pattern's searches run: one with every claim, one with none, and
-/// one with every claim that read `long_read_len` bytes before its first search.
-pub const searcher_count = 3;
+/// The searchers a compiled pattern's searches run: one with every claim, one with none, one
+/// with every claim that read `long_read_len` bytes before its first search, and one with
+/// every claim and a small cache.
+pub const searcher_count = 4;
+
+/// The searcher with a small cache. Its cache holds the least words, of the powers of two
+/// from `small_cache_shift_min`, at which both its DFAs start. Such a cache fills on a long
+/// text, the DFA clears it, and a DFA that clears it too often gives up, so the searcher
+/// runs the matcher.
+pub const small_cache_searcher = 3;
+const small_cache_shift_min = 4;
+const small_cache_shift_max = std.math.log2_int(usize, regex.constants.cache_words_default);
 
 /// The searcher that reads a long text first. A searcher keeps state from one search to the
 /// next: its DFAs' caches, and what a claim learned of the texts. So an answer is held for a
@@ -127,7 +137,7 @@ pub const Replay = struct {
     ready: bool = false,
     storage: []Instruction,
     program: regex.Program = undefined,
-    text: [replay_dump.text_len_max]u8 = undefined,
+    text: [replay_dump.long_text_len_max]u8 = undefined,
     text_len: usize = 0,
     matcher: Matcher = undefined,
     matcher_memory: []u64,
@@ -142,6 +152,12 @@ pub const Replay = struct {
     searcher_finds: usize = 0,
     long_reads: usize = 0,
     is_matches: usize = 0,
+    /// The words of the small cache that the fourth searcher's DFAs started with.
+    small_cache_words: usize = 0,
+    /// The searches that the searcher with a small cache answered after a DFA of its cleared
+    /// its cache, and after one gave up.
+    finds_after_clear: usize = 0,
+    finds_after_give_up: usize = 0,
 
     pub fn init(arena: std.mem.Allocator) !Replay {
         const count = replay_dump.instructions_max;
@@ -244,12 +260,26 @@ pub const Replay = struct {
         const program = &replay.program;
         if (program.slot_count() > replay_dump.slots_max) return error.VectorProgramLong;
         replay.matcher.init(program, .{ .captures = .span }, replay.matcher_memory);
-        const claims = [searcher_count]regex.SearcherClaims{ .{}, no_claims(), .{} };
+        const claims = [searcher_count]regex.SearcherClaims{ .{}, no_claims(), .{}, .{} };
         const words = Searcher.memory_len(program.forward_len, program.slot_count(), regex.constants.cache_words_default);
         for (&replay.searchers, replay.searcher_memory, claims) |*searcher, memory, claim| {
             searcher.init(program, &.{ .features = replay.features, .claims = claim }, memory[0..words]);
         }
         replay.read_long_text();
+        replay.shrink_cache();
+    }
+
+    /// Readies the fourth searcher again with the least cache at which both its DFAs start.
+    fn shrink_cache(replay: *Replay) void {
+        const program = &replay.program;
+        const searcher = &replay.searchers[small_cache_searcher];
+        const memory = replay.searcher_memory[small_cache_searcher];
+        for (small_cache_shift_min..small_cache_shift_max + 1) |shift| {
+            replay.small_cache_words = @as(usize, 1) << @intCast(shift);
+            const words = Searcher.memory_len(program.forward_len, program.slot_count(), replay.small_cache_words);
+            searcher.init(program, &.{ .features = replay.features }, memory[0..words]);
+            if (searcher.forward_ready and searcher.reverse_ready) return;
+        }
     }
 
     /// Has the third searcher read the case's text, repeated to `long_read_len` bytes: once for
@@ -283,11 +313,15 @@ pub const Replay = struct {
         replay.finds += 1;
         try expect_matcher(replay.matcher.find(text, low), expected);
         if (!replay.compiled) return;
-        const causes = [searcher_count]anyerror{ error.SearcherDiffers, error.SearcherWithNoClaimDiffers, error.SearcherAfterLongReadDiffers };
+        const causes = [searcher_count]anyerror{ error.SearcherDiffers, error.SearcherWithNoClaimDiffers, error.SearcherAfterLongReadDiffers, error.SearcherWithSmallCacheDiffers };
         for (&replay.searchers, causes) |*searcher, cause| {
             replay.searcher_finds += 1;
             if (!same(searcher.find(text, low), expected)) return cause;
         }
+        const small = &replay.searchers[small_cache_searcher];
+        const cleared = small.forward_ready and small.reverse_ready and small.forward.cache.clears + small.reverse.cache.clears > 0;
+        replay.finds_after_clear += @intFromBool(cleared);
+        replay.finds_after_give_up += @intFromBool(small.give_ups > 0);
         // A text holds a match exactly where a search from its start finds one.
         if (low != 0) return;
         for (&replay.searchers) |*searcher| {
@@ -345,7 +379,7 @@ pub fn main(init: std.process.Init) !void {
         if (replay.compiled) std.debug.print("matcher_replay: the pattern is \"{f}\", read as {s}\n", .{ std.zig.fmtString(replay.pattern[0..replay.pattern_len]), @tagName(replay.encoding) });
         std.process.exit(1);
     }
-    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer\n", .{ replay.programs, replay.patterns, replay.finds });
+    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up });
 }
 
 test {

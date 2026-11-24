@@ -298,19 +298,26 @@ structure Dump where
   /-- The text of the searches that follow. -/
   text : List Nat := []
 
+/-- The longest text whose two hypotheses the lines below decide. `reversesOn` reads each pair
+of offsets, so a long text costs too much, and the answer of a search needs neither. -/
+def hypothesisLenMax : Nat := 16
+
 open Stdx.Regex.Matcher in
 /-- A line that begins `differs` for each hypothesis that the dump's program and text do not
-pass: `Exact` for the program, `EmptyElsewhere` for the text, and `Reverses` for the program's
-two halves on the text. With the three, `byDfa_answer` proves that the forward and the reverse
-scan of `Stdx/Regex/Searcher.lean` give each answer below. -/
+pass: `Exact` for the program, and for a text of at most `hypothesisLenMax` bytes
+`EmptyElsewhere`, and `Reverses` for the program's two halves. With the three, `byDfa_answer`
+proves that the forward and the reverse scan of `Stdx/Regex/Searcher.lean` give each answer
+below. -/
 def hypothesisLines (dump : Dump) : List String :=
   let starts := Stdx.Regex.Dfa.startsOf dump.text (mayStart dump.utf8)
+  let short := dump.text.length ≤ hypothesisLenMax
   (if isExact dump.prog then [] else ["differs exact"]) ++
-    (if emptyElsewhereOn dump.prog dump.forward dump.text starts then [] else ["differs starts"])
+    (if !short || emptyElsewhereOn dump.prog dump.forward dump.text starts then []
+      else ["differs starts"])
     ++ match dump.reverse with
     | none => []
     | some reverse =>
-      if reversesOn dump.prog dump.forward dump.prog reverse dump.text then []
+      if !short || reversesOn dump.prog dump.forward dump.prog reverse dump.text then []
       else ["differs reverses"]
 
 /-- A span as a `find` line spells it. -/
@@ -319,20 +326,24 @@ def spanWords : Option (Nat × Nat) → String
   | some (s, e) => s!"{s} {e}"
 
 open Stdx.Regex.Matcher in
-/-- The answer of one search of a dump. Where the program has a reverse half, a line that
-begins `differs` follows where `byDfa`, the forward DFA's scan and then the reverse DFA's, does
-not give the answer. `byDfa_answer` proves that it does where the text's three hypotheses
-hold, so such a line stands beside a hypothesis' own line alone. -/
+/-- The answer of one search of a dump. Where the program has a reverse half, the span comes
+from `byDfa`, the forward DFA's scan and then the reverse DFA's, and `isAnswerOf` holds it to
+the answer by two passes: `isAnswer_of_isAnswerOf` proves the line, for a program that is
+`Exact`. Where `byDfa` does not give the answer, `answerFast` gives it, and a line that begins
+`differs` follows. `byDfa_answer` proves that no such line comes where the text's hypotheses
+hold. -/
 def searchLines (dump : Dump) (low : Nat) : List String :=
   let starts := Stdx.Regex.Dfa.startsOf dump.text (mayStart dump.utf8)
-  let answer := answerFast dump.prog dump.forward dump.text starts low
-  s!"find {low} {spanWords answer}" ::
-    match dump.reverse with
-    | none => []
-    | some reverse =>
-      let scanned :=
-        byDfa dump.prog dump.forward dump.prog reverse dump.text (mayStart dump.utf8) low
-      if scanned == answer then [] else [s!"differs dfa {low} gives {spanWords scanned}"]
+  match dump.reverse with
+  | none => [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}"]
+  | some reverse =>
+    let scanned :=
+      byDfa dump.prog dump.forward dump.prog reverse dump.text (mayStart dump.utf8) low
+    if isAnswerOf dump.prog dump.forward dump.text starts low scanned then
+      [s!"find {low} {spanWords scanned}"]
+    else
+      [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}",
+        s!"differs dfa {low} gives {spanWords scanned}"]
 
 /-- The lines that answer one line of a dump, and what the dump holds after it. A line that
 holds no program, text or search is written as it is. -/
