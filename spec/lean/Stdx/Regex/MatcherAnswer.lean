@@ -9,8 +9,11 @@ backtracking matcher finds first, and the first offset that has one.
 
 - `answerOf_isAnswer`: the function's value is the search's answer. So every search of a
   program's text has an answer.
+- `answerFast` gives the same value by the matcher of `Matcher.lean`, which reads each
+  instruction once at a position, and `answerFast_isAnswer` proves it. It is the function
+  that the vector writer runs.
 
-`Vectors.lean` writes this function's values for a set of programs and texts, and a Zig test
+`Vectors.lean` writes `answerFast`'s values for a set of programs and texts, and a Zig test
 requires `Matcher.find` to give the same spans.
 -/
 namespace Stdx.Regex.Matcher
@@ -109,5 +112,43 @@ theorem answerOf_isAnswer (prog : Array Inst) (entry : Nat) (text : List Nat)
     (starts : Nat → Bool) (hexact : Exact prog) {low : Nat} (hlow : low ≤ text.length) :
     IsAnswer (textOf prog entry text starts hexact) low (answerOf prog entry text starts low) :=
   answerFrom_isAnswer prog entry text starts hexact _ low (by omega)
+
+/-- `answerFrom`, with the matcher in the backtracking matcher's place. The matcher takes each
+byte once for all its threads, so this function is the one to run on a long text. -/
+def answerFastFrom (prog : Array Inst) (entry : Nat) (text : List Nat) (starts : Nat → Bool) :
+    Nat → Nat → Option (Nat × Nat)
+  | 0, _ => none
+  | turns + 1, i =>
+    match (if starts i then run prog text (turns + 1) i [entry] none else none) with
+    | some e => some (i, e)
+    | none =>
+      match text[i]? with
+      | none => none
+      | some _ => answerFastFrom prog entry text starts turns (i + 1)
+
+/-- The answer of a search from `low`, by the matcher from each offset in turn. -/
+def answerFast (prog : Array Inst) (entry : Nat) (text : List Nat) (starts : Nat → Bool)
+    (low : Nat) : Option (Nat × Nat) :=
+  answerFastFrom prog entry text starts (text.length - low + 1) low
+
+/-- The matcher from each offset gives what the backtracking matcher from each offset gives. -/
+theorem answerFastFrom_eq (prog : Array Inst) (entry : Nat) (text : List Nat)
+    (starts : Nat → Bool) :
+    ∀ turns i, answerFastFrom prog entry text starts turns i =
+      answerFrom prog entry text starts turns i := by
+  intro turns
+  induction turns with
+  | zero => intro i; rfl
+  | succ turns ih =>
+    intro i
+    simp only [answerFastFrom, answerFrom, run_eq, Option.or_none, ih]
+
+/-- `answerFast` is the search's answer. -/
+theorem answerFast_isAnswer (prog : Array Inst) (entry : Nat) (text : List Nat)
+    (starts : Nat → Bool) (hexact : Exact prog) {low : Nat} (hlow : low ≤ text.length) :
+    IsAnswer (textOf prog entry text starts hexact) low (answerFast prog entry text starts low) := by
+  unfold answerFast
+  rw [answerFastFrom_eq]
+  exact answerOf_isAnswer prog entry text starts hexact hlow
 
 end Stdx.Regex.Matcher

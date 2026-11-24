@@ -10316,7 +10316,7 @@ to 12 are reordered and nothing else changes.
     requires the same span. `zig build test-regex` passes, and the matcher gave each of the
     9,749 answers at the first run.
   - The file's programs are instructions and no pattern. It holds the matcher to the model,
-    and says nothing of the compiler, the DFAs or the searcher.
+    and says nothing of the compiler, the DFAs or the searcher. The fourth part below does.
   - Eight mutations, each against `zig build test-regex`, each CAUGHT by the replay: the
     matcher taking a split's other branch first; a match that still starts after one was
     found; a match that starts before a continuation byte; an assertion that always holds;
@@ -10341,6 +10341,82 @@ to 12 are reordered and nothing else changes.
     - The first run against the replay program's tests proved nothing: one of those tests
       failed with no mutation, on a wrong line number of its own. `zig build test` found it,
       and the counts above are from the run after the test was put right.
+
+  **Part 22h, its fourth part built: compiled programs and the searcher held to the proved
+  answer (decision 86).** **Check:** `tools/matcher_model_check.sh` passes for new seeds; the
+  Lean side decides `Exact` and `Reverses` for each program and text it answers; mutations of
+  the searcher, the DFAs and the builder fail the script.
+
+  **Check passed, part 22h, its fourth part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - The script now runs two parts for each seed. The first part is the third part's check, on
+    programs drawn as instructions. The second part is new, and reads programs that `compile`
+    wrote:
+    1. `matcher_replay dump <seed> <count> <file>` draws patterns, and compiles each as UTF-8
+       or as bytes in turn (`tools/matcher_replay_dump.zig`). For each it writes the pattern,
+       the whole program with its two entries, a text of at most 12 bytes, and one or two
+       searches.
+    2. `lake exe vectors --answers <file>` writes the file again with each search answered by
+       `answerFast`, which `answerFast_isAnswer` proves equal to `answerOf`.
+    3. `matcher_replay` compiles each pattern again and requires the program that the file
+       lists. It then requires the answer of `Matcher.find`, of a `Searcher` with every claim
+       and of a `Searcher` with no claim.
+  - The patterns come from two places in turn. One is the generator of `differential-regex`.
+    The other draws the shapes that the claims read. A literal starts every match, ends every
+    match or stands inside it, or the pattern starts with an alternation of literals. The
+    literal stands beside a part that may take its bytes, and the text holds the literals
+    more than once. A program of more than 256 instructions or 32 slots is left out.
+  - `Stdx/Regex/Hypotheses.lean` decides the two hypotheses that the program's theorems take,
+    and proves each decision right:
+    - `isExact` reads each pair of ranges of each node. `exact_of_isExact` gives `Exact`.
+    - `ends` gives every offset where a path from a seed reaches `match`, and `mem_endsFrom`
+      proves it. `reversesOn` compares the two halves' ends for each start and each end of a
+      text. `reverses_of_reversesOn` gives `Reverses` for that text.
+    - The vector writer runs both after each text of a dump, and writes a line that begins
+      `differs` where one fails. So the two hypotheses hold by a proved check for each
+      program and text of a run. They are still not proved for the builder.
+  - The vector writer also runs the model's reverse scan from each answer's end, and writes
+    such a line where the scan does not give the answer's start. The reverse scan's theorems
+    hold no rule of where a match may start, and this line is the check of that part.
+  - The replay fails on a line that begins `differs`. Three canary dumps in the script show
+    that each such line can come, and that the replay then fails:
+    - a node whose two ranges take one byte;
+    - a reverse half that takes other bytes;
+    - a program of UTF-8 that takes a continuation byte first.
+  - Seeds 7, 11 and 13 with 4,096 programs and 4,096 patterns each passed in 19 s. `tools/ci.sh`
+    runs one seed where lake is on the path.
+  - Seeds 1, 2 and 3 with 40,000 patterns each passed, 144 s in all. They hold 120,000
+    programs of 4.2 million instructions and 87,142 nodes, and 218,894 searches, of which
+    84,379 find a match. No program failed `isExact`, no text failed `reversesOn`, and no
+    reverse scan differed.
+  - Eight mutations of the Zig library, each against the script with seeds 7, 11 and 13, each
+    CAUGHT:
+    - The builder: a reverse program whose assertions are not turned around, and one whose
+      concatenations are not. `reversesOn` named each, with the pattern.
+    - Claim R4: the rule of the part before the literal removed; the loop going on from the
+      place's end; and the reverse scan reading back past the search's first offset. Each
+      failed at the searcher that has every claim.
+    - The DFAs: the reverse DFA as `Kind.first`, and the forward DFA as `Kind.longest`. Each
+      ended at an assertion of the searcher, which is a catch by a halt.
+    - The forward DFA starting a match before a continuation byte. It failed at the searcher
+      that has no claim, after the searcher that has every claim gave the answer.
+    - Before the second pattern source, the removed rule of claim R4 was NOT CAUGHT over the
+      three seeds. The source was added for it.
+  - Nine mutations of the replay program, each against `zig build test-tools`, each CAUGHT: a
+    listed program not compared; its two entries not compared; a `differs` line passed; no
+    searcher asked; `no_claims` leaving each claim on; a save's two fields in the other order;
+    no second search in a dump; a pattern's digits read in base 10; a span compared by its
+    start alone. The entries' mutation was NOT CAUGHT at first, and a test was added.
+  - Three mutations of the vector writer, each against the script: no hypothesis check after a
+    text, CAUGHT by a canary; the forward entry read as 0, CAUGHT by the replay; and no line
+    for a reverse scan that differs, NOT CAUGHT at first and CAUGHT by the third canary,
+    which was added for it. A `standApart` or a `reversesOn` that always holds fails its
+    proof and its example by `decide`.
+  - What this part does not hold: the script's own calls have no check but the canaries. The
+    Lean side reads the program that `compile` wrote, so it says nothing of the parser or of
+    whether a program takes its pattern's language. `differential-regex` holds that to Go's
+    regexp. No text is longer than 12 bytes, so a run holds no long scan: a cache that fills,
+    a DFA that gives up and a skip over a long run of bytes are not in it.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

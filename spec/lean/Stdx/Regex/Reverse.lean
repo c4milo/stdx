@@ -18,8 +18,8 @@ offset is the least start.
 
 The three theorems take `Reverses` as a hypothesis: the reverse program takes each match of the
 forward program read backward, and nothing else. That is the builder's work, and no proof here
-holds the builder to it. They also read paths alone, so they hold no rule of where a match may
-start.
+holds the builder to it. `Hypotheses.lean` holds a function that decides it for one text. They
+also read paths alone, so they hold no rule of where a match may start.
 -/
 namespace Stdx.Regex.Matcher
 

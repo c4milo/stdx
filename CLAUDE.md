@@ -291,13 +291,18 @@ Change this section when a step adds or renames a command.
   needed. The step needs lake, from elan or a Lean release;
   `tools/install_lean.sh` installs the pinned release on x86-64 Linux, and `tools/ci.sh` runs the
   step where lake is on the path.
-- Matcher model: `tools/matcher_model_check.sh [seed...]` holds `Matcher.find` to the Lean model
-  on programs a seed draws. `lake exe vectors --random <seed> <count>` writes the programs, some
-  texts for each, and the proved answer of each search, and `zig build matcher-replay` builds the
-  program that replays them (`tools/matcher_replay.zig`). With no seed, the seed is the time in
-  seconds, and a seed that fails is printed. `PROGRAMS` sets the programs a seed draws, 4096 by
-  default. It needs lake, and `tools/ci.sh` runs it where lake is on the path. `zig build test`
-  runs the replay program's own tests, and replays the committed file of one seed,
+- Matcher model: `tools/matcher_model_check.sh [seed...]` holds `Matcher.find` and
+  `Searcher.find` to the Lean model on programs a seed draws, in two parts. `lake exe vectors
+  --random <seed> <count>` writes programs drawn as instructions, some texts for each, and the
+  proved answer of each search. `matcher_replay dump <seed> <count> <file>` writes the programs
+  that `compile` gives drawn patterns, and `lake exe vectors --answers <file>` answers each
+  search and checks the two hypotheses of the model's theorems for each program and text
+  (`spec/lean/Stdx/Regex/Hypotheses.lean`). `zig build matcher-replay` builds the program that
+  replays both (`tools/matcher_replay.zig`): for a compiled pattern it asks the matcher, a
+  searcher with every claim and one with none. With no seed, the seed is the time in seconds,
+  and a seed that fails is printed. `PROGRAMS` and `PATTERNS` set what a seed draws, 4096 each
+  by default. It needs lake, and `tools/ci.sh` runs it where lake is on the path. `zig build
+  test` runs the replay program's own tests, and replays the committed file of one seed,
   `src/regex/matcher_vectors.txt`, as a unit test.
 - Check sites: `zig build checkfree-check` builds the SIMD kernels' variant objects ReleaseSafe
   for Linux on x86-64 and aarch64, as assembly, and requires the safety check sites each kernel

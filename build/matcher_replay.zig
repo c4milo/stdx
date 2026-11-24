@@ -14,6 +14,9 @@ pub fn add(b: *std.Build) *std.Build.Step {
         .optimize = .Debug,
     });
     module.addImport("regex", graph.regex);
+    // The pattern generator's draws, and the CPU features a searcher takes.
+    module.addImport("codec", graph.codec);
+    module.addImport("platform", graph.platform);
     const tool = b.addExecutable(.{ .name = "matcher_replay", .root_module = module });
     const install = b.addInstallArtifact(tool, .{});
     b.step("matcher-replay", "Build the program that replays matcher vectors against Matcher.find").dependOn(&install.step);
