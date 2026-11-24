@@ -6346,11 +6346,17 @@ last part lists what still waits on a ruling.
       - `Stdx/Regex/Prefix.lean` holds the skip of claims R2, R3 and R5 to a literal that
         starts every match, and `gap_of_byte`: claim R4's first rule holds for any byte of
         the literal. `Stdx/Regex/Count.lean` holds claim R10: `count_eq`.
+      - `Stdx/Regex/Closure.lean` and `Stdx/Regex/Matcher.lean` hold the matcher for a search
+        from one start (design §8 part 22h). `closure_value`: one `visited` set for all the
+        seeds of a position changes no first value among its threads. `run_eq`: the matcher
+        gives the end that a backtracking matcher finds first, where that matcher tries each
+        thread to the end of the text before the next and reads an instruction once at a
+        position. The model holds no capture slot.
       - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
         yet.
     - Not proved: the parser, the builder, that the reverse program takes each match read
-      backward, that the matcher's match is the one a backtracking matcher finds first, and
-      that each DFA's scan gives what `Search.lean` asks of it. Design §8 part 22r names their
+      backward, the matcher's capture slots and its search from any offset, and that each
+      DFA's scan gives what `Search.lean` asks of it. Design §8 parts 22h and 22r name their
       order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs

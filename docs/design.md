@@ -7957,7 +7957,9 @@ to 12 are reordered and nothing else changes.
   - **22h: the matcher in Lean.** A model of the matcher: its work at one position is at most
     the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
-    Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+    Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics. Its first part is
+    built, and its record is below: the order of the matcher's threads, for a search from one
+    start.
   - **22r: the searcher's claims in Lean.** Each claim as a function over the scans it calls,
     and a theorem that the function gives the matcher's answer. Its first part is built, and its
     record is below: claim R4, and the wider search from a required literal.
@@ -10171,6 +10173,48 @@ to 12 are reordered and nothing else changes.
     ends keeping an empty match that touches the match before it.
   - Not modelled: a set of literals and nothing else, whose match is the first literal of
     the set that stands at the first place.
+
+  **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
+  **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
+  the model gives RE2's ends on small programs; mutations of the definitions fail the build.
+
+  **Check passed, part 22h, its first part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins `follow_sim`, `closure_value`, `run_eq` and
+    `findAt_eq`, on `propext`, `Classical.choice` and `Quot.sound` alone.
+  - `Stdx/Regex/Closure.lean` holds `Matcher.follow` at one position, with no program in it:
+    the walk from a seed, the preferred branch of a split first, with the instructions that no
+    path reached yet. `closure_value`: the matcher keeps one `visited` set for all the seeds
+    of a position, and for any value of a thread, the first value among its threads is the
+    first value among the seeds, each walked alone.
+    - The proof compares two walks from one seed, `follow_sim`. One of them starts with a set
+      already reached that no path leaves and whose threads have no value. What the first
+      seed's walk reached is such a set where the walk found no value.
+  - `Stdx/Regex/Matcher.lean` holds `run`, the matcher for a search that must start at one
+    offset, and `backtrack`, a backtracking matcher over the same program. `backtrack` tries
+    the threads of a seed in order, each to the end of the text before the next, and walks
+    each seed alone. `run_eq` and `findAt_eq`: both give one end.
+  - Five examples hold the model to RE2's ends by `decide`: `a|ab` and `ab|a` on `ab`, `a*` and
+    `a*?` on `aaab`, `(a*)*b` on `aaba` and on `aa`, `a+?|a*` on `aa`, and `a\z` on `a` and
+    on `ab`.
+  - Seven mutations, each against `lake build`, each CAUGHT: the walk taking a split's other
+    branch first; the first value made the last; the matcher keeping the threads after the
+    first `match`; the matcher keeping its first match and no later one; the backtracking
+    matcher ending a match one byte late; the matcher giving the byte to its threads in
+    reverse order; and an assertion that always holds.
+    - The last one was NOT CAUGHT at first, since no example held an assertion. The example of
+      `a\z` was written for it.
+  - What the model leaves out:
+    - The capture slots. `run` gives a match's end alone.
+    - A search that may start at any offset: the thread that `close_start` adds after the
+      seeds, and the rule that no match starts before a continuation byte.
+    - The cut of a walk at the first `match`. `run` builds a position's threads whole and then
+      keeps those before the first `match`.
+    - The halving of `program.step_ranges`. `step` takes the first range that holds the byte.
+    - A text that arrives in pieces.
+  - What step 3 of part 22r still needs: `backtrack`'s end as the end of a path of
+    `Program.lean`, and an end for each path, which give `Text.Prefers` from a program; the
+    search from any offset, with the least start; and the capture slots.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

@@ -10,4 +10,6 @@ import Stdx.Regex.Inner
 import Stdx.Regex.Edges
 import Stdx.Regex.Prefix
 import Stdx.Regex.Count
+import Stdx.Regex.Closure
+import Stdx.Regex.Matcher
 import Stdx.Axioms
