@@ -36,6 +36,10 @@ pub const continuation_max = @as(comptime_int, utf8.constants.continuation_max);
 /// The line feed, the one octet `.` refuses by default and the octet a line ends with.
 pub const line_feed = '\n';
 
+/// The ranges of octets a normalized set holds at most under `Encoding.bytes`. Its ranges stand
+/// apart, so each takes two of the 256 values at least, with the gap after it.
+pub const octet_ranges_max = octet_values / 2;
+
 /// The largest count a range quantifier names, and the largest product of the counts of nested
 /// range quantifiers. RFC 9485 §8 lets an implementation limit both. A count multiplies the
 /// program, so the limit bounds the instructions one quantifier adds. RE2 and Go's regexp hold the

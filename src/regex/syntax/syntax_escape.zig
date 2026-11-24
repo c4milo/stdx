@@ -5,7 +5,9 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const errors = @import("../errors.zig");
 const utf8_ranges = @import("../utf8_ranges.zig");
-const Look = @import("../program.zig").Look;
+const program = @import("../program.zig");
+const Look = program.Look;
+const Encoding = program.Encoding;
 const scalar_set = @import("../scalar_set.zig");
 const NamedClass = scalar_set.NamedClass;
 const ScalarRange = utf8_ranges.ScalarRange;
@@ -28,8 +30,18 @@ fn perl(ranges: []const ScalarRange, negated: bool) Escape {
     return .{ .class = .{ .ranges = ranges, .negated = negated } };
 }
 
-/// The escape whose reverse solidus was just read.
-pub fn take(reader: *codec.Reader) errors.Error!Escape {
+/// The escape whose reverse solidus was just read. Under `Encoding.bytes` an escape such as
+/// `\xE9` names one byte, so one past `\xFF` names none and is refused.
+pub fn take(reader: *codec.Reader, encoding: Encoding) errors.Error!Escape {
+    const taken = try take_any(reader, encoding);
+    // RFC 9485 §3 holds no `\x` and no octal escape: each is RE2's, and under `Encoding.bytes`
+    // it names one byte, which holds no value past 0xFF.
+    if (encoding == .bytes and taken == .scalar and taken.scalar > constants.octet_max) return error.UnsupportedUnicode;
+    return taken;
+}
+
+/// The escape whose reverse solidus was just read, whatever value it names.
+fn take_any(reader: *codec.Reader, encoding: Encoding) errors.Error!Escape {
     // RFC 9485 §3: SingleCharEsc = "\" and one character, so a pattern does not end at a "\".
     const scalar = (try utf8_ranges.take_scalar(reader)) orelse return error.InvalidEscape;
     return switch (scalar) {
@@ -43,8 +55,7 @@ pub fn take(reader: *codec.Reader) errors.Error!Escape {
         'S' => perl(&space_ranges, true),
         'w' => perl(&word_ranges, false),
         'W' => perl(&word_ranges, true),
-        'p' => .{ .class = try property.take(reader, false) },
-        'P' => .{ .class = try property.take(reader, true) },
+        'p', 'P' => .{ .class = try take_property(reader, scalar == 'P', encoding) },
         'n' => .{ .scalar = '\n' },
         'r' => .{ .scalar = '\r' },
         't' => .{ .scalar = '\t' },
@@ -55,6 +66,15 @@ pub fn take(reader: *codec.Reader) errors.Error!Escape {
         '0'...'9' => .{ .scalar = try octal(reader, scalar) },
         else => .{ .scalar = try other(scalar) },
     };
+}
+
+/// `\p`, or `\P` with `negated`. Under `Encoding.bytes` a byte past 0x7F has no class, so no
+/// property names one.
+fn take_property(reader: *codec.Reader, negated: bool, encoding: Encoding) errors.Error!NamedClass {
+    // RFC 9485 §3: charProp names a property of Unicode's characters, and under `Encoding.bytes`
+    // no byte past 0x7F is one.
+    if (encoding == .bytes) return error.UnsupportedUnicode;
+    return property.take(reader, negated);
 }
 
 /// An escape that is one character and names itself, or one stdx refuses.
@@ -147,7 +167,7 @@ const testing = std.testing;
 
 fn take_text(text: []const u8) errors.Error!Escape {
     var reader = codec.Reader.init(text);
-    return take(&reader);
+    return take(&reader, .utf8);
 }
 
 test "take names each escape stdx adds to RFC 9485's" {
@@ -184,16 +204,16 @@ test "an octal escape is a zero or two to three octal digits, as RE2 reads one" 
     try testing.expectEqual(@as(u32, 0o777), (try take_text("777")).scalar);
     // A third digit after a zero, a fourth digit, and a digit past 7 are left unread.
     var reader = codec.Reader.init("0600");
-    try testing.expectEqual(@as(u32, '0'), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(u32, '0'), (try take(&reader, .utf8)).scalar);
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
     reader = codec.Reader.init("608");
-    try testing.expectEqual(@as(u32, '0'), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(u32, '0'), (try take(&reader, .utf8)).scalar);
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
     reader = codec.Reader.init("018");
-    try testing.expectEqual(@as(u32, 1), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(u32, 1), (try take(&reader, .utf8)).scalar);
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
     reader = codec.Reader.init("1411");
-    try testing.expectEqual(@as(u32, 'a'), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(u32, 'a'), (try take(&reader, .utf8)).scalar);
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
 }
 
@@ -229,7 +249,7 @@ test "a hex escape is two digits, or one or more in braces, that name a scalar v
 
 test "a hex escape of two digits leaves the octets after it unread" {
     var reader = codec.Reader.init("x41b");
-    try testing.expectEqual(@as(u32, 0x41), (try take(&reader)).scalar);
+    try testing.expectEqual(@as(u32, 0x41), (try take(&reader, .utf8)).scalar);
     try testing.expectEqual(@as(usize, 1), reader.remaining_len());
 }
 

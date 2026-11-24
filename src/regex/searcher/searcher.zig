@@ -26,7 +26,6 @@ const one_pass = @import("../one_pass.zig");
 const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
 const literal_file = @import("../literal.zig");
-const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -367,9 +366,9 @@ pub const Searcher = struct {
                 .none => index = place + 1,
                 .gave_up => return searcher.gave_up(),
                 .found => |start| {
-                    // The program takes whole UTF-8 sequences, so a match starts at no
+                    // A program of UTF-8 takes whole sequences, so a match starts at no
                     // continuation octet.
-                    assert(!is_continuation(haystack[start]));
+                    assert(searcher.matcher.program.encoding.may_start_at(haystack[start]));
                     return .{ .span = .{ .start = start, .end = end } };
                 },
             }
@@ -411,5 +410,6 @@ test {
     _ = @import("searcher_count_test.zig");
     _ = @import("searcher_groups_test.zig");
     _ = @import("searcher_run_test.zig");
+    _ = @import("searcher_bytes_test.zig");
     _ = @import("searcher_matches.zig");
 }

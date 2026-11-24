@@ -30,7 +30,6 @@ const dfa_pairs = @import("dfa_pairs.zig");
 const dfa_run = @import("dfa_run.zig");
 const dfa_close = @import("dfa_close.zig");
 const dfa_stay = @import("dfa_stay.zig");
-const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 const dfa_config = @import("dfa_config.zig");
 pub const Kind = dfa_config.Kind;
@@ -52,6 +51,7 @@ pub const Dfa = struct {
     instructions: []const Instruction,
     config: Config,
     has_looks: bool,
+    encoding: program_file.Encoding,
     /// True when claim R1 is on and one state waits for a match to start whatever octet stands
     /// behind it. A program with an assertion has one such state for each context, so it has
     /// no skip.
@@ -144,6 +144,7 @@ pub const Dfa = struct {
             .instructions = program.instructions,
             .config = config,
             .has_looks = program.has_looks,
+            .encoding = program.encoding,
             .may_skip = config.skip and !program.has_looks,
             .classes = program.classes,
             .representatives = undefined,
@@ -396,7 +397,7 @@ pub const Dfa = struct {
         const head = dfa.cache.head(state);
         // No match starts before a continuation octet of UTF-8, as in the matcher. The reverse
         // program starts where a match ends, which is after any octet.
-        const may_start = dfa.config.kind == .longest or !is_continuation(octet);
+        const may_start = dfa.config.kind == .longest or dfa.encoding.may_start_at(octet);
         const matched = dfa.close(state, dfa.context_of(octet), may_start);
         dfa.step(octet);
         var flags: u32 = if (matched) constants.dfa_match_flag else 0;

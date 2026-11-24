@@ -8,7 +8,6 @@ const constants = @import("../constants.zig");
 const Dfa = @import("dfa.zig").Dfa;
 const Skip = @import("dfa_skip.zig").Skip;
 const Pass = @import("dfa_config.zig").Pass;
-const is_continuation = @import("../utf8_ranges.zig").is_continuation;
 
 /// Readies the skip where a scan starts in `row`: it ends a rest that is over, and takes
 /// `row` as the state that waits where the DFA knows none. True when the scan skips.
@@ -79,7 +78,7 @@ fn wait_at(dfa: *Dfa, row: u32) void {
         var class_starts: [constants.octet_values]bool = undefined;
         for (0..dfa.class_count) |class| {
             const octet = dfa.representatives[class];
-            const matched = dfa.close(row, dfa.context_of(octet), !is_continuation(octet));
+            const matched = dfa.close(row, dfa.context_of(octet), dfa.encoding.may_start_at(octet));
             dfa.step(octet);
             class_starts[class] = matched or dfa.next.len != 0;
         }

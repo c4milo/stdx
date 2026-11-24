@@ -296,7 +296,7 @@ fn class_program(built: *Built, scalars: []const ScalarRange) !void {
     for (scalars) |range| try set.add(range.lo, range.hi);
     set.normalize();
     var builder: Builder = .{ .instructions = &built.storage, .direction = .forward };
-    built.entry = (try atom.class(&builder, &set)).entry;
+    built.entry = (try atom.class(&builder, .utf8, &set)).entry;
     built.len = builder.len;
 }
 

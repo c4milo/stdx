@@ -9853,6 +9853,32 @@ to 12 are reordered and nothing else changes.
     `regex-redux` kept, a haystack's `append` or `trim` or a pattern's `prepend` dropped, and Go's
     count given to every engine.
 
+  **Part 22p, built: bytes (decision 86 as amended, the owner's rulings of 2026-11-24).** The
+  owner ruled it a gap that no mode of stdx took a byte that is not UTF-8, and chose Rust's
+  rule over RE2's Latin-1. `Options.encoding` now takes `.bytes` beside `.utf8`, the default,
+  and `Program.encoding` holds it. In bytes, `.`, a class and an escape such as `\xE9` take one
+  byte each, `(?i)` folds ASCII alone, and each engine lets a match start before any byte. A
+  character past U+007F in the pattern still matches its UTF-8. `bench-regex` runs stdx in bytes
+  wherever rebar leaves `unicode` off.
+  **Check:** each case of `searcher_bytes_test.zig` gives its spans in both encodings, and the
+  searcher gives the matcher's answers on texts of any byte in every cache; bytes refuses what
+  names Unicode past ASCII, which UTF-8 takes; stdx gives RE2's count on every row of rebar's two
+  sets but `letters-one`, `match-every-line-ascii` included; mutations.
+  **Check passed, 2026-11-24.** Zig 0.16.0, Go 1.27.4 and Rust 1.100.0 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `zig build test-regex` runs 290 tests, and `zig build test-differential-regex` and `zig build
+    lint` pass.
+  - `zig build bench-regex -Doracles -- --held-out`, changed in the container alone to time
+    nothing, checked every answer of the 238 benchmarks. stdx gives RE2's count on 237 of them,
+    and 4 on `unicode/compile/match-every-line-ascii`, where it gave 3 in UTF-8. The one row
+    left is `unicode/codepoints/letters-one`, where stdx and Go 1.27.4 count Unicode 17.0.0's
+    letters, as part 22o found. No candidate refused a pattern.
+  - Mutations: 39 written, and the first 15, all CAUGHT, ran before the commit, against `zig
+    build test-regex`: `may_start_at` that ignores bytes, and one that lets UTF-8 start at a
+    continuation byte; each of the five places that decide where a match starts, judged by UTF-8's
+    rule; the DFA or the program with no encoding; and the parser, the class reader, a class, `.`,
+    a literal and an escape each given UTF-8. The other 24 run next, and this entry records them.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

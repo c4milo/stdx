@@ -146,6 +146,26 @@ pub const ScalarSet = struct {
         if (after) ranges[count - 1] = gap(ranges[count - 1].hi + 1, constants.scalar_max);
     }
 
+    /// Adds to the normalized set the other case of each ASCII letter it holds, and normalizes it
+    /// again: `(?i)` under `Encoding.bytes`, where an octet past 0x7F has no case.
+    pub fn fold_ascii(set: *ScalarSet) Error!void {
+        const end = set.len;
+        for (0..end) |index| {
+            const range = set.ranges[index];
+            try set.add_moved(range, 'A', 'Z', 'a');
+            try set.add_moved(range, 'a', 'z', 'A');
+        }
+        set.normalize();
+    }
+
+    /// Adds the part of `range` from `lo` to `hi`, moved so that `lo` becomes `to`.
+    fn add_moved(set: *ScalarSet, range: ScalarRange, lo: u32, hi: u32, to: u32) Error!void {
+        const first = @max(range.lo, lo);
+        const last = @min(range.hi, hi);
+        if (first > last) return;
+        try set.add(first - lo + to, last - lo + to);
+    }
+
     /// Adds to the normalized ranges from `start` on each scalar value that matches one of theirs
     /// without case, and normalizes them again: the simple case folding of UTS #18 RL1.5, whose
     /// orbits `unicode.images` gives. A pass adds the next code point of each orbit, so
@@ -422,4 +442,15 @@ test "add refuses a range past the class's limit" {
     for (0..constants.class_ranges_max) |index| try set.add(@intCast(2 * index), @intCast(2 * index));
     try testing.expectError(error.ClassTooLarge, set.add(0x10000, 0x10000));
     try testing.expectEqual(@as(u32, constants.class_ranges_max), set.len);
+}
+
+test "fold_ascii gives each ASCII letter its other case, and no other value a case" {
+    var storage: [constants.class_ranges_small]ScalarRange = undefined;
+    var set = ScalarSet.init(&storage);
+    try set.add('X', 'b');
+    try set.add(0xC0, 0xC9);
+    set.normalize();
+    try set.fold_ascii();
+    const expected = [_]ScalarRange{ .{ .lo = 'A', .hi = 'B' }, .{ .lo = 'X', .hi = 'b' }, .{ .lo = 'x', .hi = 'z' }, .{ .lo = 0xC0, .hi = 0xC9 } };
+    try std.testing.expectEqualSlices(ScalarRange, &expected, set.slice());
 }

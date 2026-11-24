@@ -5764,6 +5764,33 @@ last part lists what still waits on a ruling.
     between the octets of one scalar value; Go's regexp and Rust's regex do not, and stdx follows
     them.
 
+    **Bytes, by the owner's rulings of 2026-11-24.** `Options.encoding` takes `.bytes` beside
+    `.utf8`, which stays the default. A program of `.bytes` reads bytes with no Unicode, as Rust's
+    regex crate does with Unicode off.
+    - The pattern stays UTF-8, and a character past U+007F in it matches its UTF-8.
+    - `.`, a class and an escape such as `\xE9` each take one byte, UTF-8 or not. So `.` takes
+      any byte but a line feed, and `[^a]` any byte but `a`.
+    - A byte past 0x7F has no case and no class. `(?i)` folds ASCII alone, so `k` takes `K`
+      and no Kelvin sign, and `\xE9` takes no 0xC9.
+    - Refused, as `error.UnsupportedUnicode`: an escape past `\xFF`, which names no byte; `\p`
+      and `\P`; and a character past U+007F in a class, which is more than one byte.
+    - A match may start before any byte. `Program.encoding` holds the encoding, and each engine
+      reads where a match may start from it.
+    - The reason: the owner ruled it a gap that no mode of stdx took a byte that is not UTF-8.
+      rebar's harness also runs Rust's crate in its mode with no Unicode, and RE2 in its Latin-1,
+      wherever a benchmark leaves `unicode` off: 189 of the 238. Without a mode of its own, stdx
+      ran UTF-8 there, and differed on `unicode/compile/match-every-line-ascii`, where `.` must
+      take a byte that is not UTF-8.
+    - The alternatives refused:
+      - RE2's Latin-1, which reads each byte of the pattern and the text as the character
+        U+0000 to U+00FF of its value. It gives a byte past 0x7F the case and the classes of a
+        Latin-1 letter: `(?i)\xE9` takes 0xC9, and `\pL` takes 0xE9. Text today is UTF-8 with
+        stray bytes, rarely Latin-1, and there a UTF-8 letter in a pattern reads as two
+        Latin-1 characters. rebar records one count for RE2's Latin-1 and Rust's mode on each
+        benchmark that leaves `unicode` off, so the choice changes no count it holds stdx to.
+      - Rust's `(?-u)`, a flag that a pattern sets from inside, which RE2's syntax does not hold.
+      - `\C` in UTF-8, which would cut a scalar value in two.
+
     **The program.** `compile` reads a pattern into instructions in storage the caller gives.
     - It is Thompson's automaton in Pike's instruction form: a range of octets, a split with a
       preferred branch, a save of a capture slot, an assertion, and `match`.
@@ -6380,6 +6407,11 @@ last part lists what still waits on a ruling.
         - No change to stdx is judged on these rows, and no constant is chosen with one. If a
           change is ever made for one of them, this entry names it, and the README says from then
           on that the set is tuned.
+          - One change was made for one of them: bytes, above, for the answer of
+            `unicode/compile/match-every-line-ascii`. It was judged on that answer and on no
+            speed. stdx now runs each benchmark of both sets that leaves `unicode` off in bytes,
+            as Rust's crate runs it, so the change alters the programs of most rows. The README
+            says so beside the set's chart.
         - rebar's README says that these benchmarks mostly serve to make Rust's regex crate faster,
           and its `BIAS.md` says that they may favor that crate. So the set can lean toward the
           baseline, and not toward stdx.

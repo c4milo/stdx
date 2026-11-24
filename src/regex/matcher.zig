@@ -11,7 +11,8 @@
 //! the order.
 //!
 //! No match starts before a continuation octet of UTF-8. A program takes whole sequences alone,
-//! so only an empty match could start there, and it would cut a scalar value in two.
+//! so only an empty match could start there, and it would cut a scalar value in two. A program
+//! of `Encoding.bytes` reads octets, so its matches start before any octet.
 //!
 //! The matcher is the module's reference: `Searcher`'s faster paths must give what it gives.
 const std = @import("std");
@@ -21,7 +22,6 @@ const program_file = @import("program.zig");
 const Program = program_file.Program;
 const Context = program_file.Context;
 const SparseSet = @import("sparse_set.zig").SparseSet;
-const is_continuation = @import("utf8_ranges.zig").is_continuation;
 const work_file = @import("work.zig");
 
 /// What the caller says about the input of one call.
@@ -311,7 +311,7 @@ pub const Matcher = struct {
         if (matcher.restart) {
             if (index == input.len and piece == .more) return false;
             const context: Context = if (index < input.len) Context.of(input[index]) else .edge;
-            if (index == input.len or !is_continuation(input[index])) matcher.close_start(context);
+            if (index == input.len or matcher.program.encoding.may_start_at(input[index])) matcher.close_start(context);
             matcher.restart = matcher.restart and !matcher.options.anchored;
         }
         matcher.closed = .all;

@@ -12,7 +12,10 @@
 //!
 //! Rust's crate takes rebar's `unicode` and `case-insensitive` options from its builder, with
 //! the NFA size limit rebar's harness gives it. stdx and Go's regexp take a `(?i)` before the
-//! pattern, as rebar's harness gives Go's regexp, and neither has a mode with no Unicode.
+//! pattern, as rebar's harness gives Go's regexp. Where `unicode` is off, rebar's harness runs
+//! Rust's crate with no Unicode and RE2 in its Latin-1, and stdx runs in bytes, as Rust's crate
+//! does. rebar records one count for the two modes on every such benchmark. Go's regexp has no
+//! such mode.
 
 const std = @import("std");
 const codec = @import("codec");
@@ -51,8 +54,8 @@ pub const Held = struct {
     /// Compiles `pattern` and readies its searcher with the default cache: what a caller does
     /// before its first search. False where stdx refuses the pattern. The memory grows on the
     /// first call for a pattern, and a later call for it takes what the first left.
-    pub fn ready(held: *Held, pattern: []const u8) bool {
-        held.program = regex.compile(pattern, .{}, held.storage) catch return false;
+    pub fn ready(held: *Held, pattern: []const u8, encoding: regex.Encoding) bool {
+        held.program = regex.compile(pattern, .{ .encoding = encoding }, held.storage) catch return false;
         const len = regex.Searcher.memory_len(held.program.forward_len, held.program.slot_count(), regex.constants.cache_words_default);
         if (held.memory.len < len) held.memory = held.arena.alloc(u64, len) catch return false;
         held.searcher.init(&held.program, &.{ .features = held.features }, held.memory[0..len]);
@@ -132,6 +135,12 @@ pub fn rust_new(pattern: []const u8, bench: rebar.Bench) ?*anyopaque {
     return rust_rebar_new(pattern.ptr, pattern.len, bench.unicode, bench.case_insensitive);
 }
 
+/// The encoding stdx reads a benchmark in: bytes where rebar's `unicode` is off, as rebar's
+/// harness gives Rust's crate, and UTF-8 where it is on.
+pub fn encoding_of(bench: rebar.Bench) regex.Encoding {
+    return if (bench.unicode) .utf8 else .bytes;
+}
+
 pub fn rust_compile(pattern: []const u8, bench: rebar.Bench) bool {
     return rust_rebar_compile(pattern.ptr, pattern.len, bench.unicode, bench.case_insensitive);
 }
@@ -169,4 +178,12 @@ test "a haystack's lines end at a line feed, drop a carriage return, and leave n
     try expect_lines("\n", &.{""});
     try expect_lines("", &.{});
     try expect_lines("a\r", &.{"a"});
+}
+
+test "stdx reads a benchmark in bytes where rebar's unicode is off, and in UTF-8 where it is on" {
+    var bench = rebar.curated[0];
+    bench.unicode = false;
+    try testing.expectEqual(regex.Encoding.bytes, encoding_of(bench));
+    bench.unicode = true;
+    try testing.expectEqual(regex.Encoding.utf8, encoding_of(bench));
 }

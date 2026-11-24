@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const is_continuation = @import("utf8_ranges.zig").is_continuation;
 
 /// What one instruction does.
 pub const Kind = enum(u8) {
@@ -163,6 +164,24 @@ pub const GroupName = struct {
     }
 };
 
+/// How a program reads its text (decision 86 as amended).
+pub const Encoding = enum(u8) {
+    /// RFC 3629's UTF-8. A pattern's scalar values match their UTF-8, an octet that is not UTF-8
+    /// matches nothing, and no match starts before a continuation octet.
+    utf8,
+    /// Octets of any value, with no Unicode. A pattern's characters still match their UTF-8,
+    /// but `.`, a class and an escape such as `\xE9` each take one octet, UTF-8 or not, and a
+    /// match may start before any octet. An octet past 0x7F has no case and no class: `(?i)`
+    /// folds ASCII alone.
+    bytes,
+
+    /// True where a match may start before `octet`: before any octet in bytes, and in UTF-8
+    /// before any but a continuation octet, so that no match cuts a scalar value in two.
+    pub fn may_start_at(encoding: Encoding, octet: u8) bool {
+        return encoding == .bytes or !is_continuation(octet);
+    }
+};
+
 /// A compiled pattern. It holds a slice of the storage the caller gave `compile`, so it lives as
 /// long as that storage, and any number of matchers on any threads may read it.
 pub const Program = struct {
@@ -185,6 +204,8 @@ pub const Program = struct {
     reads_ahead: bool,
     /// True when the program holds any assertion.
     has_looks: bool,
+    /// How the program reads a text, as `Options.encoding` names it.
+    encoding: Encoding,
     /// The class of each octet: two octets of one class take every program to the same state.
     classes: [constants.octet_values]u8,
     /// The classes `classes` names.
@@ -214,6 +235,17 @@ comptime {
 }
 
 const testing = std.testing;
+
+test "a match starts before a continuation octet in bytes alone" {
+    for ([_]u8{ 0x00, 'a', 0x7F, 0xC2, 0xF4, 0xFF }) |octet| {
+        try testing.expect(Encoding.utf8.may_start_at(octet));
+        try testing.expect(Encoding.bytes.may_start_at(octet));
+    }
+    for ([_]u8{ constants.continuation_min, 0xA9, constants.continuation_max }) |octet| {
+        try testing.expect(!Encoding.utf8.may_start_at(octet));
+        try testing.expect(Encoding.bytes.may_start_at(octet));
+    }
+}
 
 test "Context names the line feed, the word characters and the rest" {
     try testing.expectEqual(Context.line_feed, Context.of('\n'));

@@ -35,8 +35,9 @@ pub const Fixture = struct {
     program: Program = undefined,
     searcher: Searcher = undefined,
     reference: Matcher = undefined,
-    /// The CPU features the searcher takes: none, unless a test names the host's.
+    /// The CPU features and the program's encoding: none and UTF-8, unless a test names others.
     features: codec.Features = .{},
+    encoding: @import("../program.zig").Encoding = .utf8,
 
     /// Compiles `pattern` and gives the searcher `cache_words` words of cache.
     pub fn init(fixture: *Fixture, pattern: []const u8, cache_words: usize) !void {
@@ -45,7 +46,7 @@ pub const Fixture = struct {
 
     /// `init`, with the claims a test names.
     pub fn init_claims(fixture: *Fixture, pattern: []const u8, claims: searcher_file.Claims, cache_words: usize) !void {
-        fixture.program = try compiler.compile(pattern, .{}, &fixture.storage);
+        fixture.program = try compiler.compile(pattern, .{ .encoding = fixture.encoding }, &fixture.storage);
         try expect_nodes(&fixture.program);
         if (fixture.program.group_count > groups_len) return error.TestTooManyGroups;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);

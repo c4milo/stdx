@@ -22,7 +22,6 @@ const Instruction = program_file.Instruction;
 const matcher_file = @import("matcher.zig");
 const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
-const is_continuation = @import("utf8_ranges.zig").is_continuation;
 const one_pass_table = @import("one_pass_table.zig");
 
 /// The bits of a set of octets, a word for each 64.
@@ -122,7 +121,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, from: usize) ?Span {
     // A loop of stores, where `@memset` of a few slots costs a call that writes an octet a step.
     for (matcher.current()) |*slot| slot.* = constants.slot_unset;
     // No match starts before a continuation octet of UTF-8, as in the matcher.
-    if (from < haystack.len and is_continuation(haystack[from])) return finish(matcher, false);
+    if (from < haystack.len and !matcher.program.encoding.may_start_at(haystack[from])) return finish(matcher, false);
     if (one_pass_table.prepare(matcher)) |table| return one_pass_table.run(table, matcher, haystack, from);
     var seed = matcher.program.forward;
     var index = from;

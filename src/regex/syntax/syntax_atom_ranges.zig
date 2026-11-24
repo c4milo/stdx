@@ -88,6 +88,22 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
     return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
 }
 
+/// A class of octets as one `ranges` node (`Encoding.bytes`). Each member is one octet, so the
+/// ranges stand apart as the set's do, and a reverse program takes the node too. Null where
+/// the class holds fewer than `node_sequences_min` ranges.
+pub fn octets(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.Error!?Fragment {
+    if (ranges.len < node_sequences_min) return null;
+    // `program.step_ranges` reads `arg` members, each a range, and asserts neither.
+    assert(ranges.len <= constants.octet_ranges_max);
+    const head = try builder.emit(.{ .kind = .ranges, .arg = @intCast(ranges.len) });
+    var holes: Holes = .{};
+    for (ranges, 0..) |range, index| {
+        assert(index == 0 or range.lo > ranges[index - 1].hi);
+        holes = builder.join(holes, (try builder.range(range.lo, range.hi)).holes);
+    }
+    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
+}
+
 /// Writes the class's sequences into `gathered` and gives their count, or null where their first
 /// ranges do not stand apart, where they are more than `gathered` holds, or, read back, where
 /// one holds more than one octet.
@@ -155,4 +171,21 @@ test "read back, a class of single octets is a node, and one of longer sequences
     try testing.expectEqual(@as(u32, 3), storage[whole.entry].arg);
     const wide = [_]ScalarRange{ .{ .lo = 'a', .hi = 'z' }, .{ .lo = 0xE9, .hi = 0xE9 } };
     try testing.expect(try node(&builder, &wide) == null);
+}
+
+test "a class of octets is one node in both directions, and two ranges keep their split" {
+    var storage: [test_storage_len]program.Instruction = undefined;
+    const ranges = [_]utf8_ranges.OctetRange{ .{ .lo = 'a', .hi = 'z' }, .{ .lo = 0x80, .hi = 0xBF }, .{ .lo = 0xFF, .hi = 0xFF } };
+    for ([_]fragment.Direction{ .forward, .reverse }) |direction| {
+        var builder: Builder = .{ .instructions = &storage, .direction = direction };
+        const whole = (try octets(&builder, &ranges)) orelse return error.TestExpectedNode;
+        const written = storage[0..builder.len];
+        try testing.expectEqual(program.Kind.ranges, written[whole.entry].kind);
+        for ("a\x80\xBF\xFF") |octet| try testing.expect(program.step(written, whole.entry, octet).? & constants.hole_flag != 0);
+        for ("`\x7F\xC0\xFE") |octet| try testing.expect(program.step(written, whole.entry, octet) == null);
+    }
+    var builder: Builder = .{ .instructions = &storage, .direction = .forward };
+    const two = [_]utf8_ranges.OctetRange{ .{ .lo = 'A', .hi = 'A' }, .{ .lo = 'a', .hi = 'a' } };
+    try testing.expect(try octets(&builder, &two) == null);
+    try testing.expectEqual(@as(u32, 0), builder.len);
 }

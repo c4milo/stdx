@@ -1,5 +1,7 @@
 //! The atoms of a pattern, as fragments (decision 86): one scalar value, `.`, and a set of scalar
-//! values written as alternatives of octet ranges.
+//! values written as alternatives of octet ranges. In UTF-8 each scalar value is its sequence of
+//! octets. In bytes `.`, a class and an escape take one octet each, and an octet past 0x7F has no
+//! case.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -13,6 +15,7 @@ const ScalarSet = @import("../scalar_set.zig").ScalarSet;
 const unicode = @import("unicode");
 const utf8_compact = @import("syntax_atom_utf8.zig");
 const ranges_node = @import("syntax_atom_ranges.zig");
+const Encoding = @import("../program.zig").Encoding;
 
 /// The flags of RE2's syntax that stdx takes, which `(?i)`, `(?m)`, `(?s)` and `(?U)` set.
 pub const Flags = struct {
@@ -66,32 +69,73 @@ pub fn alternatives(builder: *Builder, scalars: []const utf8_ranges.ScalarRange)
     return whole orelse builder.fail();
 }
 
-/// Every scalar value of a normalized set.
-pub fn class(builder: *Builder, set: *const ScalarSet) fragment.Error!Fragment {
+/// Every scalar value of a normalized set, and in bytes every octet it holds.
+pub fn class(builder: *Builder, encoding: Encoding, set: *const ScalarSet) fragment.Error!Fragment {
+    if (encoding == .bytes) return octet_ranges(builder, set.slice());
     return scalar_ranges(builder, set.slice());
 }
 
-/// One scalar value, as its UTF-8. Under `(?i)` it is each scalar value of its case orbit, in
-/// ascending order: `k` is `K`, `k` and the Kelvin sign. RFC 9485 §3 gives a regexp no
-/// case-insensitive form, so `(?i)` is RE2's, with UTS #18 RL1.5's simple case folding.
-pub fn literal(builder: *Builder, flags: Flags, scalar: u32) errors.Error!Fragment {
+/// The octets of ranges that are in order and apart (`Encoding.bytes`): one `ranges` node, or one
+/// alternative for each range. A set that goes on past 0xFF, as a negated one does, ends there.
+fn octet_ranges(builder: *Builder, scalars: []const utf8_ranges.ScalarRange) fragment.Error!Fragment {
+    var octets: [constants.octet_ranges_max]utf8_ranges.OctetRange = undefined;
+    var len: usize = 0;
+    for (scalars) |range| {
+        if (range.lo > constants.octet_max) break;
+        // Ranges apart hold at most one range for each two octets.
+        assert(len < octets.len);
+        octets[len] = .{ .lo = @intCast(range.lo), .hi = @intCast(@min(range.hi, constants.octet_max)) };
+        len += 1;
+    }
+    if (try ranges_node.octets(builder, octets[0..len])) |whole| return whole;
+    var whole: ?Fragment = null;
+    for (octets[0..len]) |range| {
+        const piece = try builder.range(range.lo, range.hi);
+        whole = if (whole) |sofar| try builder.alternate(sofar, piece) else piece;
+    }
+    return whole orelse builder.fail();
+}
+
+/// One character of the pattern, as its UTF-8. Under `(?i)` it is each scalar value of its case
+/// orbit, in ascending order: `k` is `K`, `k` and the Kelvin sign. RFC 9485 §3 gives a regexp no
+/// case-insensitive form, so `(?i)` is RE2's, with UTS #18 RL1.5's simple case folding. In bytes
+/// an ASCII character is the octet that `octet` writes, and any other has no case.
+pub fn literal(builder: *Builder, flags: Flags, encoding: Encoding, scalar: u32) errors.Error!Fragment {
     assert(scalar <= constants.scalar_max and !utf8_ranges.is_surrogate(scalar));
-    if (flags.case_insensitive) {
-        if (scalar <= constants.one_octet_max) {
-            const orbit = &ascii_orbits[scalar];
-            if (orbit.len > 0 and orbit.one_octet()) return one_octet_orbit(builder, orbit.slice());
-            if (orbit.len > 0) return scalar_ranges(builder, orbit.slice());
-        } else if (unicode.simple_fold(scalar) != scalar) {
-            const orbit = orbit_of(scalar);
-            return scalar_ranges(builder, orbit.slice());
-        }
+    if (encoding == .bytes and scalar <= constants.one_octet_max) return octet(builder, flags, @intCast(scalar));
+    if (flags.case_insensitive and encoding == .utf8) {
+        if (try folded_orbit(builder, scalar)) |whole| return whole;
     }
     var octets: [constants.utf8_len_max]u8 = undefined;
     const len = utf8.encoded_len(@intCast(scalar));
     utf8.encode(@intCast(scalar), octets[0..len]);
     var whole = try builder.range(octets[0], octets[0]);
-    for (octets[1..len]) |octet| whole = builder.cat(whole, try builder.range(octet, octet));
+    for (octets[1..len]) |value| whole = builder.cat(whole, try builder.range(value, value));
     return whole;
+}
+
+/// A scalar value under `(?i)` in UTF-8, as each member of its case orbit in ascending order, or
+/// null where the orbit holds the value alone.
+fn folded_orbit(builder: *Builder, scalar: u32) fragment.Error!?Fragment {
+    if (scalar <= constants.one_octet_max) {
+        const orbit = &ascii_orbits[scalar];
+        if (orbit.len == 0) return null;
+        if (orbit.one_octet()) return try one_octet_orbit(builder, orbit.slice());
+        return try scalar_ranges(builder, orbit.slice());
+    }
+    if (unicode.simple_fold(scalar) == scalar) return null;
+    const orbit = orbit_of(scalar);
+    return try scalar_ranges(builder, orbit.slice());
+}
+
+/// One octet in bytes (`Encoding.bytes`): an ASCII character, or an escape such as `\xE9`. Under
+/// `(?i)` an ASCII letter is both its cases, the capital first, and an octet past 0x7F has no case.
+pub fn octet(builder: *Builder, flags: Flags, value: u8) fragment.Error!Fragment {
+    if (!flags.case_insensitive or !std.ascii.isAlphabetic(value)) return builder.range(value, value);
+    const capital = std.ascii.toUpper(value);
+    const small = std.ascii.toLower(value);
+    const cases = [_]utf8_ranges.ScalarRange{ .{ .lo = capital, .hi = capital }, .{ .lo = small, .hi = small } };
+    return octet_ranges(builder, &cases);
 }
 
 /// A case orbit's members in ascending order, as ranges: adjacent ones, such as Ā and ā, U+0100
@@ -165,15 +209,18 @@ fn lower_first(_: void, left: utf8_ranges.ScalarRange, right: utf8_ranges.Scalar
     return left.lo < right.lo;
 }
 
-/// What a `.` holds: any scalar value but a line feed, and any at all under `(?s)`.
+/// What a `.` holds: any scalar value but a line feed, and any at all under `(?s)`. In bytes
+/// these hold any octet but a line feed, and any octet.
 const dot_ranges = [_]utf8_ranges.ScalarRange{
     .{ .lo = 0, .hi = constants.line_feed - 1 },
     .{ .lo = constants.line_feed + 1, .hi = constants.scalar_max },
 };
 const every_scalar = [_]utf8_ranges.ScalarRange{.{ .lo = 0, .hi = constants.scalar_max }};
 
-pub fn dot(builder: *Builder, flags: Flags) errors.Error!Fragment {
-    return scalar_ranges(builder, if (flags.dot_matches_line_feed) &every_scalar else &dot_ranges);
+pub fn dot(builder: *Builder, flags: Flags, encoding: Encoding) errors.Error!Fragment {
+    const ranges: []const utf8_ranges.ScalarRange = if (flags.dot_matches_line_feed) &every_scalar else &dot_ranges;
+    if (encoding == .bytes) return octet_ranges(builder, ranges);
+    return scalar_ranges(builder, ranges);
 }
 
 const testing = std.testing;
@@ -183,12 +230,12 @@ const storage_len = 96;
 test "a literal past U+007F is one range for each octet of its UTF-8, in the program's order" {
     var storage: [storage_len]program.Instruction = undefined;
     var builder: Builder = .{ .instructions = &storage, .direction = .forward };
-    const euro = try literal(&builder, .{}, 0x20AC);
+    const euro = try literal(&builder, .{}, .utf8, 0x20AC);
     try testing.expectEqual(@as(u32, 3), builder.len);
     try testing.expectEqual(@as(u8, 0xE2), storage[euro.entry].lo);
     try testing.expectEqual(@as(u8, 0x82), storage[storage[euro.entry].out].lo);
     var reverse: Builder = .{ .instructions = &storage, .direction = .reverse };
-    const back = try literal(&reverse, .{}, 0x20AC);
+    const back = try literal(&reverse, .{}, .utf8, 0x20AC);
     try testing.expectEqual(@as(u8, 0xAC), storage[back.entry].lo);
     try testing.expectEqual(@as(u8, 0x82), storage[storage[back.entry].out].lo);
 }
@@ -196,28 +243,28 @@ test "a literal past U+007F is one range for each octet of its UTF-8, in the pro
 test "a letter under (?i) takes its case orbit, and any other character itself alone" {
     var storage: [storage_len]program.Instruction = undefined;
     var builder: Builder = .{ .instructions = &storage, .direction = .forward };
-    _ = try literal(&builder, .{ .case_insensitive = true }, 'b');
+    _ = try literal(&builder, .{ .case_insensitive = true }, .utf8, 'b');
     try testing.expectEqual(@as(u32, 3), builder.len);
     try testing.expectEqual(@as(u8, 'B'), storage[0].lo);
     try testing.expectEqual(@as(u8, 'b'), storage[1].lo);
     try testing.expectEqual(program.Kind.split, storage[2].kind);
     builder.truncate(0);
-    _ = try literal(&builder, .{ .case_insensitive = true }, '@');
-    _ = try literal(&builder, .{ .case_insensitive = true }, '[');
-    _ = try literal(&builder, .{ .case_insensitive = true }, 0x80);
+    _ = try literal(&builder, .{ .case_insensitive = true }, .utf8, '@');
+    _ = try literal(&builder, .{ .case_insensitive = true }, .utf8, '[');
+    _ = try literal(&builder, .{ .case_insensitive = true }, .utf8, 0x80);
     try testing.expectEqual(@as(u32, 4), builder.len);
     builder.truncate(0);
     // k's orbit holds the Kelvin sign, U+212A, whose UTF-8 starts with 0xE2.
-    const k = try literal(&builder, .{ .case_insensitive = true }, 'K');
-    for ([_]u8{ 'K', 'k', 0xE2 }) |octet| try testing.expect(first_octets(&storage, k.entry, octet));
+    const k = try literal(&builder, .{ .case_insensitive = true }, .utf8, 'K');
+    for ([_]u8{ 'K', 'k', 0xE2 }) |value| try testing.expect(first_octets(&storage, k.entry, value));
     builder.truncate(0);
     // Ā and ā are adjacent: one sequence of two octet ranges, and no split.
     builder.truncate(0);
-    _ = try literal(&builder, .{ .case_insensitive = true }, 0x100);
+    _ = try literal(&builder, .{ .case_insensitive = true }, .utf8, 0x100);
     try testing.expectEqual(@as(u32, 2), builder.len);
     builder.truncate(0);
     // É and é both start with 0xC3: the orbit is the two of them.
-    const e = try literal(&builder, .{ .case_insensitive = true }, 0xC9);
+    const e = try literal(&builder, .{ .case_insensitive = true }, .utf8, 0xC9);
     try testing.expect(first_octets(&storage, e.entry, 0xC3) and !first_octets(&storage, e.entry, 'e'));
 }
 
@@ -259,17 +306,17 @@ test "each ASCII character under (?i) writes the program of its class folded by 
     var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
     for (0..constants.one_octet_max + 1) |scalar| {
         var builder: Builder = .{ .instructions = &storage, .direction = .forward };
-        _ = try literal(&builder, .{ .case_insensitive = true }, @intCast(scalar));
+        _ = try literal(&builder, .{ .case_insensitive = true }, .utf8, @intCast(scalar));
         // A second reading of the orbit: `unicode.images`, which a class folds by.
         var set = ScalarSet.init(&set_storage);
         try set.add_folded(@intCast(scalar), @intCast(scalar), true);
         var folded: Builder = .{ .instructions = &folded_storage, .direction = .forward };
-        _ = try class(&folded, &set);
+        _ = try class(&folded, .utf8, &set);
         try testing.expectEqualSlices(program.Instruction, folded_storage[0..folded.len], storage[0..builder.len]);
     }
 }
 
-fn first_octets(storage: []const program.Instruction, entry: u32, octet: u8) bool {
+fn first_octets(storage: []const program.Instruction, entry: u32, value: u8) bool {
     // Follows the splits from `entry` and reads each alternative's first range.
     var stack: [storage_len]u32 = undefined;
     var len: u32 = 1;
@@ -279,8 +326,8 @@ fn first_octets(storage: []const program.Instruction, entry: u32, octet: u8) boo
         if (len == 0) break;
         len -= 1;
         const instruction = storage[stack[len]];
-        if (instruction.kind == .range) taken = taken or instruction.takes(octet);
-        if (instruction.kind == .ranges) taken = taken or program.step(storage, stack[len], octet) != null;
+        if (instruction.kind == .range) taken = taken or instruction.takes(value);
+        if (instruction.kind == .ranges) taken = taken or program.step(storage, stack[len], value) != null;
         if (instruction.kind != .split) continue;
         stack[len] = instruction.out;
         stack[len + 1] = instruction.arg;
@@ -293,7 +340,7 @@ fn first_octets(storage: []const program.Instruction, entry: u32, octet: u8) boo
 test "a dot starts with any octet that starts a scalar value, but a line feed" {
     var storage: [storage_len]program.Instruction = undefined;
     var builder: Builder = .{ .instructions = &storage, .direction = .forward };
-    const any = try dot(&builder, .{});
+    const any = try dot(&builder, .{}, .utf8);
     try testing.expect(first_octets(&storage, any.entry, 'a'));
     try testing.expect(first_octets(&storage, any.entry, 0x00));
     try testing.expect(first_octets(&storage, any.entry, 0xC2));
@@ -303,7 +350,7 @@ test "a dot starts with any octet that starts a scalar value, but a line feed" {
     try testing.expect(!first_octets(&storage, any.entry, 0xC1));
     try testing.expect(!first_octets(&storage, any.entry, 0xF5));
     builder.truncate(0);
-    const all = try dot(&builder, .{ .dot_matches_line_feed = true });
+    const all = try dot(&builder, .{ .dot_matches_line_feed = true }, .utf8);
     try testing.expect(first_octets(&storage, all.entry, '\n'));
 }
 
@@ -312,10 +359,35 @@ test "a set of no scalar value is an instruction no octet passes" {
     var builder: Builder = .{ .instructions = &storage, .direction = .forward };
     var set_storage: [constants.class_ranges_max]utf8_ranges.ScalarRange = undefined;
     var set = ScalarSet.init(&set_storage);
-    const none = try class(&builder, &set);
+    const none = try class(&builder, .utf8, &set);
     try testing.expectEqual(program.Kind.fail, storage[none.entry].kind);
     try testing.expect(none.holes.is_empty());
     try set.add(constants.surrogate_min, constants.surrogate_max);
-    const surrogates = try class(&builder, &set);
+    const surrogates = try class(&builder, .utf8, &set);
     try testing.expectEqual(program.Kind.fail, storage[surrogates.entry].kind);
+}
+
+test "in bytes an atom takes one octet of any value, and an octet past 0x7F has no case" {
+    var storage: [storage_len]program.Instruction = undefined;
+    var builder: Builder = .{ .instructions = &storage, .direction = .forward };
+    const any = try dot(&builder, .{}, .bytes);
+    for ("a\x00\x80\xBF\xC0\xFF") |value| try testing.expect(first_octets(&storage, any.entry, value));
+    try testing.expect(!first_octets(&storage, any.entry, '\n'));
+    const all = try dot(&builder, .{ .dot_matches_line_feed = true }, .bytes);
+    try testing.expect(first_octets(&storage, all.entry, '\n'));
+    // An escape such as `\xE9` is one octet, with no case under `(?i)`.
+    builder.truncate(0);
+    _ = try octet(&builder, .{ .case_insensitive = true }, 0xE9);
+    try testing.expectEqual(@as(u32, 1), builder.len);
+    try testing.expectEqual(@as(u8, 0xE9), storage[0].lo);
+    // A character past U+007F is its UTF-8, with no case: `é` is 0xC3 and 0xA9 alone.
+    builder.truncate(0);
+    const e = try literal(&builder, .{ .case_insensitive = true }, .bytes, 0xE9);
+    try testing.expectEqual(@as(u32, 2), builder.len);
+    try testing.expect(first_octets(&storage, e.entry, 0xC3) and !first_octets(&storage, e.entry, 0xE9));
+    // k's orbit holds the Kelvin sign, U+212A, which has no case in bytes: `K` and `k` alone.
+    builder.truncate(0);
+    const k = try literal(&builder, .{ .case_insensitive = true }, .bytes, 'k');
+    try testing.expectEqual(@as(u32, 3), builder.len);
+    try testing.expect(first_octets(&storage, k.entry, 'K') and !first_octets(&storage, k.entry, 0xE2));
 }

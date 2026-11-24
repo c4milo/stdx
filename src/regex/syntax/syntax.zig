@@ -24,7 +24,15 @@ const Fragment = fragment.Fragment;
 const Holes = fragment.Holes;
 const Greed = fragment.Greed;
 const Flags = atom.Flags;
+const Encoding = @import("../program.zig").Encoding;
 const Error = errors.Error;
+
+/// What a pattern is read under from its start: the flags, which a `(?i)` and its like change
+/// from inside, and the encoding, which nothing inside changes.
+pub const Start = struct {
+    flags: Flags = .{},
+    encoding: Encoding = .utf8,
+};
 
 /// The group of a frame that captures nothing.
 const no_group = std.math.maxInt(u32);
@@ -56,6 +64,7 @@ pub const Parser = struct {
     reader: codec.Reader,
     builder: *Builder,
     flags: Flags,
+    encoding: Encoding,
     frames: [constants.depth_max + 1]Frame = undefined,
     depth: u32 = 0,
     /// The capture groups so far, the whole match counted.
@@ -67,8 +76,8 @@ pub const Parser = struct {
     /// Its storage is the pass's, of `class_ranges_max` ranges at most.
     set: ScalarSet,
 
-    pub fn init(pattern: []const u8, flags: Flags, builder: *Builder, ranges: []ScalarRange) Parser {
-        return .{ .reader = codec.Reader.init(pattern), .builder = builder, .flags = flags, .set = .init(ranges) };
+    pub fn init(pattern: []const u8, start: Start, builder: *Builder, ranges: []ScalarRange) Parser {
+        return .{ .reader = codec.Reader.init(pattern), .builder = builder, .flags = start.flags, .encoding = start.encoding, .set = .init(ranges) };
     }
 
     /// The whole pattern as one fragment, at the end of the builder's program.
@@ -92,31 +101,41 @@ pub const Parser = struct {
             '|' => try parser.close_alternative(),
             '*', '+', '?', '{' => try parser.quantifier(scalar),
             '[' => {
-                try class.take(&parser.reader, parser.flags, &parser.set);
-                parser.push(try atom.class(parser.builder, &parser.set));
+                try class.take(&parser.reader, parser.flags, parser.encoding, &parser.set);
+                parser.push(try atom.class(parser.builder, parser.encoding, &parser.set));
             },
-            '.' => parser.push(try atom.dot(parser.builder, parser.flags)),
+            '.' => parser.push(try atom.dot(parser.builder, parser.flags, parser.encoding)),
             '^' => parser.push(try parser.builder.look(if (parser.flags.multi_line) .behind_line else .behind_text)),
             '$' => parser.push(try parser.builder.look(if (parser.flags.multi_line) .ahead_line else .ahead_text)),
             '\\' => try parser.escaped(),
             // RFC 9485 §3: NormalChar holds neither "]" nor "}", so each stands for itself only
             // after a "\".
             ']', '}' => return error.UnescapedCharacter,
-            else => parser.push(try atom.literal(parser.builder, parser.flags, scalar)),
+            else => parser.push(try atom.literal(parser.builder, parser.flags, parser.encoding, scalar)),
         }
     }
 
     fn escaped(parser: *Parser) Error!void {
-        switch (try escape.take(&parser.reader)) {
-            .scalar => |scalar| parser.push(try atom.literal(parser.builder, parser.flags, scalar)),
+        switch (try escape.take(&parser.reader, parser.encoding)) {
+            .scalar => |scalar| parser.push(try parser.escaped_scalar(scalar)),
             .look => |look| parser.push(try parser.builder.look(look)),
             .class => |named| {
+                // In bytes such a class is ASCII, as `\w` is, and holds both cases of each letter
+                // it holds, so its folding adds no octet.
                 parser.set.len = 0;
                 try parser.set.add_named(named, parser.flags.case_insensitive);
                 parser.set.normalize();
-                parser.push(try atom.class(parser.builder, &parser.set));
+                parser.push(try atom.class(parser.builder, parser.encoding, &parser.set));
             },
         }
+    }
+
+    /// The atom of a value an escape names: in bytes the one octet it is, which `escape.take`
+    /// holds at or under 0xFF.
+    fn escaped_scalar(parser: *Parser, scalar: u32) Error!Fragment {
+        if (parser.encoding == .utf8) return atom.literal(parser.builder, parser.flags, .utf8, scalar);
+        assert(scalar <= constants.octet_max);
+        return atom.octet(parser.builder, parser.flags, @intCast(scalar));
     }
 
     /// Adds an atom to the frame. With two already pending, no quantifier can reach the first, so

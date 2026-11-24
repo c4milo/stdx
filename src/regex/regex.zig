@@ -14,6 +14,7 @@ pub const Instruction = program.Instruction;
 pub const Kind = program.Kind;
 pub const Look = program.Look;
 pub const Context = program.Context;
+pub const Encoding = program.Encoding;
 
 const compiler = @import("compile.zig");
 pub const compile = compiler.compile;

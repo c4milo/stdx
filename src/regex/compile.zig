@@ -23,6 +23,9 @@ const ScalarRange = @import("utf8_ranges.zig").ScalarRange;
 pub const Options = struct {
     /// The flags the pattern starts under. A `(?i)` and its like change them from inside.
     flags: atom.Flags = .{},
+    /// How the program reads the text: as UTF-8, or as bytes, where `.` takes any octet but a
+    /// line feed, UTF-8 or not.
+    encoding: program_file.Encoding = .utf8,
     /// Whether the storage holds the reverse program too. A streaming `Matcher` reads the forward
     /// program alone; a `Searcher` needs both.
     reverse: bool = true,
@@ -42,17 +45,18 @@ const Pass = struct {
 /// Reads the pattern into the builder in one direction, and keeps its names in `names`. The
 /// forward pass checks the names. The reverse pass reads the same pattern and checks none, and a
 /// pattern with no `(?` holds no name, so neither pays for the parser's table of names.
-fn pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, names: []GroupName, classes: bool) errors.Error!Pass {
-    if (try trie_pass(builder, pattern, flags, direction)) |done| return done;
+fn pass(builder: *Builder, pattern: []const u8, start: syntax.Start, direction: fragment.Direction, names: []GroupName, classes: bool) errors.Error!Pass {
+    if (try trie_pass(builder, pattern, start.flags, direction)) |done| return done;
     if (direction == .forward and may_name(pattern)) {
         var read: syntax_name.Names = .{};
-        return pass_with(builder, pattern, flags, direction, .{ .read = &read, .kept = names }, classes);
+        return pass_with(builder, pattern, start, direction, .{ .read = &read, .kept = names }, classes);
     }
-    return pass_with(builder, pattern, flags, direction, .{ .read = null, .kept = &.{} }, classes);
+    return pass_with(builder, pattern, start, direction, .{ .read = null, .kept = &.{} }, classes);
 }
 
 /// The pass of a pattern that is an alternation of literals and nothing else, as a trie
 /// (literal_trie.zig), or null where the pattern is anything else. It holds no group of its own.
+/// A literal's octets are its UTF-8 in either encoding, so one trie serves both.
 fn trie_pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction) errors.Error!?Pass {
     builder.direction = direction;
     const body = (try literal_trie.alternation(builder, pattern, flags.case_insensitive)) orelse return null;
@@ -81,14 +85,14 @@ const Keep = struct { read: ?*syntax_name.Names, kept: []GroupName };
 /// declares, so a pass declares none where `classes` says the pattern holds no `[` and no `\`,
 /// which start every class, and `class_ranges_small` ranges for another. A class past them reads
 /// the pattern again, from the builder's state before the pass, in a set of `class_ranges_max`.
-fn pass_with(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep, classes: bool) errors.Error!Pass {
+fn pass_with(builder: *Builder, pattern: []const u8, start: syntax.Start, direction: fragment.Direction, keep: Keep, classes: bool) errors.Error!Pass {
     // A pattern with no class adds no range, so the empty set refuses none of its classes.
-    if (!classes) return pass_in(builder, pattern, flags, direction, keep, &.{});
+    if (!classes) return pass_in(builder, pattern, start, direction, keep, &.{});
     const begin = builder.len;
-    if (pass_small(builder, pattern, flags, direction, keep)) |done| return done else |err| if (err != error.ClassTooLarge) return err;
+    if (pass_small(builder, pattern, start, direction, keep)) |done| return done else |err| if (err != error.ClassTooLarge) return err;
     builder.truncate(begin);
     if (keep.read) |read| read.len = 0;
-    return pass_large(builder, pattern, flags, direction, keep);
+    return pass_large(builder, pattern, start, direction, keep);
 }
 
 /// True when the pattern holds a `[` or a `\`. `std.mem.indexOfScalar` would set up a vector
@@ -100,20 +104,20 @@ fn may_hold_class(pattern: []const u8) bool {
     return false;
 }
 
-fn pass_small(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
+fn pass_small(builder: *Builder, pattern: []const u8, start: syntax.Start, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
     var ranges: [constants.class_ranges_small]ScalarRange = undefined;
-    return pass_in(builder, pattern, flags, direction, keep, &ranges);
+    return pass_in(builder, pattern, start, direction, keep, &ranges);
 }
 
 /// A pass in a set of `class_ranges_max` ranges, whose 16 KiB take a frame of their own.
-noinline fn pass_large(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
+noinline fn pass_large(builder: *Builder, pattern: []const u8, start: syntax.Start, direction: fragment.Direction, keep: Keep) errors.Error!Pass {
     var ranges: [constants.class_ranges_max]ScalarRange = undefined;
-    return pass_in(builder, pattern, flags, direction, keep, &ranges);
+    return pass_in(builder, pattern, start, direction, keep, &ranges);
 }
 
-fn pass_in(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction, keep: Keep, ranges: []ScalarRange) errors.Error!Pass {
+fn pass_in(builder: *Builder, pattern: []const u8, start: syntax.Start, direction: fragment.Direction, keep: Keep, ranges: []ScalarRange) errors.Error!Pass {
     builder.direction = direction;
-    var parser = syntax.Parser.init(pattern, flags, builder, ranges);
+    var parser = syntax.Parser.init(pattern, start, builder, ranges);
     parser.names = keep.read;
     const whole = try builder.capture(try parser.parse(), 0);
     const end = try builder.emit(.{ .kind = .match });
@@ -159,12 +163,13 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         .direction = .forward,
     };
     const holds_class = may_hold_class(pattern);
-    const forward = try pass(&builder, pattern, options.flags, .forward, options.names, holds_class);
+    const start: syntax.Start = .{ .flags = options.flags, .encoding = options.encoding };
+    const forward = try pass(&builder, pattern, start, .forward, options.names, holds_class);
     const forward_len = builder.len;
     const forward_held = builder.held;
     var reverse_entry: u32 = program_file.no_entry;
     if (options.reverse) {
-        const reverse = try pass(&builder, pattern, options.flags, .reverse, &.{}, holds_class);
+        const reverse = try pass(&builder, pattern, start, .reverse, &.{}, holds_class);
         assert(reverse.group_count == forward.group_count);
         reverse_entry = reverse.entry;
     }
@@ -181,6 +186,7 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         .group_count = forward.group_count,
         .reads_ahead = looks.ahead,
         .has_looks = looks.any,
+        .encoding = options.encoding,
         .classes = classes.of,
         .class_count = classes.count,
         .names = forward.names,
