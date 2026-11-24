@@ -32,11 +32,11 @@ def search (prog : Array Inst) (entry : Nat) (text : List Nat) (starts : Nat →
       (seeds ++ if best.isNone && starts i then [entry] else [])
     let live := found.takeWhile (fun pc => !isDone prog pc)
     let best' := if found.any (isDone prog) then some i else best
-    match text[i]?, live, best' with
-    | none, _, _ => best'
-    | some _, [], some v => some v
-    | some b, _, _ =>
-      search prog entry text starts turns (i + 1) (live.filterMap (step prog · b)) best'
+    match text[i]? with
+    | none => best'
+    | some b =>
+      if live.isEmpty && best'.isSome then best'
+      else search prog entry text starts turns (i + 1) (live.filterMap (step prog · b)) best'
 
 /-- The search by a backtracking matcher: the end it finds first from the least offset, at or
 after `i`, where a match may start and it finds one. -/

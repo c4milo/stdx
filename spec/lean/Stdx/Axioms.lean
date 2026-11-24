@@ -12,6 +12,8 @@ import Stdx.Regex.Closure
 import Stdx.Regex.Matcher
 import Stdx.Regex.MatcherPaths
 import Stdx.Regex.MatcherSearch
+import Stdx.Regex.Dfa
+import Stdx.Regex.Reverse
 
 /-!
 # What the proofs rest on
@@ -186,5 +188,32 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.search_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.search_answer
+
+/-- info: 'Stdx.Regex.Closure.mem_closure' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Closure.mem_closure
+
+/-- info: 'Stdx.Regex.Dfa.scan_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dfa.scan_eq
+
+/-- info: 'Stdx.Regex.Dfa.scan_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dfa.scan_answer
+
+/-- info: 'Stdx.Regex.Dfa.cached' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Dfa.cached
+
+/-- info: 'Stdx.Regex.Matcher.runLongest_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.runLongest_sound
+
+/-- info: 'Stdx.Regex.Matcher.runLongest_complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.runLongest_complete
+
+/-- info: 'Stdx.Regex.Matcher.scanBack_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.scanBack_some
+
+/-- info: 'Stdx.Regex.Matcher.scanBack_least' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.scanBack_least
+
+/-- info: 'Stdx.Regex.Matcher.scanBack_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.scanBack_none
 
 end Stdx.Regex

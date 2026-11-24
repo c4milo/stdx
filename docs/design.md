@@ -10174,6 +10174,47 @@ to 12 are reordered and nothing else changes.
   - Not modelled: a set of literals and nothing else, whose match is the first literal of
     the set that stands at the first place.
 
+  **Part 22r, its fourth part built: the two DFAs' scans in Lean (decision 86).**
+  **Check:** as the second part's, and the reverse scan gives the starts of a small program.
+
+  **Check passed, part 22r, its fourth part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container. It rests on part 22h, whose records are below.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins 9 more theorems.
+  - `Stdx/Regex/Dfa.lean` holds the forward DFA of `Kind.first` that is not anchored. A state
+    holds the context behind the position, whether a match may still start, and the seeds.
+    `delta` is `Dfa.build`: it reads a state and a byte, and no text, so the next state and
+    the match are a function of those two.
+    - `scan_eq`: the scan by states gives what the matcher's search gives. The scan ends where
+      no thread takes the byte and a match was found, one position before the search ends.
+    - `scan_answer`: the scan gives the end of the search's answer for a program's text.
+    - `cached`: a table that holds values of `delta`, any part of them, changes no step.
+  - `Stdx/Regex/Reverse.lean` holds the reverse DFA of `Kind.longest`: `runLongest` keeps
+    every thread and gives the last offset where one is `match`. `scanBack` is
+    `dfa_reverse.scan`. `scanBack_some`, `scanBack_least` and `scanBack_none` are the three
+    things that `Search.lean` asks of the reverse scan, for the forward program's paths.
+    - They take two things as given. `Reverses`: the reverse program takes each match of the
+      forward program read backward, and nothing else. `Exact` for the reverse program.
+    - `mem_closure`, in `Closure.lean`: one `visited` set for all the seeds loses no thread.
+  - An example holds `scanBack` to the starts of `a+b` in `xaab` by `decide`: the start 1, the
+    start 2 for a scan that reads back to 2 alone, and nothing from an offset where no match
+    ends.
+  - Eight mutations, each against `lake build`, each CAUGHT: a DFA that still starts a match
+    after one was found; a next state that keeps the old context behind it; a scan that ends
+    at a state with no seed that may still start a match; no start at the text's end; no
+    match read at the text's end; a reverse scan that keeps its first match; a reverse scan
+    that stops one position before the search's first offset; and one that reads one byte
+    past it.
+  - What the two files leave out:
+    - The table, the classes of bytes, the delayed match flag, and a DFA that gives up.
+    - The forward DFA that is anchored. `findAt_eq` of part 22h holds the matcher's search
+      from one start to `Scans.ahead`, and no state model holds that DFA to it.
+    - Where a match may start. `scanBack`'s theorems read paths, and a program of UTF-8
+      starts no match before a continuation byte.
+    - Claims R1, R7 and R9, which change how a scan reads its bytes.
+  - What the claims' theorems still take as given, after this part: `Reverses` and `Exact`,
+    which are the builder's; `Literal.find`; and the Zig code itself, which no vector file
+    holds to these definitions.
+
   **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
   **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
   the model gives RE2's ends on small programs; mutations of the definitions fail the build.

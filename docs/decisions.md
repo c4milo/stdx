@@ -6356,11 +6356,16 @@ last part lists what still waits on a ruling.
         (`backtrack_sound`, `backtrack_complete`), and `textOf` gives a program's matches as
         `Search.lean` asks for them. `Stdx/Regex/MatcherSearch.lean` holds the search from any
         offset: `search_answer`, the matcher's end is the end of the search's answer.
+      - `Stdx/Regex/Dfa.lean` holds the forward DFA's states and `Dfa.build`. `scan_answer`:
+        the forward scan gives the end of the search's answer. `Stdx/Regex/Reverse.lean`
+        holds the reverse DFA's scan: `scanBack_some`, `scanBack_least` and `scanBack_none`,
+        the least start of a match that ends at an offset. Those three take as given that
+        the reverse program takes each match read backward, and nothing else.
       - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
         yet.
     - Not proved: the parser, the builder, that the reverse program takes each match read
-      backward, the matcher's capture slots, and that each DFA's scan gives what `Search.lean`
-      asks of it. Design §8 parts 22h and 22r name their order.
+      backward, the matcher's capture slots, a DFA's table and the claims that change how it
+      reads its bytes, and `Literal.find`. Design §8 parts 22h and 22r name their order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
     on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names
