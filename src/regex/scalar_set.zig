@@ -147,7 +147,7 @@ pub const ScalarSet = struct {
     }
 
     /// Adds to the normalized set the other case of each ASCII letter it holds, and normalizes it
-    /// again: `(?i)` under `Encoding.bytes`, where an octet past 0x7F has no case.
+    /// again: `(?i)` under `Encoding.bytes`, where a byte past 0x7F has no case.
     pub fn fold_ascii(set: *ScalarSet) Error!void {
         const end = set.len;
         for (0..end) |index| {

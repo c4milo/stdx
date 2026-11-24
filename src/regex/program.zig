@@ -166,17 +166,17 @@ pub const GroupName = struct {
 
 /// How a program reads its text (decision 86 as amended).
 pub const Encoding = enum(u8) {
-    /// RFC 3629's UTF-8. A pattern's scalar values match their UTF-8, an octet that is not UTF-8
-    /// matches nothing, and no match starts before a continuation octet.
+    /// RFC 3629's UTF-8. A pattern's scalar values match their UTF-8, a byte that is not UTF-8
+    /// matches nothing, and no match starts before a continuation byte.
     utf8,
-    /// Octets of any value, with no Unicode. A pattern's characters still match their UTF-8,
-    /// but `.`, a class and an escape such as `\xE9` each take one octet, UTF-8 or not, and a
-    /// match may start before any octet. An octet past 0x7F has no case and no class: `(?i)`
+    /// Bytes of any value, with no Unicode. A pattern's characters still match their UTF-8,
+    /// but `.`, a class and an escape such as `\xE9` each take one byte, UTF-8 or not, and a
+    /// match may start before any byte. A byte past 0x7F has no case and no class: `(?i)`
     /// folds ASCII alone.
     bytes,
 
-    /// True where a match may start before `octet`: before any octet in bytes, and in UTF-8
-    /// before any but a continuation octet, so that no match cuts a scalar value in two.
+    /// True where a match may start before `octet`: before any byte in bytes, and in UTF-8
+    /// before any but a continuation byte, so that no match cuts a scalar value in two.
     pub fn may_start_at(encoding: Encoding, octet: u8) bool {
         return encoding == .bytes or !is_continuation(octet);
     }
@@ -236,7 +236,7 @@ comptime {
 
 const testing = std.testing;
 
-test "a match starts before a continuation octet in bytes alone" {
+test "a match starts before a continuation byte in bytes alone" {
     for ([_]u8{ 0x00, 'a', 0x7F, 0xC2, 0xF4, 0xFF }) |octet| {
         try testing.expect(Encoding.utf8.may_start_at(octet));
         try testing.expect(Encoding.bytes.may_start_at(octet));

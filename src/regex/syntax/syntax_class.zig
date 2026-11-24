@@ -4,7 +4,7 @@
 //!
 //! A class is built in the one set the parser keeps (decision 86 as amended). Under `(?i)` each
 //! item is folded as it is read, and the class's `^` negates the folded items, as Go's regexp
-//! folds a class. In bytes a class holds octets, and under `(?i)` its ASCII letters take their
+//! folds a class. In bytes a class holds bytes, and under `(?i)` its ASCII letters take their
 //! other case once every item is read, before the `^`.
 const std = @import("std");
 const codec = @import("codec");

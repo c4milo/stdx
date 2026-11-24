@@ -121,7 +121,7 @@ pub const Parser = struct {
             .look => |look| parser.push(try parser.builder.look(look)),
             .class => |named| {
                 // In bytes such a class is ASCII, as `\w` is, and holds both cases of each letter
-                // it holds, so its folding adds no octet.
+                // it holds, so its folding adds no byte.
                 parser.set.len = 0;
                 try parser.set.add_named(named, parser.flags.case_insensitive);
                 parser.set.normalize();
@@ -130,7 +130,7 @@ pub const Parser = struct {
         }
     }
 
-    /// The atom of a value an escape names: in bytes the one octet it is, which `escape.take`
+    /// The atom of a value an escape names: in bytes the one byte it is, which `escape.take`
     /// holds at or under 0xFF.
     fn escaped_scalar(parser: *Parser, scalar: u32) Error!Fragment {
         if (parser.encoding == .utf8) return atom.literal(parser.builder, parser.flags, .utf8, scalar);

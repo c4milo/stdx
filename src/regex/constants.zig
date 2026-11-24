@@ -36,7 +36,7 @@ pub const continuation_max = @as(comptime_int, utf8.constants.continuation_max);
 /// The line feed, the one octet `.` refuses by default and the octet a line ends with.
 pub const line_feed = '\n';
 
-/// The ranges of octets a normalized set holds at most under `Encoding.bytes`. Its ranges stand
+/// The ranges of bytes a normalized set holds at most under `Encoding.bytes`. Its ranges stand
 /// apart, so each takes two of the 256 values at least, with the gap after it.
 pub const octet_ranges_max = octet_values / 2;
 

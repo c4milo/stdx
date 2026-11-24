@@ -23,7 +23,7 @@ const ScalarRange = @import("utf8_ranges.zig").ScalarRange;
 pub const Options = struct {
     /// The flags the pattern starts under. A `(?i)` and its like change them from inside.
     flags: atom.Flags = .{},
-    /// How the program reads the text: as UTF-8, or as bytes, where `.` takes any octet but a
+    /// How the program reads the text: as UTF-8, or as bytes, where `.` takes any byte but a
     /// line feed, UTF-8 or not.
     encoding: program_file.Encoding = .utf8,
     /// Whether the storage holds the reverse program too. A streaming `Matcher` reads the forward
@@ -56,7 +56,7 @@ fn pass(builder: *Builder, pattern: []const u8, start: syntax.Start, direction: 
 
 /// The pass of a pattern that is an alternation of literals and nothing else, as a trie
 /// (literal_trie.zig), or null where the pattern is anything else. It holds no group of its own.
-/// A literal's octets are its UTF-8 in either encoding, so one trie serves both.
+/// A literal's bytes are its UTF-8 in either encoding, so one trie serves both.
 fn trie_pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, direction: fragment.Direction) errors.Error!?Pass {
     builder.direction = direction;
     const body = (try literal_trie.alternation(builder, pattern, flags.case_insensitive)) orelse return null;

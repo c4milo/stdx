@@ -59,7 +59,7 @@ pub const Unsupported = error{
     GroupNameTooLong,
     /// More named groups than `group_names_max`.
     GroupNamesTooMany,
-    /// Under `Encoding.bytes`, where an escape names one octet and an octet past 0x7F has no
+    /// Under `Encoding.bytes`, where an escape names one byte and a byte past 0x7F has no
     /// class: an escape past `\xFF`, `\p` or `\P`, or a character past U+007F in a class.
     UnsupportedUnicode,
 };

@@ -9873,11 +9873,21 @@ to 12 are reordered and nothing else changes.
     and 4 on `unicode/compile/match-every-line-ascii`, where it gave 3 in UTF-8. The one row
     left is `unicode/codepoints/letters-one`, where stdx and Go 1.27.4 count Unicode 17.0.0's
     letters, as part 22o found. No candidate refused a pattern.
-  - Mutations: 39 written, and the first 15, all CAUGHT, ran before the commit, against `zig
-    build test-regex`: `may_start_at` that ignores bytes, and one that lets UTF-8 start at a
-    continuation byte; each of the five places that decide where a match starts, judged by UTF-8's
-    rule; the DFA or the program with no encoding; and the parser, the class reader, a class, `.`,
-    a literal and an escape each given UTF-8. The other 24 run next, and this entry records them.
+  - Mutations: 39, all CAUGHT, each by a failing test, against `zig build test-regex`.
+    - Where a match starts: `may_start_at` that ignores bytes, and one that lets UTF-8 start at a
+      continuation byte; each of the five places that decide it, judged by UTF-8's rule; and the
+      DFA or the program with no encoding.
+    - What reads the pattern: the parser, the class reader, a class, `.`, a literal, an escape,
+      an escaped value and a named class, each given UTF-8.
+    - The refusals: a character past U+007F taken in a class, or read there by UTF-8 as an
+      escape or as a range's end; an escape past `\xFF` taken, where an assertion of the parser
+      then halts the test; and `\p` taken.
+    - Case: a class folded by Unicode, not folded, or folded after its `^`; a character past
+      ASCII folded; and a letter given no case, or one case alone.
+    - The writers: the cap at 0x7F, or the ranges past it dropped; an ASCII character not written
+      as one byte; `.` or a class written as UTF-8; no node of bytes, and a node of two ranges.
+    - `fold_ascii`: the capitals or the small letters given no other case, the set left
+      unnormalized, and a moved range ended one value early.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a

@@ -12,7 +12,7 @@
 //!
 //! No match starts before a continuation octet of UTF-8. A program takes whole sequences alone,
 //! so only an empty match could start there, and it would cut a scalar value in two. A program
-//! of `Encoding.bytes` reads octets, so its matches start before any octet.
+//! of `Encoding.bytes` reads bytes, so its matches start before any byte.
 //!
 //! The matcher is the module's reference: `Searcher`'s faster paths must give what it gives.
 const std = @import("std");

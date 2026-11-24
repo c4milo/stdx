@@ -88,7 +88,7 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
     return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
 }
 
-/// A class of octets as one `ranges` node (`Encoding.bytes`). Each member is one octet, so the
+/// A class of bytes as one `ranges` node (`Encoding.bytes`). Each member is one byte, so the
 /// ranges stand apart as the set's do, and a reverse program takes the node too. Null where
 /// the class holds fewer than `node_sequences_min` ranges.
 pub fn octets(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.Error!?Fragment {
@@ -173,7 +173,7 @@ test "read back, a class of single octets is a node, and one of longer sequences
     try testing.expect(try node(&builder, &wide) == null);
 }
 
-test "a class of octets is one node in both directions, and two ranges keep their split" {
+test "a class of bytes is one node in both directions, and two ranges keep their split" {
     var storage: [test_storage_len]program.Instruction = undefined;
     const ranges = [_]utf8_ranges.OctetRange{ .{ .lo = 'a', .hi = 'z' }, .{ .lo = 0x80, .hi = 0xBF }, .{ .lo = 0xFF, .hi = 0xFF } };
     for ([_]fragment.Direction{ .forward, .reverse }) |direction| {
