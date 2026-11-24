@@ -5659,6 +5659,12 @@ last part lists what still waits on a ruling.
         with Go's column alone at the right: the owner asked on 2026-11-22 to chart rebar's
         results, and a reader keeps the tuned rows and the held-out rows apart. From design §8
         part 22n, stdx is tuned on both sets, and the chart's notes say so (entry 86).
+      - rebar's other benchmarks draw on a chart of their own, `regex-rebar-others`, by the same
+        rules, a panel for each folder of rebar's definitions. By the owner's ruling of 2026-11-23,
+        which asked for a chart that is fair and objective, it is the README's regex chart: no work
+        on stdx has measured its rows (entry 86). The two charts of tuned rows move to
+        `docs/benchmarks.md`. One change was made for one of its rows: the bytes mode, judged on an
+        answer and on no speed, and the README says so beside the chart (2026-11-24).
 
       What the rules before did, which these replace:
       - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
