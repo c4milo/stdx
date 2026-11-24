@@ -10216,6 +10216,42 @@ to 12 are reordered and nothing else changes.
     `Program.lean`, and an end for each path, which give `Text.Prefers` from a program; the
     search from any offset, with the least start; and the capture slots.
 
+  **Part 22h, its second part built: the matcher's paths, and its search from any offset
+  (decision 86).**
+  **Check:** as the first part's.
+
+  **Check passed, part 22h, its second part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins `backtrack_sound`, `backtrack_complete`,
+    `search_eq` and `search_answer`.
+  - `Stdx/Regex/MatcherPaths.lean` holds the backtracking matcher of the first part to the
+    paths of `Program.lean`.
+    - `backtrack_sound`: an end it finds is the end of a path from a seed to `match`.
+    - `backtrack_complete`: where a path leads from an instruction to `match`, it finds an end
+      from that instruction. The theorem takes `Exact` as a hypothesis: `step` gives the
+      instruction a thread goes to, whichever range of a node takes the byte. The builder
+      writes a node's ranges apart, which gives it, and no proof holds the builder to that.
+    - `textOf` gives a program's matches in a text as `Search.lean` asks for them: a match is
+      a path from the entry to `match`, from an offset where a match may start, and the
+      preferred end is the one the backtracking matcher finds first. So each claim's theorem
+      of part 22r applies to a program's text, with the scans it takes as given.
+  - `Stdx/Regex/MatcherSearch.lean` holds `search`, the matcher for a search that may start
+    at any offset: while it has found no match, a match may start at each position, after
+    the seeds. `search_eq` holds it to `leftmost`, the search by a backtracking matcher from
+    each offset in turn. `search_answer`: its end is the end of the answer that `Search.lean`
+    states for `textOf`'s text.
+  - Three examples hold the search to RE2's ends by `decide`: `a+` on `baa` and `a|ab` on
+    `xab`; `a*` on `baa`, whose empty match at 0 wins; and the empty pattern on the two bytes
+    of `é` from 1, where no match starts before the continuation byte.
+  - Six mutations, each against `lake build`, each CAUGHT: a new start tried before the
+    seeds; a match that still starts after one was found; the backtracking search preferring
+    a later start; the search ending where no thread waits and no match was found; a
+    preferred match that starts where no match may start; and a range that takes every byte
+    from its first.
+  - What the model still leaves out: the capture slots, and with them the start that the
+    matcher reports, which is its slot 0; the cut of a walk at the first `match`; the halving
+    of `program.step_ranges`; and a text that arrives in pieces.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

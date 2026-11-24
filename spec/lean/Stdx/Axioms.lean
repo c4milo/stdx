@@ -10,6 +10,8 @@ import Stdx.Regex.Prefix
 import Stdx.Regex.Count
 import Stdx.Regex.Closure
 import Stdx.Regex.Matcher
+import Stdx.Regex.MatcherPaths
+import Stdx.Regex.MatcherSearch
 
 /-!
 # What the proofs rest on
@@ -172,5 +174,17 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.findAt_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.findAt_eq
+
+/-- info: 'Stdx.Regex.Matcher.backtrack_sound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.backtrack_sound
+
+/-- info: 'Stdx.Regex.Matcher.backtrack_complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.backtrack_complete
+
+/-- info: 'Stdx.Regex.Matcher.search_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.search_eq
+
+/-- info: 'Stdx.Regex.Matcher.search_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.search_answer
 
 end Stdx.Regex
