@@ -13,8 +13,10 @@
 //!   file lists, and requires the answer of `Matcher.find` and of four searchers: one with
 //!   every claim, one with none, one with every claim that read a long text first, and one
 //!   with every claim and the least cache its DFAs start with. A search from 0 also holds
-//!   each searcher's `is_match`. A line that begins `differs` says a check of the Lean side
-//!   failed, and fails the replay.
+//!   each searcher's `is_match`. A `claim suffix` line holds the literal that a new searcher
+//!   took for claim R4, which the Lean side judged by the claim's first rule: the first
+//!   searcher must hold that literal. A line that begins `differs` says a check of the Lean
+//!   side failed, and fails the replay.
 //!
 //! It exits 1 at the first line that fails, and names the line.
 //! src/regex/matcher_vectors_test.zig replays the committed file of one seed as a unit test.
@@ -152,6 +154,10 @@ pub const Replay = struct {
     searcher_finds: usize = 0,
     long_reads: usize = 0,
     is_matches: usize = 0,
+    /// The literal of the program's `claim` line, and the lines of the file so far.
+    claim: [regex.constants.literal_len_max]u8 = undefined,
+    claim_len: ?usize = null,
+    claims: usize = 0,
     /// The words of the small cache that the fourth searcher's DFAs started with.
     small_cache_words: usize = 0,
     /// The searches that the searcher with a small cache answered after a DFA of its cleared
@@ -179,6 +185,7 @@ pub const Replay = struct {
         const word = try take(&tokens);
         if (std.mem.eql(u8, word, "pattern")) return replay.set_pattern(try take(&tokens));
         if (std.mem.eql(u8, word, "program")) return replay.begin(&tokens);
+        if (std.mem.eql(u8, word, "claim")) return replay.set_claim(&tokens);
         if (std.mem.eql(u8, word, "text")) return replay.set_text(&tokens);
         if (std.mem.eql(u8, word, "find")) return replay.expect_find(&tokens);
         if (std.mem.eql(u8, word, "differs")) return error.ModelCheckFailed;
@@ -210,7 +217,29 @@ pub const Replay = struct {
         replay.pattern_pending = false;
         replay.ready = false;
         replay.listed_len = 0;
+        replay.claim_len = null;
         replay.programs += 1;
+    }
+
+    /// A `claim suffix` line: the literal that a new searcher took for claim R4 of the
+    /// program, which the Lean side judged by the claim's first rule.
+    fn set_claim(replay: *Replay, tokens: *Tokens) !void {
+        if (!std.mem.eql(u8, try take(tokens), "suffix")) return error.VectorClaim;
+        const len = try number(usize, tokens);
+        if (len == 0 or len > replay.claim.len) return error.VectorClaim;
+        for (replay.claim[0..len]) |*byte| byte.* = try number(u8, tokens);
+        replay.claim_len = len;
+        replay.claims += 1;
+    }
+
+    /// Requires the new searcher to hold the literal of the file's `claim` line for claim R4,
+    /// and none where the file has no such line. So the literal that the Lean side judged is
+    /// the one this build's searcher takes.
+    fn expect_claim(replay: *const Replay) !void {
+        const held = replay_dump.claimed_suffix(&replay.searchers[0]);
+        const named: ?[]const u8 = if (replay.claim_len) |len| replay.claim[0..len] else null;
+        const literal = held orelse return if (named == null) {} else error.ClaimDiffers;
+        if (!std.mem.eql(u8, literal, named orelse return error.ClaimDiffers)) return error.ClaimDiffers;
     }
 
     /// The program the listed instructions make: a forward program alone, whose one group is
@@ -265,6 +294,7 @@ pub const Replay = struct {
         for (&replay.searchers, replay.searcher_memory, claims) |*searcher, memory, claim| {
             searcher.init(program, &.{ .features = replay.features, .claims = claim }, memory[0..words]);
         }
+        try replay.expect_claim();
         replay.read_long_text();
         replay.shrink_cache();
     }

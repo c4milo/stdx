@@ -17,6 +17,7 @@ import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
 import Stdx.Regex.Hypotheses
 import Stdx.Regex.Searcher
+import Stdx.Regex.Rules
 
 /-!
 # What the proofs rest on
@@ -263,5 +264,17 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.emptyElsewhere_of_emptyElsewhereOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.emptyElsewhere_of_emptyElsewhereOn
+
+/-- info: 'Stdx.Regex.Matcher.chain_of_chainStop' depends on axioms: [propext] -/
+#guard_msgs in #print axioms Matcher.chain_of_chainStop
+
+/-- info: 'Stdx.Regex.Matcher.reach_mem' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.reach_mem
+
+/-- info: 'Stdx.Regex.Matcher.noneTakes_sound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.noneTakes_sound
+
+/-- info: 'Stdx.Regex.Matcher.apart_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.apart_program
 
 end Stdx.Regex
