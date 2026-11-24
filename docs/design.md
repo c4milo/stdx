@@ -10939,6 +10939,15 @@ to 12 are reordered and nothing else changes.
     match. Against the script: a span taken with no check, no hypothesis decided for any
     text, no line for the start rule, the forward entry read as 0, and `byDfa` with its two
     entries in the other order.
+  - Main gained claims R11 to R14 and claim R4's two wider rules at `79a10c0`, before this
+    part landed. On the tree that holds both:
+    - The script passed seeds 7, 11, 13, 21, 22 and 23 in 86 s.
+    - Three mutations of the new claims, each against the script with seeds 7, 11 and 13,
+      each CAUGHT at `find 125 429 436`, a search of a long text by a new searcher. They are
+      claim R4's wider rules with no rule of the part before the literal, its second rule
+      for a part of more than one length, and claim R14 with no rule.
+    - A searcher judges those claims after its searches were given enough text. A long text
+      gives a new searcher that much, so the claims now run in each searcher of the replay.
   - What this part does not hold: a text of more than 1,024 bytes; the two faults above that
     need a clear at one given step; and `Reverses` and the start rule for a long text, which
     its answers do not need.
