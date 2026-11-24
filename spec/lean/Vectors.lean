@@ -259,7 +259,11 @@ That theorem and the two DFAs' theorems take three hypotheses: `Exact`, `Reverse
 `Stdx/Regex/Hypotheses.lean` and `Stdx/Regex/Searcher.lean`, which decide them for the dump's
 program and text, and write a line that begins `differs` where one fails. Where the program has
 a reverse half, they also run the model's two scans for each search, and write such a line
-where the scans do not give the answer. -/
+where the scans do not give the answer.
+
+A `claim suffix` line holds the literal that a Zig searcher took for claim R4 by its first
+rule. The lines below decide that rule from the program, with `apartOn` of
+`Stdx/Regex/Rules.lean`, and write such a line where it does not hold. -/
 
 open Stdx.Regex.Program in
 /-- An assertion from the name `program.Look` gives it. -/
@@ -345,10 +349,23 @@ def searchLines (dump : Dump) (low : Nat) : List String :=
       [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}",
         s!"differs dfa {low} gives {spanWords scanned}"]
 
+open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where claim R4's first rule does not hold for a literal that a
+Zig searcher took by it. `literal` holds the bytes in the text's order. `apartOn` decides the
+rule from the program, and `apart_program` proves the search from it for each text that has
+the builder's hypotheses. So a literal that fails is a wrong choice for some text. -/
+def claimLines (dump : Dump) (literal : List Nat) : List String :=
+  match dump.reverse with
+  | none => ["differs claim suffix"]
+  | some reverse =>
+    if (apartOn dump.prog reverse literal.reverse).isSome then [] else ["differs claim suffix"]
+
 /-- The lines that answer one line of a dump, and what the dump holds after it. A line that
-holds no program, text or search is written as it is. -/
+holds no program, text, claim or search is written as it is. -/
 def answerLine (dump : Dump) (line : String) : List String × Dump :=
   match line.splitOn " " with
+  | "claim" :: "suffix" :: _ :: bytes =>
+    (line :: claimLines dump (bytes.filterMap String.toNat?), dump)
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
       utf8 := encoding == "utf8", prog := #[], forward := forward.toNat?.getD 0,

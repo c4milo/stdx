@@ -10653,6 +10653,56 @@ to 12 are reordered and nothing else changes.
     search; and that the Zig code is these definitions, which the replay tests and no proof
     holds.
 
+  **Part 22r, its sixth part built: claim R4's first rule decided from a program (decision
+  86).** **Check:** `lake build` exits 0 and pins each new theorem's axioms; the rule holds and
+  fails on small programs by `decide`; `tools/matcher_model_check.sh` passes, with the rule
+  decided for each literal that a new searcher took by it.
+
+  **Check passed, part 22r, its sixth part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - Before this part, `bySuffix_program` took what the two walks of the reverse program found
+    as hypotheses, and nothing held the Zig rule to them but the answers of drawn texts.
+  - `Stdx/Regex/Rules.lean` decides those hypotheses from a program, and proves each decision.
+    `Stdx/Axioms.lean` pins 4 more theorems.
+    - `chainStop` follows a literal's bytes through a program, as `Literal.walk` reads them.
+      `chain_of_chainStop` gives `Chain`.
+    - `closedUnder` checks that a set of instructions holds each instruction its members lead
+      to, and `reach_mem` proves that such a set holds every instruction the program reaches
+      from a member. The proof reads the check alone, and nothing of how `reachOf` built the
+      set.
+    - `noneTakes` is `dfa_suffix.before_takes`, negated, and `noneTakes_sound` proves it.
+    - `apartOn` is the first rule for a literal with no place that folds. `apart_program`
+      gives the search's answer from it, for a text that has the builder's hypotheses.
+  - The rule reads a program and no text. So a literal that passes it is a right choice for
+    each text, and one that fails it is a wrong choice for some text.
+  - The dump now writes a `claim suffix` line after a program's instructions: the literal
+    that a new searcher took for claim R4. A new searcher has judged the first rule alone,
+    since the other two wait for text. The vector writer runs `apartOn` for the literal, and
+    writes `differs claim suffix` where it fails. The replay requires its own new searcher
+    to hold the same literal, and none where the file has no such line.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 42 s. Seeds 1, 2 and 3 with
+    20,000 patterns each hold 1,506 such lines, and `apartOn` held for each.
+  - An example by `decide`: the rule holds for `ab` in `[0-9]+ab` and fails in `[a-c]+ab`,
+    a walk of other bytes follows no chain, and `reachOf` gives the three instructions that
+    the part before the literal reaches.
+  - Nine mutations, each CAUGHT:
+    - The Zig rule with its first walk's verdict left out: CAUGHT by `differs claim suffix`
+      at `(?:[ab]|c[ab]abab)abab`, with no text that shows a wrong answer. The fourth part
+      of 22h needed such a text.
+    - `Literal.chain` with the literal's bytes left in the walk's order: CAUGHT by a
+      searcher's answer.
+    - The vector writer with no line for a rule that fails: CAUGHT by a canary dump, whose
+      part before the literal takes the literal's first byte.
+    - Three of the Lean rule, against `lake build`: a `noneTakes` that always holds, caught
+      by its proof and by the example; a `closedUnder` that always holds and a `chainStop`
+      that takes a range of more than one byte, each caught by its proof alone.
+    - Three of the replay program, against `zig build test-tools`: no check of the claim
+      line, no claim line in a dump, and a literal with a place that folds written as one
+      with none.
+  - What this part does not decide: the second rule and the third, which a searcher judges
+    after it read some text; claim R14's rule; and a literal with a place that folds, which
+    the dump leaves out.
+
   **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
   **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
   the model gives RE2's ends on small programs; mutations of the definitions fail the build.

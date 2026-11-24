@@ -78,7 +78,7 @@ fn answered_case(arena: std.mem.Allocator) ![]const u8 {
     var lines: replay_dump.Lines = .{ .arena = arena };
     const storage = try arena.alloc(Instruction, replay_dump.instructions_max);
     const program = try regex.compile("a|ab", .{}, storage);
-    try lines.add_case("a|ab", &program, "xab", &.{ 0, 2 });
+    try lines.add_case("a|ab", &program, null, "xab", &.{ 0, 2 });
     const first = try std.mem.replaceOwned(u8, arena, lines.bytes.items, "search 0", "find 0 1 2");
     return std.mem.replaceOwned(u8, arena, first, "search 2", "find 2 none");
 }
@@ -106,6 +106,49 @@ test "a replay compiles a named pattern and asks the matcher and each searcher" 
     try testing.expect(replay.program.reverse != replay_dump.no_entry);
 }
 
+/// The dump of `[0-9]+ab` over `x12ab`, with its search answered. A new searcher takes claim
+/// R4 for it by the first rule: no digit is the literal's first byte.
+fn answered_claim(arena: std.mem.Allocator) ![]const u8 {
+    var lines: replay_dump.Lines = .{ .arena = arena };
+    var scratch = try replay_dump.Scratch.init(arena);
+    const pattern = "[0-9]+ab";
+    const program = try regex.compile(pattern, .{}, scratch.storage);
+    try lines.add_case(pattern, &program, scratch.suffix_claim(&program), "x12ab", &.{0});
+    return std.mem.replaceOwned(u8, arena, lines.bytes.items, "search 0", "find 0 1 5");
+}
+
+test "a replay requires its new searcher to hold the literal of a claim line" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const text = try answered_claim(arena.allocator());
+    try testing.expect(std.mem.indexOf(u8, text, "\nclaim suffix 2 97 98\n") != null);
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, text) == null);
+    try testing.expectEqual(@as(usize, 1), replay.claims);
+    const cases = [_]struct { old: []const u8, new: []const u8, cause: anyerror }{
+        // Another literal of the same length, a shorter one, and no line.
+        .{ .old = "claim suffix 2 97 98", .new = "claim suffix 2 97 99", .cause = error.ClaimDiffers },
+        .{ .old = "claim suffix 2 97 98", .new = "claim suffix 1 98", .cause = error.ClaimDiffers },
+        .{ .old = "claim suffix 2 97 98\n", .new = "", .cause = error.ClaimDiffers },
+        .{ .old = "claim suffix 2 97 98", .new = "claim inner 2 97 98", .cause = error.VectorClaim },
+        .{ .old = "claim suffix 2 97 98", .new = "claim suffix 0", .cause = error.VectorClaim },
+    };
+    for (cases) |case| {
+        const changed = try std.mem.replaceOwned(u8, arena.allocator(), text, case.old, case.new);
+        try testing.expect(!std.mem.eql(u8, changed, text));
+        var other = try Replay.init(arena.allocator());
+        const failed = replay_text(&other, changed) orelse return error.TestExpectedFailure;
+        try testing.expectEqual(case.cause, failed.cause);
+    }
+    // A pattern with no such literal has no line, and a line for it is refused.
+    const plain = try answered_case(arena.allocator());
+    try testing.expect(std.mem.indexOf(u8, plain, "claim") == null);
+    const claimed = try std.mem.replaceOwned(u8, arena.allocator(), plain, "\ntext ", "\nclaim suffix 1 98\ntext ");
+    var third = try Replay.init(arena.allocator());
+    const failed = replay_text(&third, claimed) orelse return error.TestExpectedFailure;
+    try testing.expectEqual(error.ClaimDiffers, failed.cause);
+}
+
 test "the long text judges each claim that waits, in the third searcher alone" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -116,7 +159,7 @@ test "the long text judges each claim that waits, in the third searcher alone" {
     // read twice, judges nothing.
     const pattern = "[ab]+x[ab]{20}";
     const program = try regex.compile(pattern, .{}, storage);
-    try lines.add_case(pattern, &program, "axb", &.{0});
+    try lines.add_case(pattern, &program, null, "axb", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 none");
     var replay = try Replay.init(arena.allocator());
     try testing.expect(replay_text(&replay, text) == null);
