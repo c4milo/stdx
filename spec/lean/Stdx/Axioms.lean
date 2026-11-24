@@ -16,6 +16,7 @@ import Stdx.Regex.MatcherAnswer
 import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
 import Stdx.Regex.Hypotheses
+import Stdx.Regex.Searcher
 
 /-!
 # What the proofs rest on
@@ -232,5 +233,29 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.reverses_of_reversesOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.reverses_of_reversesOn
+
+/-- info: 'Stdx.Regex.Matcher.byDfa_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.byDfa_answer
+
+/-- info: 'Stdx.Regex.Matcher.bySuffix_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.bySuffix_program
+
+/-- info: 'Stdx.Regex.Matcher.byRequired_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.byRequired_program
+
+/-- info: 'Stdx.Regex.Matcher.atStart_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.atStart_program
+
+/-- info: 'Stdx.Regex.Matcher.fromEnd_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.fromEnd_program
+
+/-- info: 'Stdx.Regex.Matcher.bySkip_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.bySkip_program
+
+/-- info: 'Stdx.Regex.Matcher.startsClean_of_startsCleanOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.startsClean_of_startsCleanOn
+
+/-- info: 'Stdx.Regex.Matcher.emptyElsewhere_of_emptyElsewhereOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.emptyElsewhere_of_emptyElsewhereOn
 
 end Stdx.Regex

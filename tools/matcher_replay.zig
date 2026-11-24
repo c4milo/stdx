@@ -165,7 +165,7 @@ pub const Replay = struct {
         if (std.mem.eql(u8, word, "program")) return replay.begin(&tokens);
         if (std.mem.eql(u8, word, "text")) return replay.set_text(&tokens);
         if (std.mem.eql(u8, word, "find")) return replay.expect_find(&tokens);
-        if (std.mem.eql(u8, word, "differs")) return error.ModelReverseDiffers;
+        if (std.mem.eql(u8, word, "differs")) return error.ModelCheckFailed;
         const kind = std.meta.stringToEnum(regex.Kind, word) orelse return error.VectorWord;
         if (replay.listed_len == replay.listed.len) return error.VectorProgramLong;
         replay.listed[replay.listed_len] = try instruction_of(kind, &tokens);
