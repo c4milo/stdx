@@ -111,7 +111,47 @@ fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
 }
 
 /// Claim R10: true where a count finds each match's end alone. A literal's claims find the
-/// match with no DFA, and claim R4 finds its start first, so their counts take `find`.
+/// match with no DFA. Claims R4, R12 and R14 find its start first, claim R13 may read no text,
+/// and a claim that waits is judged by a search, so their counts take `find`.
 fn counts_ends(searcher: *const Searcher) bool {
-    return searcher.count_ends and searcher.exact == null and !searcher.exact_set and searcher.suffix == null;
+    return searcher.count_ends and searcher.exact == null and !searcher.exact_set and !searcher.by_claim;
+}
+
+const testing = std.testing;
+const searcher_test = @import("searcher_test.zig");
+
+fn expect_matches(pattern: []const u8, haystack: []const u8, expected: []const [constants.group_slots]u64) !void {
+    var fixture: searcher_test.Fixture = .{};
+    for ([_]usize{ searcher_test.cache_words_max, 0 }) |cache| {
+        try fixture.init(pattern, cache);
+        var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = haystack };
+        for (expected) |span| {
+            try testing.expectEqual(@as(?Span, .{ .start = span[0], .end = span[1] }), matches.next());
+        }
+        try testing.expectEqual(@as(?Span, null), matches.next());
+        try testing.expectEqual(@as(?Span, null), matches.next());
+    }
+}
+
+test "Matches gives every match in order, each search from the end of the match before" {
+    try expect_matches("a+", "baaa a", &.{ .{ 1, 4 }, .{ 5, 6 } });
+    try expect_matches("abc", "abcabc", &.{ .{ 0, 3 }, .{ 3, 6 } });
+    try expect_matches("aa", "aaaaa", &.{ .{ 0, 2 }, .{ 2, 4 } });
+    try expect_matches("x", "abc", &.{});
+    try expect_matches("\\b\\w+\\b", "one two", &.{ .{ 0, 3 }, .{ 4, 7 } });
+}
+
+test "Matches leaves out an empty match that touches the match before it" {
+    try expect_matches("a*", "baaa", &.{ .{ 0, 0 }, .{ 1, 4 } });
+    try expect_matches("a*", "baaab", &.{ .{ 0, 0 }, .{ 1, 4 }, .{ 5, 5 } });
+    try expect_matches("", "ab", &.{ .{ 0, 0 }, .{ 1, 1 }, .{ 2, 2 } });
+    try expect_matches("", "", &.{.{ 0, 0 }});
+    try expect_matches("a|", "aba", &.{ .{ 0, 1 }, .{ 2, 3 } });
+    try expect_matches("$", "ab", &.{.{ 2, 2 }});
+}
+
+test "Matches gives no empty match inside the UTF-8 of a scalar value" {
+    try expect_matches("", "\xC3\xA9\xE6\x97\xA5", &.{ .{ 0, 0 }, .{ 2, 2 }, .{ 5, 5 } });
+    try expect_matches("\\B", "a\xF0\x9F\x98\x80", &.{.{ 5, 5 }});
+    try expect_matches("x*", "\xC3\xA9x", &.{ .{ 0, 0 }, .{ 2, 3 } });
 }
