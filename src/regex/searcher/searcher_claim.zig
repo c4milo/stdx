@@ -4,9 +4,10 @@
 //!
 //! Claim R4's second and third rules, claim R13 and claim R14 judge a pattern by walks of its
 //! program, which cost more than the rest of `init` (design §8 part 22q). So `init` judges
-//! none of them. They wait until the searcher's searches covered `claim_text_per_instruction`
-//! bytes of text for each instruction of the reverse program: a scan of that much text costs as
-//! much as the walks. Until then the plain search answers, and gives the same answers.
+//! none of them. They wait until the searcher's searches were given
+//! `claim_text_per_instruction` bytes of text for each instruction of the reverse program, so a
+//! searcher that reads little never pays for the walks. Until then the plain search answers,
+//! and gives the same answers.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -111,8 +112,8 @@ fn flag(searcher: *const Searcher) bool {
     return searcher.at_end or searcher.suffix != null or searcher.inner != null or whole_text or searcher.deferred.any();
 }
 
-/// Counts `len` bytes of text that a search covered toward the claims that wait, and judges
-/// them once the searches covered enough.
+/// Counts `len` bytes of text that a search is given toward the claims that wait, and judges
+/// them once the searches were given enough.
 fn count_text(searcher: *Searcher, len: usize) void {
     assert(searcher.deferred.any());
     if (len < searcher.deferred_left) {

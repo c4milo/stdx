@@ -338,6 +338,25 @@ test "a reverse DFA that gives up at a place hands the search to the matcher" {
     try testing.expect(fixture.searcher.give_ups > 0);
 }
 
+test "a reverse DFA that gives up at a place of a wide suffix hands the search to the matcher" {
+    // As the test above, with the suffix ` xa`. The part before it takes a space, so the first
+    // rule refuses the suffix and the third takes it.
+    const pattern = "x[ab]{8}a[ab]* +xa";
+    const tail = " xa";
+    var fixture: Fixture = .{};
+    try fixture.init(pattern, 0);
+    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).least);
+    try testing.expectEqualStrings(tail, fixture.searcher.suffix.?.slice());
+    try testing.expect(fixture.searcher.suffix_wide);
+    var generator = codec.testing.split.Generator.init(0x5FF5);
+    var text: [give_up_text_len]u8 = undefined;
+    for (&text) |*octet| octet.* = if (generator.next() & 1 == 0) 'a' else 'b';
+    @memcpy(text[0..match_head.len], match_head);
+    @memcpy(text[text.len - tail.len ..], tail);
+    try fixture.expect_agree(&text, 0);
+    try testing.expect(fixture.searcher.give_ups > 0);
+}
+
 /// A text with one place of the literal ` xa`, too short to hide what the place costs, and a
 /// text with no place, which the plain search covers while the claim rests.
 const short_text = "ab xa";

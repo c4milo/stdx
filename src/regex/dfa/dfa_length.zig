@@ -15,7 +15,7 @@
 //!   `length_steps_per_instruction` steps for each instruction.
 //!
 //! The walk takes the DFA's own lists, as claim R4's other walks do, so it needs no memory. A
-//! searcher makes it once its searches covered enough text (searcher_claim.zig).
+//! searcher makes it once its searches were given enough text (searcher_claim.zig).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");

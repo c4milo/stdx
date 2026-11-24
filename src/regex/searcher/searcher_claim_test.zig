@@ -1,5 +1,5 @@
 //! Tests of the claims that wait for text (searcher_claim.zig, decision 86): a searcher judges
-//! them once its searches covered enough text, and answers as the matcher answers before the
+//! them once its searches were given enough text, and answers as the matcher answers before the
 //! judgment and after it.
 const std = @import("std");
 const testing = std.testing;
@@ -70,7 +70,7 @@ fn expect_held(fixture: *const Fixture, held: Held) !void {
 }
 
 /// Searches texts with no match until one byte of text is left before the judgment, and
-/// requires each search to count the bytes it covered and to judge nothing.
+/// requires each search to count the bytes it was given and to judge nothing.
 fn cover_all_but_one(fixture: *Fixture) !void {
     const searcher = &fixture.searcher;
     // Each turn but the last covers a chunk, so the turns are the chunks and one.
@@ -87,7 +87,7 @@ fn cover_all_but_one(fixture: *Fixture) !void {
     try testing.expectEqual(@as(usize, std.math.maxInt(usize)), searcher.len_span);
 }
 
-test "a searcher judges a claim that waits once its searches covered the text of its program, and no sooner" {
+test "a searcher judges a claim that waits once its searches were given the text of its program, and no sooner" {
     var fixture: Fixture = .{ .judged = false };
     for (waiting) |case| {
         try fixture.init(case.pattern, searcher_test.cache_words_max);
