@@ -7957,7 +7957,12 @@ to 12 are reordered and nothing else changes.
   - **22h: the matcher in Lean.** A model of the matcher: its work at one position is at most
     the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
-    Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+    Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics. Its first part is
+    built, and its record is below: the order of the matcher's threads, for a search from one
+    start.
+  - **22r: the searcher's claims in Lean.** Each claim as a function over the scans it calls,
+    and a theorem that the function gives the matcher's answer. Its first part is built, and its
+    record is below: claim R4, and the wider search from a required literal.
 
   **Part 22b, built: the oracle and RE2's own tests in the tree (decision 86, the owner's ruling
   of 2026-11-21).** `zig build differential-regex -Doracles` gives generated patterns and texts
@@ -10253,6 +10258,12 @@ to 12 are reordered and nothing else changes.
     - The compile tables moved whole in single jobs. The median of the 23 compile rows was
       0.947 on the V3 and 1.066 on the 9V74, and stood level on the other two. No compile row
       lost in more than two jobs.
+  - The Lean model's check of the searcher (part 22h): `tools/matcher_model_check.sh` passed
+    seeds 21 to 24 at this form, each with 4,096 programs and 4,096 patterns. Its third
+    searcher reads `claim_text_per_instruction` bytes for each instruction that a program
+    may hold, so it has judged each claim that waits, and a test of the tool holds that. Two
+    mutations of that text's length, each against `zig build test-tools`, each CAUGHT: one
+    byte for each instruction, and one instruction's bytes for the whole program.
   - `zig build test` exits 0. `zig build test-regex` runs 340 tests.
   - Instructions for each pass, at `1744e4a` and at `b2d008c`. The program's `memset` is
     `platform.memset`, as a benchmark program's is.
@@ -10436,6 +10447,440 @@ to 12 are reordered and nothing else changes.
   - Three mutations of `utf8.Splitter`, each CAUGHT by the replay and by 4 or 5 tests beside it:
     the surrogates kept; no cut where the last value's low bits are not all ones; no cut where
     the first value's low bits are not zero.
+
+  **Part 22r, its first part built: claim R4 and the wider search in Lean (decision 86).**
+  **Check:** `zig build lean` builds the five files below with their theorems' axioms pinned;
+  mutations of the definitions fail the build.
+
+  **Check passed, part 22r, its first part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. The 14 theorems that `Stdx/Axioms.lean` pins for these files build
+    with no `sorry`, on `propext`, `Classical.choice` and `Quot.sound` alone.
+  - What the files hold:
+    - `Stdx/Regex/Search.lean`: `Text`, the spans a pattern matches in one text and the end its
+      order prefers from each start; `IsAnswer`, the matcher's answer from an offset; `Scans`,
+      what `Literal.find`, the reverse scan and the forward scan must give.
+    - `Stdx/Regex/Suffix.lean`: `bySuffix`, the loop of `Searcher.find_by_suffix`, with
+      `bySuffix_answer`, `one_end` and `starts_after_place`.
+    - `Stdx/Regex/Program.lean`: the instructions of `program.zig`, a program's paths over a
+      text, `path_clean` for `dfa_suffix.before_takes` and `chain_path` for `Literal.walk`.
+    - `Stdx/Regex/SuffixRule.lean`: `suffix_rule`, which gives claim R4's two preconditions from
+      the two walks.
+    - `Stdx/Regex/Required.lean`: `byRequired`, `NoEarlier`, `byRequired_answer`, the four
+      rules that give `NoEarlier`, `needs_no_earlier` and `byGuarded_answer`.
+  - What the wider search needs, which a claim for a required literal must hold (decision 86):
+    `NoEarlier`. Go 1.24.7's regexp and Rust's regex crate 1.13.2 both give the match from 0 up
+    to 6 for `(?:[a-z]|[0-9][a-z]ab)ab` on `1xabab`, where the search without it gives the match
+    from 1 up to 4.
+  - Eight mutations, each against `lake build`, each CAUGHT: `bySuffix` going on from the
+    place's end, not one byte past its start; `bySuffix` giving an end one byte late;
+    `CleanBefore` leaving out a match's first byte; `NoEarlier` made empty; the last separator
+    judged on the literal's second byte; the guarded search giving the place's end with no
+    forward scan; `path_clean` not carrying what an instruction reaches over a move; and
+    `Chain` taking a range of more than one byte as a literal's byte.
+  - The model leaves out a place of a literal that folds, and the Zig code's `ranges` node is
+    here a choice among its ranges, with no order.
+  - What the claims' proofs still rest on, in the order to build it:
+    1. The builder: the reverse program takes each match of the forward program read backward,
+       and takes nothing else. `suffix_rule` takes the first half as `hreverse`, and step 4
+       needs both halves.
+    2. The two walks as code: `before_takes` reads every instruction of `Reach`, and
+       `Literal.walk` gives a `Chain`. A vector file of programs and verdicts would hold the Zig
+       walks to both.
+    3. Part 22h: the matcher's threads are the program's paths, and the order of its threads
+       gives `Text.Prefers`.
+    4. The DFAs: a state is the matcher's list at one position, so the reverse scan gives
+       `Scans.back` and the forward scan `Scans.ahead`. `back` reads paths, and the matcher
+       starts no match before a continuation byte, so this step needs that a program of UTF-8
+       takes whole sequences.
+    5. `Literal.find` gives `Scans.place`.
+    6. The other claims: R1, R7 and R9 change how a DFA reads its bytes, and R6 and R8 find
+       the capture groups. Each needs the model of step 3 or of step 4.
+
+  **Part 22r, its second part built: the rules of the widened claim R4, and claims R11 to R14
+  (decision 86, part 22q).**
+  **Check:** `zig build lean` builds the files below with their theorems' axioms pinned;
+  mutations of the definitions fail the build.
+
+  **Check passed, part 22r, its second part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins 11 more theorems, 25 for part 22r, on
+    `propext`, `Classical.choice` and `Quot.sound` alone.
+  - `Stdx/Regex/Suffix.lean`: `Rising`, a match that ends before another match starts before
+    it. `bySuffix_rising`: under `Rising`, claim R4's loop gives the matcher's answer with no
+    forward scan. Claim R4's first rule gives `Rising`, and so do two rules of
+    `Stdx/Regex/Required.lean`: one length for every match (`rising_of_one_length`), and a
+    separator that ends the part before the literal (`rising_of_last_separator`).
+    - The separator's rule reads the literal's first byte alone. The other bytes of the
+      literal may be of the separator's set.
+    - A separator that starts the part before the literal gives `NoEarlier` and no `Rising`:
+      under `\s+[a-z]{0,12}ing`, the text of two spaces and `singing` holds two matches from 0.
+      So that rule needs the forward scan of `byRequired`.
+  - `Stdx/Regex/Inner.lean`: claim R14. `byInner` is the loop of `searcher_inner.find`, and
+    `byInner_answer` needs `BeforeRising`, a rule for the part before the literal alone. The
+    part after the literal may take any count of bytes. Three rules give `BeforeRising`. The
+    file leaves out the loop's guard, which sends a search to the plain DFAs.
+  - `Stdx/Regex/Edges.lean`: `atStart_answer` for claim R11, `fromEnd_answer` for claim R12,
+    and `excluded_answer` for claim R13, with `excludes_iff` for the one compare of
+    `Searcher.excludes` on wrapping words of 64 bits.
+  - Nine mutations, each against `lake build`, each CAUGHT: `Rising` letting two matches share
+    a start; `byInner` ending the search where a forward scan finds no match; `BeforeRising`
+    made empty; `byInner` going on from the place's end; claim R14's separator judged on the
+    literal's second byte; `fromEnd` giving an end one byte short; `fromEnd` reading back past
+    the search's first offset; `atStart` giving the text's start; and `excludes_iff` taking
+    the greatest length as out.
+  - Not modelled: the walks that judge each rule on a program (`short_fixed`, `separated` and
+    the walk of `dfa_inner.zig`), and the second start of the reverse DFA.
+
+  **Part 22r, its third part built: claims R2, R3, R5 and R10 in Lean (decision 86).**
+  **Check:** as the second part's.
+
+  **Check passed, part 22r, its third part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins 7 more theorems, 32 for part 22r.
+  - `Stdx/Regex/Prefix.lean`: where every match starts at a place of a literal, or of one
+    literal of a set, the answer from the first place is the answer from the search's first
+    offset (`answer_from_place`), and a text with no place holds no match (`answer_none`).
+    Claims R2, R3 and R5 rest on both. `byExact_answer`: a pattern that is its literal needs
+    no DFA.
+  - `gap_of_byte`, in the same file: any byte of a literal stands from each place of the
+    literal up to the next. The second part took that as a hypothesis, `Gap`. So claim R4's
+    first rule holds for any byte of the literal that the part before it never takes, and
+    the loop needs no forward scan there either.
+  - `Stdx/Regex/Count.lean`: `nextSpan` is a turn of `Matches.next`, and `nextEnd` a turn of
+    the count by ends. `count_eq`: claim R10's count is the count of the matches that `next`
+    gives. It takes the forward DFA's end as the end of the searcher's answer, which step 4
+    owes.
+  - Five mutations, each against `lake build`, each CAUGHT: `byExact` giving an end one byte
+    late; `StartsWith` leaving out an empty match; `byte_between` leaving out a place's
+    first byte; the count by ends searching again from the same offset; and the count by
+    ends keeping an empty match that touches the match before it.
+  - Not modelled: a set of literals and nothing else, whose match is the first literal of
+    the set that stands at the first place.
+
+  **Part 22r, its fourth part built: the two DFAs' scans in Lean (decision 86).**
+  **Check:** as the second part's, and the reverse scan gives the starts of a small program.
+
+  **Check passed, part 22r, its fourth part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container. It rests on part 22h, whose records are below.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins 9 more theorems.
+  - `Stdx/Regex/Dfa.lean` holds the forward DFA of `Kind.first` that is not anchored. A state
+    holds the context behind the position, whether a match may still start, and the seeds.
+    `delta` is `Dfa.build`: it reads a state and a byte, and no text, so the next state and
+    the match are a function of those two.
+    - `scan_eq`: the scan by states gives what the matcher's search gives. The scan ends where
+      no thread takes the byte and a match was found, one position before the search ends.
+    - `scan_answer`: the scan gives the end of the search's answer for a program's text.
+    - `cached`: a table that holds values of `delta`, any part of them, changes no step.
+  - `Stdx/Regex/Reverse.lean` holds the reverse DFA of `Kind.longest`: `runLongest` keeps
+    every thread and gives the last offset where one is `match`. `scanBack` is
+    `dfa_reverse.scan`. `scanBack_some`, `scanBack_least` and `scanBack_none` are the three
+    things that `Search.lean` asks of the reverse scan, for the forward program's paths.
+    - They take two things as given. `Reverses`: the reverse program takes each match of the
+      forward program read backward, and nothing else. `Exact` for the reverse program.
+    - `mem_closure`, in `Closure.lean`: one `visited` set for all the seeds loses no thread.
+  - An example holds `scanBack` to the starts of `a+b` in `xaab` by `decide`: the start 1, the
+    start 2 for a scan that reads back to 2 alone, and nothing from an offset where no match
+    ends.
+  - Eight mutations, each against `lake build`, each CAUGHT: a DFA that still starts a match
+    after one was found; a next state that keeps the old context behind it; a scan that ends
+    at a state with no seed that may still start a match; no start at the text's end; no
+    match read at the text's end; a reverse scan that keeps its first match; a reverse scan
+    that stops one position before the search's first offset; and one that reads one byte
+    past it.
+  - What the two files leave out:
+    - The table, the classes of bytes, the delayed match flag, and a DFA that gives up.
+    - The forward DFA that is anchored. `findAt_eq` of part 22h holds the matcher's search
+      from one start to `Scans.ahead`, and no state model holds that DFA to it.
+    - Where a match may start. `scanBack`'s theorems read paths, and a program of UTF-8
+      starts no match before a continuation byte.
+    - Claims R1, R7 and R9, which change how a scan reads its bytes.
+  - What the claims' theorems still take as given, after this part: `Reverses` and `Exact`,
+    which are the builder's; `Literal.find`; and the Zig code itself, which no vector file
+    holds to these definitions.
+
+  **Part 22r, its fifth part built: the searches over a program, with no scan taken as given
+  (decision 86).** **Check:** `lake build` exits 0 and pins each new theorem's axioms; the
+  model's whole search runs on a small program by `decide`; `tools/matcher_model_check.sh`
+  passes with the new hypothesis decided for each text.
+
+  **Check passed, part 22r, its fifth part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - Before this part, each claim's theorem took three scans as given, and the DFAs' theorems
+    proved two of the three scans apart from them. `Stdx/Regex/Searcher.lean` joins them, and
+    `Stdx/Axioms.lean` pins 8 more theorems.
+  - `byDfa` is the search with no claim: the forward DFA's scan, and the reverse DFA's scan
+    from the end it gives. `byDfa_answer` proves that it gives the matcher's answer.
+  - `scansOf` gives `Search.Scans` for a program, a text and a literal, each field with its
+    proof: `findLiteral`, which is the model of `Literal.find`, the reverse DFA's scan, and
+    the matcher from one start.
+  - Over `scansOf`, each of these gives the matcher's answer:
+    - `bySuffix_program`: claim R4, from what `Literal.walk` and `before_takes` read of the
+      reverse program.
+    - `byRequired_program`: the wider search, under `NoEarlier`.
+    - `bySkip_program`: the skip of claims R2, R3 and R5 to one literal that starts every
+      match, from the walk of the forward program.
+    - `atStart_program` and `fromEnd_program`: claims R11 and R12.
+  - The theorems take one new thing as given, a rule of where a match starts:
+    - `EmptyElsewhere`, for `byDfa`: a match that starts where no match may start is empty.
+    - `StartsClean`, for the searches from a literal: no match starts there.
+    - A program of bytes has both. A program of UTF-8 has them where it takes whole
+      sequences, and no proof holds the builder to that.
+    - `emptyElsewhereOn` and `startsCleanOn` decide the two for one text, each with its proof.
+  - The vector writer now decides `EmptyElsewhere` after each text of a dump, beside `Exact`
+    and `Reverses`, and writes `differs starts` where it fails. With the three,
+    `byDfa_answer` holds for that program and text. The writer also runs `byDfa` for each
+    search, in place of the reverse scan alone, and writes `differs dfa` where it does not
+    give the answer.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 24 s. No text of the 12,288
+    programs failed a hypothesis, and `byDfa` gave each answer.
+  - Examples by `decide`: `byDfa` and `findLiteral` on `a+b` in `xaab`; `a*` as UTF-8 over the
+    two bytes of `é`, which has `EmptyElsewhere` and not `StartsClean`; and a program that
+    takes a continuation byte first, which has neither.
+  - Eight mutations, each CAUGHT:
+    - Three of the vector writer, against the script: no line for the start rule, no line
+      for a `byDfa` that differs, and `byDfa` with its two entries in the other order. A
+      canary dump caught each.
+    - Five of the definitions, against `lake build`: `emptyElsewhereOn` and `startsCleanOn`
+      that always hold, a `byDfa` that reads back to 0, and a `findLiteral` that steps two
+      offsets, each caught by its proof and by an example; and a `standsAt` with no bound,
+      caught by its proof alone.
+  - What this part does not join: claim R10's count, claim R13's compare of lengths, claim
+    R14's search from a literal inside a match, a pattern that is its literal and nothing
+    else, and a set of literals.
+  - What the joined theorems still take as given: `Exact`, `Reverses` and the start rule,
+    which the script decides for each program and text it draws; `NoEarlier` for the wider
+    search; and that the Zig code is these definitions, which the replay tests and no proof
+    holds.
+
+  **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
+  **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
+  the model gives RE2's ends on small programs; mutations of the definitions fail the build.
+
+  **Check passed, part 22h, its first part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins `follow_sim`, `closure_value`, `run_eq` and
+    `findAt_eq`, on `propext`, `Classical.choice` and `Quot.sound` alone.
+  - `Stdx/Regex/Closure.lean` holds `Matcher.follow` at one position, with no program in it:
+    the walk from a seed, the preferred branch of a split first, with the instructions that no
+    path reached yet. `closure_value`: the matcher keeps one `visited` set for all the seeds
+    of a position, and for any value of a thread, the first value among its threads is the
+    first value among the seeds, each walked alone.
+    - The proof compares two walks from one seed, `follow_sim`. One of them starts with a set
+      already reached that no path leaves and whose threads have no value. What the first
+      seed's walk reached is such a set where the walk found no value.
+  - `Stdx/Regex/Matcher.lean` holds `run`, the matcher for a search that must start at one
+    offset, and `backtrack`, a backtracking matcher over the same program. `backtrack` tries
+    the threads of a seed in order, each to the end of the text before the next, and walks
+    each seed alone. `run_eq` and `findAt_eq`: both give one end.
+  - Five examples hold the model to RE2's ends by `decide`: `a|ab` and `ab|a` on `ab`, `a*` and
+    `a*?` on `aaab`, `(a*)*b` on `aaba` and on `aa`, `a+?|a*` on `aa`, and `a\z` on `a` and
+    on `ab`.
+  - Seven mutations, each against `lake build`, each CAUGHT: the walk taking a split's other
+    branch first; the first value made the last; the matcher keeping the threads after the
+    first `match`; the matcher keeping its first match and no later one; the backtracking
+    matcher ending a match one byte late; the matcher giving the byte to its threads in
+    reverse order; and an assertion that always holds.
+    - The last one was NOT CAUGHT at first, since no example held an assertion. The example of
+      `a\z` was written for it.
+  - What the model leaves out:
+    - The capture slots. `run` gives a match's end alone.
+    - A search that may start at any offset: the thread that `close_start` adds after the
+      seeds, and the rule that no match starts before a continuation byte.
+    - The cut of a walk at the first `match`. `run` builds a position's threads whole and then
+      keeps those before the first `match`.
+    - The halving of `program.step_ranges`. `step` takes the first range that holds the byte.
+    - A text that arrives in pieces.
+  - What step 3 of part 22r still needs: `backtrack`'s end as the end of a path of
+    `Program.lean`, and an end for each path, which give `Text.Prefers` from a program; the
+    search from any offset, with the least start; and the capture slots.
+
+  **Part 22h, its second part built: the matcher's paths, and its search from any offset
+  (decision 86).**
+  **Check:** as the first part's.
+
+  **Check passed, part 22h, its second part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins `backtrack_sound`, `backtrack_complete`,
+    `search_eq` and `search_answer`.
+  - `Stdx/Regex/MatcherPaths.lean` holds the backtracking matcher of the first part to the
+    paths of `Program.lean`.
+    - `backtrack_sound`: an end it finds is the end of a path from a seed to `match`.
+    - `backtrack_complete`: where a path leads from an instruction to `match`, it finds an end
+      from that instruction. The theorem takes `Exact` as a hypothesis: `step` gives the
+      instruction a thread goes to, whichever range of a node takes the byte. The builder
+      writes a node's ranges apart, which gives it, and no proof holds the builder to that.
+    - `textOf` gives a program's matches in a text as `Search.lean` asks for them: a match is
+      a path from the entry to `match`, from an offset where a match may start, and the
+      preferred end is the one the backtracking matcher finds first. So each claim's theorem
+      of part 22r applies to a program's text, with the scans it takes as given.
+  - `Stdx/Regex/MatcherSearch.lean` holds `search`, the matcher for a search that may start
+    at any offset: while it has found no match, a match may start at each position, after
+    the seeds. `search_eq` holds it to `leftmost`, the search by a backtracking matcher from
+    each offset in turn. `search_answer`: its end is the end of the answer that `Search.lean`
+    states for `textOf`'s text.
+  - Three examples hold the search to RE2's ends by `decide`: `a+` on `baa` and `a|ab` on
+    `xab`; `a*` on `baa`, whose empty match at 0 wins; and the empty pattern on the two bytes
+    of `é` from 1, where no match starts before the continuation byte.
+  - Six mutations, each against `lake build`, each CAUGHT: a new start tried before the
+    seeds; a match that still starts after one was found; the backtracking search preferring
+    a later start; the search ending where no thread waits and no match was found; a
+    preferred match that starts where no match may start; and a range that takes every byte
+    from its first.
+  - What the model still leaves out: the capture slots, and with them the start that the
+    matcher reports, which is its slot 0; the cut of a walk at the first `match`; the halving
+    of `program.step_ranges`; and a text that arrives in pieces.
+
+  **Part 22h, its third part built: the Zig matcher held to the proved answer (decision 86).**
+  **Check:** `zig build lean` requires `src/regex/matcher_vectors.txt` to be what the proved
+  definitions give; `zig build test-regex` replays the file against `Matcher.find`; mutations
+  of the Zig matcher fail the replay.
+
+  **Check passed, part 22h, its third part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - `Stdx/Regex/MatcherAnswer.lean` holds `answerOf`, the search's answer as a function, and
+    `answerOf_isAnswer`: its value is the answer that `Search.lean` states for a program's
+    text. So every search of a program's text has an answer.
+  - `spec/lean/Vectors.lean` writes `answerOf`'s values into `src/regex/matcher_vectors.txt`:
+    272 programs and 9,749 searches, of which 2,947 find a match.
+    - 16 of the programs are written by hand, 8 patterns each as UTF-8 and as bytes: `a|ab`,
+      `a*`, `a*?`, `(a*)*b`, `\ba+\b`, `(?m)^b$`, a class of two ranges before `é`, and
+      the empty pattern.
+    - A seed draws the other 256, of 4 to 10 instructions: ranges, splits, jumps, assertions
+      and `fail`, with any targets, so a drawn program may hold a loop that takes no byte.
+    - Each text holds 0 to 6 bytes of `a`, `b`, a line feed, a space and the two bytes of
+      `é`, and is searched from each offset.
+  - `src/regex/matcher_vectors_test.zig` builds each program, runs `Matcher.find`, and
+    requires the same span. `zig build test-regex` passes, and the matcher gave each of the
+    9,749 answers at the first run.
+  - The file's programs are instructions and no pattern. It holds the matcher to the model,
+    and says nothing of the compiler, the DFAs or the searcher. The fourth part below does.
+  - Eight mutations, each against `zig build test-regex`, each CAUGHT by the replay: the
+    matcher taking a split's other branch first; a match that still starts after one was
+    found; a match that starts before a continuation byte; an assertion that always holds;
+    an instruction read twice at one position; a range without its last byte; the byte
+    behind a position forgotten; and one answer of the vector file changed.
+    - The first form of the assertion's mutant did not compile, which is no catch. The count
+      is of the form that compiles.
+  - This is the first check that reads the start the matcher reports, its slot 0, which the
+    model does not hold: the file's start is the least start of `answerOf`.
+  - The same check with a new seed each run, by the owner's ask of 2026-11-24:
+    `tools/matcher_model_check.sh [seed...]`. `lake exe vectors --random <seed> <count>` writes
+    the vectors of the programs a seed draws, and `tools/matcher_replay.zig` reads the file
+    when it runs and replays it. With no seed, the seed is the time in seconds. A seed that
+    fails is printed, with the line of the search that differs.
+    - A run of 4,096 programs, about 131,500 searches, takes about a second, and
+      `tools/ci.sh` runs one where lake is on the path.
+    - Seeds 1, 2 and 3 with 40,000 programs each, 3.8 million searches, passed in 19 s.
+    - Five mutations, each CAUGHT. Against the script with seed 7: a match that still starts
+      after one was found, and a split's other branch first. Against the replay program's own
+      tests, `zig build test-tools`: a replay that reads no end, one that reads no start, and
+      one that passes a match where the file says none.
+    - The first run against the replay program's tests proved nothing: one of those tests
+      failed with no mutation, on a wrong line number of its own. `zig build test` found it,
+      and the counts above are from the run after the test was put right.
+
+  **Part 22h, its fourth part built: compiled programs and the searcher held to the proved
+  answer (decision 86).** **Check:** `tools/matcher_model_check.sh` passes for new seeds; the
+  Lean side decides `Exact` and `Reverses` for each program and text it answers; mutations of
+  the searcher, the DFAs and the builder fail the script.
+
+  **Check passed, part 22h, its fourth part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - The script now runs two parts for each seed. The first part is the third part's check, on
+    programs drawn as instructions. The second part is new, and reads programs that `compile`
+    wrote:
+    1. `matcher_replay dump <seed> <count> <file>` draws patterns, and compiles each as UTF-8
+       or as bytes in turn (`tools/matcher_replay_dump.zig`). For each it writes the pattern,
+       the whole program with its two entries, a text of at most 12 bytes, and one or two
+       searches.
+    2. `lake exe vectors --answers <file>` writes the file again with each search answered by
+       `answerFast`, which `answerFast_isAnswer` proves equal to `answerOf`.
+    3. `matcher_replay` compiles each pattern again and requires the program that the file
+       lists. It then requires the answer of `Matcher.find` and of three searchers: one with
+       every claim, one with no claim, and one with every claim that read a long text first.
+       For a search from 0 it also requires each searcher's `is_match`.
+  - The third searcher reads the case's text, repeated to 16,384 bytes, before its first
+    search. A searcher keeps state from one search to the next: its DFAs' caches, and what a
+    claim learned of the texts. No proved answer holds the two reads of the long text.
+  - The patterns come from two places in turn. One is the generator of `differential-regex`.
+    The other draws the shapes that the claims read. A literal starts every match, ends every
+    match or stands inside it, or the pattern starts with an alternation of literals. The
+    literal stands beside a part that may take its bytes, and half of the texts hold the
+    literal twice. A program of more than 256 instructions or 32 slots is left out.
+  - One more shape is `(?:[ab]|c[ab]W)W` for a literal W, with texts such as `cbabab`. It is
+    the shape where `NoEarlier` of `Required.lean` fails (`needs_no_earlier`): a match holds
+    a shorter match that starts later and ends sooner.
+  - `Stdx/Regex/Hypotheses.lean` decides the two hypotheses that the program's theorems take,
+    and proves each decision right:
+    - `isExact` reads each pair of ranges of each node. `exact_of_isExact` gives `Exact`.
+    - `ends` gives every offset where a path from a seed reaches `match`, and `mem_endsFrom`
+      proves it. `reversesOn` compares the two halves' ends for each start and each end of a
+      text. `reverses_of_reversesOn` gives `Reverses` for that text.
+    - The vector writer runs both after each text of a dump, and writes a line that begins
+      `differs` where one fails. So the two hypotheses hold by a proved check for each
+      program and text of a run. They are still not proved for the builder.
+  - The vector writer also runs the model's reverse scan from each answer's end, and writes
+    such a line where the scan does not give the answer's start. The reverse scan's theorems
+    hold no rule of where a match may start, and this line is the check of that part. Part
+    22r's fifth part replaced the line: the writer now decides the start rule for each text,
+    and runs the model's two scans for each search.
+  - The replay fails on a line that begins `differs`. Three canary dumps in the script show
+    that each such line can come, and that the replay then fails:
+    - a node whose two ranges take one byte;
+    - a reverse half that takes other bytes;
+    - a program of UTF-8 that takes a continuation byte first.
+  - Seeds 7, 11 and 13 with 4,096 programs and 4,096 patterns each passed in 25 s. `tools/ci.sh`
+    runs one seed where lake is on the path.
+  - Seeds 1, 2 and 3 with 40,000 patterns each passed, 177 s in all. They hold 120,000
+    programs of 4.2 million instructions and 84,535 nodes, and 215,273 searches, of which
+    96,291 find a match. No program failed `isExact`, no text failed `reversesOn`, and no
+    reverse scan differed.
+  - Ten mutations of the Zig library, each against the script with seeds 7, 11 and 13, each
+    CAUGHT:
+    - The builder: a reverse program whose assertions are not turned around, and one whose
+      concatenations are not. `reversesOn` named the first, with the pattern. It named the
+      second too, until the third searcher was added: that searcher's long read now ends at
+      an assertion first.
+    - Claim R4: the rule of the part before the literal removed; the loop going on from the
+      place's end; and the reverse scan reading back past the search's first offset. Each
+      failed at the searcher that has every claim.
+    - The DFAs: the reverse DFA as `Kind.first`, and the forward DFA as `Kind.longest`. Each
+      ended at an assertion of the searcher, which is a catch by a halt.
+    - The forward DFA starting a match before a continuation byte. It failed at the searcher
+      that has no claim, after the searcher that has every claim gave the answer.
+    - `is_match`: a text with no place of the pattern's literal judged a match, which failed
+      `is_match` against the answer; and a search for a pattern that is one literal from 1,
+      which ended at an assertion.
+    - Before the second pattern source, the removed rule of claim R4 was NOT CAUGHT over the
+      three seeds. The source was added for it.
+  - Twelve mutations of the replay program, each against `zig build test-tools`, each CAUGHT:
+    a listed program not compared; its two entries not compared; a `differs` line passed; no
+    searcher asked; `no_claims` leaving each claim on; a save's two fields in the other order;
+    no second search in a dump; a pattern's digits read in base 10; a span compared by its
+    start alone; no long read; `is_match` asked for a search from any offset; and a long text
+    that does not repeat the case's text. The entries' mutation was NOT CAUGHT at first, and
+    a test was added.
+  - Three mutations of the vector writer, each against the script: no hypothesis check after a
+    text, CAUGHT by a canary; the forward entry read as 0, CAUGHT by the replay; and no line
+    for a reverse scan that differs, NOT CAUGHT at first and CAUGHT by the third canary,
+    which was added for it. A `standApart` or a `reversesOn` that always holds fails its
+    proof and its example by `decide`.
+  - The same check on the branch that holds claims R11 to R14 and claim R4's two wider
+    rules, `claude/ecstatic-turing-jkpnv1` at `643aa6b`, merged with this one in a local
+    worktree and not pushed:
+    - Seeds 1 to 6 with 20,000 patterns each passed.
+    - That searcher judges the wider rules only after its searches covered 64 bytes for each
+      instruction of the reverse program. So a new searcher never ran them, and three
+      mutations there were NOT CAUGHT: claim R4's wider rules with no rule of the part before
+      the literal, its second rule for a part of more than one length, and claim R14 with no
+      rule. The third searcher and the nested shape were added for them, and each is CAUGHT
+      at `(?:[ab]|c[ab]aab)aab[ab]?`.
+  - What this part does not hold: the script's own calls have no check but the canaries. The
+    Lean side reads the program that `compile` wrote, so it says nothing of the parser or of
+    whether a program takes its pattern's language. `differential-regex` holds that to Go's
+    regexp. No text with a proved answer is longer than 12 bytes. So no proved answer holds a
+    cache that fills, a DFA that gives up or a skip over a long run of bytes.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

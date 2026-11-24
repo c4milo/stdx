@@ -285,12 +285,26 @@ Change this section when a step adds or renames a command.
   as amended). The file-length and magic-numbers rules leave the file out by its basename, and
   the file-length rule leaves out `bench/regex/regex_rebar.zig` the same way.
 - Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
-  then checks `src/utf8/utf8_vectors.txt`, `src/json/number_vectors.txt` and
-  `src/regex/utf8_split_vectors.txt` are what the proved definitions give; `zig build lean --
-  write` rewrites them. `zig build test` replays them against the Zig code, with no Lean
+  then checks `src/utf8/utf8_vectors.txt`, `src/json/number_vectors.txt`,
+  `src/regex/utf8_split_vectors.txt` and `src/regex/matcher_vectors.txt` are what the proved
+  definitions give; `zig build lean -- write` rewrites them. `zig build test` replays them against the Zig code, with no Lean
   needed. The step needs lake, from elan or a Lean release;
   `tools/install_lean.sh` installs the pinned release on x86-64 Linux, and `tools/ci.sh` runs the
   step where lake is on the path.
+- Matcher model: `tools/matcher_model_check.sh [seed...]` holds `Matcher.find` and
+  `Searcher.find` to the Lean model on programs a seed draws, in two parts. `lake exe vectors
+  --random <seed> <count>` writes programs drawn as instructions, some texts for each, and the
+  proved answer of each search. `matcher_replay dump <seed> <count> <file>` writes the programs
+  that `compile` gives drawn patterns, and `lake exe vectors --answers <file>` answers each
+  search and checks the two hypotheses of the model's theorems for each program and text
+  (`spec/lean/Stdx/Regex/Hypotheses.lean`). `zig build matcher-replay` builds the program that
+  replays both (`tools/matcher_replay.zig`): for a compiled pattern it asks the matcher, a
+  searcher with every claim, one with none, and one with every claim that read a long text
+  first. With no seed, the seed is the time in seconds, and a seed that fails is printed.
+  `PROGRAMS` and `PATTERNS` set what a seed draws, 4096 each by default. It needs lake, and
+  `tools/ci.sh` runs it where lake is on the path. `zig build test` runs the replay program's
+  own tests, and replays the committed file of one seed, `src/regex/matcher_vectors.txt`, as a
+  unit test.
 - Check sites: `zig build checkfree-check` builds the SIMD kernels' variant objects ReleaseSafe
   for Linux on x86-64 and aarch64, as assembly, and requires the safety check sites each kernel
   reaches to equal the counts `tools/checkfree_sites.zig` pins (decision 51); `-- --record` prints

@@ -78,6 +78,7 @@ test {
     _ = @import("repeat.zig");
     _ = @import("utf8_ranges.zig");
     _ = @import("utf8_vectors_test.zig");
+    _ = @import("matcher_vectors_test.zig");
     _ = @import("scalar_set.zig");
     _ = @import("octet_classes.zig");
     _ = @import("syntax/syntax.zig");

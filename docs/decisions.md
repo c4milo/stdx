@@ -6560,8 +6560,76 @@ last part lists what still waits on a ruling.
     - The proof is of the Lean definitions. `Vectors.lean` writes their sequences for the 630
       ranges between 35 scalar values where an encoding changes, and a Zig test requires
       `utf8_ranges.Splitter` to give the same sequences in the same order.
-    - Not proved: the parser, the builder, and that the matcher's match is the one a
-      backtracking matcher finds first. Design §8 step 22 names what comes next.
+    - Added 2026-11-24 (design §8 part 22r): the searcher's claims, each as a function over three
+      scans and a theorem that the function gives the matcher's answer.
+      - `Stdx/Regex/Search.lean` says what the matcher answers from an offset, with no program
+        in it: the least start of a match, and the end the pattern's order prefers there. It
+        states what `Literal.find`, the reverse scan and the forward scan must give.
+      - `Stdx/Regex/Suffix.lean` holds claim R4's loop. `bySuffix_answer`: the loop gives the
+        matcher's answer where every match ends with the literal and a byte of the literal
+        stands in no part of a match before it. `one_end`: the loop needs no forward scan.
+        `starts_after_place`: a reverse scan reads no start at or before the place before its
+        own.
+      - `Stdx/Regex/Program.lean` holds the instructions and a program's paths over a text.
+        `Stdx/Regex/SuffixRule.lean` holds `suffix_rule`: claim R4's two preconditions follow
+        from what `Literal.walk` and `dfa_suffix.before_takes` find in the reverse program.
+      - `Stdx/Regex/Required.lean` holds the wider search, which scans forward from the start it
+        finds. `byRequired_answer` needs `NoEarlier`: a match that ends before another match
+        starts at or before it, or the other's start has a match that ends there too.
+        `needs_no_earlier` gives the text `1xabab` under `(?:[a-z]|[0-9][a-z]ab)ab`, where the
+        search without that precondition gives the match from 1 and the matcher the match
+        from 0. Four rules give `NoEarlier`: R4's rule for any byte of the literal, one length
+        for every match, a separator class that ends the part before the literal, and one that
+        starts it. `byGuarded_answer`: a reverse scan that may give up changes no answer.
+      - `Suffix.lean` also holds `Rising`: a match that ends before another match starts
+        before it. Under it claim R4's loop needs no forward scan (`bySuffix_rising`). Claim
+        R4's rule, one length for every match, and a separator that ends the part before the
+        literal each give it. The separator's rule reads the literal's first byte alone.
+      - `Stdx/Regex/Inner.lean` holds claim R14's loop, `byInner`, and `byInner_answer`. Its
+        precondition is a rule for the part before the literal alone, and the part after it
+        may take any count of bytes.
+      - `Stdx/Regex/Edges.lean` holds claims R11, R12 and R13: `atStart_answer`,
+        `fromEnd_answer`, `excluded_answer`, and `excludes_iff` for the one compare.
+      - `Stdx/Regex/Prefix.lean` holds the skip of claims R2, R3 and R5 to a literal that
+        starts every match, and `gap_of_byte`: claim R4's first rule holds for any byte of
+        the literal. `Stdx/Regex/Count.lean` holds claim R10: `count_eq`.
+      - `Stdx/Regex/Closure.lean` and `Stdx/Regex/Matcher.lean` hold the matcher for a search
+        from one start (design §8 part 22h). `closure_value`: one `visited` set for all the
+        seeds of a position changes no first value among its threads. `run_eq`: the matcher
+        gives the end that a backtracking matcher finds first, where that matcher tries each
+        thread to the end of the text before the next and reads an instruction once at a
+        position. The model holds no capture slot.
+      - `Stdx/Regex/MatcherPaths.lean` holds that backtracking matcher to the program's paths
+        (`backtrack_sound`, `backtrack_complete`), and `textOf` gives a program's matches as
+        `Search.lean` asks for them. `Stdx/Regex/MatcherSearch.lean` holds the search from any
+        offset: `search_answer`, the matcher's end is the end of the search's answer.
+      - `Stdx/Regex/Dfa.lean` holds the forward DFA's states and `Dfa.build`. `scan_answer`:
+        the forward scan gives the end of the search's answer. `Stdx/Regex/Reverse.lean`
+        holds the reverse DFA's scan: `scanBack_some`, `scanBack_least` and `scanBack_none`,
+        the least start of a match that ends at an offset. Those three take as given that
+        the reverse program takes each match read backward, and nothing else.
+      - `answerOf_isAnswer` gives the search's answer as a function, and
+        `src/regex/matcher_vectors.txt` holds its values for 272 programs and 9,749 searches.
+        A Zig test requires `Matcher.find` to give each one, and
+        `tools/matcher_model_check.sh` makes the same check on the programs a new seed draws.
+      - The same script holds `Matcher.find` and `Searcher.find`, with every claim and with
+        none, new and after a long read, to the proved answer on the programs that `compile`
+        gives the patterns a seed draws. `Stdx/Regex/Hypotheses.lean` holds two functions that decide the theorems' two
+        hypotheses, each with its proof: `isExact` for a program, and `reversesOn` for a
+        program's two halves on one text. The script runs both on each program and text.
+      - `Stdx/Regex/Searcher.lean` joins the claims to the DFAs, with no scan taken as given.
+        `byDfa_answer`: the forward DFA's scan and then the reverse DFA's give the matcher's
+        answer. `bySuffix_program`, `byRequired_program`, `bySkip_program`, `atStart_program`
+        and `fromEnd_program` are claim R4, the wider search, the skip of claims R2, R3 and
+        R5 to one literal, and claims R11 and R12, over a program's own scans. They take a
+        rule of where a match starts, which a third function decides for one text.
+    - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
+      claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
+      things hold by a proved check for each program and text a run draws, and by no proof
+      for the builder: a node's ranges stand apart, the reverse program takes each match
+      read backward, and a match that starts before a continuation byte is empty. Claims
+      R10, R13 and R14 are proved over scans taken as given, and not yet over a program's.
+      Design §8 parts 22h and 22r name their order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
     on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names

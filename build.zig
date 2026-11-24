@@ -27,6 +27,7 @@ const brotli_tables = @import("build/brotli_tables.zig");
 const unicode_tables = @import("build/unicode_tables.zig");
 const lean = @import("build/lean.zig");
 const platform_check = @import("build/platform_check.zig");
+const matcher_replay = @import("build/matcher_replay.zig");
 const checkfree = @import("build/checkfree.zig");
 const coverage = @import("build/coverage.zig");
 const readme = @import("build/readme.zig");
@@ -156,6 +157,10 @@ pub fn build(b: *std.Build) void {
     const regex_check_tests = oracle_regex.add_tests(b);
     test_step.dependOn(regex_check_tests);
     tool_test_step.dependOn(regex_check_tests);
+    // The replay of the Lean model's vectors against the matcher (decision 86).
+    const matcher_replay_tests = matcher_replay.add(b);
+    test_step.dependOn(matcher_replay_tests);
+    tool_test_step.dependOn(matcher_replay_tests);
 
     // The tests again, built by Zig's own x86-64 backend, the Debug default on x86-64 Linux; and
     // built by LLVM in Debug for a CPU with AVX-512.
