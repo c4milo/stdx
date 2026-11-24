@@ -9,7 +9,7 @@
 //! which draws each form of the syntax. The other is `claim_case` below, which draws the shapes
 //! the searcher's claims read: a literal that starts every match, one that ends every match,
 //! one inside, and an alternation of literals, each beside a part that may take the literal's
-//! bytes, over a text that holds the literals more than once.
+//! bytes. Half of their texts hold the literal twice.
 const std = @import("std");
 const regex = @import("regex");
 const regex_generate = @import("differential/regex_generate.zig");
@@ -58,8 +58,11 @@ const tails = [_][]const u8{ "", "", "", "$", "\\b", "c*", "[ab]?" };
 /// more than once.
 const claim_text_pieces = [_][]const u8{ "a", "b", "ab", "ba", "c", " ", "abc", "a", "b" };
 
-/// The pieces such a text holds at least. A text takes pieces while they fit `text_len_max`.
-const claim_text_pieces_min = 2;
+/// The pieces such a text holds at most before its two words, and after them.
+const claim_text_pieces_max = 3;
+
+/// The letters that the nested shape's first branch takes.
+const letters = [_][]const u8{ "a", "b" };
 
 /// The shapes of such a pattern.
 const Shape = enum {
@@ -73,10 +76,45 @@ const Shape = enum {
     set,
     /// A run and a word, or a word alone.
     either,
+    /// `(?:[ab]|c[ab]W)W` for a word W, then a run: a match from `c` holds a shorter match that
+    /// starts later and ends sooner. A search from the word's places then needs a rule, which
+    /// spec/lean/Stdx/Regex/Required.lean names `NoEarlier` (`needs_no_earlier`).
+    nested,
 };
 
 fn pick(generator: *Generator, comptime list: []const []const u8) []const u8 {
     return list[generator.below(list.len)];
+}
+
+/// Adds a piece to a text where it fits.
+fn fit(text: *std.ArrayList(u8), piece: []const u8) void {
+    if (text.unusedCapacitySlice().len >= piece.len) text.appendSliceAssumeCapacity(piece);
+}
+
+fn fit_pieces(generator: *Generator, text: *std.ArrayList(u8)) void {
+    for (0..generator.below(claim_text_pieces_max + 1)) |_| fit(text, pick(generator, &claim_text_pieces));
+}
+
+/// Draws the text of such a case. Half of the texts hold the pattern's word twice: a search
+/// from the word's places then has two places to judge. For the nested shape the two words
+/// follow `c` and a letter, as in `cbabab` for `(?:[ab]|c[ab]ab)ab`, which is the text that
+/// holds both of that shape's matches.
+fn claim_text(generator: *Generator, case: *regex_generate.Case, shape: Shape, word: []const u8) void {
+    var text: std.ArrayList(u8) = .initBuffer(case.text[0..text_len_max]);
+    fit_pieces(generator, &text);
+    if (generator.below(2) == 0) {
+        if (shape == .nested) {
+            fit(&text, "c");
+            fit(&text, pick(generator, &letters));
+            fit(&text, word);
+        } else {
+            fit(&text, word);
+            fit_pieces(generator, &text);
+        }
+        fit(&text, word);
+    }
+    fit_pieces(generator, &text);
+    case.text_len = text.items.len;
 }
 
 /// Draws a case shaped for the searcher's claims.
@@ -87,22 +125,18 @@ fn claim_case(generator: *Generator, case: *regex_generate.Case) void {
     const word = pick(generator, &words);
     const other = pick(generator, &words);
     const second = pick(generator, &runs);
-    const shapes = std.meta.fields(Shape).len;
-    switch (@as(Shape, @enumFromInt(generator.below(shapes)))) {
+    const shape: Shape = @enumFromInt(generator.below(std.meta.fields(Shape).len));
+    switch (shape) {
         .suffix => pattern.printAssumeCapacity("{s}{s}", .{ run, word }),
         .prefix => pattern.printAssumeCapacity("{s}{s}", .{ word, run }),
         .inner => pattern.printAssumeCapacity("{s}{s}{s}", .{ run, word, second }),
         .set => pattern.printAssumeCapacity("(?:{s}|{s}){s}", .{ word, other, run }),
         .either => pattern.printAssumeCapacity("(?:{s}{s}|{s})", .{ run, word, other }),
+        .nested => pattern.printAssumeCapacity("(?:[ab]|c[ab]{s}){s}{s}", .{ word, word, second }),
     }
     pattern.appendSliceAssumeCapacity(pick(generator, &tails));
     case.pattern.len = pattern.items.len;
-    var text: std.ArrayList(u8) = .initBuffer(case.text[0..text_len_max]);
-    for (0..generator.between(claim_text_pieces_min, text_len_max)) |_| {
-        const piece = pick(generator, &claim_text_pieces);
-        if (text.unusedCapacitySlice().len >= piece.len) text.appendSliceAssumeCapacity(piece);
-    }
-    case.text_len = text.items.len;
+    claim_text(generator, case, shape, word);
 }
 
 /// The entry of a program with no reverse half (`program.no_entry`).

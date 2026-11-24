@@ -10359,13 +10359,20 @@ to 12 are reordered and nothing else changes.
     2. `lake exe vectors --answers <file>` writes the file again with each search answered by
        `answerFast`, which `answerFast_isAnswer` proves equal to `answerOf`.
     3. `matcher_replay` compiles each pattern again and requires the program that the file
-       lists. It then requires the answer of `Matcher.find`, of a `Searcher` with every claim
-       and of a `Searcher` with no claim.
+       lists. It then requires the answer of `Matcher.find` and of three searchers: one with
+       every claim, one with no claim, and one with every claim that read a long text first.
+       For a search from 0 it also requires each searcher's `is_match`.
+  - The third searcher reads the case's text, repeated to 16,384 bytes, before its first
+    search. A searcher keeps state from one search to the next: its DFAs' caches, and what a
+    claim learned of the texts. No proved answer holds the two reads of the long text.
   - The patterns come from two places in turn. One is the generator of `differential-regex`.
     The other draws the shapes that the claims read. A literal starts every match, ends every
     match or stands inside it, or the pattern starts with an alternation of literals. The
-    literal stands beside a part that may take its bytes, and the text holds the literals
-    more than once. A program of more than 256 instructions or 32 slots is left out.
+    literal stands beside a part that may take its bytes, and half of the texts hold the
+    literal twice. A program of more than 256 instructions or 32 slots is left out.
+  - One more shape is `(?:[ab]|c[ab]W)W` for a literal W, with texts such as `cbabab`. It is
+    the shape where `NoEarlier` of `Required.lean` fails (`needs_no_earlier`): a match holds
+    a shorter match that starts later and ends sooner.
   - `Stdx/Regex/Hypotheses.lean` decides the two hypotheses that the program's theorems take,
     and proves each decision right:
     - `isExact` reads each pair of ranges of each node. `exact_of_isExact` gives `Exact`.
@@ -10383,16 +10390,18 @@ to 12 are reordered and nothing else changes.
     - a node whose two ranges take one byte;
     - a reverse half that takes other bytes;
     - a program of UTF-8 that takes a continuation byte first.
-  - Seeds 7, 11 and 13 with 4,096 programs and 4,096 patterns each passed in 19 s. `tools/ci.sh`
+  - Seeds 7, 11 and 13 with 4,096 programs and 4,096 patterns each passed in 25 s. `tools/ci.sh`
     runs one seed where lake is on the path.
-  - Seeds 1, 2 and 3 with 40,000 patterns each passed, 144 s in all. They hold 120,000
-    programs of 4.2 million instructions and 87,142 nodes, and 218,894 searches, of which
-    84,379 find a match. No program failed `isExact`, no text failed `reversesOn`, and no
+  - Seeds 1, 2 and 3 with 40,000 patterns each passed, 177 s in all. They hold 120,000
+    programs of 4.2 million instructions and 84,535 nodes, and 215,273 searches, of which
+    96,291 find a match. No program failed `isExact`, no text failed `reversesOn`, and no
     reverse scan differed.
-  - Eight mutations of the Zig library, each against the script with seeds 7, 11 and 13, each
+  - Ten mutations of the Zig library, each against the script with seeds 7, 11 and 13, each
     CAUGHT:
     - The builder: a reverse program whose assertions are not turned around, and one whose
-      concatenations are not. `reversesOn` named each, with the pattern.
+      concatenations are not. `reversesOn` named the first, with the pattern. It named the
+      second too, until the third searcher was added: that searcher's long read now ends at
+      an assertion first.
     - Claim R4: the rule of the part before the literal removed; the loop going on from the
       place's end; and the reverse scan reading back past the search's first offset. Each
       failed at the searcher that has every claim.
@@ -10400,23 +10409,38 @@ to 12 are reordered and nothing else changes.
       ended at an assertion of the searcher, which is a catch by a halt.
     - The forward DFA starting a match before a continuation byte. It failed at the searcher
       that has no claim, after the searcher that has every claim gave the answer.
+    - `is_match`: a text with no place of the pattern's literal judged a match, which failed
+      `is_match` against the answer; and a search for a pattern that is one literal from 1,
+      which ended at an assertion.
     - Before the second pattern source, the removed rule of claim R4 was NOT CAUGHT over the
       three seeds. The source was added for it.
-  - Nine mutations of the replay program, each against `zig build test-tools`, each CAUGHT: a
-    listed program not compared; its two entries not compared; a `differs` line passed; no
+  - Twelve mutations of the replay program, each against `zig build test-tools`, each CAUGHT:
+    a listed program not compared; its two entries not compared; a `differs` line passed; no
     searcher asked; `no_claims` leaving each claim on; a save's two fields in the other order;
     no second search in a dump; a pattern's digits read in base 10; a span compared by its
-    start alone. The entries' mutation was NOT CAUGHT at first, and a test was added.
+    start alone; no long read; `is_match` asked for a search from any offset; and a long text
+    that does not repeat the case's text. The entries' mutation was NOT CAUGHT at first, and
+    a test was added.
   - Three mutations of the vector writer, each against the script: no hypothesis check after a
     text, CAUGHT by a canary; the forward entry read as 0, CAUGHT by the replay; and no line
     for a reverse scan that differs, NOT CAUGHT at first and CAUGHT by the third canary,
     which was added for it. A `standApart` or a `reversesOn` that always holds fails its
     proof and its example by `decide`.
+  - The same check on the branch that holds claims R11 to R14 and claim R4's two wider
+    rules, `claude/ecstatic-turing-jkpnv1` at `643aa6b`, merged with this one in a local
+    worktree and not pushed:
+    - Seeds 1 to 6 with 20,000 patterns each passed.
+    - That searcher judges the wider rules only after its searches covered 64 bytes for each
+      instruction of the reverse program. So a new searcher never ran them, and three
+      mutations there were NOT CAUGHT: claim R4's wider rules with no rule of the part before
+      the literal, its second rule for a part of more than one length, and claim R14 with no
+      rule. The third searcher and the nested shape were added for them, and each is CAUGHT
+      at `(?:[ab]|c[ab]aab)aab[ab]?`.
   - What this part does not hold: the script's own calls have no check but the canaries. The
     Lean side reads the program that `compile` wrote, so it says nothing of the parser or of
     whether a program takes its pattern's language. `differential-regex` holds that to Go's
-    regexp. No text is longer than 12 bytes, so a run holds no long scan: a cache that fills,
-    a DFA that gives up and a skip over a long run of bytes are not in it.
+    regexp. No text with a proved answer is longer than 12 bytes. So no proved answer holds a
+    cache that fills, a DFA that gives up or a skip over a long run of bytes.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
