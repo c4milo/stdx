@@ -6331,12 +6331,20 @@ last part lists what still waits on a ruling.
     - Claim R13, added 2026-11-24 (design §8 part 22q): where every match starts at the text's
       start and ends at its end, a match is the whole text. A text shorter than the pattern's
       least match, or longer than its greatest, holds none, and the searcher reads none of it.
-      - `dfa_length.of` walks the forward program one byte a level, with every byte at once. The
-        first level that reaches `match` is the least length, and the last one is the greatest.
-        An assertion passes whatever stands around it, so the lengths bound every match's. A
-        program with a loop has a level after every level, and the walk stops at
-        `length_steps_per_instruction` steps, 8, for each instruction: such a pattern has no
-        lengths.
+      - `dfa_length.of` gives the lengths by one pass over the forward program, depth first. A
+        node's lengths are those of the nodes it goes to, and one byte more where it takes a
+        byte. An assertion passes whatever stands around it, so the lengths bound every match's.
+        The pass computes each node once, so it takes a step for each instruction. A program
+        with a loop has no greatest length, and the pass stops at the loop: such a pattern has
+        no lengths.
+        - A walk by levels came before it, one byte a level, within
+          `length_steps_per_instruction` steps, 8, for each instruction. A scalar value takes
+          one to four bytes of UTF-8, so a level of `^.{12}$` holds the nodes of each value that
+          may end there, and the walk passed its budget. rebar's `opt/fixed-length/go33484-3`
+          is `^.{249}$` as UTF-8: its searcher kept no lengths, and the row stood at 1/46 of
+          Rust's crate on the N2 at `b2d008c` (design §8 part 22q).
+        - The pass keeps a node's two lengths in the DFA's two lists that find a set's member,
+          and the nodes it is still at on the DFA's stack, so it needs no memory.
       - A searcher keeps the least length and the greatest less the least, and one compare
         refuses a text: a length under the least wraps past every span. A searcher with no such
         lengths holds a span that no length passes.
@@ -6355,8 +6363,8 @@ last part lists what still waits on a ruling.
           every compile some 280 instructions, for the patterns with no `^` too, and the paired
           runs at `e18f017` put a literal compiled and made ready at 0.92 to 0.94 of the base
           on the N2.
-      - The same walk serves claim R4's second rule, on the part before a literal, where it
-        stops at the level past `suffix_before_len_max` (`dfa_length.from`).
+      - The walk by levels stays for claim R4's second rule, on the part before a literal,
+        where it stops at the level past `suffix_before_len_max` (`dfa_length.from`).
       - `Claims.length` turns it off.
     - Claim R14, added 2026-11-24 (design §8 part 22q): where every match holds a literal in its
       middle, after a part that one of claim R4's rules holds for, the searcher goes to the

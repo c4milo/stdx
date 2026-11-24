@@ -10328,6 +10328,60 @@ to 12 are reordered and nothing else changes.
       first rule; each wide rule left out; a wide suffix of one byte; and lengths walked with
       the budget of a suffix's part.
 
+  The lengths of a pattern of scalar values (claim R13, decision 86 as amended):
+  - The paired runs at `b2d008c` left rebar's `opt/fixed-length/go33484-3` at 1/46 of Rust's
+    crate on the N2: `^.{249}$` as UTF-8 over 1,000 bytes. Its searcher kept no lengths, and
+    its DFA read 250 bytes of each text.
+    - The walk by levels takes a step for each instruction of a level. A scalar value takes
+      one to four bytes, so a level of this pattern holds the nodes of each value that may end
+      at it. The walk passed its budget of 8 steps an instruction for `^.{249}$`, and for
+      `^.{12}$` and `^(?:a|bc|def){2,5}x?$` too.
+  - `dfa_length.of` is now one pass over the program, depth first, that computes each node
+    once: the least and the greatest length of the nodes it goes to, and one byte more where
+    the node takes a byte. A node that the pass meets while it is still at it is a loop, and
+    the pass gives no lengths.
+    - The pass keeps each node's two lengths in the two lists that find a member of the DFA's
+      sets, which are as long as the program. A set whose list holds other values is still
+      empty: a member is also in the set's other list, under the set's count.
+    - `dfa_length.from`, the walk by levels, stays for claim R4's second rule, which names 8
+      levels at most.
+    - A pattern whose one loop takes no byte, as `^(?:)*$`, had lengths by the walk and has
+      none by the pass. Its searcher takes the plain search.
+  **Check:** the pass gives the walk's lengths for each pattern of the walk's tests, and none
+  for a pattern with a loop, or with no match at once, after a byte or after a choice; it
+  gives the lengths of three patterns whose walk passes its budget; the DFA's sets are empty
+  after it, and a scan gives its answer; a searcher of `^.{12}$` holds lengths and agrees with
+  the matcher; a searcher of `^.{3}$` refuses a text one byte under the least length and one
+  over the greatest, reads none of it, and takes a text at each edge; counts of instructions
+  against `b49e0f9`; two paired runs of the `bench` workflow on each runner; mutations.
+  **Check passed in part, 2026-11-24.** The same container. The paired runs are not recorded
+  yet.
+  - `zig build test` exits 0. `zig build test-regex` runs 344 tests.
+  - Instructions for each pass of the probe, at `b49e0f9` and with the pass.
+    - A count of `^.{249}$` as UTF-8 over 1,000 bytes: 2,860 and 221. In turns, 400,000 passes
+      took 161 ms and 7 ms.
+    - A count of `^.{12}$` over 100 bytes: 440 and 221.
+    - A text of 12 bytes, which `^.{12}$` matches: 603 and 793 as a count, 640 and 755 as a
+      walk of `Matches.next`, and 233 and 233 as a grep. A searcher with lengths takes a
+      claim's search, one call out of line, and counts by `find`, as a searcher of `^a{2,5}$`
+      does since claim R13 (decision 86).
+    - A pattern compiled and made ready: 1,349,217 and 1,349,217 for `^.{249}$`. The pass
+      runs at the judgment.
+    - Five other rows take the same instructions: `[abcdw]`, `\w+` over 64 kB, `[0-9]+`, the
+      date and time pattern, and `\w+\s+Holmes`.
+  - Mutations: 24, all CAUGHT, each by a failing test or a halt, against `zig build
+    test-regex`.
+    - The pass: a loop not refused; a node met again and entered anew, or not marked as it is
+      entered; a count of named targets not cleared, or not raised; a node closed and left on
+      the stack; and fewer turns than the targets and the nodes.
+    - A node's targets: a split's second target not named, or its first named twice; a node's
+      first range alone, by its count or by its place; and an assertion with no target.
+    - A node's lengths: no byte for the least length, or for the greatest; no byte for a
+      range, or for a node of ranges; a byte for a node that reaches no match; the greatest of
+      the least lengths, or the least of the greatest; and a `match` that has no length.
+    - The answer: a program with no match given lengths; the pass's verdict not read; the
+      lists not set before the pass; and the sets not emptied.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
