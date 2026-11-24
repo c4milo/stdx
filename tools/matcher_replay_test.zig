@@ -12,6 +12,7 @@ const same = matcher_replay.same;
 const no_claims = matcher_replay.no_claims;
 const searcher_count = matcher_replay.searcher_count;
 const long_read_len = matcher_replay.long_read_len;
+const long_read_searcher = matcher_replay.long_read_searcher;
 const testing = std.testing;
 
 /// `a|ab` between its two saves, over `xab`: the match from 1 up to 2 for a search from 0 or
@@ -103,6 +104,24 @@ test "a replay compiles a named pattern and asks the matcher and each searcher" 
     try testing.expect(small.forward_ready and small.reverse_ready);
     try testing.expect(replay.small_cache_words > 0 and replay.small_cache_words < regex.constants.cache_words_default / 16);
     try testing.expect(replay.program.reverse != replay_dump.no_entry);
+}
+
+test "the long text judges each claim that waits, in the third searcher alone" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var lines: replay_dump.Lines = .{ .arena = arena.allocator() };
+    const storage = try arena.allocator().alloc(Instruction, replay_dump.instructions_max);
+    // A searcher of this pattern waits before it judges claim R14 (decision 86, the claims
+    // that wait). Its reverse program is long enough that a text of one byte an instruction,
+    // read twice, judges nothing.
+    const pattern = "[ab]+x[ab]{20}";
+    const program = try regex.compile(pattern, .{}, storage);
+    try lines.add_case(pattern, &program, "axb", &.{0});
+    const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 none");
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, text) == null);
+    try testing.expect(replay.searchers[0].deferred.any());
+    try testing.expect(!replay.searchers[long_read_searcher].deferred.any());
 }
 
 test "a replay refuses a program that is not the one its pattern compiles to" {

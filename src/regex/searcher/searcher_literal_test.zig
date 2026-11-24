@@ -68,7 +68,8 @@ test "a searcher that goes to the literal after an assertion gives what the matc
         try fixture.init(pattern, 0);
         const sizes = searcher_test.cache_sizes(&fixture.program);
         for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
-            try fixture.init(pattern, cache_words);
+            // Claims R11 and R12 take `^Ph` and `Ph$` another way, so they are off here.
+            try fixture.init_claims(pattern, .{ .text_start = false, .text_end = false }, cache_words);
             try testing.expect(fixture.searcher.forward.looks_for_literal());
             for (0..8) |_| {
                 for (&haystack) |*octet| octet.* = looks_alphabet[generator.below(looks_alphabet.len)];

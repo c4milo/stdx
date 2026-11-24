@@ -47,6 +47,11 @@ pub const node_lists = 4;
 pub const restart_bit = 1 << constants.context_bits;
 pub const context_mask = restart_bit - 1;
 
+/// The bit of a record's first word that says the state starts a scan from the DFA's second
+/// start: it takes the program at `Dfa.second_entry`, and no match starts after it
+/// (dfa_second.zig).
+pub const second_bit = restart_bit << 1;
+
 pub const Dfa = struct {
     instructions: []const Instruction,
     config: Config,
@@ -102,6 +107,9 @@ pub const Dfa = struct {
     /// The trials that judged the skip poor since one judged it good, up to
     /// `skip_rest_doublings_max`: each doubles the rest.
     skip_poor_trials: u6,
+    /// Where a scan from the second start takes the program: the DFA's own entry, unless a
+    /// searcher names another (claim R14, dfa_second.zig).
+    second_entry: u32,
     /// Claim R9: the states that stay, and the clears of the cache when the records were made.
     stays: [constants.stay_records]dfa_stay.Stay,
     stays_clears: u32,
@@ -170,6 +178,7 @@ pub const Dfa = struct {
             .skip_off = false,
             .skip_retry_at = 0,
             .skip_poor_trials = 0,
+            .second_entry = config.entry,
             .stays = dfa_stay.empty,
             .stays_clears = 0,
             .cache = undefined,
@@ -326,7 +335,7 @@ pub const Dfa = struct {
 
     /// Claim R9: where the entry the scan read before `at` leads back to its state, the scan goes
     /// past the octets over which the state stays (dfa_stay.zig).
-    inline fn stay_past(dfa: *Dfa, haystack: []const u8, at: *usize, known: u32, last: *?usize) void {
+    pub inline fn stay_past(dfa: *Dfa, haystack: []const u8, at: *usize, known: u32, last: *?usize) void {
         if (known & constants.dfa_skip_flag != 0) at.* = dfa_stay.pass(dfa, haystack, at.*, known & constants.dfa_row_mask, known, last);
     }
 
@@ -401,7 +410,7 @@ pub const Dfa = struct {
         const matched = dfa.close(state, dfa.context_of(octet), may_start);
         dfa.step(octet);
         var flags: u32 = if (matched) constants.dfa_match_flag else 0;
-        const restart = head & restart_bit != 0 and dfa.restarts_after(matched);
+        const restart = head & restart_bit != 0 and head & second_bit == 0 and dfa.restarts_after(matched);
         if (dfa.next.len == 0 and !restart) return constants.dfa_dead_flag | flags;
         // Claim R3: no thread, and a match may start; the scan goes to the literal from here. Under
         // `Kind.first` a match ends the restart, so such a state follows no match: the scan loses none.
@@ -475,4 +484,7 @@ test {
     _ = @import("dfa_skip.zig");
     _ = @import("dfa_suffix.zig");
     _ = @import("dfa_wait.zig");
+    _ = @import("dfa_length.zig");
+    _ = @import("dfa_inner.zig");
+    _ = @import("dfa_second.zig");
 }

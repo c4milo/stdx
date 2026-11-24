@@ -51,13 +51,13 @@ const small_cache_shift_max = std.math.log2_int(usize, regex.constants.cache_wor
 /// The searcher that reads a long text first. A searcher keeps state from one search to the
 /// next: its DFAs' caches, and what a claim learned of the texts. So an answer is held for a
 /// new searcher and for one that is not new.
-const long_read_searcher = 2;
+pub const long_read_searcher = 2;
 
-/// The bytes of that text: `claim_text_bytes` for each instruction a program may hold. No
-/// searcher of this tree waits before it judges a claim. One that waits until its searches
-/// covered up to 64 bytes of text an instruction has judged its claims after this text.
-const claim_text_bytes = 64;
-pub const long_read_len = claim_text_bytes * replay_dump.instructions_max;
+/// The bytes of that text: `claim_text_per_instruction` for each instruction a program may
+/// hold. A searcher judges some of its claims only after its searches were given that many
+/// bytes for each instruction of its reverse program (decision 86, the claims that wait). So
+/// the third searcher has judged each claim after this text.
+pub const long_read_len = regex.constants.claim_text_per_instruction * replay_dump.instructions_max;
 
 /// What the long text repeats where the case's text is empty.
 const long_read_filler = "ab c\n";

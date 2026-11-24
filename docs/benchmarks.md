@@ -253,6 +253,9 @@ haystack. The README draws this chart, by the owner's ruling of 2026-11-23 (deci
   ([#44](https://github.com/c4milo/stdx/issues/44)).
 - One change was made for one of them: the bytes mode, for the answer of
   `unicode/compile/match-every-line-ascii`. It was judged on that answer and on no speed.
+- These runs are the last that came before any work on these rows. The owner ruled on 2026-11-24
+  to tune stdx on this set, and design §8 part 22q judges each change on its rows. A chart from
+  later runs shows tuned rows.
 - stdx gives no answer on `unicode/codepoints/letters-one`. stdx and Go's regexp count Unicode
   17.0.0's letters, and rebar's count comes from older tables.
 - rebar's README says that these benchmarks mostly serve to make Rust's regex crate faster. So the

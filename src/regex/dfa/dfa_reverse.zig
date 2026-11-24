@@ -8,13 +8,30 @@ const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Scan = dfa_file.Scan;
 const dfa_run = @import("dfa_run.zig");
+const dfa_second = @import("dfa_second.zig");
 
 /// The least offset at or after `from` where a match that ends at `end` starts. The DFA runs
 /// the reverse program from `end` toward `from`. Inline: a search makes one for each match.
 pub inline fn scan(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Scan {
     assert(from <= end and end <= haystack.len and dfa.cache.table.len > 0);
     const behind: Context = if (end == haystack.len) .edge else dfa.context_of(haystack[end]);
-    var state = dfa.start(behind) orelse return .gave_up;
+    const first = dfa.start(behind) orelse return .gave_up;
+    return run(dfa, haystack, from, end, first);
+}
+
+/// `scan` from the DFA's second start (dfa_second.zig): the least offset at or after `from`
+/// where the part of a match before a literal's place at `end` starts. Out of line: a search
+/// makes one for each place of its literal.
+pub fn scan_second(dfa: *Dfa, haystack: []const u8, from: usize, end: usize) Scan {
+    assert(from <= end and end <= haystack.len and dfa.cache.table.len > 0);
+    const behind: Context = if (end == haystack.len) .edge else dfa.context_of(haystack[end]);
+    const first = dfa_second.start(dfa, behind) orelse return .gave_up;
+    return run(dfa, haystack, from, end, first);
+}
+
+/// The reverse scan from the state `first`.
+inline fn run(dfa: *Dfa, haystack: []const u8, from: usize, end: usize, first: u32) Scan {
+    var state = first;
     var last: ?usize = null;
     dfa.mark = end;
     const table = dfa.cache.table;
