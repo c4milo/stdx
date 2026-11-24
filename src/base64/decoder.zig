@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const alphabet_file = @import("alphabet.zig");
 const Alphabet = alphabet_file.Alphabet;
@@ -119,7 +120,7 @@ pub const Decoder = struct {
     /// compile time are constants: as a call, it read them from memory, and a decode with
     /// `pad_bits` at `.drop` took 11 instructions more on aarch64 than with the default (decision
     /// 68).
-    pub inline fn init(self: *Decoder, options: DecoderOptions, features: codec.Features) void {
+    pub inline fn init(self: *Decoder, options: DecoderOptions, features: platform.CpuFeatures) void {
         self.* = .{
             .kernels = if (fast.has_kernels and features.avx2) .avx2 else .portable,
             .accept = options.accept,

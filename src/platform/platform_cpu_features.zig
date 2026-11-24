@@ -1,9 +1,12 @@
-//! The CPU features a codec's SIMD paths may use, detected at run time (decision 21).
+//! The CPU features a codec's SIMD paths may use, detected at run time (decision 21). The type
+//! is `platform.CpuFeatures` (decisions 21 and 40 as amended on 2026-11-24).
 //!
-//! The caller calls `Features.detect()` once and passes the value to each codec's `init`, which
+//! The caller calls `CpuFeatures.detect()` once and passes the value to each codec's `init`, which
 //! keeps it in the codec's state; stdx keeps no copy of its own (invariant 4). A caller may pass
-//! `Features.target()`, what the build target guarantees, to skip detection, and a test may pass
-//! any set, `Features.none()` included, to reach every path the host supports.
+//! `CpuFeatures.target()`, what the build target guarantees, to skip detection, and a test may pass
+//! any set, `CpuFeatures.none()` included, to reach every path the host supports. A codec names
+//! the type and never calls `detect`. Outside this module, only a test under `src/` calls it, and
+//! the `cpu-probe` lint rule holds that (invariant 14).
 //!
 //! Detection reads no file and makes no syscall (invariant 2). On x86-64 it runs the CPUID and
 //! XGETBV instructions. On aarch64 Linux it reads the kernel's hardware capability word through
@@ -15,7 +18,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-pub const Features = struct {
+pub const CpuFeatures = struct {
     /// x86-64: SSSE3's PSHUFB, a lookup of 16 entries for each of 16 lanes, which needs no
     /// register the operating system saves beyond SSE2's.
     ssse3: bool = false,
@@ -54,34 +57,34 @@ pub const Features = struct {
     madd_addend_slow: bool = false,
 
     /// No feature: every codec takes its scalar paths.
-    pub fn none() Features {
+    pub fn none() CpuFeatures {
         return .{};
     }
 
     /// The features the build target guarantees, known at compile time.
-    pub fn target() Features {
+    pub fn target() CpuFeatures {
         return comptime from_target(builtin.cpu);
     }
 
     /// The features of the CPU this runs on. Never fewer than `target()`, since a program built
     /// for more than the CPU has would not run.
-    pub fn detect() Features {
+    pub fn detect() CpuFeatures {
         return detect_cpu().with(target());
     }
 
     /// The features both sets hold.
-    pub fn intersect(self: Features, other: Features) Features {
-        var result: Features = .{};
-        inline for (std.meta.fields(Features)) |field| {
+    pub fn intersect(self: CpuFeatures, other: CpuFeatures) CpuFeatures {
+        var result: CpuFeatures = .{};
+        inline for (std.meta.fields(CpuFeatures)) |field| {
             @field(result, field.name) = @field(self, field.name) and @field(other, field.name);
         }
         return result;
     }
 
     /// The features either set holds.
-    pub fn with(self: Features, other: Features) Features {
-        var result: Features = .{};
-        inline for (std.meta.fields(Features)) |field| {
+    pub fn with(self: CpuFeatures, other: CpuFeatures) CpuFeatures {
+        var result: CpuFeatures = .{};
+        inline for (std.meta.fields(CpuFeatures)) |field| {
             @field(result, field.name) = @field(self, field.name) or @field(other, field.name);
         }
         return result;
@@ -89,15 +92,15 @@ pub const Features = struct {
 };
 
 /// The features detection finds, before the target's are added.
-fn detect_cpu() Features {
+fn detect_cpu() CpuFeatures {
     return switch (builtin.cpu.arch) {
         .x86_64 => detect_x86_64(),
         .aarch64 => detect_aarch64(),
-        else => Features.target(),
+        else => CpuFeatures.target(),
     };
 }
 
-fn from_target(cpu: std.Target.Cpu) Features {
+fn from_target(cpu: std.Target.Cpu) CpuFeatures {
     return switch (cpu.arch) {
         .x86_64 => .{
             .ssse3 = has_x86(cpu, .ssse3),
@@ -200,7 +203,7 @@ fn all(value: u32, bits: u32) bool {
     return value & bits == bits;
 }
 
-fn detect_x86_64() Features {
+fn detect_x86_64() CpuFeatures {
     if (builtin.cpu.arch != .x86_64) unreachable;
     const vendor = cpuid(x86.leaf_vendor, 0);
     const basic = cpuid(x86.leaf_features, 0);
@@ -223,7 +226,7 @@ const X86Registers = struct { vendor_amd: bool, vendor_intel: bool, leaf_1_ecx: 
 
 /// The features the registers report. AVX2, AVX-512 and VPCLMULQDQ need the operating system to
 /// save the registers they use, which XCR0 reports.
-fn from_x86(registers: X86Registers) Features {
+fn from_x86(registers: X86Registers) CpuFeatures {
     const ymm = registers.xcr0 & x86.xcr0_ymm == x86.xcr0_ymm;
     const zmm = ymm and registers.xcr0 & x86.xcr0_zmm == x86.xcr0_zmm;
     const avx512_bits = x86.ebx_avx512f | x86.ebx_avx512bw | x86.ebx_avx512dq | x86.ebx_avx512vl;
@@ -249,14 +252,14 @@ const hwcap = struct {
     const dotprod = 0x10_0000;
 };
 
-fn detect_aarch64() Features {
+fn detect_aarch64() CpuFeatures {
     if (builtin.cpu.arch != .aarch64) unreachable;
     return switch (builtin.os.tag) {
         .linux => from_hwcap(hwcap_word()),
         // Every aarch64 Mac is an Apple M-series part, which has all three and whose MADD's addend
         // waits for its multiply.
         .macos => .{ .crc32 = true, .pmull = true, .dotprod = true, .madd_addend_slow = true },
-        else => Features.target(),
+        else => CpuFeatures.target(),
     };
 }
 
@@ -268,7 +271,7 @@ fn hwcap_word() usize {
     return std.os.linux.getauxval(std.elf.AT_HWCAP);
 }
 
-fn from_hwcap(word: usize) Features {
+fn from_hwcap(word: usize) CpuFeatures {
     return .{
         .crc32 = word & hwcap.crc32 != 0,
         .pmull = word & hwcap.pmull != 0,
@@ -283,17 +286,17 @@ const testing = std.testing;
 test "detection alone finds at least what the target guarantees" {
     // The target's features are those of the CPU the tests run on, or fewer, so detection must
     // find each of them without `detect` adding them.
-    const target_features = Features.target();
+    const target_features = CpuFeatures.target();
     try testing.expectEqual(target_features, detect_cpu().intersect(target_features));
-    try testing.expectEqual(target_features, Features.detect().intersect(target_features));
+    try testing.expectEqual(target_features, CpuFeatures.detect().intersect(target_features));
 }
 
 test "none holds nothing, and intersect and with combine field by field" {
-    try testing.expectEqual(Features{}, Features.none());
-    const left: Features = .{ .pclmul = true, .avx2 = true };
-    const right: Features = .{ .avx2 = true, .crc32 = true };
-    try testing.expectEqual(Features{ .avx2 = true }, left.intersect(right));
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .crc32 = true }, left.with(right));
+    try testing.expectEqual(CpuFeatures{}, CpuFeatures.none());
+    const left: CpuFeatures = .{ .pclmul = true, .avx2 = true };
+    const right: CpuFeatures = .{ .avx2 = true, .crc32 = true };
+    try testing.expectEqual(CpuFeatures{ .avx2 = true }, left.intersect(right));
+    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .crc32 = true }, left.with(right));
 }
 
 test "the x86-64 registers map each feature, and XCR0 gates the vector registers" {
@@ -305,46 +308,46 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
         .leaf_7_ecx = 0x0000_0400 | 0x0000_0800,
         .xcr0 = 0b1110_0111,
     };
-    const all_x86: Features = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .vpmullq_fast = true };
+    const all_x86: CpuFeatures = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .vpmullq_fast = true };
     try testing.expectEqual(all_x86, from_x86(every));
     // The same features on an Intel CPU, whose VPMULLQ is slow.
     var intel = every;
     intel.vendor_amd = false;
     intel.vendor_intel = true;
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .lazy_loop_fast = true }, from_x86(intel));
+    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .lazy_loop_fast = true }, from_x86(intel));
     // VPCLMULQDQ without VNNI, as on the first CPUs with both AVX-512 and VPCLMULQDQ.
     var no_vnni = intel;
     no_vnni.leaf_7_ecx = 0x0000_0400;
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .lazy_loop_fast = true }, from_x86(no_vnni));
+    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .lazy_loop_fast = true }, from_x86(no_vnni));
     // No YMM state saved: nothing that uses YMM or ZMM, whatever CPUID says.
     var no_ymm = every;
     no_ymm.xcr0 = 0b011;
-    try testing.expectEqual(Features{ .pclmul = true }, from_x86(no_ymm));
+    try testing.expectEqual(CpuFeatures{ .pclmul = true }, from_x86(no_ymm));
     // YMM saved but not ZMM: AVX2 and VPCLMULQDQ, no AVX-512.
     var no_zmm = every;
     no_zmm.xcr0 = 0b111;
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true }, from_x86(no_zmm));
+    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .vpclmul = true }, from_x86(no_zmm));
     // PCLMULQDQ without SSE4.1, and AVX-512 F without BW. VNNI is reported as the CPU reports it;
     // each path that uses it requires AVX-512 as well.
     var partial = every;
     partial.leaf_1_ecx = 0x0000_0002;
     partial.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x8000_0000;
-    try testing.expectEqual(Features{ .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(partial));
+    try testing.expectEqual(CpuFeatures{ .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(partial));
     // AVX-512 F, BW and VL without DQ, whose VPMULLQ the XXH64 path runs: no AVX-512.
     var no_dq = every;
     no_dq.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000;
-    try testing.expectEqual(Features{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
+    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
 }
 
 test "SSSE3 counts alone, BMI2 only with SSSE3, and neither needs a register saved" {
     const both: X86Registers = .{ .vendor_amd = false, .vendor_intel = false, .leaf_1_ecx = 0x0000_0200, .leaf_7_ebx = 0x0000_0100, .leaf_7_ecx = 0, .xcr0 = 0 };
-    try testing.expectEqual(Features{ .ssse3 = true, .bmi2 = true }, from_x86(both));
+    try testing.expectEqual(CpuFeatures{ .ssse3 = true, .bmi2 = true }, from_x86(both));
     var no_ssse3 = both;
     no_ssse3.leaf_1_ecx = 0;
-    try testing.expectEqual(Features{}, from_x86(no_ssse3));
+    try testing.expectEqual(CpuFeatures{}, from_x86(no_ssse3));
     var no_bmi2 = both;
     no_bmi2.leaf_7_ebx = 0;
-    try testing.expectEqual(Features{ .ssse3 = true }, from_x86(no_bmi2));
+    try testing.expectEqual(CpuFeatures{ .ssse3 = true }, from_x86(no_bmi2));
     // The target's features: BMI2 alone is not enough, and SSSE3 alone is SSSE3.
     var cpu = std.Target.x86.cpu.x86_64.toCpu(.x86_64);
     try testing.expect(!from_target(cpu).ssse3);
@@ -361,18 +364,18 @@ test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does no
 }
 
 test "the hardware capability word maps CRC32 and PMULL" {
-    try testing.expectEqual(Features{ .crc32 = true, .pmull = true }, from_hwcap(0b1001_0000));
-    try testing.expectEqual(Features{ .crc32 = true }, from_hwcap(0b1000_0000));
-    try testing.expectEqual(Features{ .dotprod = true }, from_hwcap(0x10_0000));
-    try testing.expectEqual(Features{}, from_hwcap(0x0f_ef6f));
+    try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true }, from_hwcap(0b1001_0000));
+    try testing.expectEqual(CpuFeatures{ .crc32 = true }, from_hwcap(0b1000_0000));
+    try testing.expectEqual(CpuFeatures{ .dotprod = true }, from_hwcap(0x10_0000));
+    try testing.expectEqual(CpuFeatures{}, from_hwcap(0x0f_ef6f));
 }
 
 test "detection on this host finds what its architecture's feature set should" {
-    const detected = Features.detect();
+    const detected = CpuFeatures.detect();
     switch (builtin.cpu.arch) {
         .aarch64 => if (builtin.os.tag == .macos) try testing.expect(detected.crc32 and detected.pmull and detected.dotprod and detected.madd_addend_slow),
         .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull and !detected.dotprod),
-        else => try testing.expectEqual(Features.target(), detected),
+        else => try testing.expectEqual(CpuFeatures.target(), detected),
     }
 }
 
@@ -385,5 +388,5 @@ test "detection takes level 6's assembly loop on a CPU whose leaf 0 names Intel,
     // Leaf 0's registers spell the vendor's name, 4 octets each, least significant first.
     try testing.expectEqualStrings("GenuineIntel", std.mem.asBytes(&[_]u32{ x86.vendor_intel_ebx, x86.vendor_intel_edx, x86.vendor_intel_ecx }));
     try testing.expectEqualStrings("AuthenticAMD", std.mem.asBytes(&[_]u32{ x86.vendor_amd_ebx, x86.vendor_amd_edx, x86.vendor_amd_ecx }));
-    try testing.expect(!Features.target().lazy_loop_fast);
+    try testing.expect(!CpuFeatures.target().lazy_loop_fast);
 }

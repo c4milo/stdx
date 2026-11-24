@@ -11,6 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
 const Token = encoder_file.Token;
@@ -36,7 +37,7 @@ pub const TextWriter = struct {
     len: usize,
 
     /// Starts a text in `output`, with the caller's CPU features (`Encoder.init`).
-    pub fn init(output: []u8, framing: Framing, features: codec.Features) TextWriter {
+    pub fn init(output: []u8, framing: Framing, features: platform.CpuFeatures) TextWriter {
         var text: TextWriter = .{ .encoder = undefined, .output = output, .len = 0 };
         text.encoder.init(framing, features);
         return text;

@@ -226,9 +226,10 @@ fn tool_module(
 
 /// `zig build graph-check`: design §8 step 0's check. A module can import only what
 /// build/modules.zig gives it, and the way to show that is to try the imports that must fail.
-/// `tools/graph_check.zig` first compiles the control `tools/fixtures/deflate_imports_codec.zig`
-/// as a module of the `deflate` shape and requires it to compile, then compiles one fixture per
-/// module `deflate` must not reach and requires each compile to fail. A check that asserted the
+/// `tools/graph_check.zig` first compiles the controls `tools/fixtures/deflate_imports_codec.zig`
+/// and `deflate_imports_platform.zig` as modules of the `deflate` shape and requires each to
+/// compile, then compiles one fixture per module `deflate` must not reach and requires each compile
+/// to fail. A check that asserted the
 /// rule in a linter would only be checking what the source says; this checks what the build does.
 fn add_graph_check_step(b: *std.Build) *std.Build.Step {
     const check = b.addExecutable(.{

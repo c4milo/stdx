@@ -45,8 +45,10 @@ The architecture depends on every rule in this section.
 1. **No I/O.** A codec reads bytes the caller already has and writes into storage the caller
    owns. It opens no file or socket, starts no thread, and makes no syscall. `tools/lint/io.zig`
    enforces it over `src/`. The one exception is `platform` (decision 40): its probe, which a
-   program calls once when it starts, may make the one syscall it needs, macOS's `sysctlbyname`,
-   and no other module may import it. A codec may name `std.Io.Reader`, `std.Io.Writer` and
+   program calls once when it starts, may make the one syscall it needs, macOS's `sysctlbyname`.
+   A codec imports `platform` for the type `CpuFeatures` alone. Outside `platform`, only a test
+   under `src/` calls `probe` or `CpuFeatures.detect`, and `tools/lint/cpu_probe.zig` enforces
+   it (decisions 21 and 40 as amended). A codec may name `std.Io.Reader`, `std.Io.Writer` and
    `std.Io.Limit`, the interfaces its adapters implement (decision 56), and nothing else in
    `std.Io`.
 2. **No heap.** No `Allocator` anywhere in `src/`, tests included. The caller owns every state,
@@ -256,11 +258,12 @@ Change this section when a step adds or renames a command.
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
 - Lint: `zig build lint`: cognitive complexity over `build.zig`, `bench`, `build`, `src` and `tools`, then
-  the `tools/lint` rules: heap, io, determinism, unbounded-loop, relative-import, global-state,
-  denied-words (no consumer's name in any `.zig` file), module-graph, markdown, file-length,
-  magic-numbers, rfc-citation and input-index (no slice or index bound read from the input outside
-  the checked reader and writer, decision 16). Every rule `tools/lint/main.zig` registers runs, and a canary
-  tree in `build/lint.zig` proves it.
+  the `tools/lint` rules: heap, io, cpu-probe (outside `platform`, only a test under `src/` calls
+  `platform.probe` or `CpuFeatures.detect`), determinism, unbounded-loop, relative-import,
+  global-state, denied-words (no consumer's name in any `.zig` file), module-graph, markdown,
+  file-length, magic-numbers, rfc-citation and input-index (no slice or index bound read from the
+  input outside the checked reader and writer, decision 16). Every rule `tools/lint/main.zig`
+  registers runs, and a canary tree in `build/lint.zig` proves it.
 - Test: `zig build test`: the lint, then every module's unit tests, the tools' own tests,
   `graph-check`, `platform-check`, `hook-check`, `readme-check`, `brotli-tables-check`,
   `brotli-table-budget-check` and `unicode-tables-check`.
@@ -293,9 +296,11 @@ Change this section when a step adds or renames a command.
   reaches to equal the counts `tools/checkfree_sites.zig` pins (decision 51); `-- --record` prints
   the table the build gives.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec,
-  `json`, `base64`, `platform`, `regex`, `utf8`, a package or the oracle bindings from inside
-  `src/deflate/`, and requires each compile to fail. A module that `deflate` must not reach has a
-  fixture in `tools/fixtures/`, and the check fails when one is missing.
+  `json`, `base64`, `regex`, `utf8`, a package or the oracle bindings from inside `src/deflate/`,
+  and requires each compile to fail. It first compiles the controls, which import `codec` and
+  `platform`, the two modules `deflate` has, and requires each to compile. A module that
+  `deflate` must not reach has a fixture in `tools/fixtures/`, and the check fails when one is
+  missing.
 - Platform: `zig build platform-check` requires `platform.probe()` to give the answers the host
   reports: /proc/cpuinfo on Linux and `sysctl` on macOS. It builds `platform` for the generic CPU
   of the host's architecture, and on Linux runs without libc and with it (decision 40).

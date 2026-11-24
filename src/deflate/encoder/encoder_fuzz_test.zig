@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const decoder = @import("../decoder/decoder.zig");
 const encoder_module = @import("encoder.zig");
@@ -38,7 +39,7 @@ fn check_level(comptime level: u4, input: []const u8, points: []const usize, see
     try testing.expectEqualSlices(u8, first[0..outcome.written], second[0..again.written]);
     var decoded: [input_len_max]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const whole = try state.decode_all(first[0..outcome.written], &decoded);
     try testing.expectEqual(outcome.written, whole.consumed);
     try testing.expectEqualSlices(u8, input, decoded[0..whole.written]);

@@ -15,6 +15,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
 const scan_utf8 = @import("scan_utf8.zig");
@@ -31,7 +32,7 @@ pub const Level = enum(u8) {
     /// x86-64 with AVX2, whether or not the CPU has AVX-512: 32 octets.
     avx2,
 
-    pub fn of(features: codec.Features) Level {
+    pub fn of(features: platform.CpuFeatures) Level {
         if (!has_kernels) return .target;
         if (features.avx2) return .avx2;
         return .target;
@@ -100,7 +101,7 @@ pub const CheckLevel = enum(u8) {
     avx2,
     avx512,
 
-    pub fn of(features: codec.Features) CheckLevel {
+    pub fn of(features: platform.CpuFeatures) CheckLevel {
         if (!has_kernels) return .target;
         if (features.avx512) return .avx512;
         if (features.avx2) return .avx2;

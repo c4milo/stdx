@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const regex = @import("regex");
 const rebar = @import("regex_rebar.zig");
 
@@ -42,10 +43,10 @@ pub const Held = struct {
     memory: []u64 = &.{},
     program: regex.Program = undefined,
     searcher: regex.Searcher = undefined,
-    features: codec.Features,
+    features: platform.CpuFeatures,
     arena: std.mem.Allocator,
 
-    pub fn create(arena: std.mem.Allocator, features: codec.Features) !*Held {
+    pub fn create(arena: std.mem.Allocator, features: platform.CpuFeatures) !*Held {
         const held = try arena.create(Held);
         held.* = .{ .storage = try arena.alloc(regex.Instruction, storage_len), .features = features, .arena = arena };
         return held;

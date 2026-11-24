@@ -1,8 +1,13 @@
 //! The module graph of docs/design.md §3: one module per codec, one for the checksums, one for JSON
 //! (decision 27), one for regular expressions, one for the UTF-8 both read and one for Unicode's
-//! tables (decision 86), one for the streaming contract every codec shares, and one that probes the
+//! tables (decision 86), one for the streaming contract every codec shares, and one that reads the
 //! CPU once when a program starts (decision 40). A module can `@import` only what this file gives
 //! it, so the dependency direction is enforced by the build and not by review (CLAUDE.md, Layout).
+//!
+//! `platform` imports nothing, and every module whose calls take the CPU features a caller detected
+//! imports it for the type `platform.CpuFeatures` (decisions 21 and 40 as amended on 2026-11-24).
+//! No library code calls its `probe` or `CpuFeatures.detect`; the `cpu-probe` rule of tools/lint
+//! holds that, since the graph no longer can (invariant 14).
 //!
 //! Every module here is library code and is exported by name with `b.addModule`, so a dependent
 //! reaches it with `dependency.module("gzip")` (decision 6). Nothing here imports a package: the
@@ -20,7 +25,7 @@ const variants = @import("variants.zig");
 /// module's API as `pub const` declarations and imports every file that has tests.
 pub const Modules = struct {
     /// The streaming contract every codec shares: the status a call ends with, the counts it
-    /// reports, and the checked reader and writer (decision 11). Imports nothing.
+    /// reports, and the checked reader and writer (decision 11). Imports `platform` alone.
     codec: *std.Build.Module,
     /// CRC-32 (RFC 1952 §8), Adler-32 (RFC 1950 §9) and XXH64 (RFC 8878 §3.1.1). Imports nothing.
     checksum: *std.Build.Module,
@@ -45,8 +50,9 @@ pub const Modules = struct {
     json: *std.Build.Module,
     /// Base 64, RFC 4648 §4 and §5 (decision 68).
     base64: *std.Build.Module,
-    /// What the CPU a program runs on offers, probed once when the program starts: the one module
-    /// that may make a syscall (decision 40). Imports nothing, and no module imports it.
+    /// What the CPU a program runs on offers, read once when the program starts, and the type
+    /// `CpuFeatures` the codecs take: the one module that may make a syscall (decision 40).
+    /// Imports nothing.
     platform: *std.Build.Module,
     /// Regular expressions that match in linear time, RFC 9485's grammar and RE2's additions
     /// (decision 86).
@@ -68,32 +74,43 @@ pub const Settings = struct {
 };
 
 pub fn add(b: *std.Build, settings: Settings) Modules {
+    // `CpuFeatures`, which every codec's `init` takes (decision 21 as amended on 2026-11-24).
+    const platform = library(b, "platform", settings);
+
     const codec = library(b, "codec", settings);
+    // The type `IoReader.init` and `IoWriter.init` take and hand to their codec (decision 56).
+    codec.addImport("platform", platform);
     const checksum = library(b, "checksum", settings);
     variants.add_levels(b, checksum, "checksum", settings.target, settings.optimize, &variants.checksum_levels);
 
     const deflate = library(b, "deflate", settings);
     deflate.addImport("codec", codec);
+    deflate.addImport("platform", platform);
 
     const zlib = library(b, "zlib", settings);
     zlib.addImport("codec", codec);
     zlib.addImport("checksum", checksum);
     zlib.addImport("deflate", deflate);
+    zlib.addImport("platform", platform);
 
     const gzip = library(b, "gzip", settings);
     gzip.addImport("codec", codec);
     gzip.addImport("checksum", checksum);
     gzip.addImport("deflate", deflate);
+    gzip.addImport("platform", platform);
 
     const zstd = library(b, "zstd", settings);
     zstd.addImport("codec", codec);
     zstd.addImport("checksum", checksum);
+    zstd.addImport("platform", platform);
 
     const brotli = library(b, "brotli", settings);
     brotli.addImport("codec", codec);
+    brotli.addImport("platform", platform);
 
     const base64 = library(b, "base64", settings);
     base64.addImport("codec", codec);
+    base64.addImport("platform", platform);
     // Decision 68's AVX2 kernels: the nibble tables through vpshufb, and the encoder's shuffles.
     variants.add_levels(b, base64, "base64", settings.target, settings.optimize, &variants.base64_levels);
 
@@ -109,10 +126,9 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     json.addImport("base64", base64);
     // The check of a string's UTF-8, and the octets of a `\u` escape (decision 86).
     json.addImport("utf8", utf8);
+    json.addImport("platform", platform);
     // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
     variants.add_levels(b, json, "json", settings.target, settings.optimize, &variants.json_levels);
-
-    const platform = library(b, "platform", settings);
 
     const regex = library(b, "regex", settings);
     // The checked reader a pattern is read through, and the classes of a refusal (decision 11).
@@ -121,10 +137,11 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     regex.addImport("utf8", utf8);
     // The properties `\p{...}` names, and the case orbits `(?i)` folds by (decision 86 as amended).
     regex.addImport("unicode", unicode);
+    regex.addImport("platform", platform);
     variants.add_levels(b, regex, "regex", settings.target, settings.optimize, &variants.regex_levels);
 
     // The root a program imports, which names each module under its category (decision 6 as
-    // amended). No codec imports it, nor `platform` through it.
+    // amended). No codec imports it.
     const stdx = library(b, "stdx", settings);
     stdx.addImport("codec", codec);
     stdx.addImport("checksum", checksum);

@@ -4,6 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const Alphabet = @import("alphabet.zig").Alphabet;
 const encoder_file = @import("encoder.zig");
@@ -11,11 +12,11 @@ const Encoder = encoder_file.Encoder;
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 
-const features = codec.Features.none();
+const features = platform.CpuFeatures.none();
 
 /// The CPU's own features, so the fast paths reach the AVX2 variant object where the CPU has it.
-fn detected() codec.Features {
-    return codec.Features.detect();
+fn detected() platform.CpuFeatures {
+    return platform.CpuFeatures.detect();
 }
 
 /// RFC 4648 §10's vectors: each input and its base 64 text.

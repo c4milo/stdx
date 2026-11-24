@@ -4,6 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
@@ -160,7 +161,7 @@ test "the window takes a call's octets unless the call ends the stream (decision
     @memcpy(input[0..stream.slice().len], stream.slice());
     var output: [output_len]u8 = undefined;
     var decoder: deflate.Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     // The first call ends inside the dynamic block's header, past the fixed block's last symbol
     // by more than a pair's bits, so the fast path decodes that block whole and syncs nothing.
     const cut = fixed_len + header_cut_len;
@@ -238,14 +239,14 @@ test "S2's count tells a table's symbols from the canonical decode's and the che
     var output: [long_codes_output.len]u8 = undefined;
     var decoder: deflate.Decoder = undefined;
     var lookups: deflate.Lookups = .{};
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     _ = try deflate.decode_counting(.{}, &decoder, &input, &output, &lookups);
     try testing.expectEqualSlices(u8, long_codes_output, &output);
     // Of the 100 symbols, 25 take codes past the tables: 'l', 'm' and the 17 'n's, both lengths
     // and both distances, and end-of-block. The 64 'k's and the rest take one lookup.
     try testing.expectEqual(deflate.Lookups{ .table = 75, .canonical = 25, .checked = 0 }, lookups);
     var checked: deflate.Lookups = .{};
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     _ = try deflate.decode_counting(.{ .fast_paths = false }, &decoder, &input, &output, &checked);
     try testing.expectEqual(deflate.Lookups{ .table = 0, .canonical = 0, .checked = 100 }, checked);
 }
@@ -320,7 +321,7 @@ test "a call that ends in a dynamic header leaves the fast path's octets in the 
     const input = stream.slice();
     for (1..input.len) |cut| {
         var decoder: deflate.Decoder = undefined;
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         var output: [expected.len]u8 = undefined;
         const first = try decoder.decode(input[0..cut], &output);
         try testing.expectEqual(codec.Status.needs_input, first.status);

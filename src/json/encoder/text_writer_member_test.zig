@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const base64 = @import("base64");
 const constants = @import("../constants.zig");
 const claims = @import("../claims.zig");
@@ -97,7 +98,7 @@ const Lockstep = struct {
         var item = value.item;
         if (value.base64) {
             var letters: base64.Encoder = undefined;
-            letters.init(.{}, codec.Features.detect());
+            letters.init(.{}, platform.CpuFeatures.detect());
             item.octets = self.letters[0 .. letters.encode_all(value.item.octets, &self.letters) catch unreachable];
         }
         if (!try self.reference_token(item, result)) return false;
@@ -123,8 +124,8 @@ const Lockstep = struct {
 /// when both stopped at the same error.
 fn expect_members(framing: Framing, values: []const Value, room_len: usize) !?usize {
     var lockstep: Lockstep = .{ .text = undefined, .reference = undefined, .room_len = room_len };
-    lockstep.text = TextWriter.init(lockstep.output[0..room_len], framing, codec.Features.detect());
-    lockstep.reference.init(framing, codec.Features.detect());
+    lockstep.text = TextWriter.init(lockstep.output[0..room_len], framing, platform.CpuFeatures.detect());
+    lockstep.reference.init(framing, platform.CpuFeatures.detect());
     var index: usize = 0;
     for (0..values.len) |_| {
         if (index >= values.len) break;
@@ -208,7 +209,7 @@ test "each member method writes its name and its value as the checked path does,
 
 test "the member methods write the text RFC 8259 §4 gives a small object" {
     var output: [text_len_max]u8 = undefined;
-    var text = TextWriter.init(&output, .text, codec.Features.detect());
+    var text = TextWriter.init(&output, .text, platform.CpuFeatures.detect());
     try text.begin_object();
     try text.member_unsigned("a", 1);
     try text.member_begin_array("b");
@@ -240,7 +241,7 @@ fn take(encoder: *const Encoder, name: Item, value: Item, room: []u8, end: *usiz
 /// with one octet less. Returns the members.
 fn expect_steps_taken(values: []const Value) !usize {
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     var output: [text_len_max]u8 = undefined;
     var room: [text_len_max]u8 = undefined;
     var written: usize = 0;
@@ -261,7 +262,7 @@ fn expect_steps_taken(values: []const Value) !usize {
 
 test "a member past the depth limit, and one the grammar's rules refuse, take the checked path's error" {
     var output: [text_len_max]u8 = undefined;
-    var text = TextWriter.init(&output, .text, codec.Features.detect());
+    var text = TextWriter.init(&output, .text, platform.CpuFeatures.detect());
     try text.begin_object();
     // RFC 8259 §9: an implementation may limit the depth of nesting.
     for (1..constants.depth_max) |_| try text.member_begin_object("a");

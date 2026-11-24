@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -64,12 +65,12 @@ test "a command takes the 32 extra bits its codes give, in the loop and on the c
     @memcpy(expected[0..history.len], history);
     var output: [output_len]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &expected, output[0..whole.written]);
     var checked_output: [output_len]u8 = undefined;
     var checked: CheckedDecoder = undefined;
-    checked.init(codec.Features.detect());
+    checked.init(platform.CpuFeatures.detect());
     const checked_whole = try checked.decode_all(stream.written(), &checked_output);
     try testing.expectEqualSlices(u8, &expected, checked_output[0..checked_whole.written]);
 }

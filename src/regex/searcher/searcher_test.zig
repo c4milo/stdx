@@ -36,7 +36,7 @@ pub const Fixture = struct {
     searcher: Searcher = undefined,
     reference: Matcher = undefined,
     /// The CPU features and the program's encoding: none and UTF-8, unless a test names others.
-    features: codec.Features = .{},
+    features: @import("platform").CpuFeatures = .{},
     encoding: @import("../program.zig").Encoding = .utf8,
 
     /// Compiles `pattern` and gives the searcher `cache_words` words of cache.

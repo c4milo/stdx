@@ -36,6 +36,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
 const codec = @import("codec");
+const platform = @import("platform");
 const brotli = @import("brotli");
 const bench_options = @import("bench_options");
 const inputs = timing.inputs;
@@ -77,7 +78,7 @@ fn StdxDecode(comptime paths: brotli.claims.Paths) type {
 
         output: []u8,
         decoder: *Decoder,
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         pub fn run(self: *const Self, stream: []const u8) ?usize {
             self.decoder.init(self.features);
@@ -87,7 +88,7 @@ fn StdxDecode(comptime paths: brotli.claims.Paths) type {
 
         /// The decoder checked over `row`'s streams against its input, and placed for timing.
         fn operation(arena: std.mem.Allocator, row: Row) !timing.Operation {
-            const candidate: Self = .{ .output = try arena.alloc(u8, row.input.part_len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
+            const candidate: Self = .{ .output = try arena.alloc(u8, row.input.part_len), .decoder = try arena.create(Decoder), .features = platform.CpuFeatures.detect() };
             return inputs.decoder_operation(arena, candidate, row.coded, row.input);
         }
     };

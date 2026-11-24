@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -128,12 +129,12 @@ test "each distance context takes its own tree, before a word and after it" {
     try testing.expectEqual(history.len + commands_len(&commands), len);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, expected[0..len], output[0..whole.written]);
     var checked_output: [512]u8 = undefined;
     var checked: CheckedDecoder = undefined;
-    checked.init(codec.Features.detect());
+    checked.init(platform.CpuFeatures.detect());
     const checked_whole = try checked.decode_all(stream.written(), &checked_output);
     try testing.expectEqualSlices(u8, expected[0..len], checked_output[0..checked_whole.written]);
 }
@@ -203,7 +204,7 @@ test "the loop takes a distance's tree from the block type it starts with" {
     try testing.expect(expected[len - 1 - typed_second_distance] != expected[len - 1 - typed_first_distance] or expected[len - typed_copy_len - typed_second_distance] != expected[len - typed_copy_len - typed_first_distance]);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &expected, output[0..whole.written]);
 }

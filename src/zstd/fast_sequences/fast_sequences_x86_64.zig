@@ -15,6 +15,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const sequences = @import("../sequences.zig");
 const block = @import("../block.zig");
@@ -28,7 +29,7 @@ const loop_text = @import("fast_sequences_x86_64_template.zig");
 pub const assembles = builtin.zig_backend == .stage2_llvm;
 
 /// Whether a CPU with `features` runs the x86-64 assembly: an x86-64 CPU with BMI2 and SSSE3.
-pub fn runs(features: codec.Features) bool {
+pub fn runs(features: platform.CpuFeatures) bool {
     return builtin.cpu.arch == .x86_64 and features.bmi2;
 }
 
@@ -255,7 +256,7 @@ test "the assembly runs only on an x86-64 CPU with BMI2" {
 
 test "a distance past the call's octets leaves the loop, wherever the output lies" {
     if (comptime !takes(true, .{})) return error.SkipZigTest;
-    if (!runs(codec.Features.detect())) return error.SkipZigTest;
+    if (!runs(platform.CpuFeatures.detect())) return error.SkipZigTest;
     // RLE_Mode for all three codes: literals length code 1, one literal; offset code 20, an
     // Offset_Value of 2^20 and 20 bits more; match length code 0, 3 octets. No state reads a bit.
     const offset_code = 20;

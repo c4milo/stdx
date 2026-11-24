@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -74,7 +75,7 @@ test "a word of one octet moves p2 as a literal does, for the next literal's con
     short_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &.{ 'a', word_octet, 'x' }, output[0..whole.written]);
 }
@@ -136,7 +137,7 @@ test "a word of no octets leaves p1 and p2 for the next literal's context" {
     empty_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualStrings(empty_word_output, output[0..whole.written]);
 }
@@ -174,7 +175,7 @@ test "a word at the last distance takes no bits of its own" {
     last_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     const word = dictionary.word(last_word_len, last_word_index);
     try testing.expectEqualSlices(u8, word, output[0..last_word_len]);
@@ -232,7 +233,7 @@ test "a word's distance takes its block's element" {
     counted_word_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     const word = dictionary.word(short_word_len, 0);
     try testing.expectEqualSlices(u8, word, output[0..short_word_len]);
@@ -272,7 +273,7 @@ test "a word whose distance takes 16 extra bits decodes on the fast path" {
     far_word_stream(&stream, @intCast(1 + word_len));
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqual('a', output[0]);
     try testing.expectEqualSlices(u8, word[0..word_len], output[1..whole.written]);
@@ -354,7 +355,7 @@ test "words behind a prefix write nothing past any room, in the loop or in the Z
         for (0..expected.len + prefixed_room_past + 1) |room| {
             @memset(&output, sentinel);
             var decoder: Decoder = undefined;
-            decoder.init(codec.Features.detect());
+            decoder.init(platform.CpuFeatures.detect());
             const progress = try decoder.decode(stream.written(), output[0..room]);
             const written = @min(room, expected.len);
             try testing.expectEqual(written, progress.written);

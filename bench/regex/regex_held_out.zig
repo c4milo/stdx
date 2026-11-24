@@ -13,6 +13,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const timing = @import("timing");
 const engines = @import("regex_engines.zig");
 const held = @import("regex_engines_rebar.zig");
@@ -317,7 +318,7 @@ fn print_count(out: *std.Io.Writer, bench: rebar.Bench) !void {
 
 /// Each of rebar's two sets in two tables: the searches in megabytes of haystack a second, and the
 /// compiles in thousands of patterns a second.
-pub fn report(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, files: []const File) !void {
+pub fn report(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: platform.CpuFeatures, files: []const File) !void {
     try out.print("rebar's benchmarks, at commit {s}: each one whose engines name Go's regexp or RE2 and whose model this benchmark runs. rebar's author chose their patterns and haystacks. The curated set's are tuned: design §8 part 22n tuned stdx on them. The other benchmarks' are not: no change to stdx was judged on their speed, and one, a mode of bytes, was made for one of their answers. A candidate's answer is held to the count rebar's definition gives its engine: Go's regexp's, Rust's crate's, and RE2's for stdx, which runs in bytes where the benchmark leaves `unicode` off, as Rust's crate does. A candidate that refuses a pattern or answers otherwise is named so and not timed. zig-regex and mvzr are not timed on them: the tables above time them at a hundredth to a four-thousandth of stdx's speed, and the haystacks hold up to 40 MB.\n\n", .{rebar.commit});
     const stdx: Stdx = .{ .first = try held.Held.create(arena, features), .again = try held.Held.create(arena, features) };
     for ([_]Set{ curated, others }) |set| {

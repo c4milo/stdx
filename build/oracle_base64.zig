@@ -23,6 +23,7 @@ pub fn add(b: *std.Build, step: *std.Build.Step, timing: *std.Build.Module, grap
     });
     module.addImport("timing", timing);
     module.addImport("codec", graph.codec);
+    module.addImport("platform", graph.platform);
     module.addImport("base64", graph.base64);
     module.addObjectFile(toolchains.cargo_archive(b, "bench/base64/rust", "libstdx_bench_base64_rust.a", &.{"src/lib.rs"}));
     module.addObjectFile(toolchains.go_archive(b, "bench/base64/go", "go_base64.a", &.{ "base64.go", "go.mod" }));

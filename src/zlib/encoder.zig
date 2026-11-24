@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const checksum = @import("checksum");
 const deflate = @import("deflate");
 const constants = @import("constants.zig");
@@ -25,7 +26,7 @@ pub fn Encoder(comptime options: deflate.EncoderOptions) type {
         adler32_path: checksum.Adler32Path,
 
         /// Starts a stream, with the caller's CPU features (decision 21).
-        pub fn init(self: *Self, features: codec.Features) void {
+        pub fn init(self: *Self, features: platform.CpuFeatures) void {
             self.stream.init(features);
             self.phase = .header;
             self.field_written = 0;

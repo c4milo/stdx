@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const format = @import("format.zig");
 const scan = @import("scan.zig");
@@ -78,7 +79,7 @@ pub const Program = struct {
 
 /// The feature sets each text is encoded and decoded under: none, the build target's and the
 /// host's. Each must give the same octets and tokens (decision 30, invariant 5).
-const feature_sets = [_]*const fn () codec.Features{ codec.Features.none, codec.Features.target, codec.Features.detect };
+const feature_sets = [_]*const fn () platform.CpuFeatures{ platform.CpuFeatures.none, platform.CpuFeatures.target, platform.CpuFeatures.detect };
 
 /// Encodes `program` whole and under splits, requires the reference parser to accept the text and
 /// the decoder to give back the program's tokens, whole and under splits, and every feature set
@@ -103,7 +104,7 @@ fn check(framing: Framing, program: *const Program, seed: u64) !void {
 }
 
 /// Requires `program` to encode to `text` under `features`, and `text` to decode to its tokens.
-fn expect_alike_under(features: codec.Features, framing: Framing, program: *const Program, text: []const u8) !void {
+fn expect_alike_under(features: platform.CpuFeatures, framing: Framing, program: *const Program, text: []const u8) !void {
     var other: [text_len_max]u8 = undefined;
     const other_len = try encoder_test.encode_whole_with(.{}, features, framing, program.items[0..program.count], &other);
     try testing.expectEqualStrings(text, other[0..other_len]);

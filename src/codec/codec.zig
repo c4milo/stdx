@@ -10,8 +10,6 @@
 //!   since `init` (invariant 10).
 //! - `Field`: a container's header or trailer field, read through the checked reader across
 //!   calls.
-//! - `Features`: the CPU features a codec's SIMD paths may use, which the caller detects once and
-//!   passes to each codec's `init` (decision 21).
 //! - `IoReader` and `IoWriter`: a decoder behind Zig's `std.Io.Reader` interface, and an encoder
 //!   behind its `std.Io.Writer` (decision 56).
 //! - `testing`: what stdx's own tests, tools and benchmarks use, and no part of the API (decision
@@ -19,7 +17,9 @@
 //!   15), and `io_parts`, the source and the destination the `std.Io` tests give octets and room
 //!   to in parts.
 //!
-//! The module imports nothing.
+//! The module imports `platform` alone, for `platform.CpuFeatures`, the CPU features the caller
+//! detects once and passes to each codec's `init` (decision 21 as amended on 2026-11-24).
+//! `IoReader` and `IoWriter` take it at `init` and hand it to the codec they drive.
 
 const status = @import("status.zig");
 
@@ -45,7 +45,6 @@ pub const backward_read_bits_max = @import("bit_reader_backward.zig").read_bits_
 pub const BitWriter = @import("bit_writer.zig").BitWriter;
 pub const Window = @import("window.zig").Window;
 pub const Field = @import("field.zig").Field;
-pub const Features = @import("features.zig").Features;
 pub const IoReader = @import("io_reader.zig").IoReader;
 pub const AfterDone = @import("io_reader.zig").AfterDone;
 pub const Ended = @import("io_reader.zig").Ended;
@@ -65,7 +64,6 @@ test {
     _ = testing;
     _ = @import("window.zig");
     _ = @import("field.zig");
-    _ = @import("features.zig");
     _ = match_finder;
     _ = prefix_code;
     _ = @import("io_reader_test.zig");

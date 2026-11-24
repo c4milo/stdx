@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const prefix = @import("../../prefix.zig");
 const state_module = @import("../decoder_state.zig");
@@ -299,7 +300,7 @@ test "the loop leaves the state and the reader where the checked steps leave the
     const input = stream_with(&code_length_lengths, &padded);
     // An octet at a time, until the code length code is built and the code lengths begin.
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const rest = input[try feed_until(&decoder, input, .code_lengths)..];
     var refilled = false;
     for (0..rest.len + 1) |available| {
@@ -320,7 +321,7 @@ test "the code length code's loop leaves the state and the reader where the chec
     const input = stream_with(&long_code_length_lengths, &padded);
     // An octet at a time, until the code's kind is read and its code length code begins.
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const rest = input[try feed_until(&decoder, input, .code_length_code)..];
     var refilled = false;
     for (0..rest.len + 1) |available| {

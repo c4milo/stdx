@@ -25,6 +25,7 @@ const dfa_wait = @import("../dfa/dfa_wait.zig");
 const one_pass = @import("../one_pass.zig");
 const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
+const platform = @import("platform");
 const literal_file = @import("../literal.zig");
 
 /// The words of the caches' memory in one word of a searcher's memory.
@@ -74,10 +75,10 @@ pub const Claims = struct {
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
 /// decision 30 rules for json's types.
 pub const Options = struct {
-    /// The CPU features the caller detected once with `codec.Features.detect()`, or
-    /// `codec.Features.target()`. Where they name AVX2, claims R2 and R5 search `avx2_lanes`
+    /// The CPU features the caller detected once with `platform.CpuFeatures.detect()`, or
+    /// `platform.CpuFeatures.target()`. Where they name AVX2, claims R2 and R5 search `avx2_lanes`
     /// octets a step.
-    features: codec.Features,
+    features: platform.CpuFeatures,
     /// Every claim, unless the tests or the benchmark turn one off, as a codec's options do.
     claims: Claims = .{},
 };
@@ -97,13 +98,13 @@ const OnePass = enum {
 };
 
 /// Whether claims R2 and R5 search in the variant object of x86-64's AVX2.
-fn wide_of(features: codec.Features) bool {
+fn wide_of(features: platform.CpuFeatures) bool {
     return literal_file.has_kernels and features.avx2;
 }
 
 /// Whether claim R5 takes Teddy in the variant object of SSSE3: on x86-64 with SSSE3 and no
 /// AVX2, whose object searches wider.
-fn ssse3_of(features: codec.Features) bool {
+fn ssse3_of(features: platform.CpuFeatures) bool {
     return literal_file.has_kernels and features.ssse3 and !features.avx2;
 }
 

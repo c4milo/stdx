@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
@@ -131,7 +132,7 @@ fn padded(stream: *const Stream, buffer: []u8) []const u8 {
 /// Decodes `input` in one call with `options` into room past `expected`, and requires its octets.
 fn expect_whole(comptime options: deflate.DecodePaths, input: []const u8, expected: []const u8) !void {
     var decoder: deflate.Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var output: [output_len_max + room_extra]u8 = undefined;
     const progress = try decoder.decode_with(options, input, &output);
     try testing.expectEqual(codec.Status.done, progress.status);
@@ -152,7 +153,7 @@ fn decode_call(comptime options: deflate.DecodePaths, comptime zig_loop: bool, d
 /// together to be `expected`.
 fn expect_separate_buffers(comptime options: deflate.DecodePaths, comptime zig_loop: bool, input: []const u8, expected: []const u8, seed: u64) !void {
     var decoder: deflate.Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var generator = codec.testing.split.Generator.init(seed);
     var joined: [output_len_max]u8 = undefined;
     var joined_len: usize = 0;
@@ -229,7 +230,7 @@ test "a distance past the window a container declares is refused from combined a
         inline for (.{ deflate.DecodePaths{}, decoder_test.combining }) |options| {
             inline for (.{ false, true }) |zig_loop| {
                 var decoder: deflate.Decoder = undefined;
-                decoder.init(codec.Features.detect());
+                decoder.init(platform.CpuFeatures.detect());
                 decoder.limit_window(window_len);
                 var output: [output_len_max + room_extra]u8 = undefined;
                 try testing.expectError(error.DistanceTooFar, decode_call(options, zig_loop, &decoder, input, &output));
@@ -270,7 +271,7 @@ fn longest_matches(stream: *Stream, history: usize, expected: *[output_len_max]u
 /// and requires the octets it wrote to be `expected`'s and every octet past the output the canary.
 fn expect_within(comptime options: deflate.DecodePaths, input: []const u8, expected: []const u8, output_len: usize) !void {
     var decoder: deflate.Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var output: [output_len_max + room_extra]u8 = @splat(canary);
     const progress = try decoder.decode_with(options, input, output[0..output_len]);
     try testing.expectEqualSlices(u8, expected[0..progress.written], output[0..progress.written]);

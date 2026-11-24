@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const checksum = @import("checksum");
 const constants = @import("../constants.zig");
 const encoder_block = @import("encoder_block.zig");
@@ -75,11 +76,11 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         done: bool,
         digest: if (options.checksum) checksum.Xxh64 else void,
         /// The caller's CPU features, which `start` passes on (decision 21).
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         /// Starts a frame, with the caller's CPU features (decision 21), and clears the match
         /// finder's tables. Writes no octet of the window (decision 11).
-        pub fn init(self: *Self, features: codec.Features) void {
+        pub fn init(self: *Self, features: platform.CpuFeatures) void {
             self.features = features;
             self.matcher.init();
             self.begin_frame();

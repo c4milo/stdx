@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const claims = @import("../../claims.zig");
 const Framing = @import("../../framing.zig").Framing;
@@ -97,8 +98,8 @@ const Lockstep = struct {
 /// and else as many items and as much room as its schedule draws.
 fn expect_lockstep(comptime pair: Pair, framing: Framing, items: []const encoder_test.Item, seed: ?u64) !void {
     var lockstep: Lockstep = .{ .looped = undefined, .checked = undefined };
-    lockstep.looped.init(framing, codec.Features.detect());
-    lockstep.checked.init(framing, codec.Features.detect());
+    lockstep.looped.init(framing, platform.CpuFeatures.detect());
+    lockstep.checked.init(framing, platform.CpuFeatures.detect());
     var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * text_len_max;
     for (0..calls_max) |_| {
@@ -139,7 +140,7 @@ test "the loop writes every item of a record in one call, into an output of just
     const items = [_]Encoder.Item{ .{ .token = .begin_object }, .{ .token = .{ .name = .last }, .octets = "ab" }, .{ .token = .{ .unsigned = 42 } }, .{ .token = .{ .name = .last }, .octets = "list" }, .{ .token = .begin_array }, .{ .token = .{ .boolean = true } }, .{ .token = .end_array }, .{ .token = .end_object } };
     for ([_]Framing{ .text, .sequence }) |framing| {
         var encoder: Encoder = undefined;
-        encoder.init(framing, codec.Features.detect());
+        encoder.init(framing, platform.CpuFeatures.detect());
         const expected = if (framing == .text) "{\"ab\":42,\"list\":[true]}" else "\x1e{\"ab\":42,\"list\":[true]}\n";
         // An output of exactly the record's octets, so the room each item takes is exact too.
         var output: [text_len_max]u8 = undefined;
@@ -158,7 +159,7 @@ test "the loop writes strings with every escape and with UTF-8 itself, none left
         .{ .token = .end_array },
     };
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     const expected = "[\"a\\\"b\\\\c/d\\b\\f\\n\\r\\t\\u0000\\u001f\x7f\",\"caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80\"]";
     var output: [text_len_max]u8 = undefined;
     var written: usize = 0;
@@ -171,7 +172,7 @@ test "the loop writes a string whose ASCII past an escape fills a block before U
     const content = "\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef";
     const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = content }};
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     const expected = "\"\\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef\"";
     var output: [text_len_max]u8 = undefined;
     var written: usize = 0;
@@ -186,7 +187,7 @@ test "the loop writes a string whose blocks of 16 cut characters, none left to t
     const content = "\xe2\x82\xac" ** 10 ++ "\"";
     const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = content }};
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     const expected = "\"" ++ "\xe2\x82\xac" ** 10 ++ "\\\"\"";
     var output: [text_len_max]u8 = undefined;
     var written: usize = 0;
@@ -212,7 +213,7 @@ test "the loop leaves to the checked path the characters that blocks of 16 cut a
     for (cut_characters_ruled_out) |content| {
         const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = content }};
         var encoder: Encoder = undefined;
-        encoder.init(.text, codec.Features.detect());
+        encoder.init(.text, platform.CpuFeatures.detect());
         var output: [text_len_max]u8 = undefined;
         var written: usize = 0;
         try testing.expectEqual(0, token_loop.take(&encoder, claims.vector, &items, &output, &written));
@@ -230,11 +231,11 @@ test "the loop writes a string that ends a text into an output of just its octet
             const items = [_]Encoder.Item{.{ .token = .{ .string = .last }, .octets = octets }};
             var expected: [text_len_max]u8 = undefined;
             var whole: Encoder = undefined;
-            whole.init(framing, codec.Features.detect());
+            whole.init(framing, platform.CpuFeatures.detect());
             const expected_len = (try whole.encode_batch_with(with_loop(claims.vector, false), &items, &expected)).written;
             for ([_]usize{ expected_len, expected_len - 1 }) |room_len| {
                 var encoder: Encoder = undefined;
-                encoder.init(framing, codec.Features.detect());
+                encoder.init(framing, platform.CpuFeatures.detect());
                 var output: [text_len_max]u8 = undefined;
                 var written: usize = 0;
                 const taken = token_loop.take(&encoder, claims.vector, &items, output[0..room_len], &written);
@@ -305,7 +306,7 @@ const long_copy_claims = [_]claims.Claims{ claims.vector, with_loop(claims.scala
 
 test "the loop's long copy tells a plain string plain and copies it, and tells one with a stop not plain" {
     const plain = "0123456789abcdef, a string longer than two blocks of sixteen octets";
-    const level = wide.Level.of(codec.Features.detect());
+    const level = wide.Level.of(platform.CpuFeatures.detect());
     inline for (long_copy_claims) |taken| {
         var content: [plain.len]u8 = undefined;
         try testing.expect(token_loop.copy_plain_long(taken, level, &content, plain));

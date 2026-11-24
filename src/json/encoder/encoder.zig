@@ -10,6 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const format = @import("../format.zig");
 const Claims = @import("../claims.zig").Claims;
@@ -109,8 +110,8 @@ pub const Encoder = struct {
     level: wide.Level,
 
     /// Starts a text, with the CPU features the caller detected once or took from the build
-    /// target (`codec.Features`). `init` again after `done` or after an error.
-    pub fn init(self: *Encoder, framing: Framing, features: codec.Features) void {
+    /// target (`platform.CpuFeatures`). `init` again after `done` or after an error.
+    pub fn init(self: *Encoder, framing: Framing, features: platform.CpuFeatures) void {
         self.* = .{
             .containers = .empty,
             .depth = 0,

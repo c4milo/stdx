@@ -8,8 +8,8 @@
 //!   which Go's protojson uses: the bar (decision 68);
 //! - Zig's std.base64, for reference;
 //! - stdx's `base64`, built for the architecture's baseline CPU and ReleaseSafe, as a caller
-//!   shipping one binary builds it (decision 17), with the features `Features.detect()` finds, so
-//!   x86-64 with AVX2 takes the variant object's kernels, and a new state begun for each text;
+//!   shipping one binary builds it (decision 17), with the features `CpuFeatures.detect()` finds,
+//!   so x86-64 with AVX2 takes the variant object's kernels, and a new state begun for each text;
 //! - the same with decision 16's fast path off, the checked path it is measured against.
 //!
 //! The sizes run from 60 octets, the pieces a JSON encoder writes an octet string in, to 1 MiB. No
@@ -20,6 +20,7 @@
 const std = @import("std");
 const timing = @import("timing");
 const codec = @import("codec");
+const platform = @import("platform");
 const base64 = @import("base64");
 
 /// The octets of each row's input.
@@ -42,7 +43,7 @@ extern fn go_base64_encode(input: [*]const u8, len: usize, output: [*]u8, room: 
 extern fn go_base64_decode(text: [*]const u8, len: usize, output: [*]u8, room: usize) callconv(.c) i64;
 
 /// The CPU's features, as a caller detects them once and passes them to each codec (decision 21).
-var features: codec.Features = .{};
+var features: platform.CpuFeatures = .{};
 
 const EncodeCall = struct {
     input: []const u8,
@@ -108,7 +109,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const out = &stdout.interface;
     const arena = init.arena.allocator();
-    features = codec.Features.detect();
+    features = platform.CpuFeatures.detect();
 
     const size_max = sizes[sizes.len - 1];
     const input = try arena.alloc(u8, size_max);

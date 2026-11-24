@@ -40,12 +40,14 @@ pub const base64 = @import("base64");
 /// (decision 86).
 pub const regex = @import("regex");
 
-/// What the CPU a program runs on offers, probed once when the program starts, and the `memset`
-/// a program exports (decisions 40 and 41). No module of stdx imports it but this root.
+/// What the CPU a program runs on offers, read once when the program starts: `probe`'s answers,
+/// and `CpuFeatures`, which a program passes to each codec's `init`. It also holds the `memset` a
+/// program exports (decisions 21, 40 and 41). The codecs name `CpuFeatures`. Outside `platform`,
+/// only a test of stdx calls `probe` or `CpuFeatures.detect` (invariant 14).
 pub const platform = @import("platform");
 
-/// What every codec shares: the checked reader and writer, the CPU features a caller detects
-/// once, and a streaming call's statuses (decision 11).
+/// What every codec shares: the checked reader and writer, and a streaming call's statuses
+/// (decision 11).
 pub const codec = @import("codec");
 
 const std = @import("std");
@@ -60,4 +62,6 @@ test "each category names its modules" {
     try std.testing.expect(@hasDecl(unicode.utf8, "Validator"));
     try std.testing.expect(@hasDecl(unicode, "property"));
     try std.testing.expect(@hasDecl(regex, "Searcher"));
+    try std.testing.expect(@hasDecl(platform, "CpuFeatures"));
+    try std.testing.expect(!@hasDecl(codec, "Features"));
 }

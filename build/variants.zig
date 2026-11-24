@@ -3,7 +3,7 @@
 //! function for more CPU features than its module's target, so a level is an object of its own.
 //!
 //! A module's variants root is `src/<module>/variants.zig`, which reads its level from the
-//! `variant_level` option and exports that level's kernels alone. A caller's `codec.Features`
+//! `variant_level` option and exports that level's kernels alone. A caller's `platform.CpuFeatures`
 //! decides at run time which kernels the module calls.
 const std = @import("std");
 

@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const decoder_module = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
 const constants = @import("../constants.zig");
@@ -61,7 +62,7 @@ fn check_split(input: []const u8, seed: u64) !void {
     const whole = verdict_of(states[0].decode(input, &whole_output));
     try check_paths(.{ .fast_paths = false }, input, whole, &whole_output);
     inline for (claims.each_off) |off| try check_paths(.{ .claims = off }, input, whole, &whole_output);
-    states[0].init(codec.Features.detect());
+    states[0].init(platform.CpuFeatures.detect());
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.testing.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);

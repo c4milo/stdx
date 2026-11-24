@@ -21,6 +21,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 const Kind = decoder_file.Kind;
@@ -45,7 +46,7 @@ pub const TextReader = struct {
     storage: []u8,
     framing: Framing,
     /// The caller's CPU features, which each text's `Decoder.init` takes.
-    features: codec.Features,
+    features: platform.CpuFeatures,
     /// Whether a text has started, and whether the current one has ended.
     started: bool,
     ended: bool,
@@ -58,7 +59,7 @@ pub const TextReader = struct {
 
     /// Reads the texts `input` holds, with the caller's CPU features (`Decoder.init`). A name's, a
     /// string's or a number's octets that do not stay in `input` go into `storage`.
-    pub fn init(input: []const u8, storage: []u8, framing: Framing, features: codec.Features) TextReader {
+    pub fn init(input: []const u8, storage: []u8, framing: Framing, features: platform.CpuFeatures) TextReader {
         // A safe build fills an `undefined` field with 0xaa: the queue's 1.5 KiB took a memset
         // call, about 1,700 instructions a reader. The safety off here skips that fill alone, as
         // `init` checks nothing else (decision 76).

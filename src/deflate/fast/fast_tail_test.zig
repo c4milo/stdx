@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const test_stream = @import("../test_stream.zig");
 const deflate = @import("../decoder/decoder.zig");
@@ -113,7 +114,7 @@ const checked: deflate.DecodePaths = .{ .fast_paths = false };
 fn expect_decodes(comptime options: deflate.DecodePaths, fixture: *const Fixture, input: []const u8, cut: usize, room: usize) !void {
     const expected = fixture.output();
     var decoder: deflate.Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     @memset(&output, 0);
     const first = try decoder.decode_with(options, input[0..cut], output[0..room]);
@@ -175,7 +176,7 @@ test "the tail starts from the bits a call cut short left, at every input length
     for (0..input.len + 1) |cut| {
         inline for (.{ deflate.DecodePaths{}, tail_off }) |options| {
             var decoder: deflate.Decoder = undefined;
-            decoder.init(codec.Features.detect());
+            decoder.init(platform.CpuFeatures.detect());
             var output: [output_len_max]u8 = undefined;
             var consumed: usize = 0;
             var written: usize = 0;
@@ -213,7 +214,7 @@ test "with its chunks off, the tail writes nothing past the octets it decodes" {
     for (0..input.len + 1) |cut| {
         inline for (.{ tail_off, chunks_off, checked }) |options| {
             var decoder: deflate.Decoder = undefined;
-            decoder.init(codec.Features.detect());
+            decoder.init(platform.CpuFeatures.detect());
             var output: [output_len_max]u8 = @splat(untouched);
             const first = try decoder.decode_with(options, input[0..cut], output[0..room]);
             try testing.expectEqualSlices(u8, fixture.expected[0..first.written], output[0..first.written]);

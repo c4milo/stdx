@@ -3,9 +3,9 @@
 //! interleaved in one run, the median of five runs with the spread, and the losses shown.
 //!
 //! The candidates:
-//! - every path of stdx's checksum module this CPU runs, as `codec.Features.detect()` finds it,
-//!   with stdx built for the architecture's baseline CPU and ReleaseSafe, as a caller shipping one
-//!   binary builds it (decisions 17 and 21);
+//! - every path of stdx's checksum module this CPU runs, as `platform.CpuFeatures.detect()` finds
+//!   it, with stdx built for the architecture's baseline CPU and ReleaseSafe, as a caller shipping
+//!   one binary builds it (decisions 17 and 21);
 //! - zlib, Wuffs, libdeflate and zlib-ng, each built ReleaseFast for the host with its own
 //!   run-time dispatch.
 //! - XXH64 against libzstd's copy of xxHash's XXH64, which libzstd's library exports, and beside
@@ -23,6 +23,7 @@ const timing = @import("timing");
 const oracle = @import("oracle");
 const baselines = @import("baselines");
 const codec = @import("codec");
+const platform = @import("platform");
 const checksum = @import("checksum");
 
 /// The sizes timed, in octets.
@@ -138,7 +139,7 @@ pub fn main(init: std.process.Init) !void {
     var generator = codec.testing.split.Generator.init(input_seed);
     for (input) |*octet| octet.* = @truncate(generator.next());
 
-    const features = codec.Features.detect();
+    const features = platform.CpuFeatures.detect();
     const wanted = checksum.Features.from(features);
     const checks = build_checks(wanted);
     for (checks) |check| {

@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const encoder_file = @import("../encoder/encoder.zig");
 const value_type = @import("value_type.zig");
 const constants = @import("../constants.zig");
@@ -35,7 +36,7 @@ pub fn ValueEncoder(comptime T: type) type {
         /// The value the first call passed, which every later call passes too.
         root: ?*const T,
 
-        pub fn init(self: *Self, framing: Framing, features: codec.Features) void {
+        pub fn init(self: *Self, framing: Framing, features: platform.CpuFeatures) void {
             self.encoder.init(framing, features);
             self.positions = @splat(0);
             self.taken = 0;
@@ -74,7 +75,7 @@ pub fn ValueEncoder(comptime T: type) type {
 
 /// Writes `value`'s text into `output` whole, and returns it: `error.NoSpaceLeft` when it does not
 /// fit, with nothing written past `output`.
-pub fn encode_value(comptime T: type, value: *const T, output: []u8, framing: Framing, features: codec.Features) (Error || error{NoSpaceLeft})![]u8 {
+pub fn encode_value(comptime T: type, value: *const T, output: []u8, framing: Framing, features: platform.CpuFeatures) (Error || error{NoSpaceLeft})![]u8 {
     var state: ValueEncoder(T) = undefined;
     state.init(framing, features);
     const progress = try state.encode(value, output);

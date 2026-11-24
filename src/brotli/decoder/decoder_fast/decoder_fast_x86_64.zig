@@ -2,13 +2,14 @@
 //! its x86-64 port of 2026-09-30): the port of `decoder_fast_aarch64.zig`, whose comment describes
 //! what it takes, what it leaves to the chain and the checked path, and what keeps its reads and
 //! writes in bounds. It runs where LLVM assembles it, on a CPU with BMI2 and SSSE3, which `init`
-//! finds in the caller's `codec.Features`; x86-64's 14 registers hold less than aarch64's, so more of
-//! the loop's state stays in the machine, which the loop reads in place.
+//! finds in the caller's `platform.CpuFeatures`; x86-64's 14 registers hold less than aarch64's, so
+//! more of the loop's state stays in the machine, which the loop reads in place.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const context = @import("../../context.zig");
 const prefix = @import("../../prefix.zig");
@@ -33,12 +34,12 @@ const Link = fast.Link;
 pub const assembles = builtin.zig_backend == .stage2_llvm;
 
 /// Whether a CPU with `features` runs the loop: an x86-64 CPU with BMI2 and SSSE3.
-pub fn runs(features: codec.Features) bool {
+pub fn runs(features: platform.CpuFeatures) bool {
     return builtin.cpu.arch == .x86_64 and features.bmi2;
 }
 
 /// `runs` as the state keeps it: a bool on an x86-64 target, and nothing on another.
-pub fn flag(features: codec.Features) @FieldType(State, "assembly") {
+pub fn flag(features: platform.CpuFeatures) @FieldType(State, "assembly") {
     return if (builtin.cpu.arch == .x86_64) runs(features) else {};
 }
 

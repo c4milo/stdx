@@ -1,9 +1,7 @@
-//! Check fixture for tools/graph_check.zig. Compiled as the root of a module carrying exactly the
-//! import set build/modules.zig gives `deflate`. The compile MUST fail, because no module imports
-//! `platform`, the one module that may make a syscall (docs/design.md §3, decision 40, invariant 14).
-//!
-//! The import sits in a `comptime` block on purpose. Zig analyses lazily, so an unreferenced `const
-//! x = @import("platform");` compiles clean and the check would pass while proving nothing.
+//! A positive control for tools/graph_check.zig. `platform` IS in `deflate`'s import set, for the
+//! type `CpuFeatures` that each codec's `init` takes (decisions 21 and 40 as amended on
+//! 2026-11-24), so this MUST compile. The `cpu-probe` lint rule, not the graph, keeps a codec from
+//! calling `platform.probe` (invariant 14).
 comptime {
-    _ = @import("platform");
+    _ = @import("platform").CpuFeatures;
 }

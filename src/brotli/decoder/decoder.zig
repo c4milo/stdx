@@ -11,6 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const state_module = @import("decoder_state.zig");
 const stream = @import("decoder_stream.zig");
@@ -62,7 +63,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         }
 
         /// Starts a stream. Writes no octet of the window and no table (decision 11).
-        pub fn init(self: *Self, features: codec.Features) void {
+        pub fn init(self: *Self, features: platform.CpuFeatures) void {
             self.window.init();
             const state = &self.state;
             state.assembly = fast_x86_64.flag(features);

@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const Decimal = @import("../format.zig").Decimal;
 const Piece = @import("../framing.zig").Piece;
 const value_decoder = @import("value_decoder.zig");
@@ -48,12 +49,12 @@ test "a text decodes into a value of every shape, whole and under any split of t
         }
     };
     var storage: [128]u8 = undefined;
-    const whole = try value_decoder.decode_value(Record, text, &storage, .text, codec.Features.none());
+    const whole = try value_decoder.decode_value(Record, text, &storage, .text, platform.CpuFeatures.none());
     try check.record(&whole);
     var generator = codec.testing.split.Generator.init(62);
     for (0..200) |_| {
         var state: value_decoder.ValueDecoder(Record) = undefined;
-        state.init(.text, codec.Features.none());
+        state.init(.text, platform.CpuFeatures.none());
         var record: Record = undefined;
         var consumed: usize = 0;
         // A drawn piece may be empty, so the last call takes the rest whatever the draws were.
@@ -73,14 +74,14 @@ test "a text decodes into a value of every shape, whole and under any split of t
 
 test "a scalar decodes at the top" {
     var storage: [8]u8 = undefined;
-    try testing.expectEqual(5, try value_decoder.decode_value(u8, " 5 ", &storage, .text, codec.Features.none()));
-    try testing.expectEqual(null, try value_decoder.decode_value(?bool, "null", &storage, .text, codec.Features.none()));
+    try testing.expectEqual(5, try value_decoder.decode_value(u8, " 5 ", &storage, .text, platform.CpuFeatures.none()));
+    try testing.expectEqual(null, try value_decoder.decode_value(?bool, "null", &storage, .text, platform.CpuFeatures.none()));
 }
 
 test "a field no member names takes its default, or null when optional" {
     const Settings = struct { level: u8 = 3, label: ?[]const u8, on: bool };
     var storage: [16]u8 = undefined;
-    const settings = try value_decoder.decode_value(Settings, "{\"on\":false}", &storage, .text, codec.Features.none());
+    const settings = try value_decoder.decode_value(Settings, "{\"on\":false}", &storage, .text, platform.CpuFeatures.none());
     try testing.expectEqual(3, settings.level);
     try testing.expectEqual(null, settings.label);
     try testing.expect(!settings.on);
@@ -91,7 +92,7 @@ const refusal_storage_len = 16;
 
 fn expect_refused(comptime T: type, expected: anyerror, input: []const u8) !void {
     var storage: [refusal_storage_len]u8 = undefined;
-    try testing.expectError(expected, value_decoder.decode_value(T, input, &storage, .text, codec.Features.none()));
+    try testing.expectError(expected, value_decoder.decode_value(T, input, &storage, .text, platform.CpuFeatures.none()));
 }
 
 test "each text the type cannot hold is refused with its own error" {
@@ -138,10 +139,10 @@ test "seeded values encode and decode back" {
             .corners = .{ .{ .x = -1, .y = 1 }, .{ .x = @bitCast(@as(u32, @truncate(generator.next()))), .y = 2 } },
         };
         var output: [256]u8 = undefined;
-        const encoded = try value_encoder.encode_value(Record, &record, &output, .text, codec.Features.none());
+        const encoded = try value_encoder.encode_value(Record, &record, &output, .text, platform.CpuFeatures.none());
         var storage: [64]u8 = undefined;
-        const decoded = try value_decoder.decode_value(Record, encoded, &storage, .text, codec.Features.none());
+        const decoded = try value_decoder.decode_value(Record, encoded, &storage, .text, platform.CpuFeatures.none());
         var again: [256]u8 = undefined;
-        try testing.expectEqualStrings(encoded, try value_encoder.encode_value(Record, &decoded, &again, .text, codec.Features.none()));
+        try testing.expectEqualStrings(encoded, try value_encoder.encode_value(Record, &decoded, &again, .text, platform.CpuFeatures.none()));
     }
 }

@@ -91,8 +91,8 @@ stdx builds in Debug or ReleaseSafe only, because its assertions stay on
 Both examples come from [`tools/consumer/`](tools/consumer/), a program that `zig build test`
 builds against this tree and runs.
 
-Call `stdx.codec.Features.detect()` once when the program starts, and pass the result to each
-codec and searcher. It tells them which SIMD instructions the CPU has.
+Call `stdx.platform.CpuFeatures.detect()` once when the program starts, and pass the result to
+each codec and searcher. It tells them which SIMD instructions the CPU has.
 
 ### Decode gzip
 
@@ -100,7 +100,7 @@ codec and searcher. It tells them which SIMD instructions the CPU has.
 const stdx = @import("stdx");
 
 /// Decodes the gzip file `body` into `output`, and returns the decoded octets.
-fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
+fn gunzip(features: stdx.platform.CpuFeatures, body: []const u8, output: []u8) ![]u8 {
     var decoder: stdx.compress.gzip.Decoder = undefined; // about 44 KiB
     decoder.init(features);
     const whole = try decoder.decode_all(body, output);
@@ -125,7 +125,7 @@ const instructions_len = 256;
 
 /// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 4 MiB
 /// of it is the default cache, and a smaller cache costs speed, never an answer.
-fn count_matches(gpa: std.mem.Allocator, features: stdx.codec.Features, pattern: []const u8, haystack: []const u8) !u64 {
+fn count_matches(gpa: std.mem.Allocator, features: stdx.platform.CpuFeatures, pattern: []const u8, haystack: []const u8) !u64 {
     var storage: [instructions_len]stdx.regex.Instruction = undefined;
     const program = try stdx.regex.compile(pattern, .{}, &storage);
     const cache_words = stdx.regex.constants.cache_words_default;
@@ -161,8 +161,8 @@ fn count_matches(gpa: std.mem.Allocator, features: stdx.codec.Features, pattern:
 | `stdx.json` | JSON, RFC 8259 and RFC 7464: an encoder, a pull decoder, and text sequences (decision 27) |
 | `stdx.base64` | Base 64, RFC 4648: an encoder and a decoder (decision 68) |
 | `stdx.regex` | Regular expressions matched in time linear in the text, in UTF-8 or in bytes: RFC 9485's grammar with RE2's anchors, groups, named groups, flags and named classes, Unicode's properties and its case folding (decision 86) |
-| `stdx.platform` | What the CPU offers, probed once when a program starts (decision 40), and a vector `memset` (decision 41) |
-| `stdx.codec` | The streaming contract every codec shares, and `Features` (decision 11) |
+| `stdx.platform` | What the CPU offers, read once when a program starts: `probe`'s answers (decision 40), and `CpuFeatures`, which each codec takes (decision 21); and a vector `memset` (decision 41) |
+| `stdx.codec` | The streaming contract every codec shares (decision 11) |
 
 The modules' own names, such as `stdx.module("gzip")`, stay exported as aliases while the
 projects that import them move to `stdx`, and a later release removes them. A new dependent

@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const testing = std.testing;
 const decoder_module = @import("decoder.zig");
 const constants = @import("../constants.zig");
@@ -14,7 +15,7 @@ const output_len_max = 64;
 
 fn expect_decoded(expected: []const u8, stream: []const u8) !void {
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     const whole = try decoder.decode_all(stream, &output);
     try testing.expectEqual(stream.len, whole.consumed);

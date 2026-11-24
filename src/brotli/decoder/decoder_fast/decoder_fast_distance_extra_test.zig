@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -80,12 +81,12 @@ test "the last direct distance code takes no extra bits and the first coded one 
     }
     var output: [output_len]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualSlices(u8, &expected, output[0..whole.written]);
     var checked_output: [output_len]u8 = undefined;
     var checked: CheckedDecoder = undefined;
-    checked.init(codec.Features.detect());
+    checked.init(platform.CpuFeatures.detect());
     const checked_whole = try checked.decode_all(stream.written(), &checked_output);
     try testing.expectEqualSlices(u8, &expected, checked_output[0..checked_whole.written]);
 }
@@ -100,11 +101,11 @@ test "a distance code past 511 keeps its ten bits: the loop refuses its distance
     finish(&stream);
     var output: [output_len]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     // RFC 7932 §8: a transform_id greater than 120 should be rejected as invalid. The code less its
     // tenth bit is the code 0, the last distance, which the history holds.
     try testing.expectError(error.InvalidDictionaryReference, decoder.decode_all(stream.written(), &output));
     var checked: CheckedDecoder = undefined;
-    checked.init(codec.Features.detect());
+    checked.init(platform.CpuFeatures.detect());
     try testing.expectError(error.InvalidDictionaryReference, checked.decode_all(stream.written(), &output));
 }

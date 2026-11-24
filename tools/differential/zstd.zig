@@ -18,6 +18,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
+const platform = @import("platform");
 const zstd = @import("zstd");
 const zstd_corrupt = @import("zstd_corrupt.zig");
 const verdicts = @import("verdicts");
@@ -76,10 +77,10 @@ pub fn check_frame(tally: *Tally, buffers: Buffers, name: []const u8, input: []c
     const frame = buffers.frame[0..frame_len];
     const oracle_len = oracle.zstd_decode(frame, buffers.oracle_output) orelse return fail(tally, name, "libzstd", encoding, "did not decode its own frame");
     if (!std.mem.eql(u8, input, buffers.oracle_output[0..oracle_len])) return fail(tally, name, "libzstd", encoding, "decoded other octets");
-    buffers.decoders[0].init(codec.Features.detect());
+    buffers.decoders[0].init(platform.CpuFeatures.detect());
     const whole = buffers.decoders[0].decode_all(frame, buffers.output) catch |err| return fail(tally, name, "stdx whole", encoding, @errorName(err));
     if (whole.consumed != frame.len or !std.mem.eql(u8, input, buffers.output[0..whole.written])) return fail(tally, name, "stdx whole", encoding, "decoded other octets");
-    buffers.decoders[0].init(codec.Features.detect());
+    buffers.decoders[0].init(platform.CpuFeatures.detect());
     const outcome = codec.testing.split.drive(Decoder, buffers.decoders, step, frame, buffers.output, seed) catch |err| return fail(tally, name, "stdx split", encoding, @errorName(err));
     if (outcome.status != .done or !std.mem.eql(u8, input, buffers.output[0..outcome.written])) return fail(tally, name, "stdx split", encoding, "decoded other octets");
 }
@@ -94,7 +95,7 @@ fn check_frames(tally: *Tally, buffers: Buffers, name: []const u8, input: []cons
     const second_len = oracle.zstd_encode(encoding, input[half..], buffers.frame[second_start..]) orelse return fail(tally, name, "libzstd", encoding, "did not encode");
     const frames = buffers.frame[0 .. second_start + second_len];
     tally.frames += 1;
-    buffers.decoders[0].init(codec.Features.detect());
+    buffers.decoders[0].init(platform.CpuFeatures.detect());
     const whole = buffers.decoders[0].decode_all(frames, buffers.output) catch |err| return fail(tally, name, "stdx frames", encoding, @errorName(err));
     if (!std.mem.eql(u8, input, buffers.output[0..whole.written])) fail(tally, name, "stdx frames", encoding, "decoded other octets");
 }

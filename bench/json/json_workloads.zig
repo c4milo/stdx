@@ -20,6 +20,7 @@
 const std = @import("std");
 const json = @import("json");
 const codec = @import("codec");
+const platform = @import("platform");
 const timing = @import("timing");
 const Input = timing.inputs.Input;
 
@@ -87,7 +88,7 @@ pub fn cldr(arena: std.mem.Allocator, files: []const File) !Workload {
 fn tokens_of(arena: std.mem.Allocator, text: []const u8, content_len_max: *usize) ![]const Item {
     const storage = try arena.alloc(u8, text.len);
     var decoder: json.Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var items: std.ArrayList(Item) = .empty;
     var consumed: usize = 0;
     // A call takes at least one octet or ends the text, and the last call finds its end.
@@ -379,7 +380,7 @@ pub fn encoded_len_max(items: []const Item) usize {
 
 fn encode_scalar(framing: json.Framing, items: []const Item, output: []u8) !usize {
     var encoder: json.Encoder = undefined;
-    encoder.init(framing, codec.Features.detect());
+    encoder.init(framing, platform.CpuFeatures.detect());
     var written: usize = 0;
     for (items) |item| {
         const progress = try encoder.encode_with(setup_claims, item.token, item.octets, output[written..]);

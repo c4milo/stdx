@@ -17,6 +17,7 @@ pub fn add_bench_json(b: *std.Build, timing: *std.Build.Module, graph: modules.M
     module.addImport("timing", timing);
     module.addImport("json", graph.json);
     module.addImport("codec", graph.codec);
+    module.addImport("platform", graph.platform);
     // The baselines of decision 27: simdjson and yyjson from C and C++, and Zig's std.json, each
     // built ReleaseFast for the architecture's baseline CPU, as the codecs' baselines are
     // (decision 75).

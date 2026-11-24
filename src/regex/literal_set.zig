@@ -41,7 +41,7 @@ pub const LiteralSet = extern struct {
     /// `Literal.wide` says.
     wide: bool = false,
     /// True when `find` takes Teddy in the variant object of SSSE3, at `skip_lanes` octets a
-    /// step: the caller's `codec.Features` name SSSE3 and not AVX2.
+    /// step: the caller's `platform.CpuFeatures` name SSSE3 and not AVX2.
     ssse3: bool = false,
     /// Teddy's tables of the literals, which `of` builds.
     teddy: literal_teddy.Tables = undefined,
@@ -258,6 +258,7 @@ pub const Place = struct { start: usize, end: usize };
 const testing = std.testing;
 const compiler = @import("compile.zig");
 const codec = @import("codec");
+const platform = @import("platform");
 const Generator = codec.testing.split.Generator;
 
 /// The instructions a test's pattern takes at most, its forward and its reverse program.
@@ -401,7 +402,7 @@ test "find gives the first place of a literal of the set from every offset, as a
     var generator = Generator.init(0x5E75);
     var haystack: [test_haystack_len]u8 = undefined;
     // Detection runs CPUID, which a virtual machine traps, so the test asks once.
-    const features = codec.Features.detect();
+    const features = platform.CpuFeatures.detect();
     const kernels: Kernels = .{
         .ssse3 = literal_file.has_kernels and features.ssse3,
         .avx2 = literal_file.has_kernels and features.avx2,
@@ -425,7 +426,7 @@ test "a short text gives no place whose literal would end past it, where the lit
         octets[1] = 0;
     }
     set.prepare();
-    const features = codec.Features.detect();
+    const features = platform.CpuFeatures.detect();
     const kernels: Kernels = .{
         .ssse3 = literal_file.has_kernels and features.ssse3,
         .avx2 = literal_file.has_kernels and features.avx2,

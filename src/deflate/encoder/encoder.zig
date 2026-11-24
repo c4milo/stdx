@@ -15,6 +15,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const block_module = @import("encoder_block.zig");
 const emit_module = @import("encoder_emit.zig");
@@ -59,8 +60,8 @@ pub fn Encoder(comptime options: EncoderOptions) type {
 
         matcher: Matcher(level),
         /// Whether level 6 runs its x86-64 assembly loop: the caller's
-        /// `codec.Features.lazy_loop_fast`, an Intel CPU's (decision 54). A field only where the
-        /// assembly can run.
+        /// `platform.CpuFeatures.lazy_loop_fast`, an Intel CPU's (decision 54). A field only where
+        /// the assembly can run.
         assembly: if (lazy_x86_64.takes(level, false)) bool else void,
         /// The prices of decision 42, at a lazy level, outside the match finder, so the finder's
         /// fields stay where its loop reads them.
@@ -91,7 +92,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         }
 
         /// Starts a stream. `features` is the caller's, as for every codec (decision 21).
-        pub fn init(self: *Self, features: codec.Features) void {
+        pub fn init(self: *Self, features: platform.CpuFeatures) void {
             self.matcher.init();
             choose_loop(options, self, features);
             if (level.chains) self.prices.start();
@@ -292,7 +293,7 @@ fn carry(comptime options: EncoderOptions, self: *Encoder(options), writer: *con
 
 /// Keeps whether level 6 runs its x86-64 assembly loop: on an Intel CPU, as the caller's features
 /// say (decision 54).
-fn choose_loop(comptime options: EncoderOptions, self: *Encoder(options), features: codec.Features) void {
+fn choose_loop(comptime options: EncoderOptions, self: *Encoder(options), features: platform.CpuFeatures) void {
     if (comptime lazy_x86_64.takes(constants.level(options.level), false)) self.assembly = features.lazy_loop_fast;
 }
 

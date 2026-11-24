@@ -63,22 +63,23 @@ pub const Module = struct {
 
 /// The graph of docs/design.md §3, with `codec` as decision 11 rules it, `json` as decisions 27 and
 /// 73 do, `platform` as decision 40 does, `regex`, `utf8` and `unicode` as decision 86 does, and
-/// `stdx` as decision 6 as amended does. No module but `stdx` imports `platform`, the one module
-/// that may make a syscall, and `stdx` only names it for a program.
+/// `stdx` as decision 6 as amended does. `platform` imports nothing. Each module whose calls take
+/// `platform.CpuFeatures` imports `platform` for that type (decisions 21 and 40 as amended on
+/// 2026-11-24), and the `cpu-probe` rule holds that none of them calls its probe or its detection.
 pub const expected_graph = [_]Module{
-    .{ .name = "codec", .imports = &.{} },
+    .{ .name = "codec", .imports = &.{"platform"} },
     .{ .name = "checksum", .imports = &.{} },
-    .{ .name = "deflate", .imports = &.{"codec"} },
-    .{ .name = "zlib", .imports = &.{ "codec", "checksum", "deflate" } },
-    .{ .name = "gzip", .imports = &.{ "codec", "checksum", "deflate" } },
-    .{ .name = "zstd", .imports = &.{ "codec", "checksum" } },
-    .{ .name = "brotli", .imports = &.{"codec"} },
+    .{ .name = "deflate", .imports = &.{ "codec", "platform" } },
+    .{ .name = "zlib", .imports = &.{ "codec", "checksum", "deflate", "platform" } },
+    .{ .name = "gzip", .imports = &.{ "codec", "checksum", "deflate", "platform" } },
+    .{ .name = "zstd", .imports = &.{ "codec", "checksum", "platform" } },
+    .{ .name = "brotli", .imports = &.{ "codec", "platform" } },
     .{ .name = "utf8", .imports = &.{} },
     .{ .name = "unicode", .imports = &.{"utf8"} },
-    .{ .name = "json", .imports = &.{ "codec", "base64", "utf8" } },
-    .{ .name = "base64", .imports = &.{"codec"} },
+    .{ .name = "json", .imports = &.{ "codec", "base64", "utf8", "platform" } },
+    .{ .name = "base64", .imports = &.{ "codec", "platform" } },
     .{ .name = "platform", .imports = &.{} },
-    .{ .name = "regex", .imports = &.{ "codec", "utf8", "unicode" } },
+    .{ .name = "regex", .imports = &.{ "codec", "utf8", "unicode", "platform" } },
     .{ .name = "stdx", .imports = &.{ "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "unicode", "json", "base64", "platform", "regex" } },
 };
 

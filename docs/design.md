@@ -68,28 +68,32 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 
 | Module | Holds | Imports | RFCs |
 |---|---|---|---|
-| `codec` | The status, counts and flush modes of every call; the checked reader, writer and bit readers (decision 11) | nothing | none |
+| `codec` | The status, counts and flush modes of every call; the checked reader, writer and bit readers (decision 11) | `platform` | none |
 | `checksum` | CRC-32, Adler-32, XXH64 | nothing | 1952 §8, 1950 §9, 8878 §3.1.1 |
-| `deflate` | Raw DEFLATE, decoder and encoder | `codec` | 1951 |
-| `zlib` | The zlib container | `codec`, `checksum`, `deflate` | 1950 |
-| `gzip` | The gzip container | `codec`, `checksum`, `deflate` | 1952 |
-| `zstd` | Zstandard | `codec`, `checksum` | 8878, 9659 |
-| `brotli` | brotli | `codec` | 7932 |
+| `deflate` | Raw DEFLATE, decoder and encoder | `codec`, `platform` | 1951 |
+| `zlib` | The zlib container | `codec`, `checksum`, `deflate`, `platform` | 1950 |
+| `gzip` | The gzip container | `codec`, `checksum`, `deflate`, `platform` | 1952 |
+| `zstd` | Zstandard | `codec`, `checksum`, `platform` | 8878, 9659 |
+| `brotli` | brotli | `codec`, `platform` | 7932 |
 | `utf8` | UTF-8: a validator that takes one octet at a time, and the octets of one code point (decisions 28 and 86) | nothing | 3629 |
 | `unicode` | Unicode 17.0.0's general categories, scripts and simple case folding, from tables a tool writes from the Unicode Character Database, and `utf8` as `unicode.utf8` (decision 86 as amended) | `utf8` | none |
-| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64`, `utf8` | 8259, 7464 |
-| `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec` | 4648 §4, §5 |
-| `platform` | What the CPU a program runs on offers, probed once when the program starts; the one module that may make a syscall (decision 40); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
-| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode` | 9485 |
+| `json` | JSON's encoder and decoder, and its text sequences (decision 27) | `codec`, `base64`, `utf8`, `platform` | 8259, 7464 |
+| `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec`, `platform` | 4648 §4, §5 |
+| `platform` | What the CPU a program runs on offers, read once when the program starts: `probe`'s answers, the one call that may make a syscall (decision 40), and `CpuFeatures`, the CPU features each codec's `init` takes (decision 21 as amended); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
+| `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode`, `platform` | 9485 |
 | `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform` and `codec`, as `std` groups its own (decision 6 as amended) | every module above | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
 and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision
 73). `json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
 reaches it. `unicode` reaches `utf8` to name it as `unicode.utf8`, and no codec reaches `unicode`.
-No module but `stdx` reaches `platform`, and no module reaches `regex` or `stdx`. No library module
-receives a package: pepegrillo, the oracles and the corpora are requested by `build.zig` for
-`tools/` and `bench/` only, after the point a dependent's build stops.
+Each module whose calls take the CPU features a caller detected reaches `platform`, for the type
+`platform.CpuFeatures` alone (decisions 21 and 40 as amended on 2026-11-24). `platform` reaches
+nothing. The graph cannot keep its `probe` and `CpuFeatures.detect` out of a codec's reach, so the
+lint rule `cpu-probe` does: outside `platform`, only a test under `src/` calls either (invariant
+14). No module reaches `regex` or `stdx`. No library module receives a package: pepegrillo, the
+oracles and the corpora are requested by `build.zig` for `tools/` and `bench/` only, after the
+point a dependent's build stops.
 
 Outside the library, and never imported by it:
 
@@ -108,7 +112,7 @@ a gzip body that arrives in pieces:
 
 ```zig
 var decoder: gzip.Decoder = undefined;
-decoder.init(codec.Features.detect());
+decoder.init(platform.CpuFeatures.detect());
 while (true) {
     const piece = try receive(); // the caller's I/O, not stdx's
     var input = piece;
@@ -7784,6 +7788,52 @@ to 12 are reordered and nothing else changes.
     there reads `no`.
   - Linux on x86-64, the same kernel, without libc and with it: `aes_clmul yes, dit not_known`, as
     /proc/cpuinfo gives.
+
+  **Amended on 2026-11-24: `CpuFeatures` in `platform` (decisions 21 and 40 as amended).** The
+  owner ruled that the CPU features each codec's `init` takes belong in `platform`, as
+  `platform.CpuFeatures`. `src/platform/platform_cpu_features.zig` holds what
+  `src/codec/features.zig` held. Each module whose calls take the type imports `platform`. The
+  lint rule `cpu-probe` keeps the probe and the detection out of library code.
+  **Check:**
+  - `cpu-probe`'s tests hold each shape its header names to a finding or to none. The shapes: the
+    probe and the detection as written, through a file-level alias and through a value; a codec's
+    own `probe`; a test block, whose blanked copy keeps every line; `platform` imported in place
+    or under another name; and the files the rule reads.
+  - The canary tree of `build/lint.zig` calls `platform.probe`, and the lint must report
+    `[cpu-probe]` over it.
+  - The io rule's tests require every module but `platform` to refuse `getauxval`.
+  - The module-graph rule's tests, and `zig build graph-check`, which compiles two controls. The
+    codec control lays out a `codec.IoReader`, so the compile reads `codec`'s own import of
+    `platform`.
+  - Mutations.
+
+  **Check passed, 2026-11-24.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` and `zig build test-self-hosted` exit 0. `tools/fuzz.sh --list` gives the ten
+    modules it gave before.
+  - `zig build -Doracles` did not run. The container's network refused 9 of its 17 packages, each
+    an archive from github.com, and Zig's own fetcher failed through the container's proxy for
+    all of them. So no benchmark or differential check was built. `zig ast-check` passes on each
+    of their changed files, and each program that takes `codec` takes the same graph's `platform`.
+  - `graph-check` prints that the imports of `codec` and `platform` compile, and that each of the
+    twelve forbidden imports does not.
+  - 25 mutations, each applied, run against the narrowest check that can catch it, and reverted.
+    All 25 CAUGHT:
+    - Under `src/`, by `zig build lint`: `platform.probe()` in gzip's `Decoder.init` and in
+      `codec.IoReader.init`; `platform.CpuFeatures.detect()` in place of the caller's features in
+      zstd's `init`; `detect` through a file-level alias in regex's `Searcher.init`; `detect`
+      through `@import("platform")` written in place in brotli's `init`; `probe` through
+      `platform` imported as `cpu` in json's `Encoder.init`; `detect` in regex's test helper
+      outside a test block.
+    - The rule, by its tests in `zig build test-tools`: the probe's prefix dropped; the
+      detection's prefix dropped; no callee `detect`; the aliases not resolved; the tests not
+      blanked; the test files read; `src/platform/` read; the imports not checked; an import of
+      `platform` under any name taken; the original tree read in place of the blanked one. And by
+      `zig build lint`: the rule not registered, which the canary shows.
+    - io, by its tests: `getauxval` allowed in every module; `getauxval` refused in `platform`.
+    - The graph: `utf8` given `platform` in `build/modules.zig`; the table without `codec`'s
+      `platform`; graph-check's list without `platform`, each by the module-graph lint; graph-check
+      compiling `codec` without its own import of `platform`, and `platform` forbidden to
+      `deflate` again, each by `zig build graph-check`.
 
 - **Step 21: the `std.Io` adapters (decision 56).** [Issue
   21](https://github.com/c4milo/stdx/issues/21). `codec.IoReader` puts a decoder behind

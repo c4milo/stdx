@@ -2,8 +2,8 @@
 //!
 //! The library's own build takes `skip_lanes`, the width of SSE2's and NEON's registers. The
 //! variant object of x86-64's AVX2 (variants.zig) builds the same search for `avx2_lanes`, and
-//! `Literal.find` calls it where the caller's `codec.Features` name AVX2. Either width keeps the
-//! blocks of `literal_steps` and `literal_wide_steps` steps of `skip_lanes` octets: a block of
+//! `Literal.find` calls it where the caller's `platform.CpuFeatures` name AVX2. Either width keeps
+//! the blocks of `literal_steps` and `literal_wide_steps` steps of `skip_lanes` octets: a block of
 //! the same octets in fewer, wider steps.
 const std = @import("std");
 const assert = std.debug.assert;

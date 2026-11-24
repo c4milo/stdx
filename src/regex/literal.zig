@@ -56,7 +56,7 @@ pub const Literal = extern struct {
     /// True when the literal is the whole pattern: a match is one place of the literal.
     exact: bool,
     /// True when `find` searches `avx2_lanes` octets a step, in the variant object: the caller's
-    /// `codec.Features` name AVX2, and `has_kernels` holds.
+    /// `platform.CpuFeatures` name AVX2, and `has_kernels` holds.
     wide: bool = false,
     /// A bit for each place that takes its octet in either case: `octets` holds the lower case.
     folds: Folds = 0,
@@ -224,6 +224,7 @@ fn case_pair(program: *const Program, split: program_file.Instruction) ?struct {
 const testing = std.testing;
 const compiler = @import("compile.zig");
 const codec = @import("codec");
+const platform = @import("platform");
 const Generator = codec.testing.split.Generator;
 
 /// The instructions a test's pattern takes at most, its forward and its reverse program:
@@ -347,10 +348,11 @@ test "suffix_of reads the literal every match ends with, in the order of the tex
 const test_wide_blocks = 2;
 const test_haystack_len = (test_wide_blocks * constants.literal_wide_steps + constants.literal_steps + 1) * constants.skip_lanes + constants.literal_len_max;
 
-/// True when the host runs the variant object's search, which the tests then hold to the plain
-/// search too. Detection runs CPUID, which a virtual machine traps, so a test asks once.
-fn test_has_avx2() bool {
-    return has_kernels and codec.Features.detect().avx2;
+/// True when a host with `features` runs the variant object's search, which the tests then hold to
+/// the plain search too. Detection runs CPUID, which a virtual machine traps, so a test detects
+/// once and passes what it found.
+fn test_has_avx2(features: platform.CpuFeatures) bool {
+    return has_kernels and features.avx2;
 }
 
 /// Requires `find` to give `expected` at `skip_lanes` octets a step, and at `avx2_lanes` where
@@ -383,7 +385,7 @@ fn find_folded_plain(literal: *const Literal, haystack: []const u8, from: usize)
 test "find gives the first place of a literal that folds from every offset, as a plain search does" {
     var generator = Generator.init(0xF01D);
     var haystack: [test_haystack_len]u8 = undefined;
-    const avx2 = test_has_avx2();
+    const avx2 = test_has_avx2(platform.CpuFeatures.detect());
     const needles = [_][]const u8{ "a", "ab", "aba", "abcab", "aa", "b" ** constants.literal_len_max, "a@b", "ab@c@" };
     for (needles) |needle| {
         var literal: Literal = .{ .octets = undefined, .len = @intCast(needle.len), .exact = true };
@@ -406,7 +408,7 @@ test "find gives the first place of a literal that folds from every offset, as a
 test "find gives the first place of the literal from every offset, as a plain search gives it" {
     var generator = Generator.init(0x117E);
     var haystack: [test_haystack_len]u8 = undefined;
-    const avx2 = test_has_avx2();
+    const avx2 = test_has_avx2(platform.CpuFeatures.detect());
     // Needles whose compared octets are their ends, and needles whose rarest octets stand inside:
     // capitals among lowercase letters, and Cyrillic's continuation octets.
     const needles = [_][]const u8{ "a", "ab", "aba", "abcab", "aa", "aaa", "b" ** constants.literal_len_max, "a\xFFb", "abXcdYe", "\xd0\xa8\xd0\xb5\xd1\x80" };

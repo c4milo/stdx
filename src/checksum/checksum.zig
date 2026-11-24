@@ -7,7 +7,7 @@
 //! Each lands with the first codec that needs it (design §8). The module imports nothing.
 //!
 //! CRC-32 and Adler-32 each have several paths, and the caller picks one per stream with `fastest`,
-//! from the `Features` it copied out of its `codec.Features` (decision 21):
+//! from the `Features` it copied out of its `platform.CpuFeatures` (decision 21):
 //!
 //! ```zig
 //! const path = checksum.Crc32Path.fastest(.{

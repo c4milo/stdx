@@ -42,6 +42,7 @@ const std = @import("std");
 const timing = @import("timing");
 const json = @import("json");
 const codec = @import("codec");
+const platform = @import("platform");
 const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
 const baselines = @import("baselines/baselines.zig");
@@ -111,7 +112,7 @@ fn decoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *cons
     const room: calls.DecodeRoom = .{
         .output = try arena.alloc(u8, calls.text_len_max(workload)),
         .slots = try arena.alloc(json.Decoder.Slot, calls.batch_slots),
-        .features = codec.Features.detect(),
+        .features = platform.CpuFeatures.detect(),
     };
     var side: Side = .{ .operations = undefined, .octets = workload.octets };
     const reference = calls.decode(json.claims.scalar, .batch, workload, room);
@@ -143,7 +144,7 @@ fn encoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *cons
     var output_len: usize = 0;
     for (workload.items) |items| output_len += workloads.encoded_len_max(items);
     const output = try arena.alloc(u8, output_len);
-    const features = codec.Features.detect();
+    const features = platform.CpuFeatures.detect();
     const reference = try arena.dupe(u8, output[0..calls.encode(json.claims.scalar, .batch, workload, output, features)]);
     var side: Side = .{ .operations = undefined, .octets = reference.len };
     inline for (candidates, 0..) |claims, index| {
@@ -165,7 +166,7 @@ fn encoding(arena: std.mem.Allocator, workload: *const Workload, prepared: *cons
     return side;
 }
 
-fn encode_operation(arena: std.mem.Allocator, comptime claims: json.Claims, comptime how: calls.Calls, workload: *const Workload, output: []u8, features: codec.Features) !timing.Operation {
+fn encode_operation(arena: std.mem.Allocator, comptime claims: json.Claims, comptime how: calls.Calls, workload: *const Workload, output: []u8, features: platform.CpuFeatures) !timing.Operation {
     const state = try arena.create(calls.Encode(claims, how));
     state.* = .{ .workload = workload, .output = output, .features = features };
     return .{ .context = state, .run_once = calls.Encode(claims, how).run_once };

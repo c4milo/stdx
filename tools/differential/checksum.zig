@@ -3,7 +3,7 @@
 //! the low 32 bits of stdx's XXH64 equal libzstd's Content_Checksum (checksum_xxh64.zig).
 //!
 //! The implementations compared:
-//! - every path of stdx's checksum module this CPU runs, as `codec.Features.detect()` finds it;
+//! - every path of stdx's checksum module that `platform.CpuFeatures.detect()` finds on this CPU;
 //! - RFC 1952 §8's update_crc and RFC 1950 §9's update_adler32, compiled from the RFCs' text;
 //! - zlib's crc32_z and adler32_z;
 //! - Wuffs's hashers, which start from the value of no octets and so join only from it.
@@ -15,8 +15,8 @@
 //!
 //! The seed of a file is the hash of its name, so a failure replays on every host.
 //!
-//! Before any value, the check requires `codec.Features.detect()` to find every feature Zig's own
-//! detection found on the build host, so a path detection misses fails the check rather than go
+//! Before any value, the check requires `platform.CpuFeatures.detect()` to find every feature Zig's
+//! own detection found on the build host, so a path detection misses fails the check rather than go
 //! untested.
 //!
 //! Usage: `differential_checksum <name>=<path>...`. Exit status 0 when every value agrees, 1 when
@@ -27,6 +27,7 @@ const builtin = @import("builtin");
 const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
+const platform = @import("platform");
 const checksum = @import("checksum");
 const host_features = @import("host_features");
 const checksum_xxh64 = @import("checksum_xxh64.zig");
@@ -207,7 +208,7 @@ pub fn main(init: std.process.Init) !void {
         });
         std.process.exit(1);
     }
-    const features = codec.Features.detect();
+    const features = platform.CpuFeatures.detect();
     if (missed_feature(features)) |name| {
         std.debug.print("differential-checksum FAILED: detection misses {s}, which the build host has\n", .{name});
         std.process.exit(1);
@@ -245,7 +246,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// The first feature the build host has and `detected` lacks, or null.
-fn missed_feature(detected: codec.Features) ?[]const u8 {
+fn missed_feature(detected: platform.CpuFeatures) ?[]const u8 {
     inline for (.{ "pclmul", "avx2", "vpclmul", "avx512", "vnni", "vpmullq_fast", "crc32", "pmull", "dotprod" }) |name| {
         if (@field(host_features, name) and !@field(detected, name)) return name;
     }
@@ -337,7 +338,7 @@ test "each check holds every path its module has" {
 }
 
 test "detection on this host finds what the build host's CPU has" {
-    try testing.expectEqual(null, missed_feature(codec.Features.detect()));
+    try testing.expectEqual(null, missed_feature(platform.CpuFeatures.detect()));
     // With nothing detected, every feature the host has is missed.
     const host_has_any = host_features.pclmul or host_features.avx2 or host_features.vpclmul or
         host_features.avx512 or host_features.vnni or host_features.vpmullq_fast or host_features.crc32 or

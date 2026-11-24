@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const claims = @import("claims.zig");
 const wide = @import("wide.zig");
@@ -131,7 +132,7 @@ const long_passes = 257;
 const long_len = long_passes * pass_len;
 
 test "a run of plain ASCII of 257 passes copies alike at both widths" {
-    const level = wide.Level.of(codec.Features.detect());
+    const level = wide.Level.of(platform.CpuFeatures.detect());
     var storage: [long_len + 1]u8 = undefined;
     const string = ascii_string(&storage, long_len, 'l');
     var narrow_room: [long_len + 1]u8 = undefined;

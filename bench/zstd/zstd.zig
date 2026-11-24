@@ -35,6 +35,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
 const codec = @import("codec");
+const platform = @import("platform");
 const zstd = @import("zstd");
 const bench_options = @import("bench_options");
 const inputs = timing.inputs;
@@ -75,7 +76,7 @@ fn StdxDecode(comptime paths: zstd.claims.Paths) type {
 
         output: []u8,
         decoder: *Decoder,
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         pub fn run(self: *const Self, frame: []const u8) ?usize {
             self.decoder.init(self.features);
@@ -85,7 +86,7 @@ fn StdxDecode(comptime paths: zstd.claims.Paths) type {
 
         /// The decoder checked over `coded` against `input`, and placed for timing.
         fn operation(arena: std.mem.Allocator, coded: []const []const u8, input: Input) !timing.Operation {
-            const candidate: Self = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(Decoder), .features = codec.Features.detect() };
+            const candidate: Self = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(Decoder), .features = platform.CpuFeatures.detect() };
             return inputs.decoder_operation(arena, candidate, coded, input);
         }
     };

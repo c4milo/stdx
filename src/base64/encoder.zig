@@ -10,6 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const alphabet_file = @import("alphabet.zig");
 const Alphabet = alphabet_file.Alphabet;
@@ -48,7 +49,7 @@ pub const Encoder = struct {
     const Part = enum(u8) { groups, tail, done };
 
     /// Starts a text. The encoder copies what it keeps from `options`.
-    pub fn init(self: *Encoder, options: EncoderOptions, features: codec.Features) void {
+    pub fn init(self: *Encoder, options: EncoderOptions, features: platform.CpuFeatures) void {
         self.* = .{
             .wide = fast.has_kernels and features.avx2,
             .letters = alphabet_file.letters(options.alphabet),

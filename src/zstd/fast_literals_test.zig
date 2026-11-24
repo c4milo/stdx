@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const huffman = @import("huffman.zig");
 const fast_literals = @import("fast_literals.zig");
@@ -79,7 +80,7 @@ const sentinel = 0xee;
 /// the last must stay as they were. The fast path runs with the x86-64 assembly off, and on where
 /// the CPU runs it.
 fn expect_alike(comptime count: usize, comptime claims: @import("claims.zig").Claims, table: *const huffman.Table, octets: [count][]const u8, counts: [count]usize) !void {
-    for ([_]bool{ false, sequences_x86_64.runs(codec.Features.detect()) }) |assembly| try expect_alike_with(count, claims, table, octets, counts, assembly);
+    for ([_]bool{ false, sequences_x86_64.runs(platform.CpuFeatures.detect()) }) |assembly| try expect_alike_with(count, claims, table, octets, counts, assembly);
 }
 
 fn expect_alike_with(comptime count: usize, comptime claims: @import("claims.zig").Claims, table: *const huffman.Table, octets: [count][]const u8, counts: [count]usize, assembly: bool) !void {
@@ -209,7 +210,7 @@ test "the fast path leaves no literal of a valid stream to the checked decoder" 
             var set: Streams = .{};
             set.write(&generator, &table);
             inline for ([_]@import("claims.zig").Claims{ .{}, .{ .interleaved_streams = false } }) |claims| {
-                for ([_]bool{ false, sequences_x86_64.runs(codec.Features.detect()) }) |assembly| try expect_all_decoded(claims, &table, &set, assembly);
+                for ([_]bool{ false, sequences_x86_64.runs(platform.CpuFeatures.detect()) }) |assembly| try expect_all_decoded(claims, &table, &set, assembly);
             }
         }
     }
