@@ -17,6 +17,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
 const codec = @import("codec");
+const platform = @import("platform");
 const gzip = @import("gzip");
 const baselines = @import("baselines");
 const inputs = timing.inputs;
@@ -77,7 +78,7 @@ fn StdxEncode(comptime level: u4, comptime runtime_safety: bool) type {
 
         output: []u8,
         encoder: *Encoder,
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         pub fn run(self: *const Self, input: []const u8) ?usize {
             self.encoder.init(self.features);
@@ -130,7 +131,7 @@ fn measure(comptime level: u4, arena: std.mem.Allocator, io: std.Io, input: Inpu
     const zlib: ZlibEncode = .{ .output = try arena.alloc(u8, output_len), .level = level };
     const zlib_ng: BaselineEncode = .{ .output = try arena.alloc(u8, output_len), .level = level, .encode_with = baselines.zlib_ng_gzip_encode };
     const libdeflate: BaselineEncode = .{ .output = try arena.alloc(u8, output_len), .level = level, .encode_with = baselines.libdeflate_gzip_encode };
-    const stdx: Stdx = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx.Encoder), .features = codec.Features.detect() };
+    const stdx: Stdx = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx.Encoder), .features = platform.CpuFeatures.detect() };
     const unchecked: Unchecked = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Unchecked.Encoder), .features = stdx.features };
     var row: Row = .{ .name = input.name, .input_len = input.len(), .level = level, .rates = undefined, .spreads = undefined, .ratios = undefined };
     var candidates: [candidate_count]timing.Operation = undefined;

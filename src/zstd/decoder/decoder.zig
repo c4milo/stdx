@@ -13,6 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const checksum = @import("checksum");
 const constants = @import("../constants.zig");
 const frame = @import("../frame.zig");
@@ -125,7 +126,7 @@ pub fn Decoder(comptime options: DecoderOptions) type {
         }
 
         /// Starts a stream. Writes no octet of the window (decision 11).
-        pub fn init(self: *Self, features: codec.Features) void {
+        pub fn init(self: *Self, features: platform.CpuFeatures) void {
             self.hash_path = checksum.Xxh64Path.fastest(checksum.Features.from(features));
             self.assembly = sequences_x86_64.runs(features);
             self.work = work_module.zero;

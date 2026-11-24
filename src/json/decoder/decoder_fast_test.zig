@@ -11,6 +11,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const claims = @import("../claims.zig");
 const framing_file = @import("../framing.zig");
@@ -102,8 +103,8 @@ const Lockstep = struct {
 /// Decodes `input` in lockstep, whole when `seed` is null and else under its split.
 fn expect_lockstep(comptime pair: Pair, framing: Framing, input: []const u8, seed: ?u64) !void {
     var lockstep: Lockstep = .{ .fast = undefined, .checked = undefined };
-    lockstep.fast.init(framing, codec.Features.detect());
-    lockstep.checked.init(framing, codec.Features.detect());
+    lockstep.fast.init(framing, platform.CpuFeatures.detect());
+    lockstep.checked.init(framing, platform.CpuFeatures.detect());
     var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
     for (0..calls_max) |_| {
@@ -132,7 +133,7 @@ fn check(input: []const u8, seed: u64) !void {
 /// `room_len` octets, at every point between tokens a decode on the checked path reaches.
 fn expect_in_place(comptime line: claims.Claims, framing: Framing, input: []const u8, room_len: usize) !void {
     var decoder: Decoder = undefined;
-    decoder.init(framing, codec.Features.detect());
+    decoder.init(framing, platform.CpuFeatures.detect());
     var output: [content_len_max]u8 = undefined;
     var consumed: usize = 0;
     for (0..input.len + 1) |_| {
@@ -188,7 +189,7 @@ test "the fast path takes each token of the texts as the checked path does, whol
 /// took: before each call between tokens, a copy of the decoder tries it.
 fn tokens_taken_fast(framing: Framing, text: []const u8) !usize {
     var decoder: Decoder = undefined;
-    decoder.init(framing, codec.Features.detect());
+    decoder.init(framing, platform.CpuFeatures.detect());
     var output: [content_len_max]u8 = undefined;
     var consumed: usize = 0;
     var taken: usize = 0;
@@ -230,7 +231,7 @@ test "a number and a string that fill the output exactly are taken, and one octe
     };
     for (cases) |case| {
         var decoder: Decoder = undefined;
-        decoder.init(.text, codec.Features.detect());
+        decoder.init(.text, platform.CpuFeatures.detect());
         var output: [content_len_max]u8 = undefined;
         _ = try decoder.decode_with(claims.scalar, "[", &output, .more);
         const before = decoder;

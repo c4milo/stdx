@@ -8,6 +8,7 @@ const huffman = @import("huffman.zig");
 const literals = @import("literals.zig");
 const StreamWriter = @import("test_writer.zig").StreamWriter;
 const codec = @import("codec");
+const platform = @import("platform");
 const sequences_x86_64 = @import("fast_sequences/fast_sequences_x86_64.zig");
 
 /// The literals a block may regenerate in these tests: Block_Maximum_Size.
@@ -33,7 +34,7 @@ const Fixture = struct {
     buffer: [constants.block_len_max]u8 = undefined,
 
     fn tables(self: *Fixture) literals.Tables {
-        return .{ .table = &self.table, .table_valid = &self.table_valid, .buffer = &self.buffer, .assembly = sequences_x86_64.runs(codec.Features.detect()) };
+        return .{ .table = &self.table, .table_valid = &self.table_valid, .buffer = &self.buffer, .assembly = sequences_x86_64.runs(platform.CpuFeatures.detect()) };
     }
 };
 

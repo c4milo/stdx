@@ -25,6 +25,7 @@
 const std = @import("std");
 const oracle = @import("oracle");
 const codec = @import("codec");
+const platform = @import("platform");
 const gzip = @import("gzip");
 const deflate = @import("deflate");
 const zstd = @import("zstd");
@@ -62,7 +63,7 @@ const Context = struct {
     decoder: *gzip.Decoder,
     zstd_decoder: *zstd.HttpDecoder,
     brotli_decoder: *brotli.HttpDecoder,
-    features: codec.Features,
+    features: platform.CpuFeatures,
     libzstd: *oracle.ZstdContext,
 };
 
@@ -272,7 +273,7 @@ pub fn main(init: std.process.Init) !void {
         .decoder = try arena.create(gzip.Decoder),
         .zstd_decoder = try arena.create(zstd.HttpDecoder),
         .brotli_decoder = try arena.create(brotli.HttpDecoder),
-        .features = codec.Features.detect(),
+        .features = platform.CpuFeatures.detect(),
         .libzstd = libzstd,
     };
     try out.print("\n## Hardware counters per decoded octet, gzip at zlib level {d}\n\n", .{encode_level});

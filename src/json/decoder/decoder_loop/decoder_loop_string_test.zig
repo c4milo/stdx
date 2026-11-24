@@ -4,6 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const wide = @import("../../wide.zig");
 const loop_string = @import("decoder_loop_string.zig");
@@ -117,7 +118,7 @@ const room_len_max = constants.non_ascii_min + constants.kernel_alignment;
 /// What `copy_rest` takes of `rest` into a room of `room_len` octets, with every claim on.
 fn copied_of(rest: []const u8, room_len: usize) ?Copied {
     var room: [room_len_max]u8 = undefined;
-    return loop_string.copy_rest_at(.{}, wide.Level.of(codec.Features.detect()), rest, room[0..room_len]);
+    return loop_string.copy_rest_at(.{}, wide.Level.of(platform.CpuFeatures.detect()), rest, room[0..room_len]);
 }
 
 test "copy_rest takes a string up to a closing quotation mark that is the input's last octet" {

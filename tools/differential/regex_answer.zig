@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const regex = @import("regex");
 
 /// The most groups the pattern of a case holds, the whole match counted.
@@ -69,7 +70,7 @@ pub const Stdx = struct {
     refusal: []const u8 = "",
     /// The host's CPU features, detected once, so that the check holds each search the host
     /// runs to the oracle.
-    features: codec.Features = .{},
+    features: platform.CpuFeatures = .{},
 
     const way_count = std.meta.fields(Way).len;
 
@@ -81,7 +82,7 @@ pub const Stdx = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator) !Stdx {
-        var stdx: Stdx = .{ .storage = try allocator.alloc(regex.Instruction, storage_len), .memory = undefined, .features = codec.Features.detect() };
+        var stdx: Stdx = .{ .storage = try allocator.alloc(regex.Instruction, storage_len), .memory = undefined, .features = platform.CpuFeatures.detect() };
         for (&stdx.memory, 0..) |*memory, way| {
             memory.* = try allocator.alloc(u64, regex.Searcher.memory_len(storage_len, 2 * groups_max, cache_words(@enumFromInt(way))));
         }

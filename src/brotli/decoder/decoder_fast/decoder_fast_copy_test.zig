@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const decoder_module = @import("../decoder.zig");
 const fast = @import("decoder_fast.zig");
 const constants = @import("../../constants.zig");
@@ -199,7 +200,7 @@ fn check_expected_rooms(input: []const u8, expected: []const u8) !void {
     for (0..expected.len + past_len + 1) |room| {
         @memset(&output, sentinel);
         var decoder: Decoder = undefined;
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         const progress = try decoder.decode(input, output[0..room]);
         const written = @min(room, expected.len);
         try testing.expectEqual(written, progress.written);

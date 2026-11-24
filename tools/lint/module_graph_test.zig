@@ -12,25 +12,33 @@ const module_graph = @import("module_graph.zig");
 
 const passing_build: [:0]const u8 =
     \\pub fn add(b: *std.Build) Modules {
+    \\    const platform = library(b, "platform", target, optimize);
     \\    const codec = library(b, "codec", target, optimize);
+    \\    codec.addImport("platform", platform);
     \\    const checksum = library(b, "checksum", target, optimize);
     \\    const deflate = library(b, "deflate", target, optimize);
     \\    deflate.addImport("codec", codec);
+    \\    deflate.addImport("platform", platform);
     \\    const zlib = library(b, "zlib", target, optimize);
     \\    zlib.addImport("codec", codec);
     \\    zlib.addImport("checksum", checksum);
     \\    zlib.addImport("deflate", deflate);
+    \\    zlib.addImport("platform", platform);
     \\    const gzip = library(b, "gzip", target, optimize);
     \\    gzip.addImport("codec", codec);
     \\    gzip.addImport("checksum", checksum);
     \\    gzip.addImport("deflate", deflate);
+    \\    gzip.addImport("platform", platform);
     \\    const zstd = library(b, "zstd", target, optimize);
     \\    zstd.addImport("codec", codec);
     \\    zstd.addImport("checksum", checksum);
+    \\    zstd.addImport("platform", platform);
     \\    const brotli = library(b, "brotli", target, optimize);
     \\    brotli.addImport("codec", codec);
+    \\    brotli.addImport("platform", platform);
     \\    const base64 = library(b, "base64", target, optimize);
     \\    base64.addImport("codec", codec);
+    \\    base64.addImport("platform", platform);
     \\    const utf8 = library(b, "utf8", target, optimize);
     \\    const unicode = library(b, "unicode", target, optimize);
     \\    unicode.addImport("utf8", utf8);
@@ -38,11 +46,12 @@ const passing_build: [:0]const u8 =
     \\    json.addImport("codec", codec);
     \\    json.addImport("base64", base64);
     \\    json.addImport("utf8", utf8);
-    \\    const platform = library(b, "platform", target, optimize);
+    \\    json.addImport("platform", platform);
     \\    const regex = library(b, "regex", target, optimize);
     \\    regex.addImport("codec", codec);
     \\    regex.addImport("utf8", utf8);
     \\    regex.addImport("unicode", unicode);
+    \\    regex.addImport("platform", platform);
     \\    const stdx = library(b, "stdx", target, optimize);
     \\    stdx.addImport("codec", codec);
     \\    stdx.addImport("checksum", checksum);
@@ -62,7 +71,8 @@ const passing_build: [:0]const u8 =
 
 const passing_check: [:0]const u8 =
     \\const deflate_imports = [_]Import{
-    \\    .{ .name = "codec", .root = "codec/codec.zig" },
+    \\    .{ .name = "codec", .root = "codec/codec.zig", .imports = &.{"platform"} },
+    \\    .{ .name = "platform", .root = "platform/platform.zig" },
     \\};
     \\const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json" };
 ;
@@ -116,7 +126,7 @@ test "module-graph flags a wrapper the build gives deflate, in the build and in 
         "deflate_imports lacks \"gzip\", which build/modules.zig gives deflate",
     });
     try testing.expectEqualStrings(module_graph.build_modules_path, findings[0].path);
-    try testing.expectEqual(6, findings[0].line);
+    try testing.expectEqual(8, findings[0].line);
     try testing.expectEqualStrings(module_graph.graph_check_path, findings[1].path);
 }
 
@@ -170,13 +180,14 @@ test "module-graph flags a check list that drifts from the build" {
     const findings = try compare_sources(arena_state.allocator(), passing_build,
         \\const deflate_imports = [_]Import{
         \\    .{ .name = "codec", .root = "codec/codec.zig" },
+        \\    .{ .name = "platform", .root = "platform/platform.zig" },
         \\    .{ .name = "checksum", .root = "checksum/checksum.zig" },
         \\};
     );
     try harness.expect_messages(findings, &.{
         "deflate_imports names \"checksum\", which build/modules.zig does not give deflate",
     });
-    try testing.expectEqual(3, findings[0].line);
+    try testing.expectEqual(4, findings[0].line);
 }
 
 test "module-graph flags a check with no deflate_imports list at all" {
@@ -198,11 +209,12 @@ test "module-graph reads the created modules and the edges of every receiver" {
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
     try testing.expectEqual(14, calls.modules.len);
-    try testing.expectEqual(31, calls.edges.len);
-    try testing.expectEqualStrings("deflate", calls.edges[0].module);
-    try testing.expectEqualStrings("codec", calls.edges[0].name);
-    try testing.expectEqualStrings("brotli", calls.edges[9].module);
-    try testing.expectEqual(18, calls.edges[9].line);
+    try testing.expectEqual(40, calls.edges.len);
+    try testing.expectEqualStrings("codec", calls.edges[0].module);
+    try testing.expectEqualStrings("platform", calls.edges[0].name);
+    try testing.expectEqual(4, calls.edges[0].line);
+    try testing.expectEqualStrings("brotli", calls.edges[14].module);
+    try testing.expectEqual(24, calls.edges[14].line);
 }
 
 test "module-graph finds the check beside build/modules.zig, whatever the walk's prefix was" {
@@ -228,23 +240,32 @@ test "module-graph runs on build/modules.zig and on nothing else" {
 test "the expected graph is design §3's table" {
     // Written out rather than read from `expected_graph`, so an edge dropped from it fails here.
     const table = [_][2][]const u8{
+        .{ "codec", "platform" },
         .{ "deflate", "codec" },
+        .{ "deflate", "platform" },
         .{ "zlib", "codec" },
         .{ "zlib", "checksum" },
         .{ "zlib", "deflate" },
+        .{ "zlib", "platform" },
         .{ "gzip", "codec" },
         .{ "gzip", "checksum" },
         .{ "gzip", "deflate" },
+        .{ "gzip", "platform" },
         .{ "zstd", "codec" },
         .{ "zstd", "checksum" },
+        .{ "zstd", "platform" },
         .{ "brotli", "codec" },
+        .{ "brotli", "platform" },
         .{ "json", "codec" },
         .{ "json", "base64" },
         .{ "json", "utf8" },
+        .{ "json", "platform" },
         .{ "base64", "codec" },
+        .{ "base64", "platform" },
         .{ "regex", "codec" },
         .{ "regex", "utf8" },
         .{ "regex", "unicode" },
+        .{ "regex", "platform" },
         .{ "unicode", "utf8" },
         .{ "stdx", "codec" },
         .{ "stdx", "checksum" },
@@ -267,17 +288,19 @@ test "the expected graph is design §3's table" {
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
 }
 
-test "no module but the stdx root imports platform, and platform imports nothing" {
-    // Decision 40: the one module that may make a syscall stays out of every codec's reach. The
-    // root names it for a program (decision 6 as amended), and no codec imports the root.
+test "platform imports nothing, and only the modules whose calls take CpuFeatures import it" {
+    // Decisions 21 and 40 as amended on 2026-11-24: a codec imports `platform` for the type
+    // `CpuFeatures`, and the cpu-probe rule, not the graph, keeps the probe out of its reach. A
+    // module that takes no CPU features does not import it, and no module imports the root.
+    const takes_features = [_][]const u8{ "codec", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "stdx" };
     for (module_graph.expected_graph) |module| {
         if (std.mem.eql(u8, module.name, "platform")) try testing.expectEqual(0, module.imports.len);
-        if (std.mem.eql(u8, module.name, "stdx")) continue;
-        try testing.expect(!expected_edge(module.name, "platform"));
         try testing.expect(!expected_edge(module.name, "stdx"));
+        var takes = false;
+        for (takes_features) |name| takes = takes or std.mem.eql(u8, name, module.name);
+        try testing.expectEqual(takes, expected_edge(module.name, "platform"));
     }
     try testing.expect(expected_module("platform"));
-    try testing.expect(expected_edge("stdx", "platform"));
 }
 
 fn expected_module(module_name: []const u8) bool {

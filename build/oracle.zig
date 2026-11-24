@@ -84,25 +84,14 @@ pub fn add(b: *std.Build, options: Options) void {
         return;
     }
     const oracle = oracle_bindings.add(b) orelse return;
-    // The timing loop runs between every repetition, so it is built as the benchmarks are.
-    const timing = b.createModule(.{
-        .root_source_file = b.path("bench/timing/timing.zig"),
-        .target = b.graph.host,
-        .optimize = .ReleaseSafe,
-    });
-    // Each benchmark program exports platform's `memset` through it (decision 41).
-    timing.addImport("platform", b.createModule(.{
-        .root_source_file = b.path("src/platform/platform.zig"),
-        .target = b.graph.host,
-        .optimize = .ReleaseSafe,
-    }));
-    const corpus_names = host_module(b, "tools/corpus/corpus.zig");
     // The library as a caller shipping one binary for every CPU of an architecture runs it: built
     // for the architecture's baseline, so each SIMD path runs because detection found its
     // instructions and not because the target promised them (decision 21); ReleaseSafe (decision
     // 17); exported to nobody.
     const baseline = b.resolveTargetQuery(.{ .cpu_model = .baseline });
     const graph = modules.add(b, .{ .target = baseline, .optimize = .ReleaseSafe, .visibility = .private });
+    const timing = timing_module(b, graph);
+    const corpus_names = host_module(b, "tools/corpus/corpus.zig");
     // The shuffle draws its order from the codec module's generator, so it is built as the checks are.
     const shuffle_module = b.createModule(.{
         .root_source_file = b.path("tools/corpus/shuffle.zig"),
@@ -110,6 +99,7 @@ pub fn add(b: *std.Build, options: Options) void {
         .optimize = .ReleaseSafe,
     });
     shuffle_module.addImport("codec", graph.codec);
+    shuffle_module.addImport("platform", graph.platform);
     const corpus = oracle_corpus.add(b, .{
         .cut = host_module(b, "tools/corpus/cut.zig"),
         .shuffle = shuffle_module,
@@ -152,6 +142,7 @@ pub fn add(b: *std.Build, options: Options) void {
     checksum_module.addImport("oracle", oracle);
     checksum_module.addImport("corpus", corpus_names);
     checksum_module.addImport("codec", graph.codec);
+    checksum_module.addImport("platform", graph.platform);
     checksum_module.addImport("checksum", graph.checksum);
     checksum_module.addOptions("host_features", host_features(b));
     const checksum_check = b.addExecutable(.{ .name = "differential_checksum", .root_module = checksum_module });
@@ -168,6 +159,7 @@ pub fn add(b: *std.Build, options: Options) void {
     deflate_module.addImport("oracle", oracle);
     deflate_module.addImport("corpus", corpus_names);
     deflate_module.addImport("codec", graph.codec);
+    deflate_module.addImport("platform", graph.platform);
     deflate_module.addImport("deflate", graph.deflate);
     deflate_module.addImport("zlib", graph.zlib);
     deflate_module.addImport("gzip", graph.gzip);
@@ -186,6 +178,7 @@ pub fn add(b: *std.Build, options: Options) void {
     encode_module.addImport("oracle", oracle);
     encode_module.addImport("corpus", corpus_names);
     encode_module.addImport("codec", encode_graph.codec);
+    encode_module.addImport("platform", encode_graph.platform);
     encode_module.addImport("deflate", encode_graph.deflate);
     encode_module.addImport("zlib", encode_graph.zlib);
     encode_module.addImport("gzip", encode_graph.gzip);
@@ -207,6 +200,7 @@ pub fn add(b: *std.Build, options: Options) void {
     zstd_module.addImport("oracle", oracle);
     zstd_module.addImport("corpus", corpus_names);
     zstd_module.addImport("codec", graph.codec);
+    zstd_module.addImport("platform", graph.platform);
     zstd_module.addImport("zstd", graph.zstd);
     zstd_module.addImport("verdicts", verdicts);
     const zstd_check = b.addExecutable(.{ .name = "differential_zstd", .root_module = zstd_module });
@@ -226,6 +220,7 @@ pub fn add(b: *std.Build, options: Options) void {
     brotli_module.addImport("oracle", oracle);
     brotli_module.addImport("corpus", corpus_names);
     brotli_module.addImport("codec", graph.codec);
+    brotli_module.addImport("platform", graph.platform);
     brotli_module.addImport("brotli", graph.brotli);
     brotli_module.addImport("verdicts", verdicts);
     const brotli_check = b.addExecutable(.{ .name = "differential_brotli", .root_module = brotli_module });
@@ -263,6 +258,7 @@ pub fn add(b: *std.Build, options: Options) void {
     });
     profile_module.addImport("oracle", oracle);
     profile_module.addImport("codec", graph.codec);
+    profile_module.addImport("platform", graph.platform);
     profile_module.addImport("gzip", graph.gzip);
     profile_module.addImport("deflate", graph.deflate);
     profile_module.addImport("zstd", graph.zstd);
@@ -284,6 +280,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_module.addImport("oracle", oracle);
     bench_checksum_module.addImport("baselines", baselines_module);
     bench_checksum_module.addImport("codec", graph.codec);
+    bench_checksum_module.addImport("platform", graph.platform);
     bench_checksum_module.addImport("checksum", graph.checksum);
     const bench_checksum = b.addExecutable(.{ .name = "bench_checksum", .root_module = bench_checksum_module });
     b.installArtifact(bench_checksum);
@@ -332,8 +329,9 @@ fn add_bench_decoder(b: *std.Build, inputs: BenchInputs, graph: modules.Modules,
         .optimize = if (release_fast) .ReleaseFast else .ReleaseSafe,
     });
     module.addImport("oracle", inputs.oracle);
-    module.addImport("timing", inputs.timing);
+    module.addImport("timing", timing_module(b, graph));
     module.addImport("codec", graph.codec);
+    module.addImport("platform", graph.platform);
     module.addImport(bench.codec, @field(graph, bench.codec));
     module.addOptions("bench_options", bench_options(b, if (release_fast) .release_fast else .release_safe));
     return run_program(b, inputs, if (release_fast) bench.name ++ "_release_fast" else bench.name, module);
@@ -349,10 +347,24 @@ fn deflate_bench_module(b: *std.Build, inputs: BenchInputs, graph: modules.Modul
         .optimize = if (mode == .release_fast) .ReleaseFast else .ReleaseSafe,
     });
     module.addImport("oracle", inputs.oracle);
-    module.addImport("timing", inputs.timing);
-    inline for (.{ "codec", "deflate", "gzip", "checksum" }) |name| module.addImport(name, @field(graph, name));
+    module.addImport("timing", timing_module(b, graph));
+    inline for (.{ "codec", "platform", "deflate", "gzip", "checksum" }) |name| module.addImport(name, @field(graph, name));
     module.addOptions("bench_options", bench_options(b, mode));
     return module;
+}
+
+/// The timing loop over `graph`'s `platform`, whose `memset` each benchmark program exports
+/// (decision 41). The timing loop runs between every repetition, so it is built as the benchmarks
+/// are. Every codec of `graph` imports that `platform` for `CpuFeatures`, and a program holds one
+/// module for each file, so a program over a graph of its own takes a timing loop of its own.
+fn timing_module(b: *std.Build, graph: modules.Modules) *std.Build.Module {
+    const timing = b.createModule(.{
+        .root_source_file = b.path("bench/timing/timing.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
+    timing.addImport("platform", graph.platform);
+    return timing;
 }
 
 /// A benchmark program named `name`, installed, and run over the corpora.
@@ -388,7 +400,7 @@ fn x86_64_v3_host(b: *std.Build) bool {
 }
 
 /// The SIMD features Zig's own detection finds on the build host, which runs the checks: the
-/// oracle for `codec.Features.detect()`, which the checks require to find at least as many.
+/// oracle for `platform.CpuFeatures.detect()`, which the checks require to find at least as many.
 fn host_features(b: *std.Build) *std.Build.Step.Options {
     const cpu = b.graph.host.result.cpu;
     const x86 = std.Target.x86;

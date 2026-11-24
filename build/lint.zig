@@ -18,6 +18,7 @@ const cognitive_complexity_max = "15";
 const canary_rules = [_][]const u8{
     "heap",
     "io",
+    "cpu-probe",
     "determinism",
     "unbounded-loop",
     "relative-import",
@@ -46,6 +47,7 @@ const canary_source =
     \\pub fn canary(allocator: std.mem.Allocator) !void {
     \\    _ = allocator;
     \\    _ = std.posix;
+    \\    _ = platform.probe();
     \\    _ = std.time;
     \\    while (true) {}
     \\    var buffer: [4096]u8 = undefined;

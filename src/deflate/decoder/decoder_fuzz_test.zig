@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const decoder_test = @import("decoder_test.zig");
@@ -52,13 +53,13 @@ fn check_split(input: []const u8, seed: u64) !void {
     var combined_output: [output_len_max]u8 = undefined;
     // The combining and the split decodes take the CPU's features, so where the CPU runs the
     // assembly of decision 29, they meet the Zig loop and the checked path.
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const combined = verdict_of(decoder.decode_with(decoder_test.combining, input, &combined_output));
     try testing.expectEqual(whole, combined);
     if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], combined_output[0..whole.progress.written]);
     try check_each_claim_off(input, whole, &whole_output);
     var states: [codec.testing.split.state_slots]Decoder = undefined;
-    states[0].init(codec.Features.detect());
+    states[0].init(platform.CpuFeatures.detect());
     var split_output: [output_len_max]u8 = undefined;
     const outcome = codec.testing.split.drive(Decoder, &states, step, input, &split_output, seed) catch |err| {
         try testing.expectEqual(Verdict{ .refused = @errorCast(err) }, whole);
@@ -80,7 +81,7 @@ fn check_each_claim_off(input: []const u8, whole: Verdict, whole_output: []const
     inline for (claims.each_off) |off| {
         var output: [output_len_max]u8 = undefined;
         var decoder: Decoder = undefined;
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         const verdict = verdict_of(decoder.decode_with(.{ .claims = off }, input, &output));
         try testing.expectEqual(whole, verdict);
         if (whole == .progress) try testing.expectEqualSlices(u8, whole_output[0..whole.progress.written], output[0..whole.progress.written]);

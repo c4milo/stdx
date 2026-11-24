@@ -17,7 +17,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const status = @import("status.zig");
-const Features = @import("features.zig").Features;
+const platform = @import("platform");
+const CpuFeatures = platform.CpuFeatures;
 
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
@@ -40,7 +41,7 @@ pub const Ended = error{
     TrailingOctets,
 };
 
-/// `Decoder` has `init(*Decoder, Features)` and `decode(*Decoder, input, output)`, which returns
+/// `Decoder` has `init(*Decoder, CpuFeatures)` and `decode(*Decoder, input, output)`, which returns
 /// `Error!Progress`. `after_done` says what the reader does with the coded octets after a stream.
 pub fn IoReader(comptime Decoder: type, comptime Error: type, comptime after_done: AfterDone) type {
     return struct {
@@ -55,7 +56,7 @@ pub fn IoReader(comptime Decoder: type, comptime Error: type, comptime after_don
         source: *Reader,
         decoder: Decoder,
         /// The features `init` took, which a restart passes again.
-        features: Features,
+        features: CpuFeatures,
         /// How the last call of the decoder ended: `needs_input` before the first call.
         last: status.Status,
         /// The refusal that stopped the reader, or null while it can go on.
@@ -66,7 +67,7 @@ pub fn IoReader(comptime Decoder: type, comptime Error: type, comptime after_don
         /// Starts the reader over `source`, whose buffer holds at least one octet. `buffer` is the
         /// reader's own, for the caller's peeks; it may be empty when the caller only streams into
         /// a writer with a buffer.
-        pub fn init(self: *Self, source: *Reader, buffer: []u8, features: Features) void {
+        pub fn init(self: *Self, source: *Reader, buffer: []u8, features: CpuFeatures) void {
             // `peekGreedy` reads into the source's buffer.
             assert(source.buffer.len > 0);
             self.interface = .{ .vtable = &vtable, .buffer = buffer, .seek = 0, .end = 0 };

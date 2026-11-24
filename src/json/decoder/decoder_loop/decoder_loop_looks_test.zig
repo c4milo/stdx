@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const wide = @import("../../wide.zig");
 const loop_string = @import("decoder_loop_string.zig");
@@ -67,7 +68,7 @@ test "the walk's next stretch is the shortest after blocks that took the constan
 }
 
 fn level_here() wide.Level {
-    return wide.Level.of(codec.Features.detect());
+    return wide.Level.of(platform.CpuFeatures.detect());
 }
 
 /// Requires a string's rest to be copied alike with claim J13 on and off, into `room_len` octets:

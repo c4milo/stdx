@@ -1,5 +1,5 @@
 //! The check of docs/design.md §8 step 0, and the check behind invariant 14: `src/deflate/` cannot
-//! import a wrapper, another codec, `json`, `platform`, a package, or the oracles of tools/oracle/.
+//! import a wrapper, another codec, `json`, a package, or the oracles of tools/oracle/.
 //!
 //! A lint rule over the source would only check what build/modules.zig declares. This checks what
 //! the compiler rejects: it compiles a fixture as a module carrying exactly the import set
@@ -8,27 +8,30 @@
 //! it: an edge from `deflate` to `zlib` or `gzip` would be a cycle the build cannot express, and an
 //! edge to `zstd` or `brotli` would drag a second codec into every consumer of the first.
 //!
-//! It runs a positive control in the same pass, and that control is what stops the check from
+//! It runs positive controls in the same pass, and those controls are what stop the check from
 //! being vacuous. A check that only requires a failure passes when the failure has nothing to do
-//! with the rule: a mistyped fixture path, a missing source, a broken `zig` invocation. So one
-//! fixture imports `codec`, which `deflate` does have, and must compile clean. A run in which the
-//! control fails is reported as a broken check, not as a pass.
+//! with the rule: a mistyped fixture path, a missing source, a broken `zig` invocation. So each
+//! module `deflate` does have, `codec` and `platform`, has a fixture that imports it and must
+//! compile clean. A run in which a control fails is reported as a broken check, not as a pass.
+//!
+//! `deflate` imports `platform` for the type `CpuFeatures` alone (decisions 21 and 40 as amended
+//! on 2026-11-24). The graph cannot keep `platform.probe` out of a codec's reach, so the
+//! `cpu-probe` rule of tools/lint does (invariant 14).
 //!
 //! Usage: `graph_check <zig-exe> <src-root> <fixtures-dir>`
 const std = @import("std");
 
-/// The import set build/modules.zig gives `deflate` (docs/design.md §3). The lint rule
-/// `module-graph` keeps build/modules.zig equal to this list, and this tool shows the list has the
-/// consequence invariant 14 claims.
+/// The import set build/modules.zig gives `deflate` (docs/design.md §3), each with the imports
+/// build/modules.zig gives it in turn. The lint rule `module-graph` keeps build/modules.zig equal
+/// to the names of this list, and this tool shows the list has the consequence invariant 14
+/// claims. Each one is also a positive control: its fixture must compile.
 const deflate_imports = [_]Import{
-    .{ .name = "codec", .root = "codec/codec.zig" },
+    .{ .name = "codec", .root = "codec/codec.zig", .imports = &.{"platform"} },
+    .{ .name = "platform", .root = "platform/platform.zig" },
 };
 
 /// Every module name `deflate` must not be able to import. Each gets a fixture and each must fail.
-const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "platform", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
-
-/// The module name the positive control imports: one `deflate` really does have.
-const control = "codec";
+const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
 
 /// The exit status of a usage error.
 const usage_exit_status = 2;
@@ -36,6 +39,8 @@ const usage_exit_status = 2;
 const Import = struct {
     name: []const u8,
     root: []const u8,
+    /// The modules this import imports, each of which is also in `deflate_imports`.
+    imports: []const []const u8 = &.{},
 };
 
 const Outcome = enum { compiled, rejected };
@@ -51,19 +56,21 @@ pub fn main(init: std.process.Init) !void {
     const src_root = args[2];
     const fixtures = args[3];
 
-    // The control first: if importing a module `deflate` does have does not compile, nothing this
+    // The controls first: if importing a module `deflate` does have does not compile, nothing this
     // tool reports afterwards means anything.
-    const control_path = try fixture_path(arena, fixtures, control);
-    const control_outcome = try compile(arena, init.io, zig_exe, src_root, control_path);
-    if (control_outcome != .compiled) {
-        std.debug.print(
-            "graph-check BROKEN: the control fixture importing '{s}' did not compile.\n" ++
-                "  Nothing else this check reports is meaningful until that is fixed.\n",
-            .{control},
-        );
-        std.process.exit(1);
+    for (deflate_imports) |control| {
+        const control_path = try fixture_path(arena, fixtures, control.name);
+        const control_outcome = try compile(arena, init.io, zig_exe, src_root, control_path);
+        if (control_outcome != .compiled) {
+            std.debug.print(
+                "graph-check BROKEN: the control fixture importing '{s}' did not compile.\n" ++
+                    "  Nothing else this check reports is meaningful until that is fixed.\n",
+                .{control.name},
+            );
+            std.process.exit(1);
+        }
+        std.debug.print("graph-check control: import '{s}' compiles, as it must\n", .{control.name});
     }
-    std.debug.print("graph-check control: import '{s}' compiles, as it must\n", .{control});
 
     var failures: usize = 0;
     for (forbidden) |module_name| {
@@ -106,7 +113,7 @@ fn compile(
     root_path: []const u8,
 ) !Outcome {
     // `--dep` flags apply to the next `-M`, and the first `-M` is the root module, so the root's
-    // whole dependency list precedes it. `codec` imports nothing, so it needs no `--dep` of its own.
+    // whole dependency list precedes it, and each import's own list precedes its `-M`.
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(arena, &.{ zig_exe, "build-obj", "-fno-emit-bin" });
     for (deflate_imports) |import| {
@@ -114,6 +121,7 @@ fn compile(
     }
     try argv.append(arena, try std.fmt.allocPrint(arena, "-Mroot={s}", .{root_path}));
     for (deflate_imports) |import| {
+        for (import.imports) |dependency| try argv.appendSlice(arena, &.{ "--dep", dependency });
         const root = try std.fs.path.join(arena, &.{ src_root, import.root });
         try argv.append(arena, try std.fmt.allocPrint(arena, "-M{s}={s}", .{ import.name, root }));
     }
@@ -126,25 +134,32 @@ fn compile(
 }
 
 test "the forbidden list names every module of the graph deflate does not import, and a package" {
-    // docs/design.md §3: every library module but `deflate` itself and `codec`, then pepegrillo
-    // and the oracle bindings of tools/oracle/, which only tools and benchmarks may import.
-    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "platform", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
+    // docs/design.md §3: every library module but `deflate` itself, `codec` and `platform`, then
+    // pepegrillo and the oracle bindings of tools/oracle/, which only tools and benchmarks may
+    // import. `stdx`, the root, has no fixture: no module imports it.
+    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {
         try std.testing.expectEqualStrings(want, got);
     }
 }
 
-test "the control is a module deflate actually imports" {
-    var found = false;
+test "no module is both a control and forbidden, and each import's own imports are in the set" {
     for (deflate_imports) |import| {
-        if (std.mem.eql(u8, import.name, control)) found = true;
+        for (forbidden) |name| try std.testing.expect(!std.mem.eql(u8, import.name, name));
+        for (import.imports) |dependency| try std.testing.expect(holds_import(dependency));
     }
-    try std.testing.expect(found);
+}
+
+fn holds_import(name: []const u8) bool {
+    for (deflate_imports) |import| {
+        if (std.mem.eql(u8, import.name, name)) return true;
+    }
+    return false;
 }
 
 test "deflate's import set is the one design §3 states" {
-    const expected = [_][]const u8{"codec"};
+    const expected = [_][]const u8{ "codec", "platform" };
     try std.testing.expectEqual(expected.len, deflate_imports.len);
     for (expected, deflate_imports) |want, got| {
         try std.testing.expectEqualStrings(want, got.name);

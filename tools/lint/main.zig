@@ -16,7 +16,7 @@
 //! Exit status: 0 when nothing was found, 1 when any finding was reported or a file failed to read,
 //! 2 on a usage error.
 //!
-//! Ten rules are pepegrillo's, configured in the file named after each. `module-graph`,
+//! Eleven rules are pepegrillo's, configured in the file named after each. `module-graph`,
 //! `rfc-citation` and `input-index` are stdx's own, written against pepegrillo's readers.
 //!
 //! This tool is developer tooling. It is never linked into the library, so it allocates, reads the
@@ -30,6 +30,7 @@ const pepegrillo = @import("pepegrillo");
 const rules = .{
     @import("heap.zig"),
     @import("io.zig"),
+    @import("cpu_probe.zig"),
     @import("determinism.zig"),
     @import("unbounded_loop.zig"),
     @import("relative_import.zig"),
@@ -57,6 +58,7 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
     const expected = [_][]const u8{
         "heap",
         "io",
+        "cpu-probe",
         "determinism",
         "unbounded-loop",
         "relative-import",

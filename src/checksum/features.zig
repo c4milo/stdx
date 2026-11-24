@@ -1,11 +1,11 @@
-//! The instructions the checksum paths use, which the caller reads from its `codec.Features` and
-//! passes in: the checksum module imports nothing (design §3), so it names the fields it
+//! The instructions the checksum paths use, which the caller reads from its `platform.CpuFeatures`
+//! and passes in: the checksum module imports nothing (design §3), so it names the fields it
 //! reads rather than import the type. Decision 21 has the rest.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// The fields of `codec.Features` the checksum paths read, spelled the same.
+/// The fields of `platform.CpuFeatures` the checksum paths read, spelled the same.
 pub const Features = struct {
     /// x86-64: PCLMULQDQ, with SSE4.1.
     pclmul: bool = false,
@@ -52,7 +52,7 @@ pub const Features = struct {
         };
     }
 
-    /// These fields of `features`, a `codec.Features` or any struct that spells them the same.
+    /// These fields of `features`: a `platform.CpuFeatures`, or any struct with the same names.
     pub fn from(features: anytype) Features {
         var result: Features = .{};
         inline for (@typeInfo(Features).@"struct".fields) |field| {

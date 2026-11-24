@@ -7,6 +7,7 @@
 const std = @import("std");
 const json = @import("json");
 const codec = @import("codec");
+const platform = @import("platform");
 const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
 const baselines = @import("baselines/baselines.zig");
@@ -27,7 +28,7 @@ pub const Calls = enum { batch, one_token, methods, items };
 pub const DecodeRoom = struct {
     output: []u8,
     slots: []json.Decoder.Slot,
-    features: codec.Features,
+    features: platform.CpuFeatures,
 };
 
 /// The longest text of `workload`: the output a batch needs, since a text's tokens hold no more
@@ -185,7 +186,7 @@ pub fn Encode(comptime claims: json.Claims, comptime calls: Calls) type {
         const Self = @This();
         workload: *const Workload,
         output: []u8,
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         pub fn run_once(context: *const anyopaque) void {
             const self: *const Self = @ptrCast(@alignCast(context));
@@ -196,7 +197,7 @@ pub fn Encode(comptime claims: json.Claims, comptime calls: Calls) type {
 
 /// Encodes every text of `workload` into `output`, a text a batch or a token a call, and returns
 /// how many octets it wrote.
-pub fn encode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, output: []u8, features: codec.Features) usize {
+pub fn encode(comptime claims: json.Claims, comptime calls: Calls, workload: *const Workload, output: []u8, features: platform.CpuFeatures) usize {
     // A decode alone takes a slice of tokens a call.
     comptime std.debug.assert(calls != .items);
     if (calls == .methods) {
@@ -208,7 +209,7 @@ pub fn encode(comptime claims: json.Claims, comptime calls: Calls, workload: *co
 }
 
 /// `encode` through the encoder's own calls: a text a batch, or a token a call.
-inline fn encode_calls(comptime claims: json.Claims, comptime batches: bool, workload: *const Workload, output: []u8, features: codec.Features) usize {
+inline fn encode_calls(comptime claims: json.Claims, comptime batches: bool, workload: *const Workload, output: []u8, features: platform.CpuFeatures) usize {
     var written: usize = 0;
     // One encoder for every text, as `decode` keeps one decoder.
     var encoder: json.Encoder = undefined;
@@ -230,7 +231,7 @@ inline fn encode_calls(comptime claims: json.Claims, comptime batches: bool, wor
 /// One text through `TextWriter`'s methods, as a caller that knows its members writes it: a
 /// member's name with its value in one `member_*` call (decision 78), an empty object or array in
 /// one `empty_*` call (decision 82), and every other token through the method its token names.
-inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, output: []u8, features: codec.Features) usize {
+inline fn encode_methods(framing: json.Framing, items: []const workloads.Item, output: []u8, features: platform.CpuFeatures) usize {
     var text = json.TextWriter.init(output, framing, features);
     var index: usize = 0;
     // Each pass writes an item at least.

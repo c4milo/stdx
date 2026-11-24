@@ -11,6 +11,7 @@ const std = @import("std");
 const timing = @import("timing");
 const json = @import("json");
 const codec = @import("codec");
+const platform = @import("platform");
 const abi = @import("abi");
 const workloads = @import("json_workloads.zig");
 const baselines = @import("baselines/baselines.zig");
@@ -62,7 +63,7 @@ fn row(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, workload: *con
     }
     var output_len: usize = 0;
     for (workload.items) |items| output_len += workloads.encoded_len_max(items);
-    const features = codec.Features.detect();
+    const features = platform.CpuFeatures.detect();
     const stdx_output = try arena.alloc(u8, output_len);
     const serde_output = try arena.alloc(u8, output_len);
     const stdx_len = calls.encode(.{}, .methods, workload, stdx_output, features);

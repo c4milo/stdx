@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const huffman = @import("../huffman.zig");
 const test_stream = @import("../test_stream.zig");
@@ -275,7 +276,7 @@ test "a decode that builds its codes from the lengths leaves the tally as it fou
     inline for (.{ shared.checked, shared.tally_off }) |options| {
         var decoder: deflate.Decoder = undefined;
         @memset(std.mem.asBytes(&decoder), marker);
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         var output: [shared.output_len]u8 = undefined;
         const progress = try decoder.decode_with(options, input, &output);
         try testing.expectEqual(codec.Status.done, progress.status);

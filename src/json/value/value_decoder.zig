@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const decoder_file = @import("../decoder/decoder.zig");
 const framing_file = @import("../framing.zig");
 const value_type = @import("value_type.zig");
@@ -38,7 +39,7 @@ pub fn ValueDecoder(comptime T: type) type {
         storage: ?[*]u8,
         result: ?*T,
 
-        pub fn init(self: *Self, framing: Framing, features: codec.Features) void {
+        pub fn init(self: *Self, framing: Framing, features: platform.CpuFeatures) void {
             self.decoder.init(framing, features);
             self.frames = @splat(Frame.empty);
             self.kept = 0;
@@ -86,7 +87,7 @@ pub fn ValueDecoder(comptime T: type) type {
 
 /// Reads the one value of `text` into a `T`, its strings slices of `storage`: `error.Truncated`
 /// when the text ends before its value does.
-pub fn decode_value(comptime T: type, text: []const u8, storage: []u8, framing: Framing, features: codec.Features) (Error || error{Truncated})!T {
+pub fn decode_value(comptime T: type, text: []const u8, storage: []u8, framing: Framing, features: platform.CpuFeatures) (Error || error{Truncated})!T {
     var state: ValueDecoder(T) = undefined;
     state.init(framing, features);
     var result: T = undefined;

@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const regex = @import("regex");
 const ZigRegex = @import("zig_regex").Regex;
 const mvzr = @import("mvzr");
@@ -56,7 +57,7 @@ pub const Stdx = struct {
     program: regex.Program,
     searcher: regex.Searcher,
     /// The host's CPU features, which `main` detects once, as Rust's crate detects them once.
-    features: codec.Features,
+    features: platform.CpuFeatures,
 
     fn cache_words(engine: Engine) usize {
         return if (engine == .stdx_matcher) 0 else regex.constants.cache_words_default;
@@ -90,7 +91,7 @@ pub const Pattern = union(Engine) {
 
 /// Compiles a pattern for a candidate, or gives null where the candidate refuses it. The pattern
 /// lives as long as the arena.
-pub fn compile(engine: Engine, arena: std.mem.Allocator, features: codec.Features, pattern: []const u8) !?Pattern {
+pub fn compile(engine: Engine, arena: std.mem.Allocator, features: platform.CpuFeatures, pattern: []const u8) !?Pattern {
     switch (engine) {
         .stdx, .stdx_no_skip, .stdx_matcher, .stdx_again => {
             const stdx = try arena.create(Stdx);
@@ -126,7 +127,7 @@ pub fn compile(engine: Engine, arena: std.mem.Allocator, features: codec.Feature
 pub const Scratch = struct {
     stdx: *Stdx,
 
-    pub fn init(arena: std.mem.Allocator, features: codec.Features) !Scratch {
+    pub fn init(arena: std.mem.Allocator, features: platform.CpuFeatures) !Scratch {
         const stdx = try arena.create(Stdx);
         stdx.memory = try arena.alloc(u64, Stdx.memory_len(.stdx));
         stdx.features = features;

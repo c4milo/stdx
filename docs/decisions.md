@@ -1460,6 +1460,29 @@ last part lists what still waits on a ruling.
     - XXH64 scalar everywhere, which gives up the 27% on AMD.
     - The AVX-512 path kept for callers that name it, with `fastest` always scalar.
 
+    **Amended by the owner on 2026-11-24: the type is `platform.CpuFeatures`.** The owner ruled in
+    a session, through the question prompt: "That name isn't great, it is CPU Features! No codec
+    features! The platform module should have it."
+    - `codec.Features` moves to `src/platform/platform_cpu_features.zig` as `CpuFeatures`, and the
+      `platform` module exports it. Its fields, its calls, its detection and its tests move whole:
+      `none`, `target`, `detect`, `intersect` and `with`. `codec` exports no `Features`.
+    - A caller calls `platform.CpuFeatures.detect()` once, or passes `target()` or `none()`, and
+      gives the value to each codec's `init`, as before. Each module whose calls take the value
+      imports `platform`: `codec`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, `base64`
+      and `regex`. Entry 40's amendment of the same day says what keeps the probe out of them.
+    - Detection's `getauxval` now sits in `src/platform/`, so `tools/lint/io.zig` allows it there
+      alone, beside `sysctlbyname`. Every other module refuses it.
+    - `checksum` still imports nothing. Its own `Features` keeps the fields its paths read, and
+      the caller copies them from its `platform.CpuFeatures`.
+    - A dependent moves from `codec.Features` to `platform.CpuFeatures`, and from
+      `stdx.codec.Features` to `stdx.platform.CpuFeatures`. A removed public name makes the next
+      release a MINOR one (decision 65).
+    - The text above, and other entries, name `codec.Features`: that is the type's name before
+      this amendment.
+    - The alternatives refused:
+      - `codec.Features`, which names the codecs where the type holds the CPU's features.
+      - `codec.CpuFeatures`. It fixes the name, but keeps the CPU's reads in two modules.
+
 22. **An offset equal to Window_Size is accepted.** Ruled by the owner on 2026-09-26, during design
     §8 step 11. RFC 8878 §3.1.1.4 says that "all offsets leading to previously decoded data must be
     smaller than Window_Size". libzstd 1.5.7 writes offsets equal to Window_Size. The differential
@@ -2763,6 +2786,40 @@ last part lists what still waits on a ruling.
         `examples/cpu_probe.c` does. It is a file read, which non-negotiable 1 refuses.
       - `no` for SVE2 on macOS. It states an answer that the probe did not read.
     - A new field of `Cpu` changes the public API, so the next release is a MINOR one (decision 65).
+
+    **Amended by the owner on 2026-11-24: the codecs import `platform`, and a lint rule keeps the
+    probe out of them.** The owner ruled the same day that `CpuFeatures` belongs in `platform`
+    (entry 21 as amended), and that this entry changes with it. The ruling replaces "No module
+    imports `platform`" above, and entry 6's "which no other module imports". Invariant 14
+    changes with it.
+    - `platform` holds both reads of the CPU. `probe` gives the `yes`, `no` and `not_known`
+      answers a TLS stack asks for. `CpuFeatures.detect` gives the booleans a codec's fast paths
+      read. `Cpu`, `Answer` and `probe` do not change.
+    - `platform` still imports nothing, so a module that imports it reaches no other module
+      through it. Each module whose calls take `CpuFeatures` imports it.
+    - The import ban kept the probe's syscall out of every codec path. A lint rule keeps it out
+      now: `cpu-probe`, pepegrillo's `forbidden_references` as `tools/lint/cpu_probe.zig`
+      configures it. Under `src/`, outside `src/platform/`, it refuses `platform.probe` and
+      `platform.CpuFeatures.detect`, as written or through a file-level alias. It also refuses a
+      call of any function named `detect`, the name of no other function in stdx.
+    - The rule leaves out each test file and each `test` block: a test reads the host's CPU to
+      reach every path the host has. The tools and the benchmarks are programs, and the rule
+      reads neither.
+    - `getauxval` joins `sysctlbyname` as a call that `src/platform/` alone may make (entry 21 as
+      amended).
+    - `zig build graph-check` compiles `@import("platform")` from `src/deflate/` as a second
+      control, which must compile. It no longer requires that compile to fail.
+    - "Its own CPUID" above: `platform` now holds two CPUID functions, the probe's in
+      `platform_x86.zig` and the detection's in `platform_cpu_features.zig`. The move kept each
+      function as it was.
+    - Design §8 step 20's entry, amended the same day, records the check and its mutations.
+    - The alternatives refused:
+      - The import ban, with the type in `codec`. The owner ruled that the type belongs in
+        `platform`.
+      - A module of its own for `CpuFeatures`. It adds a module, and the ruling names `platform`.
+      - The graph alone, with no rule. It gives a codec `probe` with the type.
+      - A rule that reads a codec's tests too. A test would lose the detection that reaches every
+        path of its host.
 
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.

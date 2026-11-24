@@ -7,11 +7,12 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const Encoder = @import("encoder.zig").Encoder;
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 
-const features = codec.Features.none();
+const features = platform.CpuFeatures.none();
 
 /// The longest input the fuzzer gives, and the room its texts take.
 const input_len_max = 512;

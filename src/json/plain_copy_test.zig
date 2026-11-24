@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const scan = @import("scan.zig");
 const wide = @import("wide.zig");
@@ -75,7 +76,7 @@ fn expect_vector(comptime width: usize, from: usize, skew: usize, source: []cons
 /// The levels of claim J7 this CPU runs: the target's, and each wider one its features allow.
 pub fn levels_run() []const wide.Level {
     const levels = comptime std.enums.values(wide.Level);
-    return levels[0 .. @intFromEnum(wide.Level.of(codec.Features.detect())) + 1];
+    return levels[0 .. @intFromEnum(wide.Level.of(platform.CpuFeatures.detect())) + 1];
 }
 
 /// Copies `source`, whose first `from` octets are plain ASCII, at every level of claim J7 this

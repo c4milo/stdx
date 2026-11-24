@@ -11,6 +11,7 @@ const std = @import("std");
 const timing = @import("timing");
 const json = @import("json");
 const codec = @import("codec");
+const platform = @import("platform");
 const baselines = @import("baselines/baselines.zig");
 const workloads = @import("json_workloads.zig");
 const Workload = workloads.Workload;
@@ -23,7 +24,7 @@ const candidate_count = std.enums.values(Candidate).len;
 const Validate = struct {
     octets: []const u8,
     candidate: Candidate,
-    features: codec.Features,
+    features: platform.CpuFeatures,
 
     fn run_once(context: *const anyopaque) void {
         const self: *const Validate = @ptrCast(@alignCast(context));
@@ -39,8 +40,8 @@ const Validate = struct {
 };
 
 /// The host's features, and the same with AVX-512 off: `is_utf8`'s copy at AVX2's width.
-fn features_of(candidate: Candidate) codec.Features {
-    var features = codec.Features.detect();
+fn features_of(candidate: Candidate) platform.CpuFeatures {
+    var features = platform.CpuFeatures.detect();
     if (candidate == .stdx_avx2) features.avx512 = false;
     return features;
 }
@@ -48,7 +49,7 @@ fn features_of(candidate: Candidate) codec.Features {
 /// The candidates this host runs: the third where the host has AVX-512.
 fn candidates_run() []const Candidate {
     const all = comptime std.enums.values(Candidate);
-    return if (codec.Features.detect().avx512) all else all[0 .. candidate_count - 1];
+    return if (platform.CpuFeatures.detect().avx512) all else all[0 .. candidate_count - 1];
 }
 
 /// Seeded buffers the cross-check judges: their count and longest length, past the widest copy's
@@ -78,7 +79,7 @@ fn draw(random: std.Random, random_octets: bool, out: []u8) usize {
 /// Requires every candidate this host runs, and `is_utf8` with no features, the module's own 16
 /// lanes, to judge `octets` alike.
 fn expect_alike(octets: []const u8) !void {
-    const reference = json.is_utf8(octets, codec.Features.none());
+    const reference = json.is_utf8(octets, platform.CpuFeatures.none());
     for (candidates_run()) |candidate| {
         if (candidate == .simdutf and !baselines.simdutf_built()) continue;
         const validate: Validate = .{ .octets = octets, .candidate = candidate, .features = features_of(candidate) };
@@ -214,7 +215,7 @@ fn time_row(arena: std.mem.Allocator, io: std.Io, octets: []const u8) !Row {
     var runs: [candidate_count][timing.run_count]f64 = undefined;
     timing.time_interleaved(io, &operations, &runs);
     var row: Row = .{};
-    const with_avx512 = codec.Features.detect().avx512;
+    const with_avx512 = platform.CpuFeatures.detect().avx512;
     for (all, runs) |candidate, candidate_runs| {
         if (candidate == .stdx_avx2 and !with_avx512) continue;
         const summary = timing.summarize(candidate_runs);

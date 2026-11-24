@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const claims = @import("../../claims.zig");
 const framing_file = @import("../../framing.zig");
@@ -138,8 +139,8 @@ const Lockstep = struct {
 /// slots a batch as the seed draws.
 fn expect_lockstep(comptime pair: Pair, framing: Framing, input: []const u8, seed: ?u64) !void {
     var lockstep: Lockstep = .{ .looped = undefined, .checked = undefined };
-    lockstep.looped.init(framing, codec.Features.detect());
-    lockstep.checked.init(framing, codec.Features.detect());
+    lockstep.looped.init(framing, platform.CpuFeatures.detect());
+    lockstep.checked.init(framing, platform.CpuFeatures.detect());
     var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const count = if (seed) |value| 1 + value % slots_max else slots_max;
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + output_len_max);
@@ -170,7 +171,7 @@ test "the loop takes each token of the texts as the checked path does, whole and
 test "the loop takes a text whole, from its record separator to its end, with none of its tokens left" {
     for ([_]Framing{ .text, .sequence }) |framing| {
         var decoder: Decoder = undefined;
-        decoder.init(framing, codec.Features.detect());
+        decoder.init(framing, platform.CpuFeatures.detect());
         var output: [output_len_max]u8 = undefined;
         var slots: [slots_max]Slot = undefined;
         // 21 tokens, with 16 octets after the last string, and whitespace after the text.
@@ -198,8 +199,8 @@ fn check_split(input: []const u8, split: usize) !void {
     inline for (pairs) |pair| {
         for ([_]Framing{ .text, .sequence }) |framing| {
             var lockstep: Lockstep = .{ .looped = undefined, .checked = undefined };
-            lockstep.looped.init(framing, codec.Features.detect());
-            lockstep.checked.init(framing, codec.Features.detect());
+            lockstep.looped.init(framing, platform.CpuFeatures.detect());
+            lockstep.checked.init(framing, platform.CpuFeatures.detect());
             var ended = try lockstep.call(pair, input, split, output_len_max, slots_max);
             for (0..input.len + 1) |_| {
                 if (ended) break;
@@ -211,7 +212,7 @@ fn check_split(input: []const u8, split: usize) !void {
 
 test "the loop takes strings with every escape it names and with UTF-8, none left to the checked path" {
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     var slots: [slots_max]Slot = undefined;
     // Four tokens and the text's end: `[`, the two strings, `]`.
@@ -230,7 +231,7 @@ const unicode_runs_from_end = 7;
 
 test "the loop takes runs of \\u escapes a pair at a time where it can, none left to the checked path" {
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     var slots: [slots_max]Slot = undefined;
     var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
@@ -244,7 +245,7 @@ test "the loop takes runs of \\u escapes a pair at a time where it can, none lef
 test "the loop takes a string whose ASCII past an escape fills a block before UTF-8 inside the next, none left" {
     const text = "[\"\\n0123456789abcdefghij\xc3\xa9\xe2\x82\xac0123456789abcdef\"]";
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     var slots: [slots_max]Slot = undefined;
     var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
@@ -259,7 +260,7 @@ test "the loop takes a long string of close escapes, none left to the checked pa
     const repeats = constants.escape_look_len_first / 4;
     const text = "[\"" ++ "k\\\"v\\n" ** repeats ++ "\",1]" ++ " " ** constants.vector_len;
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [text.len]u8 = undefined;
     var slots: [slots_max]Slot = undefined;
     var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
@@ -275,7 +276,7 @@ test "the loop takes a string whose blocks of 16 cut characters, none left to th
     const content = "\xe2\x82\xac" ** 10;
     const text = "[\"" ++ content ++ "\"]";
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     var slots: [slots_max]Slot = undefined;
     var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };
@@ -290,7 +291,7 @@ test "a long string that fills the output exactly is taken, and one octet more i
     const cases = [_]struct { room: usize, taken: usize }{ .{ .room = content.len, .taken = 1 }, .{ .room = content.len - 1, .taken = 0 } };
     for (cases) |case| {
         var decoder: Decoder = undefined;
-        decoder.init(.text, codec.Features.detect());
+        decoder.init(.text, platform.CpuFeatures.detect());
         var output: [output_len_max]u8 = undefined;
         var slots: [slots_max]Slot = undefined;
         const first = try decoder.decode(text, &output, .last);

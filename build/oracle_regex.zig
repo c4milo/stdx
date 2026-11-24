@@ -142,6 +142,7 @@ fn add_bench(b: *std.Build, step: *std.Build.Step, inputs: Inputs) void {
     });
     module.addImport("timing", inputs.timing);
     module.addImport("codec", inputs.graph.codec);
+    module.addImport("platform", inputs.graph.platform);
     module.addImport("regex", inputs.graph.regex);
     module.addImport("zig_regex", baseline_module(b, zig_regex.path("src/regex.zig"), inputs.baseline));
     module.addImport("mvzr", baseline_module(b, mvzr.path("src/mvzr.zig"), inputs.baseline));
@@ -187,6 +188,7 @@ fn add_check(b: *std.Build, step: *std.Build.Step, inputs: Inputs) void {
         .optimize = .ReleaseSafe,
     });
     module.addImport("codec", graph.codec);
+    module.addImport("platform", graph.platform);
     module.addImport("regex", graph.regex);
     module.addImport("oracle_regexp", oracle);
     module.addImport("verdicts", b.createModule(.{
@@ -216,6 +218,7 @@ pub fn add_tests(b: *std.Build) *std.Build.Step {
     for (tested) |entry| {
         const module = host_module(b, entry.root);
         if (entry.codec) module.addImport("codec", graph.codec);
+        if (entry.codec) module.addImport("platform", graph.platform);
         if (entry.regex) module.addImport("regex", graph.regex);
         if (entry.timing) module.addImport("timing", timing);
         if (entry.program) {

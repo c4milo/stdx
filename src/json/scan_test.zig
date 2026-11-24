@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const utf8 = @import("utf8");
 const scan = @import("scan.zig");
@@ -40,7 +41,7 @@ fn expect_same(input: []const u8) !void {
 /// The levels of claim J7 this CPU runs: the target's, and each wider one its features allow.
 fn levels_run() []const wide.Level {
     const levels = comptime std.enums.values(wide.Level);
-    return levels[0 .. @intFromEnum(wide.Level.of(codec.Features.detect())) + 1];
+    return levels[0 .. @intFromEnum(wide.Level.of(platform.CpuFeatures.detect())) + 1];
 }
 
 fn expect_same_hex(input: []const u8) !void {

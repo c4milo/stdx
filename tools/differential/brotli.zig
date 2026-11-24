@@ -17,6 +17,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
+const platform = @import("platform");
 const brotli = @import("brotli");
 const brotli_corrupt = @import("brotli_corrupt.zig");
 const verdicts = @import("verdicts");
@@ -82,10 +83,10 @@ pub fn check_stream(tally: *Tally, buffers: Buffers, name: []const u8, input: []
     const stream = buffers.stream[0..stream_len];
     const google = oracle.brotli_decode_verdict(stream, buffers.oracle_output);
     if (google.verdict != .ok or !std.mem.eql(u8, input, buffers.oracle_output[0..google.written])) return fail(tally, name, "Google's brotli", encoding, "did not decode its own stream");
-    buffers.decoders[0].init(codec.Features.detect());
+    buffers.decoders[0].init(platform.CpuFeatures.detect());
     const whole = buffers.decoders[0].decode_all(stream, buffers.output) catch |err| return fail(tally, name, "stdx whole", encoding, @errorName(err));
     if (whole.consumed != stream.len or !std.mem.eql(u8, input, buffers.output[0..whole.written])) return fail(tally, name, "stdx whole", encoding, "decoded other octets");
-    buffers.decoders[0].init(codec.Features.detect());
+    buffers.decoders[0].init(platform.CpuFeatures.detect());
     const outcome = codec.testing.split.drive(Decoder, buffers.decoders, step, stream, buffers.output, seed) catch |err| return fail(tally, name, "stdx split", encoding, @errorName(err));
     if (outcome.status != .done or !std.mem.eql(u8, input, buffers.output[0..outcome.written])) return fail(tally, name, "stdx split", encoding, "decoded other octets");
 }

@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const Framing = @import("../framing.zig").Framing;
 const encoder_file = @import("encoder.zig");
 const Encoder = encoder_file.Encoder;
@@ -53,7 +54,7 @@ const EncodeDrive = struct {
 fn encode_batches(framing: Framing, items: []const encoder_test.Item, output: []u8, seed: ?u64) !usize {
     var drive: EncodeDrive = .{ .items = items, .output = output };
     var states: [codec.testing.split.state_slots]Encoder = undefined;
-    states[0].init(framing, codec.Features.detect());
+    states[0].init(framing, platform.CpuFeatures.detect());
     var slot: usize = 0;
     var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * output.len;
@@ -105,7 +106,7 @@ test "batches write a record, and every list with escapes and refusals, as one t
 
 test "a batch that fills the output stops inside its item, and the next takes the rest" {
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     var output: [16]u8 = undefined;
     const items = [_]Encoder.Item{ .{ .token = .begin_array }, .{ .token = .{ .string = .last }, .octets = "abcdef" }, .{ .token = .end_array } };
     var batch = try encoder.encode_batch(&items, output[0..5]);
@@ -118,7 +119,7 @@ test "a batch that fills the output stops inside its item, and the next takes th
 
 test "a batch that meets a refusal fails, and leaves the encoder refused" {
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     var output: [16]u8 = undefined;
     const items = [_]Encoder.Item{ .{ .token = .begin_array }, .{ .token = .{ .number = .last }, .octets = "01" } };
     try testing.expectError(error.InvalidNumber, encoder.encode_batch(&items, &output));
@@ -128,10 +129,10 @@ test "a batch that meets a refusal fails, and leaves the encoder refused" {
 test "TextWriter's write_items writes a record as its one-token calls do, or fails whole" {
     const items = [_]Encoder.Item{ .{ .token = .begin_object }, .{ .token = .{ .name = .last }, .octets = "n" }, .{ .token = .{ .unsigned = 42 } }, .{ .token = .end_object } };
     var buffer: [text_len_max]u8 = undefined;
-    var text = TextWriter.init(&buffer, .sequence, codec.Features.detect());
+    var text = TextWriter.init(&buffer, .sequence, platform.CpuFeatures.detect());
     try text.write_items(&items);
     try testing.expectEqualStrings("\x1e{\"n\":42}\n", text.written());
-    var short = TextWriter.init(buffer[0..4], .sequence, codec.Features.detect());
+    var short = TextWriter.init(buffer[0..4], .sequence, platform.CpuFeatures.detect());
     try testing.expectError(error.NoSpaceLeft, short.write_items(&items));
 }
 

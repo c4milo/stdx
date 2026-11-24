@@ -6,6 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const utf8 = @import("utf8");
 const scan_utf8 = @import("scan_utf8.zig");
@@ -141,7 +142,7 @@ const AtLevel = struct {
 /// Every level of the check this CPU runs, the widest its features name and those below it.
 fn levels_run() []const wide.CheckLevel {
     const levels = comptime std.enums.values(wide.CheckLevel);
-    return levels[0 .. @intFromEnum(wide.CheckLevel.of(codec.Features.detect())) + 1];
+    return levels[0 .. @intFromEnum(wide.CheckLevel.of(platform.CpuFeatures.detect())) + 1];
 }
 
 test "valid_by judges a sequence on every lane at 32 and 64 lanes as the machine does, by the compares" {

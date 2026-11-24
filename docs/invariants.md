@@ -43,15 +43,18 @@ check lands with its step.
   AT_HWCAP says that the kernel does.
 - **Mechanism.** No source names `std.posix`, `std.os`, `std.c`, `std.fs`, `std.net`,
   `std.Thread`, `std.Io`, `std.process`, `std.log` or `std.debug.print` (decision 2), but for
-  `getauxval`, which reads memory (decision 21), and `sysctlbyname` in `src/platform/`. No module
-  imports `platform` (INV-14), so no codec path reaches the syscall. Three chains under `std.Io`
-  are allowed whole: `std.Io.Reader`, `std.Io.Writer` and `std.Io.Limit`. The adapters of
-  decision 56 implement them, and they reach the host only through a vtable the caller supplies.
+  `getauxval`, which reads memory (decision 21), and `sysctlbyname`, both in `src/platform/` alone
+  (decisions 21 and 40 as amended on 2026-11-24). The codecs import `platform` for the type
+  `CpuFeatures`, and outside `platform` only a test calls `probe` or `CpuFeatures.detect`
+  (INV-14), so no codec path reaches the syscall. Three chains under `std.Io` are allowed whole:
+  `std.Io.Reader`, `std.Io.Writer` and `std.Io.Limit`. The adapters of decision 56 implement
+  them, and they reach the host only through a vtable the caller supplies.
 - **Check.** Lint rule `tools/lint/io.zig`, step 0. It reads `src/platform/` under a configuration
   of its own, and its tests require every other module's files to refuse `sysctlbyname` and
-  `platform`'s to refuse every other chain on the list (step 20).
+  `getauxval`, and `platform`'s to refuse every other chain on the list (step 20). Lint rule
+  `tools/lint/cpu_probe.zig` refuses a call of the probe outside `platform` (INV-14).
 - **Violation.** A debug print left in a decoder, a helper that decodes a file, or a codec that
-  imports `platform` to read the CPU for each message.
+  calls `platform.probe()` or `platform.CpuFeatures.detect()` to read the CPU for each message.
 
 ### INV-3: no source reads a clock or randomness
 
@@ -82,7 +85,7 @@ check lands with its step.
 - **Check.** Seeded check (decision 15): the same input under many seeded splits gives the same
   octets; the SHA-256 of every encoder output over the corpora is committed and must match on macOS
   arm64 and Linux x86_64, in Debug and ReleaseSafe. Steps 5 and 9. The `json` module's round trip
-  requires the same octets and tokens under `codec.Features.none()`, `target()` and `detect()`
+  requires the same octets and tokens under `platform.CpuFeatures.none()`, `target()` and `detect()`
   (decision 30, `src/json/round_trip_test.zig`).
 - **Violation.** An encoder that ends a block when its input buffer runs dry, so a caller feeding
   one octet at a time gets different octets.
@@ -216,16 +219,24 @@ check lands with its step.
 ### INV-14: each library module imports only what design §3 gives it, and no package
 
 - **Claim.** The wrappers build on `deflate` and never the reverse, the codecs do not reach one
-  another, no codec reaches `json`, no module reaches `platform`, and no library module receives
-  pepegrillo, an oracle or a corpus.
-- **Mechanism.** A module can import only what `build/modules.zig` gives it.
+  another, no codec reaches `json`, and no library module receives pepegrillo, an oracle or a
+  corpus. A module reaches `platform` only for the type `CpuFeatures`, and outside `platform` only
+  a test under `src/` calls `probe` or `CpuFeatures.detect` (decisions 21 and 40 as amended on
+  2026-11-24).
+- **Mechanism.** A module can import only what `build/modules.zig` gives it. `platform` imports
+  nothing, so a module that imports it reaches no other module through it. The graph gives the
+  codecs `platform`, and with it the probe, so a lint rule refuses the calls.
 - **Check.** Lint rule `tools/lint/module_graph.zig` pins the graph; `zig build graph-check`
-  compiles fixtures that import a wrapper, another codec, `json`, `base64`, `platform`, `regex`,
-  `utf8`, a package and the oracle bindings from inside `src/deflate/`, and requires each compile
-  to fail, beside a control that must compile. A module with no fixture fails the check: until
-  step 22 part 22k, `base64` and `regex` had none, and a compile of a file that is not there
-  passed as a refusal. Steps 0, 2, 20 and 22.
-- **Violation.** `deflate.addImport("checksum", checksum)` to share a helper.
+  compiles fixtures that import a wrapper, another codec, `json`, `base64`, `regex`, `utf8`,
+  `unicode`, a package and the oracle bindings from inside `src/deflate/`, and requires each
+  compile to fail, beside controls that import `codec` and `platform` and must compile. A module
+  with no fixture fails the check: until step 22 part 22k, `base64` and `regex` had none, and a
+  compile of a file that is not there passed as a refusal. Lint rule `tools/lint/cpu_probe.zig`
+  refuses `platform.probe` and `platform.CpuFeatures.detect` under `src/` outside `platform`, as
+  written or through a file-level alias, and any call of a function named `detect`, with the test
+  files and the `test` blocks left out. Steps 0, 2, 20 and 22.
+- **Violation.** `deflate.addImport("checksum", checksum)` to share a helper, or a codec's `init`
+  that calls `platform.CpuFeatures.detect()` in place of the features its caller passed.
 
 ### INV-15: no source names a consumer
 

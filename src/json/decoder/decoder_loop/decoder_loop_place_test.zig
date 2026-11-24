@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const claims = @import("../../claims.zig");
 const Framing = @import("../../framing.zig").Framing;
 const decoder_file = @import("../decoder.zig");
@@ -162,8 +163,8 @@ fn expect_within(outer: []const u8, octets: []const u8) !void {
 /// call, to the text's end or the first token the checked path leaves unfinished.
 fn expect_in_place(comptime base: claims.Claims, framing: Framing, input: []const u8, room_len: usize, count: usize) !void {
     var placed: Placed = .{ .decoder = undefined, .reference = undefined, .input = input, .room_len = room_len, .count = count };
-    placed.decoder.init(framing, codec.Features.detect());
-    placed.reference.init(framing, codec.Features.detect());
+    placed.decoder.init(framing, platform.CpuFeatures.detect());
+    placed.reference.init(framing, platform.CpuFeatures.detect());
     for (0..input.len + 1) |_| {
         if (!try placed.call(base)) return;
     }
@@ -189,7 +190,7 @@ test "the loop in place takes each token of the texts as the checked path does" 
 
 test "the loop in place leaves a text's names, strings and numbers in the input, and takes its end" {
     var decoder: Decoder = undefined;
-    decoder.init(.sequence, codec.Features.detect());
+    decoder.init(.sequence, platform.CpuFeatures.detect());
     const text = "\x1e{\"time\":1234.567,\"name\":\"transport:packet_sent\",\"fin\":false}\n";
     var room: [room_len_max]u8 = @splat(0xaa);
     var items: [slots_max]Item = undefined;
@@ -208,7 +209,7 @@ test "the loop in place stops at a string of UTF-8 and at one with an escape" {
     inline for (bases) |base| {
         for ([_][]const u8{ "[\"ok\",\"caf\xc3\xa9\"]", "[\"ok\",\"tab\\t\"]" }) |text| {
             var decoder: Decoder = undefined;
-            decoder.init(.text, codec.Features.detect());
+            decoder.init(.text, platform.CpuFeatures.detect());
             var room: [room_len_max]u8 = @splat(0xaa);
             var items: [slots_max]Item = undefined;
             var cursor: token_loop.Cursor = .{ .consumed = 0, .written = 0 };

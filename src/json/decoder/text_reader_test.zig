@@ -15,6 +15,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const claims = @import("../claims.zig");
 const Framing = @import("../framing.zig").Framing;
 const decoder_file = @import("decoder.zig");
@@ -119,7 +120,7 @@ pub fn expect_same_item(expected: TextReader.Item, got: TextReader.Item) !void {
 /// and on how many texts `input` holds.
 fn expect_next(framing: Framing, input: []const u8, room_len: usize) !void {
     var storage: [content_len_max]u8 = undefined;
-    var reader = TextReader.init(input, storage[0..room_len], framing, codec.Features.detect());
+    var reader = TextReader.init(input, storage[0..room_len], framing, platform.CpuFeatures.detect());
     var reference: Decoder = undefined;
     var consumed: usize = 0;
     // A text takes an octet at least, so `input` holds no more texts than octets, and one call
@@ -128,7 +129,7 @@ fn expect_next(framing: Framing, input: []const u8, room_len: usize) !void {
         const more = if (framing == .text) index == 0 else consumed < input.len;
         try testing.expectEqual(more, reader.next_text());
         if (!more) return;
-        reference.init(framing, codec.Features.detect());
+        reference.init(framing, platform.CpuFeatures.detect());
         if (!try expect_text(&reader, &reference, input, &consumed, room_len)) return;
     }
     return error.TestNoProgress;
@@ -228,7 +229,7 @@ test "next_text takes a text's start where it needs no verdict, and leaves every
     };
     var storage: [short_room_len_max]u8 = undefined;
     for (starts) |start| {
-        var reader = TextReader.init(start.input, &storage, start.framing, codec.Features.detect());
+        var reader = TextReader.init(start.input, &storage, start.framing, platform.CpuFeatures.detect());
         try testing.expect(reader.next_text());
         try testing.expectEqual(start.taken, reader.decoder.stage == .tokens);
         try testing.expectEqual(start.consumed, reader.consumed_len());
@@ -242,7 +243,7 @@ test "next leaves a name, a string or a number in the input where the text holds
     // The first three texts hold no escape and no non-ASCII octet.
     for (texts[0..3]) |text| {
         var storage: [content_len_max]u8 = @splat(unwritten);
-        var reader = TextReader.init(text, &storage, .text, codec.Features.detect());
+        var reader = TextReader.init(text, &storage, .text, platform.CpuFeatures.detect());
         try testing.expect(reader.next_text());
         var placed: usize = 0;
         for (0..text.len) |_| {
@@ -257,7 +258,7 @@ test "next leaves a name, a string or a number in the input where the text holds
     }
     // An escape changes a string's octets, so they go into the storage.
     var storage: [content_len_max]u8 = undefined;
-    var reader = TextReader.init("[\"tab\\t\"]", &storage, .text, codec.Features.detect());
+    var reader = TextReader.init("[\"tab\\t\"]", &storage, .text, platform.CpuFeatures.detect());
     try testing.expect(reader.next_text());
     try testing.expectEqual(.begin_array, std.meta.activeTag((try reader.next()).?));
     const changed = (try reader.next()).?.string;
@@ -308,7 +309,7 @@ fn expect_entries(expected: []const Entry, got: []const Entry) !void {
 /// `expected` holds, and the original to read the same after the copy did.
 fn expect_copy_reads_ahead(text: []const u8, ahead: usize, expected: []const Entry) !void {
     var storage: [content_len_max]u8 = undefined;
-    var reader = TextReader.init(text, &storage, .text, codec.Features.detect());
+    var reader = TextReader.init(text, &storage, .text, platform.CpuFeatures.detect());
     try testing.expect(reader.next_text());
     var got: [entries_max]Entry = undefined;
     for (0..ahead) |_| _ = try reader.next();
@@ -321,7 +322,7 @@ fn expect_copy_reads_ahead(text: []const u8, ahead: usize, expected: []const Ent
 test "a copy of a reader reads ahead, and the original reads on as if the copy had not" {
     for (texts) |text| {
         var storage: [content_len_max]u8 = undefined;
-        var whole = TextReader.init(text, &storage, .text, codec.Features.detect());
+        var whole = TextReader.init(text, &storage, .text, platform.CpuFeatures.detect());
         try testing.expect(whole.next_text());
         var expected: [entries_max]Entry = undefined;
         const count = read_on(&whole, &expected);

@@ -9,6 +9,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const claims = @import("claims.zig");
 const wide = @import("wide.zig");
@@ -24,7 +25,7 @@ const string_blocks_max = 8;
 const string_len_max = string_blocks_max * wide_len;
 
 fn level_here() wide.Level {
-    return wide.Level.of(codec.Features.detect());
+    return wide.Level.of(platform.CpuFeatures.detect());
 }
 
 /// Requires `copy_rest` to copy `rest` alike at both widths into `room_len` octets: the same

@@ -5,6 +5,7 @@
 //! allow, and its escapes and UTF-8 by decoder_loop_string.zig. A block's store runs past the
 //! string's end into room the call does not report written (decision 11).
 
+const platform = @import("platform");
 const constants = @import("../../constants.zig");
 const scan = @import("../../scan.zig");
 const wide = @import("../../wide.zig");
@@ -188,7 +189,7 @@ inline fn copy_rest(comptime claims: Claims, level: wide.Level, content: []const
 
 test "the long run's copy ends at a stop, at the input's end or at the room's, and copies up to there" {
     const testing = @import("std").testing;
-    const level = wide.Level.of(@import("codec").Features.detect());
+    const level = wide.Level.of(platform.CpuFeatures.detect());
     const head_len = constants.wide_run_len_min;
     var content: [5 * constants.wide_run_len_min]u8 = @splat('a');
     var room: [content.len]u8 = @splat(0);

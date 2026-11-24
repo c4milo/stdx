@@ -17,11 +17,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const status = @import("status.zig");
-const Features = @import("features.zig").Features;
+const platform = @import("platform");
+const CpuFeatures = platform.CpuFeatures;
 
 const Writer = std.Io.Writer;
 
-/// `Encoder` has `init(*Encoder, Features)`, `encode(*Encoder, input, output, Flush)` and
+/// `Encoder` has `init(*Encoder, CpuFeatures)`, `encode(*Encoder, input, output, Flush)` and
 /// `encoded_len_max(input_len)`. `held_len_max` is the most input octets it holds back between
 /// calls, which a flush must still write.
 pub fn IoWriter(comptime Encoder: type, comptime held_len_max: usize) type {
@@ -43,7 +44,7 @@ pub fn IoWriter(comptime Encoder: type, comptime held_len_max: usize) type {
         /// Starts the writer over `destination`, whose buffer holds at least one octet. `buffer` is
         /// the writer's own, which gathers small writes before the encoder takes them; it may be
         /// empty.
-        pub fn init(self: *Self, destination: *Writer, buffer: []u8, features: Features) void {
+        pub fn init(self: *Self, destination: *Writer, buffer: []u8, features: CpuFeatures) void {
             // `writableSliceGreedy` hands out the destination's buffer.
             assert(destination.buffer.len > 0);
             self.interface = .{ .vtable = &vtable, .buffer = buffer, .end = 0 };

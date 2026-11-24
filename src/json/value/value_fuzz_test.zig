@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const Decimal = @import("../format.zig").Decimal;
 const Piece = @import("../framing.zig").Piece;
 const value_decoder = @import("value_decoder.zig");
@@ -50,7 +51,7 @@ const flip_octets = "{}[]:,\"\\ 0123-.enul\x00\xff";
 fn decode_split(input: []const u8, seed: u64, storage: []u8, record: *Record) value_decoder.Error!bool {
     var generator = codec.testing.split.Generator.init(seed);
     var state: value_decoder.ValueDecoder(Record) = undefined;
-    state.init(.text, codec.Features.none());
+    state.init(.text, platform.CpuFeatures.none());
     var consumed: usize = 0;
     // A drawn piece may be empty, so the last call takes the rest whatever the draws were.
     const calls = split_calls_per_octet * (input.len + 1);
@@ -68,7 +69,7 @@ fn decode_split(input: []const u8, seed: u64, storage: []u8, record: *Record) va
 
 fn check(input: []const u8, seed: u64) !void {
     var storage: [storage_len]u8 = undefined;
-    const whole = value_decoder.decode_value(Record, input, &storage, .text, codec.Features.none());
+    const whole = value_decoder.decode_value(Record, input, &storage, .text, platform.CpuFeatures.none());
     var split_storage: [storage_len]u8 = undefined;
     var split_record: Record = undefined;
     const split = decode_split(input, seed, &split_storage, &split_record);
@@ -79,13 +80,13 @@ fn check(input: []const u8, seed: u64) !void {
     };
     try testing.expect(try split);
     var output: [output_len]u8 = undefined;
-    const text = try value_encoder.encode_value(Record, &record, &output, .text, codec.Features.none());
+    const text = try value_encoder.encode_value(Record, &record, &output, .text, platform.CpuFeatures.none());
     var split_output: [output_len]u8 = undefined;
-    try testing.expectEqualStrings(text, try value_encoder.encode_value(Record, &split_record, &split_output, .text, codec.Features.none()));
+    try testing.expectEqualStrings(text, try value_encoder.encode_value(Record, &split_record, &split_output, .text, platform.CpuFeatures.none()));
     var again_storage: [storage_len]u8 = undefined;
-    const again = try value_decoder.decode_value(Record, text, &again_storage, .text, codec.Features.none());
+    const again = try value_decoder.decode_value(Record, text, &again_storage, .text, platform.CpuFeatures.none());
     var again_output: [output_len]u8 = undefined;
-    try testing.expectEqualStrings(text, try value_encoder.encode_value(Record, &again, &again_output, .text, codec.Features.none()));
+    try testing.expectEqualStrings(text, try value_encoder.encode_value(Record, &again, &again_output, .text, platform.CpuFeatures.none()));
 }
 
 test "every seeded corruption of a valid text decodes alike whole and split" {

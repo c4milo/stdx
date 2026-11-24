@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const claims = @import("../claims.zig");
 const constants = @import("../constants.zig");
 const Framing = @import("../framing.zig").Framing;
@@ -75,9 +76,9 @@ fn expect_same_reading(text: *const Encoder, reference: *const Encoder) !void {
 fn expect_empty(framing: Framing, items: []const Item, room_len: usize) !?usize {
     var output: [text_len_max]u8 = undefined;
     var reference_output: [text_len_max]u8 = undefined;
-    var text = TextWriter.init(output[0..room_len], framing, codec.Features.detect());
+    var text = TextWriter.init(output[0..room_len], framing, platform.CpuFeatures.detect());
     var reference: Encoder = undefined;
-    reference.init(framing, codec.Features.detect());
+    reference.init(framing, platform.CpuFeatures.detect());
     var written: usize = 0;
     var index: usize = 0;
     for (0..items.len) |_| {
@@ -138,9 +139,9 @@ test "an empty container in one call writes what its opening and its end write, 
 test "an empty container at the depth limit is refused as its opening is" {
     var output: [3 * constants.depth_max]u8 = undefined;
     inline for (.{ "empty_object", "empty_array" }) |method| {
-        var text = TextWriter.init(&output, .text, codec.Features.detect());
+        var text = TextWriter.init(&output, .text, platform.CpuFeatures.detect());
         for (0..constants.depth_max) |_| try text.begin_array();
-        var reference = TextWriter.init(&output, .text, codec.Features.detect());
+        var reference = TextWriter.init(&output, .text, platform.CpuFeatures.detect());
         for (0..constants.depth_max) |_| try reference.begin_array();
         const opened = if (comptime std.mem.eql(u8, method, "empty_object")) reference.begin_object() else reference.begin_array();
         if (opened) |_| return error.TestUnexpectedResult else |refusal| try testing.expectError(refusal, @field(TextWriter, method)(&text));

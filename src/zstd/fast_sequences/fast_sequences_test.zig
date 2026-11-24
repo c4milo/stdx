@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const fse = @import("../fse.zig");
 const sequences = @import("../sequences.zig");
@@ -235,7 +236,7 @@ fn expect_alike(shape: Shape, seed: u64) !void {
     try testing.expectEqual(checked.work, decoder.work);
     var split_output: [output_capacity]u8 = undefined;
     var states: [codec.testing.split.state_slots]Decoder = undefined;
-    states[0].init(codec.Features.detect());
+    states[0].init(platform.CpuFeatures.detect());
     const outcome = try codec.testing.split.drive(Decoder, &states, step, frame.written(), &split_output, seed);
     try testing.expectEqual(.done, outcome.status);
     try testing.expectEqualSlices(u8, output[0..decoded_len], split_output[0..outcome.written]);
@@ -267,7 +268,7 @@ fn expect_refused(shape: Shape, seed: u64, refusal: anyerror) !void {
     var checked: CheckedDecoder = undefined;
     checked.init(.{});
     try testing.expectError(refusal, checked.decode(frame.written(), &output));
-    for ([_]codec.Features{ .{}, codec.Features.detect() }) |features| {
+    for ([_]platform.CpuFeatures{ .{}, platform.CpuFeatures.detect() }) |features| {
         var decoder: Decoder = undefined;
         decoder.init(features);
         try testing.expectError(refusal, decoder.decode(frame.written(), &output));
@@ -285,7 +286,7 @@ fn expect_same(shape: Shape, seed: u64) !void {
     var checked: CheckedDecoder = undefined;
     checked.init(.{});
     const slow = checked.decode(frame.written(), &checked_output);
-    for ([_]codec.Features{ .{}, codec.Features.detect() }) |features| {
+    for ([_]platform.CpuFeatures{ .{}, platform.CpuFeatures.detect() }) |features| {
         var output: [output_capacity]u8 = undefined;
         var decoder: Decoder = undefined;
         decoder.init(features);

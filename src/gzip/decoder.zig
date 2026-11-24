@@ -11,6 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const checksum = @import("checksum");
 const deflate = @import("deflate");
 const constants = @import("constants.zig");
@@ -68,7 +69,7 @@ pub const Decoder = struct {
     crc32_path: checksum.Crc32Path,
 
     /// Starts a member. Writes no octet of the window (decision 11).
-    pub fn init(self: *Decoder, features: codec.Features) void {
+    pub fn init(self: *Decoder, features: platform.CpuFeatures) void {
         self.stream.init(features);
         self.phase = .header;
         self.flags = 0;

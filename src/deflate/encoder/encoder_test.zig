@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const decoder = @import("../decoder/decoder.zig");
 const encoder_module = @import("encoder.zig");
@@ -59,7 +60,7 @@ fn write_words(target: []u8, generator: *codec.testing.split.Generator) void {
 pub fn expect_decodes_to(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max + 1]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const whole = try state.decode_all(stream, &output);
     try testing.expectEqual(stream.len, whole.consumed);
     try testing.expectEqualSlices(u8, expected, output[0..whole.written]);
@@ -157,7 +158,7 @@ test "after each flush the output so far decodes to the input so far, and splits
 pub fn expect_prefix_decodes(stream: []const u8, expected: []const u8) !void {
     var output: [input_len_max]u8 = undefined;
     var state: decoder.Decoder = undefined;
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const progress = try state.decode(stream, &output);
     try testing.expectEqual(.needs_input, progress.status);
     try testing.expectEqualSlices(u8, expected, output[0..progress.written]);

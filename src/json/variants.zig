@@ -2,7 +2,7 @@
 //! file for the one x86-64 level claim J7 takes, AVX2, for a CPU with its features and with
 //! `@import("variant_level").level` naming it, and links the object into the json module.
 //!
-//! The module calls a level's scans only when the caller's `codec.Features` name the level
+//! The module calls a level's scans only when the caller's `platform.CpuFeatures` name the level
 //! (wide.zig).
 
 const std = @import("std");

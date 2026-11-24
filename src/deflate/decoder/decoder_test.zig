@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const deflate = @import("decoder.zig");
 const Decoder = deflate.Decoder;
@@ -24,7 +25,7 @@ pub const assign_codes = test_stream.assign_codes;
 /// A decoder with the CPU's features, so it runs the assembly of decision 29 wherever the CPU does.
 fn fresh() Decoder {
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     return decoder;
 }
 
@@ -94,7 +95,7 @@ pub fn expect_decodes(input: []const u8, expected: []const u8) !void {
         for (0..split_seeds) |seed| {
             var states: [codec.testing.split.state_slots]Decoder = undefined;
             // The CPU's features, so the splits run the assembly of decision 29 where it does.
-            states[0].init(codec.Features.detect());
+            states[0].init(platform.CpuFeatures.detect());
             var split_output: [output_len_max]u8 = undefined;
             const outcome = try codec.testing.split.drive(Decoder, &states, split_step, input, split_output[0..expected.len], seed);
             try testing.expectEqual(codec.Status.done, outcome.status);
@@ -140,7 +141,7 @@ pub fn expect_refused(input: []const u8, expected: deflate.Error) !void {
         for (0..split_seeds) |seed| {
             var states: [codec.testing.split.state_slots]Decoder = undefined;
             // The CPU's features, so the splits run the assembly of decision 29 where it does.
-            states[0].init(codec.Features.detect());
+            states[0].init(platform.CpuFeatures.detect());
             try testing.expectError(expected, codec.testing.split.drive(Decoder, &states, split_step, input, &output, seed));
         }
     }
@@ -299,7 +300,7 @@ test "invariant 10: a distance past the stream's start is refused, and the old w
     const marker = 0x5a;
     var decoder: Decoder = undefined;
     @memset(std.mem.asBytes(&decoder), marker);
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var output: [16]u8 = @splat(0);
     try testing.expectError(error.DistanceTooFar, decoder.decode(stream.slice(), &output));
     try testing.expect(std.mem.indexOfScalar(u8, &output, marker) == null);
@@ -322,23 +323,23 @@ test "a distance past the window a container declares is refused, and one at its
     var output: [output_len_max]u8 = undefined;
     var at_edge: Stream = .{};
     literals_then_pair(&at_edge, 256);
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     decoder.limit_window(256);
     const progress = try decoder.decode(at_edge.slice(), &output);
     try testing.expectEqual(codec.Status.done, progress.status);
     try testing.expectEqual(303, progress.written);
     var past_edge: Stream = .{};
     literals_then_pair(&past_edge, 257);
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     decoder.limit_window(256);
     try testing.expectError(error.DistanceTooFar, decoder.decode(past_edge.slice(), &output));
     // Padded, so the fast path meets the pair with its margins held.
     var buffer: [padded_len_max]u8 = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     decoder.limit_window(256);
     try testing.expectError(error.DistanceTooFar, decoder.decode(padded(past_edge.slice(), &buffer), &output));
     // Without the limit, the whole window is in reach.
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     try testing.expectEqual(codec.Status.done, (try decoder.decode(past_edge.slice(), &output)).status);
 }
 
@@ -407,7 +408,7 @@ test "a distance of 32,768, the whole window, is in reach without a limit (RFC 1
     const input_len = stored_header_len + constants.window_len + tail.slice().len;
     @memcpy(input[stored_header_len + constants.window_len .. input_len], tail.slice());
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var output: [constants.window_len + 3]u8 = undefined;
     const progress = try decoder.decode(input[0..input_len], &output);
     try testing.expectEqual(codec.Status.done, progress.status);

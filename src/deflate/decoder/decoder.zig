@@ -12,6 +12,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const huffman = @import("../huffman.zig");
 const lookup = @import("../lookup.zig");
@@ -104,7 +105,7 @@ pub const Decoder = struct {
     /// the checked path reads the window (decision 14, S5).
     window_synced: usize,
     /// The caller's CPU features (decision 21), which the fast path of design §8 step 7 reads.
-    features: codec.Features,
+    features: platform.CpuFeatures,
     /// The bits the fast path decoded since the last combination of a block's tables (S11), which
     /// the next is due after (`constants.combine_bits_min`), and whether this call made the one
     /// combination its long input allows (`constants.combine_input_min`).
@@ -116,7 +117,7 @@ pub const Decoder = struct {
     work: huffman.Work,
 
     /// Starts a stream. Writes no octet of the window (decision 11).
-    pub fn init(self: *Decoder, features: codec.Features) void {
+    pub fn init(self: *Decoder, features: platform.CpuFeatures) void {
         self.window.init();
         self.bits = .{};
         self.phase = .block_header;

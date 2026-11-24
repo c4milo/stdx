@@ -25,6 +25,7 @@ pub fn add(b: *std.Build, step: *std.Build.Step, inputs: Inputs) void {
     module.addImport("oracle", inputs.oracle);
     module.addImport("corpus", inputs.corpus_names);
     module.addImport("codec", inputs.graph.codec);
+    module.addImport("platform", inputs.graph.platform);
     module.addImport("zstd", inputs.graph.zstd);
     const check = b.addExecutable(.{ .name = "differential_zstd_encode", .root_module = module });
     const run = b.addRunArtifact(check);

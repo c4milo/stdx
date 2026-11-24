@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const base64 = @import("base64");
 const constants = @import("../../constants.zig");
 const format = @import("../../format.zig");
@@ -21,7 +22,7 @@ const Loop = encoder_loop.Loop;
 /// The CPU features the base 64 encoder starts with: AVX2 where the JSON encoder's level is. Both
 /// take their wide path on x86-64 alone, and only with the caller's AVX2 (wide.zig, and the
 /// base64 module's encoder), so the level says all the base 64 encoder reads.
-pub fn features_of(level: wide.Level) codec.Features {
+pub fn features_of(level: wide.Level) platform.CpuFeatures {
     return .{ .avx2 = level == .avx2 };
 }
 
@@ -88,7 +89,7 @@ comptime {
 test "take_letters writes a whole value where the room holds it, and nothing where it does not" {
     const testing = std.testing;
     var encoder: Encoder = undefined;
-    encoder.init(.text, codec.Features.detect());
+    encoder.init(.text, platform.CpuFeatures.detect());
     var output: [constants.base64_piece_letters]u8 = @splat(0);
     var written: usize = 0;
     // "foo" is `"Zm9v"`, six octets: five leave it, and its state and the output as they were.

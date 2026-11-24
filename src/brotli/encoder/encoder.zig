@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const encoder_commands = @import("encoder_commands.zig");
 const encoder_meta_block = @import("encoder_meta_block.zig");
@@ -125,7 +126,7 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         /// Starts a stream and clears the match finder's tables. Writes no octet of the window
         /// (decision 11). `features` are the CPU's, which every stdx codec's `init` takes; the
         /// brotli encoder reads none of them.
-        pub fn init(self: *Self, features: codec.Features) void {
+        pub fn init(self: *Self, features: platform.CpuFeatures) void {
             _ = features;
             self.matcher.init();
             self.begin_stream();

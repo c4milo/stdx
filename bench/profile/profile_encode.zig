@@ -11,6 +11,7 @@
 const std = @import("std");
 const oracle = @import("oracle");
 const codec = @import("codec");
+const platform = @import("platform");
 const gzip = @import("gzip");
 const baselines = @import("baselines");
 const timing = @import("timing");
@@ -44,7 +45,7 @@ fn Stdx(comptime level: u4) type {
 
         output: []u8,
         encoder: *Encoder,
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         pub fn run(self: *const Self, input: []const u8) ?usize {
             self.encoder.init(self.features);
@@ -69,7 +70,7 @@ fn report_row(comptime level: u4, arena: std.mem.Allocator, out: *std.Io.Writer,
     const StdxLevel = Stdx(level);
     const output_len = @max(baselines.libdeflate_gzip_bound(input.part_len), StdxLevel.Encoder.encoded_len_max(input.part_len));
     const libdeflate: Libdeflate = .{ .output = try arena.alloc(u8, output_len), .level = level };
-    const stdx: StdxLevel = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(StdxLevel.Encoder), .features = codec.Features.detect() };
+    const stdx: StdxLevel = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(StdxLevel.Encoder), .features = platform.CpuFeatures.detect() };
     const decoded = try arena.alloc(u8, input.part_len);
     const rounds = @max(1, encoded_input_len_min / @max(1, input.len()));
     inline for (.{ libdeflate, stdx }, .{ "libdeflate", "stdx" }) |candidate, name| {

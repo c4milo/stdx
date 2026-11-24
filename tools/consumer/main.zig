@@ -23,7 +23,7 @@ const log_codes = 3;
 const instructions_len = 256;
 
 /// Decodes the gzip file `body` into `output`, and returns the decoded octets.
-fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
+fn gunzip(features: stdx.platform.CpuFeatures, body: []const u8, output: []u8) ![]u8 {
     var decoder: stdx.compress.gzip.Decoder = undefined; // about 44 KiB
     decoder.init(features);
     const whole = try decoder.decode_all(body, output);
@@ -32,7 +32,7 @@ fn gunzip(features: stdx.codec.Features, body: []const u8, output: []u8) ![]u8 {
 
 /// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 4 MiB
 /// of it is the default cache, and a smaller cache costs speed, never an answer.
-fn count_matches(gpa: std.mem.Allocator, features: stdx.codec.Features, pattern: []const u8, haystack: []const u8) !u64 {
+fn count_matches(gpa: std.mem.Allocator, features: stdx.platform.CpuFeatures, pattern: []const u8, haystack: []const u8) !u64 {
     var storage: [instructions_len]stdx.regex.Instruction = undefined;
     const program = try stdx.regex.compile(pattern, .{}, &storage);
     const cache_words = stdx.regex.constants.cache_words_default;
@@ -45,7 +45,7 @@ fn count_matches(gpa: std.mem.Allocator, features: stdx.codec.Features, pattern:
 }
 
 pub fn main(init: std.process.Init) !void {
-    const features = stdx.codec.Features.detect();
+    const features = stdx.platform.CpuFeatures.detect();
     const Encoder = stdx.compress.gzip.Encoder(.{});
     const encoder = try init.gpa.create(Encoder);
     defer init.gpa.destroy(encoder);

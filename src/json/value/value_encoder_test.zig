@@ -4,6 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const Decimal = @import("../format.zig").Decimal;
 const value_encoder = @import("value_encoder.zig");
 
@@ -44,13 +45,13 @@ test "a value of every shape encodes to its text, whole and under any split of t
     ;
 
     var output: [256]u8 = undefined;
-    const text = try value_encoder.encode_value(Record, &record, &output, .text, codec.Features.none());
+    const text = try value_encoder.encode_value(Record, &record, &output, .text, platform.CpuFeatures.none());
     try testing.expectEqualStrings(record_text, text);
-    try testing.expectError(error.NoSpaceLeft, value_encoder.encode_value(Record, &record, output[0..10], .text, codec.Features.none()));
+    try testing.expectError(error.NoSpaceLeft, value_encoder.encode_value(Record, &record, output[0..10], .text, platform.CpuFeatures.none()));
     var generator = codec.testing.split.Generator.init(61);
     for (0..200) |_| {
         var state: value_encoder.ValueEncoder(Record) = undefined;
-        state.init(.text, codec.Features.none());
+        state.init(.text, platform.CpuFeatures.none());
         var written: usize = 0;
         // A drawn piece may have no room, so the last call takes the rest whatever the draws were.
         const calls = 4 * output.len;
@@ -68,20 +69,20 @@ test "a value of every shape encodes to its text, whole and under any split of t
 
 test "a scalar and an array encode at the top" {
     var output: [32]u8 = undefined;
-    try testing.expectEqualStrings("42", try value_encoder.encode_value(u8, &42, &output, .text, codec.Features.none()));
+    try testing.expectEqualStrings("42", try value_encoder.encode_value(u8, &42, &output, .text, platform.CpuFeatures.none()));
     const list = [_]bool{ true, false };
-    try testing.expectEqualStrings("[true,false]", try value_encoder.encode_value([2]bool, &list, &output, .text, codec.Features.none()));
+    try testing.expectEqualStrings("[true,false]", try value_encoder.encode_value([2]bool, &list, &output, .text, platform.CpuFeatures.none()));
 }
 
 test "a string that is not UTF-8 is refused" {
     var output: [64]u8 = undefined;
     const Named = struct { name: []const u8 };
-    try testing.expectError(error.InvalidUtf8, value_encoder.encode_value(Named, &.{ .name = "\xff" }, &output, .text, codec.Features.none()));
+    try testing.expectError(error.InvalidUtf8, value_encoder.encode_value(Named, &.{ .name = "\xff" }, &output, .text, platform.CpuFeatures.none()));
 }
 
 test "a sequence's text has its record separator and line feed" {
     var output: [64]u8 = undefined;
     const Point = struct { x: i32, y: i32 };
     const point: Point = .{ .x = 1, .y = 2 };
-    try testing.expectEqualStrings("\x1e{\"x\":1,\"y\":2}\n", try value_encoder.encode_value(Point, &point, &output, .sequence, codec.Features.none()));
+    try testing.expectEqualStrings("\x1e{\"x\":1,\"y\":2}\n", try value_encoder.encode_value(Point, &point, &output, .sequence, platform.CpuFeatures.none()));
 }

@@ -17,6 +17,7 @@
 const std = @import("std");
 const oracle = @import("oracle");
 const codec = @import("codec");
+const platform = @import("platform");
 const zstd = @import("zstd");
 const verdicts = @import("verdicts");
 
@@ -111,7 +112,7 @@ const Case = struct {
 };
 
 fn stdx_verdict(decoder: *Decoder, input: []const u8, output: []u8) Verdict {
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = decoder.decode_all(input, output) catch |err| return switch (err) {
         error.Truncated => .{ .kind = .incomplete },
         error.NoSpaceLeft => .{ .kind = .no_room },

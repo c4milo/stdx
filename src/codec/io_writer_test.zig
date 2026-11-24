@@ -5,7 +5,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const status = @import("status.zig");
-const Features = @import("features.zig").Features;
+const platform = @import("platform");
+const CpuFeatures = platform.CpuFeatures;
 const io_writer = @import("io_writer.zig");
 const io_parts = @import("io_parts.zig");
 
@@ -19,7 +20,7 @@ const Copy = struct {
     owed: u8,
     done: bool,
 
-    pub fn init(self: *Copy, features: Features) void {
+    pub fn init(self: *Copy, features: CpuFeatures) void {
         _ = features;
         self.* = .{ .unflushed = false, .owed = 0, .done = false };
     }

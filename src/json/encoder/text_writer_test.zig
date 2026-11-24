@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const base64 = @import("base64");
 const claims = @import("../claims.zig");
 const Framing = @import("../framing.zig").Framing;
@@ -54,9 +55,9 @@ pub fn call(text: *TextWriter, item: Item) TextWriter.Error!void {
 fn expect_methods(framing: Framing, items: []const Item, room_len: usize) !?usize {
     var output: [text_len_max]u8 = undefined;
     var reference_output: [text_len_max]u8 = undefined;
-    var text = TextWriter.init(output[0..room_len], framing, codec.Features.detect());
+    var text = TextWriter.init(output[0..room_len], framing, platform.CpuFeatures.detect());
     var reference: Encoder = undefined;
-    reference.init(framing, codec.Features.detect());
+    reference.init(framing, platform.CpuFeatures.detect());
     var written: usize = 0;
     for (items) |item| {
         const result = call(&text, item);
@@ -130,7 +131,7 @@ test "each method leaves a refusal to the checked path, which names it" {
     const bad_number = [_]Item{ .{ .token = .begin_array }, with(.number, "1"), with(.number, "01") };
     for ([_][]const Item{ &bad_utf8, &bad_number }, 0..) |items, index| try check(items, index);
     var output: [text_len_max]u8 = undefined;
-    var text = TextWriter.init(&output, .text, codec.Features.detect());
+    var text = TextWriter.init(&output, .text, platform.CpuFeatures.detect());
     try text.begin_array();
     try testing.expectError(error.InvalidUtf8, text.string("\xc3("));
 }
@@ -168,7 +169,7 @@ const base64_letters_max = base64.Encoder.encoded_len(base64_octets_max, true);
 /// The letters of `octets` from the base64 module's encoder, which RFC 4648 §10's vectors check.
 fn letters_of(octets: []const u8, buffer: *[base64_letters_max]u8) []const u8 {
     var encoder: base64.Encoder = undefined;
-    encoder.init(.{}, codec.Features.detect());
+    encoder.init(.{}, platform.CpuFeatures.detect());
     return buffer[0 .. encoder.encode_all(octets, buffer) catch unreachable];
 }
 
@@ -177,9 +178,9 @@ fn expect_steps(framing: Framing, steps: []const Step, room_len: usize) !?usize 
     var output: [text_len_max]u8 = undefined;
     var reference_output: [text_len_max]u8 = undefined;
     var letters_buffer: [base64_letters_max]u8 = undefined;
-    var text = TextWriter.init(output[0..room_len], framing, codec.Features.detect());
+    var text = TextWriter.init(output[0..room_len], framing, platform.CpuFeatures.detect());
     var reference: Encoder = undefined;
-    reference.init(framing, codec.Features.detect());
+    reference.init(framing, platform.CpuFeatures.detect());
     var written: usize = 0;
     for (steps) |step| {
         const result = if (step.base64) text.base64(step.item.octets) else call(&text, step.item);
@@ -213,7 +214,7 @@ test "base64 writes RFC 4648 §10's letters, its last quantum padded" {
     };
     var output: [text_len_max]u8 = undefined;
     for (vectors) |vector| {
-        var text = TextWriter.init(&output, .text, codec.Features.detect());
+        var text = TextWriter.init(&output, .text, platform.CpuFeatures.detect());
         try text.base64(vector[0]);
         try testing.expectEqualStrings(vector[1], text.written());
     }

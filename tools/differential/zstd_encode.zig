@@ -22,6 +22,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
+const platform = @import("platform");
 const zstd = @import("zstd");
 const hashes = @import("zstd_encode_hashes.zig");
 
@@ -150,7 +151,7 @@ fn check_whole(comptime level: u4, comptime with_checksum: bool, run: *Run, name
     const E = Encoder(level, with_checksum);
     const state = try run.arena.create(E);
     defer run.arena.destroy(state);
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const written = state.encode_all(input, run.encoded) catch return fail(run, name, level, "encode_all ran out of room");
     if (written > E.encoded_len_max(input.len)) return fail(run, name, level, "the output passed encoded_len_max");
     const frame = run.encoded[0..written];
@@ -182,7 +183,7 @@ fn recorded(name: []const u8, level: u4, scope: Scope) ?[]const u8 {
 /// The frame decodes to `input` through stdx and libzstd, and asks for a window an HTTP decoder
 /// takes.
 fn check_decoders(level: u4, run: *Run, name: []const u8, input: []const u8, frame: []const u8) !void {
-    run.decoder.init(codec.Features.detect());
+    run.decoder.init(platform.CpuFeatures.detect());
     const whole = run.decoder.decode_all(frame, run.decoded) catch return fail(run, name, level, "stdx's decoder refused it");
     if (whole.consumed != frame.len or !std.mem.eql(u8, input, run.decoded[0..whole.written])) return fail(run, name, level, "stdx's decoder gave other octets");
     const by_libzstd = oracle.zstd_decode(frame, run.decoded) orelse return fail(run, name, level, "libzstd refused it");
@@ -228,7 +229,7 @@ fn check_flushes(comptime level: u4, comptime with_checksum: bool, run: *Run, na
     const points = draw_points(name, level, with_checksum, input.len, &points_buffer);
     const states = try run.arena.create([codec.testing.split.state_slots]E);
     defer run.arena.destroy(states);
-    states[0].init(codec.Features.detect());
+    states[0].init(platform.CpuFeatures.detect());
     var written: usize = 0;
     var consumed: usize = 0;
     for (points) |point| {
@@ -248,7 +249,7 @@ fn check_flushes(comptime level: u4, comptime with_checksum: bool, run: *Run, na
         }
     }.call;
     for (0..split_seeds) |seed| {
-        states[0].init(codec.Features.detect());
+        states[0].init(platform.CpuFeatures.detect());
         const outcome = try codec.testing.split.drive_encoder(E, states, step, input, run.split, points, std.hash.Wyhash.hash(seed, name));
         if (outcome.status != .done or !std.mem.eql(u8, run.encoded[0..written], run.split[0..outcome.written])) return fail(run, name, level, "a split gave other octets");
     }
@@ -256,7 +257,7 @@ fn check_flushes(comptime level: u4, comptime with_checksum: bool, run: *Run, na
 
 /// The output so far decodes through stdx's decoder to exactly the input so far, and asks for more.
 fn check_flushed(level: u4, run: *Run, name: []const u8, input: []const u8, frame: []const u8) !void {
-    run.decoder.init(codec.Features.detect());
+    run.decoder.init(platform.CpuFeatures.detect());
     const progress = run.decoder.decode(frame, run.decoded) catch return fail(run, name, level, "stdx refused a flushed frame");
     if (progress.status != .needs_input or !std.mem.eql(u8, input, run.decoded[0..progress.written])) return fail(run, name, level, "a flush left input undecodable");
 }

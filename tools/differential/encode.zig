@@ -24,6 +24,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
+const platform = @import("platform");
 const deflate = @import("deflate");
 const zlib = @import("zlib");
 const gzip = @import("gzip");
@@ -193,7 +194,7 @@ fn check_whole(comptime container: oracle.Container, comptime level: u4, run: *R
     const E = Encoder(container, level);
     const state = try run.arena.create(E);
     defer run.arena.destroy(state);
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const written = state.encode_all(input, run.encoded) catch return fail(run, name, container, level, "encode_all ran out of room");
     if (written > E.encoded_len_max(input.len)) return fail(run, name, container, level, "the output passed encoded_len_max");
     const stream = run.encoded[0..written];
@@ -217,7 +218,7 @@ fn check_unchecked(comptime container: oracle.Container, comptime level: u4, run
     const E = EncoderWith(container, .{ .level = level, .runtime_safety = false });
     const state = try run.arena.create(E);
     defer run.arena.destroy(state);
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const written = state.encode_all(input, run.split) catch return fail(run, name, container, level, "encode_all without runtime safety ran out of room");
     if (!std.mem.eql(u8, run.split[0..written], stream)) fail(run, name, container, level, "the encoder without runtime safety wrote other octets");
 }
@@ -236,7 +237,7 @@ fn check_decoders(comptime container: oracle.Container, comptime level: u4, run:
     const module = Decoder(container);
     const state = try run.arena.create(module.Decoder);
     defer run.arena.destroy(state);
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const whole = state.decode_all(stream, run.decoded) catch return fail(run, name, container, level, "stdx's decoder refused it");
     if (whole.consumed != stream.len or !std.mem.eql(u8, input, run.decoded[0..whole.written])) return fail(run, name, container, level, "stdx's decoder gave other octets");
     const by_zlib = oracle.zlib_decode(container, stream, run.decoded);
@@ -265,7 +266,7 @@ fn check_flushes(comptime container: oracle.Container, comptime level: u4, run: 
     const points = draw_points(name, container, level, input.len, &points_buffer);
     const states = try run.arena.create([codec.testing.split.state_slots]E);
     defer run.arena.destroy(states);
-    states[0].init(codec.Features.detect());
+    states[0].init(platform.CpuFeatures.detect());
     var written: usize = 0;
     var consumed: usize = 0;
     for (points) |point| {
@@ -285,7 +286,7 @@ fn check_flushes(comptime container: oracle.Container, comptime level: u4, run: 
         }
     }.call;
     for (0..split_seeds) |seed| {
-        states[0].init(codec.Features.detect());
+        states[0].init(platform.CpuFeatures.detect());
         const outcome = try codec.testing.split.drive_encoder(E, states, step, input, run.split, points, std.hash.Wyhash.hash(seed, name));
         if (outcome.status != .done or !std.mem.eql(u8, run.encoded[0..written], run.split[0..outcome.written])) return fail(run, name, container, level, "a split gave other octets");
     }
@@ -296,7 +297,7 @@ fn check_flushed(comptime container: oracle.Container, comptime level: u4, run: 
     const module = Decoder(container);
     const state = try run.arena.create(module.Decoder);
     defer run.arena.destroy(state);
-    state.init(codec.Features.detect());
+    state.init(platform.CpuFeatures.detect());
     const progress = state.decode(stream, run.decoded) catch return fail(run, name, container, level, "stdx refused a flushed stream");
     if (progress.status != .needs_input or !std.mem.eql(u8, input, run.decoded[0..progress.written])) return fail(run, name, container, level, "a flush left input undecodable");
 }

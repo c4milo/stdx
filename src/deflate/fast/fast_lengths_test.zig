@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const huffman = @import("../huffman.zig");
 const test_stream = @import("../test_stream.zig");
@@ -183,7 +184,7 @@ pub const Read = struct {
 pub fn read_header(comptime options: deflate.DecodePaths, input: []const u8, cut: usize, fill: u8) Read {
     var decoder: deflate.Decoder = undefined;
     @memset(std.mem.asBytes(&decoder), fill);
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var read: Read = .{ .result = undefined, .read_len = 0, .lengths = undefined, .codes = undefined, .output = undefined };
     read.result = decode_cut(options, &decoder, input, cut, &read.output);
     // A decode that passed the header read every length; one refused inside it stopped at one.
@@ -318,7 +319,7 @@ test "the checked path alone builds no table for the code length code" {
     inline for (.{ checked, loop_off }) |options| {
         var decoder: deflate.Decoder = undefined;
         @memset(std.mem.asBytes(&decoder), marker);
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         var output: [output_len]u8 = undefined;
         try testing.expectError(error.MissingEndOfBlock, decoder.decode_with(options, input, &output));
         try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&decoder.code_length_table), marker));

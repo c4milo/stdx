@@ -221,7 +221,7 @@ pub const cache_words_default = 1 << 19;
 pub const skip_lanes = 16;
 
 /// The octets one step of claim R2's and R5's searches compares in the variant object of x86-64's
-/// AVX2: the width of its registers. A caller whose `codec.Features` name AVX2 gets it.
+/// AVX2: the width of its registers. A caller whose `platform.CpuFeatures` name AVX2 gets it.
 pub const avx2_lanes = 32;
 
 /// The octets of the literal every match starts with that claim R2 keeps at most. A place where

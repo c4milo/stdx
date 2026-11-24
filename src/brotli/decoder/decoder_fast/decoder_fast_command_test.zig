@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const codec = @import("codec");
+const platform = @import("platform");
 const testing = std.testing;
 const decoder_module = @import("../decoder.zig");
 const constants = @import("../../constants.zig");
@@ -77,7 +78,7 @@ test "a command's extra bits a bit past the buffer's wait for the next refill" {
         for (expected[0..short_len], 0..) |*octet, index| octet.* = widest_history[index % widest_history.len];
         @memset(expected[short_len..][0..widest_len], widest_literal);
         var decoder: Decoder = undefined;
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         const whole = try decoder.decode_all(stream.written(), &output);
         try testing.expectEqualSlices(u8, expected[0 .. short_len + widest_len], output[0..whole.written]);
     }
@@ -102,9 +103,9 @@ test "a command's literals with the input's margin gone after its extra bits wai
             @memset(padded[written.len..][0..padding], 0);
             const input = padded[0 .. written.len + padding];
             var decoder: Decoder = undefined;
-            decoder.init(codec.Features.detect());
+            decoder.init(platform.CpuFeatures.detect());
             var checked: CheckedDecoder = undefined;
-            checked.init(codec.Features.detect());
+            checked.init(platform.CpuFeatures.detect());
             const progress = try decoder.decode(input, &output);
             const expected = try checked.decode(input, &checked_output);
             try testing.expectEqual(expected.status, progress.status);
@@ -179,7 +180,7 @@ test "a distance's block switch after a command of no literals takes the next ty
     distance_switch_stream(&stream);
     var output: [1024]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     // Distance 2 repeats "ab"; then, after the switch, distance 1 repeats the last "b".
     var expected: [2 + switching_commands * switching_copy_len]u8 = undefined;
@@ -224,7 +225,7 @@ test "the last distance a command of no literals reuses stays out of the ring" {
     ring_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     // Distance 3 copies "fg", the last distance "hf", and the second last, 4, "fg".
     try testing.expectEqualStrings("abcdefghfghffg", output[0..whole.written]);
@@ -260,7 +261,7 @@ test "the straight loop leaves the ring as it was after the distance code 0" {
     ring_code_zero_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     // Distance 3 copies "fg", the code 0 repeats it for "hf", and the code 1, the second last
     // distance, 4, "fg".
@@ -307,7 +308,7 @@ test "a copy after a command's literals waits for the output's margin, at every 
     var output: [expected.len]u8 = undefined;
     for (0..expected.len + 1) |room| {
         var decoder: Decoder = undefined;
-        decoder.init(codec.Features.detect());
+        decoder.init(platform.CpuFeatures.detect());
         const progress = try decoder.decode(input, output[0..room]);
         try testing.expectEqual(room, progress.written);
         try testing.expectEqualSlices(u8, expected[0..room], output[0..room]);
@@ -358,7 +359,7 @@ test "the straight loop takes a distance's tree from its copy length's context" 
     distance_context_stream(&stream);
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     const whole = try decoder.decode_all(stream.written(), &output);
     try testing.expectEqualStrings(context_output, output[0..whole.written]);
 }
@@ -407,7 +408,7 @@ test "a copy past the octets its call wrote takes them from the window" {
     reach_stream(&stream);
     const input = stream.written();
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var first: [reach_literals.len]u8 = undefined;
     const one = try decoder.decode(input, &first);
     try testing.expectEqualStrings(reach_literals, first[0..one.written]);
@@ -443,7 +444,7 @@ test "a copy at the last distance past the octets its call wrote takes them from
     reach_last_stream(&stream);
     const input = stream.written();
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     var first: [reach_literals.len]u8 = undefined;
     const one = try decoder.decode(input, &first);
     try testing.expectEqualStrings(reach_literals, first[0..one.written]);
@@ -469,6 +470,6 @@ test "the straight loop leaves a copy at the last distance past MLEN to the refu
     for (trailer) |octet| stream.put(octet, @bitSizeOf(u8));
     var output: [512]u8 = undefined;
     var decoder: Decoder = undefined;
-    decoder.init(codec.Features.detect());
+    decoder.init(platform.CpuFeatures.detect());
     try testing.expectError(error.LengthPastMetaBlock, decoder.decode_all(stream.written(), &output));
 }

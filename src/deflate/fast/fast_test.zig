@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const huffman = @import("../huffman.zig");
 const lookup = @import("../lookup.zig");
@@ -121,7 +122,7 @@ const Expected = struct {
 /// Whether the CPU runs an assembly of the common loop.
 fn assembly_runs() bool {
     if (comptime fast_aarch64.takes(.{})) return true;
-    return (comptime fast_x86_64.takes(.{})) and fast.assembly_runs(codec.Features.detect());
+    return (comptime fast_x86_64.takes(.{})) and fast.assembly_runs(platform.CpuFeatures.detect());
 }
 
 /// The common loop's assembly the CPU runs, for a caller that checked `assembly_runs`.

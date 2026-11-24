@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const framing_file = @import("../framing.zig");
 const Framing = framing_file.Framing;
 const Piece = framing_file.Piece;
@@ -84,7 +85,7 @@ const BatchDrive = struct {
 fn decode_batches(framing: Framing, input: []const u8, slots: []Slot, seed: ?u64, transcript: *Transcript) !Verdict {
     var drive: BatchDrive = .{ .input = input, .transcript = transcript };
     var states: [codec.testing.split.state_slots]Decoder = undefined;
-    states[0].init(framing, codec.Features.detect());
+    states[0].init(framing, platform.CpuFeatures.detect());
     var slot: usize = 0;
     var schedule = codec.testing.split.Schedule.init(seed orelse 0);
     const calls_max = codec.constants.driver_calls_floor + codec.constants.driver_calls_per_octet_max * (input.len + content_len_max);
@@ -140,7 +141,7 @@ test "a batch of every size decodes each text as one token a call does, whole an
 
 test "a batch fills its slots in order and stops at the text's end, the input's and the slots'" {
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     var slots: [3]Slot = undefined;
     const text = "[\"ab\",12,true,\"cd\"]";
@@ -158,7 +159,7 @@ test "a batch fills its slots in order and stops at the text's end, the input's 
 
 test "a batch that runs out of room inside a string ends on a slot that did not end" {
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [3]u8 = undefined;
     var slots: [4]Slot = undefined;
     const text = "[\"abcde\"]";
@@ -171,7 +172,7 @@ test "a batch that runs out of room inside a string ends on a slot that did not 
 
 test "a batch that meets a refusal fails, and leaves the decoder refused" {
     var decoder: Decoder = undefined;
-    decoder.init(.text, codec.Features.detect());
+    decoder.init(.text, platform.CpuFeatures.detect());
     var output: [output_len_max]u8 = undefined;
     var slots: [4]Slot = undefined;
     try testing.expectError(error.ExpectedValueSeparator, decoder.decode_batch("[1 2]", &output, .last, &slots));

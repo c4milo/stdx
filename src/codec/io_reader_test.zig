@@ -7,7 +7,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const status = @import("status.zig");
-const Features = @import("features.zig").Features;
+const platform = @import("platform");
+const CpuFeatures = platform.CpuFeatures;
 const io_reader = @import("io_reader.zig");
 const io_parts = @import("io_parts.zig");
 
@@ -22,7 +23,7 @@ const Twice = struct {
     pending_count: u2,
     done: bool,
 
-    pub fn init(self: *Twice, features: Features) void {
+    pub fn init(self: *Twice, features: CpuFeatures) void {
         _ = features;
         self.* = .{ .pending = 0, .pending_count = 0, .done = false };
     }

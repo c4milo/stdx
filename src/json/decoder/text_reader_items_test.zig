@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const Framing = @import("../framing.zig").Framing;
 const TextReader = @import("text_reader.zig").TextReader;
 const reader_test = @import("text_reader_test.zig");
@@ -54,8 +55,8 @@ fn expect_text(one: *TextReader, many: *TextReader, input_len: usize) !bool {
 fn expect_items(framing: Framing, input: []const u8, room_len: usize) !void {
     var storage: [content_len_max]u8 = undefined;
     var items_storage: [content_len_max]u8 = undefined;
-    var one = TextReader.init(input, storage[0..room_len], framing, codec.Features.detect());
-    var many = TextReader.init(input, items_storage[0..room_len], framing, codec.Features.detect());
+    var one = TextReader.init(input, storage[0..room_len], framing, platform.CpuFeatures.detect());
+    var many = TextReader.init(input, items_storage[0..room_len], framing, platform.CpuFeatures.detect());
     // A text takes an octet at least, so one call more than the input's octets finds none.
     for (0..input.len + 1) |_| {
         const more = one.next_text();
@@ -87,7 +88,7 @@ test "next_items gives the tokens next gives, of the texts and of the sequences"
 
 test "next_items hands out a queue of several tokens in one slice, then null" {
     var storage: [content_len_max]u8 = undefined;
-    var reader = TextReader.init("[1,2,3]", &storage, .text, codec.Features.detect());
+    var reader = TextReader.init("[1,2,3]", &storage, .text, platform.CpuFeatures.detect());
     try testing.expect(reader.next_text());
     const items = (try reader.next_items()).?;
     try testing.expectEqual(5, items.len);
@@ -98,7 +99,7 @@ test "next_items hands out a queue of several tokens in one slice, then null" {
 
 test "next_items hands out what next left in the queue, and hands it out once" {
     var storage: [content_len_max]u8 = undefined;
-    var reader = TextReader.init("[1,2,3]", &storage, .text, codec.Features.detect());
+    var reader = TextReader.init("[1,2,3]", &storage, .text, platform.CpuFeatures.detect());
     try testing.expect(reader.next_text());
     try testing.expectEqual(.begin_array, std.meta.activeTag((try reader.next()).?));
     const items = (try reader.next_items()).?;
@@ -110,7 +111,7 @@ test "next_items hands out what next left in the queue, and hands it out once" {
 test "next reads on after next_items handed out a token the queue's loop left" {
     var storage: [content_len_max]u8 = undefined;
     // The escape leaves the first string to the checked path, whose octets go to the storage.
-    var reader = TextReader.init("[\"\\n\",7]", &storage, .text, codec.Features.detect());
+    var reader = TextReader.init("[\"\\n\",7]", &storage, .text, platform.CpuFeatures.detect());
     try testing.expect(reader.next_text());
     try testing.expectEqual(.begin_array, std.meta.activeTag((try reader.next_items()).?[0]));
     const left = (try reader.next_items()).?;

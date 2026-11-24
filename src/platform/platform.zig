@@ -1,14 +1,20 @@
 //! platform: what the CPU a program runs on offers, read once when the program starts
 //! (decision 40, design §3).
 //!
-//! A program calls `probe()` once, at start, and passes the fields of the `Cpu` it returns to the
-//! code that asks: to a TLS stack's configuration, for example, which hands them to each session.
-//! It is the shape of `codec.Features.detect()`, which a program calls once and passes to each
-//! codec's `init`. stdx keeps no copy of the answers (invariant 4).
+//! It holds two reads of the CPU, and a program makes each once, at start:
+//! - `probe()` gives a `Cpu`, the `yes`, `no` and `not_known` answers a TLS stack asks for. A
+//!   program passes its fields to the code that asks: to a TLS stack's configuration, for
+//!   example, which hands them to each session.
+//! - `CpuFeatures.detect()` gives a `CpuFeatures`, the booleans a codec's fast paths read. A
+//!   program passes it to each codec's `init` (decision 21, platform_cpu_features.zig).
+//!
+//! stdx keeps no copy of either (invariant 4). The codecs import this module for the type
+//! `CpuFeatures` alone. Outside it, only a test under `src/` calls `probe` or `CpuFeatures.detect`,
+//! and the `cpu-probe` lint rule holds that (decisions 21 and 40 as amended on 2026-11-24,
+//! invariant 14).
 //!
 //! `probe` is the one call in stdx that may make a syscall (invariant 2), because a program makes it
-//! once and no codec path runs it: no other stdx module imports this one (invariant 14). Each system
-//! answers from its own source:
+//! once and no codec path runs it. Each system answers from its own source:
 //! - x86-64, on every system: CPUID leaves 1 and 7, and XCR0 through XGETBV when the system has
 //!   enabled XSAVE. `dit` is `not_known`: x86-64's mode for data-independent timing, DOITM, is one
 //!   the operating system sets, and user code cannot read it. `sha3` is `no`: x86-64 has no SHA-3
@@ -27,8 +33,7 @@
 //!
 //! `probe` only reads. It changes no CPU state, and sets no PSTATE.DIT.
 //!
-//! The module imports nothing. It runs CPUID itself rather than import `codec`'s, so the module
-//! graph gives it no edge.
+//! The module imports nothing, so a codec that imports it reaches no other module through it.
 //!
 //! The module also holds `memset`, a vector `memset` that a program exports from its root on Linux
 //! under Zig 0.16, where `memset_applies` holds (platform_memset.zig, decision 41 as amended).
@@ -43,6 +48,11 @@ const platform_x86 = @import("platform_x86.zig");
 const platform_linux = @import("platform_linux.zig");
 const answer_file = @import("platform_answer.zig");
 const memset_file = @import("platform_memset.zig");
+const cpu_features_file = @import("platform_cpu_features.zig");
+
+/// The CPU features a codec's SIMD paths may use: a program calls `CpuFeatures.detect()` once and
+/// passes the value to each codec's `init` (decision 21 as amended on 2026-11-24).
+pub const CpuFeatures = cpu_features_file.CpuFeatures;
 
 /// A vector `memset`, which a program exports as `memset` where `memset_applies` holds.
 pub const memset = memset_file.memset;
@@ -259,6 +269,7 @@ test {
     _ = platform_x86;
     _ = platform_linux;
     _ = memset_file;
+    _ = cpu_features_file;
 }
 
 /// A `Cpu` with every SHA answer `sha`: the tests of `aes_clmul` and `dit` vary those alone.

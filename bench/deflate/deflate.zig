@@ -41,6 +41,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
 const codec = @import("codec");
+const platform = @import("platform");
 const deflate = @import("deflate");
 const gzip = @import("gzip");
 const baselines = @import("baselines");
@@ -98,7 +99,7 @@ const BaselineDecode = struct {
 const StdxDecode = struct {
     output: []u8,
     decoder: *gzip.Decoder,
-    features: codec.Features,
+    features: platform.CpuFeatures,
 
     pub fn run(self: *const StdxDecode, stream: []const u8) ?usize {
         self.decoder.init(self.features);
@@ -116,7 +117,7 @@ fn RawDecode(comptime options: deflate.DecodePaths) type {
 
         output: []u8,
         decoder: *deflate.Decoder,
-        features: codec.Features,
+        features: platform.CpuFeatures,
 
         pub fn run(self: *const Self, stream: []const u8) ?usize {
             self.decoder.init(self.features);
@@ -227,7 +228,7 @@ fn report_decode(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writer, inpu
     const zlib_ng: BaselineDecode = .{ .output = try arena.alloc(u8, input.part_len), .decode = baselines.zlib_ng_gzip_decode };
     const libdeflate: BaselineDecode = .{ .output = try arena.alloc(u8, input.part_len), .decode = baselines.libdeflate_gzip_decode };
     const wuffs: Decode = .{ .output = try arena.alloc(u8, input.part_len), .decode = oracle.wuffs_decode };
-    const stdx: StdxDecode = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(gzip.Decoder), .features = codec.Features.detect() };
+    const stdx: StdxDecode = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(gzip.Decoder), .features = platform.CpuFeatures.detect() };
     // Every candidate decodes every part back before any is timed.
     var candidates: [5]timing.Operation = undefined;
     inline for (.{ zlib, zlib_ng, libdeflate, wuffs, stdx }, 0..) |candidate, index| {
@@ -264,7 +265,7 @@ fn compressed_percent(coded: []const []const u8, input: Input) f64 {
 
 /// A raw decode on `options`'s paths, checked over `coded` against `input` and placed for timing.
 fn raw_candidate(comptime options: deflate.DecodePaths, arena: std.mem.Allocator, coded: []const []const u8, input: Input) !timing.Operation {
-    const candidate: RawDecode(options) = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(deflate.Decoder), .features = codec.Features.detect() };
+    const candidate: RawDecode(options) = .{ .output = try arena.alloc(u8, input.part_len), .decoder = try arena.create(deflate.Decoder), .features = platform.CpuFeatures.detect() };
     return inputs.decoder_operation(arena, candidate, coded, input);
 }
 
@@ -288,7 +289,7 @@ const SplitDecode = struct {
     output: []u8,
     gzip_decoder: *gzip.Decoder,
     raw_decoder: *deflate.Decoder,
-    features: codec.Features,
+    features: platform.CpuFeatures,
     checksum_after: bool,
 
     pub fn run(self: *const SplitDecode, stream: []const u8) ?usize {
@@ -326,7 +327,7 @@ fn report_checksum_order(arena: std.mem.Allocator, io: std.Io, out: *std.Io.Writ
         .output = try arena.alloc(u8, input.part_len),
         .gzip_decoder = try arena.create(gzip.Decoder),
         .raw_decoder = try arena.create(deflate.Decoder),
-        .features = codec.Features.detect(),
+        .features = platform.CpuFeatures.detect(),
         .checksum_after = false,
     };
     var after = per_call;

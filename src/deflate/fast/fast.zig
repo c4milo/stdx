@@ -284,9 +284,7 @@ inline fn common(comptime options: DecodePaths, loop: *Loop, codes: Codes, histo
 }
 
 /// Whether a CPU with `features` runs the x86-64 assembly of the common loop.
-pub fn assembly_runs(features: codec.Features) bool {
-    return fast_x86_64.runs(features);
-}
+pub const assembly_runs = fast_x86_64.runs;
 
 /// The input and the output room of one iteration of the wide loop, which its margins bound.
 const Margins = struct {

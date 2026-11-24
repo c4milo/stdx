@@ -16,6 +16,7 @@ const std = @import("std");
 const oracle = @import("oracle");
 const timing = @import("timing");
 const codec = @import("codec");
+const platform = @import("platform");
 const zstd = @import("zstd");
 const inputs = timing.inputs;
 const Input = inputs.Input;
@@ -110,7 +111,7 @@ fn measure(comptime level: u4, arena: std.mem.Allocator, io: std.Io, input: Inpu
     defer oracle.zstd_encoder.free(context);
     const libzstd: LibzstdEncode = .{ .output = try arena.alloc(u8, output_len), .context = context };
     const stdx: Stdx = .{ .output = try arena.alloc(u8, output_len), .encoder = try arena.create(Stdx.Encoder) };
-    stdx.encoder.init(codec.Features.detect());
+    stdx.encoder.init(platform.CpuFeatures.detect());
     var row: Row = .{ .name = input.name, .input_len = input.len(), .level = level, .rates = undefined, .spreads = undefined, .ratios = undefined };
     var candidates: [candidate_count]timing.Operation = undefined;
     const decoded = try arena.alloc(u8, input.part_len);

@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 const block = @import("block.zig");
 const huffman = @import("huffman.zig");
@@ -47,13 +48,13 @@ const Fixture = struct {
         return .{
             .block = octets,
             .literals_buffer = &self.buffer,
-            .huffman = .{ .table = &self.table, .table_valid = &self.table_valid, .buffer = &self.buffer, .assembly = sequences_x86_64.runs(codec.Features.detect()) },
+            .huffman = .{ .table = &self.table, .table_valid = &self.table_valid, .buffer = &self.buffer, .assembly = sequences_x86_64.runs(platform.CpuFeatures.detect()) },
             .tables = &self.tables,
             .repeats = &self.repeats,
             .block_len_max = self.block_len_max,
             .window_len = self.window_len,
             .work = &self.work,
-            .assembly = sequences_x86_64.runs(codec.Features.detect()),
+            .assembly = sequences_x86_64.runs(platform.CpuFeatures.detect()),
         };
     }
 };

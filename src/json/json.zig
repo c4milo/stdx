@@ -16,6 +16,7 @@ pub const Framing = @import("framing.zig").Framing;
 pub const Decimal = @import("format.zig").Decimal;
 
 const codec = @import("codec");
+const platform = @import("platform");
 const wide = @import("wide.zig");
 
 const encoder = @import("encoder/encoder.zig");
@@ -41,7 +42,7 @@ pub const TextReader = text_reader.TextReader;
 /// a string's octets and the decoder to a text's, run alone over a buffer, at the widest path
 /// `features` allow (decision 38). A caller that must know before it encodes, or that holds octets
 /// from elsewhere, asks here.
-pub fn is_utf8(octets: []const u8, features: codec.Features) bool {
+pub fn is_utf8(octets: []const u8, features: platform.CpuFeatures) bool {
     return wide.is_utf8(wide.CheckLevel.of(features), octets);
 }
 

@@ -7,6 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const constants = @import("../constants.zig");
 const lookup = @import("../lookup.zig");
 const fast = @import("fast.zig");
@@ -19,7 +20,7 @@ const loop_text = @import("fast_x86_64_template.zig");
 pub const assembles = builtin.zig_backend == .stage2_llvm;
 
 /// Whether a CPU with `features` runs the assembly: an x86-64 CPU with BMI2 and SSSE3.
-pub fn runs(features: codec.Features) bool {
+pub fn runs(features: platform.CpuFeatures) bool {
     return builtin.cpu.arch == .x86_64 and features.bmi2;
 }
 
