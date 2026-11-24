@@ -188,6 +188,10 @@ One change was made for one of these rows: the bytes mode, for the answer of
 `unicode/compile/match-every-line-ascii`. It was judged on that answer and on no speed. stdx now
 runs each benchmark that leaves `unicode` off in bytes, as Rust's crate runs it.
 
+These runs are the last that came before any work on these rows. The owner then ruled to tune
+stdx on this set too, and each later change is judged on its rows. So a chart from later runs
+shows rows that stdx was tuned on ([design §8 part 22q](docs/design.md)).
+
 ![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on Neoverse-N2](docs/images/regex-rebar-others-aarch64.svg)
 
 <details>
