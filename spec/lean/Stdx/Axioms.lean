@@ -1,6 +1,9 @@
 import Stdx.Utf8
 import Stdx.Json.Number
 import Stdx.Regex.Utf8
+import Stdx.Regex.Program
+import Stdx.Regex.SuffixRule
+import Stdx.Regex.Required
 
 /-!
 # What the proofs rest on
@@ -55,5 +58,47 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Utf8.sequences_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Utf8.sequences_iff
+
+/-- info: 'Stdx.Regex.Program.path_clean' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Program.path_clean
+
+/-- info: 'Stdx.Regex.Program.chain_path' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Program.chain_path
+
+/-- info: 'Stdx.Regex.Program.suffix_rule' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Program.suffix_rule
+
+/-- info: 'Stdx.Regex.Search.answer_one' does not depend on any axioms -/
+#guard_msgs in #print axioms Search.answer_one
+
+/-- info: 'Stdx.Regex.Search.bySuffix_answer' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.bySuffix_answer
+
+/-- info: 'Stdx.Regex.Search.one_end' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.one_end
+
+/-- info: 'Stdx.Regex.Search.starts_after_place' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.starts_after_place
+
+/-- info: 'Stdx.Regex.Search.byRequired_answer' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.byRequired_answer
+
+/-- info: 'Stdx.Regex.Search.noEarlier_of_clean' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.noEarlier_of_clean
+
+/-- info: 'Stdx.Regex.Search.noEarlier_of_one_length' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.noEarlier_of_one_length
+
+/-- info: 'Stdx.Regex.Search.noEarlier_of_last_separator' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.noEarlier_of_last_separator
+
+/-- info: 'Stdx.Regex.Search.noEarlier_of_first_separator' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.noEarlier_of_first_separator
+
+/-- info: 'Stdx.Regex.Search.needs_no_earlier' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Search.needs_no_earlier
+
+/-- info: 'Stdx.Regex.Search.byGuarded_answer' depends on axioms: [propext] -/
+#guard_msgs in #print axioms Search.byGuarded_answer
 
 end Stdx.Regex
