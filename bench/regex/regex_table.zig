@@ -56,13 +56,18 @@ pub const Row = struct {
                 },
             }
         }
-        const stdx = rates[@intFromEnum(Engine.stdx)].?;
+        // A row of rebar's sets may hold no stdx, where its answer was not its engine's count.
+        const stdx = rates[@intFromEnum(Engine.stdx)];
         for (ratio_bases) |other| {
             const rate = rates[@intFromEnum(other)] orelse {
                 try out.writeAll(" |");
                 continue;
             };
-            if (stdx / rate < small_ratio) try out.print(" {d:.4} |", .{stdx / rate}) else try out.print(" {d:.2} |", .{stdx / rate});
+            const stdx_rate = stdx orelse {
+                try out.writeAll(" |");
+                continue;
+            };
+            if (stdx_rate / rate < small_ratio) try out.print(" {d:.4} |", .{stdx_rate / rate}) else try out.print(" {d:.2} |", .{stdx_rate / rate});
         }
         try out.writeAll("\n");
     }
@@ -151,4 +156,20 @@ test "a row whose stdx again is not timed last rotates every candidate" {
     try std.testing.expectEqual(@as(usize, 1), row.rotated_len());
     row.add(.rust, operation);
     try std.testing.expectEqual(@as(usize, 3), row.rotated_len());
+}
+
+test "a row with no stdx prints its other cells and leaves each ratio empty" {
+    var log: Log = .{};
+    var recorded: Recorded = .{ .place = 0, .log = &log };
+    const operation: timing.Operation = .{ .context = &recorded, .run_once = Recorded.run_once };
+    var row: Row = .{ .cells = @splat(.none) };
+    row.cells[@intFromEnum(Engine.stdx)] = .differs;
+    row.add(.rust, operation);
+    row.add(.go, operation);
+    var buffer: [output_len_max]u8 = undefined;
+    var out: std.Io.Writer = .fixed(&buffer);
+    try row.print(std.testing.io, &out, 1);
+    const written = out.buffered();
+    try std.testing.expect(std.mem.startsWith(u8, written, " differs |"));
+    try std.testing.expect(std.mem.endsWith(u8, written, " | | | |\n"));
 }

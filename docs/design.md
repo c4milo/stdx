@@ -9823,6 +9823,36 @@ to 12 are reordered and nothing else changes.
     `time_interleaved`, `stdx, again` rotated, `stdx, again` kept back where it is not last,
     and a cell read with no check of its tag.
 
+  **Part 22o, built: rebar's other benchmarks (decision 86 as amended, the owner's ruling of
+  2026-11-23).** The owner asked for a chart that is fair and objective. The README's regex chart
+  drew patterns written for this benchmark, which stdx was tuned on, and part 22n tuned stdx on
+  rebar's curated set too. `bench-regex` now also times every benchmark of rebar's definitions at
+  commit 463d00f outside its curated set and its tests whose engines name Go's regexp or RE2: 197
+  of them, which no work on stdx had measured. `bench/regex/rebar_cases.py` writes them beside
+  the curated set, the harness takes rebar's `trim`, `append` and `prepend`, and the build fetches
+  25 more files. The chart `regex-rebar-others` draws them.
+  **Check:** the generator writes the committed table octet for octet; every candidate's answer
+  equals the count rebar gives its engine, RE2's for stdx, or its cell names it as refused or
+  different; the haystack and pattern options and the counts have tests; mutations.
+  **Check passed, 2026-11-24.** Zig 0.16.0, Go 1.27.4 and Rust 1.100.0 on x86-64 Linux 6.18, in a
+  cloud container.
+  - `python3 bench/regex/rebar_cases.py` on a checkout of rebar at 463d00f writes
+    `bench/regex/regex_rebar.zig` as committed: 41 curated benchmarks and 197 others.
+  - `zig build bench-regex -Doracles -- --held-out` checked every answer of the 238 benchmarks, in
+    two parts, as the container restarted once. stdx, Rust's crate and Go's regexp refused no
+    pattern. stdx's answer differs from RE2's count on two rows, which it is not timed on:
+    `unicode/codepoints/letters-one`, where stdx and Go 1.27.4 count Unicode 17.0.0's letters, and
+    `unicode/compile/match-every-line-ascii`, where `.` must take an octet of invalid UTF-8 and
+    stdx's takes none. Go's regexp differs on the first of them too. The record quotes no speed:
+    the hosted runners give those (decision 20).
+  - Mutations: 20, all CAUGHT. Against `zig build test-differential-regex`: `trim` not taken, or
+    taken after the line range; `append` dropped from a file or a text, or put first; a pattern's
+    `prepend` or `append` dropped; stdx held to Go's count, or Rust's crate to RE2's; a refusal or
+    any answer timed; one count written for all three engines; a row with no stdx that halts.
+    Against the generator's output: the curated set in `others` too, rebar's tests kept,
+    `regex-redux` kept, a haystack's `append` or `trim` or a pattern's `prepend` dropped, and Go's
+    count given to every engine.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

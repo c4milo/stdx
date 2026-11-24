@@ -1,14 +1,15 @@
-//! bench-regex's held-out set (decision 86 as amended): rebar's curated benchmarks whose engines
-//! name Go's regexp or RE2, which regex_rebar.zig lists. The patterns of the other tables were
-//! written for this benchmark; rebar's author chose these. Design §8 part 22n tuned stdx on
-//! them since, so they no longer show how stdx runs on patterns its tuning did not see.
+//! bench-regex's two sets of rebar's benchmarks (decision 86 as amended), which regex_rebar.zig
+//! lists: each one whose engines name Go's regexp or RE2. The patterns of the other tables were
+//! written for this benchmark; rebar's author chose these. `curated` is rebar's curated set,
+//! which design §8 part 22n tuned stdx on. `others` is every other definition but rebar's tests:
+//! no work on stdx has measured them, and no change is judged on them.
 //!
 //! Each benchmark's pattern and haystack are built as rebar builds them, from the files of rebar's
 //! commit that the build fetches. Every candidate's answer is held to the count rebar's definition
-//! gives Go's regexp before it is timed. stdx, Rust's crate and Go's regexp are timed, each round
+//! gives its engine before it is timed, RE2's for stdx. stdx, Rust's crate and Go's regexp are timed, each round
 //! from one place later than the round before, with stdx again last in each round. zig-regex and
 //! mvzr are not: the other tables time them at a hundredth to a four-thousandth of stdx's speed,
-//! and a haystack here holds up to 32 MB.
+//! and a haystack here holds up to 40 MB.
 
 const std = @import("std");
 const codec = @import("codec");
@@ -108,19 +109,31 @@ fn line_offset(octets: []const u8, line: u32) usize {
     return offset;
 }
 
+/// The white space rebar's `trim` takes from both ends of a haystack.
+const white_space = " \t\r\n\x0b\x0c";
+
+/// A haystack as rebar builds it: lossy UTF-8, then `trim`, then the line range or `repeat`, then
+/// `append` (rebar's FORMAT.md, `haystack`).
 fn haystack_of(arena: std.mem.Allocator, files: []const File, haystack: rebar.Haystack) ![]const u8 {
     switch (haystack) {
         .text => |text| {
             const out = try arena.alloc(u8, text.octets.len * text.repeat);
             for (0..text.repeat) |copy| @memcpy(out[copy * text.octets.len ..][0..text.octets.len], text.octets);
-            return out;
+            return appended(arena, out, text.append);
         },
         .file => |file| {
             var octets = try file_of(files, "haystacks", file.path);
             if (file.utf8_lossy) octets = try utf8_lossy(arena, octets);
-            return line_range(octets, file.line_start, file.line_end);
+            if (file.trim) octets = std.mem.trim(u8, octets, white_space);
+            return appended(arena, line_range(octets, file.line_start, file.line_end), file.append);
         },
     }
+}
+
+/// `octets` with `tail` after them.
+fn appended(arena: std.mem.Allocator, octets: []const u8, tail: []const u8) ![]const u8 {
+    if (tail.len == 0) return octets;
+    return std.mem.concat(arena, u8, &.{ octets, tail });
 }
 
 /// rebar's escape of a literal: a `\` before each octet its syntax gives a meaning.
@@ -138,23 +151,26 @@ fn pattern_of(arena: std.mem.Allocator, files: []const File, bench: rebar.Bench,
     switch (bench.pattern) {
         .text => |text| try out.appendSlice(arena, text),
         .file => |file| {
-            const text = try file_of(files, "regexes", file.path);
-            if (!file.alternate) {
-                try out.appendSlice(arena, std.mem.trim(u8, text, " \t\r\n"));
-                return out.items;
-            }
-            var lines: held.Lines = .{ .rest = text };
-            var first = true;
-            while (lines.next()) |line| {
-                if (!first) try out.append(arena, '|');
-                first = false;
-                try out.appendSlice(arena, "(?:");
-                if (file.literal) try escape(arena, &out, line) else try out.appendSlice(arena, line);
-                try out.append(arena, ')');
-            }
+            try out.appendSlice(arena, file.prepend);
+            try file_pattern(arena, &out, try file_of(files, "regexes", file.path), file.alternate, file.literal);
+            try out.appendSlice(arena, file.append);
         },
     }
     return out.items;
+}
+
+/// The pattern of a file: its text trimmed, or each line an alternative in a group of its own.
+fn file_pattern(arena: std.mem.Allocator, out: *std.ArrayList(u8), text: []const u8, alternate: bool, literal: bool) !void {
+    if (!alternate) return out.appendSlice(arena, std.mem.trim(u8, text, white_space));
+    var lines: held.Lines = .{ .rest = text };
+    var first = true;
+    while (lines.next()) |line| {
+        if (!first) try out.append(arena, '|');
+        first = false;
+        try out.appendSlice(arena, "(?:");
+        if (literal) try escape(arena, out, line) else try out.appendSlice(arena, line);
+        try out.append(arena, ')');
+    }
 }
 
 /// One candidate's call on one benchmark: a model over the haystack, or a compile.
@@ -193,74 +209,121 @@ const Call = struct {
     }
 };
 
-/// Readies one candidate for a benchmark and holds its answer to rebar's count. Go's regexp must
-/// give the count, since the count is the one rebar's definition gives it.
-fn prepare(call: *Call, row: *Row, stdx_pattern: []const u8, rust_pattern: []const u8) !void {
-    const index = @intFromEnum(call.engine);
-    const ready = switch (call.engine) {
-        .rust => ready: {
+/// Compiles one candidate's pattern for a benchmark and takes its answer, or gives null where the
+/// candidate refuses the pattern.
+fn ready(call: *Call, stdx_pattern: []const u8, rust_pattern: []const u8) ?u64 {
+    const compiled = switch (call.engine) {
+        .rust => compiled: {
             call.rust = held.rust_new(rust_pattern, call.bench);
-            break :ready call.rust != null;
+            break :compiled call.rust != null;
         },
-        .go => ready: {
+        .go => compiled: {
             call.go = held.go_new(stdx_pattern) orelse 0;
-            break :ready call.go != 0;
+            break :compiled call.go != 0;
         },
         else => call.stdx.ready(stdx_pattern),
     };
     call.pattern = if (call.engine == .rust) rust_pattern else stdx_pattern;
-    if (!ready) {
+    if (!compiled) return null;
+    return call.answer();
+}
+
+/// Holds one candidate's answer to its engine's count, and times its operation where they agree.
+fn admit(row: *Row, engine: Engine, operation: timing.Operation, answer: ?u64, counts: rebar.Counts) void {
+    const index = @intFromEnum(engine);
+    const given = answer orelse {
         row.cells[index] = .refused;
-        if (call.engine == .go) return error.GoRefusesThePattern;
         return;
-    }
-    const answer = call.answer();
-    if (answer != call.bench.count) {
-        std.debug.print("bench-regex: {s} gives {d} for {s}, and rebar gives {d}\n", .{ engines.names[index], answer, call.bench.name, call.bench.count });
+    };
+    if (given != count_of(counts, engine)) {
         row.cells[index] = .differs;
-        if (call.engine == .go) return error.GoDisagreesWithRebar;
         return;
     }
-    row.add(call.engine, .{ .context = call, .run_once = Call.run_once });
+    row.add(engine, operation);
+}
+
+/// The count rebar's definition gives a candidate's engine: Go's regexp's, Rust's crate's, and
+/// RE2's for stdx, whose syntax and reading of invalid UTF-8 are RE2's.
+fn count_of(counts: rebar.Counts, engine: Engine) u64 {
+    return switch (engine) {
+        .go => counts.go,
+        .rust => counts.rust,
+        else => counts.re2,
+    };
 }
 
 const Section = enum { searches, compiles };
 
+/// One of rebar's two sets: its benchmarks, and the title of each of its tables.
+const Set = struct { benches: []const rebar.Bench, search_title: []const u8, compile_title: []const u8 };
+
+/// rebar's curated set, which design §8 part 22n tuned stdx on.
+const curated: Set = .{
+    .benches = &rebar.curated,
+    .search_title = "Held-out search, rebar's curated set, MB/s",
+    .compile_title = "Held-out compile, rebar's curated set, thousands of patterns a second",
+};
+
+/// Every other definition of rebar but its tests, which no work on stdx has measured.
+const others: Set = .{
+    .benches = &rebar.others,
+    .search_title = "Search, rebar's other benchmarks, MB/s",
+    .compile_title = "Compile, rebar's other benchmarks, thousands of patterns a second",
+};
+
 /// stdx's two candidates, each with storage for any held-out pattern, which every row reuses.
 const Stdx = struct { first: *held.Held, again: *held.Held };
 
-fn report_section(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File, stdx: Stdx, section: Section) !void {
-    if (section == .searches) {
-        try table.print_head(out, "Held-out search, rebar's curated set, MB/s", "Benchmark", "Answer");
-    } else {
-        try table.print_head(out, "Held-out compile, rebar's curated set, thousands of patterns a second", "Benchmark", "Answer");
-    }
-    for (rebar.benches) |bench| {
+fn report_section(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File, stdx: Stdx, set: Set, section: Section) !void {
+    const title = if (section == .searches) set.search_title else set.compile_title;
+    try table.print_head(out, title, "Benchmark", "Answer");
+    for (set.benches) |bench| {
         if ((bench.model == .compile) != (section == .compiles)) continue;
-        const haystack = try haystack_of(arena, files, bench.haystack);
-        const stdx_pattern = try pattern_of(arena, files, bench, true);
-        const rust_pattern = try pattern_of(arena, files, bench, false);
-        const calls = try arena.alloc(Call, timed.len);
-        var row: Row = .{ .cells = @splat(.untimed) };
-        for (calls, timed) |*call, engine| {
-            call.* = .{ .engine = engine, .bench = bench, .pattern = stdx_pattern, .haystack = haystack, .stdx = if (engine == .stdx_again) stdx.again else stdx.first };
-            try prepare(call, &row, stdx_pattern, rust_pattern);
-        }
-        try out.print("| {s} | {d} |", .{ bench.name, bench.count });
-        const items = if (section == .searches) @as(f64, @floatFromInt(haystack.len)) / timing.octets_per_megabyte else 1.0 / per_thousand;
-        try row.print(io, out, items);
-        try out.flush();
+        try report_row(io, out, arena, files, stdx, bench, section);
     }
     try out.writeAll("\n");
 }
 
-/// The held-out set's two tables: the searches in megabytes of haystack a second, and the
+/// Readies each candidate for one benchmark, holds its answer to Go's, and times the ones that
+/// agree.
+fn report_row(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, files: []const File, stdx: Stdx, bench: rebar.Bench, section: Section) !void {
+    const haystack = try haystack_of(arena, files, bench.haystack);
+    const stdx_pattern = try pattern_of(arena, files, bench, true);
+    const rust_pattern = try pattern_of(arena, files, bench, false);
+    const calls = try arena.alloc(Call, timed.len);
+    var answers: [timed.len]?u64 = undefined;
+    for (calls, timed, &answers) |*call, engine, *answer| {
+        call.* = .{ .engine = engine, .bench = bench, .pattern = stdx_pattern, .haystack = haystack, .stdx = if (engine == .stdx_again) stdx.again else stdx.first };
+        answer.* = ready(call, stdx_pattern, rust_pattern);
+    }
+    var row: Row = .{ .cells = @splat(.untimed) };
+    for (calls, answers) |*call, answer| admit(&row, call.engine, .{ .context = call, .run_once = Call.run_once }, answer, bench.count);
+    for (timed, answers) |engine, answer| {
+        if (row.cells[@intFromEnum(engine)] != .differs) continue;
+        std.debug.print("bench-regex: {s} gives {d} for {s}, and rebar gives {d}\n", .{ engines.names[@intFromEnum(engine)], answer.?, bench.name, count_of(bench.count, engine) });
+    }
+    try print_count(out, bench);
+    const items = if (section == .searches) @as(f64, @floatFromInt(haystack.len)) / timing.octets_per_megabyte else 1.0 / per_thousand;
+    try row.print(io, out, items);
+    try out.flush();
+}
+
+/// A row's name and its count, or each engine's where rebar gives them different counts.
+fn print_count(out: *std.Io.Writer, bench: rebar.Bench) !void {
+    const counts = bench.count;
+    if (counts.go == counts.rust and counts.go == counts.re2) return out.print("| {s} | {d} |", .{ bench.name, counts.go });
+    try out.print("| {s} | Go {d}, Rust {d}, RE2 {d} |", .{ bench.name, counts.go, counts.rust, counts.re2 });
+}
+
+/// Each of rebar's two sets in two tables: the searches in megabytes of haystack a second, and the
 /// compiles in thousands of patterns a second.
 pub fn report(io: std.Io, out: *std.Io.Writer, arena: std.mem.Allocator, features: codec.Features, files: []const File) !void {
-    try out.print("The held-out set: every benchmark of rebar's curated set, at commit {s}, whose engines name Go's regexp or RE2. rebar's author chose its patterns and haystacks, and design §8 part 22n tuned stdx on them since. A candidate's answer is held to the count rebar gives Go's regexp, and a candidate that refuses a pattern or answers otherwise is named so and not timed. zig-regex and mvzr are not timed on it: the tables above time them at a hundredth to a four-thousandth of stdx's speed, and its haystacks hold up to 32 MB.\n\n", .{rebar.commit});
+    try out.print("rebar's benchmarks, at commit {s}: each one whose engines name Go's regexp or RE2 and whose model this benchmark runs. rebar's author chose their patterns and haystacks. The curated set's are tuned: design §8 part 22n tuned stdx on them. The other benchmarks' are not: no work on stdx has measured them. A candidate's answer is held to the count rebar's definition gives its engine: Go's regexp's, Rust's crate's, and RE2's for stdx, whose syntax and reading of invalid UTF-8 are RE2's. A candidate that refuses a pattern or answers otherwise is named so and not timed. zig-regex and mvzr are not timed on them: the tables above time them at a hundredth to a four-thousandth of stdx's speed, and the haystacks hold up to 40 MB.\n\n", .{rebar.commit});
     const stdx: Stdx = .{ .first = try held.Held.create(arena, features), .again = try held.Held.create(arena, features) };
-    try report_section(io, out, arena, files, stdx, .searches);
-    try report_section(io, out, arena, files, stdx, .compiles);
+    for ([_]Set{ curated, others }) |set| {
+        try report_section(io, out, arena, files, stdx, set, .searches);
+        try report_section(io, out, arena, files, stdx, set, .compiles);
+    }
 }
 
 const testing = std.testing;
@@ -286,4 +349,68 @@ test "line_range keeps lines from line_start up to line_end, each with its line 
     try testing.expectEqualStrings("a\nb\n", line_range("a\nb\nc", null, 2));
     try testing.expectEqualStrings("c", line_range("a\nb\nc", 2, null));
     try testing.expectEqualStrings("", line_range("a\nb", 5, 9));
+}
+
+test "haystack_of trims, then cuts the lines, then appends, in rebar's order" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const files = [_]File{.{ .name = "rebar/haystacks/h.txt", .octets = "\n a\nb\nc \n" }};
+    const file: rebar.Haystack = .{ .file = .{ .path = "h.txt", .trim = true, .line_start = 1, .append = "Z" } };
+    try testing.expectEqualStrings("b\ncZ", try haystack_of(arena, &files, file));
+    const text: rebar.Haystack = .{ .text = .{ .octets = "ab", .repeat = 2, .append = "!" } };
+    try testing.expectEqualStrings("abab!", try haystack_of(arena, &files, text));
+}
+
+test "pattern_of puts a file's prepend and append around its alternation" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const files = [_]File{.{ .name = "rebar/regexes/k.txt", .octets = "if\nfor\n" }};
+    const bench: rebar.Bench = .{
+        .name = "test",
+        .model = .count,
+        .pattern = .{ .file = .{ .path = "k.txt", .alternate = true, .prepend = "\\b(", .append = ")\\b" } },
+        .case_insensitive = true,
+        .haystack = .{ .text = .{ .octets = "" } },
+        .count = .all(0),
+    };
+    try testing.expectEqualStrings("(?i)\\b((?:if)|(?:for))\\b", try pattern_of(arena, &files, bench, true));
+    try testing.expectEqualStrings("\\b((?:if)|(?:for))\\b", try pattern_of(arena, &files, bench, false));
+}
+
+test "admit times each candidate whose answer is its engine's count, and names the others" {
+    var row: Row = .{ .cells = @splat(.untimed) };
+    const context: u8 = 0;
+    const operation: timing.Operation = .{ .context = &context, .run_once = run_nothing };
+    // stdx gives RE2's count, Rust's crate gives Go's and not its own, Go gives its own, and stdx
+    // again refuses the pattern.
+    const counts: rebar.Counts = .{ .go = 4, .rust = 3, .re2 = 5 };
+    const answers = [timed.len]?u64{ 5, 4, 4, null };
+    for (timed, answers) |engine, answer| admit(&row, engine, operation, answer, counts);
+    try testing.expect(row.cells[@intFromEnum(Engine.stdx)] == .timed);
+    try testing.expect(row.cells[@intFromEnum(Engine.rust)] == .differs);
+    try testing.expect(row.cells[@intFromEnum(Engine.go)] == .timed);
+    try testing.expect(row.cells[@intFromEnum(Engine.stdx_again)] == .refused);
+    try testing.expectEqual(@as(usize, 2), row.timed);
+}
+
+fn run_nothing(_: *const anyopaque) void {}
+
+test "count_of gives Go's regexp, Rust's crate and stdx the counts of their engines" {
+    const counts: rebar.Counts = .{ .go = 4, .rust = 3, .re2 = 2 };
+    try testing.expectEqual(@as(u64, 4), count_of(counts, .go));
+    try testing.expectEqual(@as(u64, 3), count_of(counts, .rust));
+    try testing.expectEqual(@as(u64, 2), count_of(counts, .stdx));
+    try testing.expectEqual(@as(u64, 2), count_of(counts, .stdx_again));
+}
+
+test "print_count writes one count, or each engine's where rebar gives them different counts" {
+    var buffer: [256]u8 = undefined;
+    var out: std.Io.Writer = .fixed(&buffer);
+    var bench: rebar.Bench = .{ .name = "a", .model = .count, .pattern = .{ .text = "" }, .haystack = .{ .text = .{ .octets = "" } }, .count = .all(7) };
+    try print_count(&out, bench);
+    bench.count = .{ .go = 4, .rust = 3, .re2 = 2 };
+    try print_count(&out, bench);
+    try testing.expectEqualStrings("| a | 7 || a | Go 4, Rust 3, RE2 2 |", out.buffered());
 }

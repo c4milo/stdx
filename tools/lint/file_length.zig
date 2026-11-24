@@ -11,7 +11,8 @@
 //! is deliberately long. So is a file a tool writes, which no person splits: a table generated from
 //! a specification joins the exclusions in the commit that adds its generator, named by its
 //! basename. `unicode_tables.zig`, which tools/unicode/unicode_tables.zig writes from Unicode
-//! 17.0.0's data files, is the one.
+//! 17.0.0's data files, is one. `regex_rebar.zig`, which bench/regex/rebar_cases.py writes from
+//! rebar's definitions, is the other.
 //!
 //! The rule is pepegrillo's `file_length` (decision 7). This file holds stdx's configuration of it
 //! and the fixtures that pin that configuration.
@@ -30,7 +31,7 @@ pub const config: file_length.Config = .{
     .scope = .{
         .extensions = &.{ ".zig", ".sh" },
         .include_directories = &.{ "src", "tools", "build", "bench" },
-        .exclude_basenames = &.{"unicode_tables.zig"},
+        .exclude_basenames = &.{ "unicode_tables.zig", "regex_rebar.zig" },
     },
     .lines_max = max_lines,
     .message_suffix = "; split the file",
@@ -88,6 +89,7 @@ test "file-length reads no file outside the directories it names" {
 
 test "file-length leaves out the generated tables, by basename alone" {
     try testing.expect(!config.scope.applies("src/unicode/unicode_tables.zig"));
+    try testing.expect(!config.scope.applies("bench/regex/regex_rebar.zig"));
     // A hand-written file beside them stays in, and so does a file of another name that ends alike.
     try testing.expect(config.scope.applies("src/unicode/property.zig"));
     try testing.expect(config.scope.applies("src/unicode/my_unicode_tables.zig"));

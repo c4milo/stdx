@@ -33,28 +33,53 @@ const logs = [_]struct { name: []const u8, sha256: []const u8 }{
     .{ .name = "re2-exhaustive.txt.bz2", .sha256 = "f1253bff45157cd2a71d7729e11a19ad8ae15efdc0af00fe0939289e6e1a4ec8" },
 };
 
-/// rebar, the regex benchmark whose curated set is bench-regex's held-out set (decision 86 as
-/// amended), at the commit bench/regex/regex_rebar.zig was written from. tools/corpus/fetch.sh
-/// fetches each file the set reads and refuses one whose SHA-256 is not the pinned one.
+/// rebar, the regex benchmark whose two sets bench-regex times (decision 86 as amended), at the
+/// commit bench/regex/regex_rebar.zig was written from. tools/corpus/fetch.sh fetches each file
+/// the sets read and refuses one whose SHA-256 is not the pinned one.
 const rebar_url = "https://raw.githubusercontent.com/BurntSushi/rebar/463d00f31887e84c38467805b9e3122c314b9521/benchmarks/";
 
-/// The set's haystacks and pattern files, by their paths under rebar's `benchmarks/`.
+/// The sets' haystacks and pattern files, by their paths under rebar's `benchmarks/`.
 const rebar_files = [_]struct { path: []const u8, sha256: []const u8 }{
+    .{ .path = "haystacks/bstr-ext-slice-65993b58.txt", .sha256 = "3fba7273b2cb5c231d5175962ee69c82653e1f2772cad6355948837dc10b43fd" },
     .{ .path = "haystacks/cloud-flare-redos.txt", .sha256 = "2950cee4e38166459d4314a6e61929d2e7b9edc32cd50f029e79ac549c783a1d" },
+    .{ .path = "haystacks/imported/leipzig-3200.txt", .sha256 = "f2aa28234e7a8212c9e009fa9c67d1960d2d063d076765de46b0faed5fe44ad8" },
+    .{ .path = "haystacks/imported/lh3lh3-reb-howto.txt", .sha256 = "531b74b821c3d365cfb32380e5fa0d75affb295926e14865589855bd6c26052f" },
+    .{ .path = "haystacks/imported/mariomka.txt", .sha256 = "7b7f70c9ca999b2bede85b7ed8e37c9193edced196f4aed29651e37ef4f8e979" },
+    .{ .path = "haystacks/imported/regex-redux-100000.fasta", .sha256 = "2907f3fb66fea247549c0f26b5b5d5cd1940a055574b72dad344283e1eb0fd10" },
+    .{ .path = "haystacks/imported/rsc/1K.txt", .sha256 = "f6fe24d5a17312fb00dd88e9539ce5db203c014b8b87beb2d1d81684cdf1d3df" },
+    .{ .path = "haystacks/imported/rsc/1MB.txt", .sha256 = "5cc77f81d39a96455fe9d6727bf3feebd2cb0a69d7e3f299cac763ff3fd3b447" },
+    .{ .path = "haystacks/imported/rsc/32.txt", .sha256 = "84f5d95df42415ffec0d3a260f2f7f3950d126ff9ae7eab20584927584693a75" },
+    .{ .path = "haystacks/imported/rsc/32K.txt", .sha256 = "a382af162278c386e11f65b05b25099fbbff250fb47b0775548f9b7f137d5ce6" },
+    .{ .path = "haystacks/imported/rsc/anchored-literal-long.txt", .sha256 = "5f4eff6dbc548f3db5ee2ac0bfcf6dce1300092f8de8a7317afe5b606401cc39" },
+    .{ .path = "haystacks/imported/rsc/long-needle1.txt", .sha256 = "4d068a75dba5a8f2d129558c1c8c95558a0387a16bce02447862d83103b82faa" },
+    .{ .path = "haystacks/imported/rsc/long-needle2.txt", .sha256 = "911a051c2796a6aaeb233d8870597564cec03656b26479b9529b9fe1e11dd4f5" },
+    .{ .path = "haystacks/lines-with-invalid-utf8.txt", .sha256 = "17dc472dca4c1602cca5a7f25a30added1117253e60cbbcdd51ef3e204530a89" },
+    .{ .path = "haystacks/opensubtitles/en-huge.txt", .sha256 = "07ff024bdc05f6c2b4bc0b5b768a332a18a616261fcbd16b41e953df1c7fa7ff" },
     .{ .path = "haystacks/opensubtitles/en-medium.txt", .sha256 = "d1da7bb695f9807deaa21306ee0c132f09d92d92c13d07219792c6765480f90c" },
     .{ .path = "haystacks/opensubtitles/en-sampled.txt", .sha256 = "0d40805f6d02c8fe02bd75945b98911891f707e8ecb939e018446858065d76ea" },
+    .{ .path = "haystacks/opensubtitles/en-tiny.txt", .sha256 = "fb3fa0f377a15f21b5e3658b4b791e38d7a6015e808dc17666652beba7de7eae" },
+    .{ .path = "haystacks/opensubtitles/ru-huge.txt", .sha256 = "40d93a4618e69e81c063902106c243759f1bb08b48bdf593a288c386b0d9fe0c" },
+    .{ .path = "haystacks/opensubtitles/ru-medium.txt", .sha256 = "d266a0858e828a9e725d89a947f56507cb63fba2d4b45847dc232a0b7ca95a4e" },
     .{ .path = "haystacks/opensubtitles/ru-sampled.txt", .sha256 = "7ffddb21336a1bfb4a9e2df4bb77eea0305c0010a57c5d3c56e0dfead9e80a90" },
     .{ .path = "haystacks/opensubtitles/zh-sampled.txt", .sha256 = "f129e81928c58ecbba0ccbb63b36679355345248df057d1e9ded670d6e9c964b" },
     .{ .path = "haystacks/rust-src-tools-3b0d4813.txt", .sha256 = "7d43cc8dfd053b083b809bd7ce7d4a074f2fd24a6b7ec38908b3966f3324fa36" },
+    .{ .path = "haystacks/sherlock.txt", .sha256 = "242ec73a70f0a03dcbe007e32038e7deeaee004aaec9a09a07fa322743440fa8" },
+    .{ .path = "haystacks/unicode/allcodepoints.txt", .sha256 = "e0a7693f7362e88827c15e772e55b3490bd983f90711df7f3ef36c2b1ef6847e" },
     .{ .path = "haystacks/wild/UnicodeData-15.0.0.txt", .sha256 = "806e9aed65037197f1ec85e12be6e8cd870fc5608b4de0fffd990f689f376a73" },
     .{ .path = "haystacks/wild/cpython-226484e4.py", .sha256 = "1aaf33e0e5d90f0b350c5e04c3817c6c12b9e1ee0cecf2433c8ee6a7bae176d2" },
     .{ .path = "haystacks/wild/parol-veryl.vl", .sha256 = "adf5fcdfb6071e5470b77a45b33826ccf6a0cb8709e5157697d5a9838a4e0b81" },
+    .{ .path = "haystacks/wild/rg-13.0.0-x86_64-pc-windows-msvc.bin", .sha256 = "ab5595a4f7a6b918cece0e7e22ebc883ead6163948571419a1dd5cd3c7f37972" },
+    .{ .path = "haystacks/wild/rg-13.0.0-x86_64-unknown-linux-musl.bin", .sha256 = "4ef156371199b3ddac1bf584e0e52b1828279af82e4ea864b4d9c816adb5db40" },
     .{ .path = "haystacks/wild/unstructured-to-json.log", .sha256 = "3afccfa634a74ce4045267ac5486f900d73fe5b58a96ba70b659249cf6f64be7" },
+    .{ .path = "regexes/dictionary/english/length-10.txt", .sha256 = "3a335fd5d8c2fd4ab5c01e5f0635697efdbf7fd07544ff7da6e093b780cfa59a" },
     .{ .path = "regexes/dictionary/english/length-15.txt", .sha256 = "8e5c78a5b7db76cfd0bca99157cdb7088b379aee9aa34508de0cc9cb42c274e7" },
+    .{ .path = "regexes/reported/i787-keywords.txt", .sha256 = "4f85e910d767ae251fcac285a1c4a5ebf030df6b87b4d9d25853ceba9bd3df51" },
+    .{ .path = "regexes/wild/bibleref.txt", .sha256 = "adb897ec9ec7e6f892d9f35d1de294f380d34b46b853e2f9f950ff8c23b8c2d6" },
     .{ .path = "regexes/wild/date.txt", .sha256 = "0d223554e54ce6bfb34bbb3aa510a4a0941a3856882c64b0d971cc6b10f893bf" },
     .{ .path = "regexes/wild/parol-veryl.txt", .sha256 = "0ba9358c2787da1696c4f98ab393c979fe5ece5dac75934eb1553b1d8e04fb93" },
     .{ .path = "regexes/wild/ucd-parse.txt", .sha256 = "3f1c1df738d353947bd3f10bf34234305a024a2bcd46abaee6ba5d0d6f6d6788" },
     .{ .path = "regexes/wild/unstructured-to-json.txt", .sha256 = "7b2a622c8e436ada0c357e61c773de8d05adb59ed12475aeb50643d2ad8cd894" },
+    .{ .path = "regexes/wild/url.txt", .sha256 = "b42a35cadcffd7bbd7198ac80f20dfc026b3e4e1994bdff5bdc52e72c828545a" },
 };
 
 /// What the step says on a host without go.
@@ -71,7 +96,7 @@ const tested = [_]struct { root: []const u8, codec: bool = false, regex: bool = 
     .{ .root = "bench/regex/regex_cases.zig", .codec = true },
     // The held-out set's line split, its UTF-8 repair and its line ranges.
     .{ .root = "bench/regex/regex_engines_rebar.zig", .codec = true, .regex = true },
-    .{ .root = "bench/regex/regex_held_out.zig", .codec = true, .regex = true },
+    .{ .root = "bench/regex/regex_held_out.zig", .codec = true, .regex = true, .timing = true },
     // The order a row times its candidates in.
     .{ .root = "bench/regex/regex_table.zig", .codec = true, .regex = true, .timing = true },
 };

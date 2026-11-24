@@ -23,11 +23,11 @@
 //! is named so in its cell and is not timed. stdx must give Go's answer, or the benchmark fails:
 //! a fast wrong answer is no result.
 //!
-//! Last, regex_held_out.zig times the held-out set: rebar's curated benchmarks, which rebar's
-//! author chose, under their own models and haystacks.
+//! Last, regex_held_out.zig times two sets of rebar's benchmarks, which rebar's author chose,
+//! under their own models and haystacks: its curated set, and its other definitions.
 //!
 //! Usage: `bench_regex [--held-out] <name>=<path>...`, the corpus files and rebar's files. It
-//! prints Markdown to standard output. `--held-out` times the held-out set alone.
+//! prints Markdown to standard output. `--held-out` times rebar's two sets alone.
 
 const std = @import("std");
 const codec = @import("codec");
@@ -55,7 +55,7 @@ const per_thousand = 1_000.0;
 /// The exit status of a usage error.
 const usage_exit_status = 2;
 
-/// The argument that times the held-out set alone, to check it without the other tables.
+/// The argument that times rebar's two sets alone, to check them without the other tables.
 const held_out_flag = "--held-out";
 
 /// What one call does with a compiled pattern, and what it does it to.

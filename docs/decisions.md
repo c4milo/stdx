@@ -6370,6 +6370,31 @@ last part lists what still waits on a ruling.
           hold one toward the baseline. A row stdx loses on it is no less a loss for that.
         - `tools/corpus/fetch.sh` fetches the set's 15 files from rebar's commit with
           `-Doracles`, about 45 MB, each pinned by SHA-256.
+      - rebar's other benchmarks, by the owner's ruling of 2026-11-23, who asked for a chart that is
+        fair and objective. The set of the tables above was written for this benchmark, and stdx
+        was tuned on it and on rebar's curated set.
+        - The set is every benchmark of rebar's definitions at commit 463d00f, outside its curated
+          set and its tests, whose engines name Go's regexp or RE2 and whose model the benchmark
+          runs: 197 of them. The rule leaves out `regex-redux`, a program of its own with no
+          pattern. No work on stdx had measured one of them.
+        - No change to stdx is judged on these rows, and no constant is chosen with one. If a
+          change is ever made for one of them, this entry names it, and the README says from then
+          on that the set is tuned.
+        - rebar's README says that these benchmarks mostly serve to make Rust's regex crate faster,
+          and its `BIAS.md` says that they may favor that crate. So the set can lean toward the
+          baseline, and not toward stdx.
+        - Each candidate must give the count rebar's definition gives its engine, as rebar
+          checks its own: Go's regexp's, Rust's crate's, and RE2's for stdx, whose syntax and
+          reading of invalid UTF-8 are RE2's. Of the 238, two give the three engines different counts.
+          On `unicode/compile/match-every-line`, Go's regexp reads invalid UTF-8 as U+FFFD and
+          counts 4, where the others count 3. On `unicode/codepoints/letters-one`, each count
+          follows the engine's release of Unicode's tables. rebar records 1244 for Go and 1250
+          for RE2, and Go 1.27.4 and stdx, on Unicode 17.0.0, give 1333. So that row times Rust's
+          crate alone.
+        - The haystacks take rebar's `trim` and `append`, and the patterns its `prepend` and
+          `append`, in the order of rebar's `FORMAT.md`. `bench/regex/rebar_cases.py` writes both
+          sets into `regex_rebar.zig`, and `tools/corpus/fetch.sh` fetches 25 more files from the
+          same commit, about 120 MB, each pinned by SHA-256.
         - The alternatives refused: rebar's patterns on the corpora stdx already pins, which
           change rebar's tasks; and the 34 benchmarks of the count, span and compile models
           alone, which leave out the 7 of grep and captures, where stdx trails Rust's crate on

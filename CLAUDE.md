@@ -240,7 +240,7 @@ stdx's appendix to it.
     CLDR as lazy packages, and the WHATWG HTML Standard's page, which `tools/corpus/fetch.sh`
     fetches and checks against a pinned SHA-256 because Zig fetches archives only; RE2's two
     test logs, which the same script fetches from Go's repository at a pinned tag (decision 86);
-    and the 15 files of rebar's curated set that bench-regex's held-out set reads, which the same
+    and the 40 files of rebar's benchmarks that bench-regex's two rebar sets read, which the same
     script fetches from rebar's repository at a pinned commit (decision 86 as amended).
   Every one is a lazy package pinned by hash, or a file pinned by SHA-256, and `build/oracle.zig`
   requests them only when a build passes `-Doracles`.
@@ -279,7 +279,8 @@ Change this section when a step adds or renames a command.
 - Unicode tables: `zig build unicode-tables` writes `src/unicode/unicode_tables.zig` from the data
   files of Unicode 17.0.0 in `tools/unicode/ucd/` with `tools/unicode/unicode_tables.zig`; `zig
   build unicode-tables-check` fails when the committed file differs from what it writes (decision 86
-  as amended). The file-length and magic-numbers rules leave the file out by its basename.
+  as amended). The file-length and magic-numbers rules leave the file out by its basename, and
+  the file-length rule leaves out `bench/regex/regex_rebar.zig` the same way.
 - Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
   then checks `src/utf8/utf8_vectors.txt`, `src/json/number_vectors.txt` and
   `src/regex/utf8_split_vectors.txt` are what the proved definitions give; `zig build lean --
@@ -452,12 +453,14 @@ Change this section when a step adds or renames a command.
   match of a pattern in a haystack of 1 MiB, a pattern that validates 65,536 short texts, the
   same with capture groups, and a pattern compiled and made ready. Each candidate's answer is held to Go's regexp's
   before it is timed: a candidate that refuses a pattern or answers otherwise is named so and not
-  timed, and stdx must give Go's answer. Last, it times the held-out set: every benchmark of
-  rebar's curated set whose engines name Go's regexp or RE2, under rebar's own models, patterns and
-  haystacks, each answer held to rebar's count, which `bench/regex/rebar_cases.py` writes into
-  `bench/regex/regex_rebar.zig`. Design §8 part 22n tuned stdx on that set since, so it is held
-  out no longer (decision 86). `-- --held-out` times that set alone. It
-  needs cargo and go on the path. The `bench` workflow offers it.
+  timed, and stdx must give Go's answer. Last, it times two sets of rebar's benchmarks: each one
+  whose engines name Go's regexp or RE2 and whose model it runs, under rebar's own models, patterns
+  and haystacks, each answer held to the count rebar gives its engine, RE2's for stdx.
+  `bench/regex/rebar_cases.py` writes both into
+  `bench/regex/regex_rebar.zig`. The curated set's rows are tuned: design §8 part 22n tuned stdx
+  on them. The others are rebar's other definitions but its tests: no change is judged on them,
+  and their chart is `regex-rebar-others` (decision 86). `-- --held-out` times both sets alone.
+  It needs cargo and go on the path. The `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
   fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins

@@ -55,6 +55,8 @@ GROUPS = "Capture groups of short texts, millions of texts a second"
 COMPILE = "Compile, thousands of patterns a second"
 HELD_SEARCH = "Held-out search, rebar's curated set, MB/s"
 HELD_COMPILE = "Held-out compile, rebar's curated set, thousands of patterns a second"
+OTHER_SEARCH = "Search, rebar's other benchmarks, MB/s"
+OTHER_COMPILE = "Compile, rebar's other benchmarks, thousands of patterns a second"
 # What a row's name starts with in the report, which a panel's title says for all its rows.
 GROUP = re.compile(r"^(literal|class|other): ")
 # The suffix of a row that times a pattern of another row on a second text.
@@ -97,6 +99,21 @@ PANELS = {
               "since, so they no longer show how stdx runs on patterns its tuning did not see. rebar's author also "
               "wrote Rust's crate, and rebar's BIAS.md says the set may favor that crate.", ["Go regexp"]),
         Panel(HELD_COMPILE, r"", "rebar's curated compiles", True, 12, None, ["Go regexp"]),
+    ]),
+    # Every other definition of rebar but its tests: no work on stdx has measured them, and no
+    # change is judged on them (decision 86). A panel for each folder of rebar's definitions.
+    "regex-rebar-others": ("regular expressions on rebar's other benchmarks", "Rust's regex and Go's regexp", [
+        Panel(OTHER_SEARCH, r"^imported/", "searches of rebar's imported definitions", True, None,
+              "Each row is a benchmark of rebar outside its curated set and its tests whose engines name Go's regexp or "
+              "RE2, under rebar's own model, pattern and haystack. rebar's author chose them, and no work on stdx has "
+              "measured them. rebar's README says that they mostly serve to make Rust's regex crate faster, and "
+              "rebar's BIAS.md says its benchmarks may favor that crate.", ["Go regexp"]),
+        Panel(OTHER_SEARCH, r"^opt/", "searches of rebar's opt definitions", True, None, None, ["Go regexp"]),
+        Panel(OTHER_SEARCH, r"^reported/", "searches of rebar's reported definitions", True, None, None, ["Go regexp"]),
+        Panel(OTHER_SEARCH, r"^unicode/", "searches of rebar's unicode definitions", True, None, None, ["Go regexp"]),
+        Panel(OTHER_SEARCH, r"^wild/", "searches of rebar's wild definitions", True, None, None, ["Go regexp"]),
+        Panel(OTHER_SEARCH, r"^(?!imported/|opt/|reported/|unicode/|wild/)", "searches of rebar's other definitions", True, None, None, ["Go regexp"]),
+        Panel(OTHER_COMPILE, r"", "rebar's other compiles", True, 12, None, ["Go regexp"]),
     ]),
 }
 
