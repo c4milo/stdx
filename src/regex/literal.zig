@@ -72,7 +72,7 @@ pub const Literal = extern struct {
     /// `through_looks` the walk goes through assertions, which take no octet, so the literal
     /// stands where a match starts, and the match is the literal only where no assertion stood.
     pub fn of(program: *const Program, through_looks: bool) ?Literal {
-        const found = walk(program, program.forward, through_looks);
+        const found = walk(program.instructions, program.forward, through_looks, constants.literal_len_max);
         var literal = found.literal;
         if (literal.len == 0) return null;
         if (!literal.exact and literal.len < constants.literal_prefix_len_min) return null;
@@ -124,7 +124,7 @@ pub const Literal = extern struct {
     /// The literal that the reverse program takes from `entry`, in the order of the text, not
     /// yet ready for a search.
     fn chain(program: *const Program, entry: u32, through_looks: bool) ?Suffix {
-        var found = walk(program, entry, through_looks);
+        var found = walk(program.instructions, entry, through_looks, constants.literal_len_max);
         if (found.literal.len == 0 or found.reached_match) return null;
         std.mem.reverse(u8, found.literal.octets[0..found.literal.len]);
         // The places' bits follow their octets: bit i goes to bit len - 1 - i.
@@ -132,9 +132,7 @@ pub const Literal = extern struct {
         found.literal.folds = @bitReverse(found.literal.folds) >> unused;
         found.literal.exact = false;
         const run = found.literal.first_run();
-        // The walk took the literal's last byte first, so its byte `i` is place `len - 1 - i`.
-        const run_entry = if (run == 0) found.stop else found.places[found.literal.len - run];
-        return .{ .literal = found.literal, .before = found.stop, .run = run, .run_entry = run_entry };
+        return .{ .literal = found.literal, .before = found.stop, .run = run, .entry = entry, .through_looks = through_looks };
     }
 
     /// The count of the literal's first bytes that are its first byte, where the literal goes
@@ -197,10 +195,19 @@ pub const Suffix = struct {
     /// The count of the literal's first bytes that are one byte, where the literal goes on past
     /// them: one for ` x`, which `[ab]+ +x` ends with. Zero where the literal is one byte alone.
     run: u32,
-    /// The instruction of the reverse program that takes the last byte of that run, where `run`
-    /// is not zero. The reverse program takes the run's bytes from there, and then goes to
-    /// `before`.
-    run_entry: u32,
+    /// Where the walk that read the literal started, and whether it passed assertions.
+    entry: u32,
+    through_looks: bool,
+
+    /// The instruction of the reverse program that takes the last byte of the literal's first
+    /// run. The reverse program takes the run's bytes from there, and then goes to `before`.
+    /// A second walk finds it: a searcher asks for few literals' and reads many.
+    pub fn run_entry(suffix: *const Suffix, instructions: []const program_file.Instruction) u32 {
+        assert(suffix.run != 0 and suffix.run < suffix.literal.len);
+        // The walk takes the literal's last byte first, and stops at the instruction that takes
+        // the first byte of the run.
+        return walk(instructions, suffix.entry, suffix.through_looks, suffix.literal.len - suffix.run).stop;
+    }
 };
 
 /// What a walk of a program found: the octets its instructions take one after another from
@@ -209,39 +216,36 @@ const Walk = struct {
     literal: Literal,
     stop: u32,
     reached_match: bool,
-    /// The instruction that took each byte of the literal, in the walk's order.
-    places: [constants.literal_len_max]u32,
 };
 
 /// Follows `out` from `entry` through saves, jumps and, with `through_looks`, assertions, and
-/// keeps the octet of each instruction that takes one octet alone, up to `literal_len_max`.
-fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
+/// keeps the octet of each instruction that takes one octet alone, up to `len_max`. It stops at
+/// the first instruction that takes an octet past them, or more than one octet.
+fn walk(instructions: []const program_file.Instruction, entry: u32, through_looks: bool, len_max: usize) Walk {
+    assert(len_max <= constants.literal_len_max);
     var literal: Literal = .{ .octets = undefined, .len = 0, .exact = false };
-    var places: [constants.literal_len_max]u32 = @splat(0);
     var passed_look = false;
     var index = entry;
     // Each instruction is read once: the walk follows `out`, and past a split that `case_pair`
     // takes, its two instructions' one `out`.
-    for (0..program.instructions.len) |_| {
-        const instruction = program.instructions[index];
+    for (0..instructions.len) |_| {
+        const instruction = instructions[index];
         var next = instruction.out;
         switch (instruction.kind) {
             .save, .jump => {},
             .range => {
-                if (instruction.lo != instruction.hi or literal.len == constants.literal_len_max) break;
-                places[literal.len] = index;
+                if (instruction.lo != instruction.hi or literal.len == len_max) break;
                 literal.push(instruction.lo, false);
             },
             .split => {
-                if (literal.len == constants.literal_len_max) break;
-                const pair = case_pair(program, instruction) orelse break;
-                places[literal.len] = index;
+                if (literal.len == len_max) break;
+                const pair = case_pair(instructions, instruction) orelse break;
                 literal.push(pair.octet, true);
                 next = pair.out;
             },
             .match => {
                 literal.exact = !passed_look;
-                return .{ .literal = literal, .stop = index, .reached_match = true, .places = places };
+                return .{ .literal = literal, .stop = index, .reached_match = true };
             },
             // A node of a class takes more than one octet.
             .ranges => break,
@@ -253,14 +257,14 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
         }
         index = next;
     }
-    return .{ .literal = literal, .stop = index, .reached_match = false, .places = places };
+    return .{ .literal = literal, .stop = index, .reached_match = false };
 }
 
 /// The lower case and the next instruction of a split whose two branches each take one octet,
 /// the two differing in `case_bit` alone and leading to one instruction: `(?i)`'s ASCII letter.
-fn case_pair(program: *const Program, split: program_file.Instruction) ?struct { octet: u8, out: u32 } {
-    const one = program.instructions[split.out];
-    const other = program.instructions[split.arg];
+fn case_pair(instructions: []const program_file.Instruction, split: program_file.Instruction) ?struct { octet: u8, out: u32 } {
+    const one = instructions[split.out];
+    const other = instructions[split.arg];
     if (one.kind != .range or other.kind != .range or one.out != other.out) return null;
     if (one.lo != one.hi or other.lo != other.hi) return null;
     if (one.lo ^ other.lo != constants.case_bit) return null;

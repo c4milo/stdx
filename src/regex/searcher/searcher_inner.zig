@@ -17,9 +17,8 @@
 //!
 //! A search from the places pays where the places stand far apart, and loses where they stand
 //! close together or a forward scan reads far and finds no match. A pattern does not say which
-//! text it meets, so each searcher keeps an `Account` of its searches, and the claim rests
-//! where it loses, as claim R1's skip rests (dfa_wait.zig). A searcher with the claim pays a
-//! call for each search, at rest too, so a claim that loses after its longest rest is dropped.
+//! text it meets, so each searcher keeps an account of its searches, and the claim rests or is
+//! dropped where it loses (searcher_account.zig).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -28,66 +27,9 @@ const Literal = @import("../literal.zig").Literal;
 const Dfa = @import("../dfa/dfa.zig").Dfa;
 const dfa_reverse = @import("../dfa/dfa_reverse.zig");
 const dfa_second = @import("../dfa/dfa_second.zig");
-
-/// What a search from the literal's places found.
-pub const Found = union(enum) {
-    /// The first match at or after `from`, or that the text holds none.
-    answer: ?Span,
-    /// The claim rests, or the search left the places: the plain search answers.
-    plain,
-    /// A DFA gave up.
-    gave_up,
-};
-
-/// One searcher's account of claim R14, in bytes of a plain scan. A search from the places
-/// gains the bytes of text it covered, which a plain scan reads one by one. It pays
-/// `inner_place_bytes` for each place, and the bytes of each forward scan that found no match.
-pub const Account = struct {
-    /// What the claim holds: the credit of `inner_credit_bytes` it starts a trial with, and
-    /// what its searches gained less what they paid, up to `inner_balance_max`.
-    balance: usize = constants.inner_credit_bytes,
-    /// The bytes of text the plain search still covers before the claim tries again. Zero
-    /// while the claim searches.
-    rest: usize = 0,
-    /// The trials that lost one after another: each doubles the rest, up to
-    /// `inner_rest_doublings_max` times.
-    poor_trials: u8 = 0,
-    /// True once a trial lost after the longest rest: the claim loses on this searcher's
-    /// texts, and the searcher drops it.
-    dropped: bool = false,
-
-    /// True when a search that covered `covered` bytes and paid `paid` has lost more than the
-    /// account holds.
-    fn overdrawn(account: *const Account, covered: usize, paid: usize) bool {
-        return account.balance + covered < paid;
-    }
-
-    /// Closes a search from the places, which covered `covered` bytes and paid `paid`. A
-    /// search that lost more than the account holds starts a rest, or drops the claim where
-    /// the rest before it was the longest. An account at `inner_balance_max` has earned back
-    /// what a trial may lose, so its next rest is the first one's.
-    fn settle(account: *Account, covered: usize, paid: usize) void {
-        assert(account.rest == 0 and !account.dropped);
-        if (account.overdrawn(covered, paid)) {
-            if (account.poor_trials > constants.inner_rest_doublings_max) {
-                account.dropped = true;
-                return;
-            }
-            account.rest = @as(usize, constants.inner_rest_bytes) << @intCast(account.poor_trials);
-            account.poor_trials += 1;
-            account.balance = constants.inner_credit_bytes;
-            return;
-        }
-        account.balance = @min(account.balance + covered - paid, constants.inner_balance_max);
-        if (account.balance == constants.inner_balance_max) account.poor_trials = 0;
-    }
-
-    /// Counts `covered` bytes of text that a plain search covered toward the rest. The claim
-    /// tries again once the rest is over.
-    pub fn pass(account: *Account, covered: usize) void {
-        account.rest -|= covered;
-    }
-};
+const searcher_account = @import("searcher_account.zig");
+const Account = searcher_account.Account;
+const Found = searcher_account.Found;
 
 /// What the two scans of one place found.
 const Place = union(enum) {
@@ -109,16 +51,19 @@ pub fn find(account: *Account, forward: *Dfa, reverse: *Dfa, literal: *const Lit
     var at = from;
     // Where the last forward scan that found no match stopped.
     var read_to = from;
-    var paid: usize = 0;
+    // A search pays for its start as for a place: its calls cost as much, and a text of short
+    // lines with no place would pay nothing for them.
+    var paid: usize = constants.account_place_bytes;
     // Each turn goes on from one byte past the place before, so the turns are at most the bytes
     // from `from` and one.
     for (0..haystack.len - from + 1) |_| {
         const place = literal.find(haystack, at) orelse break;
-        paid += constants.inner_place_bytes;
+        paid += constants.account_place_bytes;
         // The plain search answers where the next place stands before the byte the last forward
-        // scan stopped at, and where the places cost more than the account holds.
+        // scan stopped at, and where the places cost more than the account holds. It reads the
+        // text again from `from`, so this search gained nothing for what it paid.
         if (place < read_to or account.overdrawn(place - from, paid)) {
-            account.settle(place - from, paid);
+            account.settle(0, paid);
             return .plain;
         }
         switch (scan_place(forward, reverse, haystack, from, place)) {

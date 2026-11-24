@@ -338,6 +338,100 @@ test "a reverse DFA that gives up at a place hands the search to the matcher" {
     try testing.expect(fixture.searcher.give_ups > 0);
 }
 
+/// A text with one place of the literal ` xa`, too short to hide what the place costs, and a
+/// text with no place, which the plain search covers while the claim rests.
+const short_text = "ab xa";
+const rest_text_len = 4096;
+const rest_text = [_]u8{':'} ** rest_text_len;
+
+/// The rests of a claim before it is dropped: the first, and one for each doubling.
+const rests = constants.account_rest_doublings_max + 1;
+
+/// Searches the short text until the claim rests or is dropped, and requires each search's
+/// match. The searches before that are the claim's trial.
+fn lose_trial(fixture: *Fixture) !void {
+    const searcher = &fixture.searcher;
+    const span: Span = .{ .start = 0, .end = short_text.len };
+    // Each search loses what a place and a start cost, less the text, so the searches are at
+    // most the bytes of the credit, and one.
+    for (0..constants.account_credit_bytes + 1) |_| {
+        if (searcher.account.rest != 0 or searcher.suffix == null) return;
+        try testing.expectEqual(@as(?Span, span), searcher.find(short_text, 0));
+    }
+    return error.TestExpectedRest;
+}
+
+test "a searcher rests claim R4's second and third rules on a text too short for a place, and drops them" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[abx]+ +xa", searcher_test.cache_words_max);
+    const searcher = &fixture.searcher;
+    try testing.expect(searcher.suffix != null and searcher.suffix_wide and searcher.by_claim);
+    // A search pays for its start and for its place, and gains the text to its match's end.
+    try testing.expectEqual(@as(?Span, .{ .start = 0, .end = short_text.len }), searcher.find(short_text, 0));
+    var balance: usize = constants.account_credit_bytes + short_text.len - constants.account_place_bytes - constants.account_place_bytes;
+    try testing.expectEqual(balance, searcher.account.balance);
+    // A search that finds no place pays for its start, and gains the text.
+    try testing.expectEqual(@as(?Span, null), searcher.find(rest_text[0 .. constants.account_place_bytes + 1], 0));
+    balance += 1;
+    try testing.expectEqual(balance, searcher.account.balance);
+    for (0..rests) |trial| {
+        try lose_trial(&fixture);
+        // The search that lost the credit left its place to the plain search, and the text
+        // that search covered counts toward the rest. So does the next search's.
+        var rest = (@as(usize, constants.account_rest_bytes) << @intCast(trial)) - short_text.len;
+        try testing.expectEqual(rest, searcher.account.rest);
+        try testing.expectEqual(@as(?Span, .{ .start = 0, .end = short_text.len }), searcher.find(short_text, 0));
+        rest -= short_text.len;
+        try testing.expectEqual(rest, searcher.account.rest);
+        // Each turn covers the text with no place, so the turns are its share of the rest, and one.
+        for (0..searcher.account.rest / rest_text_len + 1) |_| {
+            if (searcher.account.rest == 0) break;
+            try testing.expectEqual(@as(?Span, null), searcher.find(&rest_text, 0));
+        }
+        try testing.expect(searcher.suffix != null and searcher.account.rest == 0);
+    }
+    // The trial after the longest rest loses too: the searcher drops the claim.
+    try lose_trial(&fixture);
+    try testing.expect(searcher.suffix == null and !searcher.suffix_wide and !searcher.by_claim);
+    try fixture.expect_agree_everywhere("ab xa  xa abx xa");
+}
+
+/// The bytes between two matches of the text below, as a count of what a place costs, and the
+/// text's matches.
+const far_gap_places = 4;
+const far_gap = far_gap_places * constants.account_place_bytes;
+const far_matches = 64;
+
+test "a searcher keeps claim R4's second and third rules on a text whose places stand far apart" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[abx]+ +xa", searcher_test.cache_words_max);
+    // The text ends with a gap, so that the search after the last match gains its start too.
+    var text: [far_matches * (far_gap + short_text.len) + far_gap]u8 = undefined;
+    @memset(&text, ':');
+    for (0..far_matches) |index| @memcpy(text[index * (far_gap + short_text.len) + far_gap ..][0..short_text.len], short_text);
+    var from: usize = 0;
+    for (0..far_matches) |index| {
+        const start = index * (far_gap + short_text.len) + far_gap;
+        try testing.expectEqual(@as(?Span, .{ .start = start, .end = start + short_text.len }), fixture.searcher.find(&text, from));
+        from = start + short_text.len;
+    }
+    try testing.expectEqual(@as(?Span, null), fixture.searcher.find(&text, from));
+    try testing.expectEqual(@as(usize, constants.account_balance_max), fixture.searcher.account.balance);
+    try testing.expect(fixture.searcher.account.rest == 0 and fixture.searcher.suffix != null);
+}
+
+test "a suffix by the first rule keeps no account" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+x", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.suffix != null and !fixture.searcher.suffix_wide);
+    // More searches of a text of three bytes than a credit pays for.
+    for (0..constants.account_credit_bytes) |_| {
+        try testing.expectEqual(@as(?Span, .{ .start = 0, .end = "abx".len }), fixture.searcher.find("abx", 0));
+    }
+    try testing.expectEqual(@as(usize, constants.account_credit_bytes), fixture.searcher.account.balance);
+    try testing.expect(fixture.searcher.suffix != null and fixture.searcher.account.rest == 0);
+}
+
 /// A text of letters that the reverse DFA reads back over, past the least cache's states, and
 /// the start of the one match it holds.
 const give_up_text_len = 600;

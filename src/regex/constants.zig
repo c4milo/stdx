@@ -209,26 +209,26 @@ pub const inner_candidates_max = 8;
 /// its literal, `[A-Z][a-z]+ [A-Z][a-z]+` took 38 ns a place on the N2 where the plain scan
 /// took 0.93 ns a byte, so a text whose places stand under some 41 bytes apart loses (design §8
 /// part 22q). 64 leaves the claim to texts where it gains by half or more.
-pub const inner_place_bytes = 64;
+pub const account_place_bytes = 64;
 
 /// What a trial of claim R14 may lose before the claim rests, in bytes of a plain scan
 /// (searcher_inner.zig). A trial that fails then costs under a sixteenth of the first rest.
-pub const inner_credit_bytes = 1 << 12;
+pub const account_credit_bytes = 1 << 12;
 
 /// The most claim R14's account holds: its credit, and as much again that its searches gained.
 /// An account that holds it has earned back what a trial may lose, so its next rest is the
 /// first one's. A higher bound would let a long text of far places pay for as long a text of
 /// close ones.
-pub const inner_balance_max = 2 * inner_credit_bytes;
+pub const account_balance_max = 2 * account_credit_bytes;
 
 /// The bytes of text the plain search covers while claim R14 rests, before the claim tries
 /// again. A text changes, as claim R1's skip finds (`skip_rest_octets`), and each trial that
-/// fails after another doubles the rest, up to `inner_rest_doublings_max` times. A trial that
+/// fails after another doubles the rest, up to `account_rest_doublings_max` times. A trial that
 /// fails after the longest rest drops the claim: a searcher with the claim pays a call for each
 /// search, which took 8% of a search of 51 bytes (design §8 part 22q), and by then the claim
 /// lost six trials over 2 MiB of text.
-pub const inner_rest_bytes = 1 << 16;
-pub const inner_rest_doublings_max = 4;
+pub const account_rest_bytes = 1 << 16;
+pub const account_rest_doublings_max = 4;
 
 /// The bytes of text a searcher's searches cover, for each instruction of the reverse program,
 /// before it judges claim R4's second and third rules, claim R13 and claim R14

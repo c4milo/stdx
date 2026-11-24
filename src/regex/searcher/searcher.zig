@@ -27,19 +27,16 @@ const codec = @import("codec");
 const platform = @import("platform");
 const literal_file = @import("../literal.zig");
 const searcher_edge = @import("searcher_edge.zig");
-const searcher_inner = @import("searcher_inner.zig");
+const searcher_account = @import("searcher_account.zig");
 const searcher_claim = @import("searcher_claim.zig");
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
 
-/// What a faster way found: the match, or that the text holds none.
-pub const Answer = struct { span: ?Span };
-
-/// What a faster way found, for `find` and `captures`, which keep the span beside it. An
-/// answer that held its span came back through memory where the ways joined: stored as two
-/// words and read as one, which no CPU forwards, at 12 to 35 percent of a short search (design
-/// §8 part 22q).
+/// What a faster way found: a match, whose span the caller keeps beside this, that the text
+/// holds none, or nothing, where the matcher answers. An answer that held its span came back
+/// through memory where the ways joined: stored as two words and read as one, which no CPU
+/// forwards, at 12 to 35 percent of a short search (design §8 part 22q).
 pub const Outcome = enum { match, none, unknown };
 
 /// The claims of a searcher, each a faster way that must give the answer the plain way gives.
@@ -191,8 +188,12 @@ pub const Searcher = struct {
     /// the greatest `usize`, which no text's length is outside.
     len_least: usize,
     len_span: usize,
-    /// Claim R14's account of what its places cost (searcher_inner.zig).
-    inner_account: searcher_inner.Account,
+    /// True where claim R4's second rule or its third took `suffix`: such a search keeps the
+    /// account below, and the first rule's does not.
+    suffix_wide: bool,
+    /// The account of the claim that may lose by its places: claim R14, or claim R4 where
+    /// `suffix_wide` holds (searcher_account.zig).
+    account: searcher_account.Account,
     /// Claims R4 and R14 where the searcher has not judged them yet, and the bytes of text its
     /// searches still cover before it does (searcher_claim.zig).
     deferred: searcher_claim.Deferred,
@@ -395,22 +396,11 @@ pub const Searcher = struct {
         return searcher.matched_groups();
     }
 
-    /// `find_by_dfa` for searcher_claim.zig, whose claims call it where they leave a search to
-    /// the two DFAs.
-    pub fn find_plain(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
-        var span: Span = undefined;
-        return switch (searcher.find_by_dfa(haystack, from, &span)) {
-            .match => .{ .span = span },
-            .none => .{ .span = null },
-            .unknown => null,
-        };
-    }
-
     /// The match as the two DFAs find it, written to `span`, or `unknown` when the searcher has
     /// no DFA for the search or one gave up. Inline, as `find` and `captures` held it before
     /// searcher_claim.zig: in a function of its own, its skip took 7% more instructions (design
-    /// §8 part 22q).
-    inline fn find_by_dfa(searcher: *Searcher, haystack: []const u8, from: usize, span: *Span) Outcome {
+    /// §8 part 22q). That file's claims call it where they leave a search to the two DFAs.
+    pub inline fn find_by_dfa(searcher: *Searcher, haystack: []const u8, from: usize, span: *Span) Outcome {
         if (searcher.exact) |*literal| {
             const start = literal.find(haystack, from) orelse return .none;
             span.* = .{ .start = start, .end = start + literal.len };
@@ -424,13 +414,13 @@ pub const Searcher = struct {
         if (!searcher.forward_ready or !searcher.reverse_ready) return .unknown;
         if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
         const end = switch (searcher.forward.scan_forward(haystack, from, false)) {
-            .gave_up => return searcher.gave_up_unknown(),
+            .gave_up => return searcher.gave_up(),
             .none => return .none,
             .found => |offset| offset,
         };
         // `^` holds at the text's start alone, so a match found from `from` starts there.
         const start = if (searcher.at_text) from else switch (searcher.reverse.scan_reverse(haystack, from, end)) {
-            .gave_up => return searcher.gave_up_unknown(),
+            .gave_up => return searcher.gave_up(),
             // The forward program matched text that ends at `end`, so the reverse program matches
             // it read backward.
             .none => unreachable,
@@ -440,14 +430,10 @@ pub const Searcher = struct {
         return .match;
     }
 
-    inline fn gave_up_unknown(searcher: *Searcher) Outcome {
+    /// Counts a search in which a DFA gave up, which the matcher answers.
+    pub inline fn gave_up(searcher: *Searcher) Outcome {
         searcher.give_ups += 1;
         return .unknown;
-    }
-
-    pub fn gave_up(searcher: *Searcher) ?Answer {
-        searcher.give_ups += 1;
-        return null;
     }
 };
 
@@ -469,4 +455,6 @@ test {
     _ = @import("searcher_matches.zig");
     _ = @import("searcher_edge_test.zig");
     _ = @import("searcher_inner_test.zig");
+    _ = @import("searcher_claim_test.zig");
+    _ = @import("searcher_account.zig");
 }

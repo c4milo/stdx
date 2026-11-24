@@ -198,7 +198,9 @@ test "a search from the text's end reads few bytes of a long text, and none forw
 
 /// Patterns whose every match is the whole text, and that hold no loop.
 const whole_patterns = [_][]const u8{
-    "^a{2,5}$", "^((aaa)|(aa))$", "\\A[ab]x?\\z", "^$", "^(?:Ph|x)$", "^.{2}$", "^(a|ab)(x|bx)$", "(^Ph)$",
+    "^a{2,5}$",     "^((aaa)|(aa))$", "\\A[ab]x?\\z", "^$", "^(?:Ph|x)$", "^.{2}$", "^(a|ab)(x|bx)$", "(^Ph)$",
+    // More bytes than the part before a literal may hold under claim R4's second rule.
+    "^[ab]{12}x?$",
 };
 
 /// Patterns that hold a loop, or whose match may be a part of the text.

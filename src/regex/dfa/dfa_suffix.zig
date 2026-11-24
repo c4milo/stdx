@@ -63,8 +63,7 @@ pub fn suffix_of(reverse: *Dfa, program: *const Program, rules: Rules) ?Literal 
 /// True where one of `rules` holds for the part of a match before `suffix`'s literal: the part
 /// that the reverse program takes from `suffix.before`.
 pub fn holds(reverse: *Dfa, suffix: *const Suffix, rules: Rules) bool {
-    if (apart(reverse, suffix)) return true;
-    return rules == .all and wide(reverse, suffix, short_fixed(reverse, suffix.before));
+    return apart(reverse, suffix) or (rules == .all and wide(reverse, suffix));
 }
 
 /// The first rule: no instruction of the reverse program after the literal takes its first
@@ -75,21 +74,19 @@ pub fn apart(dfa: *Dfa, suffix: *const Suffix) bool {
     return suffix.literal.fold_at(0) == 0 or !before_takes(dfa, suffix.before, first ^ constants.case_bit);
 }
 
-/// The second rule: the reverse program after the literal takes one count of bytes, at most
-/// `suffix_before_len_max`. It reads the part before the literal alone, so claim R14 asks it
-/// once for the literals that share a part (dfa_inner.zig).
-pub fn short_fixed(dfa: *Dfa, before: u32) bool {
-    const lengths = dfa_length.from(dfa, before, constants.suffix_before_len_max) orelse return false;
-    return lengths.least == lengths.most;
+/// The second rule or the third. Both take a literal of two bytes or more, as claim R2 does.
+/// The rest of a match may hold the literal's bytes, so a text holds many places of one byte,
+/// and each place costs a scan.
+pub fn wide(dfa: *Dfa, suffix: *const Suffix) bool {
+    if (suffix.literal.len < constants.literal_prefix_len_min) return false;
+    return short_fixed(dfa, suffix.before) or separated(dfa, suffix);
 }
 
-/// The second rule or the third for `suffix`, where `fixed` is the second rule's answer for
-/// the part before it. Both take a literal of two bytes or more, as claim R2 does. The rest of
-/// a match may hold the literal's bytes, so a text holds many places of one byte, and each
-/// place costs a scan.
-pub fn wide(dfa: *Dfa, suffix: *const Suffix, fixed: bool) bool {
-    if (suffix.literal.len < constants.literal_prefix_len_min) return false;
-    return fixed or separated(dfa, suffix);
+/// The second rule: the reverse program after the literal takes one count of bytes, at most
+/// `suffix_before_len_max`.
+fn short_fixed(dfa: *Dfa, before: u32) bool {
+    const lengths = dfa_length.from(dfa, before, constants.suffix_before_len_max) orelse return false;
+    return lengths.least == lengths.most;
 }
 
 /// The third rule, for the literal whole, or for the literal past its first run. A separator of
@@ -97,7 +94,7 @@ pub fn wide(dfa: *Dfa, suffix: *const Suffix, fixed: bool) bool {
 /// the literal's first run.
 fn separated(dfa: *Dfa, suffix: *const Suffix) bool {
     if (separated_from(dfa, suffix.before, &suffix.literal, 0)) return true;
-    return suffix.run != 0 and separated_from(dfa, suffix.run_entry, &suffix.literal, suffix.run);
+    return suffix.run != 0 and separated_from(dfa, suffix.run_entry(dfa.instructions), &suffix.literal, suffix.run);
 }
 
 /// The third rule for the part of the reverse program from `entry`, and the literal's bytes

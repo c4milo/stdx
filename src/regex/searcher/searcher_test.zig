@@ -65,9 +65,9 @@ pub const Fixture = struct {
     /// Requires the searcher's three calls to give what the matcher gives from `from`.
     pub fn expect_agree(fixture: *Fixture, haystack: []const u8, from: usize) !void {
         const expected = fixture.reference.find(haystack, from);
-        if (fixture.fresh_account) fixture.searcher.inner_account = .{};
+        if (fixture.fresh_account) fixture.searcher.account = .{};
         try testing.expectEqual(expected, fixture.searcher.find(haystack, from));
-        if (fixture.fresh_account) fixture.searcher.inner_account = .{};
+        if (fixture.fresh_account) fixture.searcher.account = .{};
         const found = fixture.searcher.captures(haystack, from);
         try testing.expectEqual(expected != null, found != null);
         const groups = found orelse return;

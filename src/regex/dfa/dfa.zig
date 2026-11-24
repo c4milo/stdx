@@ -342,7 +342,7 @@ pub const Dfa = struct {
     /// Where a match ended before the octet at `at - 1`, the octets from `at` whose entries are
     /// rows, in the loop of matches (dfa_run.zig). Only a scan that wants the last match takes
     /// it. The scan's answer where the entry that ended the run is dead.
-    pub inline fn take_matches(dfa: *const Dfa, matched: bool, haystack: []const u8, at: *usize, state: *u32, last: *?usize) ?Scan {
+    inline fn take_matches(dfa: *const Dfa, matched: bool, haystack: []const u8, at: *usize, state: *u32, last: *?usize) ?Scan {
         if (!matched) return null;
         assert(last.* == at.* - 1);
         var ended = at.* - 1;

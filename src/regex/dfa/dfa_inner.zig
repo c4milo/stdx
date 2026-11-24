@@ -45,14 +45,13 @@ pub fn inner_of(reverse: *Dfa, program: *const Program) ?Suffix {
     var runs: [constants.inner_candidates_max]Run = undefined;
     const runs_len = collect(program, &runs);
     longest_first(runs[0..runs_len]);
-    var memo: Memo = .{};
     var best: ?Candidate = null;
     for (runs[0..runs_len]) |run| {
         // The literals after a shorter one are as short or shorter, and lose to the one held.
         if (best) |held| {
             if (run.chain.literal.len < held.suffix.literal.len) break;
         }
-        const candidate = judge(reverse, &memo, run) orelse continue;
+        const candidate = judge(reverse, run) orelse continue;
         if (best == null or candidate.beats(best.?)) best = candidate;
     }
     var suffix = (best orelse return null).suffix;
@@ -114,38 +113,15 @@ fn longest_first(runs: []Run) void {
     }
 }
 
-/// What claim R4's first rule and its second gave for the last part before a literal that
-/// they judged. A literal of many bytes gives many literals with one part before them and one
-/// first byte, and both rules read no more of a literal than that.
-const Memo = struct {
-    before: u32 = program_file.no_entry,
-    first: u8 = 0,
-    fold: u8 = 0,
-    apart: bool = false,
-    fixed: bool = false,
-
-    fn of(memo: *Memo, reverse: *Dfa, chain: *const Suffix) *const Memo {
-        const first = chain.literal.octets[0];
-        const fold = chain.literal.fold_at(0);
-        if (memo.before != chain.before or memo.first != first or memo.fold != fold) {
-            const apart = dfa_suffix.apart(reverse, chain);
-            // The second rule is asked for only where the first does not hold.
-            const fixed = !apart and dfa_suffix.short_fixed(reverse, chain.before);
-            memo.* = .{ .before = chain.before, .first = first, .fold = fold, .apart = apart, .fixed = fixed };
-        }
-        return memo;
-    }
-};
-
 /// The literal of `run` as a candidate: null where not every match holds it, no rule holds
 /// for the part before it, or it starts or ends every match. The first test is one walk, and
 /// refuses the bytes of a class of scalar values, which a program may hold thousands of.
-fn judge(reverse: *Dfa, memo: *Memo, run: Run) ?Candidate {
+fn judge(reverse: *Dfa, run: Run) ?Candidate {
     if (!every_match_passes(reverse, run.cut)) return null;
-    const rules = memo.of(reverse, &run.chain);
-    if (!rules.apart and !dfa_suffix.wide(reverse, &run.chain, rules.fixed)) return null;
+    const apart = dfa_suffix.apart(reverse, &run.chain);
+    if (!apart and !dfa_suffix.wide(reverse, &run.chain)) return null;
     if (!takes_a_byte_before(reverse, run.cut) or !takes_a_byte(reverse, run.chain.before)) return null;
-    return .{ .suffix = run.chain, .apart = rules.apart };
+    return .{ .suffix = run.chain, .apart = apart };
 }
 
 fn takes_one(instruction: Instruction) bool {
@@ -216,4 +192,41 @@ fn push(dfa: *Dfa, stack_len: usize, index: u32) usize {
     if (!dfa.visited.insert(index)) return stack_len;
     dfa.stack[stack_len] = index;
     return stack_len + 1;
+}
+
+const testing = std.testing;
+
+/// A literal of `len` bytes that a test's run holds, from the instruction `cut`.
+fn test_run(cut: u32, len: u8) Run {
+    return .{ .cut = cut, .chain = .{ .literal = .{ .octets = undefined, .len = len, .exact = false }, .before = 0, .run = 0, .entry = cut, .through_looks = false } };
+}
+
+/// The literals a test gives `keep`: more than it has room for.
+const test_runs_over = 2;
+const test_runs = constants.inner_candidates_max + test_runs_over;
+
+test "the literals kept are the longest, and the first of two as long" {
+    var runs: [constants.inner_candidates_max]Run = undefined;
+    var len: usize = 0;
+    // Lengths 1, 2 and so on: each new literal is longer than every one held.
+    for (0..test_runs) |index| len = keep(&runs, len, test_run(@intCast(index), @intCast(index + 1)));
+    try testing.expectEqual(@as(usize, constants.inner_candidates_max), len);
+    longest_first(&runs);
+    for (runs, 0..) |run, place| try testing.expectEqual(test_runs - place, @as(usize, run.chain.literal.len));
+    // A literal as long as the shortest held does not take its place, and a shorter one neither.
+    const shortest = runs[runs.len - 1];
+    len = keep(&runs, len, test_run(test_runs, shortest.chain.literal.len));
+    len = keep(&runs, len, test_run(test_runs + 1, shortest.chain.literal.len - 1));
+    for (runs) |run| try testing.expect(run.cut < test_runs);
+    try testing.expectEqual(@as(usize, constants.inner_candidates_max), len);
+}
+
+test "an order from the longest literal keeps two as long in the order they came" {
+    var runs = [_]Run{ test_run(0, 2), test_run(1, 3), test_run(2, 2), test_run(3, 3), test_run(4, 1) };
+    longest_first(&runs);
+    const cuts = [_]u32{ 1, 3, 0, 2, 4 };
+    for (runs, cuts) |run, cut| try testing.expectEqual(cut, run.cut);
+    longest_first(runs[0..0]);
+    longest_first(runs[0..1]);
+    try testing.expectEqual(@as(u32, 1), runs[0].cut);
 }

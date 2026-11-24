@@ -48,13 +48,22 @@ const inner_cases = [_]struct { pattern: []const u8, literal: []const u8 }{
     // It ends with a separator, of a class and of one byte.
     .{ .pattern = "[abx]+[ :]+xa[ab ]*b", .literal = "xa" },
     .{ .pattern = "[abx]+ +xa[ab]+", .literal = " xa" },
+    // A literal of more bytes than the searcher tries literals: the whole one is the longest.
+    .{ .pattern = "[ab]+x:x:x:x:x:y[ab]+", .literal = "x:x:x:x:x:y" },
+    // The longest literal is refused, and a shorter one with the same first byte is taken.
+    .{ .pattern = "[ab]+x[abx]+xbb[ab]", .literal = "x" },
 };
 
 /// Patterns that the claim leaves to the others: no rule holds for the part before the
 /// literal, no one literal stands in every match, or the literal starts or ends every match.
 const refused = [_][]const u8{
-    "[abx]+x[ab]+", "(?:[ab]x)+a",   "[ab]+x|[ab]+:", "[ab]+(?:x|:)[ab]+", "x[ab]+", "[ab]+x", "[ab]+[ab]+",
+    "[abx]+x[ab]+", "(?:[ab]x)+a",   "[ab]+x|[ab]+:", "[ab]+(?:x|:)[ab]+", "x[ab]+",          "[ab]+x",            "[ab]+[ab]+",
     "[abx]*x+[ab]", "[ab ]+ +x[ab]", "\\bx[ab]+",
+    // No rule holds for the literal of two bytes, nor for the one byte it starts with.
+        "[abx]+xy[ab]+",
+    // The second rule and the third hold for the part before a literal of one byte, which they
+    // do not take.
+        "[abx][ab]x[ab]+", "[abx]+[ :]+x[ab]+",
 };
 
 /// Patterns with a literal in their middle that another claim finds the matches of: a literal
@@ -168,6 +177,9 @@ test "a search from a literal's places scans from each place alone, and no text 
     try testing.expect(fixture.searcher.is_match(text));
     var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = text };
     try testing.expectEqual(@as(u64, 1), matches.count());
+    try testing.expect(fixture.searcher.captures(text, 0) != null);
+    // A text with no place holds no match, and `is_match` asks no scan to say so.
+    try testing.expect(!fixture.searcher.is_match(text[0..long_text_len]));
     // No scan started where a forward search starts, and each DFA read a few bytes.
     try testing.expectEqual(@as(u32, constants.dfa_unknown), fixture.searcher.forward.cache.starts[plain_start]);
     try testing.expect(fixture.searcher.forward.cache.scanned <= few_bytes);
@@ -273,4 +285,158 @@ test "a searcher gives what the matcher gives for generated patterns with a lite
     }
     // The generator draws patterns that the claim takes and patterns that it leaves.
     try testing.expect(taken > generated_patterns / 16 and taken < generated_patterns - generated_patterns / 16);
+}
+
+/// The bytes of a text whose every byte is a place of the literal `x`, and that holds no match
+/// of `[ab]+x[ab]+`: a search from its places pays for each and covers one byte.
+const dense_len = 4096;
+const dense = [_]u8{'x'} ** dense_len;
+
+/// The rests of a claim before it is dropped: the first, and one for each doubling.
+const rests = constants.account_rest_doublings_max + 1;
+
+/// Searches the dense text with the claim at rest until the rest is over. Each search goes to
+/// no place: the account keeps its credit, and the text the plain search covered counts.
+fn rest_out(fixture: *Fixture) !void {
+    const account = &fixture.searcher.account;
+    // Each turn covers the dense text, so the turns are the text's share of the rest, and one.
+    for (0..account.rest / dense_len + 1) |_| {
+        const rest = account.rest;
+        if (rest == 0) break;
+        try testing.expectEqual(@as(?Span, null), fixture.searcher.find(&dense, 0));
+        try testing.expectEqual(rest -| dense_len, account.rest);
+        try testing.expectEqual(@as(usize, constants.account_credit_bytes), account.balance);
+    }
+    try testing.expectEqual(@as(usize, 0), account.rest);
+}
+
+test "a searcher rests the claim on a text whose places stand close together, tries again, and drops it" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
+    const searcher = &fixture.searcher;
+    for (0..rests) |trial| {
+        // The trial leaves its places once it has lost its credit, and the plain search answers.
+        // The text that search covered counts toward the rest.
+        try testing.expectEqual(@as(?Span, null), searcher.find(&dense, 0));
+        const rest = (@as(usize, constants.account_rest_bytes) << @intCast(trial)) - dense_len;
+        try testing.expectEqual(rest, searcher.account.rest);
+        try testing.expectEqual(trial + 1, @as(usize, searcher.account.poor_trials));
+        try testing.expect(searcher.inner != null and searcher.by_claim);
+        try rest_out(&fixture);
+    }
+    // The trial after the longest rest loses too: the searcher drops the claim.
+    try testing.expectEqual(@as(?Span, null), searcher.find(&dense, 0));
+    try testing.expect(searcher.inner == null and !searcher.by_claim);
+    try fixture.expect_agree_everywhere("ab xa axxb axb");
+}
+
+/// The spaces between two matches of the text below, as a count of what a place costs, and
+/// the text's matches.
+const far_gap_places = 4;
+const far_gap = far_gap_places * constants.account_place_bytes;
+const far_matches = 64;
+
+test "a searcher keeps the claim on a text whose places stand far apart" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    var plain: Fixture = .{};
+    try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
+    try plain.init_claims("[ab]+x[ab]+", .{ .inner = false }, searcher_test.cache_words_max);
+    // The text ends with a gap, so that the search after the last match gains its start too.
+    var text: [far_matches * (far_gap + "axb".len) + far_gap]u8 = undefined;
+    @memset(&text, ' ');
+    for (0..far_matches) |index| @memcpy(text[index * (far_gap + "axb".len) + far_gap ..][0.."axb".len], "axb");
+    try expect_matches(&fixture, &plain, &text);
+    const account = fixture.searcher.account;
+    try testing.expectEqual(@as(usize, constants.account_balance_max), account.balance);
+    try testing.expect(account.rest == 0 and account.poor_trials == 0 and fixture.searcher.inner != null);
+}
+
+test "a searcher that goes to a literal that folds in a match's middle finds it in either case" {
+    var fixture: Fixture = .{};
+    try fixture.init("[ab]+(?i:x:)[ab]+", searcher_test.cache_words_max);
+    try testing.expectEqualStrings("x:", fixture.searcher.inner.?.slice());
+    for ([_][]const u8{ "aX:b", "ax:b", "a x:b aX:a", "X:b bX:", "abX:ab ax:" }) |text| try fixture.expect_agree_everywhere(text);
+}
+
+test "a search that finds no place pays for its start, gains the text it covered, and runs no matcher" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
+    const searcher = &fixture.searcher;
+    const text = [_]u8{' '} ** far_gap;
+    searcher.matcher.work = 0;
+    try testing.expectEqual(@as(?Span, null), searcher.find(&text, 0));
+    var balance: usize = constants.account_credit_bytes + far_gap - constants.account_place_bytes;
+    try testing.expectEqual(balance, searcher.account.balance);
+    // A search from an offset covers the text from there.
+    try testing.expectEqual(@as(?Span, null), searcher.find(&text, far_gap - 1));
+    balance = balance + 1 - constants.account_place_bytes;
+    try testing.expectEqual(balance, searcher.account.balance);
+    try testing.expect(searcher.captures(&text, 0) == null);
+    try testing.expectEqual(@as(@TypeOf(searcher.matcher.work), 0), searcher.matcher.work);
+}
+
+test "a search that leaves its places gives the match the plain search finds, and counts what it covered" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    var plain: Fixture = .{};
+    try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
+    try plain.init_claims("[ab]+x[ab]+", .{ .inner = false }, searcher_test.cache_words_max);
+    // The search loses its credit among the first places, and the match stands after them.
+    const text = dense ++ " axb";
+    const span: Span = .{ .start = dense_len + 1, .end = dense_len + " axb".len };
+    try testing.expectEqual(@as(?Span, span), fixture.searcher.find(text, 0));
+    var rest: usize = constants.account_rest_bytes - text.len;
+    try testing.expectEqual(rest, fixture.searcher.account.rest);
+    // At rest, a search covers the text to its match's end, and no further.
+    try testing.expectEqual(@as(?Span, .{ .start = 1, .end = " axb".len }), fixture.searcher.find(" axb" ++ dense, 0));
+    rest -= " axb".len;
+    try testing.expectEqual(rest, fixture.searcher.account.rest);
+    // At rest, and as it tries again, the searcher gives the spans and the count of a plain one.
+    try expect_matches(&fixture, &plain, text);
+    var generator = codec.testing.split.Generator.init(0x1AAE4);
+    var haystack: [haystack_len]u8 = undefined;
+    for (0..haystacks_per_case * haystacks_per_case) |_| {
+        fill(&generator, &haystack);
+        try expect_matches(&fixture, &plain, &haystack);
+    }
+}
+
+/// The bytes that a forward scan reads past its place and finds no match in: more than a
+/// trial's credit, by this factor.
+const far_read_credits = 2;
+const far_read = far_read_credits * constants.account_credit_bytes;
+
+test "a forward scan that reads far and finds no match rests the claim at once" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    const pattern = "[ab]+x(?:[^:]*:|y)";
+    try fixture.init(pattern, searcher_test.cache_words_max);
+    // From the first place the forward scan reads `[^:]*` to the text's end and finds no `:`.
+    const text = "ax" ++ [_]u8{' '} ** far_read ++ "bxy";
+    const span: Span = .{ .start = text.len - "bxy".len, .end = text.len };
+    try testing.expectEqual(@as(?Span, span), fixture.searcher.find(text, 0));
+    try testing.expectEqual(@as(usize, constants.account_rest_bytes - text.len), fixture.searcher.account.rest);
+    // A scan that reads a few bytes past its place costs less than the credit, and rests nothing.
+    try fixture.init(pattern, searcher_test.cache_words_max);
+    try testing.expectEqual(@as(?Span, .{ .start = 6, .end = 9 }), fixture.searcher.find("ax ax bxy bx", 0));
+    try testing.expectEqual(@as(usize, 0), fixture.searcher.account.rest);
+    try testing.expect(fixture.searcher.account.balance < constants.account_credit_bytes);
+}
+
+/// The bytes of a run that a state of the forward DFA stays over (claim R9): more than a visit
+/// must pass to keep the claim, by this factor.
+const stay_run_visits = 8;
+const stay_run = stay_run_visits * constants.stay_octets_per_visit_min;
+
+test "a forward scan from a place goes past the bytes its state stays over, and gives the matcher's match" {
+    var fixture: Fixture = .{};
+    // The pattern ends with a class, so no literal ends every match and claim R4 takes none.
+    try fixture.init("[ab]+x[^:]*[:;]", searcher_test.cache_words_max);
+    try testing.expectEqualStrings("x", fixture.searcher.inner.?.slice());
+    const text = "ax" ++ [_]u8{'b'} ** stay_run ++ ":";
+    // The first scans build the states, and a later one stays.
+    for (0..constants.stay_records) |_| try fixture.expect_agree(text, 0);
+    var passed: u64 = 0;
+    for (fixture.searcher.forward.stays) |stay| passed += stay.octets;
+    try testing.expect(passed >= stay_run / 2);
+    // The plain search read nothing: the scans from the place stayed.
+    try testing.expectEqual(@as(u32, constants.dfa_unknown), fixture.searcher.forward.cache.starts[plain_start]);
 }
