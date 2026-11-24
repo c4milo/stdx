@@ -97,6 +97,11 @@ test "a replay compiles a named pattern and asks the matcher and each searcher" 
     try testing.expectEqual(@as(usize, 1), replay.long_reads);
     try testing.expectEqualStrings("xabxab", replay.long_text[0 .. 2 * "xab".len]);
     try testing.expectEqual(@as(usize, long_read_len), replay.long_text.len);
+    // The fourth searcher's DFAs started, with a cache far under the default one. The words
+    // before these would not start them.
+    const small = &replay.searchers[matcher_replay.small_cache_searcher];
+    try testing.expect(small.forward_ready and small.reverse_ready);
+    try testing.expect(replay.small_cache_words > 0 and replay.small_cache_words < regex.constants.cache_words_default / 16);
     try testing.expect(replay.program.reverse != replay_dump.no_entry);
 }
 

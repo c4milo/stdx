@@ -6366,8 +6366,9 @@ last part lists what still waits on a ruling.
         A Zig test requires `Matcher.find` to give each one, and
         `tools/matcher_model_check.sh` makes the same check on the programs a new seed draws.
       - The same script holds `Matcher.find` and `Searcher.find`, with every claim and with
-        none, new and after a long read, to the proved answer on the programs that `compile`
-        gives the patterns a seed draws. `Stdx/Regex/Hypotheses.lean` holds two functions that decide the theorems' two
+        none, new and after a long read, and with a small cache, to the proved answer on the
+        programs that `compile` gives the patterns a seed draws, over texts of up to 1,024
+        bytes. `isAnswer_of_isAnswerOf` proves each answer of a long text from two passes. `Stdx/Regex/Hypotheses.lean` holds two functions that decide the theorems' two
         hypotheses, each with its proof: `isExact` for a program, and `reversesOn` for a
         program's two halves on one text. The script runs both on each program and text.
       - `Stdx/Regex/Searcher.lean` joins the claims to the DFAs, with no scan taken as given.

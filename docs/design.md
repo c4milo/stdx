@@ -10496,7 +10496,68 @@ to 12 are reordered and nothing else changes.
     Lean side reads the program that `compile` wrote, so it says nothing of the parser or of
     whether a program takes its pattern's language. `differential-regex` holds that to Go's
     regexp. No text with a proved answer is longer than 12 bytes. So no proved answer holds a
-    cache that fills, a DFA that gives up or a skip over a long run of bytes.
+    cache that fills, a DFA that gives up or a skip over a long run of bytes. The fifth part
+    below adds them.
+
+  **Part 22h, its fifth part built: long texts and a small cache under the proved answer
+  (decision 86).** **Check:** `tools/matcher_model_check.sh` passes for new seeds, with texts
+  of up to 1,024 bytes and a searcher whose cache fills; mutations of the cache's clear and of
+  claim R1's skip fail the script.
+
+  **Check passed, part 22h, its fifth part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - Before this part no text with a proved answer was longer than 12 bytes. So no proved
+    answer held a cache that fills, a DFA that gives up, or a skip of `skip_lanes` bytes.
+  - One case in eight of a dump now takes a long text, of up to 1,024 bytes: two to four runs,
+    each of one filler or of mixed pieces, with the case's own text after each run. A long
+    text holds six searches, one from 0 and five from offsets the seed draws.
+  - `answerFast` runs the matcher from each offset in turn, which is too slow where each start
+    reads far. So the Lean side takes a span from `byDfa`, the model's two scans, and holds it
+    to the answer with `isAnswerOf`, which reads the text in two passes:
+    - one pass of the matcher from the span's start, which must give its end;
+    - one pass of the search that may start a match before that start alone, which must find
+      none.
+    - `isAnswer_of_isAnswerOf` proves that such a span is the search's answer, for a program
+      that is `Exact`. It takes no `Reverses` and no start rule: a span that `byDfa` gets wrong
+      fails the check, and `answerFast` then gives the answer beside a `differs` line.
+  - The Lean side decides `Reverses` and `EmptyElsewhere` for the texts of at most 16 bytes
+    alone, since `reversesOn` reads each pair of offsets.
+  - The replay asks a fourth searcher, with every claim and a small cache: the least power of
+    two words at which both its DFAs start. On a long text such a cache fills, the DFA clears
+    it, and a DFA that clears it too often gives up.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 44 s, about 15 s a seed, where
+    it took 8 s a seed before.
+  - Seeds 1, 2 and 3 with 20,000 patterns each passed, 187 s in all. They hold 139,000
+    searches, of which 69,430 find a match. 7,503 texts are long, with 45,018 searches. The
+    searcher with a small cache answered 1,869 searches after a DFA of its cleared the cache,
+    and 1,293 after one gave up. No line began `differs`.
+  - Sixteen mutations of the Zig library, each against the script with seeds 7, 11 and 13.
+    Ten are the fourth part's, each CAUGHT again. Six are new, in the code that a text of 12
+    bytes does not reach:
+    - Claim R1's skip going one byte past the byte it found: CAUGHT at `find 380 412 413`, a
+      proved answer of a long text. The fourth part's script did NOT CATCH it.
+    - A state kept as the waiting state after the cache cleared: CAUGHT by a halt. The fourth
+      part's script did NOT CATCH it.
+    - Claim R9's stay giving an end one byte late, and claim R7's pair read from one byte
+      twice: each CAUGHT by a halt, as the fourth part's script caught them.
+    - A state written into the table after the cache cleared, and a pair kept after it
+      cleared: each NOT CAUGHT by the script. `zig build test-regex` catches both, by the
+      tests of `searcher_test.zig` and `searcher_pairs_test.zig` that plant a clear at that
+      step. The script draws no text that clears a cache at one given step.
+    - The first forms of those two did not compile, which is no catch. The verdicts are of
+      the forms that compile.
+  - Sixteen mutations of the replay program, each against `zig build test-tools`, each
+    CAUGHT: the fourth part's twelve again, and four new ones. The new ones are no small
+    cache, a cache that stops at the first size tried, no long text, and two searches for a
+    long text. The last was NOT CAUGHT at first, and the test now counts each text's searches.
+  - Seven mutations of the Lean side, each CAUGHT. Against `lake build`, by its proof and by
+    an example: an `isAnswerOf` that reads no end, and one whose second pass may start no
+    match. Against the script: a span taken with no check, no hypothesis decided for any
+    text, no line for the start rule, the forward entry read as 0, and `byDfa` with its two
+    entries in the other order.
+  - What this part does not hold: a text of more than 1,024 bytes; the two faults above that
+    need a clear at one given step; and `Reverses` and the start rule for a long text, which
+    its answers do not need.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

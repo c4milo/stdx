@@ -151,4 +151,68 @@ theorem answerFast_isAnswer (prog : Array Inst) (entry : Nat) (text : List Nat)
   rw [answerFastFrom_eq]
   exact answerOf_isAnswer prog entry text starts hexact hlow
 
+/-! ## A span held to the answer by two passes
+
+`answerFast` runs the matcher from each offset in turn, which takes a time that grows with the
+square of a long text where each start reads far. `isAnswerOf` decides whether a span, from any
+source, is the answer: one pass of the matcher from the span's start, and one pass of the search
+that may start a match before that start alone. The vector writer takes a span from the two
+DFAs' scans and holds it to the answer this way, so a long text costs four passes. -/
+
+/-- Whether `a` is the answer of a search from `low`. For no match, the search finds none. For
+a span, a match may start at its start, the matcher from that start gives its end, and the
+search that may start a match before that start alone finds none. -/
+def isAnswerOf (prog : Array Inst) (entry : Nat) (text : List Nat) (starts : Nat → Bool)
+    (low : Nat) : Option (Nat × Nat) → Bool
+  | none => (search prog entry text starts (text.length - low + 1) low [] none).isNone
+  | some (s, e) =>
+    decide (low ≤ s) && decide (s ≤ text.length) && starts s &&
+      (findAt prog entry text s == some e) &&
+      (search prog entry text (fun i => starts i && decide (i < s)) (text.length - low + 1) low
+        [] none).isNone
+
+/-- A search that finds no end has no match from `low`. -/
+theorem search_none (prog : Array Inst) (entry : Nat) (text : List Nat) (starts : Nat → Bool)
+    (hexact : Exact prog) {low : Nat} (hlow : low ≤ text.length)
+    (h : search prog entry text starts (text.length - low + 1) low [] none = none) :
+    IsAnswer (textOf prog entry text starts hexact) low none := by
+  have ha := answerOf_isAnswer prog entry text starts hexact hlow
+  have hs := search_answer prog entry text starts hexact hlow ha
+  rw [h] at hs
+  cases hans : answerOf prog entry text starts low with
+  | none => rw [hans] at ha; exact ha
+  | some span => rw [hans] at hs; cases hs
+
+/-- A span that passes `isAnswerOf` is the search's answer. -/
+theorem isAnswer_of_isAnswerOf (prog : Array Inst) (entry : Nat) (text : List Nat)
+    (starts : Nat → Bool) (hexact : Exact prog) {low : Nat} (hlow : low ≤ text.length) :
+    ∀ a, isAnswerOf prog entry text starts low a = true →
+      IsAnswer (textOf prog entry text starts hexact) low a
+  | none, h =>
+    search_none prog entry text starts hexact hlow (Option.isNone_iff_eq_none.mp h)
+  | some (s, e), h => by
+    simp only [isAnswerOf, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,
+      Option.isNone_iff_eq_none] at h
+    obtain ⟨⟨⟨⟨hls, hslen⟩, hstart⟩, hfind⟩, hnone⟩ := h
+    refine ⟨hls, ⟨hslen, hstart, by rw [← findAt_eq]; exact hfind⟩, ?_⟩
+    intro s' e' hlow' hm
+    apply Nat.le_of_not_lt
+    intro hlt
+    have hno := search_none prog entry text (fun i => starts i && decide (i < s)) hexact hlow hnone
+    exact hno s' e' hlow' ⟨hm.1, by simp [hm.2.1, hlt], hm.2.2⟩
+
+/-- `a|ab` between its two saves, over `xab`: the span from 1 up to 2 is the answer from 0,
+and no other span is. From 2 the answer is no match. -/
+example :
+    isAnswerOf #[.save 0 1, .split 2 3, .range 97 97 5, .range 97 97 4, .range 98 98 5,
+        .save 1 6, .done] 0 [120, 97, 98] (fun _ => true) 0 (some (1, 2)) = true ∧
+      isAnswerOf #[.save 0 1, .split 2 3, .range 97 97 5, .range 97 97 4, .range 98 98 5,
+        .save 1 6, .done] 0 [120, 97, 98] (fun _ => true) 0 (some (1, 3)) = false ∧
+      isAnswerOf #[.save 0 1, .split 2 3, .range 97 97 5, .range 97 97 4, .range 98 98 5,
+        .save 1 6, .done] 0 [120, 97, 98] (fun _ => true) 0 none = false ∧
+      isAnswerOf #[.save 0 1, .split 2 3, .range 97 97 5, .range 97 97 4, .range 98 98 5,
+        .save 1 6, .done] 0 [120, 97, 98] (fun _ => true) 2 none = true ∧
+      isAnswerOf #[.save 0 1, .split 2 3, .range 97 97 5, .range 97 97 4, .range 98 98 5,
+        .save 1 6, .done] 0 [97, 97, 98] (fun _ => true) 0 (some (1, 2)) = false := by decide
+
 end Stdx.Regex.Matcher
