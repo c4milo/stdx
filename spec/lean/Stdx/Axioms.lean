@@ -8,6 +8,8 @@ import Stdx.Regex.Inner
 import Stdx.Regex.Edges
 import Stdx.Regex.Prefix
 import Stdx.Regex.Count
+import Stdx.Regex.Closure
+import Stdx.Regex.Matcher
 
 /-!
 # What the proofs rest on
@@ -158,5 +160,17 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Search.count_eq' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Search.count_eq
+
+/-- info: 'Stdx.Regex.Closure.follow_sim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Closure.follow_sim
+
+/-- info: 'Stdx.Regex.Closure.closure_value' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Closure.closure_value
+
+/-- info: 'Stdx.Regex.Matcher.run_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.run_eq
+
+/-- info: 'Stdx.Regex.Matcher.findAt_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.findAt_eq
 
 end Stdx.Regex
