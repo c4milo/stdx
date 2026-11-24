@@ -6352,12 +6352,15 @@ last part lists what still waits on a ruling.
         gives the end that a backtracking matcher finds first, where that matcher tries each
         thread to the end of the text before the next and reads an instruction once at a
         position. The model holds no capture slot.
+      - `Stdx/Regex/MatcherPaths.lean` holds that backtracking matcher to the program's paths
+        (`backtrack_sound`, `backtrack_complete`), and `textOf` gives a program's matches as
+        `Search.lean` asks for them. `Stdx/Regex/MatcherSearch.lean` holds the search from any
+        offset: `search_answer`, the matcher's end is the end of the search's answer.
       - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
         yet.
     - Not proved: the parser, the builder, that the reverse program takes each match read
-      backward, the matcher's capture slots and its search from any offset, and that each
-      DFA's scan gives what `Search.lean` asks of it. Design §8 parts 22h and 22r name their
-      order.
+      backward, the matcher's capture slots, and that each DFA's scan gives what `Search.lean`
+      asks of it. Design §8 parts 22h and 22r name their order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
     on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names

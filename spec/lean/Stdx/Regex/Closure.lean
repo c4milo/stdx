@@ -523,4 +523,138 @@ theorem closure_value (kind : Nat → Kind) {α : Type} (f : Nat → Option α) 
     rw [closure_cons kind f hfuel hout, ih]
     rfl
 
+/-! ## The walk's threads are the instructions that a path reaches -/
+
+/-- A path that takes no byte leads from one instruction to another. -/
+inductive Steps (kind : Nat → Kind) : Nat → Nat → Prop where
+  /-- The path of no move. -/
+  | here {pc : Nat} : Steps kind pc pc
+  /-- A move to the one instruction that follows, then a path. -/
+  | one {pc a x : Nat} : kind pc = .one a → Steps kind a x → Steps kind pc x
+  /-- A move to a split's preferred branch, then a path. -/
+  | left {pc a b x : Nat} : kind pc = .two a b → Steps kind a x → Steps kind pc x
+  /-- A move to a split's other branch, then a path. -/
+  | right {pc a b x : Nat} : kind pc = .two a b → Steps kind b x → Steps kind pc x
+
+/-- A thread of a walk stands at the end of a path from the walk's seed. -/
+theorem follow_reach (kind : Nat → Kind) :
+    ∀ fuel rem pc x, x ∈ (follow kind fuel rem pc).2 → Steps kind pc x := by
+  intro fuel
+  induction fuel with
+  | zero => intro rem pc x h; simp [follow] at h
+  | succ fuel ih =>
+    intro rem pc x h
+    by_cases hmem : pc ∈ rem
+    · cases hk : kind pc with
+      | emit =>
+        rw [follow_emit kind hmem hk] at h
+        rw [List.mem_singleton.mp h]
+        exact .here
+      | stop => rw [follow_stop kind hmem hk] at h; simp at h
+      | one a =>
+        rw [follow_one kind hmem hk] at h
+        exact .one hk (ih _ _ _ h)
+      | two a b =>
+        rw [follow_two kind hmem hk] at h
+        cases List.mem_append.mp h with
+        | inl hl => exact .left hk (ih _ _ _ hl)
+        | inr hr => exact .right hk (ih _ _ _ hr)
+    · rw [follow_skip kind hmem] at h; simp at h
+
+/-- A walk from `full` with room for every instruction finds each thread that a path from its
+seed reaches. -/
+theorem follow_complete (kind : Nat → Kind) {fuel : Nat} {full : List Nat}
+    (hfuel : full.length < fuel) (hout : ∀ x, x ∉ full → kind x = .stop) {s x : Nat}
+    (hs : s ∈ full) (hsteps : Steps kind s x) (hx : kind x = .emit) :
+    x ∈ (follow kind fuel full s).2 := by
+  have hdone := follow_done kind fuel full s hfuel
+  -- A path from an instruction that the walk reached stays among those it reached.
+  have key : ∀ pc y, Steps kind pc y → pc ∉ (follow kind fuel full s).1 →
+      y ∉ (follow kind fuel full s).1 := by
+    intro pc y h
+    induction h with
+    | here => exact fun h => h
+    | @one pc a y hk _ ih =>
+      intro hpc
+      by_cases hfull : pc ∈ full
+      · exact ih ((hdone.2 pc hfull hpc).2.1 a hk)
+      · cases (hout pc hfull).symm.trans hk
+    | @left pc a b y hk _ ih =>
+      intro hpc
+      by_cases hfull : pc ∈ full
+      · exact ih ((hdone.2 pc hfull hpc).2.2 a b hk).1
+      · cases (hout pc hfull).symm.trans hk
+    | @right pc a b y hk _ ih =>
+      intro hpc
+      by_cases hfull : pc ∈ full
+      · exact ih ((hdone.2 pc hfull hpc).2.2 a b hk).2
+      · cases (hout pc hfull).symm.trans hk
+  have hxnot := key s x hsteps (hdone.1 hs)
+  by_cases hfull : x ∈ full
+  · exact (hdone.2 x hfull hxnot).1 hx
+  · cases (hout x hfull).symm.trans hx
+
+/-- A path from an instruction that ends a path goes nowhere. -/
+theorem steps_stop {kind : Nat → Kind} {pc x : Nat} (hk : kind pc = .stop)
+    (h : Steps kind pc x) : x = pc := by
+  cases h with
+  | here => rfl
+  | one hk' _ => cases hk.symm.trans hk'
+  | left hk' _ => cases hk.symm.trans hk'
+  | right hk' _ => cases hk.symm.trans hk'
+
+/-- A first value is the value of a member. -/
+theorem first_some {α : Type} {f : Nat → Option α} {xs : List Nat} {v : α}
+    (h : first f xs = some v) : ∃ x, x ∈ xs ∧ f x = some v := by
+  induction xs with
+  | nil => simp [first] at h
+  | cons x xs ih =>
+    simp only [first] at h
+    cases hx : f x with
+    | some w =>
+      rw [hx] at h
+      exact ⟨x, List.mem_cons_self, by rw [hx]; exact h⟩
+    | none =>
+      rw [hx] at h
+      have ⟨y, hy, hv⟩ := ih h
+      exact ⟨y, List.mem_cons_of_mem x hy, hv⟩
+
+/-- A list with a member that has a value has a first value. -/
+theorem first_isSome {α : Type} {f : Nat → Option α} {xs : List Nat} {x : Nat}
+    (hx : x ∈ xs) (h : (f x).isSome) : (first f xs).isSome := by
+  cases hv : first f xs with
+  | some v => rfl
+  | none =>
+    have := (first_none f xs).mp hv x hx
+    rw [this] at h
+    cases h
+
+/-- The first value among two lists of seeds one after the other. -/
+theorem firstSeed_append (kind : Nat → Kind) {α : Type} (f : Nat → Option α) (fuel : Nat)
+    (full xs ys : List Nat) :
+    firstSeed kind f fuel full (xs ++ ys) =
+      (firstSeed kind f fuel full xs).or (firstSeed kind f fuel full ys) := by
+  induction xs with
+  | nil => simp [firstSeed]
+  | cons x xs ih =>
+    simp only [List.cons_append, firstSeed, ih]
+    cases first f (follow kind fuel full x).2 <;> simp
+
+/-- A first value among seeds is the first value of one seed's walk. -/
+theorem firstSeed_some {kind : Nat → Kind} {α : Type} {f : Nat → Option α} {fuel : Nat}
+    {full seeds : List Nat} {v : α} (h : firstSeed kind f fuel full seeds = some v) :
+    ∃ s, s ∈ seeds ∧ first f (follow kind fuel full s).2 = some v := by
+  induction seeds with
+  | nil => simp [firstSeed] at h
+  | cons s seeds ih =>
+    simp only [firstSeed] at h
+    cases hs : first f (follow kind fuel full s).2 with
+    | some w =>
+      rw [hs] at h
+      exact ⟨s, List.mem_cons_self, by rw [hs]; simpa using h⟩
+    | none =>
+      rw [hs] at h
+      have ⟨y, hy, hv⟩ := ih (by simpa using h)
+      exact ⟨y, List.mem_cons_of_mem s hy, hv⟩
+
 end Stdx.Regex.Closure
