@@ -12,8 +12,9 @@
 #    with a text and its searches. `lake exe vectors --answers` answers each search, and checks
 #    that each program and text pass the two hypotheses of the model's theorems
 #    (spec/lean/Stdx/Regex/Hypotheses.lean). `matcher_replay` compiles each pattern again and
-#    requires the answer of `Matcher.find` and of three searchers: one with every claim, one
-#    with none, and one with every claim that read a long text first.
+#    requires the answer of `Matcher.find` and of four searchers: one with every claim, one
+#    with none, one with every claim that read a long text first, and one with every claim and
+#    a small cache. One case in eight takes a text of up to 1,024 bytes.
 #
 # A seed that fails is printed: give it again to see the same failure.
 #
