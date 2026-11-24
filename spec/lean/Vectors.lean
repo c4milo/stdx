@@ -3,13 +3,15 @@ import Stdx
 /-!
 # Vectors from the proved machines
 
-Writes, or checks, every step of the machines `Stdx/Utf8` and `Stdx/Json/` prove, and the
-sequences `Stdx/Regex/Utf8` proves for ranges of scalar values, into files beside the Zig code
-they mirror.
+Writes, or checks, every step of the machines `Stdx/Utf8` and `Stdx/Json/` prove, the
+sequences `Stdx/Regex/Utf8` proves for ranges of scalar values, and the answers
+`Stdx/Regex/MatcherAnswer` proves for searches of programs, into files beside the Zig code they
+mirror.
 A Zig unit test requires the Zig code to give the same, which is what ties the proofs about the
 Lean definitions to the Zig code (decisions 28 and 86).
 
     lake exe vectors (--write | --check) <src directory>
+    lake exe vectors --random <seed> <count>
 -/
 open Stdx Stdx.Json
 
@@ -68,14 +70,194 @@ def splitLines : List String :=
     splitEdges.flatMap fun lo =>
       (splitEdges.filter fun hi => lo ≤ hi).map fun hi => splitLine lo hi
 
+/-! ## The matcher's answers
+
+`Stdx/Regex/MatcherAnswer.lean` proves `answerOf`: the answer of a search of a program's text.
+The lines below hold that answer for programs written by hand and for programs a seed draws,
+each over some texts and from each offset. A Zig test builds each program, runs `Matcher.find`,
+and requires the same span. -/
+
+open Stdx.Regex.Program in
+/-- An assertion, as `program.Look` names it. -/
+def lookName : Look → String
+  | .behindText => "behind_text"
+  | .aheadText => "ahead_text"
+  | .behindLine => "behind_line"
+  | .aheadLine => "ahead_line"
+  | .wordBoundary => "word_boundary"
+  | .notWordBoundary => "not_word_boundary"
+
+open Stdx.Regex.Program in
+/-- An instruction, as `program.Kind` names it, with its fields. -/
+def instLine : Inst → String
+  | .range lo hi out => s!"range {lo} {hi} {out}"
+  | .ranges count => s!"ranges {count}"
+  | .split out arg => s!"split {out} {arg}"
+  | .save slot out => s!"save {slot} {out}"
+  | .look look out => s!"look {lookName look} {out}"
+  | .jump out => s!"jump {out}"
+  | .done => "match"
+  | .fail => "fail"
+
+/-- The next state of a generator: Knuth's MMIX step on 64 bits. -/
+def nextSeed (seed : Nat) : Nat :=
+  (seed * 6364136223846793005 + 1442695040888963407) % 18446744073709551616
+
+/-- A number under `bound` from a state's high half. -/
+def draw (seed bound : Nat) : Nat := seed / 4294967296 % bound
+
+/-- The ranges a drawn instruction takes: `a`, `b`, both, a line feed, a space, the two bytes
+of `é`, and any byte. -/
+def drawnRanges : List (Nat × Nat) :=
+  [(97, 97), (98, 98), (97, 98), (10, 10), (32, 32), (0xC3, 0xC3), (0xA9, 0xA9), (0, 255)]
+
+open Stdx.Regex.Program in
+/-- The assertions a drawn instruction holds. -/
+def drawnLooks : List Look :=
+  [.behindText, .aheadText, .behindLine, .aheadLine, .wordBoundary, .notWordBoundary]
+
+/-- The bytes a drawn text holds: letters twice as often as the others. -/
+def drawnBytes : List Nat := [97, 98, 97, 98, 10, 32, 0xC3, 0xA9]
+
+open Stdx.Regex.Program in
+/-- One drawn instruction of a program of `count` instructions, and the next state. Its targets
+lie from 1 up to the save before `match`, so a path writes slot 0 once and slot 1 last. -/
+def drawInst (seed count : Nat) : Inst × Nat :=
+  let s1 := nextSeed seed
+  let s2 := nextSeed s1
+  let s3 := nextSeed s2
+  let out := 1 + draw s2 (count - 2)
+  let arg := 1 + draw s3 (count - 2)
+  let inst : Inst :=
+    match draw s1 10 with
+    | 0 | 1 | 2 | 3 =>
+      let range := drawnRanges.getD (draw s3 drawnRanges.length) (0, 255)
+      .range range.1 range.2 out
+    | 4 | 5 | 6 => .split out arg
+    | 7 => .jump out
+    | 8 => .look (drawnLooks.getD (draw s3 drawnLooks.length) .behindText) out
+    | _ => .fail
+  (inst, s3)
+
+open Stdx.Regex.Program in
+/-- `middle` drawn instructions, and the next state. -/
+def drawInsts (count : Nat) : Nat → Nat → List Inst × Nat
+  | 0, seed => ([], seed)
+  | middle + 1, seed =>
+    let drawn := drawInst seed count
+    let rest := drawInsts count middle drawn.2
+    (drawn.1 :: rest.1, rest.2)
+
+open Stdx.Regex.Program in
+/-- A drawn program of `count` instructions: a save of slot 0, drawn instructions, a save of
+slot 1, and `match`. -/
+def drawProgram (seed count : Nat) : Array Inst × Nat :=
+  let middle := drawInsts count (count - 3) seed
+  ((Inst.save 0 1 :: middle.1 ++ [Inst.save 1 (count - 1), Inst.done]).toArray, middle.2)
+
+/-- A drawn text of `len` bytes, and the next state. -/
+def drawText : Nat → Nat → List Nat × Nat
+  | 0, seed => ([], seed)
+  | len + 1, seed =>
+    let rest := drawText len (nextSeed seed)
+    (drawnBytes.getD (draw (nextSeed seed) drawnBytes.length) 97 :: rest.1, rest.2)
+
+/-- `count` drawn texts of 0 to 6 bytes, and the next state. -/
+def drawTexts : Nat → Nat → List (List Nat) × Nat
+  | 0, seed => ([], seed)
+  | count + 1, seed =>
+    let text := drawText (draw (nextSeed seed) 7) (nextSeed seed)
+    let rest := drawTexts count text.2
+    (text.1 :: rest.1, rest.2)
+
+open Stdx.Regex.Program in
+/-- The programs written by hand, each a pattern's instructions between the two saves:
+`a|ab`, `a*`, `a*?`, `(a*)*b`, `\ba+\b`, `(?m)^b$`, a class of two ranges before `é`, and the
+empty pattern. -/
+def handPrograms : List (Array Inst) :=
+  [#[.save 0 1, .split 2 3, .range 97 97 5, .range 97 97 4, .range 98 98 5, .save 1 6, .done],
+    #[.save 0 1, .split 2 3, .range 97 97 1, .save 1 4, .done],
+    #[.save 0 1, .split 3 2, .range 97 97 1, .save 1 4, .done],
+    #[.save 0 1, .split 2 5, .split 3 4, .range 97 97 2, .jump 1, .range 98 98 6, .save 1 7,
+      .done],
+    #[.save 0 1, .look .wordBoundary 2, .range 97 97 3, .split 2 4, .look .wordBoundary 5,
+      .save 1 6, .done],
+    #[.save 0 1, .look .behindLine 2, .range 98 98 3, .look .aheadLine 4, .save 1 5, .done],
+    #[.save 0 1, .ranges 2, .range 10 10 4, .range 97 98 4, .range 0xC3 0xC3 5,
+      .range 0xA9 0xA9 6, .save 1 7, .done],
+    #[.save 0 1, .save 1 2, .done]]
+
+/-- Whether a match may start before a byte: before any byte of a program of bytes, and before
+no continuation byte of a program of UTF-8. -/
+def mayStart (utf8 : Bool) (b : Nat) : Bool := !utf8 || !(0x80 ≤ b && b ≤ 0xBF)
+
+open Stdx.Regex.Program Stdx.Regex.Matcher in
+/-- The answer of one search, as `matcher_vectors.txt` spells it. -/
+def findLine (utf8 : Bool) (prog : Array Inst) (text : List Nat) (low : Nat) : String :=
+  match answerOf prog 0 text (Stdx.Regex.Dfa.startsOf text (mayStart utf8)) low with
+  | none => s!"find {low} none"
+  | some (s, e) => s!"find {low} {s} {e}"
+
+open Stdx.Regex.Program in
+/-- A text and its searches from each offset. -/
+def textLines (utf8 : Bool) (prog : Array Inst) (text : List Nat) : List String :=
+  (s!"text {text.length}" ++ String.join (text.map fun b => s!" {b}")) ::
+    (List.range (text.length + 1)).map (findLine utf8 prog text)
+
+open Stdx.Regex.Program in
+/-- A program, its texts, and their searches. -/
+def programLines (utf8 : Bool) (prog : Array Inst) (texts : List (List Nat)) : List String :=
+  s!"program {if utf8 then "utf8" else "bytes"} {prog.size}" ::
+    prog.toList.map instLine ++ texts.flatMap (textLines utf8 prog)
+
+/-- The texts each drawn program is searched in. -/
+def textsPerProgram : Nat := 8
+
+/-- The lines of `index` drawn programs, of 4 to 10 instructions, UTF-8 and bytes in turn. -/
+def drawnLines : Nat → Nat → List String
+  | 0, _ => []
+  | index + 1, seed =>
+    let prog := drawProgram seed (4 + index % 7)
+    let texts := drawTexts textsPerProgram prog.2
+    programLines (index % 2 == 0) prog.1 texts.1 ++ drawnLines index texts.2
+
+/-- The lines of the programs written by hand, each as UTF-8 and as bytes, over drawn texts. -/
+def handLines : List String :=
+  let texts := (drawTexts 24 20261124).1
+  handPrograms.flatMap fun prog => programLines true prog texts ++ programLines false prog texts
+
+/-- The programs a seed draws. -/
+def drawnPrograms : Nat := 256
+
+/-- The first line of a file of matcher vectors: what its lines hold. -/
+def matcherHeader : String :=
+  "# program utf8|bytes count, then count instructions as program.Kind names them with their \
+    fields, then text len bytes, then find low start end or find low none: the answer that \
+    spec/lean/Stdx/Regex/MatcherAnswer.lean proves for each search. Generated by \
+    spec/lean/Vectors.lean; do not edit."
+
+/-- Programs, texts and the answer of each search. -/
+def matcherLines : List String :=
+  matcherHeader :: handLines ++ drawnLines drawnPrograms 24112026
+
+/-- The lines of `count` programs that `seed` draws: a run of the check that
+`tools/matcher_model_check.sh` makes with a new seed. -/
+def randomLines (seed count : Nat) : List String :=
+  s!"# seed {seed}, {count} programs." :: matcherHeader :: drawnLines count seed
+
 /-- Each vector file, from the `src` directory, and its lines. -/
 def files : List (String × List String) :=
   [("utf8/utf8_vectors.txt", utf8Lines), ("json/number_vectors.txt", numberLines),
-    ("regex/utf8_split_vectors.txt", splitLines)]
+    ("regex/utf8_split_vectors.txt", splitLines), ("regex/matcher_vectors.txt", matcherLines)]
 
-/-- Writes each file, or checks each against what the machines give; 1 when one differs. -/
+/-- Writes each file, or checks each against what the machines give; 1 when one differs. With
+`--random`, writes the matcher's vectors for the programs a seed draws to standard output. -/
 def main (arguments : List String) : IO UInt32 := do
-  let usage := "usage: vectors (--write | --check) <src directory>"
+  let usage := "usage: vectors (--write | --check) <src directory> | vectors --random <seed> <count>"
+  if let ["--random", seed, count] := arguments then
+    let (some seed, some count) := (seed.toNat?, count.toNat?) | IO.eprintln usage; return 2
+    IO.println ("\n".intercalate (randomLines seed count))
+    return 0
   let [mode, directory] := arguments | IO.eprintln usage; return 2
   unless mode == "--write" || mode == "--check" do
     IO.eprintln usage

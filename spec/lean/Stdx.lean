@@ -14,6 +14,7 @@ import Stdx.Regex.Closure
 import Stdx.Regex.Matcher
 import Stdx.Regex.MatcherPaths
 import Stdx.Regex.MatcherSearch
+import Stdx.Regex.MatcherAnswer
 import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
 import Stdx.Axioms
