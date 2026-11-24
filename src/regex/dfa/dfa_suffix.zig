@@ -10,6 +10,8 @@
 //! - It ends with one byte or more of a set, the separator, and holds no byte of the set
 //!   before them, and the literal holds none (`separated`), as in `\w+\s+Holmes`.
 //!
+//! The second rule and the third take a literal of `literal_prefix_len_min` bytes or more.
+//!
 //! Under each rule:
 //!
 //! - No match starts before the start that the first such place gives. A match that ends at an
@@ -64,6 +66,10 @@ pub fn suffix_of(reverse: *Dfa, program: *const Program, rules: Rules) ?Literal 
 pub fn holds(reverse: *Dfa, suffix: *const Suffix, rules: Rules) bool {
     if (apart(reverse, suffix)) return true;
     if (rules == .first) return false;
+    // The second rule and the third take a literal of two bytes or more, as claim R2 does. The
+    // rest of a match may hold the literal's bytes, so a text holds many places of one byte,
+    // and each place costs a scan.
+    if (suffix.literal.len < constants.literal_prefix_len_min) return false;
     return short_fixed(reverse, suffix.before) or separated(reverse, suffix);
 }
 

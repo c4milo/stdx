@@ -95,11 +95,11 @@ test "a searcher takes no suffix whose first octet the part before it takes, and
 const wide_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
     // One count of bytes, up to `suffix_before_len_max`.
     .{ .pattern = "[ab][abx]x:", .suffix = "x:" },
-    .{ .pattern = "\\bx[ab]x", .suffix = "x" },
-    .{ .pattern = "[abx]{8}x", .suffix = "x" },
-    .{ .pattern = "[abx](?:a|x)x", .suffix = "x" },
+    .{ .pattern = "\\bx[ab]xa", .suffix = "xa" },
+    .{ .pattern = "[abx]{8}xx", .suffix = "xx" },
+    .{ .pattern = "[abx](?:a|x)xa", .suffix = "xa" },
     // A separator: a space, a line feed or a colon, which the rest of the pattern takes nowhere.
-    .{ .pattern = "[abx]+[ :]+x", .suffix = "x" },
+    .{ .pattern = "[abx]+[ :]+xb", .suffix = "xb" },
     .{ .pattern = "[abx]+[ \n]+ab", .suffix = "ab" },
     // A separator of one byte, which the literal starts with.
     .{ .pattern = "[abx]+ +x", .suffix = " x" },
@@ -107,7 +107,7 @@ const wide_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
     .{ .pattern = "[abx]+ {2,}x:", .suffix = " x:" },
     // A run of two bytes: the separator's last byte, and the one byte it must hold.
     .{ .pattern = "[abx]+ + x", .suffix = "  x" },
-    .{ .pattern = "[^ \\n]+[ \\n]+x", .suffix = "x" },
+    .{ .pattern = "[^ \\n]+[ \\n]+xa", .suffix = "xa" },
     .{ .pattern = "[abx]+ +(?i)x", .suffix = " x" },
     .{ .pattern = "[abx]+[ :]+xa", .suffix = "xa" },
     .{ .pattern = "[abx]+ +x\\b", .suffix = " x" },
@@ -115,34 +115,37 @@ const wide_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
 };
 
 /// Patterns that no rule takes, each with a text on which a search from the literal's places
-/// gives another match than the matcher, or none.
+/// gives another match than the matcher, or a text that the patterns before it share.
 const wide_refused = [_]struct { pattern: []const u8, text: []const u8 }{
     // The part before the separator takes the separator's byte.
     .{ .pattern = "[abx ]+ +x", .text = "a x  x" },
     // The literal holds the separator's byte.
-    .{ .pattern = "[ab]+[x ]+x", .text = "a x x" },
+    .{ .pattern = "[ab]+[x ]+xx", .text = "a xxx" },
     // The part before the literal may be empty, so it holds no separator.
-    .{ .pattern = "(?:[abx]+ +)?x", .text = "ax x" },
-    .{ .pattern = "[abx]+ *x", .text = "ax x" },
+    .{ .pattern = "(?:[abx]+ +)?xa", .text = "xa xa" },
+    .{ .pattern = "[abx]+ *xa", .text = "axa xa" },
     // A range of the pattern holds a byte of the separator and a byte that is not.
-    .{ .pattern = "[abx]+[ a]x", .text = "xa ax x" },
+    .{ .pattern = "[abx]+[ a]xb", .text = "xa axb xb" },
     // The separator's byte comes again before the part that takes the literal's bytes.
     .{ .pattern = "[ab]+ +[abx]* +x", .text = "a  x  x" },
     // One count of bytes past `suffix_before_len_max`.
-    .{ .pattern = "[abx]{9}x", .text = "abxabxabxxabxabxabxx" },
+    .{ .pattern = "[abx]{9}xx", .text = "abxabxabxxxabxabxabxxx" },
     // Two counts of bytes.
-    .{ .pattern = "[abx]{1,2}x", .text = "axx" },
-    // The separator holds the other case of a byte of the literal.
-    .{ .pattern = "[ab]+[X ]+(?i)x", .text = "a X x" },
-    // The literal is one byte, which the part before it takes in a run.
-    .{ .pattern = "[ab]+x+", .text = "axx" },
+    .{ .pattern = "[abx]{1,2}xx", .text = "axxx" },
+    // The separator holds the other case of the literal's first byte.
+    .{ .pattern = "[ab]+[X ]+(?i)xa", .text = "a X xa a Xxa" },
+    // The literal is one byte twice, which the part before it takes in a run.
+    .{ .pattern = "[ab]+x+x", .text = "axxx" },
     // A range that holds a byte of the separator and a byte that is not, and a byte of the
     // separator before it.
-    .{ .pattern = "[abx]*:[a ][ :]+x", .text = "b:a x: :x" },
+    .{ .pattern = "[abx]*:[a ][ :]+xb", .text = "b:a x: :xb" },
     // One branch of the part before the literal holds the literal: the match from 0 ends at the
     // second place, and a search from the first place gives the match from 1. The Lean model of
     // the search gives this text (spec/lean/Stdx/Regex/Required.lean, `needs_no_earlier`).
     .{ .pattern = "(?:[a-z]|[0-9][a-z]ab)ab", .text = "1xabab" },
+    // A literal of one byte, which the second rule and the third leave to the forward DFA.
+    .{ .pattern = "[abx]x", .text = "axx" },
+    .{ .pattern = "[abx]+[ :]+x", .text = "a x:x" },
 };
 
 comptime {
@@ -203,10 +206,10 @@ test "a searcher whose forward DFA goes to a set of literals takes a suffix by t
     var fixture: Fixture = .{};
     // The part before the literal takes one count of bytes, and its branches start with `ax`
     // or `xb`, which claim R5 takes.
-    try fixture.init("(?:ax|xb)[ab]x", searcher_test.cache_words_max);
+    try fixture.init("(?:ax|xb)[ab]xa", searcher_test.cache_words_max);
     try testing.expect(fixture.searcher.forward.literals != null);
     try testing.expect(fixture.searcher.suffix == null);
-    try fixture.expect_agree_everywhere("axax xbbx axbx");
+    try fixture.expect_agree_everywhere("axaxa xbbxa axbx");
     // The first rule holds for this one: no part before the `:` takes it.
     try fixture.init("(?:ax|xb)[ab]:", searcher_test.cache_words_max);
     try testing.expect(fixture.searcher.forward.literals != null);

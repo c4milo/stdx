@@ -203,17 +203,19 @@ test "a search whose forward scan read past the next place leaves the places to 
 const give_up_text_len = 600;
 
 test "a search from a literal's places whose DFA gives up takes the matcher's answer" {
-    // Read backward from the literal, the part before it holds an `a` nine places behind any
-    // place: 2^9 states.
-    const pattern = "[ab]{8}a[ab]*x[ab]+";
+    // Read backward from the literal, the part before it holds `aa` nine places behind any
+    // place: 2^9 states and more.
+    // The pattern holds `aa` after a part of one count of bytes, and `xx` after a part that
+    // cannot hold an `x`: two literals as long, and the search goes to `xx`.
+    const pattern = "[ab]{8}aa[ab]*xx[ab]+";
     var fixture: Fixture = .{};
     try fixture.init(pattern, 0);
     try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).least);
-    try testing.expectEqualStrings("x", fixture.searcher.inner.?.slice());
+    try testing.expectEqualStrings("xx", fixture.searcher.inner.?.slice());
     var generator = codec.testing.split.Generator.init(0x1AAE2);
     var text: [give_up_text_len]u8 = undefined;
     for (&text) |*octet| octet.* = "ab"[generator.below("ab".len)];
-    @memcpy(text[text.len - "xa".len ..], "xa");
+    @memcpy(text[text.len - "xxa".len ..], "xxa");
     try fixture.expect_agree(&text, 0);
     try testing.expect(fixture.searcher.give_ups > 0);
 }

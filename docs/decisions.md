@@ -6087,6 +6087,13 @@ last part lists what still waits on a ruling.
         - Where the forward DFA goes to a set of literals (claim R5), the first rule alone takes
           a suffix, as before this amendment. A search for a few literals of two bytes or more
           finds fewer places than a search for a suffix that the rest of a match may hold.
+        - The second rule and the third take a literal of `literal_prefix_len_min` bytes or
+          more, 2, as claim R2 does. Under them the rest of a match may hold the literal's
+          bytes, so a text holds many places of a literal of one byte, and each place costs a
+          scan. The first paired run of the rules put rebar's `imported/rsc/not-literal`, `.y`
+          over 51 bytes, at 0.68 of its base on the N2 and at 0.65 on an EPYC 9V74: the search
+          went to each `y`, where the forward DFA read the text once. The same limit holds for
+          claim R14's literal under these two rules.
         - Rust's crate proves like rules on its syntax tree: a part of one length, a class at an
           edge of the part that the rest of the part and the literal hold no byte of, and a part
           that cannot hold every byte of the literal (regex-automata, `meta/prefix.rs`, read at

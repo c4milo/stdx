@@ -10072,6 +10072,19 @@ to 12 are reordered and nothing else changes.
     - The choice: both rules beside a set of literals; the first rule alone with no set; a
       suffix beside a search from the text's end; and no first rule.
 
+  The first paired run of the two rules, run 45420132619 at `813c3a5` with `7e24857` as its
+  base, on a Neoverse-N2 and an AMD EPYC 9V74:
+  - The six rows of the rules ran at 8 to 36 times their base on the N2, and at 10 to 112 times
+    on the EPYC 9V74. `imported/rsc/reallyreallyhard0-1mb`, `\w+\s+Holmes`, stands at 36 and
+    at 112, and `imported/leipzig/shing` at 24 and at 50.
+  - `imported/rsc/not-literal`, `.y` over 51 bytes, fell to 0.68 and to 0.65. The second rule
+    took the literal `y`, and the search went to each place of one byte.
+  - So the second rule and the third take a literal of two bytes or more (decision 86). The
+    tables of the check hold literals of two bytes, and two patterns with a literal of one
+    byte that the rules now leave.
+  - Mutations, run again against the tables: 24, all CAUGHT. The 22 above in their new forms,
+    the limit of two bytes left out, and claim R14's choice between two literals as long.
+
   Claim R14 is built, for the other rows of the third group (decision 86):
   - Where every match holds a literal in its middle, after a part that one of claim R4's rules
     holds for, the searcher goes to the literal's places. The reverse DFA reads back from a place
