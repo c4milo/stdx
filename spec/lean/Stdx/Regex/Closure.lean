@@ -657,4 +657,67 @@ theorem firstSeed_some {kind : Nat → Kind} {α : Type} {f : Nat → Option α}
       have ⟨y, hy, hv⟩ := ih (by simpa using h)
       exact ⟨y, List.mem_cons_of_mem s hy, hv⟩
 
+/-- Seeds have no first value exactly where no seed's walk has one. -/
+theorem firstSeed_none (kind : Nat → Kind) {α : Type} (f : Nat → Option α) (fuel : Nat)
+    (full : List Nat) :
+    ∀ seeds, firstSeed kind f fuel full seeds = none ↔
+      ∀ s, s ∈ seeds → first f (follow kind fuel full s).2 = none := by
+  intro seeds
+  induction seeds with
+  | nil => simp [firstSeed]
+  | cons s seeds ih =>
+    simp only [firstSeed, List.mem_cons]
+    cases hs : first f (follow kind fuel full s).2 with
+    | some v =>
+      constructor
+      · intro h; simp at h
+      · intro h; have := h s (Or.inl rfl); rw [hs] at this; cases this
+    | none =>
+      simp only [Option.none_or]
+      constructor
+      · intro h y hy
+        cases hy with
+        | inl heq => rw [heq, hs]
+        | inr hmem => exact ih.mp h y hmem
+      · intro h
+        exact ih.mpr (fun y hy => h y (Or.inr hy))
+
+/-- The threads of a list of seeds, built with one `visited` set, are the threads of the seeds,
+each walked alone: the set loses no thread. -/
+theorem mem_closure (kind : Nat → Kind) {fuel : Nat} {full : List Nat}
+    (hfuel : full.length < fuel) (hout : ∀ x, x ∉ full → kind x = .stop) (x : Nat)
+    (seeds : List Nat) :
+    x ∈ (closure kind fuel full seeds).2 ↔
+      ∃ s, s ∈ seeds ∧ x ∈ (follow kind fuel full s).2 := by
+  -- The value of a thread says whether it is `x`.
+  have hmem : ∀ threads : List Nat,
+      first (fun y => if y = x then some () else none) threads = none ↔ x ∉ threads := by
+    intro threads
+    rw [first_none]
+    constructor
+    · intro h hx
+      have := h x hx
+      simp at this
+    · intro h y hy
+      by_cases hyx : y = x
+      · exact absurd (hyx ▸ hy) h
+      · simp [hyx]
+  have hvalue := closure_value kind (fun y => if y = x then some () else none) hfuel hout seeds
+  constructor
+  · intro hx
+    apply Classical.byContradiction
+    intro hnone
+    have hall : ∀ s, s ∈ seeds →
+        first (fun y => if y = x then some () else none) (follow kind fuel full s).2 = none := by
+      intro s hs
+      exact (hmem _).mpr (fun h => hnone ⟨s, hs, h⟩)
+    rw [(firstSeed_none kind _ fuel full seeds).mpr hall] at hvalue
+    exact (hmem _).mp hvalue hx
+  · intro h
+    obtain ⟨s, hs, hx⟩ := h
+    apply Classical.byContradiction
+    intro hnot
+    rw [(hmem _).mpr hnot] at hvalue
+    exact (hmem _).mp ((firstSeed_none kind _ fuel full seeds).mp hvalue.symm s hs) hx
+
 end Stdx.Regex.Closure
