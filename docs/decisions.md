@@ -6361,8 +6361,11 @@ last part lists what still waits on a ruling.
         holds the reverse DFA's scan: `scanBack_some`, `scanBack_least` and `scanBack_none`,
         the least start of a match that ends at an offset. Those three take as given that
         the reverse program takes each match read backward, and nothing else.
-      - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
-        yet.
+      - `answerOf_isAnswer` gives the search's answer as a function, and
+        `src/regex/matcher_vectors.txt` holds its values for 272 programs and 9,749 searches.
+        A Zig test requires `Matcher.find` to give each one, and
+        `tools/matcher_model_check.sh` makes the same check on the programs a new seed draws.
+        No vector file holds the DFAs, the searcher or the compiler to the definitions yet.
     - Not proved: the parser, the builder, that the reverse program takes each match read
       backward, the matcher's capture slots, a DFA's table and the claims that change how it
       reads its bytes, and `Literal.find`. Design §8 parts 22h and 22r name their order.

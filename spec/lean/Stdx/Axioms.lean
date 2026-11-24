@@ -12,6 +12,7 @@ import Stdx.Regex.Closure
 import Stdx.Regex.Matcher
 import Stdx.Regex.MatcherPaths
 import Stdx.Regex.MatcherSearch
+import Stdx.Regex.MatcherAnswer
 import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
 
@@ -215,5 +216,8 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.scanBack_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.scanBack_none
+
+/-- info: 'Stdx.Regex.Matcher.answerOf_isAnswer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.answerOf_isAnswer
 
 end Stdx.Regex

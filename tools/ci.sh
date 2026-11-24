@@ -73,8 +73,12 @@ run_check "checkfree" zig build checkfree-check
 # x86-64 Linux runner alone.
 if command -v lake >/dev/null 2>&1 || [[ -x "${HOME}/.elan/bin/lake" ]]; then
   run_check "lean proofs" zig build lean
+  # Decision 86: the Lean model of the matcher against `Matcher.find`, on programs a new seed
+  # draws. The check prints a seed that fails.
+  run_check "matcher model" tools/matcher_model_check.sh
 else
   rows+=("| lean proofs | skipped: no lake | 0 s |")
+  rows+=("| matcher model | skipped: no lake | 0 s |")
 fi
 run_check "oracle tests" zig build test-oracle -Doracles
 # Every program the build installs, the benchmarks included: no check above compiles bench/zstd or

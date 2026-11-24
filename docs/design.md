@@ -10293,6 +10293,55 @@ to 12 are reordered and nothing else changes.
     matcher reports, which is its slot 0; the cut of a walk at the first `match`; the halving
     of `program.step_ranges`; and a text that arrives in pieces.
 
+  **Part 22h, its third part built: the Zig matcher held to the proved answer (decision 86).**
+  **Check:** `zig build lean` requires `src/regex/matcher_vectors.txt` to be what the proved
+  definitions give; `zig build test-regex` replays the file against `Matcher.find`; mutations
+  of the Zig matcher fail the replay.
+
+  **Check passed, part 22h, its third part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - `Stdx/Regex/MatcherAnswer.lean` holds `answerOf`, the search's answer as a function, and
+    `answerOf_isAnswer`: its value is the answer that `Search.lean` states for a program's
+    text. So every search of a program's text has an answer.
+  - `spec/lean/Vectors.lean` writes `answerOf`'s values into `src/regex/matcher_vectors.txt`:
+    272 programs and 9,749 searches, of which 2,947 find a match.
+    - 16 of the programs are written by hand, 8 patterns each as UTF-8 and as bytes: `a|ab`,
+      `a*`, `a*?`, `(a*)*b`, `\ba+\b`, `(?m)^b$`, a class of two ranges before `é`, and
+      the empty pattern.
+    - A seed draws the other 256, of 4 to 10 instructions: ranges, splits, jumps, assertions
+      and `fail`, with any targets, so a drawn program may hold a loop that takes no byte.
+    - Each text holds 0 to 6 bytes of `a`, `b`, a line feed, a space and the two bytes of
+      `é`, and is searched from each offset.
+  - `src/regex/matcher_vectors_test.zig` builds each program, runs `Matcher.find`, and
+    requires the same span. `zig build test-regex` passes, and the matcher gave each of the
+    9,749 answers at the first run.
+  - The file's programs are instructions and no pattern. It holds the matcher to the model,
+    and says nothing of the compiler, the DFAs or the searcher.
+  - Eight mutations, each against `zig build test-regex`, each CAUGHT by the replay: the
+    matcher taking a split's other branch first; a match that still starts after one was
+    found; a match that starts before a continuation byte; an assertion that always holds;
+    an instruction read twice at one position; a range without its last byte; the byte
+    behind a position forgotten; and one answer of the vector file changed.
+    - The first form of the assertion's mutant did not compile, which is no catch. The count
+      is of the form that compiles.
+  - This is the first check that reads the start the matcher reports, its slot 0, which the
+    model does not hold: the file's start is the least start of `answerOf`.
+  - The same check with a new seed each run, by the owner's ask of 2026-11-24:
+    `tools/matcher_model_check.sh [seed...]`. `lake exe vectors --random <seed> <count>` writes
+    the vectors of the programs a seed draws, and `tools/matcher_replay.zig` reads the file
+    when it runs and replays it. With no seed, the seed is the time in seconds. A seed that
+    fails is printed, with the line of the search that differs.
+    - A run of 4,096 programs, about 131,500 searches, takes about a second, and
+      `tools/ci.sh` runs one where lake is on the path.
+    - Seeds 1, 2 and 3 with 40,000 programs each, 3.8 million searches, passed in 19 s.
+    - Five mutations, each CAUGHT. Against the script with seed 7: a match that still starts
+      after one was found, and a split's other branch first. Against the replay program's own
+      tests, `zig build test-tools`: a replay that reads no end, one that reads no start, and
+      one that passes a match where the file says none.
+    - The first run against the replay program's tests proved nothing: one of those tests
+      failed with no mutation, on a wrong line number of its own. `zig build test` found it,
+      and the counts above are from the run after the test was put right.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance
