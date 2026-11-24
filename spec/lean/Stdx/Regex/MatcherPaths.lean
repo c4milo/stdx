@@ -245,7 +245,8 @@ theorem backtrack_sound (prog : Array Inst) (text : List Nat) :
           exact ⟨s, pc, hs, hpath.trans (.take hb (step_takes hst) hrest), hdone⟩
 
 /-- `step` gives the instruction that a thread goes to, whichever range of a node takes the
-byte. It holds for a program whose nodes hold ranges that stand apart. -/
+byte. It holds for a program whose nodes hold ranges that stand apart: `Hypotheses.lean` holds
+the function that decides that, and its proof. -/
 def Exact (prog : Array Inst) : Prop :=
   ∀ pc b out, Takes prog pc b out → step prog pc b = some out
 

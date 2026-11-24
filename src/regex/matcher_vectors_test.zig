@@ -71,6 +71,9 @@ fn instruction_of(kind: program_file.Kind, tokens: *Tokens) !Instruction {
 const Replay = struct {
     instructions: [instructions_max]Instruction = undefined,
     instructions_len: u32 = 0,
+    /// The instructions the program's line names, and where its forward program starts.
+    instructions_named: u32 = 0,
+    forward: u32 = 0,
     encoding: program_file.Encoding = .utf8,
     text: [text_len_max]u8 = undefined,
     text_len: usize = 0,
@@ -93,19 +96,23 @@ const Replay = struct {
 
     fn begin(replay: *Replay, tokens: *Tokens) !void {
         replay.encoding = std.meta.stringToEnum(program_file.Encoding, try take(tokens)) orelse return error.TestVectorEncoding;
+        replay.instructions_named = try number(u32, tokens);
+        replay.forward = try number(u32, tokens);
+        // The file's programs are forward programs alone.
+        try testing.expectEqualStrings("none", try take(tokens));
         replay.instructions_len = 0;
         replay.programs += 1;
     }
 
-    /// The program the instructions read so far make: a forward program alone, whose entry is
-    /// its first instruction and whose one group is the whole match.
+    /// The program the instructions read so far make: a forward program alone, whose one group
+    /// is the whole match.
     fn program(replay: *const Replay) Program {
         return .{
             .instructions = replay.instructions[0..replay.instructions_len],
             .forward_len = replay.instructions_len,
             .forward_nodes = replay.instructions_len,
             .reverse_nodes = 0,
-            .forward = 0,
+            .forward = replay.forward,
             .reverse = program_file.no_entry,
             .group_count = 1,
             .reads_ahead = true,
@@ -121,6 +128,8 @@ const Replay = struct {
         replay.text_len = try number(usize, tokens);
         try testing.expect(replay.text_len <= text_len_max);
         for (replay.text[0..replay.text_len]) |*byte| byte.* = try number(u8, tokens);
+        try testing.expectEqual(replay.instructions_named, replay.instructions_len);
+        try testing.expect(replay.forward < replay.instructions_len);
         const built = replay.program();
         replay.matcher.init(&built, .{ .captures = .span }, &replay.memory);
     }

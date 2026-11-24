@@ -15,6 +15,7 @@ import Stdx.Regex.MatcherSearch
 import Stdx.Regex.MatcherAnswer
 import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
+import Stdx.Regex.Hypotheses
 
 /-!
 # What the proofs rest on
@@ -219,5 +220,17 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.answerOf_isAnswer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.answerOf_isAnswer
+
+/-- info: 'Stdx.Regex.Matcher.answerFast_isAnswer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.answerFast_isAnswer
+
+/-- info: 'Stdx.Regex.Matcher.exact_of_isExact' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.exact_of_isExact
+
+/-- info: 'Stdx.Regex.Matcher.mem_endsFrom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.mem_endsFrom
+
+/-- info: 'Stdx.Regex.Matcher.reverses_of_reversesOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.reverses_of_reversesOn
 
 end Stdx.Regex
