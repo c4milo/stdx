@@ -9961,8 +9961,8 @@ to 12 are reordered and nothing else changes.
   - R12: where every match ends at the text's end, and not every match starts at its start, the
     searcher reads back from the text's end.
   - R13: where both hold, the searcher refuses a text by its length. The first form walked
-    the program at `Searcher.init` (`dfa_length.zig`). The paired runs below replaced it: the
-    parser now keeps each fragment's lengths.
+    the program at `Searcher.init` (`dfa_length.zig`). The paired runs below replaced it
+    twice: by a tally in the parser, and then by the walk again, which now waits for text.
   - `Claims` gains `text_start`, `text_end` and `length`. A new field changes the public API, so
     the next release is a MINOR one (decision 65).
   **Check:** a searcher under each claim gives what the matcher gives from every offset of
@@ -10126,6 +10126,172 @@ to 12 are reordered and nothing else changes.
       that scans forward; a forward scan's stop read as the text's end; a scan back past
       `from`; a next place past the whole literal; and no place left read as a reason to leave
       the places.
+
+  The paired runs of the whole part against main, and what they changed:
+  - Four runs of the `bench` workflow with `1744e4a` as their base. Runs 45435684150 and
+    45435691427 at `e18f017`, on a Neoverse-N2 each, an AMD EPYC 7763 and an EPYC 9V74. Runs
+    45445431371 and 45445437960 at `2fa1b2c`, on an N2 each, a Xeon 8573C and an EPYC 7763.
+  - At `e18f017`, 49 rows won in all four jobs by decision 20's rule, and 37 lost in all four.
+    The losses had five causes:
+    - Claim R14 where its places stand close together. `[A-Z][a-z]+ [A-Z][a-z]+`, whose
+      literal is a space, ran at 0.13 to 0.21 of its base over bible.txt, and at 0.33 to 0.44
+      over world192.txt. rebar's `imported/lh3lh3-reb/date`, whose literal is `/`, ran at 0.77
+      to 0.87. `opt/reverse-inner/no-quadratic-forward` ran at 0.36 to 0.40: its forward scan
+      reads the text from the first place and finds no match, and the plain search reads it
+      again. `imported/rsc/reallyreallyreallyhard0-32`, 51 bytes with one place, ran at 0.61
+      to 0.64.
+    - The walks of claims R4 and R14 at `Searcher.init`. A pattern compiled and made ready
+      ran at 0.16 to 0.19 for rebar's `10-bounded-repeat/compile-context`, at 0.44 to 0.46 for
+      `unicode/compile/fifty-letters`, at 0.59 to 0.64 for `[a-z]+ing`, and at 0.74 to 0.98
+      for nine more patterns.
+    - The parser's tally of lengths, in each of those compiles and in every other. A literal
+      compiled and made ready ran at 0.92 to 0.94 on the N2, where the step before it stood
+      level.
+    - A search's answer read back from memory. Rows of many short matches ran at 0.74 to 0.98:
+      rebar's `08-words/all-english`, `[abcdw]` over 81 bytes, `(a+)*[b-z]` over 25 bytes, and
+      sixteen more.
+    - Claim R4's second rule with a literal of one byte: `imported/rsc/not-literal` at 0.66 to
+      0.71. The limit of two bytes at `2fa1b2c` brought it to 0.83 to 0.96, and the row's
+      other loss is the answer in memory.
+  - The instruments, in a cloud container, which is no judge. A program outside the tree
+    depends on stdx as a package, built ReleaseSafe for the x86-64 baseline of 2009, with
+    `platform.memset` as its `memset`. It runs one row a number of times, and cachegrind
+    counts its instructions: the count of twice the passes less the count of once, for each
+    pass. The same program, built at `1744e4a` and at the change, is timed in turns, the least
+    of seven. Neither is kept.
+  - The answer in memory. `Searcher.find` returned the value of a `switch` over the claims'
+    call and the DFAs' span. LLVM kept the optional span in memory, with a pointer for each
+    way, and the function's exit read it with one load of 16 bytes where the ways had stored
+    two words. No CPU forwards such a load. In the probe, `\w+` over 64 kB of words took 22%
+    more time than at `1744e4a` on 2% fewer instructions.
+    - `find` and `captures` now keep the span's two words beside an `Outcome`, and `find` has
+      a `return` for each outcome. A searcher with a claim of `searcher_claim.zig` returns
+      from that file's search by itself, on one flag, `by_claim`.
+    - The search of the two DFAs is inline in `find` and in `captures` again, as at `1744e4a`:
+      in a function of its own, a pass of `[A-Z][a-z]+ [A-Z][a-z]+` took 1.7% more
+      instructions, 7% more in its skip's loop.
+  - The account of claim R14 (decision 86): a searcher rests the claim where its places cost
+    more than a plain scan, tries again after 64 kB, and drops it after six trials lost.
+  - The claims that wait (decision 86): claim R4's second and third rules, claim R13 and
+    claim R14 are judged once a searcher's searches were given 64 bytes of text for each
+    instruction of the reverse program.
+    - `dfa_inner.inner_of` now tries the eight longest literals, from the longest, and asks
+      first whether every match passes one. Its walks took 13 to 123 ns for each instruction
+      of the reverse program in the container, where they took 20 to 270.
+    - Claim R13's lengths come from `dfa_length.of` again, at the judgment. The parser, the
+      fragments and `Program` are as at `1744e4a`.
+    - `Literal.suffix_of` and `chain_of` keep no list of the instructions they passed.
+      `Suffix.run_entry` walks again for the one that claim R4's third rule asks for.
+  - The forward scan from a place takes `Dfa.scan_plain`'s loop of plain rows and its stay
+    (`dfa_second.scan_forward`). A text of 51 bytes with one place took 291 to 339 ns in the
+    probe with one entry of the table a byte, and 268 ns with the loop, where the plain search
+    took 172 to 185.
+  - `Claims` still gains `text_start`, `text_end`, `length` and `inner`, so the next release
+    is a MINOR one (decision 65). `Program` gains no field.
+
+  The paired runs of that form, and what they changed:
+  - Runs 45470921498 and 45470927590 at `643aa6b` with `1744e4a` as their base, on a
+    Neoverse-N2 each, an AMD EPYC 7763 and a Xeon 6975P-C.
+  - 70 rows won in all four jobs, and 7 lost in all four, where 49 and 37 did at `e18f017`.
+    The 7 had three causes, each a cost of a claim's search that the account did not hold:
+    - A claim that waited for ever. `(?:A+){100}|` matches the empty string at each byte of
+      99 `A`, so its searches covered no byte, and the searcher never judged its claims.
+      While a claim waits a count finds each match whole. rebar's `slow/quadratic-regex-1x`
+      ran at 0.59 to 0.72, and `slow/quadratic-regex-2x` at 0.76 to 0.84.
+    - A search with no place. rebar's `imported/lh3lh3-reb/date` is a grep of lines of some
+      60 bytes, and few lines hold the pattern's `/`. A search that found no place gained its
+      line and paid nothing, though a claim's search cost some 85 instructions more than the
+      plain one. The row ran at 0.68 to 0.85, and `imported/lh3lh3-reb/email` at 0.93 to 0.97.
+    - Claim R4's search by a longer way. A search under claim R4 took one call at `1744e4a`,
+      and more at `643aa6b`. `[0-9][0-9,]* km` ran at 0.81 to 0.98, and `(?m)^[A-Z][a-z]+:`
+      at 0.87 to 0.96. `imported/rsc/reallyreallyhard0-32`, `\w+\s+Holmes` over 47 bytes
+      with one place, ran at 0.75 to 0.83 under the third rule, which kept no account.
+  - So a search counts the text it is given toward the claims that wait, from where it starts
+    to the text's end, and they are judged before it reads the text.
+  - A search with an account pays for its start as for a place.
+  - Claim R4's second and third rules keep the account of claim R14
+    (`searcher_account.zig`), and a searcher holds one of the two claims. A search under the
+    first rule keeps none, as at `1744e4a`.
+  - A claim's search is one call out of line from `find`, and keeps its match beside an
+    `Outcome` as the plain search does.
+  **Check:** each claim that waits is judged by the search that is given the last byte of its
+  text, and by none before; each way to search counts the text it is given; a pattern of empty
+  matches is judged; a pattern with no such claim holds none from `init` on; a searcher gives
+  what the matcher gives before the judgment, as it judges and after, in a cache of each size;
+  the account's sums, its rests and its drop, each at its edge; under claim R14 and under
+  claim R4's wide rules, a searcher rests the claim where it loses, tries again after each
+  rest, and drops it after the longest, and keeps it on a text of places far apart; a suffix
+  by the first rule keeps no account; a search that leaves its places gives the plain search's
+  match; a forward scan that reads far and finds none rests the claim at once; a forward scan
+  from a place stays; a search that finds no match runs no matcher; a reverse DFA that gives
+  up under claim R4's wide rules hands the search to the matcher; the literals kept are the
+  longest; counts of instructions and times against `1744e4a`; two paired runs of the `bench`
+  workflow on each runner; mutations.
+  **Check passed in part, 2026-11-24.** The same container, at `b2d008c`. The paired runs of
+  this form are not recorded yet.
+  - `zig build test` exits 0. `zig build test-regex` runs 340 tests.
+  - Instructions for each pass, at `1744e4a` and at `b2d008c`. The program's `memset` is
+    `platform.memset`, as a benchmark program's is.
+    - A search, as a walk of `Matches.next`: `[abcdw]` over 81 bytes, 977 and 909;
+      `(a+)*[b-z]` over 25 bytes, 615 and 582; `\w+` over 64 kB of words, 6,849,633 and
+      6,486,841; `^.bc(d|e)*$` over 17 bytes, 770 and 702; and `[0-9]+` over 63 bytes, 4,682
+      and 4,366.
+    - The rows of the three causes: `(?:A+){100}|` over 99 bytes, as a count, 194,249 and
+      194,250; the date pattern over 16 kB of lines, as a grep, 222,871 and 222,547;
+      `[0-9][0-9,]* km` over 107 bytes, 4,004 and 3,895; `(?m)^[A-Z][a-z]+:` over six lines,
+      3,718 and 3,608; and `\w+\s+Holmes` over 47 bytes, once its searcher dropped the
+      claim, 2,015 and 1,909.
+    - `[A-Z][a-z]+ [A-Z][a-z]+` over 64 kB of words, once its searcher dropped the claim:
+      575,089 and 574,777.
+    - A pattern compiled and made ready: `Pharaoh`, 22,438 and 22,579; `[a-z]+ing`, 23,626
+      and 23,825; the date and time pattern, 42,560 and 42,576; the field path pattern, 51,613
+      and 51,610; rebar's `compile-context` pattern, 210,147 and 210,295.
+  - Time in turns, the least of seven, in ms at `1744e4a` and at `b2d008c`: `\w+` over 64 kB
+    of words, 1,668 and 1,439; `[0-9]+` over 63 bytes, 668 and 522; `[0-9][0-9,]* km`, 631 and
+    578; `(?m)^[A-Z][a-z]+:`, 628 and 598; the date pattern as a grep, 321 and 285; and
+    `(?:A+){100}|` as a count, 562 and 573.
+  - Mutations: 102, against `zig build test-regex`. 101 CAUGHT, each by a failing test. One is
+    no mutation of behaviour: a search under claim R4's wide rules that leaves its places and
+    settles with the text to its place. Such a search leaves only where its account is
+    overdrawn, and an overdrawn search is settled alike whatever it gained.
+    - The claims that wait, 36.
+      - Which claim waits: each with its switch off, with claim R1 off, with no forward DFA or
+        no reverse DFA, beside a set of literals, beside a literal that starts every match,
+        beside a suffix, with a suffix of one byte, and claim R13 with no `$`.
+      - The count: one more byte for each instruction; the forward program's instructions
+        counted too; a judgment one search late; no text taken off; a `find` or an `is_match`
+        that counts none; and the whole text counted for a search that starts later.
+      - The judgment: a literal judged beside a suffix; claims that stay waiting; no flag
+        set; lengths one more; no second entry; and a wide suffix not marked.
+      - The ways: no flag while a claim waits, or for a literal alone; an `is_match` that
+        scans forward; a wide suffix with no account; and a literal's search with none.
+      - A rest and a drop: a flag, a suffix or a literal kept after a drop; the whole text
+        passed toward a rest for a match; and none passed for no match.
+    - The account, 8: overdrawn at equality; a drop one trial early; a rest that does not
+      double; a trial not counted; a balance not set back to the credit; lost trials kept at
+      the cap; no cap; and half the text passed toward a rest.
+    - Claim R14's search, 9, and claim R4's wide search, 8: a rest not kept; a start or a place
+      that pays nothing, or a place that pays one byte; a forward scan's bytes not paid; a
+      search that never leaves, for its account or for the byte the last scan stopped at; a
+      search that leaves and gains the text to its place; a match or a text's end not settled;
+      and a match one byte short.
+    - A DFA that gives up read as no match, 4: from the text's end, under claim R4's first
+      rule, under its wide rules, and in a search with an account.
+    - The ways through `Searcher`, 13: a `find`, a `captures` or an `is_match` that takes no
+      claim's search; an `is_match` with no check of lengths, or by a claim beside lengths; no
+      match handed to the matcher, in three places; no answer read as unknown; an `is_match`
+      that reads no match as unknown, or a match as none; a claim's search with no check of
+      lengths; and a count that takes the count of ends beside a claim.
+    - The choice of a literal, 12: no order; a stop at a literal as long; the later of two as
+      long kept; the longest one replaced; an order that moves two as long; each of the four
+      walks left out; a literal not made ready; and `apart` negated, or held for the first cut
+      alone.
+    - The forward scan from a place, 4: no stay; a match not kept; a dead state's stop read as
+      the text's end; and no match at the text's end.
+    - `literal.zig`, 3, `dfa_suffix.zig`, 4, and `dfa_length.zig`, 1: a run's entry one step
+      further; a literal past its length; a suffix not made ready; the wide rules under the
+      first rule; each wide rule left out; a wide suffix of one byte; and lengths walked with
+      the budget of a suffix's part.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
