@@ -6313,8 +6313,33 @@ last part lists what still waits on a ruling.
     - The proof is of the Lean definitions. `Vectors.lean` writes their sequences for the 630
       ranges between 35 scalar values where an encoding changes, and a Zig test requires
       `utf8_ranges.Splitter` to give the same sequences in the same order.
-    - Not proved: the parser, the builder, and that the matcher's match is the one a
-      backtracking matcher finds first. Design §8 step 22 names what comes next.
+    - Added 2026-11-24 (design §8 part 22r): the searcher's claims, each as a function over three
+      scans and a theorem that the function gives the matcher's answer.
+      - `Stdx/Regex/Search.lean` says what the matcher answers from an offset, with no program
+        in it: the least start of a match, and the end the pattern's order prefers there. It
+        states what `Literal.find`, the reverse scan and the forward scan must give.
+      - `Stdx/Regex/Suffix.lean` holds claim R4's loop. `bySuffix_answer`: the loop gives the
+        matcher's answer where every match ends with the literal and a byte of the literal
+        stands in no part of a match before it. `one_end`: the loop needs no forward scan.
+        `starts_after_place`: a reverse scan reads no start at or before the place before its
+        own.
+      - `Stdx/Regex/Program.lean` holds the instructions and a program's paths over a text.
+        `Stdx/Regex/SuffixRule.lean` holds `suffix_rule`: claim R4's two preconditions follow
+        from what `Literal.walk` and `dfa_suffix.before_takes` find in the reverse program.
+      - `Stdx/Regex/Required.lean` holds the wider search, which scans forward from the start it
+        finds. `byRequired_answer` needs `NoEarlier`: a match that ends before another match
+        starts at or before it, or the other's start has a match that ends there too.
+        `needs_no_earlier` gives the text `1xabab` under `(?:[a-z]|[0-9][a-z]ab)ab`, where the
+        search without that precondition gives the match from 1 and the matcher the match
+        from 0. Four rules give `NoEarlier`: R4's rule for any byte of the literal, one length
+        for every match, a separator class that ends the part before the literal, and one that
+        starts it. `byGuarded_answer`: a reverse scan that may give up changes no answer.
+      - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
+        yet.
+    - Not proved: the parser, the builder, that the reverse program takes each match read
+      backward, that the matcher's match is the one a backtracking matcher finds first, and
+      that each DFA's scan gives what `Search.lean` asks of it. Design §8 part 22r names their
+      order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
     on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names

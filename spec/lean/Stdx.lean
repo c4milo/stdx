@@ -1,4 +1,9 @@
 import Stdx.Utf8
 import Stdx.Json.Number
 import Stdx.Regex.Utf8
+import Stdx.Regex.Program
+import Stdx.Regex.SuffixRule
+import Stdx.Regex.Search
+import Stdx.Regex.Suffix
+import Stdx.Regex.Required
 import Stdx.Axioms

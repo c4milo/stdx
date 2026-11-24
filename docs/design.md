@@ -7958,6 +7958,9 @@ to 12 are reordered and nothing else changes.
     the program's instructions, and each match it reports is a path of the program. That the
     matcher's match is the one a backtracking matcher finds first is a larger proof, which
     Barrière and Pit-Claudel (PLDI 2024) made for JavaScript's semantics.
+  - **22r: the searcher's claims in Lean.** Each claim as a function over the scans it calls,
+    and a theorem that the function gives the matcher's answer. Its first part is built, and its
+    record is below: claim R4, and the wider search from a required literal.
 
   **Part 22b, built: the oracle and RE2's own tests in the tree (decision 86, the owner's ruling
   of 2026-11-21).** `zig build differential-regex -Doracles` gives generated patterns and texts
@@ -10058,6 +10061,55 @@ to 12 are reordered and nothing else changes.
   - Three mutations of `utf8.Splitter`, each CAUGHT by the replay and by 4 or 5 tests beside it:
     the surrogates kept; no cut where the last value's low bits are not all ones; no cut where
     the first value's low bits are not zero.
+
+  **Part 22r, its first part built: claim R4 and the wider search in Lean (decision 86).**
+  **Check:** `zig build lean` builds the five files below with their theorems' axioms pinned;
+  mutations of the definitions fail the build.
+
+  **Check passed, part 22r, its first part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. The 14 theorems that `Stdx/Axioms.lean` pins for these files build
+    with no `sorry`, on `propext`, `Classical.choice` and `Quot.sound` alone.
+  - What the files hold:
+    - `Stdx/Regex/Search.lean`: `Text`, the spans a pattern matches in one text and the end its
+      order prefers from each start; `IsAnswer`, the matcher's answer from an offset; `Scans`,
+      what `Literal.find`, the reverse scan and the forward scan must give.
+    - `Stdx/Regex/Suffix.lean`: `bySuffix`, the loop of `Searcher.find_by_suffix`, with
+      `bySuffix_answer`, `one_end` and `starts_after_place`.
+    - `Stdx/Regex/Program.lean`: the instructions of `program.zig`, a program's paths over a
+      text, `path_clean` for `dfa_suffix.before_takes` and `chain_path` for `Literal.walk`.
+    - `Stdx/Regex/SuffixRule.lean`: `suffix_rule`, which gives claim R4's two preconditions from
+      the two walks.
+    - `Stdx/Regex/Required.lean`: `byRequired`, `NoEarlier`, `byRequired_answer`, the four
+      rules that give `NoEarlier`, `needs_no_earlier` and `byGuarded_answer`.
+  - What the wider search needs, which a claim for a required literal must hold (decision 86):
+    `NoEarlier`. Go 1.24.7's regexp and Rust's regex crate 1.13.2 both give the match from 0 up
+    to 6 for `(?:[a-z]|[0-9][a-z]ab)ab` on `1xabab`, where the search without it gives the match
+    from 1 up to 4.
+  - Eight mutations, each against `lake build`, each CAUGHT: `bySuffix` going on from the
+    place's end, not one byte past its start; `bySuffix` giving an end one byte late;
+    `CleanBefore` leaving out a match's first byte; `NoEarlier` made empty; the last separator
+    judged on the literal's second byte; the guarded search giving the place's end with no
+    forward scan; `path_clean` not carrying what an instruction reaches over a move; and
+    `Chain` taking a range of more than one byte as a literal's byte.
+  - The model leaves out a place of a literal that folds, and the Zig code's `ranges` node is
+    here a choice among its ranges, with no order.
+  - What the claims' proofs still rest on, in the order to build it:
+    1. The builder: the reverse program takes each match of the forward program read backward.
+       `suffix_rule` takes it as `hreverse`.
+    2. The two walks as code: `before_takes` reads every instruction of `Reach`, and
+       `Literal.walk` gives a `Chain`. A vector file of programs and verdicts would hold the Zig
+       walks to both.
+    3. Part 22h: the matcher's threads are the program's paths, and the order of its threads
+       gives `Text.Prefers`.
+    4. The DFAs: a state is the matcher's list at one position, so the reverse scan gives
+       `Scans.back` and the forward scan `Scans.ahead`. `back` reads paths, and the matcher
+       starts no match before a continuation byte, so this step needs that a program of UTF-8
+       takes whole sequences.
+    5. `Literal.find` gives `Scans.place`.
+    6. The other claims, each over `Search.lean`: R2, R3 and R5 skip to a place that starts
+       every match; R1 and R9 skip bytes that change no state; R10 counts by ends; and the
+       claims for a text's two ends.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
