@@ -6334,6 +6334,15 @@ last part lists what still waits on a ruling.
         from 0. Four rules give `NoEarlier`: R4's rule for any byte of the literal, one length
         for every match, a separator class that ends the part before the literal, and one that
         starts it. `byGuarded_answer`: a reverse scan that may give up changes no answer.
+      - `Suffix.lean` also holds `Rising`: a match that ends before another match starts
+        before it. Under it claim R4's loop needs no forward scan (`bySuffix_rising`). Claim
+        R4's rule, one length for every match, and a separator that ends the part before the
+        literal each give it. The separator's rule reads the literal's first byte alone.
+      - `Stdx/Regex/Inner.lean` holds claim R14's loop, `byInner`, and `byInner_answer`. Its
+        precondition is a rule for the part before the literal alone, and the part after it
+        may take any count of bytes.
+      - `Stdx/Regex/Edges.lean` holds claims R11, R12 and R13: `atStart_answer`,
+        `fromEnd_answer`, `excluded_answer`, and `excludes_iff` for the one compare.
       - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
         yet.
     - Not proved: the parser, the builder, that the reverse program takes each match read

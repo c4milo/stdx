@@ -17,6 +17,10 @@ Claim R4 takes the literal's first byte as the mark, and `first_gap` gives its `
 reads the mark through `Gap` alone, so it holds for any byte of the literal that the part before
 never takes: `Required.lean` says which rule that widens.
 
+The loop reads both preconditions through `Rising` alone: a match that ends before another
+match starts before it. `bySuffix_rising` is the loop's theorem under `Rising`, so any rule that
+gives `Rising` lets the loop run with no forward scan. `Required.lean` holds two more such rules.
+
 Three theorems:
 
 - `bySuffix_answer`: the loop gives the matcher's answer.
@@ -101,10 +105,37 @@ theorem starts_after_place {t : Text} {c : Scans t} {Mark : Nat → Prop}
   have ⟨m, hm1, hm2, hmark⟩ := hgap q p hq hp hqp
   exact hclean s (p + c.width) hm m (Nat.le_trans hsq hm1) (by omega) hmark
 
+/-- A match that ends before another match starts before it. So one start has one end, and the
+first place that ends a match gives the least start. -/
+def Rising (t : Text) : Prop :=
+  ∀ s e s' e', t.Match s e → t.Match s' e' → e < e' → s < s'
+
+/-- Under `Rising`, every match from one start ends at one offset. -/
+theorem one_end_of_rising {t : Text} (hrising : Rising t) {s e e' : Nat}
+    (hm : t.Match s e) (hm' : t.Match s e') : e = e' := by
+  apply Nat.le_antisymm
+  · apply Nat.le_of_not_lt
+    intro hlt
+    exact Nat.lt_irrefl s (hrising s e' s e hm' hm hlt)
+  · apply Nat.le_of_not_lt
+    intro hlt
+    exact Nat.lt_irrefl s (hrising s e s e' hm hm' hlt)
+
+/-- Claim R4's preconditions give `Rising`. -/
+theorem rising_of_clean {t : Text} {c : Scans t} {Mark : Nat → Prop}
+    (hclean : CleanBefore t c Mark) (hgap : Gap c Mark) (hends : EndsWith t c) : Rising t := by
+  intro s e s' e' hm hm' hlt
+  apply Nat.lt_of_not_le
+  intro hss
+  have hq := place_of_match hends hm
+  have hq' := place_of_match hends hm'
+  have := ends_by_place hclean hgap hends hm' hq.2.1 (by omega)
+  omega
+
 /-- The loop's step: while every match from `low` ends at a place at or after `index`, the loop
 from `index` gives the matcher's answer. -/
-theorem bySuffix_from {t : Text} {c : Scans t} {Mark : Nat → Prop} {low : Nat}
-    (hclean : CleanBefore t c Mark) (hgap : Gap c Mark) (hends : EndsWith t c) :
+theorem bySuffix_from {t : Text} {c : Scans t} {low : Nat}
+    (hrising : Rising t) (hends : EndsWith t c) :
     ∀ turns index, t.len + 1 ≤ index + turns →
       (∀ s e, low ≤ s → t.Match s e → index ≤ e - c.width) →
       IsAnswer t low (bySuffix c low turns index) := by
@@ -141,36 +172,46 @@ theorem bySuffix_from {t : Text} {c : Scans t} {Mark : Nat → Prop} {low : Nat}
       | some s0 =>
         rw [bySuffix_found hplace hback]
         have hb := c.back_some hback
-        have hs0p : s0 ≤ p := by
-          have := (place_of_match hends hb.2).1
-          omega
         refine ⟨hb.1, ?_, ?_⟩
         · have ⟨e2, hpref⟩ := t.prefers_some hb.2
-          have he : p + c.width = e2 := one_end hclean hgap hends hb.2 (t.prefers_match hpref)
+          have he : p + c.width = e2 := one_end_of_rising hrising hb.2 (t.prefers_match hpref)
           exact he ▸ hpref
         · intro s' e' hlow hm
           apply Nat.le_of_not_lt
           intro hlt
           have hq := place_of_match hends hm
           have h1 := hinv s' e' hlow hm
-          have h2 := ends_by_place hclean hgap hends hm hp.2 (by omega)
+          -- The place of the other match is `p` or a later one.
+          have h2 : p ≤ e' - c.width := by
+            apply Nat.le_of_not_lt
+            intro h
+            exact c.place_first hplace h1 h hq.2.1
           cases Nat.lt_or_eq_of_le h2 with
-          | inl hlt2 => exact c.place_first hplace h1 hlt2 hq.2.1
+          | inl hlt2 =>
+            have := hrising s0 (p + c.width) s' e' hb.2 hm (by omega)
+            omega
           | inr heq =>
             have he : e' = p + c.width := by omega
             have := c.back_least hback hlow (he ▸ hm)
             omega
 
-/-- Claim R4: where every match ends with the literal, and a marked byte of the literal stands
-in no part of a match before it, `find_by_suffix` gives the matcher's answer from `low`. The loop
-takes at most one turn for each byte from `low` and one more, as the Zig loop is bounded. -/
-theorem bySuffix_answer {t : Text} {c : Scans t} {Mark : Nat → Prop} {low : Nat}
-    (hclean : CleanBefore t c Mark) (hgap : Gap c Mark) (hends : EndsWith t c)
-    (hlow : low ≤ t.len) :
+/-- The loop with no forward scan: where every match ends with the literal and `Rising` holds,
+`find_by_suffix` gives the matcher's answer from `low`. The loop takes at most one turn for each
+byte from `low` and one more, as the Zig loop is bounded. -/
+theorem bySuffix_rising {t : Text} {c : Scans t} {low : Nat}
+    (hrising : Rising t) (hends : EndsWith t c) (hlow : low ≤ t.len) :
     IsAnswer t low (bySuffix c low (t.len - low + 1) low) := by
-  apply bySuffix_from hclean hgap hends _ _ (by omega)
+  apply bySuffix_from hrising hends _ _ (by omega)
   intro s e hs hm
   have := (place_of_match hends hm).1
   omega
+
+/-- Claim R4: where every match ends with the literal, and a marked byte of the literal stands
+in no part of a match before it, `find_by_suffix` gives the matcher's answer from `low`. -/
+theorem bySuffix_answer {t : Text} {c : Scans t} {Mark : Nat → Prop} {low : Nat}
+    (hclean : CleanBefore t c Mark) (hgap : Gap c Mark) (hends : EndsWith t c)
+    (hlow : low ≤ t.len) :
+    IsAnswer t low (bySuffix c low (t.len - low + 1) low) :=
+  bySuffix_rising (rising_of_clean hclean hgap hends) hends hlow
 
 end Stdx.Regex.Search

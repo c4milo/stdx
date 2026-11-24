@@ -6,4 +6,6 @@ import Stdx.Regex.SuffixRule
 import Stdx.Regex.Search
 import Stdx.Regex.Suffix
 import Stdx.Regex.Required
+import Stdx.Regex.Inner
+import Stdx.Regex.Edges
 import Stdx.Axioms

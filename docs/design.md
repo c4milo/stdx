@@ -10095,8 +10095,9 @@ to 12 are reordered and nothing else changes.
   - The model leaves out a place of a literal that folds, and the Zig code's `ranges` node is
     here a choice among its ranges, with no order.
   - What the claims' proofs still rest on, in the order to build it:
-    1. The builder: the reverse program takes each match of the forward program read backward.
-       `suffix_rule` takes it as `hreverse`.
+    1. The builder: the reverse program takes each match of the forward program read backward,
+       and takes nothing else. `suffix_rule` takes the first half as `hreverse`, and step 4
+       needs both halves.
     2. The two walks as code: `before_takes` reads every instruction of `Reach`, and
        `Literal.walk` gives a `Chain`. A vector file of programs and verdicts would hold the Zig
        walks to both.
@@ -10108,8 +10109,42 @@ to 12 are reordered and nothing else changes.
        takes whole sequences.
     5. `Literal.find` gives `Scans.place`.
     6. The other claims, each over `Search.lean`: R2, R3 and R5 skip to a place that starts
-       every match; R1 and R9 skip bytes that change no state; R10 counts by ends; and the
-       claims for a text's two ends.
+       every match; R1 and R9 skip bytes that change no state; and R10 counts by ends.
+
+  **Part 22r, its second part built: the rules of the widened claim R4, and claims R11 to R14
+  (decision 86, part 22q).**
+  **Check:** `zig build lean` builds the files below with their theorems' axioms pinned;
+  mutations of the definitions fail the build.
+
+  **Check passed, part 22r, its second part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins 11 more theorems, 25 for part 22r, on
+    `propext`, `Classical.choice` and `Quot.sound` alone.
+  - `Stdx/Regex/Suffix.lean`: `Rising`, a match that ends before another match starts before
+    it. `bySuffix_rising`: under `Rising`, claim R4's loop gives the matcher's answer with no
+    forward scan. Claim R4's first rule gives `Rising`, and so do two rules of
+    `Stdx/Regex/Required.lean`: one length for every match (`rising_of_one_length`), and a
+    separator that ends the part before the literal (`rising_of_last_separator`).
+    - The separator's rule reads the literal's first byte alone. The other bytes of the
+      literal may be of the separator's set.
+    - A separator that starts the part before the literal gives `NoEarlier` and no `Rising`:
+      under `\s+[a-z]{0,12}ing`, the text of two spaces and `singing` holds two matches from 0.
+      So that rule needs the forward scan of `byRequired`.
+  - `Stdx/Regex/Inner.lean`: claim R14. `byInner` is the loop of `searcher_inner.find`, and
+    `byInner_answer` needs `BeforeRising`, a rule for the part before the literal alone. The
+    part after the literal may take any count of bytes. Three rules give `BeforeRising`. The
+    file leaves out the loop's guard, which sends a search to the plain DFAs.
+  - `Stdx/Regex/Edges.lean`: `atStart_answer` for claim R11, `fromEnd_answer` for claim R12,
+    and `excluded_answer` for claim R13, with `excludes_iff` for the one compare of
+    `Searcher.excludes` on wrapping words of 64 bits.
+  - Nine mutations, each against `lake build`, each CAUGHT: `Rising` letting two matches share
+    a start; `byInner` ending the search where a forward scan finds no match; `BeforeRising`
+    made empty; `byInner` going on from the place's end; claim R14's separator judged on the
+    literal's second byte; `fromEnd` giving an end one byte short; `fromEnd` reading back past
+    the search's first offset; `atStart` giving the text's start; and `excludes_iff` taking
+    the greatest length as out.
+  - Not modelled: the walks that judge each rule on a program (`short_fixed`, `separated` and
+    the walk of `dfa_inner.zig`), and the second start of the reverse DFA.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
