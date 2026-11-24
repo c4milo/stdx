@@ -6,6 +6,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const searcher_test = @import("searcher_test.zig");
 const Fixture = searcher_test.Fixture;
+const Span = @import("../matcher.zig").Span;
 const dfa_suffix = @import("../dfa/dfa_suffix.zig");
 
 /// The octets of a test's haystack: some steps of `skip_lanes` octets, and a part of one.
@@ -138,6 +139,10 @@ const wide_refused = [_]struct { pattern: []const u8, text: []const u8 }{
     // A range that holds a byte of the separator and a byte that is not, and a byte of the
     // separator before it.
     .{ .pattern = "[abx]*:[a ][ :]+x", .text = "b:a x: :x" },
+    // One branch of the part before the literal holds the literal: the match from 0 ends at the
+    // second place, and a search from the first place gives the match from 1. The Lean model of
+    // the search gives this text (spec/lean/Stdx/Regex/Required.lean, `needs_no_earlier`).
+    .{ .pattern = "(?:[a-z]|[0-9][a-z]ab)ab", .text = "1xabab" },
 };
 
 comptime {
@@ -164,6 +169,18 @@ test "a searcher takes a suffix by the second rule and by the third, and gives w
             for (wide_refused) |refusal| try fixture.expect_agree_everywhere(refusal.text);
         }
     }
+}
+
+test "a searcher gives the match from the text's start where a later place ends it" {
+    var fixture: Fixture = .{};
+    try fixture.init("(?:[a-z]|[0-9][a-z]ab)ab", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.suffix == null and fixture.searcher.inner == null);
+    try testing.expectEqual(@as(?Span, .{ .start = 0, .end = 6 }), fixture.searcher.find("1xabab", 0));
+    // The same part before a literal in a match's middle.
+    try fixture.init("(?:[a-z]|[0-9][a-z]ab)ab[xy]", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.suffix == null and fixture.searcher.inner == null);
+    try testing.expectEqual(@as(?Span, .{ .start = 0, .end = 7 }), fixture.searcher.find("1xababx", 0));
+    try fixture.expect_agree_everywhere("1xababx 1xabab xabx");
 }
 
 test "a searcher takes no suffix that no rule takes, and still agrees" {
