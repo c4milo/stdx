@@ -10025,6 +10025,48 @@ to 12 are reordered and nothing else changes.
     - The choice: both rules beside a set of literals; the first rule alone with no set; a
       suffix beside a search from the text's end; and no first rule.
 
+  Claim R14 is built, for the other rows of the third group (decision 86):
+  - Where every match holds a literal in its middle, after a part that one of claim R4's rules
+    holds for, the searcher goes to the literal's places. The reverse DFA reads back from a place
+    to the match's start, and the forward DFA reads from there to its end.
+  - Each DFA has a second start state for these scans (`dfa_second.zig`), in its own cache.
+  - `Claims` gains `inner`.
+  - Eleven rows of the set hold such a literal, at 1/42 to 0.59 of Rust's crate on the N2.
+  - Not served: `\s[a-zA-Z]{0,12}ing\s`, whose separator starts the part before the literal;
+    `([A-Za-z]awyer|[A-Za-z]inn)\s` and `(?m)^Sherlock Holmes|Sherlock Holmes$`, whose literal
+    one branch of an alternation holds.
+  **Check:** a searcher takes each pattern of a table by its literal, and gives what the matcher
+  gives from every offset of seeded texts and of fixed ones, in a cache of each size, and
+  `Matches` gives the spans and the count that a searcher without the claim gives; each pattern
+  of a second table is left to the other claims, and still agrees; a search from a literal's
+  places starts no scan where a forward search starts; a search whose forward scan read past the
+  next place gives the plain search's answer; a search whose DFA gives up takes the matcher's
+  answer; 800 generated patterns with a literal between two parts give what the matcher gives,
+  taken or not; two paired runs of the `bench` workflow on each runner; mutations.
+  **Check passed in part, 2026-11-24.** The same container. The paired runs are not recorded yet.
+  - `zig build test` exits 0. `zig build test-regex` runs 315 tests.
+  - A probe in the container, built ReleaseSafe and not kept, timed one count of the matches of
+    64 kB of words with one match at their end. `\w+@\w+` ran at 31,179 MB/s where it ran at 896
+    with the claim off, `\w+\s+Holmes\s+\w+` at 21,498 where it ran at 704, and a pattern of an
+    address at 31,358 where it ran at 847. The container is no judge.
+  - Mutations: 37, all CAUGHT, each by a failing test, against `zig build test-regex`.
+    - The second start: a state that restarts; the DFA's own entry taken; a record with no
+      restart; the slot of the first start; a scan that reports the text's end where it
+      stopped; no match at the text's end; a match one byte long; and the text's start read as
+      the byte behind every scan.
+    - The literal: one that not every match passes; one that ends every match; one with no
+      byte before it; the first of two as long, where the second is apart; the shorter of two;
+      a first rule that does not mark its literal; no rule at all; no limit of tries; a walk
+      that passes the literal; and a walk that takes one target of a split.
+    - The choice: the claim beside claim R4's literal, beside a search from the text's end,
+      under `^`, beside a literal or a set that starts every match, with claim R1 off, with its
+      own switch off, and with no reverse DFA.
+    - The search: no second entry for the reverse DFA; the places never left; a search that
+      leaves them for no match; a DFA that gives up read as no match; `is_match` or a count
+      that scans forward; a forward scan's stop read as the text's end; a scan back past
+      `from`; a next place past the whole literal; and no place left read as a reason to leave
+      the places.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

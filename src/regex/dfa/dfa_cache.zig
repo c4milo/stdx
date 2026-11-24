@@ -17,6 +17,10 @@ const dfa_record = @import("dfa_record.zig");
 /// The factor by which a growth multiplies the slots in use.
 const slots_growth = 2;
 
+/// The kinds of state a scan starts in: one from the DFA's entry, and one from its second start
+/// (dfa_second.zig).
+pub const start_kinds = 2;
+
 /// The octets of a word, in which the records' octets are kept.
 const word_octets = @sizeOf(u32);
 
@@ -47,8 +51,9 @@ pub const Cache = struct {
     /// Where a record is packed before it is found or kept: the octets of `octets_per_seed_max`
     /// for each seed a record can hold, which the caller's lists give.
     scratch: []u8,
-    /// The row of the state a scan starts in, for each context behind it.
-    starts: [constants.context_count]u32,
+    /// The row of the state a scan starts in, for each context behind it: the scans from the
+    /// DFA's entry first, then the scans from its second start.
+    starts: [start_kinds * constants.context_count]u32,
     /// The times the cache forgot its states.
     clears: u32,
     /// The octets the DFA's scans took, and the count when the cache last cleared.

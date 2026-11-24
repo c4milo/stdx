@@ -55,10 +55,16 @@ pub const Rules = enum {
 pub fn suffix_of(reverse: *Dfa, program: *const Program, rules: Rules) ?Literal {
     assert(reverse.config.entry == program.reverse);
     const suffix = Literal.suffix_of(program) orelse return null;
-    if (apart(reverse, &suffix)) return suffix.literal;
-    if (rules == .first) return null;
-    if (short_fixed(reverse, suffix.before) or separated(reverse, &suffix)) return suffix.literal;
-    return null;
+    return if (holds(reverse, &suffix, rules)) suffix.literal else null;
+}
+
+/// True where one of `rules` holds for the part of a match before `suffix`'s literal: the part
+/// that the reverse program takes from `suffix.before`. Claim R14 asks it for a literal in a
+/// match's middle (dfa_inner.zig).
+pub fn holds(reverse: *Dfa, suffix: *const Suffix, rules: Rules) bool {
+    if (apart(reverse, suffix)) return true;
+    if (rules == .first) return false;
+    return short_fixed(reverse, suffix.before) or separated(reverse, suffix);
 }
 
 /// The first rule: no instruction of the reverse program after the literal takes its first

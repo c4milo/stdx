@@ -6090,8 +6090,7 @@ last part lists what still waits on a ruling.
           its main branch on 2026-11-24). It then runs its forward DFA from the start, and stops
           a reverse scan at the place before. stdx's rules make both needless.
         - Not built: Rust's rule for a separator at the part's start, which serves
-          `\s[a-zA-Z]{0,12}ing\s`, and a literal in a match's middle, which serves `\w+@\w+`
-          (design §8 part 22q).
+          `\s[a-zA-Z]{0,12}ing\s`. Claim R14 takes a literal in a match's middle.
     - Claim R5: where every match starts with one of several literals, and no one literal starts
       every match, R1's skip goes to the next place of one of them, as in
       `Abraham|Isaac|Jacob|Joseph` (design §8 step 22, parts 22c and 22n).
@@ -6333,6 +6332,56 @@ last part lists what still waits on a ruling.
         builds it. It costs no walk, and it changes each place that makes a fragment, in five
         files.
       - `Claims.length` turns it off.
+    - Claim R14, added 2026-11-24 (design §8 part 22q): where every match holds a literal in its
+      middle, after a part that one of claim R4's rules holds for, the searcher goes to the
+      literal's places, as it goes to `@` for `\w+@\w+`.
+      - At a place, the reverse DFA reads back through the part of the program before the
+        literal, to the least start of that part. The forward DFA then reads from that start,
+        anchored there, and gives the match's end. The first place whose two scans find a match
+        gives the search's answer.
+      - `dfa_inner.inner_of` reads the literal from the reverse program. A literal's first
+        instruction takes one byte, and every path from the program's entry to `match` passes
+        it: a walk that leaves it out reaches no `match`. The program takes a byte before the
+        literal and a byte after it, so a literal that starts or ends every match stays with
+        claims R2 and R4.
+        - Of several such literals the longest is taken, and of those the one whose part before
+          it cannot hold its first byte. A text that the pattern fits holds fewer places of such
+          a literal. `[ab]{8}a[ab]*x[ab]+` holds `a` and `x`, and the search goes to `x`.
+        - The walks try `inner_candidates_max` literals, 8, so that they cost less than the
+          compile.
+      - Claim R4's three rules keep the answer, for the same reasons. One start has one place,
+        and a later place has a later start. A forward scan from a start is the whole pattern's,
+        so it finds the match the matcher prefers from there. Where it finds none, no match
+        holds the literal at that place: a match from a later start with the same place would
+        give a match from this start too.
+      - A reverse scan stops as claim R4's does. A forward scan that finds no match may read far
+        past its place, as `[^:]*` does in `[ab]+x[^:]*:` over a text with no `:`. Where the
+        next place stands before the byte that scan stopped at, the search leaves the places,
+        and the forward DFA and the reverse DFA find the match as they do with no claim. So a
+        search reads each byte a bounded number of times.
+      - The two scans start in a second start state of each DFA (`dfa_second.zig`). Its record
+        holds `second_bit`: the state takes the program at the DFA's second entry, and no match
+        starts after it. The reverse DFA's second entry is the part before the literal, and the
+        forward DFA's is its own entry. Every other state of such a scan is a state of the
+        DFA's own cache, so the claim takes no memory, and the division of the cache that the
+        owner ruled on 2026-11-23 stands.
+      - The claim runs where no other claim finds the matches: no literal or set starts every
+        match, no literal of claim R4 ends it, and neither `^` nor `$` holds it.
+      - rebar's other benchmarks hold eleven such rows at 1/42 to 0.59 of Rust's crate on the
+        N2: `\w+@\w+`, two patterns of an address, `\w+\s+Holmes\s+\w+` alone and between two
+        `\b`, and two patterns of a URI.
+        A probe in a cloud container, which is no judge, took `\w+@\w+` over 64 kB of words
+        from 896 MB/s to 31,179 MB/s.
+      - Rust's crate calls this search reverse inner (regex-automata, `ReverseInner`, read at
+        its main branch on 2026-11-24; Gallant's article describes it). It compiles the part
+        before the literal as a program of its own, and gives up the places as stdx does.
+      - Hyperscan (Wang and others, NSDI 2019) finds such literals by a dominator analysis of
+        the pattern's graph, and runs its automata only near a literal's place. The walk that
+        leaves an instruction out is that analysis for one instruction.
+      - Not built: a set of literals in a match's middle, as in `([A-Za-z]awyer|[A-Za-z]inn)\s`;
+        a literal that one branch of an alternation holds; and a literal with a letter of two
+        cases.
+      - `Claims.inner` turns it off. `Matches.count` takes `find` under it.
     - `Searcher.captures` gives a match's groups as `SearcherGroups`: the slots the search wrote,
       read in place, which hold until the searcher's next search (amended 2026-11-23, design §8
       part 22n). It copied each group into the caller's `?Span` values before. rebar's lexer row
@@ -6392,7 +6441,8 @@ last part lists what still waits on a ruling.
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
     Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32. Claim R13's:
-    `length_steps_per_instruction`, 8. Claim R4's: `suffix_before_len_max`, 8.
+    `length_steps_per_instruction`, 8. Claim R4's: `suffix_before_len_max`, 8. Claim R14's:
+    `inner_candidates_max`, 8.
 
     **The checks.** Design §8 step 22 holds what each printed, and the mutations.
     - Each form of the syntax has a table of patterns, texts and the groups they must give, and

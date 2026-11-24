@@ -29,6 +29,8 @@ const platform = @import("platform");
 const literal_file = @import("../literal.zig");
 const searcher_edge = @import("searcher_edge.zig");
 const dfa_length = @import("../dfa/dfa_length.zig");
+const dfa_inner = @import("../dfa/dfa_inner.zig");
+const searcher_inner = @import("searcher_inner.zig");
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -83,6 +85,11 @@ pub const Claims = struct {
     /// than the pattern's least match, or longer than its greatest, holds no match, and the
     /// searcher reads none of it (dfa_length.zig).
     length: bool = true,
+    /// R14: where every match holds a literal after a part that claim R4's rules hold for, and
+    /// no other claim finds its matches, the searcher goes to the literal's places. It reads
+    /// back from each to the match's start, and forward from there to its end
+    /// (searcher_inner.zig). Only with `start_skip`.
+    inner: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -160,6 +167,8 @@ pub const Searcher = struct {
     exact_set: bool,
     /// Claim R4: the literal every match ends with, where the search starts from it.
     suffix: ?Literal,
+    /// Claim R14: the literal every match holds in its middle, where the search starts from it.
+    inner: ?Literal,
     /// Claim R6: whether one thread finds the groups. Only `captures` reads it, so `init` leaves
     /// it `unknown`, and the first `captures` judges it.
     one_pass: OnePass,
@@ -233,7 +242,20 @@ pub const Searcher = struct {
         searcher.lengths = if (whole_text) dfa_length.of(&searcher.forward) else null;
         searcher.by_edge = searcher.at_end or searcher.lengths != null;
         searcher.suffix = null;
+        searcher.inner = null;
         if (claims.start_skip and claims.suffix and both_ready) searcher.init_suffix(program);
+        if (claims.start_skip and claims.inner and both_ready) searcher.init_inner(program);
+    }
+
+    /// Readies claim R14 for a searcher with both DFAs, where no other claim finds its matches.
+    fn init_inner(searcher: *Searcher, program: *const Program) void {
+        if (searcher.suffix != null or searcher.by_edge or searcher.at_text) return;
+        if (searcher.forward.literal != null or searcher.forward.literals != null) return;
+        const inner = dfa_inner.inner_of(&searcher.reverse, program) orelse return;
+        searcher.inner = inner.literal;
+        searcher.inner.?.wide = searcher.forward.config.wide;
+        // The reverse DFA's second start reads the part of a match before the literal.
+        searcher.reverse.second_entry = inner.before;
     }
 
     /// Readies claim R4 for a searcher with both DFAs, where no better way finds its matches.
@@ -262,7 +284,7 @@ pub const Searcher = struct {
     pub fn is_match(searcher: *Searcher, haystack: []const u8) bool {
         if (searcher.exact) |*literal| return literal.find(haystack, 0) != null;
         if (searcher.exact_set) return searcher.forward.literals.?.find_exact(haystack, 0) != null;
-        if (searcher.suffix != null or searcher.by_edge) {
+        if (searcher.suffix != null or searcher.by_edge or searcher.inner != null) {
             if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
         } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
             const scan = if (dfa_wait.has_literal(&searcher.forward))
@@ -367,6 +389,13 @@ pub const Searcher = struct {
         if (!searcher.forward_ready or !searcher.reverse_ready) return null;
         if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
         if (searcher.suffix) |*suffix| return searcher.find_by_suffix(suffix, haystack, from);
+        if (searcher.inner) |*inner| {
+            switch (searcher_inner.find(&searcher.forward, &searcher.reverse, inner, haystack, from)) {
+                .answer => |span| return .{ .span = span },
+                .gave_up => return searcher.gave_up(),
+                .plain => {},
+            }
+        }
         const end = switch (searcher.forward.scan_forward(haystack, from, false)) {
             .gave_up => return searcher.gave_up(),
             .none => return .{ .span = null },
@@ -458,4 +487,5 @@ test {
     _ = @import("searcher_bytes_test.zig");
     _ = @import("searcher_matches.zig");
     _ = @import("searcher_edge_test.zig");
+    _ = @import("searcher_inner_test.zig");
 }

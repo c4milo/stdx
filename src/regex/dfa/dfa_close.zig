@@ -22,7 +22,10 @@ pub fn close(dfa: *Dfa, state: u32, ahead: Context, may_start: bool) bool {
         follow(dfa, seed, behind, ahead);
         if (dfa.reached and dfa.config.kind == .first) return true;
     }
-    if (head & restart_bit != 0 and may_start) follow(dfa, dfa.config.entry, behind, ahead);
+    if (head & restart_bit != 0 and may_start) {
+        const entry = if (head & dfa_file.second_bit != 0) dfa.second_entry else dfa.config.entry;
+        follow(dfa, entry, behind, ahead);
+    }
     return dfa.reached;
 }
 

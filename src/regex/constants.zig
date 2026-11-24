@@ -197,6 +197,12 @@ pub const length_steps_per_instruction = 8;
 /// such a text within a few times a forward scan's cost.
 pub const suffix_before_len_max = 8;
 
+/// The literals of a program that claim R14 tries as the literal every match holds, in the order
+/// the reverse program holds them (dfa_inner.zig). Each try walks the program three times at
+/// most, so the limit keeps the walks under the cost of the compile. 8 holds the literals of an
+/// address pattern such as `[\w.+-]+@[\w.-]+\.[\w.-]+`, which has two.
+pub const inner_candidates_max = 8;
+
 /// The plain rows, one after another, that a run of matches takes before it gives the octets back
 /// to the scan's loops (dfa_run.zig): the continuation octets of one UTF-8 sequence. A longer run
 /// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for
