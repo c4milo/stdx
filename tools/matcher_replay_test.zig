@@ -55,7 +55,7 @@ test "a replay names the line of an answer the matcher does not give" {
         .{ .line = "find 2 2 3", .cause = error.MatchMissing },
         .{ .line = "find 4 none", .cause = error.VectorOffset },
         .{ .line = "walk 0", .cause = error.VectorWord },
-        .{ .line = "differs back 0 2 gives 0", .cause = error.ModelReverseDiffers },
+        .{ .line = "differs dfa 0 gives 0 2", .cause = error.ModelCheckFailed },
     };
     // The file's 14 lines, and the case's line after them.
     const failing_line = 15;

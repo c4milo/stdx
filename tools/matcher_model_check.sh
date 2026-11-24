@@ -51,18 +51,20 @@ replay() {
   return 1
 }
 
-# The canary: a dump whose answers must hold the line `differs <what>`, which the replay must
+# The canary: a dump whose answers must hold each line `differs <what>`, which the replay must
 # then refuse. It shows that a check of the Lean side can fail, and that its line fails a run.
 canary() {
-  local what="$1"
+  local what
   cat > "$work/canary.txt"
   (cd spec/lean && lake exe vectors --answers "$work/canary.txt") > "$work/canary_answers.txt"
-  if ! grep -q "^differs ${what}\$" "$work/canary_answers.txt"; then
-    echo "matcher_model_check.sh: the canary's answers hold no line 'differs ${what}'" >&2
-    exit 1
-  fi
+  for what in "$@"; do
+    if ! grep -q "^differs ${what}\$" "$work/canary_answers.txt"; then
+      echo "matcher_model_check.sh: the canary's answers hold no line 'differs ${what}'" >&2
+      exit 1
+    fi
+  done
   if ./zig-out/bin/matcher_replay "$work/canary_answers.txt" 2>/dev/null; then
-    echo "matcher_model_check.sh: the replay passed the canary of 'differs ${what}'" >&2
+    echo "matcher_model_check.sh: the replay passed the canary of 'differs $1'" >&2
     exit 1
   fi
 }
@@ -92,8 +94,9 @@ text 3 120 97 98
 search 0
 DUMP
 # `[\x80-\xBF]*a` read as UTF-8, and its reverse half. In the bytes A9 61 a match starts at 1,
-# since a match starts at no continuation byte, and the reverse scan reads back to 0.
-canary "back 0 2 gives 0" <<'DUMP'
+# since a match starts at no continuation byte. The program takes both bytes from 0, and the
+# reverse scan reads back to 0.
+canary starts "dfa 0 gives 0 2" <<'DUMP'
 program utf8 8 0 4
 split 1 2
 range 128 191 0

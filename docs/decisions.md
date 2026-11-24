@@ -6370,11 +6370,19 @@ last part lists what still waits on a ruling.
         gives the patterns a seed draws. `Stdx/Regex/Hypotheses.lean` holds two functions that decide the theorems' two
         hypotheses, each with its proof: `isExact` for a program, and `reversesOn` for a
         program's two halves on one text. The script runs both on each program and text.
+      - `Stdx/Regex/Searcher.lean` joins the claims to the DFAs, with no scan taken as given.
+        `byDfa_answer`: the forward DFA's scan and then the reverse DFA's give the matcher's
+        answer. `bySuffix_program`, `byRequired_program`, `bySkip_program`, `atStart_program`
+        and `fromEnd_program` are claim R4, the wider search, the skip of claims R2, R3 and
+        R5 to one literal, and claims R11 and R12, over a program's own scans. They take a
+        rule of where a match starts, which a third function decides for one text.
     - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
-      claims that change how it reads its bytes, and `Literal.find`. That a node's ranges
-      stand apart, and that the reverse program takes each match read backward, hold by a
-      proved check for each program a run draws, and by no proof for the builder. Design §8
-      parts 22h and 22r name their order.
+      claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
+      things hold by a proved check for each program and text a run draws, and by no proof
+      for the builder: a node's ranges stand apart, the reverse program takes each match
+      read backward, and a match that starts before a continuation byte is empty. Claims
+      R10, R13 and R14 are proved over scans taken as given, and not yet over a program's.
+      Design §8 parts 22h and 22r name their order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
     on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names

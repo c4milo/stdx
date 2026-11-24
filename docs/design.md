@@ -10215,6 +10215,60 @@ to 12 are reordered and nothing else changes.
     which are the builder's; `Literal.find`; and the Zig code itself, which no vector file
     holds to these definitions.
 
+  **Part 22r, its fifth part built: the searches over a program, with no scan taken as given
+  (decision 86).** **Check:** `lake build` exits 0 and pins each new theorem's axioms; the
+  model's whole search runs on a small program by `decide`; `tools/matcher_model_check.sh`
+  passes with the new hypothesis decided for each text.
+
+  **Check passed, part 22r, its fifth part, 2026-11-24.** Zig 0.16.0 and Lean 4.34.0 on x86-64
+  Linux 6.18, in a cloud container.
+  - Before this part, each claim's theorem took three scans as given, and the DFAs' theorems
+    proved two of the three scans apart from them. `Stdx/Regex/Searcher.lean` joins them, and
+    `Stdx/Axioms.lean` pins 8 more theorems.
+  - `byDfa` is the search with no claim: the forward DFA's scan, and the reverse DFA's scan
+    from the end it gives. `byDfa_answer` proves that it gives the matcher's answer.
+  - `scansOf` gives `Search.Scans` for a program, a text and a literal, each field with its
+    proof: `findLiteral`, which is the model of `Literal.find`, the reverse DFA's scan, and
+    the matcher from one start.
+  - Over `scansOf`, each of these gives the matcher's answer:
+    - `bySuffix_program`: claim R4, from what `Literal.walk` and `before_takes` read of the
+      reverse program.
+    - `byRequired_program`: the wider search, under `NoEarlier`.
+    - `bySkip_program`: the skip of claims R2, R3 and R5 to one literal that starts every
+      match, from the walk of the forward program.
+    - `atStart_program` and `fromEnd_program`: claims R11 and R12.
+  - The theorems take one new thing as given, a rule of where a match starts:
+    - `EmptyElsewhere`, for `byDfa`: a match that starts where no match may start is empty.
+    - `StartsClean`, for the searches from a literal: no match starts there.
+    - A program of bytes has both. A program of UTF-8 has them where it takes whole
+      sequences, and no proof holds the builder to that.
+    - `emptyElsewhereOn` and `startsCleanOn` decide the two for one text, each with its proof.
+  - The vector writer now decides `EmptyElsewhere` after each text of a dump, beside `Exact`
+    and `Reverses`, and writes `differs starts` where it fails. With the three,
+    `byDfa_answer` holds for that program and text. The writer also runs `byDfa` for each
+    search, in place of the reverse scan alone, and writes `differs dfa` where it does not
+    give the answer.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 24 s. No text of the 12,288
+    programs failed a hypothesis, and `byDfa` gave each answer.
+  - Examples by `decide`: `byDfa` and `findLiteral` on `a+b` in `xaab`; `a*` as UTF-8 over the
+    two bytes of `é`, which has `EmptyElsewhere` and not `StartsClean`; and a program that
+    takes a continuation byte first, which has neither.
+  - Eight mutations, each CAUGHT:
+    - Three of the vector writer, against the script: no line for the start rule, no line
+      for a `byDfa` that differs, and `byDfa` with its two entries in the other order. A
+      canary dump caught each.
+    - Five of the definitions, against `lake build`: `emptyElsewhereOn` and `startsCleanOn`
+      that always hold, a `byDfa` that reads back to 0, and a `findLiteral` that steps two
+      offsets, each caught by its proof and by an example; and a `standsAt` with no bound,
+      caught by its proof alone.
+  - What this part does not join: claim R10's count, claim R13's compare of lengths, claim
+    R14's search from a literal inside a match, a pattern that is its literal and nothing
+    else, and a set of literals.
+  - What the joined theorems still take as given: `Exact`, `Reverses` and the start rule,
+    which the script decides for each program and text it draws; `NoEarlier` for the wider
+    search; and that the Zig code is these definitions, which the replay tests and no proof
+    holds.
+
   **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
   **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
   the model gives RE2's ends on small programs; mutations of the definitions fail the build.
@@ -10384,7 +10438,9 @@ to 12 are reordered and nothing else changes.
       program and text of a run. They are still not proved for the builder.
   - The vector writer also runs the model's reverse scan from each answer's end, and writes
     such a line where the scan does not give the answer's start. The reverse scan's theorems
-    hold no rule of where a match may start, and this line is the check of that part.
+    hold no rule of where a match may start, and this line is the check of that part. Part
+    22r's fifth part replaced the line: the writer now decides the start rule for each text,
+    and runs the model's two scans for each search.
   - The replay fails on a line that begins `differs`. Three canary dumps in the script show
     that each such line can come, and that the replay then fails:
     - a node whose two ranges take one byte;

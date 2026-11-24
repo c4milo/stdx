@@ -18,4 +18,5 @@ import Stdx.Regex.MatcherAnswer
 import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
 import Stdx.Regex.Hypotheses
+import Stdx.Regex.Searcher
 import Stdx.Axioms
