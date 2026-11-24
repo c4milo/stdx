@@ -201,6 +201,8 @@ const whole_patterns = [_][]const u8{
     "^a{2,5}$",     "^((aaa)|(aa))$", "\\A[ab]x?\\z", "^$", "^(?:Ph|x)$", "^.{2}$", "^(a|ab)(x|bx)$", "(^Ph)$",
     // More bytes than the part before a literal may hold under claim R4's second rule.
     "^[ab]{12}x?$",
+    // Scalar values of one to four bytes each: more ways than a walk by levels has steps for.
+    "^.{12}$",
 };
 
 /// Patterns that hold a loop, or whose match may be a part of the text.
@@ -263,6 +265,27 @@ test "a text of a length that no match has is read by no DFA, and each length of
         try testing.expectEqual(@as(u64, 1), matches.count());
     }
     try testing.expect(fixture.searcher.forward.cache.state_count > 0);
+}
+
+test "a pattern of scalar values refuses a text by its count of bytes, at each edge" {
+    var fixture: Fixture = .{};
+    try fixture.init("^.{3}$", searcher_test.cache_words_max);
+    // Three scalar values take 3 to 12 bytes.
+    try testing.expectEqual(@as(usize, 3), fixture.searcher.len_least);
+    try testing.expectEqual(@as(usize, 9), fixture.searcher.len_span);
+    const wide = "\xF0\x9F\x98\x80";
+    for ([_][]const u8{ "aa", wide ** 3 ++ "a", wide ** 4 }) |text| {
+        try testing.expectEqual(@as(?Span, null), fixture.searcher.find(text, 0));
+        try testing.expect(!fixture.searcher.is_match(text));
+    }
+    try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.cache.state_count);
+    for ([_][]const u8{ "aaa", wide ** 3, "a" ++ wide ++ "\xC3\xA9" }) |text| {
+        try testing.expectEqual(@as(?Span, .{ .start = 0, .end = text.len }), fixture.searcher.find(text, 0));
+        try testing.expect(fixture.searcher.is_match(text));
+    }
+    // A count of bytes that a match may have, with more scalar values than three.
+    try fixture.expect_agree("aaaaaa", 0);
+    try fixture.expect_is_match_agrees("aaaaaa");
 }
 
 /// The bytes of a text whose states outgrow the least cache of the pattern below.
