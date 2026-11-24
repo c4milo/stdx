@@ -4,6 +4,8 @@ import Stdx.Regex.Utf8
 import Stdx.Regex.Program
 import Stdx.Regex.SuffixRule
 import Stdx.Regex.Required
+import Stdx.Regex.Inner
+import Stdx.Regex.Edges
 
 /-!
 # What the proofs rest on
@@ -100,5 +102,38 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Search.byGuarded_answer' depends on axioms: [propext] -/
 #guard_msgs in #print axioms Search.byGuarded_answer
+
+/-- info: 'Stdx.Regex.Search.bySuffix_rising' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.bySuffix_rising
+
+/-- info: 'Stdx.Regex.Search.rising_of_one_length' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.rising_of_one_length
+
+/-- info: 'Stdx.Regex.Search.rising_of_last_separator' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.rising_of_last_separator
+
+/-- info: 'Stdx.Regex.Search.byInner_answer' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.byInner_answer
+
+/-- info: 'Stdx.Regex.Search.beforeRising_of_clean' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.beforeRising_of_clean
+
+/-- info: 'Stdx.Regex.Search.beforeRising_of_one_count' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.beforeRising_of_one_count
+
+/-- info: 'Stdx.Regex.Search.beforeRising_of_last_separator' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.beforeRising_of_last_separator
+
+/-- info: 'Stdx.Regex.Search.atStart_answer' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.atStart_answer
+
+/-- info: 'Stdx.Regex.Search.fromEnd_answer' does not depend on any axioms -/
+#guard_msgs in #print axioms Search.fromEnd_answer
+
+/-- info: 'Stdx.Regex.Search.excluded_answer' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.excluded_answer
+
+/-- info: 'Stdx.Regex.Search.excludes_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Search.excludes_iff
 
 end Stdx.Regex

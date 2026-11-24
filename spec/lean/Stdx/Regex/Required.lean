@@ -226,6 +226,42 @@ theorem noEarlier_of_first_separator {t : Text} {Sep : Nat → Prop} {Head Rest 
         exact b.2 h (Nat.le_refl h) b.1 (a'.2 h (by omega) hlt2)
     exact hjoin s' h e (heq ▸ hh') hr
 
+/-! ## The rules that need no forward scan
+
+`Rising` is the stronger precondition, under which `bySuffix` gives the answer with no forward
+scan (`bySuffix_rising`). Three of the four rules give it. The first separator does not: under
+`\s+[a-z]{0,12}ing` the text of two spaces and `singing` holds a match from 0 up to 6 and one
+from 0 up to 9, so one start has two ends, and that rule needs `byRequired`. -/
+
+/-- `Rising` gives `NoEarlier`. -/
+theorem noEarlier_of_rising {t : Text} (hrising : Rising t) : NoEarlier t :=
+  fun s e s' e' hm hm' hlt => Or.inl (Nat.le_of_lt (hrising s e s' e' hm hm' hlt))
+
+/-- A pattern whose matches all have one length gives `Rising`. -/
+theorem rising_of_one_length {t : Text} {n : Nat}
+    (hlength : ∀ s e, t.Match s e → e = s + n) : Rising t := by
+  intro s e s' e' hm hm' hlt
+  have := hlength s e hm
+  have := hlength s' e' hm'
+  omega
+
+/-- A separator at the end of the part before the literal gives `Rising`, under the hypotheses
+of `noEarlier_of_last_separator`. The literal's first byte alone must be no separator: the proof
+reads no other byte of the literal. -/
+theorem rising_of_last_separator {t : Text} {c : Scans t} {Sep : Nat → Prop}
+    (hends : EndsWith t c)
+    (hlast : ∀ s e, t.Match s e → s < e - c.width ∧ Sep (e - c.width - 1))
+    (htail : ∀ s e, t.Match s e → ∀ q r, s ≤ q → q ≤ r → r < e - c.width → Sep q → Sep r)
+    (hliteral : ∀ p, c.Stands p → ¬ Sep p) : Rising t := by
+  intro s e s' e' hm hm' hlt
+  apply Nat.lt_of_not_le
+  intro hss
+  have hq := place_of_match hends hm
+  have hq' := place_of_match hends hm'
+  have hl := hlast s e hm
+  have hsep := htail s' e' hm' (e - c.width - 1) (e - c.width) (by omega) (by omega) (by omega) hl.2
+  exact hliteral (e - c.width) hq.2.1 hsep
+
 /-! ## The search without `NoEarlier` -/
 
 /-- The matches of `(?:[a-z]|[0-9][a-z]ab)ab` in the text `1xabab`: the second alternative's from
