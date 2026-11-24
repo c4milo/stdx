@@ -10227,8 +10227,32 @@ to 12 are reordered and nothing else changes.
   up under claim R4's wide rules hands the search to the matcher; the literals kept are the
   longest; counts of instructions and times against `1744e4a`; two paired runs of the `bench`
   workflow on each runner; mutations.
-  **Check passed in part, 2026-11-24.** The same container, at `b2d008c`. The paired runs of
-  this form are not recorded yet.
+  **Check passed, 2026-11-24.** The same container, at `b2d008c`, and two paired runs.
+  - Runs 45486488127 and 45486493642 of the `bench` workflow at `b2d008c` with `1744e4a` as
+    their base, on a Neoverse-N2, a Neoverse-V3, an AMD EPYC 9V74 and an EPYC 9V45. 70 rows won
+    in all four jobs by decision 20's rule, and none lost in all four. The part stays.
+    - The wins: 56 rows of rebar's other benchmarks, 6 of the 1 MiB searches, 4 of the short
+      texts and 4 of rebar's curated set. rebar's `opt/reverse-inner/email` ran at 34.8 to
+      80.7 times its base, `imported/leipzig/shing` at 24.3 to 55.7, and
+      `opt/reverse-suffix/holmes` at 17.3 to 27.9. `imported/rsc/easy1-1mb` ran at 27,520 to
+      37,187 times its base: its pattern ends at the text's end, and the search reads the
+      text's last bytes alone.
+    - The rows that lost before: `slow/quadratic-regex-1x` at 0.946 to 1.026 and
+      `slow/quadratic-regex-2x` at 0.916 to 1.014, a loss in one job of the eight;
+      `imported/lh3lh3-reb/date` at 0.988 to 1.024 and `imported/lh3lh3-reb/email` at 0.992 to
+      1.064; `imported/rsc/reallyreallyhard0-32` at 1.018 to 1.128; `[0-9][0-9,]* km` at 1.028
+      to 1.094 and `(?m)^[A-Z][a-z]+:` at 1.031 to 1.100, each a win in all four; rebar's
+      `08-words/all-english` at 1.095 to 1.403; and rebar's `compile-context` at 0.988 to
+      1.047.
+    - Two rows lost in three jobs and stood level in the fourth: `literal: a word, second
+      text` at 0.927 to 0.989, and rebar's `imported/sherlock/holmes-coword-watson` at 0.940 to
+      0.988. Both stood level in all four jobs at `643aa6b`. In the probe a literal's search
+      takes the same instructions at `1744e4a` and at `b2d008c`, 60,272 for each pass over 16
+      kB of lines with a match in most lines, and a pattern of two words with a gap between
+      them takes 1.8% fewer. So these moves are placement (decision 20).
+    - The compile tables moved whole in single jobs. The median of the 23 compile rows was
+      0.947 on the V3 and 1.066 on the 9V74, and stood level on the other two. No compile row
+      lost in more than two jobs.
   - `zig build test` exits 0. `zig build test-regex` runs 340 tests.
   - Instructions for each pass, at `1744e4a` and at `b2d008c`. The program's `memset` is
     `platform.memset`, as a benchmark program's is.
