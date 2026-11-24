@@ -182,6 +182,14 @@ pub const dfa_octets_per_state_min = 10;
 /// The searches a `Searcher` lets its lazy DFA give up before it stops trying the DFA.
 pub const dfa_give_ups_max = 8;
 
+/// The steps of the walk that finds the lengths of a program's matches, for each instruction of
+/// the program (dfa_length.zig, claim R13). A level of the walk takes a step for each instruction
+/// it passes, so a pattern such as `^.{249}$`, whose levels each hold a few instructions, takes
+/// about one step an instruction. A pattern whose levels each hold most of its instructions
+/// would take the square of its length, and stops here. 8 keeps the walk under the cost of the
+/// compile that wrote the instructions.
+pub const length_steps_per_instruction = 8;
+
 /// The plain rows, one after another, that a run of matches takes before it gives the octets back
 /// to the scan's loops (dfa_run.zig): the continuation octets of one UTF-8 sequence. A longer run
 /// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for

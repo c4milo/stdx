@@ -5664,7 +5664,9 @@ last part lists what still waits on a ruling.
         which asked for a chart that is fair and objective, it is the README's regex chart: no work
         on stdx has measured its rows (entry 86). The two charts of tuned rows move to
         `docs/benchmarks.md`. One change was made for one of its rows: the bytes mode, judged on an
-        answer and on no speed, and the README says so beside the chart (2026-11-24).
+        answer and on no speed, and the README says so beside the chart (2026-11-24). The owner
+        then ruled to tune stdx on the set, so the README also says which runs came before that
+        work, and that later runs show tuned rows (entry 86).
 
       What the rules before did, which these replace:
       - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
@@ -6232,6 +6234,66 @@ last part lists what still waits on a ruling.
       - The forward DFA alone finds the end, so a count takes it where the reverse DFA did not
         start. A DFA that `init` refused has an empty table, and each scan asserts a table.
       - `Claims.count_ends` turns it off.
+    - Claim R11, added 2026-11-24 (design §8 part 22q): where every match starts at the text's
+      start, the forward DFA is anchored. It starts a match at the scan's first byte, waits for
+      no match after it, and stops at the first byte that no thread takes.
+      - `searcher_edge.starts_at_text_start` reads it from the forward program, which asserts
+        the text's start before it takes a byte or splits.
+      - An anchored scan waits for no match. So it takes no skip of claim R1, no literal of
+        claims R2, R3 and R5, and no stay of claim R9.
+      - Before, the DFA waited for a match at every place, though `^` holds at one. Claim R3
+        went to each place of the literal after the `^`. `^a{2,5}$` over 10,000 `a` read the
+        literal `aa` at each byte, at 45 MB/s on the N2: rebar's `opt/fixed-length/go33484-1`,
+        1/24,500 of Rust's crate.
+      - Rust's crate runs such a pattern anchored, and refuses a search that starts past the
+        text's start (regex-automata, `RegexInfo::is_impossible`, read at its main branch on
+        2026-11-24).
+      - `Claims.text_start` turns it off.
+    - Claim R12, added 2026-11-24 (design §8 part 22q): where every match ends at the text's
+      end, and not every match starts at its start, the searcher reads back from the text's end
+      with the reverse DFA, and scans no text forward.
+      - `searcher_edge.ends_at_text_end` reads it from the reverse program. That program reads a
+        match backward, so it asserts that no byte stands behind it before it takes a byte or
+        splits. `a$|b$` splits first, and the searcher does not take it.
+      - The reverse DFA gives the least start of a match that ends at the text's end. No match
+        ends elsewhere, so that is the start of the match a forward search finds first.
+      - The scan stops where no thread is left, so its cost is the bytes a match's end may
+        hold, and not the text. `\w$` over 1 MiB of `*` reads two bytes. Before, the forward
+        DFA read every byte: rebar's `opt/reverse-anchored/word-end` ran at 1/3,700 of Rust's
+        crate on the N2, and `imported/rsc/easy1-1mb` at 1/21,000.
+      - The claim comes before claim R4. `[ab]+x$` has a literal that R4 takes, and R4 would
+        read back from each `x` of the text.
+      - The worst case is a pattern whose reverse threads live over the whole text, such as
+        `(?s)x.*$`. The reverse DFA then reads the text once, one byte a read, where the
+        forward scan went to the first `x` by claim R1 and past the rest by claim R9. The cost
+        stays linear in the text. Rust's crate takes the same search for every such pattern.
+      - A pattern that also starts at the text's start keeps its forward scan, which claim R11
+        anchors, as Rust's crate keeps it.
+      - Rust's crate calls this search reverse anchored (regex-automata, `ReverseAnchored`,
+        read the same day; Gallant's article describes it).
+      - `Claims.text_end` turns it off. `Matches.count` takes `find` under it, as under R4.
+    - Claim R13, added 2026-11-24 (design §8 part 22q): where every match starts at the text's
+      start and ends at its end, a match is the whole text. A text shorter than the pattern's
+      least match, or longer than its greatest, holds none, and the searcher reads none of it.
+      - `dfa_length.of` walks the forward program one byte a level, with every byte at once. The
+        first level that reaches `match` is the least length, and the last one the greatest. An
+        assertion passes, so the lengths bound every match's.
+      - The walk takes the forward DFA's lists, as claim R4's walk takes the reverse DFA's. It
+        stops at `length_steps_per_instruction` steps, 8, for each instruction. A pattern with a
+        loop has a level after every level, so it passes the budget and gets no lengths.
+      - The walk runs for a pattern that both assertions hold, and for no other, so a search
+        for any other pattern pays one test.
+      - `^.{249}$` over 1,000 bytes read 250 of them before: rebar's
+        `opt/fixed-length/go33484-3`, 1/62 of Rust's crate on the N2.
+      - Rust's crate keeps the least and the greatest length of each pattern from its parser,
+        and refuses a text by them before any engine runs (`RegexInfo::is_impossible`). It
+        refuses a text under the least length for every pattern. stdx does not: its parser
+        builds no tree to read a length from, and a walk for every pattern costs each
+        `Searcher.init`. rebar's `opt/fixed-length/too-small-ascii` shows the gap.
+      - The alternative refused: a least and a greatest length in each fragment as the parser
+        builds it. It costs no walk, and it changes each place that makes a fragment, in five
+        files.
+      - `Claims.length` turns it off.
     - `Searcher.captures` gives a match's groups as `SearcherGroups`: the slots the search wrote,
       read in place, which hold until the searcher's next search (amended 2026-11-23, design §8
       part 22n). It copied each group into the caller's `?Span` values before. rebar's lexer row
@@ -6290,7 +6352,8 @@ last part lists what still waits on a ruling.
     4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
-    Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32.
+    Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32. Claim R13's:
+    `length_steps_per_instruction`, 8.
 
     **The checks.** Design §8 step 22 holds what each printed, and the mutations.
     - Each form of the syntax has a table of patterns, texts and the groups they must give, and
@@ -6475,6 +6538,14 @@ last part lists what still waits on a ruling.
             speed. stdx now runs each benchmark of both sets that leaves `unicode` off in bytes,
             as Rust's crate runs it, so the change alters the programs of most rows. The README
             says so beside the set's chart.
+          - **The owner ruled on 2026-11-24 to tune stdx on this set too.** The runs at
+            `1df5f9f` put stdx behind Rust's crate on 90 of its 181 searches on the N2, the
+            worst at 1/24,500. Asked whether to tune the whole set, or to seal half of it by a
+            rule first, the owner answered: "Tune it". From design §8 part 22q, changes are
+            judged on these rows, and claims R11, R12 and R13 are the first. So the set no
+            longer shows how stdx runs on patterns that its tuning did not see, and the README
+            says so beside the chart. The runs at `1df5f9f` are the last that came before any
+            such change. No untuned set is left.
         - rebar's README says that these benchmarks mostly serve to make Rust's regex crate faster,
           and its `BIAS.md` says that they may favor that crate. So the set can lean toward the
           baseline, and not toward stdx.

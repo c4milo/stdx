@@ -9939,6 +9939,60 @@ to 12 are reordered and nothing else changes.
     - `fold_ascii`: the capitals or the small letters given no other case, the set left
       unnormalized, and a moved range ended one value early.
 
+  **Part 22q, in progress: the gaps of rebar's other benchmarks (decision 86 as amended, the
+  owner's ruling of 2026-11-24).** The 18 runs at `1df5f9f` put stdx behind Rust's crate on 90 of
+  the set's 181 searches on the N2, the worst at 1/24,500. The owner ruled to tune stdx on the
+  set. So from this part the set is tuned, and decision 86 and the README say so. The first job
+  on the N2 (`bench/results/2026-11-24-regex-bytes-aarch64.md`) gives each group its rows:
+  - A pattern that ends at the text's end, such as `A[AB]B[BC]…J$` and `\w$`: 9 rows of texts
+    of 1 kB or more, at 1/21,000 to 1/16 of Rust's crate. The forward DFA read the whole text.
+  - A pattern that both `^` and `$` hold: 4 rows, at 1/24,500 to 1/9. Claim R3 went to each place
+    of the literal after the `^`, or the DFA read to the pattern's greatest length.
+  - A literal that every match holds in its middle or at its end, where the part before it takes
+    the literal's first byte, such as `\w+\s+Holmes`, `\w+@\w+` and `[a-z]shing`: about 15 rows,
+    at 1/42 to 1/5. Claim R4 refuses each, and the forward DFA reads each byte.
+  - `dictionary/search/english-10`, at 1/158, where the dictionary of 15-letter words is level.
+  - A bounded repeat whose DFA does not fit its cache, such as `[a-q][^u-z]{80}[x\xE0-\xFF]`,
+    at 0.32. Rust's crate is slow there too.
+  - A text of 32 to 51 bytes: about 12 rows, at 0.5 to 0.7. The cost is a search's start.
+
+  Claims R11, R12 and R13 are built, for the first two groups (decision 86):
+  - R11: where every match starts at the text's start, the forward DFA is anchored.
+  - R12: where every match ends at the text's end, and not every match starts at its start, the
+    searcher reads back from the text's end.
+  - R13: where both hold, the searcher refuses a text by its length, from a walk of the program
+    (`dfa_length.zig`).
+  - `Claims` gains `text_start`, `text_end` and `length`. A new field changes the public API, so
+    the next release is a MINOR one (decision 65).
+  **Check:** a searcher under each claim gives what the matcher gives from every offset of
+  seeded texts and of fixed ones, in a cache of every size, and `Matches` gives the spans and the
+  count that a searcher without the claims gives; a pattern that a claim must refuse is refused,
+  and still agrees; a search under each claim reads a few bytes of a long text; a search from
+  the text's end whose DFA gives up takes the matcher's answer; the walk gives the lengths of
+  patterns with no loop, and none past its budget; two paired runs of the `bench` workflow on
+  each runner, by decision 20's rule; mutations.
+  **Check passed in part, 2026-11-24.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container,
+  pepegrillo `10841b3`. The paired runs are not recorded yet.
+  - `zig build test` exits 0. `zig build test-regex` runs 303 tests.
+  - A probe in the container, built ReleaseSafe and not kept, timed one count of the matches of
+    a text of 10,000 bytes. `^a{2,5}$` took 19 ns where it took about 220 µs, `\w$` 41 ns, and
+    `A[AB]B[BC]…J$` 56 ns. The container is no judge, so these say that the claims run, and no
+    more.
+  - Mutations: 31, all CAUGHT, each by a failing test, against `zig build test-regex`.
+    - R11: the claim never on; a DFA that is not anchored under it; an anchored DFA with the
+      skip, or with the stay, where `Config.valid` halts the test; a text's start read from any
+      assertion, from any instruction, or not past a group's save.
+    - R12: the claim never on; taken where every match starts at the text's start, or with no
+      reverse DFA; the text's end read from the forward program; a scan back past `from`, which
+      also leaves a test of `Matches` with no end; a match that ends at its start; a DFA that
+      gives up read as no match; claim R4's literal kept beside it; `is_match` or a count that
+      scans forward; and a search from the end that `by_edge` does not send there.
+    - R13: lengths kept for a pattern that only `^` holds, or only `$`; each bound of
+      `exclude` moved by one, and each dropped; and a search that refuses only an empty text.
+    - The walk: a least length that follows the greatest; a greatest that stays the least; no
+      budget; an assertion that stops the walk; one range of a class's node taken; and a split's
+      second target not taken.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

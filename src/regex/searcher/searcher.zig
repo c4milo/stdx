@@ -27,6 +27,8 @@ const backtrack = @import("../backtrack.zig");
 const codec = @import("codec");
 const platform = @import("platform");
 const literal_file = @import("../literal.zig");
+const searcher_edge = @import("searcher_edge.zig");
+const dfa_length = @import("../dfa/dfa_length.zig");
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -70,6 +72,17 @@ pub const Claims = struct {
     /// R10: `Matches.count` finds the end of each match by the forward DFA alone, and reads no
     /// match back to its start. Rust's crate counts its matches the same way.
     count_ends: bool = true,
+    /// R11: where every match starts at the text's start, the forward DFA waits for no match. It
+    /// starts one at the scan's first byte and stops at the first byte that no thread takes.
+    text_start: bool = true,
+    /// R12: where every match ends at the text's end, and not every match starts at its start,
+    /// the searcher reads back from the text's end to the match's start, and scans no text
+    /// forward.
+    text_end: bool = true,
+    /// R13: where every match starts at the text's start and ends at its end, a text shorter
+    /// than the pattern's least match, or longer than its greatest, holds no match, and the
+    /// searcher reads none of it (dfa_length.zig).
+    length: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -111,7 +124,7 @@ fn ssse3_of(features: platform.CpuFeatures) bool {
 /// Judges claim R6 for the matcher's program, with the matcher's lists.
 fn judge_one_pass(matcher: *Matcher) OnePass {
     if (!one_pass.check(matcher)) return .no;
-    return if (starts_at_text_start(&matcher.program)) .at_text else .yes;
+    return if (searcher_edge.starts_at_text_start(&matcher.program)) .at_text else .yes;
 }
 
 /// The words of a cache of `cache_len` words that the forward DFA takes, where the program has a
@@ -157,6 +170,14 @@ pub const Searcher = struct {
     /// True where every match starts at the text's start, so the forward DFA's match starts at
     /// `from` and no reverse scan runs, as Rust's crate runs none for an anchored search.
     at_text: bool,
+    /// Claim R12: true where every match ends at the text's end and the search reads back from
+    /// there.
+    at_end: bool,
+    /// Claim R13: the lengths of a match that is the whole text, where the program's walk found
+    /// them.
+    lengths: ?dfa_length.Lengths,
+    /// True where claim R12 or R13 finds the match: `at_end`, or `lengths` holds a value.
+    by_edge: bool,
     /// The slots of the whole match, where it is a program's one group and the DFAs found it.
     whole: [constants.group_slots]u64,
 
@@ -179,9 +200,13 @@ pub const Searcher = struct {
         const cache: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(memory[matcher_len..]));
         const has_reverse = program.reverse != program_file.no_entry;
         const forward_len = if (has_reverse) forward_part(program, cache.len) else cache.len;
+        searcher.at_text = searcher_edge.starts_at_text_start(program);
+        // Claim R11: an anchored scan waits for no match, so it takes no skip and no stay.
+        const waits = !(claims.text_start and searcher.at_text);
+        const skip = claims.start_skip and waits;
         searcher.forward_ready = searcher.forward.init(
             program,
-            .{ .entry = program.forward, .kind = .first, .anchored = false, .skip = claims.start_skip, .literal = claims.start_skip and claims.literal, .literal_set = claims.start_skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs, .stays = claims.stays },
+            .{ .entry = program.forward, .kind = .first, .anchored = !waits, .skip = skip, .literal = skip and claims.literal, .literal_set = skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs, .stays = claims.stays and waits },
             cache[0..forward_len],
         );
         searcher.reverse_ready = has_reverse and searcher.reverse.init(
@@ -200,9 +225,15 @@ pub const Searcher = struct {
         searcher.one_pass = if (claims.one_pass and program.group_count > 1) .unknown else .no;
         searcher.backtrack = claims.backtrack;
         searcher.count_ends = claims.count_ends;
-        searcher.at_text = starts_at_text_start(program);
+        const both_ready = searcher.forward_ready and searcher.reverse_ready;
+        // A pattern that starts at the text's start reads few bytes forward.
+        const at_text_end = searcher_edge.ends_at_text_end(program);
+        searcher.at_end = claims.text_end and both_ready and !searcher.at_text and at_text_end;
+        const whole_text = claims.length and searcher.forward_ready and searcher.at_text and at_text_end;
+        searcher.lengths = if (whole_text) dfa_length.of(&searcher.forward) else null;
+        searcher.by_edge = searcher.at_end or searcher.lengths != null;
         searcher.suffix = null;
-        const suffix_on = claims.start_skip and claims.suffix and searcher.forward_ready and searcher.reverse_ready;
+        const suffix_on = claims.start_skip and claims.suffix and both_ready and !searcher.at_end;
         // A literal that starts every match is the better way, and a pattern that starts at the
         // text's start reads few octets forward.
         if (suffix_on and searcher.forward.literal == null and !searcher.at_text) {
@@ -226,7 +257,7 @@ pub const Searcher = struct {
     pub fn is_match(searcher: *Searcher, haystack: []const u8) bool {
         if (searcher.exact) |*literal| return literal.find(haystack, 0) != null;
         if (searcher.exact_set) return searcher.forward.literals.?.find_exact(haystack, 0) != null;
-        if (searcher.suffix != null) {
+        if (searcher.suffix != null or searcher.by_edge) {
             if (searcher.find_by_dfa(haystack, 0)) |answer| return answer.span != null;
         } else if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
             const scan = if (dfa_wait.has_literal(&searcher.forward))
@@ -327,6 +358,7 @@ pub const Searcher = struct {
             const place = searcher.forward.literals.?.find_exact(haystack, from) orelse return .{ .span = null };
             return .{ .span = .{ .start = place.start, .end = place.end } };
         }
+        if (searcher.by_edge) return searcher.find_by_edge(haystack, from);
         if (!searcher.forward_ready or !searcher.reverse_ready) return null;
         if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
         if (searcher.suffix) |*suffix| return searcher.find_by_suffix(suffix, haystack, from);
@@ -350,6 +382,32 @@ pub const Searcher = struct {
     fn gave_up(searcher: *Searcher) ?Answer {
         searcher.give_ups += 1;
         return null;
+    }
+
+    /// Claims R12 and R13, out of line as `find_by_suffix` is.
+    ///
+    /// R13: a match of the program is the whole text, so a text of a length that no match has
+    /// holds none. Otherwise the forward DFA finds the match from `from`, where it starts.
+    ///
+    /// R12: every match ends at the text's end, and the reverse DFA reads back from there to the
+    /// least start of a match at or after `from`. That is the start of the match a forward
+    /// search finds first, since no match ends elsewhere.
+    noinline fn find_by_edge(searcher: *Searcher, haystack: []const u8, from: usize) ?Answer {
+        if (searcher.give_ups >= constants.dfa_give_ups_max) return null;
+        if (searcher.lengths) |lengths| {
+            if (lengths.exclude(haystack.len)) return .{ .span = null };
+            return switch (searcher.forward.scan_forward(haystack, from, false)) {
+                .gave_up => searcher.gave_up(),
+                .none => .{ .span = null },
+                .found => |end| .{ .span = .{ .start = from, .end = end } },
+            };
+        }
+        assert(searcher.at_end and searcher.reverse_ready);
+        return switch (searcher.reverse.scan_reverse(haystack, from, haystack.len)) {
+            .gave_up => searcher.gave_up(),
+            .none => .{ .span = null },
+            .found => |start| .{ .span = .{ .start = start, .end = haystack.len } },
+        };
     }
 
     /// Claim R4: the first match at or after `from`, found from the places of the suffix in
@@ -378,25 +436,6 @@ pub const Searcher = struct {
     }
 };
 
-/// True when every match starts at the text's start: the forward program asserts it before it
-/// takes an octet or splits.
-fn starts_at_text_start(program: *const Program) bool {
-    var index = program.forward;
-    // The walk follows `out`, and reads each instruction once.
-    for (0..program.forward_len) |_| {
-        const instruction = program.instructions[index];
-        switch (instruction.kind) {
-            .save, .jump => index = instruction.out,
-            .look => {
-                if (instruction.look == .behind_text) return true;
-                index = instruction.out;
-            },
-            else => return false,
-        }
-    }
-    return false;
-}
-
 pub const Matches = @import("searcher_matches.zig").Matches;
 
 test {
@@ -413,4 +452,5 @@ test {
     _ = @import("searcher_run_test.zig");
     _ = @import("searcher_bytes_test.zig");
     _ = @import("searcher_matches.zig");
+    _ = @import("searcher_edge_test.zig");
 }

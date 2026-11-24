@@ -475,4 +475,5 @@ test {
     _ = @import("dfa_skip.zig");
     _ = @import("dfa_suffix.zig");
     _ = @import("dfa_wait.zig");
+    _ = @import("dfa_length.zig");
 }

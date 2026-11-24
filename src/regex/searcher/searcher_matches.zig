@@ -111,7 +111,8 @@ fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
 }
 
 /// Claim R10: true where a count finds each match's end alone. A literal's claims find the
-/// match with no DFA, and claim R4 finds its start first, so their counts take `find`.
+/// match with no DFA, claims R4 and R12 find its start first, and claim R13 may read no text,
+/// so their counts take `find`.
 fn counts_ends(searcher: *const Searcher) bool {
-    return searcher.count_ends and searcher.exact == null and !searcher.exact_set and searcher.suffix == null;
+    return searcher.count_ends and searcher.exact == null and !searcher.exact_set and searcher.suffix == null and !searcher.by_edge;
 }

@@ -59,7 +59,8 @@ test "a searcher that reads back from the literal every match ends with gives wh
         try fixture.init(case.pattern, 0);
         const sizes = searcher_test.cache_sizes(&fixture.program);
         for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
-            try fixture.init(case.pattern, cache_words);
+            // Claim R12 takes `[ab]+x$` from the text's end, so it is off here.
+            try fixture.init_claims(case.pattern, .{ .text_end = false }, cache_words);
             try testing.expectEqualStrings(case.suffix, fixture.searcher.suffix.?.slice());
             for (0..8) |_| {
                 fill(&generator, &haystack);
