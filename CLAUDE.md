@@ -42,7 +42,7 @@ document rejected, say so and stop. Do not reverse it in code.
 
 The architecture depends on every rule in this section.
 
-1. **No I/O.** A codec reads octets the caller already has and writes into storage the caller
+1. **No I/O.** A codec reads bytes the caller already has and writes into storage the caller
    owns. It opens no file or socket, starts no thread, and makes no syscall. `tools/lint/io.zig`
    enforces it over `src/`. The one exception is `platform` (decision 40): its probe, which a
    program calls once when it starts, may make the one syscall it needs, macOS's `sysctlbyname`,
@@ -54,7 +54,7 @@ The architecture depends on every rule in this section.
    the codec exports, per codec and per encoder level. `tools/lint/heap.zig` enforces it.
 3. **Streaming, and able to resume.** Every call takes whatever input the caller has and writes
    what fits. It ends by saying whether it needs more input, needs more room, or is done, and the
-   next call resumes where it stopped. Work per call is bounded by the octets it consumed and
+   next call resumes where it stopped. Work per call is bounded by the bytes it consumed and
    wrote. A whole-buffer helper is built on the streaming call, never the reverse.
 4. **Deterministic.** No clock, no PRNG, no pointer value and no uninitialised memory in any
    output. An encoder's output is a pure function of its input and its parameters, byte-identical
@@ -97,11 +97,11 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - Names spell words out: `window_len`, not `wlen`. No vowel-dropping. Vocabulary the RFCs use
   stays as they spell it (`BTYPE`, `HLIT`, `FDICT`, `Window_Size`, `WBITS`), in doc comments and
   citations; Zig names are snake_case (`window_size`). One-letter names only for loop indices.
-  `_len` always counts octets, and a count of bits says `_bits`.
+  `_len` always counts bytes, and a count of bits says `_bits`.
 - Settled terms: **codec** for one format's encoder and decoder; **container** for zlib and gzip,
-  which wrap a DEFLATE stream; **stream** for the octets of one coded message; **window** for the
+  which wrap a DEFLATE stream; **stream** for the bytes of one coded message; **window** for the
   history a back-reference can reach; **caller** for the code that owns the state and the
-  buffers. Say **octet**, not byte, in prose.
+  buffers. Say **byte**, not octet, in prose.
 - Functions stay at cognitive complexity 15 or less, scored by `tools/cognitive_complexity.zig`.
   `test` blocks are scored under the same limit. Split the function; never raise the threshold.
 - A hand-written source file stays at or under 500 lines, its tests included, enforced by
@@ -113,8 +113,8 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 - All parsing goes through the checked reader and all output through the checked writer of the
   `codec` module. A hot loop may leave them only where decision 16 allows it, and only with the
   measurement that decision asks for. Never assume host endianness. DEFLATE and brotli pack bits
-  least significant first (RFC 1951 §3.1.1, RFC 7932 §1.5.1); zlib stores every multi-octet number
-  most significant octet first (RFC 1950 §2.1); gzip and Zstandard store them least significant
+  least significant first (RFC 1951 §3.1.1, RFC 7932 §1.5.1); zlib stores every multi-byte number
+  most significant byte first (RFC 1950 §2.1); gzip and Zstandard store them least significant
   first (RFC 1952 §2.1, RFC 8878 §3.1.1). Name the order at every read.
 - Operational errors (input that ended before the stream did, an output with no room) are
   statuses in the streaming call and error values in the whole-buffer helpers. Refusals of input
@@ -202,19 +202,19 @@ stdx's appendix to it.
   aarch64, and a result is a ratio against a baseline inside one job (decision 20); macOS
   publishes no number (decision 10).
 - **Know the order of magnitude before optimizing.** `docs/costs.md` holds the measured cost of an
-  L1 hit, a cache miss, a branch mispredict, a copy of 64 octets and of 32 KiB, and a 64-bit bit
+  L1 hit, a cache miss, a branch mispredict, a copy of 64 bytes and of 32 KiB, and a 64-bit bit
   buffer refill. Say which of them a change moves, and by how much.
 - **Report honestly.** The median of five runs with the spread, every candidate in the same
   harness in the same run with pinned versions, and the runs where stdx loses. Every candidate is
   built for the architecture's baseline CPU, the baselines as stdx (decision 75).
 - **Cross the caller's boundary in bulk.** One call decodes as much as the caller's buffers hold.
-  A per-octet entry point is a per-octet cost.
+  A per-byte entry point is a per-byte cost.
 - **The hot path allocates nothing and initialises nothing it will not read.** Starting a stream
   costs a constant, not a clear of the window.
 - **Lay out structs for the cache.** Keep the fields one loop touches together, use the smallest
   integer that holds the value, and index a fixed array rather than follow a pointer.
 - **Fast path first, slow path in its own function.** The checked path is the reference, and a
-  fast path must produce the same octets as the checked path on every input (decision 16).
+  fast path must produce the same bytes as the checked path on every input (decision 16).
 - **Precompute what cannot change.** Fixed Huffman tables, default distributions and the brotli
   dictionary are comptime data, generated from the RFC and checked against it.
 - **A rewrite that only reads better is not a performance change.** Name the cost it removes.
@@ -301,7 +301,7 @@ Change this section when a step adds or renames a command.
   of the host's architecture, and on Linux runs without libc and with it (decision 40).
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
   zlib encodes from the corpora, at every level and strategy in all three containers, to the same
-  octets. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The
+  bytes. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The
   first build with `-Doracles` fetches about 265 MB of oracles and corpora, libzstd and Google's
   brotli among them; without the option, these steps fail and say so.
 - Differential checks: `zig build differential-checksum -Doracles` requires every CRC-32 and
@@ -312,7 +312,7 @@ Change this section when a step adds or renames a command.
   a seeded split to give all 64 bits of one call. It builds stdx for the architecture's baseline
   CPU, so each SIMD path runs because detection found its instructions.
   `zig build differential-deflate -Doracles` requires stdx, zlib and Wuffs to decode the same
-  octets from the raw DEFLATE, zlib and gzip streams zlib encodes from every corpus file: every
+  bytes from the raw DEFLATE, zlib and gzip streams zlib encodes from every corpus file: every
   level and strategy, with seeded window bits, memory levels and flush points, stdx under a seeded
   split and through its whole-buffer `decode_all`. It then corrupts streams of each file's first 4 KiB, the containers' fields included,
   and requires stdx's verdict to equal both oracles' or to match an entry of
@@ -321,7 +321,7 @@ Change this section when a step adds or renames a command.
   first 256 KiB in all three containers, at levels 1, 6 and 9. Each output must fit
   `encoded_len_max`, decode to its input through stdx, zlib and Wuffs, and have the SHA-256
   recorded in `tools/differential/encode_hashes.zig` (invariant 5); seeded flush points and splits
-  must give the same octets, and so must the encoder with its runtime safety checks off (decision
+  must give the same bytes, and so must the encoder with its runtime safety checks off (decision
   49). `-Dencode-optimize=Debug` builds stdx in another mode, to show the
   hashes hold there. Passing `-- --record` prints a new list, for a change meant to alter output.
   `zig build differential-zstd -Doracles` has libzstd encode the first 256 KiB of every corpus
@@ -334,14 +334,14 @@ Change this section when a step adds or renames a command.
   window, or to match an entry of `tools/oracle/verdicts.zig`.
   `zig build differential-zstd-encode -Doracles` encodes every corpus file whole at levels 1 and 3,
   and its first 256 KiB with and without a checksum. Each frame must fit `encoded_len_max`, decode
-  to its input through stdx and libzstd, ask for no window over 8,000,000 octets, and have the
+  to its input through stdx and libzstd, ask for no window over 8,000,000 bytes, and have the
   SHA-256 recorded in `tools/differential/zstd_encode_hashes.zig`; seeded flush points and splits
-  must give the same octets. `-Dencode-optimize=Debug` builds stdx in another mode, and `--
+  must give the same bytes. `-Dencode-optimize=Debug` builds stdx in another mode, and `--
   --record` prints a new list.
   `zig build differential-brotli-encode -Doracles` encodes every corpus file whole at level 1, and
   its first 256 KiB. Each stream must fit `encoded_len_max`, decode to its input through stdx and
   Google's brotli, and have the SHA-256 recorded in `tools/differential/brotli_encode_hashes.zig`;
-  seeded flush points and splits must give the same octets, and so must a stream begun with
+  seeded flush points and splits must give the same bytes, and so must a stream begun with
   `start`. `-Dencode-optimize=Debug` and `-- --record` work as for Zstandard.
   `zig build differential-brotli -Doracles` has Google's brotli encode the first 256 KiB of every
   corpus file at qualities 0, 1, 5 and 9 with WBITS 22, 10, 16 and 24, and at quality 11 with 22 and
@@ -403,7 +403,7 @@ Change this section when a step adds or renames a command.
   (`bench/zstd/zstd_encode.zig`).
 - brotli benchmark: `zig build bench-brotli -Doracles` times Google's brotli decoder and stdx's
   HTTP decoder over every row, encoded once by Google's brotli at its default quality 11
-  and window 22, each row stating its streams' size as a percentage of its octets; then stdx's fast path against its checked path, and each claim off against all
+  and window 22, each row stating its streams' size as a percentage of its bytes; then stdx's fast path against its checked path, and each claim off against all
   on: every candidate interleaved in one run, the median of five runs with the spread. A second
   program then repeats the comparison with Google's brotli with stdx built ReleaseFast, decision
   17's measure of what the safety checks cost. Last, it times stdx's level 1 and Google's quality 1
@@ -412,15 +412,15 @@ Change this section when a step adds or renames a command.
   (`bench/brotli/brotli_encode.zig`). The `bench` workflow offers it.
 - Profile: `zig build bench-profile -Doracles` prints decision 14's S2 count, how stdx's decoder
   takes each symbol of every row, on any host. It then counts cycles, instructions and
-  branch misses per decoded octet for each gzip decoder, for libzstd's and stdx's Zstandard
+  branch misses per decoded byte for each gzip decoder, for libzstd's and stdx's Zstandard
   decoders, and for Google's and stdx's brotli decoders over each file's first MiB, over every
   row, through Linux's perf_event_open, and says so where the host exposes no counters. It counts
-  them per input octet for libdeflate's and stdx's gzip encoders at levels 1, 6 and 9 too
+  them per input byte for libdeflate's and stdx's gzip encoders at levels 1, 6 and 9 too
   (`bench/profile/profile_encode.zig`), and for libzstd's and stdx's Zstandard encoders at
   levels 1 and 3 (`bench/profile/profile_zstd_encode.zig`), and for Google's brotli encoder at
   quality 1 and stdx's at level 1, and at quality 5 and level 5
   (`bench/profile/profile_brotli_encode.zig`). Last, `bench_json --profile` counts
-  them per token and per octet for the `json` module's decoder and encoder, with every claim on and every claim off, a token a call through
+  them per token and per byte for the `json` module's decoder and encoder, with every claim on and every claim off, a token a call through
   `TextWriter`'s methods and `TextReader.next`, the reader's queued tokens a slice a call through
   `TextReader.next_items`, for the encoder
   with J11's loop unchecked, and for simdjson, yyjson and Zig's std.json, over one workload of each
@@ -439,7 +439,7 @@ Change this section when a step adds or renames a command.
   slices each a text of its own, beside simdjson, yyjson, Zig's std.json, serde_json and Go's
   jsontext: every candidate interleaved in one
   run, the median of five runs with the spread, and the losses listed (decision 27). It then times
-  the module's `is_utf8` alone over each string workload's octets at the width the host's features
+  the module's `is_utf8` alone over each string workload's bytes at the width the host's features
   pick, and on a host with AVX-512 with AVX2 alone, beside simdutf's `validate_utf8`, once every copy
   of the check and simdutf have judged seeded buffers alike (decisions 38 and 39). Last, it times the
   three message shapes through `TextWriter`'s methods beside serde_json writing the same messages from
@@ -463,11 +463,11 @@ Change this section when a step adds or renames a command.
   It needs cargo and go on the path. The `bench` workflow offers it.
 - Checksum benchmark: `zig build bench-checksum -Doracles` times every CRC-32 and Adler-32 path
   this CPU runs against zlib, Wuffs, libdeflate and zlib-ng, and every XXH64 path beside the
-  fastest CRC-32 path, from 64 octets to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
+  fastest CRC-32 path, from 64 bytes to 1 MiB, with the timing of `bench/timing/timing.zig`. `bench/run.sh <report.md> bench-checksum -Doracles` pins
   and records it, and the `bench` workflow offers it.
 - base64 benchmark: `zig build bench-base64 -Doracles` times base 64 encoding and decoding by
   stdx, with its fast paths and without, Rust's `base64` crate 0.23.1, Go's encoding/base64 and
-  Zig's std.base64, from 60 octets to 1 MiB, every candidate interleaved in one run. It needs
+  Zig's std.base64, from 60 bytes to 1 MiB, every candidate interleaved in one run. It needs
   cargo and go on the path: a host without both builds every other program, and this step fails
   and says so. The `bench` workflow offers it.
 - CI: `tools/ci.sh [report.md]` runs every check above that needs no fixed machine, builds every
