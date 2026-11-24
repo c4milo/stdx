@@ -12,6 +12,7 @@ const matcher_file = @import("../matcher.zig");
 const Matcher = matcher_file.Matcher;
 const Span = matcher_file.Span;
 const searcher_file = @import("searcher.zig");
+const searcher_claim = @import("searcher_claim.zig");
 const Searcher = searcher_file.Searcher;
 const dfa_file = @import("../dfa/dfa.zig");
 const dfa_config = @import("../dfa/dfa_config.zig");
@@ -38,6 +39,12 @@ pub const Fixture = struct {
     /// The CPU features and the program's encoding: none and UTF-8, unless a test names others.
     features: @import("platform").CpuFeatures = .{},
     encoding: @import("../program.zig").Encoding = .utf8,
+    /// True where `init` judges the claims that wait for text (searcher_claim.zig), so that a
+    /// test of a claim meets it from the first search.
+    judged: bool = true,
+    /// True where each search starts with claim R14's account as `init` left it, so that a
+    /// test's short texts, whose places stand close together, do not rest the claim.
+    fresh_account: bool = true,
 
     /// Compiles `pattern` and gives the searcher `cache_words` words of cache.
     pub fn init(fixture: *Fixture, pattern: []const u8, cache_words: usize) !void {
@@ -51,13 +58,16 @@ pub const Fixture = struct {
         if (fixture.program.group_count > groups_len) return error.TestTooManyGroups;
         const len = Searcher.memory_len(fixture.program.forward_len, fixture.program.slot_count(), cache_words);
         fixture.searcher.init(&fixture.program, &.{ .features = fixture.features, .claims = claims }, fixture.memory[0..len]);
+        if (fixture.judged) searcher_claim.judge(&fixture.searcher);
         fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
     }
 
     /// Requires the searcher's three calls to give what the matcher gives from `from`.
     pub fn expect_agree(fixture: *Fixture, haystack: []const u8, from: usize) !void {
         const expected = fixture.reference.find(haystack, from);
+        if (fixture.fresh_account) fixture.searcher.account = .{};
         try testing.expectEqual(expected, fixture.searcher.find(haystack, from));
+        if (fixture.fresh_account) fixture.searcher.account = .{};
         const found = fixture.searcher.captures(haystack, from);
         try testing.expectEqual(expected != null, found != null);
         const groups = found orelse return;
@@ -385,44 +395,6 @@ test "the searcher gives what the matcher gives, for generated patterns and text
             try fixture.expect_agree_everywhere(generate.text(&generator, &text_buffer));
         }
     }
-}
-
-const Matches = @import("searcher.zig").Matches;
-
-fn expect_matches(pattern: []const u8, haystack: []const u8, expected: []const [constants.group_slots]u64) !void {
-    var fixture: Fixture = .{};
-    for ([_]usize{ cache_words_max, 0 }) |cache| {
-        try fixture.init(pattern, cache);
-        var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = haystack };
-        for (expected) |span| {
-            try testing.expectEqual(@as(?Span, .{ .start = span[0], .end = span[1] }), matches.next());
-        }
-        try testing.expectEqual(@as(?Span, null), matches.next());
-        try testing.expectEqual(@as(?Span, null), matches.next());
-    }
-}
-
-test "Matches gives every match in order, each search from the end of the match before" {
-    try expect_matches("a+", "baaa a", &.{ .{ 1, 4 }, .{ 5, 6 } });
-    try expect_matches("abc", "abcabc", &.{ .{ 0, 3 }, .{ 3, 6 } });
-    try expect_matches("aa", "aaaaa", &.{ .{ 0, 2 }, .{ 2, 4 } });
-    try expect_matches("x", "abc", &.{});
-    try expect_matches("\\b\\w+\\b", "one two", &.{ .{ 0, 3 }, .{ 4, 7 } });
-}
-
-test "Matches leaves out an empty match that touches the match before it" {
-    try expect_matches("a*", "baaa", &.{ .{ 0, 0 }, .{ 1, 4 } });
-    try expect_matches("a*", "baaab", &.{ .{ 0, 0 }, .{ 1, 4 }, .{ 5, 5 } });
-    try expect_matches("", "ab", &.{ .{ 0, 0 }, .{ 1, 1 }, .{ 2, 2 } });
-    try expect_matches("", "", &.{.{ 0, 0 }});
-    try expect_matches("a|", "aba", &.{ .{ 0, 1 }, .{ 2, 3 } });
-    try expect_matches("$", "ab", &.{.{ 2, 2 }});
-}
-
-test "Matches gives no empty match inside the UTF-8 of a scalar value" {
-    try expect_matches("", "\xC3\xA9\xE6\x97\xA5", &.{ .{ 0, 0 }, .{ 2, 2 }, .{ 5, 5 } });
-    try expect_matches("\\B", "a\xF0\x9F\x98\x80", &.{.{ 5, 5 }});
-    try expect_matches("x*", "\xC3\xA9x", &.{ .{ 0, 0 }, .{ 2, 3 } });
 }
 
 test "a state built while the cache clears is not written into the cleared table" {

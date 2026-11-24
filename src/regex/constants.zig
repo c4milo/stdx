@@ -182,6 +182,67 @@ pub const dfa_octets_per_state_min = 10;
 /// The searches a `Searcher` lets its lazy DFA give up before it stops trying the DFA.
 pub const dfa_give_ups_max = 8;
 
+/// The steps of the walk that finds the lengths of a program's matches, or of a part of it, for
+/// each instruction of the DFA's program (dfa_length.zig, claim R13 and claim R4's second rule).
+/// A level of the walk takes a step for each instruction it passes, so a pattern such as
+/// `^.{249}$`, whose levels each hold a few instructions, takes about one step an instruction.
+/// A pattern whose levels each hold most of its instructions would take the square of its
+/// length, and stops here.
+pub const length_steps_per_instruction = 8;
+
+/// The most bytes that the part of a match before its last literal takes, where claim R4 goes to
+/// the literal's places because that part takes one count of bytes (dfa_suffix.zig). A reverse
+/// scan from a place that starts no match reads that many bytes and the literal at most, so a
+/// text of such places costs each of its bytes that many reads. 8 holds `[a-z]shing`, and keeps
+/// such a text within a few times a forward scan's cost.
+pub const suffix_before_len_max = 8;
+
+/// The literals of a program that claim R14 tries as the literal every match holds: the longest
+/// that the reverse program takes from an instruction of one byte (dfa_inner.zig). Each try
+/// walks the program a few times, so the limit bounds the walks by the program's length. 8
+/// holds the literals of an address pattern such as `[\w.+-]+@[\w.-]+\.[\w.-]+`, which has
+/// two, and the three of `[ab]*x(?:a|b)`, whose longest two no match is sure to pass.
+pub const inner_candidates_max = 8;
+
+/// What a search with an account pays for its start and for each place of its literal, in
+/// bytes of a plain scan (searcher_account.zig, for claim R14 and for claim R4's second and
+/// third rules). A place costs a search of the literal begun again, a reverse scan, and at most
+/// one forward scan begun. With a space as its literal, `[A-Z][a-z]+ [A-Z][a-z]+` took 38 ns a
+/// place on the N2 where the plain scan took 0.93 ns a byte, so a text whose places stand under
+/// some 41 bytes apart loses (design §8 part 22q). 64 leaves the claim to texts where it gains
+/// by half or more. A search's start costs about as much: some 85 instructions more than the
+/// plain search's, with a place or with none.
+pub const account_place_bytes = 64;
+
+/// What a trial of a claim with an account may lose before the claim rests, in bytes of a
+/// plain scan. A trial that fails then loses about a sixteenth of the text that the first rest
+/// covers.
+pub const account_credit_bytes = 1 << 12;
+
+/// The most an account holds: its credit, and as much again that its searches gained. An
+/// account that holds it has earned back what a trial may lose, so its next rest is the first
+/// one's. A higher bound would let a long text of far places pay for as long a text of close
+/// ones.
+pub const account_balance_max = 2 * account_credit_bytes;
+
+/// The bytes of text the plain search covers while a claim with an account rests, before the
+/// claim tries again. A text changes, as claim R1's skip finds (`skip_rest_octets`), and each
+/// trial that fails after another doubles the rest, up to `account_rest_doublings_max` times.
+/// A trial that fails after the longest rest drops the claim: a searcher with the claim pays a
+/// call for each search, which took 8% of a search of 51 bytes (design §8 part 22q), and by
+/// then the claim lost six trials over 2 MiB of text.
+pub const account_rest_bytes = 1 << 16;
+pub const account_rest_doublings_max = 4;
+
+/// The bytes of text a searcher's searches are given, for each instruction of the reverse
+/// program, before it judges claim R4's second and third rules, claim R13 and claim R14
+/// (searcher_claim.zig). At `init` their walks made a pattern ready at 0.16 to 0.85 of the
+/// speed before. They take 13 to 123 ns an instruction in a cloud container, and a plain scan
+/// takes about 1 ns a byte. So a searcher makes the walks once, after a scan that cost it
+/// about half as much or more (design §8 part 22q). A searcher that is given less never pays
+/// for them.
+pub const claim_text_per_instruction = 64;
+
 /// The plain rows, one after another, that a run of matches takes before it gives the octets back
 /// to the scan's loops (dfa_run.zig): the continuation octets of one UTF-8 sequence. A longer run
 /// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for
