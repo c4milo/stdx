@@ -114,7 +114,21 @@ pub const Literal = extern struct {
         found.literal.folds = @bitReverse(found.literal.folds) >> unused;
         found.literal.exact = false;
         found.literal.prepare();
-        return .{ .literal = found.literal, .before = found.stop };
+        const run = found.literal.first_run();
+        // The walk took the literal's last byte first, so its byte `i` is place `len - 1 - i`.
+        const run_entry = if (run == 0) found.stop else found.places[found.literal.len - run];
+        return .{ .literal = found.literal, .before = found.stop, .run = run, .run_entry = run_entry };
+    }
+
+    /// The count of the literal's first bytes that are its first byte, where the literal goes
+    /// on past them. Zero where the literal is that byte alone.
+    fn first_run(literal: *const Literal) u32 {
+        var run: u32 = 0;
+        for (literal.slice()) |octet| {
+            if (octet != literal.octets[0]) break;
+            run += 1;
+        }
+        return if (run == literal.len) 0 else run;
     }
 
     fn push(literal: *Literal, octet: u8, fold: bool) void {
@@ -160,7 +174,17 @@ pub const Literal = extern struct {
 };
 
 /// A literal every match ends with, and the first instruction of the reverse program after it.
-pub const Suffix = struct { literal: Literal, before: u32 };
+pub const Suffix = struct {
+    literal: Literal,
+    before: u32,
+    /// The count of the literal's first bytes that are one byte, where the literal goes on past
+    /// them: one for ` x`, which `[ab]+ +x` ends with. Zero where the literal is one byte alone.
+    run: u32,
+    /// The instruction of the reverse program that takes the last byte of that run, where `run`
+    /// is not zero. The reverse program takes the run's bytes from there, and then goes to
+    /// `before`.
+    run_entry: u32,
+};
 
 /// What a walk of a program found: the octets its instructions take one after another from
 /// `entry`, and the instruction where it stopped.
@@ -168,12 +192,15 @@ const Walk = struct {
     literal: Literal,
     stop: u32,
     reached_match: bool,
+    /// The instruction that took each byte of the literal, in the walk's order.
+    places: [constants.literal_len_max]u32,
 };
 
 /// Follows `out` from `entry` through saves, jumps and, with `through_looks`, assertions, and
 /// keeps the octet of each instruction that takes one octet alone, up to `literal_len_max`.
 fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
     var literal: Literal = .{ .octets = undefined, .len = 0, .exact = false };
+    var places: [constants.literal_len_max]u32 = @splat(0);
     var passed_look = false;
     var index = entry;
     // Each instruction is read once: the walk follows `out`, and past a split that `case_pair`
@@ -185,17 +212,19 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
             .save, .jump => {},
             .range => {
                 if (instruction.lo != instruction.hi or literal.len == constants.literal_len_max) break;
+                places[literal.len] = index;
                 literal.push(instruction.lo, false);
             },
             .split => {
                 if (literal.len == constants.literal_len_max) break;
                 const pair = case_pair(program, instruction) orelse break;
+                places[literal.len] = index;
                 literal.push(pair.octet, true);
                 next = pair.out;
             },
             .match => {
                 literal.exact = !passed_look;
-                return .{ .literal = literal, .stop = index, .reached_match = true };
+                return .{ .literal = literal, .stop = index, .reached_match = true, .places = places };
             },
             // A node of a class takes more than one octet.
             .ranges => break,
@@ -207,7 +236,7 @@ fn walk(program: *const Program, entry: u32, through_looks: bool) Walk {
         }
         index = next;
     }
-    return .{ .literal = literal, .stop = index, .reached_match = false };
+    return .{ .literal = literal, .stop = index, .reached_match = false, .places = places };
 }
 
 /// The lower case and the next instruction of a split whose two branches each take one octet,

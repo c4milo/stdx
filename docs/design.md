@@ -9993,6 +9993,38 @@ to 12 are reordered and nothing else changes.
       budget; an assertion that stops the walk; one range of a class's node taken; and a split's
       second target not taken.
 
+  Claim R4 takes two more rules, for the suffix rows of the third group (decision 86 as amended):
+  - A literal that ends every match is taken where the part before it takes one count of bytes,
+    8 at most, as in `[a-z]shing`, or ends with a separator that the rest holds no byte of, as
+    in `\w+\s+Holmes`. Before, the literal was taken only where that part takes no byte that is
+    the literal's first. The search does not change: it goes to the literal's places and reads
+    back from each.
+  - Six rows of the set end with such a literal, at 1/33 to 1/7 of Rust's crate on the N2.
+  - Where the forward DFA goes to a set of literals (claim R5), the first rule alone takes a
+    suffix, as before.
+  **Check:** a searcher takes each pattern of a table by the second rule or the third, where the
+  first rule refuses it, and gives what the matcher gives; each pattern of a second table is
+  refused, and holds a text on which a search from its literal's places gives another match
+  than the matcher; 600 generated patterns that end with a literal give what the matcher gives
+  from every offset of seeded texts, taken or not; two paired runs of the `bench` workflow on
+  each runner; mutations.
+  **Check passed in part, 2026-11-24.** The same container. The paired runs are not recorded yet.
+  - `zig build test` exits 0. `zig build test-regex` runs 308 tests.
+  - The second table holds 11 patterns. One of them is `[abx]*:[a ][ :]+x`, whose range `[a ]`
+    holds a byte of the separator and a byte that is not. A rule that took such a range as the
+    separator's gave another match than the matcher on a generated pattern.
+  - Mutations: 22, all CAUGHT, each by a failing test, against `zig build test-regex`.
+    - The second rule: two counts of bytes taken; no limit, and a limit one byte under; and the
+      lengths of the whole program, read in the rule and in the walk.
+    - The third rule: a literal that holds the separator's byte, in its own case or in its
+      other; no second walk; a range on both sides of the set taken; a range of the set past
+      the separator taken; no target kept for the second walk; and a part that may be empty.
+    - A separator of one byte: no second try; a second try for the whole literal, or with no
+      first try; a run that is the whole literal; a run of one byte where it holds two; and
+      the instruction of the run's first byte.
+    - The choice: both rules beside a set of literals; the first rule alone with no set; a
+      suffix beside a search from the text's end; and no first rule.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

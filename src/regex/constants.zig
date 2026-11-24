@@ -190,6 +190,13 @@ pub const dfa_give_ups_max = 8;
 /// compile that wrote the instructions.
 pub const length_steps_per_instruction = 8;
 
+/// The most bytes that the part of a match before its last literal takes, where claim R4 goes to
+/// the literal's places because that part takes one count of bytes (dfa_suffix.zig). A reverse
+/// scan from a place that starts no match reads that many bytes and the literal at most, so a
+/// text of such places costs each of its bytes that many reads. 8 holds `[a-z]shing`, and keeps
+/// such a text within a few times a forward scan's cost.
+pub const suffix_before_len_max = 8;
+
 /// The plain rows, one after another, that a run of matches takes before it gives the octets back
 /// to the scan's loops (dfa_run.zig): the continuation octets of one UTF-8 sequence. A longer run
 /// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for

@@ -6,6 +6,7 @@ const codec = @import("codec");
 const constants = @import("../constants.zig");
 const searcher_test = @import("searcher_test.zig");
 const Fixture = searcher_test.Fixture;
+const dfa_suffix = @import("../dfa/dfa_suffix.zig");
 
 /// The octets of a test's haystack: some steps of `skip_lanes` octets, and a part of one.
 const haystack_steps = 6;
@@ -85,6 +86,173 @@ test "a searcher takes no suffix whose first octet the part before it takes, and
         }
         for (fixed_texts) |text| try fixture.expect_agree_everywhere(text);
     }
+}
+
+/// Patterns that end with a literal whose first byte the part before it takes, and that the
+/// second rule or the third takes: that part takes one count of bytes, or it ends with a
+/// separator.
+const wide_cases = [_]struct { pattern: []const u8, suffix: []const u8 }{
+    // One count of bytes, up to `suffix_before_len_max`.
+    .{ .pattern = "[ab][abx]x:", .suffix = "x:" },
+    .{ .pattern = "\\bx[ab]x", .suffix = "x" },
+    .{ .pattern = "[abx]{8}x", .suffix = "x" },
+    .{ .pattern = "[abx](?:a|x)x", .suffix = "x" },
+    // A separator: a space, a line feed or a colon, which the rest of the pattern takes nowhere.
+    .{ .pattern = "[abx]+[ :]+x", .suffix = "x" },
+    .{ .pattern = "[abx]+[ \n]+ab", .suffix = "ab" },
+    // A separator of one byte, which the literal starts with.
+    .{ .pattern = "[abx]+ +x", .suffix = " x" },
+    .{ .pattern = "[abx]+\n+ab", .suffix = "\nab" },
+    .{ .pattern = "[abx]+ {2,}x:", .suffix = " x:" },
+    // A run of two bytes: the separator's last byte, and the one byte it must hold.
+    .{ .pattern = "[abx]+ + x", .suffix = "  x" },
+    .{ .pattern = "[^ \\n]+[ \\n]+x", .suffix = "x" },
+    .{ .pattern = "[abx]+ +(?i)x", .suffix = " x" },
+    .{ .pattern = "[abx]+[ :]+xa", .suffix = "xa" },
+    .{ .pattern = "[abx]+ +x\\b", .suffix = " x" },
+    .{ .pattern = "(?:[ab]+x)+ +x", .suffix = " x" },
+};
+
+/// Patterns that no rule takes, each with a text on which a search from the literal's places
+/// gives another match than the matcher, or none.
+const wide_refused = [_]struct { pattern: []const u8, text: []const u8 }{
+    // The part before the separator takes the separator's byte.
+    .{ .pattern = "[abx ]+ +x", .text = "a x  x" },
+    // The literal holds the separator's byte.
+    .{ .pattern = "[ab]+[x ]+x", .text = "a x x" },
+    // The part before the literal may be empty, so it holds no separator.
+    .{ .pattern = "(?:[abx]+ +)?x", .text = "ax x" },
+    .{ .pattern = "[abx]+ *x", .text = "ax x" },
+    // A range of the pattern holds a byte of the separator and a byte that is not.
+    .{ .pattern = "[abx]+[ a]x", .text = "xa ax x" },
+    // The separator's byte comes again before the part that takes the literal's bytes.
+    .{ .pattern = "[ab]+ +[abx]* +x", .text = "a  x  x" },
+    // One count of bytes past `suffix_before_len_max`.
+    .{ .pattern = "[abx]{9}x", .text = "abxabxabxxabxabxabxx" },
+    // Two counts of bytes.
+    .{ .pattern = "[abx]{1,2}x", .text = "axx" },
+    // The separator holds the other case of a byte of the literal.
+    .{ .pattern = "[ab]+[X ]+(?i)x", .text = "a X x" },
+    // The literal is one byte, which the part before it takes in a run.
+    .{ .pattern = "[ab]+x+", .text = "axx" },
+    // A range that holds a byte of the separator and a byte that is not, and a byte of the
+    // separator before it.
+    .{ .pattern = "[abx]*:[a ][ :]+x", .text = "b:a x: :x" },
+};
+
+comptime {
+    std.debug.assert(constants.suffix_before_len_max == 8);
+}
+
+test "a searcher takes a suffix by the second rule and by the third, and gives what the matcher gives" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0x5FF5);
+    var haystack: [haystack_len]u8 = undefined;
+    for (wide_cases) |case| {
+        try fixture.init(case.pattern, 0);
+        const sizes = searcher_test.cache_sizes(&fixture.program);
+        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
+            try fixture.init(case.pattern, cache_words);
+            try testing.expectEqualStrings(case.suffix, fixture.searcher.suffix.?.slice());
+            // The first rule refuses each: the part before the literal takes its first byte.
+            try testing.expect(dfa_suffix.suffix_of(&fixture.searcher.reverse, &fixture.program, .first) == null);
+            for (0..8) |_| {
+                fill(&generator, &haystack);
+                try fixture.expect_agree_everywhere(&haystack);
+            }
+            for (fixed_texts) |text| try fixture.expect_agree_everywhere(text);
+            for (wide_refused) |refusal| try fixture.expect_agree_everywhere(refusal.text);
+        }
+    }
+}
+
+test "a searcher takes no suffix that no rule takes, and still agrees" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0x5FF6);
+    var haystack: [haystack_len]u8 = undefined;
+    for (wide_refused) |refusal| {
+        try fixture.init(refusal.pattern, 0);
+        try fixture.init(refusal.pattern, searcher_test.cache_sizes(&fixture.program).most);
+        try testing.expect(fixture.searcher.suffix == null);
+        try fixture.expect_agree_everywhere(refusal.text);
+        for (0..8) |_| {
+            fill(&generator, &haystack);
+            try fixture.expect_agree_everywhere(&haystack);
+        }
+    }
+}
+
+test "a searcher whose forward DFA goes to a set of literals takes a suffix by the first rule alone" {
+    var fixture: Fixture = .{};
+    // The part before the literal takes one count of bytes, and its branches start with `ax`
+    // or `xb`, which claim R5 takes.
+    try fixture.init("(?:ax|xb)[ab]x", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.forward.literals != null);
+    try testing.expect(fixture.searcher.suffix == null);
+    try fixture.expect_agree_everywhere("axax xbbx axbx");
+    // The first rule holds for this one: no part before the `:` takes it.
+    try fixture.init("(?:ax|xb)[ab]:", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.forward.literals != null);
+    try testing.expectEqualStrings(":", fixture.searcher.suffix.?.slice());
+    try fixture.expect_agree_everywhere("axa: xbb: axb");
+}
+
+test "a class of letters before a word, and words apart before a name, each read back from the literal" {
+    var fixture: Fixture = .{};
+    try fixture.init("[a-z]shing", searcher_test.cache_words_max);
+    try testing.expectEqualStrings("shing", fixture.searcher.suffix.?.slice());
+    try fixture.expect_agree_everywhere("fishing shing washing xshing Ashing wishin");
+    try fixture.init("\\w+\\s+Holmes", searcher_test.cache_words_max);
+    try testing.expectEqualStrings("Holmes", fixture.searcher.suffix.?.slice());
+    try fixture.expect_agree_everywhere("Holmes Holmes, Mr. Sherlock  Holmes\tHolmes xHolmes");
+    // The forward DFA reads no text: the search goes from the literal's places.
+    try testing.expectEqual(@as(u32, 0), fixture.searcher.forward.cache.state_count);
+}
+
+/// The parts a generated pattern draws for what stands before its literal, and its literals.
+const generated_parts = [_][]const u8{ "[ab]", "[abx]", "x", "a", " ", "[ :]", "[^ ]", "\\b", "(?:a|xb)", "[x ]", ":" };
+const generated_counts = [_][]const u8{ "", "", "+", "*", "?", "{2}", "{1,2}" };
+const generated_literals = [_][]const u8{ "x", "x:", "ab", "xa", " x" };
+
+/// The patterns the test below generates, the parts of each at most, and its texts.
+const generated_patterns = 600;
+const generated_parts_max = 4;
+const generated_texts = 3;
+
+/// The bytes of the longest generated pattern: each part with its count, and the literal.
+const generated_pattern_len_max = generated_parts_max * ("(?:a|xb)".len + "{1,2}".len) + "x:".len;
+
+fn generate(generator: *codec.testing.split.Generator, buffer: *[generated_pattern_len_max]u8) []const u8 {
+    var len: usize = 0;
+    for (0..1 + generator.below(generated_parts_max)) |_| {
+        for ([_][]const u8{ generated_parts[generator.below(generated_parts.len)], generated_counts[generator.below(generated_counts.len)] }) |piece| {
+            @memcpy(buffer[len..][0..piece.len], piece);
+            len += piece.len;
+        }
+    }
+    const literal = generated_literals[generator.below(generated_literals.len)];
+    @memcpy(buffer[len..][0..literal.len], literal);
+    return buffer[0 .. len + literal.len];
+}
+
+test "a searcher gives what the matcher gives for generated patterns that end with a literal" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0x5FF7);
+    var buffer: [generated_pattern_len_max]u8 = undefined;
+    var haystack: [haystack_len]u8 = undefined;
+    var taken: u32 = 0;
+    for (0..generated_patterns) |_| {
+        const pattern = generate(&generator, &buffer);
+        try fixture.init(pattern, searcher_test.cache_words_max);
+        taken += @intFromBool(fixture.searcher.suffix != null);
+        for (0..generated_texts) |_| {
+            fill(&generator, &haystack);
+            try fixture.expect_agree_everywhere(&haystack);
+        }
+        for (wide_refused) |refusal| try fixture.expect_agree_everywhere(refusal.text);
+    }
+    // The generator draws patterns that each rule takes and patterns that none takes.
+    try testing.expect(taken > generated_patterns / 8 and taken < generated_patterns - generated_patterns / 8);
 }
 
 test "a searcher takes no suffix where a literal starts every match, or every match starts the text" {

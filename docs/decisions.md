@@ -6053,6 +6053,45 @@ last part lists what still waits on a ruling.
       - R4 does not run where every match starts at the text's start, or where a literal starts
         every match. It runs only with R1, so `stdx, no skip` turns it off, and
         `SearcherClaims.suffix` turns it off alone.
+      - **Amended 2026-11-24 (design §8 part 22q): two more rules take a literal.** The rule
+        above refuses `[a-z]shing` and `\w+\s+Holmes`, whose part before the literal takes the
+        literal's first byte. rebar's other benchmarks hold six such rows, at 1/33 to 1/7 of
+        Rust's crate on the N2. The search itself does not change.
+        - The second rule: the part before the literal takes one count of bytes, at most
+          `suffix_before_len_max`, 8. A later place then has a later start, and a match from a
+          start has one length. A reverse scan from a place that starts no match reads the
+          literal and those bytes at most, which is why the count has a limit.
+        - The third rule: the part before the literal ends with one byte or more of a set, the
+          separator. It holds no byte of the set before them, and the literal holds none. In
+          `\w+\s+Holmes` the separator is the bytes of `\s`.
+          - A place that ends a match has a byte of the separator before it. A match that ends
+            at a later place and starts before that match would hold that byte, and the
+            literal after it, in its part before the separator, which holds no such byte. So
+            the first place that gives a start gives the match that a forward search finds
+            first.
+          - From one start a match ends at one place, by the same argument, so the search needs
+            no forward scan.
+          - A reverse scan reads back to the separator before its own and no further, and the
+            scans of two places read no byte in common. So the search stays linear in the text.
+        - `dfa_suffix.separated` reads the third rule from the reverse program. The separator is
+          the set of the bytes that the program takes first after the literal. A first walk
+          refuses a range that holds bytes on both sides of the set. A second walk starts at the
+          targets of the ranges outside the set, and refuses a range of the set.
+        - A separator of one byte stands in the literal: `[ab]+ +x` ends with the literal ` x`.
+          `Literal.suffix_of` gives the literal's first run of one byte, and the instruction
+          that takes it. The third rule is then tried from there too, for the literal past the
+          run.
+        - Where the forward DFA goes to a set of literals (claim R5), the first rule alone takes
+          a suffix, as before this amendment. A search for a few literals of two bytes or more
+          finds fewer places than a search for a suffix that the rest of a match may hold.
+        - Rust's crate proves like rules on its syntax tree: a part of one length, a class at an
+          edge of the part that the rest of the part and the literal hold no byte of, and a part
+          that cannot hold every byte of the literal (regex-automata, `meta/prefix.rs`, read at
+          its main branch on 2026-11-24). It then runs its forward DFA from the start, and stops
+          a reverse scan at the place before. stdx's rules make both needless.
+        - Not built: Rust's rule for a separator at the part's start, which serves
+          `\s[a-zA-Z]{0,12}ing\s`, and a literal in a match's middle, which serves `\w+@\w+`
+          (design §8 part 22q).
     - Claim R5: where every match starts with one of several literals, and no one literal starts
       every match, R1's skip goes to the next place of one of them, as in
       `Abraham|Isaac|Jacob|Joseph` (design §8 step 22, parts 22c and 22n).
@@ -6353,7 +6392,7 @@ last part lists what still waits on a ruling.
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
     Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32. Claim R13's:
-    `length_steps_per_instruction`, 8.
+    `length_steps_per_instruction`, 8. Claim R4's: `suffix_before_len_max`, 8.
 
     **The checks.** Design §8 step 22 holds what each printed, and the mutations.
     - Each form of the syntax has a table of patterns, texts and the groups they must give, and

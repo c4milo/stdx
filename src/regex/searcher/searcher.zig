@@ -233,13 +233,18 @@ pub const Searcher = struct {
         searcher.lengths = if (whole_text) dfa_length.of(&searcher.forward) else null;
         searcher.by_edge = searcher.at_end or searcher.lengths != null;
         searcher.suffix = null;
-        const suffix_on = claims.start_skip and claims.suffix and both_ready and !searcher.at_end;
-        // A literal that starts every match is the better way, and a pattern that starts at the
-        // text's start reads few octets forward.
-        if (suffix_on and searcher.forward.literal == null and !searcher.at_text) {
-            searcher.suffix = dfa_suffix.suffix_of(&searcher.reverse, program);
-            if (searcher.suffix) |*suffix| suffix.wide = searcher.forward.config.wide;
-        }
+        if (claims.start_skip and claims.suffix and both_ready) searcher.init_suffix(program);
+    }
+
+    /// Readies claim R4 for a searcher with both DFAs, where no better way finds its matches.
+    fn init_suffix(searcher: *Searcher, program: *const Program) void {
+        // A literal that starts every match is the better way, and so is a search from the
+        // text's end. A pattern that starts at the text's start reads few bytes forward.
+        if (searcher.forward.literal != null or searcher.at_end or searcher.at_text) return;
+        // Beside a set of literals, which claim R5 goes to, the first rule alone takes a suffix.
+        const rules: dfa_suffix.Rules = if (searcher.forward.literals == null) .all else .first;
+        searcher.suffix = dfa_suffix.suffix_of(&searcher.reverse, program, rules);
+        if (searcher.suffix) |*suffix| suffix.wide = searcher.forward.config.wide;
     }
 
     /// Readies claims R2 and R5 where the pattern is a literal or a set of literals and nothing

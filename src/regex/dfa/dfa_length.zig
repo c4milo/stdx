@@ -31,13 +31,19 @@ pub const Lengths = struct {
 /// The lengths of the matches of the DFA's program. Null where the walk passes its budget, as
 /// for a program with a loop, or the program reaches no `match`.
 pub fn of(dfa: *Dfa) ?Lengths {
+    return from(dfa, dfa.config.entry);
+}
+
+/// `of` for the part of the DFA's program that starts at `entry`: the counts of bytes that the
+/// program takes from there to `match`.
+pub fn from(dfa: *Dfa, entry: u32) ?Lengths {
     assert(dfa.cache.table.len > 0);
     const budget = dfa.visited.sparse.len * constants.length_steps_per_instruction;
     var steps: usize = 0;
     var least: ?usize = null;
     var most: usize = 0;
     dfa.next.clear();
-    _ = dfa.next.insert(dfa.config.entry);
+    _ = dfa.next.insert(entry);
     // A level with a seed takes a step or more, so the levels are at most the budget and one.
     for (0..budget + 1) |level| {
         if (dfa.next.len == 0) {
