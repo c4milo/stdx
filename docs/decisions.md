@@ -6061,6 +6061,9 @@ last part lists what still waits on a ruling.
           `suffix_before_len_max`, 8. A later place then has a later start, and a match from a
           start has one length. A reverse scan from a place that starts no match reads the
           literal and those bytes at most, which is why the count has a limit.
+          `dfa_length.from` walks the part one byte a level, with every byte at once, to the
+          level past the limit. It stops at `length_steps_per_instruction` steps, 8, for each
+          instruction, since a level may hold most of the part's instructions.
         - The third rule: the part before the literal ends with one byte or more of a set, the
           separator. It holds no byte of the set before them, and the literal holds none. In
           `\w+\s+Holmes` the separator is the bytes of `\s`.
@@ -6313,24 +6316,29 @@ last part lists what still waits on a ruling.
     - Claim R13, added 2026-11-24 (design §8 part 22q): where every match starts at the text's
       start and ends at its end, a match is the whole text. A text shorter than the pattern's
       least match, or longer than its greatest, holds none, and the searcher reads none of it.
-      - `dfa_length.of` walks the forward program one byte a level, with every byte at once. The
-        first level that reaches `match` is the least length, and the last one the greatest. An
-        assertion passes, so the lengths bound every match's.
-      - The walk takes the forward DFA's lists, as claim R4's walk takes the reverse DFA's. It
-        stops at `length_steps_per_instruction` steps, 8, for each instruction. A pattern with a
-        loop has a level after every level, so it passes the budget and gets no lengths.
-      - The walk runs for a pattern that both assertions hold, and for no other, so a search
-        for any other pattern pays one test.
+      - The parser keeps the least and the greatest length of each fragment as it builds it
+        (`fragment.Lengths`). One fragment after another adds them, one or another takes the
+        lesser least and the greater greatest, and a loop that takes a byte has no greatest. An
+        assertion takes no byte, so the lengths bound every match's. `Program.match_len_min`
+        and `Program.match_len_max` hold the whole pattern's.
+      - A searcher keeps the least length and the greatest less the least, and one compare
+        refuses a text: a length under the least wraps past every span. A searcher with no such
+        lengths holds a span that no length passes, so every search pays the one compare and
+        no test of the claim.
       - `^.{249}$` over 1,000 bytes read 250 of them before: rebar's
         `opt/fixed-length/go33484-3`, 1/62 of Rust's crate on the N2.
       - Rust's crate keeps the least and the greatest length of each pattern from its parser,
         and refuses a text by them before any engine runs (`RegexInfo::is_impossible`). It
-        refuses a text under the least length for every pattern. stdx does not: its parser
-        builds no tree to read a length from, and a walk for every pattern costs each
-        `Searcher.init`. rebar's `opt/fixed-length/too-small-ascii` shows the gap.
-      - The alternative refused: a least and a greatest length in each fragment as the parser
-        builds it. It costs no walk, and it changes each place that makes a fragment, in five
-        files.
+        refuses a text under the least length for every pattern. stdx refuses one only where a
+        match is the whole text: rebar's `opt/fixed-length/too-small-ascii` shows the gap, and
+        the lengths that would close it are now in every program.
+      - Built first as a walk of the program at `Searcher.init`, and replaced the same day. The
+        paired runs at `7e24857` put a pattern compiled and made ready at 0.69 to 0.95 of the
+        base on five tuned patterns, and the match of a short text at 0.75 to 0.84 on two. The
+        walk cost `init` up to 750 ns, and a search that passed the lengths went to its DFA by
+        a call of its own. The parser's tally costs a few adds a fragment.
+      - The walk stays for claim R4's second rule, on the part before a literal, where it
+        stops at the level past `suffix_before_len_max` (`dfa_length.from`).
       - `Claims.length` turns it off.
     - Claim R14, added 2026-11-24 (design §8 part 22q): where every match holds a literal in its
       middle, after a part that one of claim R4's rules holds for, the searcher goes to the
@@ -6440,8 +6448,8 @@ last part lists what still waits on a ruling.
     4. Claim R1's: `skip_lanes`, 16;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
-    Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32. Claim R13's:
-    `length_steps_per_instruction`, 8. Claim R4's: `suffix_before_len_max`, 8. Claim R14's:
+    Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32. Claim R4's:
+    `suffix_before_len_max`, 8; and `length_steps_per_instruction`, 8. Claim R14's:
     `inner_candidates_max`, 8.
 
     **The checks.** Design §8 step 22 holds what each printed, and the mutations.

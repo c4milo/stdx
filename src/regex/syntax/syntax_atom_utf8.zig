@@ -171,7 +171,9 @@ const Compiler = struct {
         try compiler.close_from(0);
         const entry = try compiler.write(0);
         assert(!compiler.holes.is_empty());
-        return .{ .begin = compiler.begin, .entry = entry, .holes = compiler.holes, .nullable = false, .weight = 1 };
+        // A scalar value takes one to `utf8_len_max` bytes of UTF-8.
+        const lengths: fragment.Lengths = .{ .least = 1, .most = constants.utf8_len_max };
+        return .{ .begin = compiler.begin, .entry = entry, .holes = compiler.holes, .nullable = false, .weight = 1, .lengths = lengths };
     }
 
     /// The entry of the node whose transitions run from `start` to the last: a node the program

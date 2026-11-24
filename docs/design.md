@@ -9960,8 +9960,9 @@ to 12 are reordered and nothing else changes.
   - R11: where every match starts at the text's start, the forward DFA is anchored.
   - R12: where every match ends at the text's end, and not every match starts at its start, the
     searcher reads back from the text's end.
-  - R13: where both hold, the searcher refuses a text by its length, from a walk of the program
-    (`dfa_length.zig`).
+  - R13: where both hold, the searcher refuses a text by its length. The first form walked
+    the program at `Searcher.init` (`dfa_length.zig`). The paired runs below replaced it: the
+    parser now keeps each fragment's lengths.
   - `Claims` gains `text_start`, `text_end` and `length`. A new field changes the public API, so
     the next release is a MINOR one (decision 65).
   **Check:** a searcher under each claim gives what the matcher gives from every offset of
@@ -9992,6 +9993,52 @@ to 12 are reordered and nothing else changes.
     - The walk: a least length that follows the greatest; a greatest that stays the least; no
       budget; an assertion that stops the walk; one range of a class's node taken; and a split's
       second target not taken.
+
+  The paired runs of claims R11, R12 and R13, and R13's second form:
+  - Two runs of the `bench` workflow at `7e24857` with `1744e4a` as their base: runs 45412981822
+    and 45412987415, each on a Neoverse-N2 and on an AMD EPYC 7763.
+  - 33 rows won on each CPU in both jobs, by decision 20's rule. In MB/s on the N2, with the
+    row's place against Rust's crate after the change:
+    - `imported/rsc/easy1-1mb`: 604 to 14,572,601, at 1.12. `hard-1mb` stands at 1.09,
+      `medium-1mb` at 1.11, and `opt/reverse-anchored/word-end` at 1.16.
+    - `opt/fixed-length/go33484-1`: 45 to 530,335, at 0.49. A count of such a text takes about
+      twice the time of Rust's crate, which is the cost of a search's start.
+    - The match of a short text against the tuned set's email pattern: 19.6 to 29.4 million
+      texts a second, at 1.49, and against its field path: 23.2 to 32.5, at 1.40. Claim R11
+      anchors their DFAs.
+  - The first form of R13 lost rows in both jobs on both CPUs:
+    - A pattern compiled and made ready: 0.68 to 0.96 of the base on the tuned set's five short
+      patterns, and 0.68 to 0.76 on two compiles of rebar's curated set. The walk cost `init`
+      up to 750 ns.
+    - The match of a short text against the IPv4 pattern, the date pattern and the UUID
+      pattern: 0.74 to 0.96. A text that passed the lengths went to its DFA by a call of its
+      own, and that scan did not stop at the first match.
+    - `^.{249}$` kept no lengths in UTF-8: each level of the walk held the instructions of `.`,
+      and the walk passed its budget.
+  - So the parser now keeps the lengths (`fragment.Lengths`), a program holds them
+    (`Program.match_len_min` and `match_len_max`), and one compare of a searcher refuses a text
+    (decision 86). `dfa_length.from` stays for claim R4's second rule, and stops at the level
+    past its limit. A new field of `Program` changes the public API, so the next release is a
+    MINOR one (decision 65).
+  - Other rows fell 1% to 8% in both jobs of one CPU, and not on the other CPU. The runs of
+    the whole part against `1744e4a` judge them.
+  **Check passed in part, 2026-11-24.** The same container. The paired runs of the second form
+  are not recorded yet.
+  - `zig build test` exits 0. `zig build test-regex` runs 316 tests.
+  - A program gives the least and the greatest length of each pattern of a table: a loop that
+    takes a byte has no greatest, a loop of an assertion adds none, a class past ASCII gives
+    the lengths of its UTF-8, and a class of bytes gives one.
+  - Mutations: 28, all CAUGHT, each by a failing test, against `zig build test-regex`.
+    - The tally: a sum that keeps the first least, or the greater greatest; a choice that takes
+      the greater least, or the lesser greatest; an optional fragment that keeps its least; a
+      loop with a greatest, a loop of no byte with none, and `*` with a least; the lengths of
+      a closed alternative, and of the alternatives before the last; a class's node with the
+      lengths of its first sequence, a node of bytes of two lengths, and a class of many ranges
+      of one byte; a group and a copy of one byte; and a program with no least.
+    - The searcher: lengths for a pattern with a loop, for one that only `$` holds, and for one
+      that only `^` holds; the claim's switch not read; the compare moved by one, and with no
+      least; and `is_match`, `find` and a count that do not ask.
+    - The walk: a limit one level short, and lengths past the limit.
 
   Claim R4 takes two more rules, for the suffix rows of the third group (decision 86 as amended):
   - A literal that ends every match is taken where the part before it takes one count of bytes,

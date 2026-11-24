@@ -203,3 +203,67 @@ test "compile_comptime keeps every name in the binary" {
     try testing.expectEqual(@as(usize, named_groups), program.names.len);
     try testing.expectEqual(@as(?u32, 2), program.group_index("month"));
 }
+
+/// Instructions enough for `\p{L}`, both ways.
+const large_storage_len = 8192;
+threadlocal var large_storage: [large_storage_len]Instruction = undefined;
+
+/// The letters of the alphabet that `many_literals` draws its words from.
+const letters = 'z' - 'a' + 1;
+
+/// An alternation of two-letter words, one more than `literal_set_max`, which compiles as a
+/// trie: `aa|ab|ac` and so on.
+const many_literals = many: {
+    const count = constants.literal_set_max + 1;
+    const word = "aa|";
+    var text: [count * word.len]u8 = undefined;
+    for (0..count) |index| {
+        const letter_pair = [_]u8{ 'a' + index / letters, 'a' + index % letters, '|' };
+        @memcpy(text[index * word.len ..][0..word.len], &letter_pair);
+    }
+    // The last word has no `|` after it.
+    const frozen = text[0 .. text.len - 1].*;
+    break :many frozen;
+};
+
+test "a program keeps the least and the greatest length of its matches" {
+    const unbounded = program_file.match_len_unbounded;
+    const cases = [_]struct { pattern: []const u8, least: u32, most: u32 }{
+        .{ .pattern = "", .least = 0, .most = 0 },
+        .{ .pattern = "abc", .least = 3, .most = 3 },
+        .{ .pattern = "^a{2,5}$", .least = 2, .most = 5 },
+        .{ .pattern = "^((aaa)|(aa))$", .least = 2, .most = 3 },
+        .{ .pattern = "a?b?c?", .least = 0, .most = 3 },
+        .{ .pattern = "(?:a|bcd|)x", .least = 1, .most = 4 },
+        .{ .pattern = "\\bab\\b|\\Bx", .least = 1, .most = 2 },
+        .{ .pattern = "a|bc|def", .least = 1, .most = 3 },
+        .{ .pattern = "(a)(?:b{0,3})", .least = 1, .most = 4 },
+        // A loop that takes a byte has no greatest length, and one that takes none adds none.
+        .{ .pattern = "a*", .least = 0, .most = unbounded },
+        .{ .pattern = "ab+c", .least = 3, .most = unbounded },
+        .{ .pattern = "a{2,}", .least = 2, .most = unbounded },
+        .{ .pattern = "(?:ab)*?c", .least = 1, .most = unbounded },
+        .{ .pattern = "a(?:\\b)*b", .least = 2, .most = 2 },
+        // A scalar value takes one to four bytes of UTF-8.
+        .{ .pattern = "^.{3}$", .least = 3, .most = 12 },
+        .{ .pattern = "[a\xC3\xA9]{2}", .least = 2, .most = 4 },
+        .{ .pattern = "\xE2\x82\xAC", .least = 3, .most = 3 },
+        .{ .pattern = "[\xC3\xA9\xE2\x82\xAC]", .least = 2, .most = 3 },
+        // A class too large for a node of ranges: its lengths are those of any scalar value.
+        .{ .pattern = "\\p{L}", .least = 1, .most = 4 },
+    };
+    for (cases) |case| {
+        const program = try compiler.compile(case.pattern, .{}, &large_storage);
+        try testing.expectEqual(case.least, program.match_len_min);
+        try testing.expectEqual(case.most, program.match_len_max);
+    }
+    // In bytes, `.` and a class take one byte each: a class of two ranges, and one of six, which
+    // is a node.
+    const bytes = try compiler.compile("^.{249}[^a][acegik]$", .{ .encoding = .bytes }, &large_storage);
+    try testing.expectEqual(@as(u32, 251), bytes.match_len_min);
+    try testing.expectEqual(@as(u32, 251), bytes.match_len_max);
+    // An alternation of many literals is a trie, which keeps no lengths.
+    const trie = try compiler.compile(&many_literals, .{}, &large_storage);
+    try testing.expectEqual(@as(u32, 0), trie.match_len_min);
+    try testing.expectEqual(unbounded, trie.match_len_max);
+}

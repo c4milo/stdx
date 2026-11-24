@@ -99,6 +99,7 @@ pub const Matches = struct {
 /// DFA finds the end alone, with no read back to the start. Otherwise `find` finds the match.
 fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
     assert(counts_ends(searcher));
+    if (searcher.excludes(haystack.len)) return null;
     if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
         switch (searcher.forward.scan_forward(haystack, from, false)) {
             .gave_up => searcher.give_ups += 1,
@@ -111,8 +112,8 @@ fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
 }
 
 /// Claim R10: true where a count finds each match's end alone. A literal's claims find the
-/// match with no DFA, claims R4, R12 and R14 find its start first, and claim R13 may read no
-/// text, so their counts take `find`.
+/// match with no DFA, and claims R4, R12 and R14 find its start first, so their counts take
+/// `find`.
 fn counts_ends(searcher: *const Searcher) bool {
-    return searcher.count_ends and searcher.exact == null and !searcher.exact_set and searcher.suffix == null and !searcher.by_edge and searcher.inner == null;
+    return searcher.count_ends and searcher.exact == null and !searcher.exact_set and searcher.suffix == null and !searcher.at_end and searcher.inner == null;
 }

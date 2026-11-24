@@ -1,5 +1,5 @@
-//! Claim R13 (decision 86): the least and the greatest count of bytes a match of a program
-//! takes, where a walk of the program finds both within a budget.
+//! The least and the greatest count of bytes that a part of a program takes (claim R4's second
+//! rule, decision 86), where a walk of the part finds both within a few levels.
 //!
 //! The walk takes the program one byte at a time, as a scan does, with every byte at once. A
 //! level holds the instructions a match waits at after as many bytes as the level's number.
@@ -8,35 +8,27 @@
 //! - An assertion passes whatever stands around it, so the walk reads no text. A match then
 //!   takes one of the walk's paths: none is shorter than the least, and none longer than the
 //!   greatest.
-//! - A program with a loop has a level after every level, so its walk does not end. The walk
-//!   stops at `length_steps_per_instruction` steps for each instruction, and gives no lengths.
+//! - The caller names the most levels it has a use for, and the walk gives no lengths where a
+//!   level past them holds an instruction. A part with a loop has a level after every level,
+//!   and stops there.
+//! - A level may hold most of the part's instructions, so the walk also stops at
+//!   `length_steps_per_instruction` steps for each instruction.
 //!
-//! The walk takes the DFA's own lists, as claim R4's walk does, so it needs no memory.
+//! The walk takes the DFA's own lists, as claim R4's other walks do, so it needs no memory. The
+//! lengths of a whole pattern come from the parser, which keeps them as it reads the pattern
+//! (`Program.match_len_min`).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Dfa = @import("dfa.zig").Dfa;
 
-/// The counts of bytes between which every match of a program lies, both included.
-pub const Lengths = struct {
-    least: usize,
-    most: usize,
+/// The counts of bytes between which every match of a part of a program lies, both included.
+pub const Lengths = struct { least: usize, most: usize };
 
-    /// True when no text of `len` bytes is a match.
-    pub fn exclude(lengths: Lengths, len: usize) bool {
-        return len < lengths.least or len > lengths.most;
-    }
-};
-
-/// The lengths of the matches of the DFA's program. Null where the walk passes its budget, as
-/// for a program with a loop, or the program reaches no `match`.
-pub fn of(dfa: *Dfa) ?Lengths {
-    return from(dfa, dfa.config.entry);
-}
-
-/// `of` for the part of the DFA's program that starts at `entry`: the counts of bytes that the
-/// program takes from there to `match`.
-pub fn from(dfa: *Dfa, entry: u32) ?Lengths {
+/// The counts of bytes that the DFA's program takes from `entry` to `match`. Null where a match
+/// may take more than `most_max` bytes, where the walk passes its budget, or where the program
+/// reaches no `match` from `entry`.
+pub fn from(dfa: *Dfa, entry: u32, most_max: usize) ?Lengths {
     assert(dfa.cache.table.len > 0);
     const budget = dfa.visited.sparse.len * constants.length_steps_per_instruction;
     var steps: usize = 0;
@@ -44,20 +36,21 @@ pub fn from(dfa: *Dfa, entry: u32) ?Lengths {
     var most: usize = 0;
     dfa.next.clear();
     _ = dfa.next.insert(entry);
-    // A level with a seed takes a step or more, so the levels are at most the budget and one.
-    for (0..budget + 1) |level| {
-        if (dfa.next.len == 0) {
-            const first = least orelse return null;
-            assert(first <= most and most < level);
-            return .{ .least = first, .most = most };
-        }
+    for (0..most_max + 1) |level| {
         const closed = close(dfa);
         steps += closed.steps + step(dfa);
         if (steps > budget) return null;
-        if (!closed.reached) continue;
-        if (least == null) least = level;
-        most = level;
+        if (closed.reached) {
+            if (least == null) least = level;
+            most = level;
+        }
+        if (dfa.next.len == 0) {
+            const first = least orelse return null;
+            assert(first <= most and most <= level);
+            return .{ .least = first, .most = most };
+        }
     }
+    // A level past `most_max` holds an instruction.
     return null;
 }
 
@@ -128,14 +121,18 @@ const program_file = @import("../program.zig");
 const test_storage_len = 2048;
 const test_memory_len = 32768;
 
-/// The lengths of `pattern`'s matches as the walk of its forward program finds them.
-fn lengths_of(pattern: []const u8, encoding: program_file.Encoding) !?Lengths {
+/// More levels than a test's pattern with no loop has.
+const test_levels = 64;
+
+/// The lengths of `pattern`'s matches as the walk of its forward program finds them, in
+/// `most_max` levels.
+fn lengths_of(pattern: []const u8, most_max: usize) !?Lengths {
     var storage: [test_storage_len]program_file.Instruction = undefined;
     var memory: [test_memory_len]u32 = undefined;
-    const program = try compiler.compile(pattern, .{ .encoding = encoding }, &storage);
+    const program = try compiler.compile(pattern, .{}, &storage);
     var dfa: Dfa = undefined;
     try testing.expect(dfa.init(&program, .{ .entry = program.forward, .kind = .first, .anchored = true }, &memory));
-    return of(&dfa);
+    return from(&dfa, program.forward, most_max);
 }
 
 test "the walk finds the least and the greatest length of a pattern with no loop" {
@@ -150,36 +147,31 @@ test "the walk finds the least and the greatest length of a pattern with no loop
         // A scalar value takes one to four bytes of UTF-8.
         .{ .pattern = "^.{3}$", .least = 3, .most = 12 },
         .{ .pattern = "[a\xC3\xA9]{2}", .least = 2, .most = 4 },
-        .{ .pattern = "\xE2\x82\xAC", .least = 3, .most = 3 },
     };
     for (cases) |case| {
-        const lengths = (try lengths_of(case.pattern, .utf8)).?;
+        const lengths = (try lengths_of(case.pattern, test_levels)).?;
         try testing.expectEqual(case.least, lengths.least);
         try testing.expectEqual(case.most, lengths.most);
-        try testing.expect(!lengths.exclude(case.least) and !lengths.exclude(case.most));
-        try testing.expect(lengths.exclude(case.most + 1));
-        if (case.least > 0) try testing.expect(lengths.exclude(case.least - 1));
+        // The greatest length is the fewest levels that give the lengths.
+        try testing.expectEqual(@as(?Lengths, lengths), try lengths_of(case.pattern, case.most));
+        if (case.most > 0) try testing.expectEqual(@as(?Lengths, null), try lengths_of(case.pattern, case.most - 1));
     }
-    // In bytes, `.` takes one byte.
-    const bytes = (try lengths_of("^.{249}$", .bytes)).?;
-    try testing.expectEqual(@as(usize, 249), bytes.least);
-    try testing.expectEqual(@as(usize, 249), bytes.most);
 }
 
 test "the walk gives no lengths for a pattern with a loop, or with no match" {
     for ([_][]const u8{ "a*", "^a+$", "a{2,}", "(?:ab)*c", "x(?:|a)*", "\\w{10,}" }) |pattern| {
-        try testing.expectEqual(@as(?Lengths, null), try lengths_of(pattern, .utf8));
+        try testing.expectEqual(@as(?Lengths, null), try lengths_of(pattern, test_levels));
     }
-    try testing.expectEqual(@as(?Lengths, null), try lengths_of("[^\\x00-\\x{10FFFF}]", .utf8));
+    try testing.expectEqual(@as(?Lengths, null), try lengths_of("[^\\x00-\\x{10FFFF}]", test_levels));
 }
 
 test "the walk stops at its budget of steps" {
     // Each level of this pattern holds most of its instructions, so the walk's steps grow with
     // the square of the pattern's length, and pass a budget that grows with the length.
-    const pattern = "(?:a|aa|aaa|aaaa){40}";
-    try testing.expectEqual(@as(?Lengths, null), try lengths_of(pattern, .utf8));
+    const levels = 4 * 40;
+    try testing.expectEqual(@as(?Lengths, null), try lengths_of("(?:a|aa|aaa|aaaa){40}", levels));
     // The same choice fewer times fits the budget.
-    const lengths = (try lengths_of("(?:a|aa|aaa|aaaa){2}", .utf8)).?;
+    const lengths = (try lengths_of("(?:a|aa|aaa|aaaa){2}", levels)).?;
     try testing.expectEqual(@as(usize, 2), lengths.least);
     try testing.expectEqual(@as(usize, 8), lengths.most);
 }

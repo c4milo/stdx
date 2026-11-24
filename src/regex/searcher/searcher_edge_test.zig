@@ -204,20 +204,26 @@ const whole_patterns = [_][]const u8{
 /// Patterns that hold a loop, or whose match may be a part of the text.
 const no_whole_patterns = [_][]const u8{ "^a+$", "^ab", "ab$", "(?m)^ab$", "^a$|^b$", "^[ab]*x$", "ab" };
 
+/// True when the fixture's searcher refuses a text of some length by claim R13.
+fn refuses_by_length(fixture: *const Fixture) bool {
+    return fixture.searcher.len_span != std.math.maxInt(usize);
+}
+
 test "a searcher whose every match is the whole text refuses a text by its length, and agrees" {
     var fixture: Fixture = .{};
     var generator = codec.testing.split.Generator.init(0x7E57F);
     for (whole_patterns) |pattern| {
         try fixture.init(pattern, 0);
         const sizes = searcher_test.cache_sizes(&fixture.program);
-        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
+        // With no cache the matcher answers alone, and the lengths still refuse a text.
+        for ([_]usize{ sizes.most, sizes.least, sizes.none }) |cache_words| {
             try fixture.init(pattern, cache_words);
-            try testing.expect(fixture.searcher.lengths != null and fixture.searcher.by_edge);
+            try testing.expect(refuses_by_length(&fixture));
             try testing.expect(!fixture.searcher.at_end);
             try expect_agree_on_texts(&fixture, &generator);
         }
         try fixture.init_claims(pattern, .{ .length = false }, sizes.most);
-        try testing.expect(fixture.searcher.lengths == null and !fixture.searcher.by_edge);
+        try testing.expect(!refuses_by_length(&fixture));
         try expect_agree_on_texts(&fixture, &generator);
     }
 }
@@ -227,7 +233,7 @@ test "a searcher keeps no lengths for a pattern with a loop, or one that a part 
     var generator = codec.testing.split.Generator.init(0x7E580);
     for (no_whole_patterns) |pattern| {
         try fixture.init(pattern, searcher_test.cache_words_max);
-        try testing.expect(fixture.searcher.lengths == null);
+        try testing.expect(!refuses_by_length(&fixture));
         try expect_agree_on_texts(&fixture, &generator);
     }
 }

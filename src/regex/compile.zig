@@ -40,6 +40,8 @@ const Pass = struct {
     entry: u32,
     group_count: u32,
     names: []const GroupName,
+    /// The counts of bytes between which each match of the pattern lies.
+    lengths: fragment.Lengths,
 };
 
 /// Reads the pattern into the builder in one direction, and keeps its names in `names`. The
@@ -63,7 +65,7 @@ fn trie_pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, directio
     const whole = try builder.capture(body, 0);
     const end = try builder.emit(.{ .kind = .match });
     builder.patch(whole.holes, end);
-    return .{ .entry = whole.entry, .group_count = 1, .names = &.{} };
+    return .{ .entry = whole.entry, .group_count = 1, .names = &.{}, .lengths = whole.lengths };
 }
 
 /// True when the pattern holds `(?`, which a named group starts with. `std.mem.indexOf` would
@@ -122,8 +124,8 @@ fn pass_in(builder: *Builder, pattern: []const u8, start: syntax.Start, directio
     const whole = try builder.capture(try parser.parse(), 0);
     const end = try builder.emit(.{ .kind = .match });
     builder.patch(whole.holes, end);
-    const read = keep.read orelse return .{ .entry = whole.entry, .group_count = parser.group_count, .names = &.{} };
-    return .{ .entry = whole.entry, .group_count = parser.group_count, .names = try keep_names(keep.kept, read, pattern) };
+    const read = keep.read orelse return .{ .entry = whole.entry, .group_count = parser.group_count, .names = &.{}, .lengths = whole.lengths };
+    return .{ .entry = whole.entry, .group_count = parser.group_count, .names = try keep_names(keep.kept, read, pattern), .lengths = whole.lengths };
 }
 
 /// Copies the names the parser read into `names`: none where the caller gave no storage, and
@@ -184,6 +186,8 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         .forward = forward.entry,
         .reverse = reverse_entry,
         .group_count = forward.group_count,
+        .match_len_min = forward.lengths.least,
+        .match_len_max = forward.lengths.most,
         .reads_ahead = looks.ahead,
         .has_looks = looks.any,
         .encoding = options.encoding,

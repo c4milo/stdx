@@ -78,8 +78,8 @@ fn apart(dfa: *Dfa, suffix: *const Suffix) bool {
 /// The second rule: the reverse program after the literal takes one count of bytes, at most
 /// `suffix_before_len_max`.
 fn short_fixed(dfa: *Dfa, before: u32) bool {
-    const lengths = dfa_length.from(dfa, before) orelse return false;
-    return lengths.least == lengths.most and lengths.most <= constants.suffix_before_len_max;
+    const lengths = dfa_length.from(dfa, before, constants.suffix_before_len_max) orelse return false;
+    return lengths.least == lengths.most;
 }
 
 /// The third rule, for the literal whole, or for the literal past its first run. A separator of
