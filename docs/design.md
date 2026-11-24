@@ -10108,8 +10108,8 @@ to 12 are reordered and nothing else changes.
        starts no match before a continuation byte, so this step needs that a program of UTF-8
        takes whole sequences.
     5. `Literal.find` gives `Scans.place`.
-    6. The other claims, each over `Search.lean`: R2, R3 and R5 skip to a place that starts
-       every match; R1 and R9 skip bytes that change no state; and R10 counts by ends.
+    6. The other claims: R1, R7 and R9 change how a DFA reads its bytes, and R6 and R8 find
+       the capture groups. Each needs the model of step 3 or of step 4.
 
   **Part 22r, its second part built: the rules of the widened claim R4, and claims R11 to R14
   (decision 86, part 22q).**
@@ -10145,6 +10145,32 @@ to 12 are reordered and nothing else changes.
     the greatest length as out.
   - Not modelled: the walks that judge each rule on a program (`short_fixed`, `separated` and
     the walk of `dfa_inner.zig`), and the second start of the reverse DFA.
+
+  **Part 22r, its third part built: claims R2, R3, R5 and R10 in Lean (decision 86).**
+  **Check:** as the second part's.
+
+  **Check passed, part 22r, its third part, 2026-11-24.** Lean 4.34.0 on x86-64 Linux 6.18, in
+  a cloud container.
+  - `lake build` exits 0. `Stdx/Axioms.lean` pins 7 more theorems, 32 for part 22r.
+  - `Stdx/Regex/Prefix.lean`: where every match starts at a place of a literal, or of one
+    literal of a set, the answer from the first place is the answer from the search's first
+    offset (`answer_from_place`), and a text with no place holds no match (`answer_none`).
+    Claims R2, R3 and R5 rest on both. `byExact_answer`: a pattern that is its literal needs
+    no DFA.
+  - `gap_of_byte`, in the same file: any byte of a literal stands from each place of the
+    literal up to the next. The second part took that as a hypothesis, `Gap`. So claim R4's
+    first rule holds for any byte of the literal that the part before it never takes, and
+    the loop needs no forward scan there either.
+  - `Stdx/Regex/Count.lean`: `nextSpan` is a turn of `Matches.next`, and `nextEnd` a turn of
+    the count by ends. `count_eq`: claim R10's count is the count of the matches that `next`
+    gives. It takes the forward DFA's end as the end of the searcher's answer, which step 4
+    owes.
+  - Five mutations, each against `lake build`, each CAUGHT: `byExact` giving an end one byte
+    late; `StartsWith` leaving out an empty match; `byte_between` leaving out a place's
+    first byte; the count by ends searching again from the same offset; and the count by
+    ends keeping an empty match that touches the match before it.
+  - Not modelled: a set of literals and nothing else, whose match is the first literal of
+    the set that stands at the first place.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 

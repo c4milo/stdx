@@ -8,4 +8,6 @@ import Stdx.Regex.Suffix
 import Stdx.Regex.Required
 import Stdx.Regex.Inner
 import Stdx.Regex.Edges
+import Stdx.Regex.Prefix
+import Stdx.Regex.Count
 import Stdx.Axioms

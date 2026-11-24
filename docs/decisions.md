@@ -6343,6 +6343,9 @@ last part lists what still waits on a ruling.
         may take any count of bytes.
       - `Stdx/Regex/Edges.lean` holds claims R11, R12 and R13: `atStart_answer`,
         `fromEnd_answer`, `excluded_answer`, and `excludes_iff` for the one compare.
+      - `Stdx/Regex/Prefix.lean` holds the skip of claims R2, R3 and R5 to a literal that
+        starts every match, and `gap_of_byte`: claim R4's first rule holds for any byte of
+        the literal. `Stdx/Regex/Count.lean` holds claim R10: `count_eq`.
       - Each proof is of the Lean definitions, and no vector file holds the Zig code to them
         yet.
     - Not proved: the parser, the builder, that the reverse program takes each match read
