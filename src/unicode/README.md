@@ -1,7 +1,7 @@
 # stdx.unicode
 
 `stdx.unicode` holds Unicode 17.0.0's general categories, scripts and simple case folding
-([decision 86](../../docs/decisions.md)). [`stdx.unicode.utf8`](../utf8/README.md) is UTF-8.
+([decision 86](../../docs/decisions.md)). [`stdx.unicode.utf8`](utf8/README.md) is UTF-8.
 
 ## Use
 
@@ -26,7 +26,7 @@ that `zig build test` builds against this tree and runs.
 - `simple_fold(scalar)`: the next code point of a code point's case orbit. `images` gives the next
   code points of a range's.
 - `version`: the version of the Unicode Character Database, "17.0.0".
-- `utf8`: the module [`stdx.unicode.utf8`](../utf8/README.md).
+- `utf8`: the module [`stdx.unicode.utf8`](utf8/README.md).
 
 The tables come from the data files of Unicode 17.0.0 in
 [`tools/unicode/ucd`](../../tools/unicode/ucd). `zig build test` fails when the committed tables

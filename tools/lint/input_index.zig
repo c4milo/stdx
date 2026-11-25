@@ -19,14 +19,14 @@
 //! so its length is not a value the input chose. `test` blocks are not read.
 //!
 //! Decision 16 lets the fast paths it names leave the checked reader and writer. Each lives in a
-//! file of its own, which this rule does not read: `src/deflate/fast/fast.zig`, the DEFLATE symbol
-//! loop and match copy of design §8 step 7, `src/deflate/fast/fast_lengths.zig`, a dynamic block's
-//! code lengths of that step, `src/zstd/fast_sequences/fast_sequences.zig`,
-//! `src/zstd/fast_literals.zig` and `src/zstd/fast_reader.zig`, the Zstandard sequence execution,
-//! literal decoding and backward stream of step 11, and the files of `src/brotli/decoder/decoder_fast/`
+//! file of its own, which this rule does not read: `src/compress/deflate/fast/fast.zig`, the DEFLATE symbol
+//! loop and match copy of design §8 step 7, `src/compress/deflate/fast/fast_lengths.zig`, a dynamic block's
+//! code lengths of that step, `src/compress/zstd/fast_sequences/fast_sequences.zig`,
+//! `src/compress/zstd/fast_literals.zig` and `src/compress/zstd/fast_reader.zig`, the Zstandard sequence execution,
+//! literal decoding and backward stream of step 11, and the files of `src/compress/brotli/decoder/decoder_fast/`
 //! but its test, the brotli command loop, its literal runs, its copies and the header's code
-//! lengths of step 12, and `src/base64/fast.zig`, base 64's whole groups and whole quanta
-//! (decision 68), with its vector steps in `src/base64/fast_vector.zig`.
+//! lengths of step 12, and `src/encoding/base64/fast.zig`, base 64's whole groups and whole quanta
+//! (decision 68), with its vector steps in `src/encoding/base64/fast_vector.zig`.
 //! A fast path's margins, checked once per iteration, bound every index it takes, and ReleaseSafe's
 //! bounds checks stay on inside it.
 //!
@@ -61,21 +61,21 @@ pub const scope: Scope = .{
         // The source the adapters' tests read: its octets are the test's own (decision 56).
         "src/codec/io_parts.zig",
         // Decision 16's fast paths.
-        "src/deflate/fast/fast.zig",
-        "src/deflate/fast/fast_lengths.zig",
-        "src/zstd/fast_sequences/fast_sequences.zig",
-        "src/zstd/fast_literals.zig",
-        "src/zstd/fast_reader.zig",
-        "src/base64/fast.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_literals.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_command.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_copy.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_lengths.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_chain.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_aarch64.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_aarch64_template.zig",
-        "src/brotli/decoder/decoder_fast/decoder_fast_aarch64_template_distance.zig",
+        "src/compress/deflate/fast/fast.zig",
+        "src/compress/deflate/fast/fast_lengths.zig",
+        "src/compress/zstd/fast_sequences/fast_sequences.zig",
+        "src/compress/zstd/fast_literals.zig",
+        "src/compress/zstd/fast_reader.zig",
+        "src/encoding/base64/fast.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_literals.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_command.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_copy.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_lengths.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_chain.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_aarch64.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_aarch64_template.zig",
+        "src/compress/brotli/decoder/decoder_fast/decoder_fast_aarch64_template_distance.zig",
     },
 };
 

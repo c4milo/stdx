@@ -8,7 +8,7 @@ row runs in the same job, and a result is stdx's speed over another library's sp
 Each module's README shows its chart ([decision 88](decisions.md)). This page shows every chart,
 says how to read them, and lists the verdicts of each panel.
 It also says how to run each benchmark again. `tools/charts.py` draws the charts from the reports
-in [`bench/results/`](../bench/results/) that [`bench/charts.txt`](../bench/charts.txt) names. It
+in [`bench/results/`](../bench/results) that [`bench/charts.txt`](../bench/charts.txt) names. It
 writes the lists below from the same numbers, and `python3 tools/charts.py --check` fails where a
 list differs. Nobody writes a count on this page by hand.
 

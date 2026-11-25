@@ -50,7 +50,7 @@ case "$STUB_CASE" in
     report
     ;;
   build)
-    echo "src/base64/base64.zig:1:1: error: a compile error"
+    echo "src/encoding/base64/base64.zig:1:1: error: a compile error"
     exit 1
     ;;
 esac

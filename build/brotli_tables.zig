@@ -1,12 +1,12 @@
 //! RFC 7932's appendices as the brotli module's data (design §8 step 12, claim B1).
-//! `zig build brotli-tables` writes src/brotli/dictionary.bin and src/brotli/rfc_tables.zig
+//! `zig build brotli-tables` writes src/compress/brotli/dictionary.bin and src/compress/brotli/rfc_tables.zig
 //! from docs/rfcs/rfc7932.txt with tools/brotli_tables.zig, and `zig build brotli-tables-check`,
 //! part of `zig build test`, requires the committed files to equal what the tool writes.
 const std = @import("std");
 
 const rfc = "docs/rfcs/rfc7932.txt";
-const dictionary = "src/brotli/dictionary.bin";
-const rfc_tables = "src/brotli/rfc_tables.zig";
+const dictionary = "src/compress/brotli/dictionary.bin";
+const rfc_tables = "src/compress/brotli/rfc_tables.zig";
 
 pub fn add(b: *std.Build, tool_module: *std.Build.Module) *std.Build.Step {
     const tool = b.addExecutable(.{ .name = "brotli_tables", .root_module = tool_module });

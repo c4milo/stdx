@@ -1,4 +1,4 @@
-//! The check of docs/design.md §8 step 0, and the check behind invariant 14: `src/deflate/` cannot
+//! The check of docs/design.md §8 step 0, and the check behind invariant 14: `src/compress/deflate/` cannot
 //! import a wrapper, another codec, `json`, a package, or the oracles of tools/oracle/.
 //!
 //! A lint rule over the source would only check what build/modules.zig declares. This checks what
@@ -31,7 +31,7 @@ const deflate_imports = [_]Import{
 };
 
 /// Every module name `deflate` must not be able to import. Each gets a fixture and each must fail.
-const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
+const forbidden = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
 
 /// The exit status of a usage error.
 const usage_exit_status = 2;
@@ -82,11 +82,11 @@ pub fn main(init: std.process.Init) !void {
         };
         const outcome = try compile(arena, init.io, zig_exe, src_root, path);
         if (outcome == .rejected) {
-            std.debug.print("graph-check: src/deflate/ cannot import '{s}'\n", .{module_name});
+            std.debug.print("graph-check: src/compress/deflate/ cannot import '{s}'\n", .{module_name});
             continue;
         }
         std.debug.print(
-            "graph-check FAILED: src/deflate/ compiled an @import(\"{s}\").\n" ++
+            "graph-check FAILED: src/compress/deflate/ compiled an @import(\"{s}\").\n" ++
                 "  build/modules.zig has given deflate a module design §3 does not." ++
                 " See docs/invariants.md INV-14.\n",
             .{module_name},
@@ -137,7 +137,7 @@ test "the forbidden list names every module of the graph deflate does not import
     // docs/design.md §3: every library module but `deflate` itself, `codec` and `platform`, then
     // pepegrillo and the oracle bindings of tools/oracle/, which only tools and benchmarks may
     // import. `stdx`, the root, has no fixture: no module imports it.
-    const expected = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
+    const expected = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {
         try std.testing.expectEqualStrings(want, got);

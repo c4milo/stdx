@@ -152,7 +152,7 @@ test "markdown reads every .md file and no other" {
     try testing.expect(config.scope.applies("docs/design.md"));
     try testing.expect(config.scope.applies("README.md"));
     try testing.expect(config.scope.applies("./CLAUDE.md"));
-    try testing.expect(!config.scope.applies("src/gzip/gzip.zig"));
+    try testing.expect(!config.scope.applies("src/compress/gzip/gzip.zig"));
     try testing.expect(!config.scope.applies("docs/design.txt"));
     try harness.expect_messages(try findings_of(arena, "docs/design.txt", failing_fixture), &.{});
 }

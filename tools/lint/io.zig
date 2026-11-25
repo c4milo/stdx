@@ -154,14 +154,14 @@ const failing_fixture: [:0]const u8 =
 test "io passes a file that decodes octets the caller read" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/stored.zig", passing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/stored.zig", passing_fixture);
     try harness.expect_messages(findings, &.{});
 }
 
 test "io flags the filesystem, a thread and a print" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/stored.zig", failing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/stored.zig", failing_fixture);
     try harness.expect_messages(findings, &.{
         "reference to std.fs.cwd: " ++ reason,
         "reference to std.Thread.spawn: " ++ reason,
@@ -173,7 +173,7 @@ test "io flags the filesystem, a thread and a print" {
 test "io flags every prefix on its list, in a parameter type as well as a body" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/zstd/zstd.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/zstd/zstd.zig",
         \\fn send(socket: std.posix.socket_t, file: std.fs.File, count: u32) void {}
         \\const reader = std.Io.File;
         \\const argv = std.process.args;
@@ -229,7 +229,7 @@ test "io refuses getauxval outside platform, which holds every read of the CPU" 
 test "io allows std.Io.Reader, std.Io.Writer and std.Io.Limit, and nothing past them" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/io.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/io.zig",
         \\const Reader = std.Io.Reader;
         \\const Writer = std.Io.Writer;
         \\const Limit = std.Io.Limit;
@@ -251,7 +251,7 @@ test "io allows std.Io.Reader, std.Io.Writer and std.Io.Limit, and nothing past 
 test "io does not flag a name that merely starts with the same letters" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/zstd/zstd.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/zstd/zstd.zig",
         \\const bytes = constants.std_posix_bytes;
         \\const hash = std.crypto.hash.sha2.Sha256;
         \\const order = std.mem.readInt(u32, bytes[0..4], .big);
@@ -264,7 +264,7 @@ test "io reads src/ and nothing outside it" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(config.scope.applies("src/zstd/zstd.zig"));
+    try testing.expect(config.scope.applies("src/compress/zstd/zstd.zig"));
     try testing.expect(config.scope.applies("./src/codec/deep/reader.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("build/modules.zig"));
@@ -289,7 +289,8 @@ test "io refuses sysctlbyname and getauxval in every module but platform" {
     var modules_read: usize = 0;
     for (module_graph.expected_graph) |module| {
         if (std.mem.eql(u8, module.name, "platform")) continue;
-        const path = try std.fmt.allocPrint(arena, "src/{s}/{s}.zig", .{ module.name, module.name });
+        const directory = module.directory orelse module.name;
+        const path = try std.fmt.allocPrint(arena, "src/{s}/{s}.zig", .{ directory, module.name });
         try harness.expect_messages(try findings_of(arena, path, syscall_fixture), &.{
             "reference to std.c.sysctlbyname: " ++ reason,
             "reference to std.os.linux.getauxval: " ++ reason,
@@ -302,7 +303,7 @@ test "io refuses sysctlbyname and getauxval in every module but platform" {
     }
     try testing.expectEqual(module_graph.expected_graph.len - 1, modules_read);
     // A file named for the platform outside its directory is another module's.
-    const outside = try findings_of(arena, "src/json/platform.zig", syscall_fixture);
+    const outside = try findings_of(arena, "src/encoding/json/platform.zig", syscall_fixture);
     try testing.expectEqualStrings("reference to std.c.sysctlbyname: " ++ reason, outside[0].message);
 }
 

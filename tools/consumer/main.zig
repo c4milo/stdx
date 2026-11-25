@@ -113,7 +113,7 @@ fn crc32_of(features: stdx.platform.CpuFeatures, bytes: []const u8) u32 {
 
 /// Writes `bytes` as base 64 into `output`, and returns the text.
 fn base64_text(features: stdx.platform.CpuFeatures, bytes: []const u8, output: []u8) ![]u8 {
-    var encoder: stdx.base64.Encoder = undefined;
+    var encoder: stdx.encoding.base64.Encoder = undefined;
     encoder.init(.{}, features);
     const len = try encoder.encode_all(bytes, output);
     return output[0..len];
@@ -121,7 +121,7 @@ fn base64_text(features: stdx.platform.CpuFeatures, bytes: []const u8, output: [
 
 /// Decodes the base 64 `letters` into `output`, in either alphabet, and returns the bytes.
 fn base64_bytes(features: stdx.platform.CpuFeatures, letters: []const u8, output: []u8) ![]u8 {
-    var decoder: stdx.base64.Decoder = undefined;
+    var decoder: stdx.encoding.base64.Decoder = undefined;
     decoder.init(.{}, features);
     const len = try decoder.decode_all(letters, output);
     return output[0..len];
@@ -129,7 +129,7 @@ fn base64_bytes(features: stdx.platform.CpuFeatures, letters: []const u8, output
 
 /// Writes the JSON text `{"code":<code>,"message":"<message>"}` into `output`, and returns it.
 fn write_event(features: stdx.platform.CpuFeatures, code: u64, message: []const u8, output: []u8) ![]const u8 {
-    var writer = stdx.json.TextWriter.init(output, .text, features);
+    var writer = stdx.encoding.json.TextWriter.init(output, .text, features);
     try writer.begin_object();
     try writer.member_unsigned("code", code);
     try writer.member_string("message", message);
@@ -140,7 +140,7 @@ fn write_event(features: stdx.platform.CpuFeatures, code: u64, message: []const 
 /// The string that the first member `name` with a string for its value holds in the JSON text
 /// `json`, or null. `storage` takes the bytes of a string that the text escapes.
 fn string_member(features: stdx.platform.CpuFeatures, json: []const u8, name: []const u8, storage: []u8) !?[]const u8 {
-    var reader = stdx.json.TextReader.init(json, storage, .text, features);
+    var reader = stdx.encoding.json.TextReader.init(json, storage, .text, features);
     if (!reader.next_text()) return null;
     var named = false;
     while (try reader.next()) |item| {

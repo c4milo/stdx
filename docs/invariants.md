@@ -86,7 +86,7 @@ check lands with its step.
   octets; the SHA-256 of every encoder output over the corpora is committed and must match on macOS
   arm64 and Linux x86_64, in Debug and ReleaseSafe. Steps 5 and 9. The `json` module's round trip
   requires the same octets and tokens under `platform.CpuFeatures.none()`, `target()` and `detect()`
-  (decision 30, `src/json/round_trip_test.zig`).
+  (decision 30, `src/encoding/json/round_trip_test.zig`).
 - **Violation.** An encoder that ends a block when its input buffer runs dry, so a caller feeding
   one octet at a time gets different octets.
 
@@ -228,7 +228,7 @@ check lands with its step.
   codecs `platform`, and with it the probe, so a lint rule refuses the calls.
 - **Check.** Lint rule `tools/lint/module_graph.zig` pins the graph; `zig build graph-check`
   compiles fixtures that import a wrapper, another codec, `json`, `base64`, `regex`, `utf8`,
-  `unicode`, a package and the oracle bindings from inside `src/deflate/`, and requires each
+  `unicode`, a package and the oracle bindings from inside `src/compress/deflate/`, and requires each
   compile to fail, beside controls that import `codec` and `platform` and must compile. A module
   with no fixture fails the check: until step 22 part 22k, `base64` and `regex` had none, and a
   compile of a file that is not there passed as a refusal. Lint rule `tools/lint/cpu_probe.zig`

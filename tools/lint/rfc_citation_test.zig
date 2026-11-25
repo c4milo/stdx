@@ -25,7 +25,7 @@ const uncited_fixture: [:0]const u8 =
 ;
 
 test "rfc-citation passes a citation above, trailing, and above a multi-line statement" {
-    try expect_findings("src/deflate/block.zig",
+    try expect_findings("src/compress/deflate/block.zig",
         \\pub fn check(header: Header, length: u64) !void {
         \\    // RFC 1951 §3.2.3: BTYPE 11 is reserved and is an error.
         \\    if (header.block_type == 3) return error.ReservedBlockType;
@@ -56,11 +56,11 @@ test "rfc-citation passes a citation above, trailing, and above a multi-line sta
 }
 
 test "rfc-citation flags a branch with no comment" {
-    try expect_findings("src/deflate/block.zig", uncited_fixture, &.{message("ReservedBlockType")});
+    try expect_findings("src/compress/deflate/block.zig", uncited_fixture, &.{message("ReservedBlockType")});
 }
 
 test "rfc-citation flags an RFC named with no section, and a section with no RFC" {
-    try expect_findings("src/gzip/header.zig",
+    try expect_findings("src/compress/gzip/header.zig",
         \\pub fn check(header: Header) !void {
         \\    // RFC 1952: the magic octets.
         \\    if (header.id1 != 0x1f) return error.Magic;
@@ -77,7 +77,7 @@ test "rfc-citation flags an RFC named with no section, and a section with no RFC
 }
 
 test "rfc-citation flags a citation a blank line, a statement, a prong or an argument away" {
-    try expect_findings("src/gzip/header.zig",
+    try expect_findings("src/compress/gzip/header.zig",
         \\pub fn check(header: Header) !void {
         \\    // RFC 1952 §2.3.1: the magic octets.
         \\
@@ -120,7 +120,7 @@ test "rfc-citation reads neither operational errors, test errors nor test blocks
 }
 
 test "rfc-citation reads a limit reached as a check that needs its RFC" {
-    try expect_findings("src/zstd/frame.zig",
+    try expect_findings("src/compress/zstd/frame.zig",
         \\pub fn check(window_len: u64) !void {
         \\    if (window_len > constants.window_len_max) return error.WindowTooLarge;
         \\    if (window_len > self.buffer.len) return error.Full;
@@ -129,8 +129,8 @@ test "rfc-citation reads a limit reached as a check that needs its RFC" {
 }
 
 test "rfc-citation reads src/ and nothing outside it" {
-    try expect_findings("src/zstd/frame.zig", uncited_fixture, &.{message("ReservedBlockType")});
+    try expect_findings("src/compress/zstd/frame.zig", uncited_fixture, &.{message("ReservedBlockType")});
     try expect_findings("tools/graph_check.zig", uncited_fixture, &.{});
     try expect_findings("build/modules.zig", uncited_fixture, &.{});
-    try expect_findings("src/deflate/block.md", uncited_fixture, &.{});
+    try expect_findings("src/compress/deflate/block.md", uncited_fixture, &.{});
 }

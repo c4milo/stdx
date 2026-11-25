@@ -63,7 +63,7 @@ const failing_fixture: [:0]const u8 =
 ;
 
 test "magic-numbers passes named constants, the octet width, tests and comptime asserts" {
-    try expect_findings("src/deflate/stored.zig",
+    try expect_findings("src/compress/deflate/stored.zig",
         \\const length_bits = 2;
         \\const fuzz_input_len_max = 32;
         \\pub fn read_length(octets: []const u8) u32 {
@@ -81,22 +81,22 @@ test "magic-numbers passes named constants, the octet width, tests and comptime 
 }
 
 test "magic-numbers flags an inline shift width and an inline array length" {
-    try expect_findings("src/deflate/stored.zig", failing_fixture, &.{
+    try expect_findings("src/compress/deflate/stored.zig", failing_fixture, &.{
         "integer literal 8",
         "integer literal 258",
     });
 }
 
 test "magic-numbers reads src/ but not its constants" {
-    try expect_findings("src/zstd/zstd.zig", failing_fixture, &.{
+    try expect_findings("src/compress/zstd/zstd.zig", failing_fixture, &.{
         "integer literal 8",
         "integer literal 258",
     });
-    try expect_findings("src/deflate/constants.zig", failing_fixture, &.{});
-    try expect_findings("src/deflate/constants_levels.zig", failing_fixture, &.{});
-    try expect_findings("src/zstd/constants.zig", failing_fixture, &.{});
+    try expect_findings("src/compress/deflate/constants.zig", failing_fixture, &.{});
+    try expect_findings("src/compress/deflate/constants_levels.zig", failing_fixture, &.{});
+    try expect_findings("src/compress/zstd/constants.zig", failing_fixture, &.{});
     // The tables a tool writes from a specification hold its numbers.
-    try expect_findings("src/brotli/rfc_tables.zig", failing_fixture, &.{});
+    try expect_findings("src/compress/brotli/rfc_tables.zig", failing_fixture, &.{});
     try expect_findings("src/unicode/unicode_tables.zig", failing_fixture, &.{});
     try expect_findings("tools/graph_check.zig", failing_fixture, &.{});
     try expect_findings("build/modules.zig", failing_fixture, &.{});

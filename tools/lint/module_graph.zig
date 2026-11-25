@@ -59,6 +59,9 @@ const check_name_field = "name";
 pub const Module = struct {
     name: []const u8,
     imports: []const []const u8,
+    /// The module's folder under `src/`, when it is not the module's name: a category's folder
+    /// holds it (decision 6 as amended).
+    directory: ?[]const u8 = null,
 };
 
 /// The graph of docs/design.md §3, with `codec` as decision 11 rules it, `json` as decisions 27 and
@@ -68,19 +71,19 @@ pub const Module = struct {
 /// 2026-11-24), and the `cpu-probe` rule holds that none of them calls its probe or its detection.
 pub const expected_graph = [_]Module{
     .{ .name = "codec", .imports = &.{"platform"} },
-    .{ .name = "checksum", .imports = &.{} },
-    .{ .name = "deflate", .imports = &.{ "codec", "platform" } },
-    .{ .name = "zlib", .imports = &.{ "codec", "checksum", "deflate", "platform" } },
-    .{ .name = "gzip", .imports = &.{ "codec", "checksum", "deflate", "platform" } },
-    .{ .name = "zstd", .imports = &.{ "codec", "checksum", "platform" } },
-    .{ .name = "brotli", .imports = &.{ "codec", "platform" } },
-    .{ .name = "utf8", .imports = &.{} },
+    .{ .name = "hash", .imports = &.{} },
+    .{ .name = "deflate", .imports = &.{ "codec", "platform" }, .directory = "compress/deflate" },
+    .{ .name = "zlib", .imports = &.{ "codec", "hash", "deflate", "platform" }, .directory = "compress/zlib" },
+    .{ .name = "gzip", .imports = &.{ "codec", "hash", "deflate", "platform" }, .directory = "compress/gzip" },
+    .{ .name = "zstd", .imports = &.{ "codec", "hash", "platform" }, .directory = "compress/zstd" },
+    .{ .name = "brotli", .imports = &.{ "codec", "platform" }, .directory = "compress/brotli" },
+    .{ .name = "utf8", .imports = &.{}, .directory = "unicode/utf8" },
     .{ .name = "unicode", .imports = &.{"utf8"} },
-    .{ .name = "json", .imports = &.{ "codec", "base64", "utf8", "platform" } },
-    .{ .name = "base64", .imports = &.{ "codec", "platform" } },
+    .{ .name = "json", .imports = &.{ "codec", "base64", "utf8", "platform" }, .directory = "encoding/json" },
+    .{ .name = "base64", .imports = &.{ "codec", "platform" }, .directory = "encoding/base64" },
     .{ .name = "platform", .imports = &.{} },
     .{ .name = "regex", .imports = &.{ "codec", "utf8", "unicode", "platform" } },
-    .{ .name = "stdx", .imports = &.{ "codec", "checksum", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "unicode", "json", "base64", "platform", "regex" } },
+    .{ .name = "stdx", .imports = &.{ "codec", "hash", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "unicode", "json", "base64", "platform", "regex" } },
 };
 
 /// Longest path the rule builds for the file it reads beside build/modules.zig.

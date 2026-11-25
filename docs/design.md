@@ -16,8 +16,8 @@ is listed there.
 stdx extends Zig's standard library, written from the RFCs, with no heap and no I/O, for a project
 that places stdx's state wherever its memory lives and drives it from whatever I/O model it has. It
 groups its modules as `std` groups its own (decision 6 as amended): `stdx.compress`, `stdx.hash`,
-`stdx.unicode`, `stdx.json`, `stdx.base64`, `stdx.regex` and `stdx.platform`. It began as
-compression codecs, and `stdx.compress` holds DEFLATE with its zlib and gzip containers, Zstandard
+`stdx.unicode`, `stdx.encoding`, `stdx.regex` and `stdx.platform`. `stdx.encoding` holds JSON and
+base 64. It began as compression codecs, and `stdx.compress` holds DEFLATE with its zlib and gzip containers, Zstandard
 and brotli, each with an encoder and a decoder (decision 1), in the order decision 13 proposes.
 
 The aim is to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's brotli and Wuffs on the
@@ -200,7 +200,7 @@ to 12 are reordered and nothing else changes.
   `tools/lint/` and `.githooks/`; the graph check; `CLAUDE.md` and the design set; the RFCs with
   their checksums.
   **Check:** `zig build lint` and `zig build test` pass; the canary tree draws every rule; `zig
-  build graph-check` refuses every forbidden import from `src/deflate/` and compiles the control;
+  build graph-check` refuses every forbidden import from `src/compress/deflate/` and compiles the control;
   and every mutation of the step's configuration is caught.
 
   **Check passed, 2026-09-25.** Zig 0.16.0 on macOS 26.6, arm64, pepegrillo `6fcb273`.
@@ -2558,7 +2558,7 @@ to 12 are reordered and nothing else changes.
       tail and not the match before it, so the position's first 4 octets turn it away before
       `match_len` is called.
     - The walk is the match finder's fourth file, and the commit before it, 2604371, moves
-      the four into `src/deflate/encoder/encoder_match/` with no change of code.
+      the four into `src/compress/deflate/encoder/encoder_match/` with no change of code.
     - The matcher's state, level 9's limits and the walk of a block of cheap literals (decision
       42) are main's. Levels 1 and 6 run main's instructions: the bench built for both targets
       differs from a87e5db's in level 9's search alone, 132 instructions to 240 on aarch64
@@ -4650,7 +4650,7 @@ to 12 are reordered and nothing else changes.
   **Check:** as step 9, through libzstd and stdx's decoder, with no frame requiring a window over
   8,000,000 octets at the HTTP levels (decision 12).
 
-  **Check met in part, 2026-10-27.** The encoder is `src/zstd/encoder/`, its frames as decision 57
+  **Check met in part, 2026-10-27.** The encoder is `src/compress/zstd/encoder/`, its frames as decision 57
   describes them, and `zstd.IoWriter` puts it behind `std.Io.Writer` (decision 56). Zig 0.16.0 on
   the owner's M1 Pro under macOS 26.6.2:
   - `zig build test` exits 0. The unit tests read every stage back through the decoder's own
@@ -4924,7 +4924,7 @@ to 12 are reordered and nothing else changes.
       string.
     - The reports list every workload where a baseline wins, in bench/results/.
   - The proofs of decision 28. `zig build lean` built spec/lean/ on macOS 26.6 arm64, where every
-    theorem rests on Lean's standard axioms alone, and found src/json/utf8_vectors.txt and
+    theorem rests on Lean's standard axioms alone, and found src/encoding/json/utf8_vectors.txt and
     number_vectors.txt, 2,048 steps and 2,313 lines, to be what the proved machines give;
     `zig build test` replays them against `Utf8` and `Number`. Mutations, each applied and
     reverted:
@@ -7739,7 +7739,7 @@ to 12 are reordered and nothing else changes.
     without libc and with it.
   - The io rule's tests require every module but `platform` to refuse `sysctlbyname`, and
     `platform` to refuse every other chain on the rule's list.
-  - `zig build graph-check` refuses `@import("platform")` from `src/deflate/`, and the module-graph
+  - `zig build graph-check` refuses `@import("platform")` from `src/compress/deflate/`, and the module-graph
     rule's tests require its table to give no module `platform`.
   - Mutations.
 
@@ -10580,7 +10580,7 @@ to 12 are reordered and nothing else changes.
     empty class.
 
   **Part 22k, built: a `utf8` module that `json` and `regex` import (decision 86, the owner's
-  ruling of 2026-11-21).** `src/utf8/` holds the validator that decision 28 proved, as
+  ruling of 2026-11-21).** `src/unicode/utf8/` holds the validator that decision 28 proved, as
   `utf8.Validator`, with `character_len`, `encoded_len`, `encode` and `encoded` as `json` had
   them, UTF-8's constants, and a new `decode`. `json` imports it where it had `utf8.zig`, and
   `regex` reads a pattern through it and keeps its range splitter in `utf8_ranges.zig`.
@@ -10596,7 +10596,7 @@ to 12 are reordered and nothing else changes.
   - `zig build test-self-hosted`, `zig build test-avx512` and `zig build checkfree-check` exit 0.
   - `zig build lean` exits 0. `Stdx/Json/Utf8.lean` is `Stdx/Utf8.lean` now, with its theorems
     as `Stdx.Utf8.accepts_iff` and `refuses_iff`, on the same axioms. `utf8_vectors.txt` moved
-    to `src/utf8/`, and its first line alone differs: it names the file that proves it.
+    to `src/unicode/utf8/`, and its first line alone differs: it names the file that proves it.
   - The kernels of `json`'s two variant objects, built ReleaseSafe as assembly from `eca2fcf`
     and from this tree. With local labels and private names set aside, all 8 exported kernels
     hold the same instructions, and so does each of the 439 functions of the AVX2 object and
@@ -10653,7 +10653,7 @@ to 12 are reordered and nothing else changes.
   cloud container.
   - `zig build lean` exits 0. `encode_char`, `char_encode`, `whole_iff`, `cut_spec` and
     `sequences_iff` build with no `sorry`, on `propext`, `Classical.choice` and `Quot.sound`
-    alone, as `Stdx/Axioms.lean` pins them. The files of `src/json/` did not change.
+    alone, as `Stdx/Axioms.lean` pins them. The files of `src/encoding/json/` did not change.
   - `utf8_split_vectors.txt` holds 630 ranges. The range of every scalar value gives the nine
     sequences of RFC 3629 §4's syntax, and the range of the surrogates gives none.
   - `zig build test-regex` runs 127 tests, the replay among them.

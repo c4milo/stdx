@@ -100,14 +100,14 @@ const failing_fixture: [:0]const u8 =
 test "heap passes a file whose storage the caller owns" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/deflate.zig", passing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/deflate.zig", passing_fixture);
     try harness.expect_messages(findings, &.{});
 }
 
 test "heap flags std.heap and an allocator parameter" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/deflate.zig", failing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/deflate.zig", failing_fixture);
     try harness.expect_messages(findings, &.{
         "reference to std.heap.ArenaAllocator: " ++ reason,
         "decode takes an allocator parameter: " ++ reason,
@@ -119,7 +119,7 @@ test "heap flags std.heap and an allocator parameter" {
 test "heap flags an init that takes an allocator, because no name is exempt" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/zstd/zstd.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/zstd/zstd.zig",
         \\pub const Decoder = struct {
         \\    pub fn init(allocator: std.mem.Allocator, window_len: usize) !Decoder {
         \\        return .{ .window = try allocator.alloc(u8, window_len) };
@@ -133,7 +133,7 @@ test "heap flags an init that takes an allocator, because no name is exempt" {
 test "heap flags a test that reaches for an allocator of std.testing" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/checksum/crc32.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/hash/crc32.zig",
         \\test "crc" {
         \\    const one = std.testing.allocator;
         \\    const two = std.testing.failing_allocator;
@@ -179,7 +179,7 @@ test "heap does not flag a parameter whose type merely resembles the word" {
 test "heap names an anonymous function type when a prototype has no name" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/brotli/brotli.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/brotli/brotli.zig",
         \\pub const Table = struct {
         \\    grow: *const fn (allocator: Allocator) void,
         \\};
@@ -193,7 +193,7 @@ test "heap reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(config.scope.applies("src/deflate/deflate.zig"));
+    try testing.expect(config.scope.applies("src/compress/deflate/deflate.zig"));
     try testing.expect(config.scope.applies("./src/gzip/header.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("build/modules.zig"));

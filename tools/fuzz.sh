@@ -25,7 +25,7 @@ set -euo pipefail
 
 # Every module whose tests hold a `std.testing.fuzz` call. A module gains its entry in the commit
 # that adds its first fuzz test.
-readonly fuzzed_modules=(codec checksum deflate gzip zlib zstd brotli json base64 regex)
+readonly fuzzed_modules=(codec hash deflate gzip zlib zstd brotli json base64 regex)
 
 # The most octets of a saved input that the report writes in hex. The report says when it cuts one.
 readonly saved_input_len_max=4096
@@ -60,7 +60,11 @@ cd "$(git rev-parse --show-toplevel)"
 
 # The list above must name exactly the modules whose sources call std.testing.fuzz, so a module
 # never gains a fuzz test that no run reaches.
-found="$(grep -rl 'testing\.fuzz(' src | cut -d/ -f2 | sort -u | tr '\n' ' ')"
+# A module's folder is `src/<module>`, or `src/<category>/<module>` for the categories of decision 6
+# as amended: `compress`, `encoding`, and `utf8` under `unicode`.
+found="$(grep -rl 'testing\.fuzz(' src | awk -F/ '
+  $2 == "compress" || $2 == "encoding" || ($2 == "unicode" && $3 == "utf8") { print $3; next }
+  { print $2 }' | sort -u | tr '\n' ' ')"
 listed="$(printf '%s\n' "${fuzzed_modules[@]}" | sort -u | tr '\n' ' ')"
 if [[ "$found" != "$listed" ]]; then
   echo "fuzz.sh: the modules with fuzz tests are [${found}], but the list names [${listed}]" >&2

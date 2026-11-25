@@ -76,14 +76,14 @@ const failing_fixture: [:0]const u8 =
 test "determinism passes a file that computes from its input alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/match.zig", passing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/match.zig", passing_fixture);
     try harness.expect_messages(findings, &.{});
 }
 
 test "determinism flags the clock, the unit constants, the PRNG and the entropy source" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/match.zig", failing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/match.zig", failing_fixture);
     try harness.expect_messages(findings, &.{
         "reference to std.time.nanoTimestamp: " ++ reason,
         "reference to std.time.ns_per_ms: " ++ reason,
@@ -97,7 +97,7 @@ test "determinism flags the clock, the unit constants, the PRNG and the entropy 
 test "determinism does not flag a name that merely resembles one on the list" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/zstd/zstd.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/zstd/zstd.zig",
         \\const timeout = constants.times_max;
         \\const hash = std.crypto.hash.sha2.Sha256;
         \\const times = self.repeat_times;
@@ -109,7 +109,7 @@ test "determinism reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(config.scope.applies("src/zstd/zstd.zig"));
+    try testing.expect(config.scope.applies("src/compress/zstd/zstd.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("docs/design.md"));
     try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});

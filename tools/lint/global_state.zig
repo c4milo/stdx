@@ -50,7 +50,7 @@ const failing_fixture: [:0]const u8 =
 test "global-state flags a var at the top level and inside a struct" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/deflate.zig", failing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/deflate.zig", failing_fixture);
     try harness.expect_messages(findings, &.{
         "var tables_built is state every thread shares: make it threadlocal, or hand it in",
         "var instances is state every thread shares: make it threadlocal, or hand it in",
@@ -62,7 +62,7 @@ test "global-state flags a var at the top level and inside a struct" {
 test "global-state passes a comptime table and state the caller owns" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/deflate.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/deflate.zig",
         \\const fixed_table = build_fixed_table();
         \\pub const Decoder = struct {
         \\    window: [32]u8,
@@ -80,7 +80,7 @@ test "global-state reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(config.scope.applies("src/zstd/zstd.zig"));
+    try testing.expect(config.scope.applies("src/compress/zstd/zstd.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("build/modules.zig"));
     try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});
