@@ -59,6 +59,14 @@ pub const codec = @import("codec");
 /// true` to stdx's dependency to have it, and a build without it fetches no chapulin.
 pub const crypto = if (options.crypto) @import("crypto") else @compileError("stdx.crypto needs chapulin: pass .crypto = true to stdx's dependency (decision 87)");
 
+comptime {
+    // A build with `.crypto = true` links chapulin's objects into every program that imports
+    // stdx, and their C calls `ch_assert_fail`. chapulin's module exports it from a comptime block
+    // that runs only when something references the module, so this reference keeps the hook in a
+    // program that names no `stdx.crypto` (decision 87 as amended).
+    if (options.crypto) _ = crypto;
+}
+
 const std = @import("std");
 const options = @import("stdx_options");
 

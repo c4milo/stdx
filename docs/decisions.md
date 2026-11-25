@@ -7173,6 +7173,13 @@ last part lists what still waits on a ruling.
       - Each call takes `Context.cpu`, so it runs each hash on the instructions that the program's
         probe and statement of timing allow, as a session would.
       - `scram` keeps its own SHA-256 and HMAC-SHA-256, which take no CPU value.
+    - Amended a fourth time on 2026-11-25, after colibri's move to `stdx.crypto` found two gaps:
+      - With `.crypto = true`, every program that imports stdx links chapulin's objects. A program
+        that named no `stdx.crypto` lacked `ch_assert_fail` and failed to link. The root `stdx`
+        now references the module `crypto` in such a build, so every program keeps the hook.
+      - Zig gives each file to one module of a compile, so one image holds one stdx. A test image
+        over the stdx of `crypto_keylog` builds its own copy of each module above stdx, as
+        colibri's key-log images do. `src/crypto/README.md` says so.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.

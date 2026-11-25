@@ -11815,6 +11815,10 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     `init`'s own tests do not read, and the request without `HASH=on`, against `zig build
     test-crypto`; a wrong digest in the consumer, against `zig build readme-check`.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+  - Amended on 2026-11-25 (decision 87 as amended a fourth time): the root `stdx` references
+    `crypto` in a build with `.crypto = true`. `zig build readme-check` now also builds the
+    consumer's first program over that build and runs it. Mutation: the reference removed,
+    `CAUGHT` against `zig build readme-check`, whose link fails on `ch_assert_fail`.
 
 ## 9. Performance
 

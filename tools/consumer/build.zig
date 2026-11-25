@@ -22,4 +22,13 @@ pub fn build(b: *std.Build) void {
     const stdx_crypto = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
     crypto_exe.root_module.addImport("stdx", stdx_crypto.module("stdx"));
     b.installArtifact(crypto_exe);
+
+    // The first program over the stdx of `.crypto = true`: it names no `stdx.crypto`, but it links
+    // chapulin's objects, and with them their hook, `ch_assert_fail`.
+    const unnamed_exe = b.addExecutable(.{
+        .name = "consumer-crypto-unnamed",
+        .root_module = b.createModule(.{ .root_source_file = b.path("main.zig"), .target = target }),
+    });
+    unnamed_exe.root_module.addImport("stdx", stdx_crypto.module("stdx"));
+    b.installArtifact(unnamed_exe);
 }

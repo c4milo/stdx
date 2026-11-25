@@ -86,12 +86,16 @@ A QUIC session takes the QUIC object's types: `quic.ClientOptions`, never `tls.C
 - `crypto_keylog`: build chapulin with `KEYLOG=on`, so each session hands its traffic secrets to
   `ch_keylog`, which the program defines. It is for a program's tests that read a capture, never
   for a program that ships.
+  Zig gives each file to one module of a compile, so one image holds one stdx. A test image over
+  the stdx of `crypto_keylog` builds its own copy of each module of the program that imports stdx.
 
 ## Limits
 
 - chapulin builds `jws`, `dnssec`, `scram` and `hash` for an arm64 target with NEON or an x86-64
   target with SSE2 alone. On any other target each names that in a compile error, and TLS runs
   TLS_CHACHA20_POLY1305_SHA256 alone.
-- chapulin's module defines `ch_assert_fail`, the hook its C calls on a failed assertion. A
-  program must not define it again. A program that reports a failed assertion its own way declares
-  `pub fn chapulinAssertFail` in its root file, as chapulin's docs/zig.md shows.
+- chapulin's module defines `ch_assert_fail`, the hook its C calls on a failed assertion. The root
+  `stdx` references the module in a build with `.crypto = true`. So every program over that build
+  keeps the hook, and a program that names no `stdx.crypto` keeps it too. A program must not
+  define the hook again. A program that reports a failed assertion its own way declares `pub fn
+  chapulinAssertFail` in its root file, as chapulin's docs/zig.md shows.

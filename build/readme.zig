@@ -62,7 +62,11 @@ fn add_consumer(b: *std.Build) *std.Build.Step {
     run_crypto.addFileArg(prefix.path(b, "bin/consumer-crypto"));
     run_crypto.has_side_effects = true;
     run_crypto.step.dependOn(&run.step);
-    return &run_crypto.step;
+    const run_unnamed = std.Build.Step.Run.create(b, "run the README's examples over stdx.crypto's build");
+    run_unnamed.addFileArg(prefix.path(b, "bin/consumer-crypto-unnamed"));
+    run_unnamed.has_side_effects = true;
+    run_unnamed.step.dependOn(&run_crypto.step);
+    return &run_unnamed.step;
 }
 
 /// The test that holds the README's blocks to the consumer's files.
