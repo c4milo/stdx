@@ -104,9 +104,10 @@ pub fn judge(searcher: *Searcher) void {
     }
     if (searcher.deferred.window and searcher.suffix == null and searcher.inner == null) {
         // One literal first: its search costs less than a set's.
-        if (dfa_inner.window_of(&searcher.reverse, program) orelse dfa_window_set.window_set_of(&searcher.reverse, program)) |window| {
-            searcher.forward.window = window;
-            dfa_window.ready(&searcher.forward.window.?, &searcher.forward.config);
+        if (dfa_inner.window_of(&searcher.reverse, program)) |window| {
+            dfa_window.take(&searcher.forward, window, null);
+        } else if (dfa_window_set.window_set_of(&searcher.reverse, program)) |found| {
+            dfa_window.take(&searcher.forward, found.window, found.literals);
         }
     }
     if (searcher.deferred.length) {

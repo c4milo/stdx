@@ -17,16 +17,15 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Literal = @import("../literal.zig").Literal;
 const LiteralSet = @import("../literal_set.zig").LiteralSet;
-const Config = @import("dfa_config.zig").Config;
 const dfa_file = @import("dfa.zig");
 const Dfa = dfa_file.Dfa;
 const Scan = dfa_file.Scan;
 
-/// The literals of a window over a set, with what the seeded check reads of each way: the
-/// instruction of the reverse program that takes its literal first, and the one that reads the
-/// part of a match before the literal.
+/// What the seeded check reads of each way of a window over a set: the instruction of the
+/// reverse program that takes its literal first, and the one that reads the part of a match
+/// before the literal. The set's literals stand in the DFA's `literals`, which claim R5 leaves
+/// empty wherever the window takes a set: a DFA then holds one `LiteralSet`, not two.
 pub const Set = struct {
-    literals: LiteralSet,
     cuts: [constants.window_ways_max]u32,
     befores: [constants.window_ways_max]u32,
 };
@@ -35,15 +34,15 @@ pub const Set = struct {
 pub const Finder = union(enum) {
     one: Literal,
     set: Set,
-
-    /// The first place at or after `from`, or null.
-    fn find(finder: *const Finder, haystack: []const u8, from: usize) ?usize {
-        return switch (finder.*) {
-            .one => |*literal| literal.find(haystack, from),
-            .set => |*set| set.literals.find(haystack, from),
-        };
-    }
 };
+
+/// The first place at or after `from` of the window's literal, or of a literal of its set.
+fn find(dfa: *const Dfa, haystack: []const u8, from: usize) ?usize {
+    return switch (dfa.window.?.finder) {
+        .one => |*literal| literal.find(haystack, from),
+        .set => dfa.literals.?.find(haystack, from),
+    };
+}
 
 /// A literal that every match holds, or one literal of a set, and the most bytes of a match
 /// before it.
@@ -60,14 +59,18 @@ pub const Window = struct {
     place: usize = 0,
 };
 
-/// Takes the searches of the CPU's features that `config` names, as claim R5's set takes them
-/// in `Dfa.init`.
-pub fn ready(window: *Window, config: *const Config) void {
-    switch (window.finder) {
-        .one => |*literal| literal.wide = config.wide,
-        .set => |*set| {
-            set.literals.wide = config.wide;
-            set.literals.ssse3 = config.ssse3;
+/// Gives the forward DFA a window, and for a set its literals. The searches take the CPU's
+/// features that the DFA's config names, as claim R5's set takes them in `Dfa.init`.
+pub fn take(dfa: *Dfa, window: Window, literals: ?LiteralSet) void {
+    assert(dfa.window == null and dfa.literal == null and dfa.literals == null);
+    assert((literals != null) == (window.finder == .set));
+    dfa.window = window;
+    dfa.literals = literals;
+    switch (dfa.window.?.finder) {
+        .one => |*literal| literal.wide = dfa.config.wide,
+        .set => {
+            dfa.literals.?.wide = dfa.config.wide;
+            dfa.literals.?.ssse3 = dfa.config.ssse3;
         },
     }
 }
@@ -78,7 +81,8 @@ const no_search = std.math.maxInt(usize);
 /// `Dfa.scan_forward` for a DFA with a window, from the state that waits at `first`. Out of
 /// line, as claim R2's copy of the loop is.
 pub noinline fn scan(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
-    assert(dfa.window != null and dfa.literal == null and dfa.literals == null);
+    assert(dfa.window != null and dfa.literal == null);
+    assert((dfa.literals != null) == (dfa.window.?.finder == .set));
     // What a scan learned of one text holds for that text alone.
     dfa.window.?.searched = no_search;
     return dfa.skip_loop(.window, haystack, from, earliest, first);
@@ -94,7 +98,7 @@ pub fn pass(dfa: *Dfa, haystack: []const u8, from: usize) usize {
     // between the offset it searched from and it. The scan only goes forward.
     if (window.searched > from or window.place < from) {
         window.searched = from;
-        window.place = window.finder.find(haystack, from) orelse haystack.len;
+        window.place = find(dfa, haystack, from) orelse haystack.len;
     }
     if (window.place == haystack.len) return haystack.len;
     const start = @max(from, window.place -| window.lead);

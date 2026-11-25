@@ -168,8 +168,10 @@ pub fn held(searcher: *const regex.Searcher) ?Claim {
     switch (window.finder) {
         .one => |*literal| return .{ .rule = .window, .literal = literal.slice(), .folds = literal.folds, .before = window.before, .lead = window.lead },
         .set => |*set| {
-            var claim: Claim = .{ .rule = .windows, .literal = &.{}, .before = set.literals.len, .lead = window.lead };
-            for (0..set.literals.count) |way| claim.ways.add(set.cuts[way], set.befores[way], set.literals.octets[way][0..set.literals.lens[way]]);
+            // A window's set stands in the forward DFA's claim R5 slot.
+            const literals = &searcher.forward.literals.?;
+            var claim: Claim = .{ .rule = .windows, .literal = &.{}, .before = literals.len, .lead = window.lead };
+            for (0..literals.count) |way| claim.ways.add(set.cuts[way], set.befores[way], literals.octets[way][0..literals.lens[way]]);
             return claim;
         },
     }

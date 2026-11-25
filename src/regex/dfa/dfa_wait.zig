@@ -43,9 +43,10 @@ pub fn pass(dfa: *Dfa, comptime how: Pass, haystack: []const u8, from: usize) us
     return index;
 }
 
-/// True where the DFA holds claim R2's literal or R5's set, which every match starts with.
+/// True where the DFA holds claim R2's literal or R5's set, which every match starts with. A
+/// window's set stands in `literals` too, and starts no match.
 pub inline fn has_literal(dfa: *const Dfa) bool {
-    return dfa.literal != null or dfa.literals != null;
+    return dfa.literal != null or (dfa.literals != null and dfa.window == null);
 }
 
 /// The first offset at or after `from` where a match can start by claim R2 or R5: the next place

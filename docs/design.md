@@ -10577,7 +10577,16 @@ to 12 are reordered and nothing else changes.
   - The filter, built ReleaseSafe, counted the row's 209 matches in rebar's
     `leipzig-3200.txt`. A pass took 27.6 to 30.8 ms at `da6a174` and 2.5 to 2.9 ms with the
     set: 519 to 580 MB/s and 5,508 to 6,534 MB/s.
-  - Mutations: 26. 25 were CAUGHT, and one was NOT CAUGHT by the script alone.
+  - A `Searcher` took 10,888 bytes before the set, and 16,680 bytes with the set held in the
+    window, in each DFA. The set now stands in the forward DFA's `literals`, which claim R5
+    leaves empty wherever the window takes a set, and a `Searcher` takes 10,888 bytes again.
+    `@sizeOf(regex.Searcher)` in a program built against each tree gave the three counts. The
+    filter gave the same speed: 5,349 to 6,889 MB/s.
+  - Mutations: 28. 27 were CAUGHT, and one was NOT CAUGHT by the script alone.
+    - Two of the shared slot, against `zig build test-regex`: a window's set taken for claim
+      R5's set in `has_literal`, and the window's scan after claim R5's. The first was NOT
+      CAUGHT at first: no test called `is_match` on a text whose match starts before the
+      literal. A new test does.
     - Eight of the choice, against `zig build test-regex`: a cut that not every match passes;
       the last way's bound in place of the largest; the last way's width in place of the
       shortest; a literal that folds; a literal of one byte, which an assertion halts; the first

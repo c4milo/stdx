@@ -109,9 +109,10 @@ test "a searcher takes a window over a set where each match holds one literal of
     for (window_sets, expected) |pattern, wanted| {
         try fixture.init(pattern, searcher_test.cache_words_max);
         const window = fixture.searcher.forward.window orelse return error.TestExpectedWindow;
-        const set = &window.finder.set;
-        try testing.expectEqual(wanted.count, set.literals.count);
-        try testing.expectEqual(wanted.len, set.literals.len);
+        try testing.expect(window.finder == .set);
+        const set = &(fixture.searcher.forward.literals orelse return error.TestExpectedSet);
+        try testing.expectEqual(wanted.count, set.count);
+        try testing.expectEqual(wanted.len, set.len);
         try testing.expectEqual(wanted.lead, window.lead);
     }
     // A way whose literal folds, a way past the bound, a literal of one byte, a way with no
@@ -127,6 +128,19 @@ test "a searcher takes a window over a set where each match holds one literal of
         try fixture.init(pattern, searcher_test.cache_words_max);
         try testing.expect(fixture.searcher.forward.window == null);
     }
+}
+
+test "is_match of a searcher with a window over a set reads the bytes before a literal" {
+    var fixture: Fixture = .{ .encoding = .bytes };
+    try fixture.init("([A-Za-z]awyer|[A-Za-z]inn)\\s", searcher_test.cache_words_max);
+    // A long text with no match: the searcher judges the claims that wait, and takes the set.
+    const filler: [1 << 16]u8 = @splat('x');
+    try testing.expect(!fixture.searcher.is_match(&filler));
+    try testing.expect(fixture.searcher.forward.window != null);
+    // Each match starts one byte before its literal, which a scan from the literal misses.
+    try testing.expect(fixture.searcher.is_match("x Sawyer "));
+    try testing.expect(fixture.searcher.is_match("a Finn "));
+    try testing.expect(!fixture.searcher.is_match(" awyer inn "));
 }
 
 /// The bytes a haystack draws from: each case's literal and its parts, and a space.

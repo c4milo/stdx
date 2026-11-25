@@ -60,12 +60,15 @@ const Ways = struct {
     }
 };
 
+/// A window over a set and its literals, which `dfa_window.take` gives the forward DFA.
+pub const Found = struct { window: Window, literals: LiteralSet };
+
 /// The window over a set: the literals that the ways from a split of the reverse program take,
 /// where every match passes one of the ways' cuts and no part of a match before a literal takes
 /// more than `window_lead_max` bytes. Of several splits, the one whose shortest literal is the
 /// longest, and of those the one with the shorter part before a literal. `reverse` is the
 /// reverse program's DFA. Null where none of the first `window_splits_max` splits holds one.
-pub fn window_set_of(reverse: *Dfa, program: *const Program) ?Window {
+pub fn window_set_of(reverse: *Dfa, program: *const Program) ?Found {
     assert(reverse.config.entry == program.reverse);
     var best: ?Ways = null;
     var tries: usize = 0;
@@ -137,18 +140,21 @@ fn cuts_of(instructions: []const Instruction, split: u32, ways: *Ways) bool {
     return stack_len == 0;
 }
 
-/// The window of the ways: their literals as a set, each cut to the shortest's bytes by the
+/// The window of the ways, and their literals as a set, each cut to the shortest's bytes by the
 /// set's `len`.
-fn window_of(ways: *const Ways) Window {
+fn window_of(ways: *const Ways) Found {
     assert(ways.len >= constants.literal_set_count_min and ways.len <= constants.window_ways_max);
-    var window: Window = .{ .finder = .{ .set = .{ .literals = .{ .octets = undefined, .count = @intCast(ways.len), .len = @intCast(ways.width), .exact = false }, .cuts = undefined, .befores = undefined } }, .lead = ways.lead, .before = 0 };
-    const set = &window.finder.set;
+    var found: Found = .{
+        .window = .{ .finder = .{ .set = .{ .cuts = undefined, .befores = undefined } }, .lead = ways.lead, .before = 0 },
+        .literals = .{ .octets = undefined, .count = @intCast(ways.len), .len = @intCast(ways.width), .exact = false },
+    };
+    const set = &found.window.finder.set;
     for (ways.chains[0..ways.len], 0..) |chain, place| {
-        @memcpy(set.literals.octets[place][0..chain.literal.len], chain.literal.octets[0..chain.literal.len]);
-        set.literals.lens[place] = chain.literal.len;
+        @memcpy(found.literals.octets[place][0..chain.literal.len], chain.literal.octets[0..chain.literal.len]);
+        found.literals.lens[place] = chain.literal.len;
         set.cuts[place] = ways.cuts[place];
         set.befores[place] = chain.before;
     }
-    set.literals.prepare();
-    return window;
+    found.literals.prepare();
+    return found;
 }
