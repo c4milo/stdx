@@ -25,6 +25,7 @@ import Stdx.Regex.RulesSeparator
 import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
 import Stdx.Regex.RulesWindow
+import Stdx.Regex.RulesWindowSet
 
 /-!
 # What the proofs rest on
@@ -316,6 +317,27 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.window_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.window_program
+
+/-- info: 'Stdx.Regex.Matcher.passesAny_split' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.passesAny_split
+
+/-- info: 'Stdx.Regex.Matcher.passesAnyOn_split' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.passesAnyOn_split
+
+/-- info: 'Stdx.Regex.Matcher.findBy_some' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.findBy_some
+
+/-- info: 'Stdx.Regex.Matcher.findBy_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.findBy_none
+
+/-- info: 'Stdx.Regex.Matcher.reads_take' depends on axioms: [propext] -/
+#guard_msgs in #print axioms Matcher.reads_take
+
+/-- info: 'Stdx.Regex.Matcher.windowSet_within' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.windowSet_within
+
+/-- info: 'Stdx.Regex.Matcher.windowSet_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.windowSet_program
 
 /-- info: 'Stdx.Regex.Matcher.fits_of_takesFit' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.fits_of_takesFit

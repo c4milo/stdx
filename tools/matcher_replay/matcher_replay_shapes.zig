@@ -66,6 +66,9 @@ const Shape = enum {
     /// A run of a bounded count of bytes that may take the word's bytes, the word, and a run:
     /// the window (src/regex/dfa/dfa_window.zig).
     window,
+    /// Two ways, each a bounded run and a word, then a run: the window over a set
+    /// (src/regex/dfa/dfa_window_set.zig).
+    window_set,
 };
 
 /// Runs of a bounded count of bytes, for the window's shape. Most take a byte of a word, so no
@@ -157,7 +160,7 @@ pub fn draw(generator: *Generator, case: *regex_generate.Case, text_len_max: usi
     var pattern: std.ArrayList(u8) = .initBuffer(&case.pattern.octets);
     const shape: Shape = @enumFromInt(generator.below(std.meta.fields(Shape).len));
     // The window's shape takes a run of a bounded count of bytes before its word.
-    const run = if (shape == .window) pick(generator, &bounded_runs) else pick(generator, &runs);
+    const run = if (shape == .window or shape == .window_set) pick(generator, &bounded_runs) else pick(generator, &runs);
     const word = pick(generator, &words);
     const other = pick(generator, &words);
     const second = pick(generator, &runs);
@@ -197,6 +200,7 @@ fn write_pattern(pattern: *std.ArrayList(u8), shape: Shape, run: []const u8, wor
         .ways_lines => pattern.printAssumeCapacity("(?m)^{s}{s}|{s}$", .{ word, run, word }),
         .ways_words => pattern.printAssumeCapacity("\\b{s}{s}|{s}{s}", .{ word, run, word, other }),
         .window => pattern.printAssumeCapacity("{s}{s}{s}", .{ run, word, second }),
+        .window_set => pattern.printAssumeCapacity("(?:{s}{s}|{s}{s}){s}", .{ run, word, run, other, second }),
     }
 }
 

@@ -387,6 +387,15 @@ pub const literal_prefix_len_min = 2;
 /// before `ing` takes 13 bytes at most.
 pub const window_lead_max = 16;
 
+/// The ways of a window over a set of literals, at most (dfa_window_set.zig): Teddy's buckets, so
+/// that each literal of the set may take a bucket of its own. `([A-Za-z]awyer|[A-Za-z]inn)\s` has
+/// two.
+pub const window_ways_max = teddy_buckets;
+
+/// The splits of the reverse program that the search for a window over a set tries, at most. Each
+/// try walks the program once, in `Searcher`'s judgment of its claims.
+pub const window_splits_max = inner_candidates_max;
+
 /// The instructions that take a byte at one place of the literal that every way of a pattern
 /// starts with, at most: one for each way (literal_common.zig). `(?m)^ab|ab$` has two. The walk
 /// runs in `Searcher.init`, so the limit bounds what it costs a pattern that it does not serve.

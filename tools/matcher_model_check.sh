@@ -152,6 +152,50 @@ claim window 7 3 2 97 98
 text 3 99 97 98
 search 0
 DUMP
+# `[a-c](?:xy|zw)` and its reverse half `(?:yx|wz)[a-c]`, with the claim of a window over the set
+# of `xy` and `zw` with no byte before either. The part before each literal takes one byte.
+canary "claim windows" <<'DUMP'
+program bytes 14 0 7
+range 97 99 1
+split 2 4
+range 120 120 3
+range 121 121 6
+range 122 122 5
+range 119 119 6
+match
+split 8 10
+range 121 121 9
+range 120 120 12
+range 119 119 11
+range 122 122 12
+range 97 99 13
+match
+claim windows 2 0 22 8 0 0 0 12 0 0 0 2 120 121 10 0 0 0 12 0 0 0 2 122 119
+text 3 97 120 121
+search 0
+DUMP
+# The same program, with the claim of a set that compares three bytes of each literal. Each
+# literal holds two.
+canary "claim windows" <<'DUMP'
+program bytes 14 0 7
+range 97 99 1
+split 2 4
+range 120 120 3
+range 121 121 6
+range 122 122 5
+range 119 119 6
+match
+split 8 10
+range 121 121 9
+range 120 120 12
+range 119 119 11
+range 122 122 12
+range 97 99 13
+match
+claim windows 3 1 22 8 0 0 0 12 0 0 0 2 120 121 10 0 0 0 12 0 0 0 2 122 119
+text 3 97 120 121
+search 0
+DUMP
 # `c{0,4}ab` and its reverse half, with the claim of a window of three bytes before `ab`. The part
 # before the literal takes four bytes at most: one more than the claim.
 canary "claim window" <<'DUMP'

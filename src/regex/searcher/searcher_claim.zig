@@ -18,6 +18,8 @@ const Span = @import("../matcher.zig").Span;
 const dfa_suffix = @import("../dfa/dfa_suffix.zig");
 const dfa_inner = @import("../dfa/dfa_inner.zig");
 const dfa_length = @import("../dfa/dfa_length.zig");
+const dfa_window = @import("../dfa/dfa_window.zig");
+const dfa_window_set = @import("../dfa/dfa_window_set.zig");
 const searcher_file = @import("searcher.zig");
 const Searcher = searcher_file.Searcher;
 const Outcome = searcher_file.Outcome;
@@ -101,9 +103,10 @@ pub fn judge(searcher: *Searcher) void {
         }
     }
     if (searcher.deferred.window and searcher.suffix == null and searcher.inner == null) {
-        if (dfa_inner.window_of(&searcher.reverse, program)) |window| {
+        // One literal first: its search costs less than a set's.
+        if (dfa_inner.window_of(&searcher.reverse, program) orelse dfa_window_set.window_set_of(&searcher.reverse, program)) |window| {
             searcher.forward.window = window;
-            searcher.forward.window.?.literal.wide = searcher.forward.config.wide;
+            dfa_window.ready(&searcher.forward.window.?, &searcher.forward.config);
         }
     }
     if (searcher.deferred.length) {

@@ -76,13 +76,13 @@ pub fn window_of(reverse: *Dfa, program: *const Program) ?Window {
         if (run.chain.literal.len < constants.literal_prefix_len_min) break;
         // The literals after a shorter one are as short or shorter, and lose to the one held.
         if (best) |held| {
-            if (run.chain.literal.len < held.literal.len) break;
+            if (run.chain.literal.len < held.finder.one.len) break;
         }
         const lead = window_lead(reverse, run) orelse continue;
-        if (best == null or lead < best.?.lead) best = .{ .literal = run.chain.literal, .lead = lead, .before = run.chain.before };
+        if (best == null or lead < best.?.lead) best = .{ .finder = .{ .one = run.chain.literal }, .lead = lead, .before = run.chain.before };
     }
     var window = best orelse return null;
-    window.literal.prepare();
+    window.finder.one.prepare();
     return window;
 }
 
@@ -167,8 +167,15 @@ fn takes_one(instruction: Instruction) bool {
 /// True when every path from the reverse program's entry to `match` passes the instruction
 /// `cut`: a walk that does not pass it reaches no `match`.
 fn every_match_passes(dfa: *Dfa, cut: u32) bool {
+    return every_match_passes_any(dfa, &.{cut});
+}
+
+/// True when every path from the reverse program's entry to `match` passes one of `cuts`: a walk
+/// that passes none of them reaches no `match` (dfa_window_set.zig).
+pub fn every_match_passes_any(dfa: *Dfa, cuts: []const u32) bool {
+    assert(cuts.len > 0);
     dfa.visited.clear();
-    _ = dfa.visited.insert(cut);
+    for (cuts) |cut| _ = dfa.visited.insert(cut);
     return !reaches(dfa, push(dfa, 0, dfa.config.entry), .match);
 }
 

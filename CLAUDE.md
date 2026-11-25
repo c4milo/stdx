@@ -308,8 +308,8 @@ Change this section when a step adds or renames a command.
   claim R14 for each literal that a searcher took by it (`spec/lean/Stdx/Regex/Rules.lean`,
   `RulesWide.lean`, `RulesSeparator.lean` and `RulesInner.lean`), and that every match starts
   with the literal that a searcher's forward DFA goes to (`RulesPrefix.lean`), and the rule of
-  each window that a searcher took (`RulesWindow.lean`). After each answer it writes the groups
-  of the match, from the slots of the model's threads
+  each window that a searcher took (`RulesWindow.lean` and `RulesWindowSet.lean`). After each
+  answer it writes the groups of the match, from the slots of the model's threads
   (`spec/lean/Stdx/Regex/Captures.lean`). `zig build matcher-replay`
   builds the program that replays both (`tools/matcher_replay.zig`, with its pieces in
   `tools/matcher_replay/`): for a compiled pattern it asks the matcher, a

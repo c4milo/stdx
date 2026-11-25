@@ -10550,6 +10550,52 @@ to 12 are reordered and nothing else changes.
     - Four of the replay: the bound not read, no window held, the bound not compared, and the
       bound not written.
 
+  The window over a set of literals (decision 86 as amended on 2026-11-25):
+  - `imported/leipzig/awyer-inn`, `([A-Za-z]awyer|[A-Za-z]inn)\s`, ran at 0.18 of Rust's crate
+    on the N2. No one literal stands in every match, so the window took none, and the forward
+    DFA read every byte.
+  - Its reverse program splits into two ways after `\s`. Each way takes its literal from its
+    first instruction, a cut, and then one byte, and every match passes one of the cuts.
+    `dfa_window_set.window_set_of` reads such ways from a split of the reverse program. Claim
+    R5's `LiteralSet` then finds the next place of any of their literals, from the first bytes of
+    each, as many as the shortest holds.
+  - `spec/lean/Stdx/Regex/RulesWindowSet.lean` decides the rule from a program. `passesAnyOn`
+    shows that every match passes one of several instructions, and `windowSetOn` asks each
+    way's walk, its width and its bound. `windowSet_program` gives the matcher's answer.
+  - The dump writes a `claim windows` line: the set's width, the bound, and each way's cut,
+    `before` and literal. The Lean side judges it. A new shape draws two ways of a bounded run
+    and a word, and a canary holds a bound one byte short.
+  **Check:** which patterns take a set, with what width and bound; a searcher with a set gives
+  what the matcher gives from every offset of seeded texts, in a cache of each size; the replay
+  refuses a wrong width, bound, cut or literal; the script runs `windowSetOn` for each set; two
+  paired runs of the `bench` workflow on each runner, by decision 20's rule; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not recorded yet.
+  - `zig build test` exits 0, and `zig build lean` exits 0, with 126 theorems pinned.
+  - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13. Their dumps hold 308 `claim
+    windows` lines, and Lean judged each sound.
+  - The filter, built ReleaseSafe, counted the row's 209 matches in rebar's
+    `leipzig-3200.txt`. A pass took 27.6 to 30.8 ms at `da6a174` and 2.5 to 2.9 ms with the
+    set: 519 to 580 MB/s and 5,508 to 6,534 MB/s.
+  - Mutations: 26. 25 were CAUGHT, and one was NOT CAUGHT by the script alone.
+    - Eight of the choice, against `zig build test-regex`: a cut that not every match passes;
+      the last way's bound in place of the largest; the last way's width in place of the
+      shortest; a literal that folds; a literal of one byte, which an assertion halts; the first
+      split in place of the better one; one cut of several marked; and a set's place one byte
+      late. The width and the better split were NOT CAUGHT at first, and two patterns now hold
+      them.
+    - Three against the script alone: a `before` one instruction late, and a cut one late, each
+      gave `differs claim windows`. The last way's bound in place of the largest was NOT CAUGHT
+      by the script over seeds 7 and 11 with 64 programs; `zig build test-regex` catches it.
+    - Six of the Lean side, each against `lake build`: a cut's walk with no `match` check, no
+      width check, no positive width, no bound, a place past the text, and a walk one level
+      short. Each breaks a proof or an example.
+    - Four of the vector program, against the script: a line that never says `differs`, which the
+      first canary refuses; a width of one byte, which the second canary refuses; the width of
+      the longest literal; and a literal read in the order of the text.
+    - Five of the replay, against `zig build test-tools`: no compare of the ways, a bound not
+      written, a bound not read, a width not written and a width not read.
+
   The last step of claim R2's search:
   - `imported/rsc/literal`, `y` in a text of 51 bytes, ran at 0.46 of Rust's crate on the N2.
     `literal_find.search` took a text in blocks of 128 and 64 bytes, and the rest one byte at a

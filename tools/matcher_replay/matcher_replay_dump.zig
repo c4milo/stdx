@@ -133,10 +133,10 @@ pub const Lines = struct {
     fn add_claim(lines: *Lines, claim: Claim) !void {
         var buffer: [line_len_max]u8 = undefined;
         try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim {s}", .{claim.rule.word()}));
-        if (claim.rule == .inner or claim.rule == .window) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.before}));
-        if (claim.rule == .window) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.lead}));
-        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.literal.len}));
-        for (claim.literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
+        if (claim.rule == .inner or claim.rule == .window or claim.rule == .windows) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.before}));
+        if (claim.rule == .window or claim.rule == .windows) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.lead}));
+        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.bytes().len}));
+        for (claim.bytes()) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
         if (claim.folds != 0) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " folds {d}", .{claim.folds}));
         try lines.bytes.append(lines.arena, '\n');
     }
@@ -309,6 +309,7 @@ test "a dump names the literal that a searcher took, after the program and befor
     var folded: usize = 0;
     var prefixes: usize = 0;
     var windows: usize = 0;
+    var sets: usize = 0;
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     var before: []const u8 = "";
     while (lines.next()) |line| {
@@ -320,6 +321,7 @@ test "a dump names the literal that a searcher took, after the program and befor
             claims += 1;
             inner += @intFromBool(std.mem.startsWith(u8, line, "claim inner "));
             windows += @intFromBool(std.mem.startsWith(u8, line, "claim window "));
+            sets += @intFromBool(std.mem.startsWith(u8, line, "claim windows "));
             try testing.expect(!std.mem.startsWith(u8, before, "text ") and !std.mem.startsWith(u8, before, "search "));
             folded += @intFromBool(try expect_claim_line(line));
         }
@@ -330,6 +332,7 @@ test "a dump names the literal that a searcher took, after the program and befor
     try testing.expect(folded > 0 and folded < claims);
     try testing.expect(prefixes > 0 and prefixes < cases);
     try testing.expect(windows > 0 and windows < claims);
+    try testing.expect(sets > 0 and sets < claims);
 }
 
 /// Requires a claim line's parts: its rule, for claim R14 an instruction, the literal's length
@@ -339,8 +342,8 @@ fn expect_claim_line(line: []const u8) !bool {
     var tokens = std.mem.tokenizeScalar(u8, line, ' ');
     _ = tokens.next();
     const rule = matcher_replay_claim.Rule.of_word(tokens.next().?).?;
-    if (rule == .inner or rule == .window) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
-    if (rule == .window) try testing.expect(try std.fmt.parseInt(u32, tokens.next().?, text_len_radix) <= regex.constants.window_lead_max);
+    if (rule == .inner or rule == .window or rule == .windows) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
+    if (rule == .window or rule == .windows) try testing.expect(try std.fmt.parseInt(u32, tokens.next().?, text_len_radix) <= regex.constants.window_lead_max);
     const len = try std.fmt.parseInt(usize, tokens.next().?, text_len_radix);
     try testing.expect(len > 0);
     for (0..len) |_| _ = try std.fmt.parseInt(u8, tokens.next().?, text_len_radix);
