@@ -7123,11 +7123,25 @@ last part lists what still waits on a ruling.
         program that names `stdx.crypto` keeps the hook beside chapulin's objects. A program
         replaces it with `chapulinAssertFail` in its root file.
       - chapulin leaves the `denied-words` list: it is the library's dependency, not a consumer.
-    - **owner** Still open (https://github.com/c4milo/stdx/issues/42): how a program's one CPU
-      probe, `stdx.platform`, gives chapulin its `cpu` value; the hashes and MACs chapulin exports
-      only behind `SCRAM=on` today, as calls of their own; and AEGIS, which stompy's checksum runs
-      on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or stompy keeps
-      Zig's.
+    - Amended again on 2026-11-25, on the owner's word that crypto as a whole is set up once,
+      with the CPU's features and a random source (design §8 step 24):
+      - A program calls `stdx.crypto.init` once, when it starts. It passes the answers of its one
+        `stdx.platform.probe()`, its statement of its threads' timing as `Timing`, which has no
+        default, and a cryptographically secure `std.Random`. The `Context` it gets holds the
+        CPU as `tls.Cpu` and as `quic.Cpu`, and the random source.
+      - `init` sets a bit that states timing only under `.data_independent`, and only where the
+        probe answers `yes`. It states the hash instructions' timing on arm64 alone, and a core
+        without FEAT_DIT states none. It sets `avx2`, `vaes` and `sve2` where the probe answers
+        `yes` on the architecture chapulin defines each for.
+      - The module `crypto` imports `platform` for `platform.Cpu`.
+      - The owner asked which shape is safest. A value is: stdx keeps no process-wide mutable
+        state (non-negotiable 8), so no call runs before the value exists, no two threads race to
+        set it, a process that forks holds no random state it did not choose, and a test passes a
+        value of its own. A global that `init` sets was refused for each of those.
+    - **owner** Still open (https://github.com/c4milo/stdx/issues/42): the hashes and MACs chapulin
+      exports only behind `SCRAM=on` today, as calls of their own; and AEGIS, which stompy's
+      checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
+      stompy keeps Zig's.
 
     The alternatives refused:
     - No crypto in stdx, each library pinning chapulin itself. Two pins or two sets of options in

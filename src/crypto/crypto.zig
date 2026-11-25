@@ -147,6 +147,18 @@ pub const scram = chapulin.tcp.scram;
 /// `stdx.platform`. It is `tls.Cpu`.
 pub const Cpu = tls.Cpu;
 
+/// The value a program makes once, when it starts, from its probe, its statement of timing and its
+/// random source, and passes to each session and call (decision 87 as amended on 2026-11-25).
+pub const init = init_file.init;
+/// What `init` takes.
+pub const Options = init_file.Options;
+/// What `init` returns: the CPU as each chapulin object takes it, and the random source.
+pub const Context = init_file.Context;
+/// The timing mode of the threads that run chapulin's code, which only the program can state.
+pub const Timing = init_file.Timing;
+
+const init_file = @import("crypto_init.zig");
+
 comptime {
     // chapulin's module exports `ch_assert_fail` from a comptime block, which Zig runs only when
     // something references the module. A program that names this module links chapulin's objects,
@@ -185,6 +197,10 @@ test "tls and quic name every public name of chapulin's two objects" {
     try std.testing.expectEqualStrings("", first_missing(quic, chapulin.quic.quic));
 }
 
+test {
+    _ = init_file;
+}
+
 test "the module names each part of chapulin's API" {
     try std.testing.expect(@hasDecl(tls, "Client"));
     try std.testing.expect(@hasDecl(quic, "Server"));
@@ -192,6 +208,8 @@ test "the module names each part of chapulin's API" {
     try std.testing.expect(@hasDecl(dnssec, "verify"));
     try std.testing.expect(@hasDecl(scram, "sha256"));
     try std.testing.expect(@typeInfo(Cpu) == .@"struct");
+    try std.testing.expect(@typeInfo(Context) == .@"struct");
+    try std.testing.expect(@typeInfo(Timing) == .@"enum");
 }
 
 test "SHA-256 of abc is RFC 6234's" {

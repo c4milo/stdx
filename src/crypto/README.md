@@ -15,7 +15,29 @@ crypto_exe.root_module.addImport("stdx", stdx_crypto.module("stdx"));
 ```
 
 Without the option, stdx fetches no chapulin and compiles no C, and `stdx.crypto` names the option
-in a compile error. A program then calls chapulin's code under stdx's names:
+in a compile error.
+
+A program makes one value when it starts, with `init`, and passes it to each session and call. The
+value holds the answers of the program's one probe, its statement of its threads' timing, and a
+cryptographically secure random source:
+
+```zig
+const crypto = stdx.crypto.init(.{
+    .probe = stdx.platform.probe(),
+    .timing = .not_stated,
+    .random = csprng.random(),
+});
+```
+
+`timing` has no default, because only the program knows its threads' mode. `.data_independent`
+states that each thread that runs chapulin's code has set PSTATE.DIT on arm64, or runs on an
+x86-64 part whose operating system has set DOITM. Under it, chapulin runs AES-GCM and the widening
+multiplies on the CPU's instructions where the probe found them. `.not_stated` keeps chapulin's code
+that needs no such mode. A program passes the value's `cpu` to the TCP object's sessions and
+calls, its `quic_cpu` to the QUIC object's, and its `random` to both. It is a value and not a
+global, so no call runs before it exists, and no two threads race to set it.
+
+A program then calls chapulin's code under stdx's names:
 
 ```zig
 var digest: [stdx.crypto.scram.sha256_len]u8 = undefined;
@@ -40,6 +62,7 @@ the object it comes from.
 | `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) | `tcp.dnssec` |
 | `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) | `tcp.scram` |
 | `Cpu` | The CPU the calls beside `tls` and `quic` take, which the program describes from its one probe, [`stdx.platform`](../platform/README.md): `tls.Cpu` | `tcp.Cpu` |
+| `init`, `Options`, `Context` and `Timing` | The value a program makes once from its probe, [`stdx.platform`](../platform/README.md), its statement of timing and its random source | none: stdx's own |
 
 A QUIC session takes the QUIC object's types: `quic.ClientOptions`, never `tls.ClientOptions`.
 

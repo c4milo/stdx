@@ -81,7 +81,7 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec`, `platform` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, read once when the program starts: `probe`'s answers, the one call that may make a syscall (decision 40), and `CpuFeatures`, the CPU features each codec's `init` takes (decision 21 as amended); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
 | `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode`, `platform` | 9485 |
-| `crypto` | chapulin's Zig module under stdx's names: TLS 1.3 over TCP and QUIC, JSON Web Signatures, DNSSEC and SCRAM's hashes, for a dependent that passes `.crypto = true` (decision 87) | the package chapulin | none |
+| `crypto` | chapulin's Zig module under stdx's names: TLS 1.3 over TCP and QUIC, JSON Web Signatures, DNSSEC and SCRAM's hashes, and `init`, the value of the CPU and the random source each call takes, for a dependent that passes `.crypto = true` (decision 87) | the package chapulin, `platform` | none |
 | `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform`, `codec` and `crypto`, as `std` groups its own (decision 6 as amended) | every module above, and the build's options | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
@@ -89,8 +89,9 @@ and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.
 73). `json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
 reaches it. `unicode` reaches `utf8` to name it as `unicode.utf8`, and no codec reaches `unicode`.
 Each module whose calls take the CPU features a caller detected reaches `platform`, for the type
-`platform.CpuFeatures` alone (decisions 21 and 40 as amended on 2026-11-24). `platform` reaches
-nothing. The graph cannot keep its `probe` and `CpuFeatures.detect` out of a codec's reach, so the
+`platform.CpuFeatures` alone (decisions 21 and 40 as amended on 2026-11-24). `crypto` reaches
+`platform` for `platform.Cpu`, the probe's answers that its `init` takes (decision 87 as amended
+on 2026-11-25). `platform` reaches nothing. The graph cannot keep its `probe` and `CpuFeatures.detect` out of a codec's reach, so the
 lint rule `cpu-probe` does: outside `platform`, only a test under `src/` calls either (invariant
 14). No module reaches `regex`, `crypto` or `stdx`. One library module receives a package:
 `crypto` receives chapulin's module, and only when a build passes `.crypto = true` (decision 87).
@@ -11757,6 +11758,25 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     switched off in stdx's own build, and the module's reference to chapulin's module removed,
     against `zig build test-stdx`; and `scram` taken from the QUIC object, which builds no SCRAM,
     and `tls.Ticket` and `quic.KeySet` each left out, against `zig build test-crypto`.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 24: `stdx.crypto.init`, the value each call takes (decision 87 as amended again).** The
+  owner ruled on 2026-11-25 that crypto as a whole is set up once, with the CPU's features and a
+  random source. A program calls `init` with its probe's answers, its statement of timing and its
+  random source, and passes the `Context` it gets to each session and call. The module `crypto`
+  imports `platform` for the probe's type, which `crypto_init.zig` turns into chapulin's
+  description of the CPU.
+  New public names: `stdx.crypto.init`, `Options`, `Context` and `Timing`, and the fields
+  `cpu`, `quic_cpu` and `random` of `Context`.
+  **Check:**
+  - `zig build test-crypto` holds the description of every answer under both statements of
+    timing, for arm64 and for x86-64 on either host, and holds the probed value and the random
+    source that `init` keeps.
+  - The module-graph rule holds the import of `platform` in its table, and its test names the
+    modules that import `platform` for one of its types.
+  - `zig build readme-check` runs the consumer's `init`, seeded from `std.Io.randomSecure`.
+  - Mutations, 6, each `CAUGHT` against `zig build test-crypto`: AES's bit set without the
+    statement, the multiply's bit set always, the hash bits stated on x86-64, FEAT_DIT not read,
+    and `avx2` and `sve2` set on the other architecture.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance

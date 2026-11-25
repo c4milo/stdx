@@ -150,7 +150,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     variants.add_levels(b, regex, "regex", settings.target, settings.optimize, &variants.regex_levels);
 
     // chapulin's cryptography (decision 87). No other module imports it, and no codec reaches it.
-    const crypto: ?*std.Build.Module = if (settings.chapulin) |chapulin| crypto_module(b, settings, chapulin) else null;
+    const crypto: ?*std.Build.Module = if (settings.chapulin) |chapulin| crypto_module(b, settings, chapulin, platform) else null;
 
     // The root a program imports, which names each module under its category (decision 6 as
     // amended). No codec imports it.
@@ -194,9 +194,11 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 }
 
 /// The module `crypto`: chapulin's Zig module under stdx's names (decision 87).
-fn crypto_module(b: *std.Build, settings: Settings, chapulin: *std.Build.Module) *std.Build.Module {
+fn crypto_module(b: *std.Build, settings: Settings, chapulin: *std.Build.Module, platform: *std.Build.Module) *std.Build.Module {
     const crypto = library(b, "crypto", "crypto", settings);
     crypto.addImport("chapulin", chapulin);
+    // The answers of a program's probe, which `init` turns into chapulin's description of the CPU.
+    crypto.addImport("platform", platform);
     return crypto;
 }
 
