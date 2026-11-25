@@ -5,7 +5,8 @@ Neoverse N2. The x86-64 runner gives a CPU model that changes from job to job. E
 row runs in the same job, and a result is stdx's speed over another library's speed in that job
 ([decision 20](decisions.md)).
 
-The README shows each chart. This page says how to read them and lists the verdicts of each panel.
+Each module's README shows its chart ([decision 88](decisions.md)). This page shows every chart,
+says how to read them, and lists the verdicts of each panel.
 It also says how to run each benchmark again. `tools/charts.py` draws the charts from the reports
 in [`bench/results/`](../bench/results/) that [`bench/charts.txt`](../bench/charts.txt) names. It
 writes the lists below from the same numbers, and `python3 tools/charts.py --check` fails where a
@@ -247,7 +248,8 @@ That is 31 searches and 10 compiles, each under rebar's own model, pattern and h
 
 The same runs time every benchmark of rebar's definitions outside its curated set and its tests
 whose engines name Go's regexp or RE2: 197 of them, each under rebar's own model, pattern and
-haystack. The README draws this chart, by the owner's ruling of 2026-11-23 (decision 85).
+haystack. The README of [`src/regex`](../src/regex/README.md#performance) draws this chart, by
+the owner's ruling of 2026-11-23 (decisions 85 and 88).
 
 - The owner ruled on 2026-11-24 to tune stdx on this set, and design §8 part 22q judges each
   change on its rows. So this set is tuned now, as the two sets above are, and it no longer shows

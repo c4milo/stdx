@@ -185,6 +185,10 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   compiled here and in `tools/`, and nowhere else. `bench/costs/` measures docs/costs.md.
 - `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
   (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
+- `README.md` is an index, and `src/<module>/README.md` holds each module's details: its
+  examples, its options, its limits and its chart (decision 88). A README shows only code that
+  is an excerpt of `tools/consumer/`, and a size that it states was measured. A new module brings
+  its README, and the README links it.
 - `docs/` is the design set. `docs/rfcs/` holds the RFCs, and `docs/specs/` the other
   specifications stdx is written from, each a document a person reads.
 - `spec/lean/` holds the Lean proofs of decisions 28 and 86, a Lake package pepegrillo's `lean`
@@ -505,15 +509,17 @@ Change this section when a step adds or renames a command.
   from the committed reports that `bench/charts.txt` names. `tools/charts_wide.py` draws the
   regex chart, whose libraries differ by orders of magnitude, under rules it states, and
   `tools/charts_wide_test.py` tests those rules. `tools/chart_docs.py` then gives each chart's
-  image in README.md and docs/benchmarks.md the chart's title as its alt text, and writes each
-  chart's verdicts into docs/benchmarks.md; `tools/chart_docs_test.py` tests it. `--check` fails
-  when a committed chart or page differs from what its reports draw, and `tools/ci.sh` runs it
-  and both tests (decision 85).
+  image in README.md, in each module's README that shows a chart and in docs/benchmarks.md the
+  chart's title as its alt text, and writes each chart's verdicts into docs/benchmarks.md;
+  `tools/chart_docs_test.py` tests it. `--check` fails when a committed chart or page differs
+  from what its reports draw, and `tools/ci.sh` runs it and both tests (decisions 85 and 88).
 - README examples: `zig build readme-check` builds `tools/consumer/`, a project of its own that
   depends on this tree the way the README says, with a nested `zig build`, and runs its program.
-  It then requires every Zig block of README.md to be an excerpt of that project's `build.zig`
-  or `main.zig` (`tools/readme_examples.zig`). The nested build takes an empty package folder
-  through `--system`, so it writes no `zig-pkg` into `tools/`.
+  It then requires every Zig block of README.md, and of each module's README, to be an excerpt
+  of that project's `build.zig` or `main.zig` (`tools/readme_examples.zig`). It requires the
+  README to link each module's README, and each module that the module `stdx` names to have one
+  (decision 88). The nested build takes an empty package folder through `--system`, so it writes
+  no `zig-pkg` into `tools/`.
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's
   share of lines run and the total. It needs Linux and kcov. The `coverage` job of

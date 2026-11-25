@@ -11,31 +11,30 @@ expressions and Unicode. It groups its modules as `std` groups its own, and each
 its RFC or from the specification that it names. Nothing in stdx allocates, opens a file, starts a
 thread or reads a clock, so it fits the hot path of a server.
 
-On GitHub's Arm Neoverse N2 runner:
+## Modules
 
-- brotli decodes faster than Google's decoder on all 39 corpus files, at 1.10 to 3.36 times its
-  speed.
-- gzip decodes faster than libdeflate on 31 of the 39 files.
-- `json`'s `TextWriter` writes JSON at 1.64 to 16.35 times serde_json's speed.
-- `regex` was tuned on each set that measures it. On rebar's benchmarks outside its curated set
-  it runs 125 of 181 searches faster than Rust's regex crate, and 55 slower, the slowest by about
-  140 times.
-- Zstandard decodes slower than libzstd on 25 of the 39 files, and libzstd's level 3 is both
-  faster and smaller than stdx's levels 1 and 3.
+Each module's folder holds a README with its examples, its options, its limits and its speed.
 
-[Performance](#performance) shows every chart, and [`docs/benchmarks.md`](docs/benchmarks.md)
-lists the counts of each, the losses included.
+| Module | What it holds |
+| --- | --- |
+| [`stdx.compress.deflate`](src/deflate/README.md) | DEFLATE ([RFC 1951](https://www.rfc-editor.org/rfc/rfc1951)): an encoder and a decoder |
+| [`stdx.compress.zlib`](src/zlib/README.md) | The zlib container ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)): HTTP's `deflate` coding |
+| [`stdx.compress.gzip`](src/gzip/README.md) | The gzip container ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): HTTP's `gzip` coding |
+| [`stdx.compress.zstd`](src/zstd/README.md) | Zstandard ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878), with [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)'s limits for HTTP): HTTP's `zstd` coding |
+| [`stdx.compress.brotli`](src/brotli/README.md) | brotli ([RFC 7932](https://www.rfc-editor.org/rfc/rfc7932)): HTTP's `br` coding |
+| [`stdx.hash`](src/checksum/README.md) | CRC-32, Adler-32 and XXH64, with SIMD paths that the CPU selects at run time |
+| [`stdx.json`](src/json/README.md) | JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) with JSON text sequences ([RFC 7464](https://www.rfc-editor.org/rfc/rfc7464)): an encoder and a pull decoder |
+| [`stdx.base64`](src/base64/README.md) | Base 64 ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)): an encoder and a decoder |
+| [`stdx.regex`](src/regex/README.md) | Regular expressions in [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485)'s grammar with RE2's syntax, matched in time linear in the text |
+| [`stdx.unicode`](src/unicode/README.md) | Unicode 17.0.0's categories, scripts and case folding |
+| [`stdx.unicode.utf8`](src/utf8/README.md) | UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)), with a validator proved in Lean |
+| [`stdx.platform`](src/platform/README.md) | What the CPU offers, which a program probes once when it starts |
+| [`stdx.codec`](src/codec/README.md) | The streaming contract that every codec shares |
 
 ## At a glance
 
 | Area | What stdx does |
 | --- | --- |
-| Compression | `stdx.compress`: `gzip`, `zlib` and `deflate` ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952), [1950](https://www.rfc-editor.org/rfc/rfc1950), [1951](https://www.rfc-editor.org/rfc/rfc1951)), `zstd` ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878), with [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)'s limits for HTTP) and `brotli` ([RFC 7932](https://www.rfc-editor.org/rfc/rfc7932)). Each has an encoder and a decoder. |
-| Encoder levels | DEFLATE 1, 6 and 9 in all three containers, Zstandard 1 and 3, brotli 1 and 5 |
-| Checksums | `stdx.hash`: CRC-32, Adler-32 and XXH64, with SIMD paths that the CPU selects at run time |
-| Data | `stdx.json`: JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) with text sequences ([RFC 7464](https://www.rfc-editor.org/rfc/rfc7464)). `stdx.base64`: base 64 ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)). |
-| Text | `stdx.regex`: regular expressions in [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485)'s grammar with RE2's syntax, matched in time linear in the text, in UTF-8 or in bytes. `stdx.unicode`: Unicode 17.0.0's categories, scripts and case folding, and UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)). |
-| CPU | `stdx.platform`: what the CPU offers, which a program probes once when it starts |
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns each state and buffer, and each codec's state has a comptime size. |
 | I/O | None. The one exception is the probe of `stdx.platform`, which makes one system call on macOS. |
 | Streaming | A call takes any amount of input, writes what fits, and says whether it needs more input, more room, or is done. Each decoder is also a `std.Io.Reader`, and each encoder a `std.Io.Writer`. |
@@ -43,12 +42,6 @@ lists the counts of each, the losses included.
 | Threads | No global state: run codecs on as many threads as you like. |
 | Safety | Assertions stay on in production. Hostile input returns an error value, and the code cites the RFC section behind each refusal. |
 | Testing | Differential checks against zlib, Wuffs, libzstd, Google's brotli, Go's regexp and RE2's own test logs. A fuzzer every night. Lean proofs of the UTF-8 validator, of the state machine that reads JSON numbers, and of a model of the regex matcher. |
-
-## Status
-
-stdx is before 1.0, and its releases follow SemVer 2.0.0 ([decision 65](docs/decisions.md)). The
-latest release is [0.3.0](https://github.com/c4milo/stdx/releases/tag/v0.3.0). Open work is in
-[the issues](https://github.com/c4milo/stdx/issues).
 
 ## Install
 
@@ -72,125 +65,49 @@ exe.root_module.addImport("stdx", stdx.module("stdx"));
 - Each module's own name, such as `stdx.module("gzip")`, stays exported as an alias. A later
   release removes the aliases.
 
-## Examples
+## Example
 
-Both examples come from [`tools/consumer/`](tools/consumer/), a program that `zig build test`
-builds against this tree and runs. Call `stdx.platform.CpuFeatures.detect()` once when the program
-starts, and pass the result to each codec and searcher.
-
-### Decode gzip
+Call `stdx.platform.CpuFeatures.detect()` once when the program starts, and pass the result to
+each codec and searcher.
 
 ```zig
-const stdx = @import("stdx");
-
 /// Decodes the gzip file `body` into `output`, and returns the decoded octets.
 fn gunzip(features: stdx.platform.CpuFeatures, body: []const u8, output: []u8) ![]u8 {
-    var decoder: stdx.compress.gzip.Decoder = undefined; // about 44 KiB
+    var decoder: stdx.compress.gzip.Decoder = undefined; // about 43 KiB
     decoder.init(features);
     const whole = try decoder.decode_all(body, output);
     return output[0..whole.written];
 }
 ```
 
-- `decode_all` returns `error.NoSpaceLeft` when `output` fills first, `error.Truncated` when the
-  input ends inside a stream, and a `stdx.compress.gzip.Error` for a corrupt stream.
-- For input that arrives in pieces, call `decode` with each piece. It returns a status:
-  `needs_input`, `needs_room` or `done`.
-
-### Count the matches of a regular expression
-
-```zig
-const std = @import("std");
-const stdx = @import("stdx");
-
-/// The instructions a pattern of the regex example may take.
-const instructions_len = 256;
-
-/// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 4 MiB
-/// of it is the default cache, and a smaller cache costs speed, never an answer.
-fn count_matches(gpa: std.mem.Allocator, features: stdx.platform.CpuFeatures, pattern: []const u8, haystack: []const u8) !u64 {
-    var storage: [instructions_len]stdx.regex.Instruction = undefined;
-    const program = try stdx.regex.compile(pattern, .{}, &storage);
-    const cache_words = stdx.regex.constants.cache_words_default;
-    const memory = try gpa.alloc(u64, stdx.regex.Searcher.memory_len(program.forward_len, program.slot_count(), cache_words));
-    defer gpa.free(memory);
-    var searcher: stdx.regex.Searcher = undefined;
-    searcher.init(&program, &.{ .features = features }, memory);
-    var matches: stdx.regex.Matches = .{ .searcher = &searcher, .haystack = haystack };
-    return matches.count();
-}
-```
-
-- The program reads `storage`, and the searcher reads `memory`. Keep both while the searcher runs.
-- A searcher also has `find`, `is_match` and `captures`.
-- The syntax is RE2's, less the forms that need a backtracking matcher
-  ([decision 86](docs/decisions.md)).
+Each module's README holds its own examples. Every example comes from
+[`tools/consumer/`](tools/consumer/), a program that `zig build test` builds against this tree and
+runs.
 
 ## Performance
 
-The charts compare stdx with other libraries on GitHub's hosted runners. Every library of a row
-runs in the same job ([decision 20](docs/decisions.md)). [`docs/benchmarks.md`](docs/benchmarks.md)
-says how to read each chart and how to run each benchmark again.
+The benchmarks compare stdx with other libraries on GitHub's hosted runners. Every library of a
+row runs in the same job ([decision 20](docs/decisions.md)). On the Arm Neoverse N2 runner:
 
-### Regular expressions
+- [brotli](src/brotli/README.md#performance) decodes faster than Google's decoder on all 39 corpus
+  files, at 1.10 to 3.36 times its speed.
+- [gzip](src/deflate/README.md#performance) decodes faster than libdeflate on 31 of the 39 files.
+- [`json`](src/json/README.md#performance)'s `TextWriter` writes JSON at 1.64 to 16.35 times
+  serde_json's speed.
+- [`regex`](src/regex/README.md#performance) was tuned on each set that measures it. On rebar's
+  benchmarks outside its curated set it runs 125 of 181 searches faster than Rust's regex crate,
+  and 55 slower, the slowest by about 140 times.
+- [Zstandard](src/zstd/README.md#performance) decodes slower than libzstd on 25 of the 39 files,
+  and libzstd's level 3 is both faster and smaller than stdx's levels 1 and 3.
 
-The median of 18 runs at commit b49e0f9, against Rust's regex crate 1.13.2 and Go's regexp. The
-rows are the 197 of rebar's benchmarks outside its curated set and its tests whose engines name
-Go's regexp or RE2, each under rebar's own model, pattern and haystack.
+Each module's README shows its chart. [`docs/benchmarks.md`](docs/benchmarks.md) shows every
+chart, lists the counts of each, the losses included, and says how to run each benchmark again.
 
-stdx was tuned on these rows ([decision 86](docs/decisions.md)), so this chart can favor stdx. The
-runs at commit 1df5f9f are the last that came before that work, and the README at commit
-[1744e4a](https://github.com/c4milo/stdx/blob/1744e4a/README.md#regular-expressions) draws them.
-One change came before those runs, for the answer of one row and on no speed: stdx runs each
-benchmark that leaves `unicode` off in bytes, as Rust's crate runs it.
+## Status
 
-![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on Neoverse-N2](docs/images/regex-rebar-others-aarch64.svg)
-
-<details>
-<summary>x86-64: AMD EPYC 9V74 80-Core Processor</summary>
-
-![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor](docs/images/regex-rebar-others-x86_64.svg)
-
-</details>
-
-[`docs/benchmarks.md`](docs/benchmarks.md#regular-expressions) holds two more charts from the same
-runs: the patterns written for this benchmark, and rebar's curated set. stdx was tuned on both
-too.
-
-### Compression, JSON, checksums and base 64
-
-One job each, from the first runs on Ubuntu 26.04, at commit 0dd2e97. A blue bar is ahead, a gray
-bar is level inside the noise, and an orange bar is behind. An encoder's panel plots speed against
-compression ratio.
-
-![stdx's DEFLATE against its baselines, on Neoverse-N2](docs/images/deflate-aarch64.svg)
-
-![stdx's Zstandard against its baselines, on Neoverse-N2](docs/images/zstd-aarch64.svg)
-
-![stdx's brotli against its baselines, on Neoverse-N2](docs/images/brotli-aarch64.svg)
-
-![stdx's JSON against its baselines, on Neoverse-N2](docs/images/json-aarch64.svg)
-
-![stdx's checksums against its baselines, on Neoverse-N2](docs/images/checksum-aarch64.svg)
-
-![stdx's base64 against its baselines, on Neoverse-N2](docs/images/base64-aarch64.svg)
-
-<details>
-<summary>x86-64: Intel Xeon Platinum 8370C, AMD EPYC 7763 and AMD EPYC 9V45</summary>
-
-![stdx's DEFLATE against its baselines, on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz](docs/images/deflate-x86_64.svg)
-
-![stdx's Zstandard against its baselines, on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz](docs/images/zstd-x86_64.svg)
-
-![stdx's brotli against its baselines, on AMD EPYC 7763 64-Core Processor](docs/images/brotli-x86_64.svg)
-
-![stdx's JSON against its baselines, on AMD EPYC 9V45 96-Core Processor](docs/images/json-x86_64.svg)
-
-![stdx's checksums against its baselines, on AMD EPYC 7763 64-Core Processor](docs/images/checksum-x86_64.svg)
-
-![stdx's base64 against its baselines, on AMD EPYC 7763 64-Core Processor](docs/images/base64-x86_64.svg)
-
-</details>
+stdx is before 1.0, and its releases follow SemVer 2.0.0 ([decision 65](docs/decisions.md)). The
+latest release is [0.3.0](https://github.com/c4milo/stdx/releases/tag/v0.3.0). Open work is in
+[the issues](https://github.com/c4milo/stdx/issues).
 
 ## Development
 

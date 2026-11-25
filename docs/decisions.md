@@ -5667,6 +5667,8 @@ last part lists what still waits on a ruling.
         answer and on no speed, and the README says so beside the chart (2026-11-24). The owner
         then ruled to tune stdx on the set, so the README also says which runs came before that
         work, and that later runs show tuned rows (entry 86).
+      - **owner** Entry 88 moves each chart from the README to the README of its module's folder,
+        with what this entry and entry 86 require beside it. That move waits on a ruling.
 
       What the rules before did, which these replace:
       - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
@@ -6996,3 +6998,33 @@ last part lists what still waits on a ruling.
     - The checksums moved into chapulin, which holds cryptography alone.
     - SHA-2, SHA-3 and their kin written again in Zig in stdx, which would split the code that
       chapulin's proofs and constant-time checks cover.
+
+88. **The README is an index, and each module's folder holds its README.** The owner asked for it
+    on 2026-11-25, after a README of 2,049 words: it listed what stdx holds three times, and it
+    held each module's examples, caveats and charts.
+    - `README.md` says what stdx is and what every module keeps. It lists the modules, each with
+      a link to its README, and holds the install, one example, and one result for each benchmark.
+    - `src/<module>/README.md` holds a module's details: its examples, what it holds, its
+      options, its limits and what it refuses. GitHub shows it to a reader of the folder. The
+      folder `src/stdx` has none, because the README is that module's page.
+    - Every Zig block of each README is an excerpt of `tools/consumer/`, which `zig build
+      readme-check` builds and runs. So no README shows code that no longer compiles. The check
+      requires the README to link each module's README, and each module that the module `stdx`
+      names to have one (`tools/readme_examples.zig`).
+    - A size that a README states was measured: `@sizeOf` of the state, in a ReleaseSafe build
+      for x86-64 Linux, on 2026-11-25.
+    - **owner** Each chart stands in the README of its module's folder, with what entries 85 and
+      86 require beside it, and the README shows none. Entry 85 put the charts in the README, by
+      the owner's rulings of 2026-11-19 and 2026-11-22, so this placement waits on a ruling. A
+      chart is a module's detail, and it moved with the rest. The README keeps one result for
+      each benchmark, the losses among them, and `docs/benchmarks.md` keeps every chart.
+      `tools/charts.py` writes each image's alt text in a module's README too.
+
+    Cost: a package holds 13 READMEs, 33 KiB of text, since its `.paths` names `src`. A reader
+    of the README follows a link to see a chart.
+
+    The alternatives refused:
+    - One README, trimmed. A trim of the prose by a third left each module's examples, caveats
+      and charts on one page.
+    - A page for each module under `docs/`, which a reader of a module's folder does not see.
+    - Each root's doc comment alone. GitHub renders no doc comment, and a comment shows no chart.
