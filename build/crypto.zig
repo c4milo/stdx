@@ -37,7 +37,7 @@ const Setting = enum { on, off };
 /// - `ROLE=both TRUST=webpki`: a client and a server, and the one client trust mode that compiles
 ///   ALPN in, which HTTP/2 over TLS needs (RFC 9113 §3.1).
 /// - `EXPORTER=on` and `TX_RECORD=16384`, a record of TLS's largest plaintext (RFC 9846 §5.1), and
-///   `DNSSEC`, `JWS` and `SCRAM` on a host target, reach the TCP object alone.
+///   `DNSSEC`, `JWS`, `SCRAM` and `HASH` on a host target, reach the TCP object alone.
 /// - `SUITE=aesgcm` on a host target, which adds RFC 9846 §9.1's mandatory
 ///   TLS_AES_128_GCM_SHA256. chapulin refuses it over its software AES, so another target takes
 ///   `SUITE=chacha`.
@@ -56,6 +56,7 @@ pub fn chapulin(b: *std.Build, target: std.Build.ResolvedTarget, wanted: Options
         .DNSSEC = host_setting(target),
         .JWS = host_setting(target),
         .SCRAM = host_setting(target),
+        .HASH = host_setting(target),
     }) orelse return null;
     return dependency.module("chapulin");
 }

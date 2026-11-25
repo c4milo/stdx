@@ -5,12 +5,12 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         // The library's one dependency (decision 87): chapulin, the cryptography `stdx.crypto`
-        // gives, at the commit colibri pinned. Lazy, and requested only when a build passes
-        // `.crypto = true`, which stdx's own build does, so a dependent that does not fetches no
-        // chapulin and compiles no C (build/crypto.zig).
+        // gives, at the commit that adds its HASH=on calls. Lazy, and requested only when a build
+        // passes `.crypto = true`, which stdx's own build does, so a dependent that does not
+        // fetches no chapulin and compiles no C (build/crypto.zig).
         .chapulin = .{
-            .url = "git+https://github.com/c4milo/chapulin#bda41cf6bfa38436a40c8a252610957c47eb3b5b",
-            .hash = "chapulin-0.10.0-btv9NnAVPwCZRLdko4vhTnjcqeCa034tsWHgKjn267Nl",
+            .url = "git+https://github.com/c4milo/chapulin#f29c066aa9b4715dca690dccff6897ca2f33b6bc",
+            .hash = "chapulin-0.10.0-btv9NivAPwAKXDsm_px9qbguX6lJKqFULLkuKFQTpoSQ",
             .lazy = true,
         },
         // Developer tooling only, never linked into the library (decision 7). Lazy, and requested

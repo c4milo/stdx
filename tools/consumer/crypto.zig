@@ -23,10 +23,9 @@ pub fn main(init: std.process.Init) !void {
         .timing = timing,
         .random = csprng.random(),
     });
-    _ = crypto;
 
-    var digest: [stdx.crypto.scram.sha256_len]u8 = undefined;
-    stdx.crypto.scram.sha256(&digest, "abc");
+    var digest: [stdx.crypto.hash.sha256_len]u8 = undefined;
+    try stdx.crypto.hash.sha256(crypto.cpu, &digest, "abc");
     const hex = std.fmt.bytesToHex(digest, .lower);
     if (!std.mem.eql(u8, &hex, abc_digest)) return error.WrongDigest;
 }

@@ -29,7 +29,7 @@ Each module's folder holds a README with its examples, its options, its limits a
 | [`stdx.unicode`](src/unicode/README.md) | Unicode 17.0.0's categories, scripts and case folding |
 | [`stdx.unicode.utf8`](src/unicode/utf8/README.md) | UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)), with a validator proved in Lean |
 | [`stdx.platform`](src/platform/README.md) | What the CPU offers, which a program probes once when it starts |
-| [`stdx.crypto`](src/crypto/README.md) | chapulin's TLS 1.3, JSON Web Signatures, DNSSEC and SCRAM's hashes, for a dependent that passes `.crypto = true` |
+| [`stdx.crypto`](src/crypto/README.md) | chapulin's TLS 1.3, JSON Web Signatures, DNSSEC, SCRAM's calls, and its hashes, HMAC and HKDF, for a dependent that passes `.crypto = true` |
 | [`stdx.codec`](src/codec/README.md) | The streaming contract that every codec shares |
 
 ## At a glance

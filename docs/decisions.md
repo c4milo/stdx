@@ -7164,8 +7164,16 @@ last part lists what still waits on a ruling.
         state (non-negotiable 8), so no call runs before the value exists, no two threads race to
         set it, a process that forks holds no random state it did not choose, and a test passes a
         value of its own. A global that `init` sets was refused for each of those.
-    - **owner** Still open (https://github.com/c4milo/stdx/issues/42): the hashes and MACs chapulin
-      exports only behind `SCRAM=on` today, as calls of their own; and AEGIS, which stompy's
+    - Amended a third time on 2026-11-25: chapulin's hashes, HMAC and HKDF are calls of their own
+      (design §8 step 26). The owner ruled a new chapulin axis, `HASH=on`, with a stream and one
+      call over a whole input, SHA-2, HMAC, HKDF, SHA-3 and SHAKE, and no SHA-1. chapulin's
+      decision 246 adds it, and stdx pins chapulin at that commit.
+      - stdx asks for `HASH=on` beside `SCRAM=on`, on a host target alone, and `stdx.crypto.hash`
+        names chapulin's `tcp.hash`. The QUIC object holds none of the calls.
+      - Each call takes `Context.cpu`, so it runs each hash on the instructions that the program's
+        probe and statement of timing allow, as a session would.
+      - `scram` keeps its own SHA-256 and HMAC-SHA-256, which take no CPU value.
+    - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.
 

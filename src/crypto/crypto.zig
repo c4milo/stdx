@@ -143,6 +143,11 @@ pub const dnssec = chapulin.tcp.dnssec;
 /// SCRAM's calls (RFC 5802, RFC 7677): SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time,
 /// base 64 and RFC 5929's tls-server-end-point.
 pub const scram = chapulin.tcp.scram;
+/// The hashes, HMAC and HKDF of chapulin's key schedule: SHA-256, SHA-384 and SHA-512 as a stream
+/// and over a whole input (FIPS 180-4), SHA3-256 and SHA3-512, SHAKE128 and SHAKE256 (FIPS 202),
+/// HMAC over the three SHA-2 hashes (RFC 2104), and HKDF's Extract and Expand (RFC 5869). Each
+/// call takes `Context.cpu`, and runs each hash on the instructions that value names.
+pub const hash = chapulin.tcp.hash;
 /// The CPU the calls beside `tls` and `quic` take, which the program describes from its one probe,
 /// `stdx.platform`. It is `tls.Cpu`.
 pub const Cpu = tls.Cpu;
@@ -167,11 +172,12 @@ comptime {
 }
 
 const std = @import("std");
+const platform = @import("platform");
 
 /// The names of chapulin's object roots that `tls` and `quic` do not repeat: the two session
 /// modules, which each namespace flattens, the calls `stdx.crypto` names once, and the API's own
 /// test helper.
-const left_out = [_][]const u8{ "tcp", "quic", "jws", "dnssec", "scram", "testing" };
+const left_out = [_][]const u8{ "tcp", "quic", "jws", "dnssec", "scram", "hash", "testing" };
 
 fn left_out_name(name: []const u8) bool {
     for (left_out) |out| {
@@ -207,18 +213,46 @@ test "the module names each part of chapulin's API" {
     try std.testing.expect(@hasDecl(jws, "verify"));
     try std.testing.expect(@hasDecl(dnssec, "verify"));
     try std.testing.expect(@hasDecl(scram, "sha256"));
+    try std.testing.expect(@hasDecl(hash, "Sha256"));
     try std.testing.expect(@typeInfo(Cpu) == .@"struct");
     try std.testing.expect(@typeInfo(Context) == .@"struct");
     try std.testing.expect(@typeInfo(Timing) == .@"enum");
 }
 
+/// RFC 6234 §8.5's first test of SHA-256: the digest of the input "abc", in hex.
+const abc_sha256_hex = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+fn abc_sha256() ![hash.sha256_len]u8 {
+    var digest: [hash.sha256_len]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&digest, abc_sha256_hex);
+    return digest;
+}
+
+/// A fixed source for the tests, which writes zeros. It is no random source.
+fn zeros(_: *anyopaque, bytes: []u8) void {
+    @memset(bytes, 0);
+}
+
+test "chapulin takes init's description of this host, under each statement of timing" {
+    // A bit the object does not define for its architecture makes each call refuse the value,
+    // so a digest under each statement shows that init gave chapulin a value it takes.
+    var source_state: u8 = 0;
+    const random: tls.RandomSource = .{ .ptr = &source_state, .fillFn = zeros };
+    inline for (.{ Timing.not_stated, Timing.data_independent }) |timing| {
+        const context = init(.{ .probe = platform.probe(), .timing = timing, .random = random });
+        var digest: [hash.sha256_len]u8 = undefined;
+        try hash.sha256(context.cpu, &digest, "abc");
+        try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
+        var stream = try hash.Sha256.init(context.cpu);
+        stream.update("a");
+        stream.update("bc");
+        stream.final(&digest);
+        try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
+    }
+}
+
 test "SHA-256 of abc is RFC 6234's" {
-    // RFC 6234 §8.5's first test of SHA-256: the input "abc".
-    const expected = [_]u8{
-        0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
-        0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
-    };
     var digest: [scram.sha256_len]u8 = undefined;
     scram.sha256(&digest, "abc");
-    try std.testing.expectEqualSlices(u8, &expected, &digest);
+    try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
 }

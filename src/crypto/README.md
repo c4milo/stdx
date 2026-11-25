@@ -1,7 +1,8 @@
 # stdx.crypto
 
 `stdx.crypto` is [chapulin](https://github.com/c4milo/chapulin)'s cryptography: TLS 1.3 over TCP
-and under QUIC, JSON Web Signatures, DNSSEC, and SCRAM's hashes. stdx writes no cryptography of
+and under QUIC, JSON Web Signatures, DNSSEC, SCRAM's calls, and the hashes, HMAC and HKDF of
+chapulin's key schedule. stdx writes no cryptography of
 its own ([decision 87](../../docs/decisions.md)). chapulin holds every cipher, signature, hash and
 MAC, and its proofs and constant-time checks cover them.
 
@@ -40,16 +41,21 @@ x86-64 part whose operating system has set DOITM. Under it, chapulin runs AES-GC
 multiplies on the CPU's instructions where the probe found them. `.not_stated` keeps chapulin's code
 that needs no such mode. `stdx.platform.set_data_independent_timing` sets PSTATE.DIT on the calling
 thread alone, so a program calls it on each thread that runs chapulin's code, and
-`stdx.platform.data_independent_timing` reads it ([`stdx.platform`](../platform/README.md)). A program passes the value's `cpu` to the TCP object's sessions and
-calls, its `quic_cpu` to the QUIC object's, and its `random` to both. It is a value and not a
-global, so no call runs before it exists, and no two threads race to set it.
+`stdx.platform.data_independent_timing` reads it ([`stdx.platform`](../platform/README.md)).
 
-A program then calls chapulin's code under stdx's names:
+A program passes the value's `cpu` to the TCP object's sessions and calls, its `quic_cpu` to the
+QUIC object's, and its `random` to both. It is a value and not a global, so no call runs before it
+exists, and no two threads race to set it. A program then calls chapulin's code under stdx's
+names:
 
 ```zig
-var digest: [stdx.crypto.scram.sha256_len]u8 = undefined;
-stdx.crypto.scram.sha256(&digest, "abc");
+var digest: [stdx.crypto.hash.sha256_len]u8 = undefined;
+try stdx.crypto.hash.sha256(crypto.cpu, &digest, "abc");
 ```
+
+Each hash runs where `crypto.cpu` puts it. On arm64 under `.data_independent`, SHA-256, SHA-512
+and SHA-3 run on the instructions the probe found. On x86-64, SHA-384 and SHA-512 run on AVX2
+where the probe found it. Every other hash runs chapulin's portable code.
 
 stdx is the one place that asks chapulin for its module. So a program that names chapulin only
 through stdx links one chapulin, which chapulin requires.
@@ -68,6 +74,7 @@ the object it comes from.
 | `jws` | JSON Web Signatures: RS256, ES256 and EdDSA, and base64url ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)) | `tcp.jws` |
 | `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) | `tcp.dnssec` |
 | `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) | `tcp.scram` |
+| `hash` | SHA-256, SHA-384 and SHA-512 as a stream and over a whole input, SHA3-256 and SHA3-512, SHAKE128 and SHAKE256, HMAC over the three SHA-2 hashes, and HKDF's Extract and Expand ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869)), each taking `Context.cpu` | `tcp.hash` |
 | `Cpu` | The CPU the calls beside `tls` and `quic` take, which the program describes from its one probe, [`stdx.platform`](../platform/README.md): `tls.Cpu` | `tcp.Cpu` |
 | `init`, `Options`, `Context` and `Timing` | The value a program makes once from its probe, [`stdx.platform`](../platform/README.md), its statement of timing and its random source | none: stdx's own |
 
@@ -82,8 +89,8 @@ A QUIC session takes the QUIC object's types: `quic.ClientOptions`, never `tls.C
 
 ## Limits
 
-- chapulin builds `jws`, `dnssec` and `scram` for an arm64 target with NEON or an x86-64 target
-  with SSE2 alone. On any other target each names that in a compile error, and TLS runs
+- chapulin builds `jws`, `dnssec`, `scram` and `hash` for an arm64 target with NEON or an x86-64
+  target with SSE2 alone. On any other target each names that in a compile error, and TLS runs
   TLS_CHACHA20_POLY1305_SHA256 alone.
 - chapulin's module defines `ch_assert_fail`, the hook its C calls on a failed assertion. A
   program must not define it again. A program that reports a failed assertion its own way declares

@@ -81,7 +81,7 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec`, `platform` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, read once when the program starts: `probe`'s answers, the one call that may make a syscall (decision 40), and `CpuFeatures`, the CPU features each codec's `init` takes (decision 21 as amended); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
 | `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode`, `platform` | 9485 |
-| `crypto` | chapulin's Zig module under stdx's names: TLS 1.3 over TCP and QUIC, JSON Web Signatures, DNSSEC and SCRAM's hashes, and `init`, the value of the CPU and the random source each call takes, for a dependent that passes `.crypto = true` (decision 87) | the package chapulin, `platform` | none |
+| `crypto` | chapulin's Zig module under stdx's names: TLS 1.3 over TCP and QUIC, JSON Web Signatures, DNSSEC, SCRAM's calls, and the hashes, HMAC and HKDF of chapulin's key schedule, and `init`, the value of the CPU and the random source each call takes, for a dependent that passes `.crypto = true` (decision 87) | the package chapulin, `platform` | none |
 | `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform`, `codec` and `crypto`, as `std` groups its own (decision 6 as amended) | every module above, and the build's options | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
@@ -11798,6 +11798,22 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     call left out of the rule, against `zig build test-tools`. The set's own use of that check
     runs on arm64 alone, where the test of a core whose `dit` is `no` would catch its removal.
     This host could not measure it.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 26: chapulin's hashes, HMAC and HKDF as `stdx.crypto.hash` (decision 87 as amended a
+  third time).** stdx pins chapulin at f29c066a, which adds `HASH=on` (chapulin's decision 246),
+  and asks for it beside `SCRAM=on` on a host target. Each call takes `Context.cpu`. The pin's
+  hash was computed from the commit's tree with the method Zig 0.16 uses, which gave the hashes of
+  chapulin bda41cf6 and pepegrillo 10841b3e that the manifests recorded.
+  New public name: `stdx.crypto.hash`.
+  **Check:**
+  - `zig build test-crypto` hashes "abc" through `hash.sha256` and through `hash.Sha256` in two
+    updates, under `init`'s description of the host with each statement of timing, and holds the
+    digest to RFC 6234 §8.5. A bit that chapulin's object does not define makes each call refuse,
+    so the digest shows that chapulin takes `init`'s value.
+  - `zig build readme-check` runs the consumer's `hash.sha256` under its `init` value.
+  - Mutations, 3, each `CAUGHT`: `init` setting `constant_time_eor3` on every architecture, which
+    `init`'s own tests do not read, and the request without `HASH=on`, against `zig build
+    test-crypto`; a wrong digest in the consumer, against `zig build readme-check`.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
