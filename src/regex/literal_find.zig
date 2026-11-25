@@ -45,12 +45,54 @@ inline fn search(comptime width: usize, literal: *const Literal, haystack: []con
     if (wide.found) |offset| return offset;
     const after = lanes(width, literal, ends_fold, block_len / width, haystack, wide.index, end);
     if (after.found) |offset| return offset;
+    const step = lanes(width, literal, ends_fold, 1, haystack, after.index, end);
+    if (step.found) |offset| return offset;
+    if (step.index == end) return null;
+    // Fewer than `width` places are left. Where the text holds a step's places, one step that
+    // ends at `end` takes them: a text under one block took them one at a time.
+    if (end >= width) return last_step(width, literal, ends_fold, haystack, step.index, end);
     const first = literal.first_at;
     const first_fold = literal.fold_octets[first];
-    for (after.index..end) |index| {
+    for (step.index..end) |index| {
         if (haystack[index + first] | first_fold == literal.octets[first] and literal.stands_at(haystack, index)) return index;
     }
     return null;
+}
+
+/// The first place of the literal from `index` to `end`, fewer than `width` places, by the step
+/// of `width` places that ends at `end`. The step's places before `index` are left out: the
+/// blocks passed those from `from` on, and the search does not take those before `from`.
+inline fn last_step(comptime width: usize, literal: *const Literal, ends_fold: bool, haystack: []const u8, index: usize, end: usize) ?usize {
+    if (ends_fold) return by_last_step(width, literal, .folding, haystack, index, end);
+    if (literal.len == 1) return by_last_step(width, literal, .single, haystack, index, end);
+    return by_last_step(width, literal, .plain, haystack, index, end);
+}
+
+/// `last_step` for a literal's form.
+inline fn by_last_step(comptime width: usize, literal: *const Literal, comptime form: Form, haystack: []const u8, index: usize, end: usize) ?usize {
+    assert(index < end and end - index < width);
+    const start = end - width;
+    const wanted = wanted_of(width, literal);
+    const firsts = haystack[start + literal.first_at ..][0..width];
+    const lasts = if (form == .single) firsts else haystack[start + literal.last_at ..][0..width];
+    const Step = lane_places.Places(width);
+    var mask = Step.of(both_lanes(width, form, firsts, lasts, 0, &wanted));
+    // Each set bit is one place to compare, at most `width` of them.
+    while (mask != 0) : (mask &= mask - 1) {
+        const candidate = start + Step.first(mask);
+        if (candidate >= index and literal.stands_at(haystack, candidate)) return candidate;
+    }
+    return null;
+}
+
+/// The octets a step's lanes are compared with, at the literal's two compared places.
+inline fn wanted_of(comptime width: usize, literal: *const Literal) Wanted(width) {
+    return .{
+        .first = @splat(literal.octets[literal.first_at]),
+        .last = @splat(literal.octets[literal.last_at]),
+        .first_fold = @splat(literal.fold_octets[literal.first_at]),
+        .last_fold = @splat(literal.fold_octets[literal.last_at]),
+    };
 }
 
 /// What a run of blocks found: the first place of the literal, or the offset it stopped at.
@@ -83,12 +125,7 @@ inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form
     const steps_len = steps * width;
     const first = literal.first_at;
     const last = literal.last_at;
-    const wanted: Wanted(width) = .{
-        .first = @splat(literal.octets[first]),
-        .last = @splat(literal.octets[last]),
-        .first_fold = @splat(literal.fold_octets[first]),
-        .last_fold = @splat(literal.fold_octets[last]),
-    };
+    const wanted = wanted_of(width, literal);
     var index = from;
     // A block reads `steps_len` octets from `index + first` and as many from `index + last`, whose
     // last is `end + steps_len - 2 + last`, under the haystack's length.

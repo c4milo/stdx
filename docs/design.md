@@ -10541,6 +10541,31 @@ to 12 are reordered and nothing else changes.
     - Four of the replay: the bound not read, no window held, the bound not compared, and the
       bound not written.
 
+  The last step of claim R2's search:
+  - `imported/rsc/literal`, `y` in a text of 51 bytes, ran at 0.46 of Rust's crate on the N2.
+    `literal_find.search` took a text in blocks of 128 and 64 bytes, and the rest one byte at a
+    time. So it read a text under 64 bytes one byte at a time.
+  - Now steps of one vector take what the blocks leave. One step that ends at the last place
+    takes the rest, where the text holds a whole step. The places of that step before the
+    search's offset are left out.
+  **Check:** the tests that compare the search with a plain one, from every offset of seeded
+  texts of each length; a filter in the container; two paired runs of the `bench` workflow on
+  each runner; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  The paired runs are not recorded yet.
+  - `zig build test` exits 0, and `zig build checkfree-check` exits 0.
+  - The filter, built ReleaseSafe, counted the spans of `y` in the row's text a million times.
+    A search took 62 to 84 ns at `2aa9b12` and 23 to 29 ns with the step. `Sherlock Holmes`
+    over `sherlock.txt` stayed within the container's noise. Under callgrind, built for
+    x86-64-v3, 20 counts of it took 84,046,885 instructions at `2aa9b12` and 84,156,314 with
+    the step, 0.13% more.
+  - Mutations, against `zig build test-regex`: 9, each CAUGHT. A step that starts one place
+    late; a place one lane late; a folded literal compared as plain; the empty rest not
+    refused, which an assertion halts; no whole compare of a candidate; the places before the
+    offset kept, where the step may start before it; a place one late from the steps of one
+    vector; the literal's second compared octet read at its first; and the step taken where the
+    text holds no whole step.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
