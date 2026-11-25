@@ -124,9 +124,12 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         }
 
         /// The most octets `encode_all` writes for `input_len` octets: the magic number, the
-        /// largest Frame_Header, every block raw with its Block_Header, and the checksum.
+        /// largest Frame_Header, every block raw with its Block_Header, and the checksum. A
+        /// program may call it at compile time for a buffer's length, so the count of blocks
+        /// states its type: `@max` of two values known at compile time gives the least type that
+        /// holds the result.
         pub fn encoded_len_max(input_len: usize) usize {
-            const blocks = @max(1, std.math.divCeil(usize, input_len, constants.block_len_max) catch unreachable);
+            const blocks: usize = @max(1, std.math.divCeil(usize, input_len, constants.block_len_max) catch unreachable);
             return constants.magic_len + constants.frame_header_len_max + blocks * constants.block_header_len + input_len + constants.checksum_len;
         }
     };
