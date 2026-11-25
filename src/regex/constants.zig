@@ -380,6 +380,16 @@ pub const case_bit = 0x20;
 /// octet is claim R1's skip, which judges `skip_ranges_max` ranges a step.
 pub const literal_prefix_len_min = 2;
 
+/// The instructions that take a byte at one place of the literal that every way of a pattern
+/// starts with, at most: one for each way (literal_common.zig). `(?m)^ab|ab$` has two. The walk
+/// runs in `Searcher.init`, so the limit bounds what it costs a pattern that it does not serve.
+pub const literal_ways_max = 8;
+
+/// The instructions that the same walk reads at one place, at most: the splits, the saves, the
+/// jumps and the assertions between two places, and the instructions that take the place's
+/// byte. The limit also ends a loop of instructions that take no byte.
+pub const literal_ways_free_max = 32;
+
 /// The ranges of octets a step of a skip judges at most. Three hold a literal's first octet in
 /// both cases with one more, the first letters of a few words, or a class such as `[0-9A-Fa-f]`.
 /// A set of more ranges is skipped one octet at a time.

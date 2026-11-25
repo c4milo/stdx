@@ -134,6 +134,27 @@ claim suffix 2 97 98
 text 3 99 97 98
 search 0
 DUMP
+# `\bab|cb` and its reverse half, with the claim that its forward DFA goes to the places of
+# `ab` (claim R3). The second way starts with `c`, so `ab` does not start every match.
+canary prefix <<'DUMP'
+program bytes 13 0 7
+split 1 4
+look word_boundary 2
+range 97 97 3
+range 98 98 6
+range 99 99 5
+range 98 98 6
+match
+range 98 98 8
+split 9 11
+range 97 97 10
+look word_boundary 12
+range 99 99 12
+match
+prefix 2 97 98
+text 2 99 98
+search 0
+DUMP
 # The same program, with the claim that a searcher took `ab` after it read enough text. The
 # part before the literal takes one byte or more, and ends with no separator: neither the
 # second rule nor the third holds.

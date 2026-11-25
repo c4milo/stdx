@@ -31,6 +31,7 @@ const Program = program_file.Program;
 const literal_find = @import("literal_find.zig");
 const literal_rank = @import("literal_rank.zig");
 const literal_compare = @import("literal_compare.zig");
+const literal_common = @import("literal_common.zig");
 
 /// Whether this target has the AVX2 variant object's searches (variants.zig): x86-64 alone
 /// builds it.
@@ -71,9 +72,15 @@ pub const Literal = extern struct {
     /// literal shorter than `literal_prefix_len_min` that more of the pattern follows. With
     /// `through_looks` the walk goes through assertions, which take no octet, so the literal
     /// stands where a match starts, and the match is the literal only where no assertion stood.
+    /// With `through_looks`, a pattern with more than one way to start gives the literal that
+    /// each way starts with (literal_common.zig).
     pub fn of(program: *const Program, through_looks: bool) ?Literal {
         const found = walk(program.instructions, program.forward, through_looks, constants.literal_len_max);
         var literal = found.literal;
+        // A program with no assertion has claim R5's set of literals for its ways.
+        if (through_looks and !found.reached_match and literal.len < constants.literal_prefix_len_min) {
+            literal = literal_common.of(program.instructions, program.forward) orelse return null;
+        }
         if (literal.len == 0) return null;
         if (!literal.exact and literal.len < constants.literal_prefix_len_min) return null;
         literal.prepare();
@@ -146,7 +153,7 @@ pub const Literal = extern struct {
         return if (run == literal.len) 0 else run;
     }
 
-    fn push(literal: *Literal, octet: u8, fold: bool) void {
+    pub fn push(literal: *Literal, octet: u8, fold: bool) void {
         assert(literal.len < constants.literal_len_max);
         literal.octets[literal.len] = octet;
         if (fold) literal.folds |= @as(Folds, 1) << @intCast(literal.len);

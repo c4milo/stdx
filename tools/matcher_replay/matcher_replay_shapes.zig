@@ -27,8 +27,8 @@ const words = [_][]const u8{ "ab", "ba", "abc", "aab", "b a", "cab", "aa", "abab
 const tails = [_][]const u8{ "", "", "", "$", "\\b", "c*", "[ab]?" };
 
 /// The pieces of a text for such a pattern: the words' bytes, so that a word stands in a text
-/// more than once.
-pub const text_pieces = [_][]const u8{ "a", "b", "ab", "ba", "c", " ", "abc", "a", "b", "AB" };
+/// more than once, and a line feed, at which `^` and `$` hold in multiline mode.
+pub const text_pieces = [_][]const u8{ "a", "b", "ab", "ba", "c", " ", "abc", "a", "b", "AB", "\n" };
 
 /// The pieces such a text holds at most before its two words, and after them.
 const text_pieces_max = 3;
@@ -57,6 +57,12 @@ const Shape = enum {
     separated,
     /// The same, and then a run: claim R14, by the third rule for the part before the word.
     inner_separated,
+    /// Two ways that start with one word, the first after `^` in multiline mode, the second
+    /// before `$`: claim R3 reads the word from both ways (literal_common.zig).
+    ways_lines,
+    /// Two ways that start with one word after `\b`, then a run, or the other word: the ways
+    /// part after the word.
+    ways_words,
 };
 
 pub fn pick(generator: *Generator, comptime list: []const []const u8) []const u8 {
@@ -180,6 +186,8 @@ fn write_pattern(pattern: *std.ArrayList(u8), shape: Shape, run: []const u8, wor
         .nested => pattern.printAssumeCapacity("(?:[ab]|c[ab]{s}){s}{s}", .{ word, word, second }),
         .separated => pattern.printAssumeCapacity("{s} +{s}", .{ run, word }),
         .inner_separated => pattern.printAssumeCapacity("{s} +{s}{s}", .{ run, word, second }),
+        .ways_lines => pattern.printAssumeCapacity("(?m)^{s}{s}|{s}$", .{ word, run, word }),
+        .ways_words => pattern.printAssumeCapacity("\\b{s}{s}|{s}{s}", .{ word, run, word, other }),
     }
 }
 
@@ -252,6 +260,16 @@ test "a part is written as it is, or as a capture group" {
         grouped += @intFromBool(std.mem.indexOf(u8, case.pattern.slice(), ")(") != null or case.pattern.octets[0] == '(' and case.pattern.octets[1] != '?');
     }
     try testing.expect(grouped > cases / 4 and grouped < cases);
+}
+
+test "the shapes of two ways write the word in each way" {
+    var pattern_buffer: [64]u8 = undefined;
+    var pattern: std.ArrayList(u8) = .initBuffer(&pattern_buffer);
+    write_pattern(&pattern, .ways_lines, "[ab]*", "ab", "ba", "c");
+    try testing.expectEqualStrings("(?m)^ab[ab]*|ab$", pattern.items);
+    pattern.clearRetainingCapacity();
+    write_pattern(&pattern, .ways_words, "[ab]*", "ab", "ba", "c");
+    try testing.expectEqualStrings("\\bab[ab]*|abba", pattern.items);
 }
 
 test "a word is written whole, in a fold, or with its first byte in a fold" {

@@ -20,6 +20,7 @@ import Stdx.Regex.Hypotheses
 import Stdx.Regex.Searcher
 import Stdx.Regex.Rules
 import Stdx.Regex.RulesWide
+import Stdx.Regex.RulesPrefix
 import Stdx.Regex.RulesSeparator
 import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
@@ -287,6 +288,21 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.fixed_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.fixed_program
+
+/-- info: 'Stdx.Regex.Matcher.fits_of_takesFit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.fits_of_takesFit
+
+/-- info: 'Stdx.Regex.Matcher.reads_of_leadsOk' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.reads_of_leadsOk
+
+/-- info: 'Stdx.Regex.Matcher.leads_reads' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.leads_reads
+
+/-- info: 'Stdx.Regex.Matcher.startsWith_of_leads' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.startsWith_of_leads
+
+/-- info: 'Stdx.Regex.Matcher.leads_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.leads_program
 
 /-- info: 'Stdx.Regex.Matcher.first_separator' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.first_separator

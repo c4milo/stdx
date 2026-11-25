@@ -10437,6 +10437,58 @@ to 12 are reordered and nothing else changes.
   test-regex` runs 345 tests. Mutation: the fix switched off. The new test ends with SIGABRT,
   and 344 other tests pass: CAUGHT.
 
+  Claim R3 for a program with more than one way to start (decision 86 as amended on
+  2026-11-25):
+  - `imported/sherlock/line-boundary-sherlock-holmes`, `(?m)^Sherlock Holmes|Sherlock Holmes$`,
+    ran at 1/26 of Rust's crate on the N2. Its program starts with a split, so `Literal.walk`
+    read no literal, and its DFA read each byte of the text.
+  - `literal_common.zig` reads the literal that each way starts with, a level at a time and
+    through assertions. It runs where the program holds an assertion and `Literal.walk` reads
+    fewer than `literal_prefix_len_min` bytes. Claim R3 then goes to the literal's places.
+  - `spec/lean/Stdx/Regex/RulesPrefix.lean` decides from a program that every match starts
+    with a literal: `leadsOn`, for any count of ways. `leads_program` proves that the skip
+    from the literal's places gives the matcher's answer. The proof reads the levels' check
+    alone, and nothing of how `levelsFrom` built them.
+  - The dump writes a `prefix` line for each literal that a searcher's forward DFA goes to,
+    and the Lean side judges each one. Two new shapes draw patterns of two ways: one after `^`
+    in multiline mode and one before `$`, and two after `\b`. A canary holds a wrong line.
+  **Check:** the walk's tables; a searcher that goes to the literal of two ways gives what the
+  matcher gives from every offset of seeded texts, in a cache of each size, and passes the
+  bytes before a far place with no state; the replay holds the `prefix` line, refuses a wrong
+  one and keeps none into the next program; the script runs `leadsOn` for each literal; two
+  paired runs of the `bench` workflow on each runner, by decision 20's rule; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not recorded yet.
+  - `zig build test` exits 0. `zig build lean` exits 0, with 110 theorems pinned to their
+    axioms.
+  - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13, and seeds 1, 2 and 3 with
+    20,000 patterns each in 5 minutes. The three large seeds gave 16,188 `prefix` lines: 7,328
+    of patterns with an assertion and an alternation, and 2,942 with a place that folds. Lean
+    judged each literal sound, and 138,657 searches gave the proved answer.
+  - A filter in the container, built ReleaseSafe and not kept, counted the row's 34 matches in
+    rebar's `sherlock.txt`: 198.5 MB/s before the change and 3,936 MB/s after it. The container
+    is no judge, so these numbers say that the claim runs, and no more.
+  - Mutations: 25, each CAUGHT.
+    - Nine of the walk, against `zig build test-regex`: a walk that stops at an assertion;
+      that takes two bytes that differ in more than the case as one place; whose place never
+      folds; that goes on past `match`; that takes a class; whose full level drops a way; that
+      keeps a literal of one byte; that reads a split's preferred branch alone; and
+      `Literal.of` with the walk off.
+    - Three of the same walk against the script alone: two such bytes as one place, a place
+      that never folds, and a split's one branch. Lean refused a literal of each with
+      `differs prefix`.
+    - Five of the Lean check. A node of ranges that passes, a level that may hold `match`, a
+      level not closed under moves with no byte, and a check that does not start at the entry
+      each break a proof. One level too few, which no proof reads, fails the file's examples.
+      Its first form did not compile, and was not counted.
+    - Two of the vector program: a line that never says `differs`, which the canary refuses,
+      and a literal read with no place that folds.
+    - Six of the replay: a `prefix` line not read, a searcher with a literal and no line
+      passed, no line written, the places that fold not compared, no comparison at all, and a
+      line kept into the next program. Three were NOT CAUGHT at first: no line read, no
+      comparison, and a line kept. A new test of the replay holds them. The first form of the
+      third mutant did not compile, and was not counted.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

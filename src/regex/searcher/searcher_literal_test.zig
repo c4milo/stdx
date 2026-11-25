@@ -79,6 +79,48 @@ test "a searcher that goes to the literal after an assertion gives what the matc
     }
 }
 
+/// Patterns with an assertion and more than one way to start, each way with the same literal
+/// (literal_common.zig): ways that are the literal and no more, ways that part after it, a way
+/// that is a loop, and ways that take the first letter in either case.
+pub const ways_patterns = [_][]const u8{
+    "(?m)^Ph|Ph$",     "\\bPh|Ph\\b",    "\\bPha|Phh",       "(?m)^Ph a|Ph a$",
+    "\\bPh[ah]|Ph\\B", "\\b(?:Ph)+|Ph$", "\\b(?i:p)h|Ph\\b", "(?m)^Ph|Pha|Ph_$",
+};
+
+test "a searcher that goes to the literal of more than one way gives what the matcher gives" {
+    var fixture: Fixture = .{};
+    var generator = codec.testing.split.Generator.init(0x3A75);
+    var haystack: [haystack_len]u8 = undefined;
+    for (ways_patterns) |pattern| {
+        try fixture.init(pattern, 0);
+        const sizes = searcher_test.cache_sizes(&fixture.program);
+        for ([_]usize{ sizes.most, sizes.least }) |cache_words| {
+            try fixture.init_claims(pattern, .{ .text_start = false, .text_end = false }, cache_words);
+            // The literal of the ways, which starts with `Ph`, and claim R3's scan to its places.
+            // A place that folds holds its letter's lower case.
+            try testing.expect(std.ascii.startsWithIgnoreCase(fixture.searcher.forward.literal.?.slice(), "Ph"));
+            try testing.expect(fixture.searcher.forward.looks_for_literal());
+            for (0..8) |_| {
+                for (&haystack) |*octet| octet.* = looks_alphabet[generator.below(looks_alphabet.len)];
+                try fixture.expect_agree_everywhere(&haystack);
+            }
+        }
+    }
+}
+
+test "a searcher reads no DFA between two places of the literal of more than one way" {
+    var fixture: Fixture = .{};
+    try fixture.init("(?m)^Ph a|Ph a$", 0);
+    const far = 4 * constants.skip_lanes;
+    const haystack = "x" ** far ++ "\nPh a" ++ "x" ** far ++ "Ph a\n" ++ "x" ** far;
+    try fixture.expect_agree_everywhere(haystack);
+    try fixture.init("(?m)^Ph a|Ph a$", searcher_test.cache_sizes(&fixture.program).most);
+    try testing.expectEqualStrings("Ph a", fixture.searcher.forward.literal.?.slice());
+    try fixture.expect_agree(haystack, 0);
+    // The scan passed the bytes before the first place with no state of the DFA.
+    try testing.expect(fixture.searcher.forward.skip_octets >= far);
+}
+
 /// The octets of a test of literals that fold: both cases of each letter, and octets that end
 /// a word or a line.
 pub const folds_alphabet = "pPhHaA x\n";

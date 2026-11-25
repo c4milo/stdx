@@ -29,6 +29,7 @@ const regex = @import("regex");
 const platform = @import("platform");
 const replay_dump = @import("matcher_replay/matcher_replay_dump.zig");
 const matcher_replay_claim = @import("matcher_replay/matcher_replay_claim.zig");
+const matcher_replay_prefix = @import("matcher_replay/matcher_replay_prefix.zig");
 const Claim = matcher_replay_claim.Claim;
 const matcher_replay_groups = @import("matcher_replay/matcher_replay_groups.zig");
 const matcher_replay_program = @import("matcher_replay/matcher_replay_program.zig");
@@ -173,6 +174,8 @@ pub const Replay = struct {
     claim_before: u32 = 0,
     claim_folds: u64 = 0,
     claims: usize = 0,
+    /// The program's `prefix` line: the literal that the forward DFA goes to.
+    prefix: matcher_replay_prefix.Named = .{},
     /// The searches that the searcher which read a long text ran from the places of claim
     /// R14's literal: it held the literal, and its account was not at rest.
     finds_by_inner: usize = 0,
@@ -217,6 +220,7 @@ pub const Replay = struct {
         if (std.mem.eql(u8, word, "pattern")) return replay.set_pattern(try take(&tokens));
         if (std.mem.eql(u8, word, "program")) return replay.begin(&tokens);
         if (std.mem.eql(u8, word, "claim")) return replay.set_claim(&tokens);
+        if (std.mem.eql(u8, word, "prefix")) return replay.prefix.set(&tokens);
         if (std.mem.eql(u8, word, "text")) return replay.set_text(&tokens);
         if (std.mem.eql(u8, word, "find")) return replay.expect_find(&tokens);
         if (std.mem.eql(u8, word, "slots")) return replay.set_slots(&tokens);
@@ -251,6 +255,7 @@ pub const Replay = struct {
         replay.ready = false;
         replay.listed_len = 0;
         replay.claim_len = null;
+        replay.prefix.clear();
         replay.slots = null;
         replay.programs += 1;
     }
@@ -352,6 +357,7 @@ pub const Replay = struct {
             searcher.init(program, &.{ .features = replay.features, .claims = claim }, memory[0..words]);
         }
         try replay.expect_claim(&replay.searchers[0], false);
+        try replay.prefix.expect(&replay.searchers[0]);
         replay.read_long_text();
         try replay.expect_claim(&replay.searchers[long_read_searcher], true);
         replay.shrink_cache();
@@ -483,6 +489,7 @@ test {
     _ = @import("matcher_replay/matcher_replay_test.zig");
     _ = replay_dump;
     _ = matcher_replay_claim;
+    _ = matcher_replay_prefix;
     _ = @import("matcher_replay/matcher_replay_shapes.zig");
     _ = matcher_replay_groups;
     _ = matcher_replay_program;

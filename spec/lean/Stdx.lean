@@ -22,6 +22,7 @@ import Stdx.Regex.Hypotheses
 import Stdx.Regex.Searcher
 import Stdx.Regex.Rules
 import Stdx.Regex.RulesWide
+import Stdx.Regex.RulesPrefix
 import Stdx.Regex.RulesSeparator
 import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
