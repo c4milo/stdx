@@ -101,9 +101,10 @@ pub const Matches = struct {
 /// Where the first match at or after `from` ends, or null where none does, for a searcher
 /// that `counts_ends`. Where its forward DFA is ready and has not given up too often, the
 /// DFA finds the end alone, with no read back to the start. Otherwise `find` finds the match.
+/// It does not judge claim R13's least length: `count` judges it once, before its first search,
+/// and a check here changed how the compiler built the DFA's loop that is inlined below it.
 fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
     assert(counts_ends(searcher));
-    if (haystack.len - from < searcher.len_min) return null;
     if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
         switch (searcher.forward.scan_forward(haystack, from, false)) {
             .gave_up => searcher.give_ups += 1,

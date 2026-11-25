@@ -127,3 +127,19 @@ test "a count of a text shorter than the least match pays a claim's account, as 
         }
     }
 }
+
+test "a searcher refuses a short text before a DFA builds a state for it" {
+    var fixture: Fixture = .{ .encoding = .bytes };
+    try fixture.init("\\w{10,}", searcher_test.cache_words_max);
+    const searcher = &fixture.searcher;
+    try testing.expectEqual(@as(u32, 0), searcher.forward.cache.state_count);
+    // Nine bytes and seven: `is_match`, `find` and `count` each refuse them by their length.
+    try testing.expect(!searcher.is_match("abcdefghi"));
+    try testing.expectEqual(@as(?Span, null), searcher.find("xabcdefghi", 1));
+    var matches: Matches = .{ .searcher = searcher, .haystack = "abc def" };
+    try testing.expectEqual(@as(u64, 0), matches.count());
+    try testing.expectEqual(@as(u32, 0), searcher.forward.cache.state_count);
+    // A text of the least length is searched.
+    try testing.expect(searcher.is_match("abcdefghij"));
+    try testing.expect(searcher.forward.cache.state_count > 0);
+}
