@@ -10466,8 +10466,10 @@ to 12 are reordered and nothing else changes.
     of patterns with an assertion and an alternation, and 2,942 with a place that folds. Lean
     judged each literal sound, and 138,657 searches gave the proved answer.
   - A filter in the container, built ReleaseSafe and not kept, counted the row's 34 matches in
-    rebar's `sherlock.txt`: 198.5 MB/s before the change and 3,936 MB/s after it. The container
-    is no judge, so these numbers say that the claim runs, and no more.
+    rebar's `sherlock.txt`: 492.7 MB/s at `ca6bb7d` and 27,438 MB/s with the change. The
+    container is no judge, so these numbers say that the claim runs, and no more. A first filter
+    gave numbers 10 to 60 times lower: its own module was Debug, so no module of it was
+    optimized (`docs/performance.md`, the pitfalls).
   - Mutations: 25, each CAUGHT.
     - Nine of the walk, against `zig build test-regex`: a walk that stops at an assertion;
       that takes two bytes that differ in more than the case as one place; whose place never
