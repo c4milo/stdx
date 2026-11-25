@@ -517,7 +517,7 @@ def answersLines (text : String) : Array String :=
 
 /-- Each vector file, from the `src` directory, and its lines. -/
 def files : List (String × List String) :=
-  [("utf8/utf8_vectors.txt", utf8Lines), ("json/number_vectors.txt", numberLines),
+  [("unicode/utf8/utf8_vectors.txt", utf8Lines), ("encoding/json/number_vectors.txt", numberLines),
     ("regex/utf8_split_vectors.txt", splitLines), ("regex/matcher_vectors.txt", matcherLines)]
 
 /-- Writes each file, or checks each against what the machines give; 1 when one differs. With
