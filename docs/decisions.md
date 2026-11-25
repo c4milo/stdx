@@ -5667,8 +5667,8 @@ last part lists what still waits on a ruling.
         answer and on no speed, and the README says so beside the chart (2026-11-24). The owner
         then ruled to tune stdx on the set, so the README also says which runs came before that
         work, and that later runs show tuned rows (entry 86).
-      - **owner** Entry 88 moves each chart from the README to the README of its module's folder,
-        with what this entry and entry 86 require beside it. That move waits on a ruling.
+      - Entry 88 moves each chart from the README to the README of its module's folder, with
+        what this entry and entry 86 require beside it, by the owner's ruling of 2026-11-25.
 
       What the rules before did, which these replace:
       - The whisker ran from the lowest job to the highest. That range widens as jobs are added,
@@ -7013,12 +7013,12 @@ last part lists what still waits on a ruling.
       names to have one (`tools/readme_examples.zig`).
     - A size that a README states was measured: `@sizeOf` of the state, in a ReleaseSafe build
       for x86-64 Linux, on 2026-11-25.
-    - **owner** Each chart stands in the README of its module's folder, with what entries 85 and
-      86 require beside it, and the README shows none. Entry 85 put the charts in the README, by
-      the owner's rulings of 2026-11-19 and 2026-11-22, so this placement waits on a ruling. A
-      chart is a module's detail, and it moved with the rest. The README keeps one result for
-      each benchmark, the losses among them, and `docs/benchmarks.md` keeps every chart.
-      `tools/charts.py` writes each image's alt text in a module's README too.
+    - Each chart stands in the README of its module's folder, with what entries 85 and 86
+      require beside it, and the README shows none. Entry 85 put the charts in the README, by
+      the owner's rulings of 2026-11-19 and 2026-11-22. The owner ruled the move on 2026-11-25:
+      "Move charts out of the root readme and into their respective modules." The README keeps
+      one result for each benchmark, the losses among them, and `docs/benchmarks.md` keeps every
+      chart. `tools/charts.py` writes each image's alt text in a module's README too.
 
     Cost: a package holds 13 READMEs, 33 KiB of text, since its `.paths` names `src`. A reader
     of the README follows a link to see a chart.
