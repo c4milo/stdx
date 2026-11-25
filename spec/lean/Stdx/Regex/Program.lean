@@ -14,8 +14,8 @@ Two theorems tie claim R4's two walks of the reverse program to its paths:
 - `path_clean`: where no instruction that the program reaches from an instruction takes a byte,
   no path from that instruction takes it. `dfa_suffix.before_takes` is that walk.
 - `chain_path`: where the instructions from an instruction take the bytes of a literal one after
-  another, every path from it to `match` takes those bytes first. `Literal.walk` is that walk,
-  for a literal with no place that folds.
+  another, every path from it to `match` takes those bytes first. `Literal.walk` is that walk.
+  A literal is a list of places, and a place that folds takes a letter in either case.
 
 Bytes, instruction indexes and offsets are natural numbers.
 -/
@@ -218,35 +218,120 @@ theorem path_clean {prog : Array Inst} {text : List Nat} {b pc i pc' j : Nat}
     | inr hlt =>
       exact ih (fun x out hx => hnone x out (.move (.takes htakes) hx)) q hlt h2 hq
 
+/-- A place of a literal takes a byte: the byte is one of the place's two. A place that does
+not fold holds one byte twice, and a place that folds holds a letter's two cases
+(`Literal.fold_at`). -/
+def Fits (place : Nat × Nat) (c : Nat) : Prop := c = place.1 ∨ c = place.2
+
+/-- The places of a literal take the text's bytes from an offset on, one byte a place. -/
+def Reads (text : List Nat) (literal : List (Nat × Nat)) (i : Nat) : Prop :=
+  ∀ m place, literal[m]? = some place → ∃ c, text[i + m]? = some c ∧ Fits place c
+
 /-- `Literal.walk`, as a rule: from `pc`, through saves, jumps and assertions, the instructions
-take the bytes of `literal` one after another, each a range of one byte, and lead to `stop`. -/
-inductive Chain (prog : Array Inst) : Nat → List Nat → Nat → Prop where
+take the bytes of `literal`'s places one after another, and lead to `stop`. A place is a range
+of one byte, or a split whose two branches each take one byte and lead to one instruction, as
+`literal.case_pair` reads a letter of `(?i)`. The place takes each byte the instructions
+take, and no other. -/
+inductive Chain (prog : Array Inst) : Nat → List (Nat × Nat) → Nat → Prop where
   /-- The walk of no instruction. -/
   | stop {pc : Nat} : Chain prog pc [] pc
   /-- A save, which takes no byte. -/
-  | save {pc slot out stop : Nat} {literal : List Nat} : prog[pc]? = some (.save slot out) →
-      Chain prog out literal stop → Chain prog pc literal stop
+  | save {pc slot out stop : Nat} {literal : List (Nat × Nat)} :
+      prog[pc]? = some (.save slot out) → Chain prog out literal stop → Chain prog pc literal stop
   /-- A jump, which takes no byte. -/
-  | jump {pc out stop : Nat} {literal : List Nat} : prog[pc]? = some (.jump out) →
+  | jump {pc out stop : Nat} {literal : List (Nat × Nat)} : prog[pc]? = some (.jump out) →
       Chain prog out literal stop → Chain prog pc literal stop
   /-- An assertion, which takes no byte. -/
-  | look {pc out stop : Nat} {l : Look} {literal : List Nat} : prog[pc]? = some (.look l out) →
-      Chain prog out literal stop → Chain prog pc literal stop
-  /-- A range of one byte, which is the literal's next byte. -/
-  | byte {pc b out stop : Nat} {literal : List Nat} : prog[pc]? = some (.range b b out) →
-      Chain prog out literal stop → Chain prog pc (b :: literal) stop
+  | look {pc out stop : Nat} {l : Look} {literal : List (Nat × Nat)} :
+      prog[pc]? = some (.look l out) → Chain prog out literal stop → Chain prog pc literal stop
+  /-- A range of one byte, which is the one byte the literal's next place takes. -/
+  | byte {pc b out stop : Nat} {place : Nat × Nat} {literal : List (Nat × Nat)} :
+      prog[pc]? = some (.range b b out) → (∀ c, Fits place c ↔ c = b) →
+      Chain prog out literal stop → Chain prog pc (place :: literal) stop
+  /-- A split between two ranges of one byte, which are the two bytes the literal's next
+  place takes. -/
+  | fold {pc one other x y out stop : Nat} {place : Nat × Nat} {literal : List (Nat × Nat)} :
+      prog[pc]? = some (.split one other) → prog[one]? = some (.range x x out) →
+      prog[other]? = some (.range y y out) → (∀ c, Fits place c ↔ c = x ∨ c = y) →
+      Chain prog out literal stop → Chain prog pc (place :: literal) stop
 
-/-- `Literal.walk`'s literal starts every path: a path from `pc` to `match` takes the literal's
-bytes first, and goes on from `stop` at the offset after them. -/
-theorem chain_path {prog : Array Inst} {text : List Nat} {pc stop : Nat} {literal : List Nat}
-    (hchain : Chain prog pc literal stop) :
+/-- A path from a range of one byte to `match` takes that byte first. -/
+theorem path_byte {prog : Array Inst} {text : List Nat} {pc b out i pc' j : Nat}
+    (hinst : prog[pc]? = some (.range b b out)) (hpath : Path prog text pc i pc' j)
+    (hdone : prog[pc']? = some .done) :
+    text[i]? = some b ∧ Path prog text out (i + 1) pc' j := by
+  cases hpath with
+  | here => simp [hinst] at hdone
+  | free hfree _ =>
+    cases hfree with
+    | splitOut h => simp [hinst] at h
+    | splitArg h => simp [hinst] at h
+    | save h => simp [hinst] at h
+    | jump h => simp [hinst] at h
+    | look h _ => simp [hinst] at h
+  | @take _ _ c mid _ _ hbyte htakes hrest =>
+    cases htakes with
+    | member h _ _ _ _ => simp [hinst] at h
+    | range h hlo hhi =>
+      simp [hinst] at h
+      obtain ⟨hlo', hhi', hout⟩ := h
+      have hc : c = b := by omega
+      subst hc
+      exact ⟨hbyte, hout ▸ hrest⟩
+
+/-- A path from a split between two ranges of one byte to `match` takes one of the two bytes
+first. -/
+theorem path_fold {prog : Array Inst} {text : List Nat} {pc one other x y out i pc' j : Nat}
+    (hsplit : prog[pc]? = some (.split one other)) (hone : prog[one]? = some (.range x x out))
+    (hother : prog[other]? = some (.range y y out)) (hpath : Path prog text pc i pc' j)
+    (hdone : prog[pc']? = some .done) :
+    (text[i]? = some x ∨ text[i]? = some y) ∧ Path prog text out (i + 1) pc' j := by
+  cases hpath with
+  | here => simp [hsplit] at hdone
+  | take _ htakes _ =>
+    cases htakes with
+    | range h _ _ => simp [hsplit] at h
+    | member h _ _ _ _ => simp [hsplit] at h
+  | free hfree hrest =>
+    cases hfree with
+    | splitOut h =>
+      simp [hsplit] at h
+      have ⟨hbyte, hgo⟩ := path_byte hone (h.1 ▸ hrest) hdone
+      exact ⟨Or.inl hbyte, hgo⟩
+    | splitArg h =>
+      simp [hsplit] at h
+      have ⟨hbyte, hgo⟩ := path_byte hother (h.2 ▸ hrest) hdone
+      exact ⟨Or.inr hbyte, hgo⟩
+    | save h => simp [hsplit] at h
+    | jump h => simp [hsplit] at h
+    | look h _ => simp [hsplit] at h
+
+/-- The places of a literal take the text's bytes from an offset, where the first place takes
+the byte at the offset and the others take the bytes after it. -/
+theorem reads_cons {text : List Nat} {place : Nat × Nat} {literal : List (Nat × Nat)} {i c : Nat}
+    (hbyte : text[i]? = some c) (hfits : Fits place c) (hrest : Reads text literal (i + 1)) :
+    Reads text (place :: literal) i := by
+  intro m pl hm
+  cases m with
+  | zero =>
+    have hpl : place = pl := by simpa using hm
+    exact ⟨c, hbyte, hpl ▸ hfits⟩
+  | succ m =>
+    have hm' : literal[m]? = some pl := by simpa using hm
+    have ⟨c', hc', hfits'⟩ := hrest m pl hm'
+    have hidx : i + (m + 1) = i + 1 + m := by omega
+    exact ⟨c', hidx ▸ hc', hfits'⟩
+
+/-- `Literal.walk`'s literal starts every path: a path from `pc` to `match` takes a byte of
+each of the literal's places first, and goes on from `stop` at the offset after them. -/
+theorem chain_path {prog : Array Inst} {text : List Nat} {pc stop : Nat}
+    {literal : List (Nat × Nat)} (hchain : Chain prog pc literal stop) :
     ∀ {i pc' j : Nat}, Path prog text pc i pc' j → prog[pc']? = some .done →
-      (∀ m, m < literal.length → text[i + m]? = literal[m]?) ∧
-        Path prog text stop (i + literal.length) pc' j := by
+      Reads text literal i ∧ Path prog text stop (i + literal.length) pc' j := by
   induction hchain with
   | stop =>
     intro i pc' j hpath _
-    exact ⟨fun m hm => absurd hm (Nat.not_lt_zero m), hpath⟩
+    exact ⟨fun m place hm => by simp at hm, hpath⟩
   | save hinst _ ih =>
     intro i pc' j hpath hdone
     cases hpath with
@@ -292,39 +377,22 @@ theorem chain_path {prog : Array Inst} {text : List Nat} {pc stop : Nat} {litera
       cases htakes with
       | range h _ _ => simp [hinst] at h
       | member h _ _ _ _ => simp [hinst] at h
-  | @byte pc b out stop literal hinst _ ih =>
+  | @byte pc b out stop place literal hinst hfits _ ih =>
     intro i pc' j hpath hdone
-    cases hpath with
-    | here => simp [hinst] at hdone
-    | free hfree _ =>
-      cases hfree with
-      | splitOut h => simp [hinst] at h
-      | splitArg h => simp [hinst] at h
-      | save h => simp [hinst] at h
-      | jump h => simp [hinst] at h
-      | look h _ => simp [hinst] at h
-    | @take _ _ c mid _ _ hbyte htakes hrest =>
-      cases htakes with
-      | member h _ _ _ _ => simp [hinst] at h
-      | range h hlo hhi =>
-        simp [hinst] at h
-        obtain ⟨hlo', hhi', hout⟩ := h
-        have hc : c = b := by omega
-        subst hc
-        have ⟨hbytes, hgo⟩ := ih (hout ▸ hrest) hdone
-        refine ⟨?_, ?_⟩
-        · intro m hm
-          cases m with
-          | zero => simpa using hbyte
-          | succ m =>
-            have hm' : m < literal.length := by simpa using hm
-            have := hbytes m hm'
-            have hidx : i + (m + 1) = i + 1 + m := by omega
-            rw [hidx, this]
-            simp
-        · have hidx : i + (c :: literal).length = i + 1 + literal.length := by
-            simp only [List.length_cons]; omega
-          rw [hidx]
-          exact hgo
+    have ⟨hbyte, hgo⟩ := path_byte hinst hpath hdone
+    have ⟨hreads, hrest⟩ := ih hgo hdone
+    have hidx : i + (place :: literal).length = i + 1 + literal.length := by
+      simp only [List.length_cons]; omega
+    exact ⟨reads_cons hbyte ((hfits b).mpr rfl) hreads, hidx ▸ hrest⟩
+  | @fold pc one other x y out stop place literal hsplit hone hother hfits _ ih =>
+    intro i pc' j hpath hdone
+    have ⟨hbyte, hgo⟩ := path_fold hsplit hone hother hpath hdone
+    have ⟨hreads, hrest⟩ := ih hgo hdone
+    have hidx : i + (place :: literal).length = i + 1 + literal.length := by
+      simp only [List.length_cons]; omega
+    refine ⟨?_, hidx ▸ hrest⟩
+    cases hbyte with
+    | inl h => exact reads_cons h ((hfits x).mpr (Or.inl rfl)) hreads
+    | inr h => exact reads_cons h ((hfits y).mpr (Or.inr rfl)) hreads
 
 end Stdx.Regex.Program
