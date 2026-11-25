@@ -10729,8 +10729,8 @@ to 12 are reordered and nothing else changes.
   the matcher's answers where a DFA did not start, once the DFAs gave up, and while a claim
   waits; the filter in the container; two paired runs of the `bench` workflow on each runner;
   mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and the two paired runs on GitHub's runners.
   - `zig build test` exits 0, and `zig build lean` exits 0, with 130 theorems pinned.
   - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13. A new shape draws 70 sorted
     literals over two letters, and a fifth searcher of the replay starts with its DFAs given up.
@@ -10741,6 +10741,21 @@ to 12 are reordered and nothing else changes.
   - The filter, built ReleaseSafe against this tree, took each match of the row in
     `en-medium.txt` by `Matches.next`. The first search built the automaton in about 22 ms.
     After it, a pass took 0.42 ms, about 146 MB/s, where it took about 61 ms before, 1 MB/s.
+  - The `bench` workflow's runs 45661513461 and 45661528510 measured `a5fe956` against
+    `b88a573`, each in one job on the N2 and one on x86-64, the EPYC 9V74 and the EPYC 7763.
+    By decision 20's rule, 2 of the 284 rows ran faster in all four jobs, and none ran slower.
+    - `dictionary/search/english-10` ran 178 and 177 times as fast on the N2, and 166 and 162
+      times on x86-64. It now runs at 1.26 of Rust's crate on the N2, 206 against 163 MB/s,
+      and at 1.39 on x86-64.
+    - In both jobs of one runner, 17 rows ran slower on the N2 and 5 on x86-64. On the N2 the
+      rsc rows `easy1`, `medium` and `hard` ran 3% to 4% slower, `match-class` 8% and
+      `holmes-coword-watson` 6%. On x86-64 the three `name-alt` rows ran 4% to 14% slower.
+    - Callgrind, built ReleaseSafe for x86-64-v3, counted a search of 11 of those rows at both
+      commits. The rsc rows `easy1`, `medium` and `hard` took the same instructions,
+      `holmes-coword-watson` 0.2% fewer and the `name-alt` rows 0.4% more. `match-class` and
+      `anchored-literal-short-non-match` took 3 more a call of `find`, about 1% of their
+      searches: the compiler loads one constant before the first branch, and the frame
+      grows by 32 bytes. Each loss but those 3 instructions is placement.
   - Mutations: 21. 20 were CAUGHT, and one is equivalent.
     - Eleven of the automaton, against `zig build test-regex`: the stop at the best start, the
       ranks compared the wrong way, a later literal at the best start taken whatever its rank,
