@@ -6628,13 +6628,17 @@ last part lists what still waits on a ruling.
         with `apart_program`. `RulesWide.lean` and `RulesSeparator.lean` decide the second
         rule and the third: `wideOn`, with `wide_program`. The script runs them for each
         literal that a searcher took by a rule, so the choice is held for every text, and
-        not for the drawn one alone. A literal with a place that folds is not decided yet.
+        not for the drawn one alone.
       - `Stdx/Regex/SearcherInner.lean` gives claim R14's scans for a program: `innerOf`,
         whose reverse scan starts where the reverse program stands after the literal.
         `RulesInner.lean` decides the claim's rule: `innerOn`, with `inner_program`. Every
         match passes the instruction that takes the literal's last byte, and one of claim
         R4's three rules holds for the part of a match before the literal. The script runs
         `innerOn` for each literal that a searcher took for claim R14.
+      - A literal is a list of places in these files, and a place that folds holds a letter's
+        two cases, as `Literal.walk` reads a letter of `(?i)`. Each rule reads both: the
+        first rule holds where the part before takes neither case of the first place, and
+        the third where neither is a separator.
     - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
       claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
       things hold by a proved check for each program and text a run draws, and by no proof

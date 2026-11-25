@@ -48,26 +48,26 @@ pub const Claim = struct {
     rule: Rule,
     /// The literal's bytes, in the text's order.
     literal: []const u8,
+    /// The places that take a letter in either case: bit `i` for place `i` (`Literal.folds`).
+    /// Such a place holds the lower-case letter.
+    folds: u64 = 0,
     /// For claim R14, the instruction where the reverse program stands after the literal: the
     /// reverse DFA's second entry, from which it reads the part of a match before the literal.
     /// Zero for claim R4.
     before: u32 = 0,
 
     pub fn same(claim: Claim, other: Claim) bool {
-        return claim.rule == other.rule and claim.before == other.before and std.mem.eql(u8, claim.literal, other.literal);
+        return claim.rule == other.rule and claim.before == other.before and claim.folds == other.folds and std.mem.eql(u8, claim.literal, other.literal);
     }
 };
 
-/// The claim that a searcher holds, where no place of its literal folds. Null where the
-/// searcher holds none, or a literal with a place that takes its byte in either case.
+/// The claim that a searcher holds, or null where it holds none.
 pub fn held(searcher: *const regex.Searcher) ?Claim {
     if (searcher.suffix) |*literal| {
-        if (literal.folds != 0) return null;
-        return .{ .rule = if (searcher.suffix_wide) .wide else .first, .literal = literal.slice() };
+        return .{ .rule = if (searcher.suffix_wide) .wide else .first, .literal = literal.slice(), .folds = literal.folds };
     }
     const literal = &(searcher.inner orelse return null);
-    if (literal.folds != 0) return null;
-    return .{ .rule = .inner, .literal = literal.slice(), .before = searcher.reverse.second_entry };
+    return .{ .rule = .inner, .literal = literal.slice(), .folds = literal.folds, .before = searcher.reverse.second_entry };
 }
 
 /// A searcher with its memory, which says what claim a searcher takes for a program.
@@ -137,9 +137,12 @@ test "a taker names the literal that a searcher took for claim R4, and the rule"
     // The third rule: the part before ends with a space or more, and holds none before them.
     // The literal starts with the one space that every match holds before `Holmes`.
     _ = try expect_claim(&taker, storage, "[A-Za-z]+ +Holmes", .wide, " Holmes");
-    // A literal with a place that folds is left out.
-    try expect_none(&taker, storage, "[0-9]+(?i:ab)");
-    try testing.expect(taker.searcher.suffix != null);
+    // A literal whose places fold: bit `i` for place `i`.
+    const folded = try expect_claim(&taker, storage, "[0-9]+(?i:ab)", .first, "ab");
+    try testing.expectEqual(@as(u64, 0b11), folded.folds);
+    const first_folds = try expect_claim(&taker, storage, "[0-9]+(?i:a)bc", .first, "abc");
+    try testing.expectEqual(@as(u64, 0b001), first_folds.folds);
+    try testing.expectEqual(@as(u64, 0), first.folds);
 }
 
 test "a taker names the literal that a searcher took for claim R14, and where the reverse program stands after it" {
@@ -159,10 +162,11 @@ test "a taker names the literal that a searcher took for claim R14, and where th
     _ = try expect_claim(&taker, storage, "[a-c]+ +ab[a-c]+", .inner, " ab");
     // No rule holds for the part before `ab`, which takes `a` and more than one count of bytes.
     try expect_none(&taker, storage, "[a-c]+ab[a-c]+");
-    // A literal with a place that folds is left out. Its last byte folds in no case: the
-    // reverse program takes that byte at one instruction, which every match passes.
-    try expect_none(&taker, storage, "[0-9]+(?i:a)b[0-9]+");
-    try testing.expect(taker.searcher.inner != null);
+    // A literal with a place that folds. Its last byte folds in no case: the reverse program
+    // takes that byte at one instruction, which every match passes.
+    const folded = try expect_claim(&taker, storage, "[0-9]+(?i:a)b[0-9]+", .inner, "ab");
+    try testing.expectEqual(@as(u64, 0b01), folded.folds);
+    try testing.expectEqual(@as(u64, 0), apart.folds);
     // A new searcher holds no literal of claim R14: the claim waits.
     const waiting = try regex.compile("[a-z]+@[a-z]+", .{}, storage);
     taker.searcher.init(&waiting, &.{ .features = taker.features }, taker.memory);
@@ -180,4 +184,5 @@ test "a claim line's word names its rule" {
     try testing.expect(!claim.same(.{ .rule = .wide, .literal = "ab", .before = 7 }));
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 8 }));
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "aa", .before = 7 }));
+    try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 7, .folds = 1 }));
 }

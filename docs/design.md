@@ -10854,6 +10854,72 @@ to 12 are reordered and nothing else changes.
     forward scan read far. The seventh part's count of literals is of the dump before this
     part's shape.
 
+  **Part 22r, its ninth part built: the rules of claims R4 and R14 for a literal with a place
+  that folds (decision 86).** **Check:** `lake build` exits 0 and pins each new theorem's
+  axioms; each rule holds and fails for a place that folds on small programs by `decide`;
+  `tools/matcher_model_check.sh` passes, with a rule decided for each literal that a searcher
+  took, a literal with a place that folds among them.
+
+  **Check passed, part 22r, its ninth part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on
+  x86-64 Linux 6.18, in a cloud container.
+  - Before this part, the dump left out a literal with a place that takes a letter in either
+    case, and no rule of the Lean side read one. `Stdx/Axioms.lean` pins 3 more theorems, 102
+    in all.
+  - A literal is now a list of places in the model, and a place holds two bytes: one byte
+    twice, or a letter's two cases.
+    - `Chain` has one more step, `fold`: a split between two ranges of one byte that lead to
+      one instruction, as `literal.case_pair` reads a letter of `(?i)`. A place holds each
+      byte its instructions take, and no other. `chain_path` and `chain_prefix` have that
+      step too, and `chainStop` and `chainTo` follow it.
+    - `Reads` says that a literal's places take a text's bytes from an offset, and
+      `Searcher.lean`'s `standsAt`, `findLiteral` and `scansOf` read places.
+    - The first rule holds where no instruction after the literal takes either byte of its
+      first place (`dfa_suffix.apart`). The third holds where neither is a separator.
+  - Claim R14's third rule has a new proof. With the rule taken past some of the literal's
+    first places, one of those places may fold and take a byte that is no separator, as the
+    first `a` of `(?i:a)ab` takes `A`. The Zig rule takes such a literal, and the eighth
+    part's check did not.
+    - `chain_seps` follows the places passed through the rule's three sets, over the bytes
+      that they take in a text. The walk stands among the instructions reached over
+      separators alone, or past one that is none, and in each case the separators stand last
+      in the part before the literal and the places passed, read as one span.
+    - `inner_separated` then needs no rule for the bytes of the places passed: the first
+      place's span holds a separator and then a byte that is none, and no span of a later
+      place holds both.
+  - A `claim` line names the places that fold after the word `folds`, as a number whose bit
+    `i` is set for place `i`. The replay holds its searchers to them.
+  - The second pattern source moved to `matcher_replay_shapes.zig`. One case in four writes
+    its word with a place that folds, whole or its first byte alone, and its text then holds
+    some of the word's letters in upper case. Two more runs take upper-case letters alone.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 38 s. Seeds 1, 2 and 3 with
+    20,000 patterns each hold 7,261 literals that a searcher took: 1,400 of claim R4's first
+    rule, 1,897 of its other two and 3,964 of claim R14. 1,054 of them have a place that
+    folds, and a proved rule held for each.
+  - 25 mutations, each CAUGHT:
+    - Five of the Zig side, against the script. A `differs claim` line caught four: the
+      first rule with no test of the first place's other case; the third rule with no test
+      of a place's other case; a walk that reads a letter of `(?i)` as a place that does not
+      fold; and a literal whose places' bits stay in the walk's order. A searcher's answer
+      caught the fifth: a place that folds stored as the letter's first branch, in either
+      case.
+    - For the first two, of the literals with a place that folds that the faulty searcher
+      took for seed 7, the proved rules refused 8 of 84 and 3 of 81.
+    - Two of the vector writer, against the script: the places that fold not read, and read
+      from the literal's last place. Seed 7's dump caught both.
+    - Eleven of the Lean checks, against `lake build`: each rule with no test of a place's
+      second byte, for claim R4's first and third rules and claim R14's two; a place that
+      may hold other bytes than its instructions take; a literal that stands where a place
+      takes its first byte alone; a walk through a range of more than one byte, and through
+      a split that the place does not hold; and claim R14's third rule with no walk of the
+      places passed, with its first set outside the second, and with the walk's start
+      outside the first set. Each fails its proof.
+    - Seven of the replay program and the dump, against `zig build test-tools`: a claim with
+      no places that fold, for each of the two claims; a compare of two claims with none; a
+      `claim` line with no `folds` word; a replay that reads the word and keeps nothing; a
+      text with no letter in upper case; and no word written with a place that folds.
+  - What this part does not decide: a literal that starts every match, which the dump does
+    not name. The eighth part's counts are of the dump before this part's draws.
+
   **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
   **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
   the model gives RE2's ends on small programs; mutations of the definitions fail the build.

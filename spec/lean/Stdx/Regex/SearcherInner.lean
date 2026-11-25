@@ -8,7 +8,7 @@ Claim R14 goes to the places of a literal that every match holds in its middle, 
 `\w+@\w+` (decision 86, `dfa_inner.zig`, `searcher_inner.zig`). `Inner.lean` proves the search
 over scans that it takes as given. This file gives those scans for a program.
 
-The reverse program takes the literal's bytes one after another from an instruction, `cut`,
+The reverse program takes a byte of each of the literal's places from an instruction, `cut`,
 and stands at `before` after them. Two walks say so, and each has a check here:
 
 - `chainTo`: the walk of the literal from `cut` stands at `before`. `Literal.walk` goes on
@@ -33,8 +33,8 @@ open Stdx.Regex.Program Stdx.Regex.Search
 
 /-- A path from `pc` to `match` goes through the literal's instructions first: its first part
 is a path from `pc` to `stop` over the literal's bytes. -/
-theorem chain_prefix {prog : Array Inst} {text : List Nat} {pc stop : Nat} {literal : List Nat}
-    (hchain : Chain prog pc literal stop) :
+theorem chain_prefix {prog : Array Inst} {text : List Nat} {pc stop : Nat}
+    {literal : List (Nat × Nat)} (hchain : Chain prog pc literal stop) :
     ∀ {i pc' j : Nat}, Path prog text pc i pc' j → prog[pc']? = some .done →
       Path prog text pc i stop (i + literal.length) := by
   induction hchain with
@@ -88,37 +88,33 @@ theorem chain_prefix {prog : Array Inst} {text : List Nat} {pc stop : Nat} {lite
       cases htakes with
       | range h _ _ => simp [hinst] at h
       | member h _ _ _ _ => simp [hinst] at h
-  | @byte pc b out stop literal hinst _ ih =>
+  | @byte pc b out stop place literal hinst _ _ ih =>
     intro i pc' j hpath hdone
-    cases hpath with
-    | here => simp [hinst] at hdone
-    | free hfree _ =>
-      cases hfree with
-      | splitOut h => simp [hinst] at h
-      | splitArg h => simp [hinst] at h
-      | save h => simp [hinst] at h
-      | jump h => simp [hinst] at h
-      | look h _ => simp [hinst] at h
-    | @take _ _ c mid _ _ hbyte htakes hrest =>
-      cases htakes with
-      | member h _ _ _ _ => simp [hinst] at h
-      | range h hlo hhi =>
-        simp [hinst] at h
-        obtain ⟨hlo', hhi', hout⟩ := h
-        have hc : c = b := by omega
-        subst hc
-        have hgo := ih (hout ▸ hrest) hdone
-        have hidx : i + (c :: literal).length = i + 1 + literal.length := by
-          simp only [List.length_cons]; omega
-        rw [hidx]
-        exact .take hbyte (.range hinst (Nat.le_refl _) (Nat.le_refl _)) hgo
+    have ⟨hbyte, hgo⟩ := path_byte hinst hpath hdone
+    have hidx : i + (place :: literal).length = i + 1 + literal.length := by
+      simp only [List.length_cons]; omega
+    rw [hidx]
+    exact .take hbyte (.range hinst (Nat.le_refl _) (Nat.le_refl _)) (ih hgo hdone)
+  | @fold pc one other x y out stop place literal hsplit hone hother _ _ ih =>
+    intro i pc' j hpath hdone
+    have ⟨hbyte, hgo⟩ := path_fold hsplit hone hother hpath hdone
+    have hidx : i + (place :: literal).length = i + 1 + literal.length := by
+      simp only [List.length_cons]; omega
+    rw [hidx]
+    cases hbyte with
+    | inl h =>
+      exact .free (.splitOut hsplit)
+        (.take h (.range hone (Nat.le_refl _) (Nat.le_refl _)) (ih hgo hdone))
+    | inr h =>
+      exact .free (.splitArg hsplit)
+        (.take h (.range hother (Nat.le_refl _) (Nat.le_refl _)) (ih hgo hdone))
 
 /-! ## The walk of a literal to a named instruction -/
 
-/-- Whether the program takes the bytes of `walked` one after another from `pc`, through
-saves, jumps and assertions, and stands at `stop` after them, in at most `fuel` moves. The
-walk may go on through such moves after the last byte, as `Literal.walk` does. -/
-def chainTo (prog : Array Inst) (stop : Nat) : Nat → Nat → List Nat → Bool
+/-- Whether the program takes a byte of each place of `walked`, one after another from `pc`,
+through saves, jumps and assertions, and stands at `stop` after them, in at most `fuel` moves.
+The walk may go on through such moves after the last place, as `Literal.walk` does. -/
+def chainTo (prog : Array Inst) (stop : Nat) : Nat → Nat → List (Nat × Nat) → Bool
   | 0, pc, walked => walked.isEmpty && pc == stop
   | fuel + 1, pc, walked =>
     (walked.isEmpty && pc == stop) ||
@@ -128,12 +124,17 @@ def chainTo (prog : Array Inst) (stop : Nat) : Nat → Nat → List Nat → Bool
       | some (.look _ out) => chainTo prog stop fuel out walked
       | some (.range lo hi out) =>
         match walked with
-        | b :: rest => lo == b && hi == b && chainTo prog stop fuel out rest
+        | place :: rest => lo == hi && holds place lo lo && chainTo prog stop fuel out rest
         | [] => false
+      | some (.split one other) =>
+        match walked, foldOf prog one other with
+        | place :: rest, some (x, y, out) =>
+          holds place x y && chainTo prog stop fuel out rest
+        | _, _ => false
       | _ => false
 
-/-- A walk that ends where no byte is left stands at `stop`. -/
-theorem chain_of_stopped {prog : Array Inst} {stop pc : Nat} {walked : List Nat}
+/-- A walk that ends where no place is left stands at `stop`. -/
+theorem chain_of_stopped {prog : Array Inst} {stop pc : Nat} {walked : List (Nat × Nat)}
     (h : (walked.isEmpty && pc == stop) = true) : Chain prog pc walked stop := by
   simp only [Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq] at h
   obtain ⟨hw, hpc⟩ := h
@@ -163,14 +164,24 @@ theorem chain_of_chainTo {prog : Array Inst} {stop : Nat} :
         | range lo hi out =>
           cases walked with
           | nil => simp [hp] at hmove
-          | cons b rest =>
+          | cons place rest =>
             simp only [hp, Bool.and_eq_true, beq_iff_eq] at hmove
-            obtain ⟨⟨hlo, hhi⟩, hrest⟩ := hmove
+            obtain ⟨⟨hlo, hfit⟩, hrest⟩ := hmove
             subst hlo
-            subst hhi
-            exact .byte hp (ih out rest hrest)
+            exact .byte hp (holds_one hfit) (ih out rest hrest)
+        | split one other =>
+          cases walked with
+          | nil => simp [hp] at hmove
+          | cons place rest =>
+            cases hf : foldOf prog one other with
+            | none => simp [hp, hf] at hmove
+            | some found =>
+              obtain ⟨x, y, out⟩ := found
+              simp only [hp, hf, Bool.and_eq_true] at hmove
+              obtain ⟨hfit, hrest⟩ := hmove
+              have ⟨h1, h2⟩ := foldOf_some hf
+              exact .fold hp h1 h2 (holds_fits hfit) (ih out rest hrest)
         | ranges count => simp [hp] at hmove
-        | split out arg => simp [hp] at hmove
         | done => simp [hp] at hmove
         | fail => simp [hp] at hmove
 
@@ -297,12 +308,12 @@ theorem scanBack_accepts_none {rev : Array Inst} {start : Nat} {text : List Nat}
 /-! ## The literal inside a match, over a program -/
 
 /-- `Search.Inner` for a program, a text and a literal that the reverse program takes from
-`cut`, an instruction that every match passes. `walked` holds the literal's bytes from its last
-to its first. The part before the literal is a path of the reverse program from `before`, and
+`cut`, an instruction that every match passes. `walked` holds the literal's places from its
+last to its first. The part before the literal is a path of the reverse program from `before`, and
 the part after it is a path from the entry to `cut` and through the literal's instructions.
 `backBefore` is the reverse DFA's scan from its second start, `before`. -/
-def innerOf {prog rev : Array Inst} {entry reventry cut before : Nat} {text walked : List Nat}
-    {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
+def innerOf {prog rev : Array Inst} {entry reventry cut before : Nat} {text : List Nat}
+    {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
     (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hlit : 0 < walked.reverse.length)
     (hpasses : passesOn rev reventry cut = true) (hchain : Chain rev cut walked before) :
@@ -332,16 +343,13 @@ def innerOf {prog rev : Array Inst} {entry reventry cut before : Nat} {text walk
       rw [hidx]
       exact hrest
     · show text.length - k - walked.length + walked.reverse.length ≤ text.length ∧
-        StandsAt text walked.reverse (text.length - k - walked.length)
+        Reads text walked.reverse (text.length - k - walked.length)
       refine ⟨by omega, ?_⟩
-      intro j hj
-      rw [walked_byte (by omega)]
-      have h := hbytes (walked.length - 1 - j) (by omega)
-      rw [reverse_byte (by omega)] at h
-      have hidx : text.length - 1 - (k + (walked.length - 1 - j)) =
-          text.length - k - walked.length + j := by omega
-      rw [hidx] at h
-      exact h
+      have hread : Reads text.reverse walked (text.length - (text.length - k)) := by
+        have hback : text.length - (text.length - k) = k := by omega
+        rw [hback]
+        exact hbytes
+      exact reads_reversed (e := text.length - k) (by omega) (by omega) hread
     · show walked.length ≤ text.length - k - walked.length + walked.reverse.length ∧
         text.length - k - walked.length + walked.reverse.length ≤ e ∧ e ≤ text.length ∧
         Path rev text.reverse reventry (text.length - e) cut

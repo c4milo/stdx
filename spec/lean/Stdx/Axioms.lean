@@ -269,7 +269,7 @@ namespace Stdx.Regex
 /-- info: 'Stdx.Regex.Matcher.emptyElsewhere_of_emptyElsewhereOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.emptyElsewhere_of_emptyElsewhereOn
 
-/-- info: 'Stdx.Regex.Matcher.chain_of_chainStop' depends on axioms: [propext] -/
+/-- info: 'Stdx.Regex.Matcher.chain_of_chainStop' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.chain_of_chainStop
 
 /-- info: 'Stdx.Regex.Matcher.reach_mem' depends on axioms: [propext, Quot.sound] -/
@@ -337,5 +337,14 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.inner_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.inner_program
+
+/-- info: 'Stdx.Regex.Matcher.chain_seps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.chain_seps
+
+/-- info: 'Stdx.Regex.Matcher.chain_first' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.chain_first
+
+/-- info: 'Stdx.Regex.Matcher.chain_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.chain_none
 
 end Stdx.Regex

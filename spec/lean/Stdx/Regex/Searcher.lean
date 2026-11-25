@@ -161,28 +161,54 @@ theorem byDfa_answer {prog rev : Array Inst} {entry reventry : Nat} {text : List
 
 /-! ## The scans of a program, for a literal -/
 
-/-- Whether a literal stands whole at an offset of a text. -/
-def standsAt (text lit : List Nat) (p : Nat) : Bool :=
+/-- Whether a literal stands whole at an offset of a text: each of its places takes the byte
+there. A place that folds takes a letter in either case (`Literal.find`). -/
+def standsAt (text : List Nat) (lit : List (Nat × Nat)) (p : Nat) : Bool :=
   decide (p + lit.length ≤ text.length) &&
-    (List.range lit.length).all fun j => text[p + j]? == lit[j]?
+    (List.range lit.length).all fun j =>
+      match text[p + j]?, lit[j]? with
+      | some c, some place => c == place.1 || c == place.2
+      | _, _ => false
 
 /-- `standsAt` decides that the literal stands whole in the text. -/
-theorem standsAt_iff {text lit : List Nat} {p : Nat} :
-    standsAt text lit p = true ↔ p + lit.length ≤ text.length ∧ StandsAt text lit p := by
-  simp only [standsAt, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, List.mem_range,
-    beq_iff_eq, StandsAt]
+theorem standsAt_iff {text : List Nat} {lit : List (Nat × Nat)} {p : Nat} :
+    standsAt text lit p = true ↔ p + lit.length ≤ text.length ∧ Reads text lit p := by
+  simp only [standsAt, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, List.mem_range]
+  constructor
+  · intro ⟨hlen, hall⟩
+    refine ⟨hlen, ?_⟩
+    intro m place hm
+    have hlt : m < lit.length := by
+      apply Nat.lt_of_not_le
+      intro hle
+      rw [List.getElem?_eq_none hle] at hm
+      cases hm
+    have h := hall m hlt
+    rw [hm] at h
+    cases hc : text[p + m]? with
+    | none => simp [hc] at h
+    | some c =>
+      simp only [hc, Bool.or_eq_true, beq_iff_eq] at h
+      exact ⟨c, rfl, h⟩
+  · intro ⟨hlen, hreads⟩
+    refine ⟨hlen, ?_⟩
+    intro j hj
+    have ⟨c, hc, hfits⟩ := hreads j lit[j] (List.getElem?_eq_getElem hj)
+    rw [hc, List.getElem?_eq_getElem hj]
+    simp only [Bool.or_eq_true, beq_iff_eq]
+    exact hfits
 
 /-- The first place of a literal from `i`, among `turns` offsets. -/
-def findFrom (text lit : List Nat) : Nat → Nat → Option Nat
+def findFrom (text : List Nat) (lit : List (Nat × Nat)) : Nat → Nat → Option Nat
   | 0, _ => none
   | turns + 1, i => if standsAt text lit i then some i else findFrom text lit turns (i + 1)
 
 /-- `Literal.find`: the first place of a literal at or after `i`. -/
-def findLiteral (text lit : List Nat) (i : Nat) : Option Nat :=
+def findLiteral (text : List Nat) (lit : List (Nat × Nat)) (i : Nat) : Option Nat :=
   findFrom text lit (text.length + 1 - i) i
 
 /-- A place that `findFrom` gives is a place, and the first from `i`. -/
-theorem findFrom_some {text lit : List Nat} :
+theorem findFrom_some {text : List Nat} {lit : List (Nat × Nat)} :
     ∀ turns i p, findFrom text lit turns i = some p →
       i ≤ p ∧ standsAt text lit p = true ∧ ∀ q, i ≤ q → q < p → standsAt text lit q = false := by
   intro turns
@@ -208,7 +234,7 @@ theorem findFrom_some {text lit : List Nat} :
         exact this ▸ hat
 
 /-- Where `findFrom` gives nothing, none of its offsets is a place. -/
-theorem findFrom_none {text lit : List Nat} :
+theorem findFrom_none {text : List Nat} {lit : List (Nat × Nat)} :
     ∀ turns i, findFrom text lit turns i = none →
       ∀ q, i ≤ q → q < i + turns → standsAt text lit q = false := by
   intro turns
@@ -233,10 +259,10 @@ theorem findFrom_none {text lit : List Nat} :
 def scansOf {prog rev : Array Inst} {entry reventry : Nat} {text : List Nat}
     {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
     (hrev : Reverses prog entry rev reventry text)
-    (hclean : StartsClean prog entry text starts) (lit : List Nat) (hlit : 0 < lit.length) :
-    Scans (textOf prog entry text starts hexact) where
+    (hclean : StartsClean prog entry text starts) (lit : List (Nat × Nat))
+    (hlit : 0 < lit.length) : Scans (textOf prog entry text starts hexact) where
   width := lit.length
-  Stands := fun p => p + lit.length ≤ text.length ∧ StandsAt text lit p
+  Stands := fun p => p + lit.length ≤ text.length ∧ Reads text lit p
   place := findLiteral text lit
   back := fun low e =>
     if low ≤ e ∧ e ≤ text.length then scanBack rev reventry text low e else none
@@ -308,16 +334,38 @@ theorem reversed_match {prog rev : Array Inst} {entry reventry : Nat} {text : Li
   have hin := matches_inside hm.1 hm.2.2
   exact (hrev s e hin.1 hin.2).mp hm.2.2
 
-/-- A byte of a literal, where `walked` holds the literal's bytes from its last to its first. -/
-theorem walked_byte {walked : List Nat} {j : Nat} (hj : j < walked.length) :
+/-- A place of a literal, where `walked` holds the literal's places from its last to its
+first. -/
+theorem walked_byte {α : Type} {walked : List α} {j : Nat} (hj : j < walked.length) :
     walked.reverse[j]? = walked[walked.length - 1 - j]? := by
   simp [List.getElem?_reverse hj]
 
+/-- The places that a walk read from a text read backward stand in the text. `walked` holds
+the literal's places from its last to its first, and the walk read them from the offset that
+mirrors `e`. -/
+theorem reads_reversed {text : List Nat} {walked : List (Nat × Nat)} {e : Nat}
+    (he : e ≤ text.length) (hlen : walked.length ≤ e)
+    (h : Reads text.reverse walked (text.length - e)) :
+    Reads text walked.reverse (e - walked.length) := by
+  intro j place hj
+  have hjlt : j < walked.length := by
+    apply Nat.lt_of_not_le
+    intro hle
+    rw [List.getElem?_eq_none (by simpa using hle)] at hj
+    cases hj
+  rw [walked_byte hjlt] at hj
+  have ⟨c, hc, hfits⟩ := h (walked.length - 1 - j) place hj
+  rw [reverse_byte (by omega)] at hc
+  have hidx : text.length - 1 - (text.length - e + (walked.length - 1 - j)) =
+      e - walked.length + j := by omega
+  rw [hidx] at hc
+  exact ⟨c, hc, hfits⟩
+
 /-- Every match ends with the literal that `Literal.walk` read from the reverse program's
-entry. `walked` holds its bytes from the last to the first, as the walk reads them. -/
+entry. `walked` holds its places from the last to the first, as the walk reads them. -/
 theorem endsWith_of_chain {prog rev : Array Inst} {entry reventry before : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hchain : Chain rev reventry walked before)
     (hlit : 0 < walked.reverse.length) :
     EndsWith (textOf prog entry text starts hexact)
@@ -330,27 +378,22 @@ theorem endsWith_of_chain {prog rev : Array Inst} {entry reventry before : Nat}
   have hlen : walked.reverse.length = walked.length := List.length_reverse
   show s + walked.reverse.length ≤ e ∧
     (e - walked.reverse.length + walked.reverse.length ≤ text.length ∧
-      StandsAt text walked.reverse (e - walked.reverse.length))
+      Reads text walked.reverse (e - walked.reverse.length))
   refine ⟨by omega, by omega, ?_⟩
-  intro j hj
-  rw [walked_byte (by omega)]
-  have h := hbytes (walked.length - 1 - j) (by omega)
-  rw [reverse_byte (by omega)] at h
-  have hidx : text.length - 1 - (text.length - e + (walked.length - 1 - j)) =
-      e - walked.reverse.length + j := by omega
-  rw [hidx] at h
-  exact h
+  rw [hlen]
+  exact reads_reversed hin.2 (by omega) hbytes
 
 /-- Claim R4 over a program. `Literal.walk` read `walked` from the reverse program's entry up
-to `before`, and `before_takes` found no instruction from `before` that takes the byte `b`,
-which is the literal's first byte. Then `Searcher.find_by_suffix` over the model's scans gives
-the matcher's answer from `low`. -/
-theorem bySuffix_program {prog rev : Array Inst} {entry reventry before b : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+to `before`, and `before_takes` found no instruction from `before` that takes `b` or `b'`,
+the two bytes of the literal's first place. Then `Searcher.find_by_suffix` over the model's
+scans gives the matcher's answer from `low`. -/
+theorem bySuffix_program {prog rev : Array Inst} {entry reventry before b b' : Nat}
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hchain : Chain rev reventry walked before)
     (hnone : ∀ x out, Reach rev before x → ¬ Takes rev x b out)
-    (hlit : 0 < walked.reverse.length) (hfirst : walked.reverse[0]? = some b) {low : Nat}
+    (hnone' : ∀ x out, Reach rev before x → ¬ Takes rev x b' out)
+    (hlit : 0 < walked.reverse.length) (hfirst : walked.reverse[0]? = some (b, b')) {low : Nat}
     (hlow : low ≤ text.length) :
     IsAnswer (textOf prog entry text starts hexact) low
       (bySuffix (scansOf hexact hrevexact hrev hclean walked.reverse hlit) low
@@ -360,30 +403,41 @@ theorem bySuffix_program {prog rev : Array Inst} {entry reventry before b : Nat}
   have hrule := suffix_rule (Match := (textOf prog entry text starts hexact).Match)
     (fun s e hm => matches_inside hm.1 hm.2.2) (fun s e hm => reversed_match hexact hrev hm)
     hchain hnone
+  have hrule' := suffix_rule (Match := (textOf prog entry text starts hexact).Match)
+    (fun s e hm => matches_inside hm.1 hm.2.2) (fun s e hm => reversed_match hexact hrev hm)
+    hchain hnone'
   have hcleanBefore : CleanBefore (textOf prog entry text starts hexact)
       (scansOf hexact hrevexact hrev hclean walked.reverse hlit)
-      (fun q => text[q]? = some b) := by
-    intro s e hm q hq1 hq2
+      (fun q => text[q]? = some b ∨ text[q]? = some b') := by
+    intro s e hm q hq1 hq2 hmark
     have hq3 : q < e - walked.length := by
       have : (scansOf hexact hrevexact hrev hclean walked.reverse hlit).width =
           walked.reverse.length := rfl
       omega
-    exact (hrule s e hm).2 q hq1 hq3
+    cases hmark with
+    | inl h => exact (hrule s e hm).2 q hq1 hq3 h
+    | inr h => exact (hrule' s e hm).2 q hq1 hq3 h
   have hgap : Gap (scansOf hexact hrevexact hrev hclean walked.reverse hlit)
-      (fun q => text[q]? = some b) := by
+      (fun q => text[q]? = some b ∨ text[q]? = some b') := by
     apply first_gap
     intro p hp
-    have h := hp.2 0 hlit
-    rw [Nat.add_zero, hfirst] at h
-    exact h
+    have ⟨c, hc, hfits⟩ := hp.2 0 (b, b') hfirst
+    rw [Nat.add_zero] at hc
+    cases hfits with
+    | inl h =>
+      have h' : c = b := h
+      exact Or.inl (h' ▸ hc)
+    | inr h =>
+      have h' : c = b' := h
+      exact Or.inr (h' ▸ hc)
   exact bySuffix_answer hcleanBefore hgap hends hlow
 
 /-- The wider search over a program: every match ends with the literal that `Literal.walk`
 read, and `NoEarlier` holds. Then the search from the literal's places, with a forward scan
 from each start, gives the matcher's answer from `low`. -/
 theorem byRequired_program {prog rev : Array Inst} {entry reventry before : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hchain : Chain rev reventry walked before)
     (hlit : 0 < walked.reverse.length)
     (hearlier : NoEarlier (textOf prog entry text starts hexact)) {low : Nat}
@@ -395,8 +449,8 @@ theorem byRequired_program {prog rev : Array Inst} {entry reventry before : Nat}
 
 /-- Claim R11 over a program: where every match starts at the text's start, the matcher from
 `low` alone gives the answer. The literal is any, since the search reads no place. -/
-theorem atStart_program {prog rev : Array Inst} {entry reventry : Nat} {text lit : List Nat}
-    {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
+theorem atStart_program {prog rev : Array Inst} {entry reventry : Nat} {text : List Nat}
+    {lit : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
     (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hlit : 0 < lit.length)
     (hstart : ∀ s e, (textOf prog entry text starts hexact).Match s e → s = 0) (low : Nat) :
@@ -406,8 +460,8 @@ theorem atStart_program {prog rev : Array Inst} {entry reventry : Nat} {text lit
 
 /-- Claim R12 over a program: where every match ends at the text's end, the reverse DFA's scan
 from there gives the answer. The literal is any, since the search reads no place. -/
-theorem fromEnd_program {prog rev : Array Inst} {entry reventry : Nat} {text lit : List Nat}
-    {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
+theorem fromEnd_program {prog rev : Array Inst} {entry reventry : Nat} {text : List Nat}
+    {lit : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
     (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hlit : 0 < lit.length)
     (hend : ∀ s e, (textOf prog entry text starts hexact).Match s e → e = text.length)
@@ -419,8 +473,8 @@ theorem fromEnd_program {prog rev : Array Inst} {entry reventry : Nat} {text lit
 /-- Every match starts with the literal that `Literal.walk` read from the forward program's
 entry. -/
 theorem startsWith_of_chain {prog rev : Array Inst} {entry reventry stop : Nat}
-    {text lit : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {lit : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts) (hchain : Chain prog entry lit stop)
     (hlit : 0 < lit.length) :
     StartsWith (textOf prog entry text starts hexact)
@@ -435,7 +489,8 @@ theorem startsWith_of_chain {prog rev : Array Inst} {entry reventry stop : Nat}
 /-- The search of claims R2, R3 and R5 for one literal: from the literal's first place at or
 after `low`, the two scans of `byDfa`. -/
 def bySkip (prog : Array Inst) (entry : Nat) (rev : Array Inst) (reventry : Nat)
-    (text : List Nat) (mayByte : Nat → Bool) (lit : List Nat) (low : Nat) : Option (Nat × Nat) :=
+    (text : List Nat) (mayByte : Nat → Bool) (lit : List (Nat × Nat)) (low : Nat) :
+    Option (Nat × Nat) :=
   match findLiteral text lit low with
   | none => none
   | some p => byDfa prog entry rev reventry text mayByte p
@@ -444,8 +499,8 @@ def bySkip (prog : Array Inst) (entry : Nat) (rev : Array Inst) (reventry : Nat)
 every match starts with it. Then the search from the literal's first place gives the matcher's
 answer from `low`. -/
 theorem bySkip_program {prog rev : Array Inst} {entry reventry stop : Nat}
-    {text lit : List Nat} {mayByte : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {lit : List (Nat × Nat)} {mayByte : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text (Dfa.startsOf text mayByte))
     (hchain : Chain prog entry lit stop) (hlit : 0 < lit.length) (low : Nat) :
     IsAnswer (textOf prog entry text (Dfa.startsOf text mayByte) hexact) low
@@ -466,7 +521,8 @@ theorem bySkip_program {prog rev : Array Inst} {entry reventry stop : Nat}
 
 /-- `a+b` from 0 and its reverse program `ba+` from 4, in one array. In `xaab` the two scans
 give the match from 1 up to 4, from 2 they give the match from 2, and from 4 they give none.
-The literal `ab` stands at 2 alone. -/
+The literal `ab` stands at 2 alone. In `xAab`, the literal `ab` whose first place takes `a` in
+either case stands at 2 alone, and `aab` whose first two places do stands at 1. -/
 example :
     byDfa #[.range 97 97 1, .split 0 2, .range 98 98 3, .done,
         .range 98 98 5, .range 97 97 6, .split 5 7, .done] 0
@@ -483,9 +539,11 @@ example :
       #[.range 97 97 1, .split 0 2, .range 98 98 3, .done,
         .range 98 98 5, .range 97 97 6, .split 5 7, .done] 4
       [120, 97, 97, 98] (fun _ => true) 4 = none ∧
-    findLiteral [120, 97, 97, 98] [97, 98] 0 = some 2 ∧
-    findLiteral [120, 97, 97, 98] [97, 98] 1 = some 2 ∧
-    findLiteral [120, 97, 97, 98] [97, 98] 3 = none := by decide
+    findLiteral [120, 97, 97, 98] [(97, 97), (98, 98)] 0 = some 2 ∧
+    findLiteral [120, 97, 97, 98] [(97, 97), (98, 98)] 1 = some 2 ∧
+    findLiteral [120, 97, 97, 98] [(97, 97), (98, 98)] 3 = none ∧
+    findLiteral [120, 65, 97, 98] [(97, 65), (98, 98)] 0 = some 2 ∧
+    findLiteral [120, 65, 97, 98] [(97, 65), (97, 65), (98, 98)] 0 = some 1 := by decide
 
 /-- `a*` read as UTF-8 over the two bytes of `é`. It matches the empty text before the
 continuation byte, so it has `EmptyElsewhere` and not `StartsClean`. `[\x80-\xBF]*a` over a
