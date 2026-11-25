@@ -20,6 +20,8 @@ import Stdx.Regex.Searcher
 import Stdx.Regex.Rules
 import Stdx.Regex.RulesWide
 import Stdx.Regex.RulesSeparator
+import Stdx.Regex.SearcherInner
+import Stdx.Regex.RulesInner
 
 /-!
 # What the proofs rest on
@@ -299,5 +301,41 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.wide_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.wide_program
+
+/-- info: 'Stdx.Regex.Matcher.chain_prefix' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.chain_prefix
+
+/-- info: 'Stdx.Regex.Matcher.chain_of_chainTo' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.chain_of_chainTo
+
+/-- info: 'Stdx.Regex.Matcher.passes_split' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.passes_split
+
+/-- info: 'Stdx.Regex.Matcher.scanBack_accepts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.scanBack_accepts
+
+/-- info: 'Stdx.Regex.Matcher.scanBack_accepts_least' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.scanBack_accepts_least
+
+/-- info: 'Stdx.Regex.Matcher.scanBack_accepts_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.scanBack_accepts_none
+
+/-- info: 'Stdx.Regex.Matcher.inner_apart' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.inner_apart
+
+/-- info: 'Stdx.Regex.Matcher.inner_fixed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.inner_fixed
+
+/-- info: 'Stdx.Regex.Matcher.inner_separated' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.inner_separated
+
+/-- info: 'Stdx.Regex.Matcher.beforeOn_rising' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.beforeOn_rising
+
+/-- info: 'Stdx.Regex.Matcher.innerOn_parts' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.innerOn_parts
+
+/-- info: 'Stdx.Regex.Matcher.inner_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.inner_program
 
 end Stdx.Regex

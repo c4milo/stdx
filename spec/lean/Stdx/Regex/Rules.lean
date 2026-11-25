@@ -23,8 +23,8 @@ program, and proves each decision.
 rule. A rule that holds for a program holds for each text, so a literal that fails here is a
 wrong choice for some text, and not for the drawn text alone.
 
-This file does not decide the second rule or the third, claim R14's rule, or a literal with a
-place that folds.
+`RulesWide.lean` and `RulesSeparator.lean` decide the second rule and the third, and
+`RulesInner.lean` claim R14's rule. No file decides a literal with a place that folds.
 -/
 namespace Stdx.Regex.Matcher
 
