@@ -10762,6 +10762,55 @@ to 12 are reordered and nothing else changes.
     - Equivalent: no limit on the nodes `measure` counts. The words' check after it refuses
       the same automata, so the limit only bounds the walk.
 
+  Claim R13's least length of every pattern (decision 86, the owner's ruling of 2026-11-25):
+  - `opt/fixed-length/too-small-ascii` counts `\w{10,}` in `abcdef`, at 0.45 of Rust's crate on
+    the N2. Rust's crate refuses the text before any engine runs: a match takes 10 bytes.
+    stdx refuses such a text only where a match is the whole text.
+  - `compile` counts the least length from the fragments, as `Program.len_min`, and a searcher
+    refuses a shorter text. Decision 86 refused a count in the parser for claim R13's lengths.
+    The owner ruled for the count on 2026-11-25, over the walk that waits and over no change.
+  - `spec/lean/Stdx/Regex/RulesLength.lean` holds `leastOn`, a walk of `n + 1` levels from the
+    entry that meets no `match` before level `n`. `leastOn_sound` proves that every match then
+    takes `n` bytes or more, and `short_answer` gives the search's answer for a shorter text.
+    The dump writes a `least` line, and the Lean side judges it.
+  **Check:** the counts of chosen patterns; the searches refuse a text only where the matcher
+  finds no match; the replay refuses a count that the program does not hold; the script runs
+  `leastOn` for each count; callgrind's count of a compile at the base and with the change;
+  mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not run.
+  - `zig build test` exits 0, and `zig build lean` pins 133 theorems.
+  - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13 over the tree with claim R15. The
+    dump of seed 7 holds 3,268 `least` lines, and Lean judged each sound.
+  - Callgrind, built ReleaseSafe for x86-64-v3, counted 1,000 and 2,000 compiles of 12 patterns
+    of bench-regex at `805e10e` and with the count. A count of 32 bits cost 60 to 825 more
+    instructions a compile, 256 for `Pharaoh`. A count of 16 bits keeps a fragment's size: it
+    cost 82 fewer to 731 more, 109 for `Pharaoh` and 731 for the UUID, 0.43% of each.
+  - The filter counted 364 instructions a search of `too-small-ascii` at `805e10e` and 119 with
+    the count, its loop and its timer included.
+  - Mutations: 24. 23 were CAUGHT, and 1 was NOT CAUGHT by the script alone.
+    - Twelve of the count and the searcher, against `zig build test-regex`, each CAUGHT: a sum
+      as a maximum, an alternation's maximum, `+` counted as none, a trie's first literal
+      skipped, its last literal skipped, its longest literal in place of its shortest, an
+      alternation's last branch, a sequence of UTF-8 counted one byte longer, `find`, `count`
+      and the claims' path each refusing a text of the least length, and the count kept with
+      the claim off. Two more of the 16-bit form gave the same verdicts. The trie sorts its
+      literals by their bytes, and a test puts the shortest literal first among them and last.
+    - Two of `count`'s guard: a count of a short text that does not count it for the claims
+      that wait, and a count that does not pay a claim's account. Each was NOT CAUGHT, and a
+      new test now catches each.
+    - Two of the Lean side, against `lake build`: `leastOk` with no `match` check, and with no
+      entry at level 0. Each breaks a proof or the example.
+    - Three against the script: an alternation's maximum gave `differs least`; a vector program
+      that never says `differs`, which the canary refuses; and no `least` line, which the
+      replay refuses. A trie's last literal was NOT CAUGHT by the script over seed 7 with 64
+      programs; `zig build test-regex` catches it.
+    - After the rebase onto claim R15, the six refusals of the searcher, each made to refuse a
+      text of the least length, were CAUGHT again against `zig build test-regex`.
+    - Two of the replay, against `zig build test-tools`: the program's count and the
+      searcher's count not compared. The second was NOT CAUGHT until the test held a searcher
+      with the claim off.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

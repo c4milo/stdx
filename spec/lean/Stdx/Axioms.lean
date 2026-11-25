@@ -27,6 +27,7 @@ import Stdx.Regex.RulesInner
 import Stdx.Regex.RulesWindow
 import Stdx.Regex.RulesWindowSet
 import Stdx.Regex.AhoCorasick
+import Stdx.Regex.RulesLength
 
 /-!
 # What the proofs rest on
@@ -339,6 +340,15 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.windowSet_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.windowSet_program
+
+/-- info: 'Stdx.Regex.Matcher.least_of_leastOk' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.least_of_leastOk
+
+/-- info: 'Stdx.Regex.Matcher.leastOn_sound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.leastOn_sound
+
+/-- info: 'Stdx.Regex.Matcher.short_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.short_answer
 
 /-- info: 'Stdx.Regex.Matcher.fits_of_takesFit' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.fits_of_takesFit

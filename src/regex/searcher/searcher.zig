@@ -198,6 +198,10 @@ pub const Searcher = struct {
     /// the greatest `usize`, which no text's length is outside.
     len_least: usize,
     len_span: usize,
+    /// Claim R13's least length for any pattern: the fewest bytes a match takes, or zero where
+    /// the walk found none. A text with fewer bytes after a search's start holds no match there
+    /// (`Program.len_min`).
+    len_min: usize,
     /// True where claim R4's second rule or its third took `suffix`: such a search keeps the
     /// account below, and the first rule's does not.
     suffix_wide: bool,
@@ -291,6 +295,8 @@ pub const Searcher = struct {
         if (searcher.by_claim) {
             if (searcher.is_match_by_claim(haystack)) |matched| return matched;
         }
+        // Claim R13's least length, after the claims that wait counted the text.
+        if (haystack.len < searcher.len_min) return false;
         if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
             const scan = if (dfa_wait.has_literal(&searcher.forward))
                 searcher.scan_from_literal(haystack) orelse return false
@@ -332,6 +338,7 @@ pub const Searcher = struct {
         assert(from <= haystack.len);
         // A claim's search returns by itself, and joins no other answer (`Outcome`).
         if (searcher.by_claim) return searcher_claim.find_span(searcher, haystack, from);
+        if (haystack.len - from < searcher.len_min) return null;
         var span: Span = undefined;
         // A `return` for each outcome: each writes the result where the caller reads it.
         switch (searcher.find_by_dfa(haystack, from, &span)) {
@@ -362,6 +369,7 @@ pub const Searcher = struct {
             const outcome = searcher_claim.find_outcome(searcher, haystack, from, &span);
             return searcher.captures_of(outcome, span, haystack, from);
         }
+        if (haystack.len - from < searcher.len_min) return null;
         return searcher.captures_of(searcher.find_by_dfa(haystack, from, &span), span, haystack, from);
     }
 
@@ -473,6 +481,7 @@ test {
     _ = @import("searcher_bytes_test.zig");
     _ = @import("searcher_matches.zig");
     _ = @import("searcher_edge_test.zig");
+    _ = @import("searcher_least_test.zig");
     _ = @import("searcher_inner_test.zig");
     _ = @import("searcher_second_test.zig");
     _ = @import("searcher_window_test.zig");

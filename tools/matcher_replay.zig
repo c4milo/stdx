@@ -30,6 +30,7 @@ const platform = @import("platform");
 const replay_dump = @import("matcher_replay/matcher_replay_dump.zig");
 const matcher_replay_claim = @import("matcher_replay/matcher_replay_claim.zig");
 const matcher_replay_prefix = @import("matcher_replay/matcher_replay_prefix.zig");
+const matcher_replay_least = @import("matcher_replay/matcher_replay_least.zig");
 const Claim = matcher_replay_claim.Claim;
 const matcher_replay_groups = @import("matcher_replay/matcher_replay_groups.zig");
 const matcher_replay_program = @import("matcher_replay/matcher_replay_program.zig");
@@ -175,6 +176,8 @@ pub const Replay = struct {
     claims: usize = 0,
     /// The program's `prefix` line: the literal that the forward DFA goes to.
     prefix: matcher_replay_prefix.Named = .{},
+    /// The program's `least` line: the fewest bytes a match takes.
+    least: matcher_replay_least.Named = .{},
     /// The searches that the searcher which read a long text ran from the places of claim
     /// R14's literal: it held the literal, and its account was not at rest.
     finds_by_inner: usize = 0,
@@ -222,6 +225,7 @@ pub const Replay = struct {
         if (std.mem.eql(u8, word, "program")) return replay.begin(&tokens);
         if (std.mem.eql(u8, word, "claim")) return replay.set_claim(&tokens);
         if (std.mem.eql(u8, word, "prefix")) return replay.prefix.set(&tokens);
+        if (std.mem.eql(u8, word, "least")) return replay.least.set(&tokens);
         if (std.mem.eql(u8, word, "text")) return replay.set_text(&tokens);
         if (std.mem.eql(u8, word, "find")) return replay.expect_find(&tokens);
         if (std.mem.eql(u8, word, "slots")) return replay.set_slots(&tokens);
@@ -257,6 +261,7 @@ pub const Replay = struct {
         replay.listed_len = 0;
         replay.named_claim.len = null;
         replay.prefix.clear();
+        replay.least.clear();
         replay.slots = null;
         replay.programs += 1;
     }
@@ -340,6 +345,7 @@ pub const Replay = struct {
         replay.searchers[automaton_searcher].give_ups = regex.constants.dfa_give_ups_max;
         try replay.expect_claim(&replay.searchers[0], false);
         try replay.prefix.expect(&replay.searchers[0]);
+        try replay.least.expect(program, &replay.searchers[0]);
         replay.read_long_text();
         try replay.expect_claim(&replay.searchers[long_read_searcher], true);
         replay.shrink_cache();
@@ -474,6 +480,7 @@ test {
     _ = replay_dump;
     _ = matcher_replay_claim;
     _ = matcher_replay_prefix;
+    _ = matcher_replay_least;
     _ = @import("matcher_replay/matcher_replay_shapes.zig");
     _ = matcher_replay_groups;
     _ = matcher_replay_program;

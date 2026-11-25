@@ -79,13 +79,15 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
         }
         holes = builder.join(holes, (try builder.range(first.lo, first.hi)).holes);
     }
+    var shortest: u16 = std.math.maxInt(u16);
     for (gathered, head + 1..) |sequence, member| {
+        shortest = @intCast(@min(shortest, sequence.len));
         if (sequence.len == 1) continue;
         const rest = try rest_of(builder, sequence.ranges[1..sequence.len]);
         builder.instructions[member].out = rest.entry;
         holes = builder.join(holes, rest.holes);
     }
-    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
+    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .least = shortest, .weight = 1 };
 }
 
 /// A class of bytes as one `ranges` node (`Encoding.bytes`). Each member is one byte, so the
@@ -101,7 +103,7 @@ pub fn octets(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragmen
         assert(index == 0 or range.lo > ranges[index - 1].hi);
         holes = builder.join(holes, (try builder.range(range.lo, range.hi)).holes);
     }
-    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .weight = 1 };
+    return .{ .begin = head, .entry = head, .holes = holes, .nullable = false, .least = 1, .weight = 1 };
 }
 
 /// Writes the class's sequences into `gathered` and gives their count, or null where their first

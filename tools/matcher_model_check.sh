@@ -152,6 +152,18 @@ claim window 7 3 2 97 98
 text 3 99 97 98
 search 0
 DUMP
+# `[a-c]{2}[a-c]*`, with a `least` line one byte past the two that its shortest match takes.
+canary "least" <<'DUMP'
+program bytes 5 0 none
+range 97 99 1
+range 97 99 2
+split 3 4
+range 97 99 2
+match
+least 3
+text 2 97 98
+search 0
+DUMP
 # `[a-c](?:xy|zw)` and its reverse half `(?:yx|wz)[a-c]`, with the claim of a window over the set
 # of `xy` and `zw` with no byte before either. The part before each literal takes one byte.
 canary "claim windows" <<'DUMP'

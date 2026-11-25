@@ -198,6 +198,10 @@ pub const Program = struct {
     /// Where the reverse program starts, or `no_entry`. It matches each match read backward and
     /// writes no slot.
     reverse: u32,
+    /// The fewest bytes a match takes, or fewer, as the compiler counts its fragments: an
+    /// assertion counts none. A search of a text with fewer bytes after its start finds no
+    /// match (claim R13's least length). spec/lean/Stdx/Regex/RulesLength.lean judges it.
+    len_min: u32 = 0,
     /// The capture groups, the whole match counted as group 0.
     group_count: u32,
     /// True when an assertion reads the octet ahead of a position.

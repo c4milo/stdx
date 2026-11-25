@@ -6411,6 +6411,24 @@ last part lists what still waits on a ruling.
       - The walk by levels stays for claim R4's second rule, on the part before a literal,
         where it stops at the level past `suffix_before_len_max` (`dfa_length.from`).
       - `Claims.length` turns it off.
+      - The least length of every pattern, ruled by the owner on 2026-11-25 (design §8 part
+        22q). It takes back the second form refused above, a count in the parser, for the least
+        length alone.
+        - Each fragment keeps the fewest bytes a match of it takes, in 16 bits. A sum stops at
+          the top of the range, an assertion counts none, and a class of UTF-8 counts one byte.
+          `compile` gives the whole pattern's count as `Program.len_min`, a new public field, so
+          the next release is a MINOR one (decision 65).
+        - A searcher refuses a text with fewer bytes after the search's start, before a DFA reads
+          any of it. A claim that waits counts the text first, and a claim with an account pays
+          the search to it first. Rust's crate refuses such a text for every pattern.
+        - `spec/lean/Stdx/Regex/RulesLength.lean` decides the count from a program by levels, and
+          proves that no match takes fewer bytes. The seeded check holds each count to it.
+        - Over 12 patterns of bench-regex, a compile took 82 fewer to 731 more instructions,
+          and a literal 109 more: the refused form took some 280. A search of rebar's
+          `opt/fixed-length/too-small-ascii` took 245 fewer of its 364.
+        - The walk that waits, given to each pattern with a least length past a loop, lost. It
+          costs no compile, but it refuses a short text only after the searches were given the
+          text that the claims wait for. To leave short texts as they are lost too.
     - Claim R14, added 2026-11-24 (design §8 part 22q): where every match holds a literal in its
       middle, after a part that one of claim R4's rules holds for, the searcher goes to the
       literal's places, as it goes to `@` for `\w+@\w+`.

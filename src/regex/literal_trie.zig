@@ -164,7 +164,9 @@ const Compiler = struct {
         if (!try compiler.close_deeper(0)) return null;
         const root = (try compiler.write(0)) orelse return null;
         assert(!compiler.holes.is_empty());
-        return .{ .begin = compiler.begin, .entry = root.entry, .holes = compiler.holes, .nullable = false, .weight = 1 };
+        var shortest: u16 = std.math.maxInt(u16);
+        for (entries) |entry| shortest = @intCast(@min(shortest, entry.len));
+        return .{ .begin = compiler.begin, .entry = root.entry, .holes = compiler.holes, .nullable = false, .least = shortest, .weight = 1 };
     }
 
     /// Takes a literal in sorted order. False where a node it closes has no order for its end.

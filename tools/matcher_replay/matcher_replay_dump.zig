@@ -24,6 +24,8 @@
 //!
 //! A `prefix` line holds the literal that the searcher's forward DFA goes to, by claim R2 or
 //! claim R3 (matcher_replay_prefix.zig). The Lean side decides that every match starts with it.
+//! A `least` line holds the fewest bytes a match takes, as the compiler counted them
+//! (matcher_replay_least.zig). The Lean side decides that no match takes fewer.
 const std = @import("std");
 const regex = @import("regex");
 const regex_generate = @import("../differential/regex_generate.zig");
@@ -157,6 +159,7 @@ pub const Lines = struct {
         try lines.add_pattern(pattern);
         try lines.add_program(program);
         try lines.add("slots {d}", .{program.slot_count()});
+        if (program.len_min > 0) try lines.add("least {d}", .{program.len_min});
         if (claim) |taken| try lines.add_claim(taken);
         if (prefix) |taken| try lines.add_prefix(taken);
         try lines.add_text(text);

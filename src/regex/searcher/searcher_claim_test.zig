@@ -209,6 +209,20 @@ test "is_match alone covers the text that claim R13 waits for, and then refuses 
     try testing.expect(!searcher.is_match("a") and searcher.is_match("aaaaa") and !searcher.is_match("aaaaaa"));
 }
 
+test "count gives the claims that wait a text shorter than the least match, as a search does" {
+    var fixture: Fixture = .{ .judged = false };
+    try fixture.init("^a{2,5}$", searcher_test.cache_words_max);
+    const searcher = &fixture.searcher;
+    // The least match takes 2 bytes. Each count still covers the text, one byte a turn.
+    const text = "a";
+    for (0..searcher.deferred_left + 1) |_| {
+        if (!searcher.deferred.any()) break;
+        var matches: Matches = .{ .searcher = searcher, .haystack = text };
+        try testing.expectEqual(@as(u64, 0), matches.count());
+    }
+    try expect_held(&fixture, .lengths);
+}
+
 /// The bytes of a seeded text, and the texts each pattern meets: enough to cover what its
 /// claims wait for, from every offset.
 const text_len = 83;

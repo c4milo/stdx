@@ -44,6 +44,10 @@ pub const Matches = struct {
     /// give. A count needs each match's end alone (claim R10).
     pub fn count(matches: *Matches) u64 {
         var total: u64 = 0;
+        if (matches.position <= matches.haystack.len and holds_none(matches.searcher, matches.haystack.len, matches.position)) {
+            matches.position = matches.haystack.len + 1;
+            return 0;
+        }
         const by_ends = counts_ends(matches.searcher);
         // Each turn counts a match that ends past the last one, or the first match: at most the
         // haystack's offsets and one. No match is left after that many.
@@ -99,6 +103,7 @@ pub const Matches = struct {
 /// DFA finds the end alone, with no read back to the start. Otherwise `find` finds the match.
 fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
     assert(counts_ends(searcher));
+    if (haystack.len - from < searcher.len_min) return null;
     if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {
         switch (searcher.forward.scan_forward(haystack, from, false)) {
             .gave_up => searcher.give_ups += 1,
@@ -108,6 +113,16 @@ fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
     }
     const span = searcher.find(haystack, from) orelse return null;
     return @intCast(span.end);
+}
+
+/// True when claim R13 refuses the text from `position` by its length alone: it is shorter than
+/// the least match, or a pattern of the whole text cannot match a text this long. A searcher
+/// whose claims wait counts the text first, and one whose claim keeps an account pays each search
+/// to it, so those two search.
+fn holds_none(searcher: *const Searcher, len: usize, position: usize) bool {
+    assert(position <= len);
+    if (searcher.deferred.any() or searcher.inner != null or searcher.suffix_wide) return false;
+    return len - position < searcher.len_min or searcher.excludes(len);
 }
 
 /// Claim R10: true where a count finds each match's end alone. A literal's claims find the

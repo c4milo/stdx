@@ -171,7 +171,8 @@ const Compiler = struct {
         try compiler.close_from(0);
         const entry = try compiler.write(0);
         assert(!compiler.holes.is_empty());
-        return .{ .begin = compiler.begin, .entry = entry, .holes = compiler.holes, .nullable = false, .weight = 1 };
+        // A sequence of UTF-8 takes one byte at least: the count is a lower bound for every class.
+        return .{ .begin = compiler.begin, .entry = entry, .holes = compiler.holes, .nullable = false, .least = 1, .weight = 1 };
     }
 
     /// The entry of the node whose transitions run from `start` to the last: a node the program

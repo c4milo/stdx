@@ -46,6 +46,7 @@ const Alternation = struct {
     begin: u32,
     holes: Holes,
     nullable: bool,
+    least: u16,
     weight: u32,
 };
 
@@ -172,6 +173,7 @@ pub const Parser = struct {
             alternation.last = split;
             alternation.holes = parser.builder.join(alternation.holes, closed.holes);
             alternation.nullable = alternation.nullable or closed.nullable;
+            alternation.least = @min(alternation.least, closed.least);
             alternation.weight = @max(alternation.weight, closed.weight);
         } else {
             frame.alternation = .{
@@ -180,6 +182,7 @@ pub const Parser = struct {
                 .begin = closed.begin,
                 .holes = closed.holes,
                 .nullable = closed.nullable,
+                .least = closed.least,
                 .weight = closed.weight,
             };
         }
@@ -196,6 +199,7 @@ pub const Parser = struct {
                 .entry = alternation.entry,
                 .holes = parser.builder.join(alternation.holes, whole.holes),
                 .nullable = alternation.nullable or whole.nullable,
+                .least = @min(alternation.least, whole.least),
                 .weight = @max(alternation.weight, whole.weight),
             };
         }

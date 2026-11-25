@@ -274,7 +274,9 @@ that a searcher's forward DFA goes to by claim R2 or claim R3, and `leadsOn` of
 holds the window's `before`, its bound and its literal, and `windowOn` of
 `Stdx/Regex/RulesWindow.lean` decides its rule. A `claim windows` line holds the bytes of
 each literal that a window over a set compares, its bound and the set's ways, and `windowSetOn`
-of `Stdx/Regex/RulesWindowSet.lean` decides its rule.
+of `Stdx/Regex/RulesWindowSet.lean` decides its rule. A `least` line holds the fewest bytes a
+match takes, as the compiler counted them, and `leastOn` of `Stdx/Regex/RulesLength.lean`
+decides that no match takes fewer.
 
 A `slots` line names the slots of the program's capture groups. After each `find` line of
 such a program, a `groups` line holds the groups of the search's match, which `capturesAt` of
@@ -483,6 +485,15 @@ def windowsClaimLines (dump : Dump) (width lead : Option Nat) (bytes : List Nat)
   | _, _, _, _ => ["differs claim windows"]
 
 open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where a match may take fewer bytes than the count that the Zig
+compiler gave the program. `leastOn` decides it from the program, and `short_answer` proves
+that a search of a shorter text finds no match. -/
+def leastLines (dump : Dump) (least : Option Nat) : List String :=
+  match least with
+  | some n => if leastOn dump.prog dump.forward n then [] else ["differs least"]
+  | none => ["differs least"]
+
+open Stdx.Regex.Matcher in
 /-- A line that begins `differs` where a literal that a Zig searcher's forward DFA goes to, by
 claim R2 or claim R3, does not start every match. `leadsOn` decides that from the program for
 every way the program starts, and `leads_program` proves the search from it. -/
@@ -522,6 +533,7 @@ def answerLine (dump : Dump) (line : String) : List String × Dump :=
   | "claim" :: "window" :: before :: lead :: _ :: literal =>
     (line :: windowClaimLines dump before.toNat? lead.toNat? (placesOf literal),
       { dump with claimed := true })
+  | ["least", count] => (line :: leastLines dump count.toNat?, dump)
   | "prefix" :: _ :: literal =>
     (line :: prefixLines dump (placesOf literal), { dump with claimed := true })
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>

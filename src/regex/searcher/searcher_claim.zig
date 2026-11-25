@@ -54,6 +54,8 @@ pub fn ready(searcher: *Searcher, program: *const Program, claims: searcher_file
     searcher.at_end = claims.text_end and both_ready and !searcher.at_text and at_text_end;
     searcher.len_least = 0;
     searcher.len_span = std.math.maxInt(usize);
+    // Claim R13's least length holds for any pattern, and the compiler counted it.
+    searcher.len_min = if (claims.length) program.len_min else 0;
     searcher.suffix = null;
     searcher.suffix_wide = false;
     searcher.inner = null;
@@ -171,6 +173,8 @@ inline fn find_by_claim(searcher: *Searcher, haystack: []const u8, from: usize, 
     if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
     if (searcher.at_end) return find_from_end(searcher, haystack, from, span);
     if (searcher.inner != null or searcher.suffix_wide) return find_by_account(searcher, haystack, from, span);
+    // Claim R13's least length. The search of a claim with an account pays it as before.
+    if (haystack.len - from < searcher.len_min) return .none;
     if (searcher.suffix) |*suffix| return find_by_suffix(searcher, suffix, haystack, from, span);
     return searcher.find_by_dfa(haystack, from, span);
 }

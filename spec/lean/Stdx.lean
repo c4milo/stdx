@@ -30,4 +30,5 @@ import Stdx.Regex.Window
 import Stdx.Regex.AhoCorasick
 import Stdx.Regex.RulesWindow
 import Stdx.Regex.RulesWindowSet
+import Stdx.Regex.RulesLength
 import Stdx.Axioms

@@ -37,6 +37,9 @@ pub const Fragment = struct {
     holes: Holes,
     /// True when the fragment matches the empty string.
     nullable: bool,
+    /// The fewest bytes a match of the fragment takes, or fewer: an assertion counts none, and a
+    /// sum that would pass the type's range stops at its top.
+    least: u16,
     /// The product of the counts of the range quantifiers nested in the fragment.
     weight: u32,
 };
@@ -105,7 +108,7 @@ pub const Builder = struct {
 
     fn single(builder: *Builder, instruction: Instruction, nullable: bool) Error!Fragment {
         const index = try builder.emit(instruction);
-        return .{ .begin = index, .entry = index, .holes = builder.open_out(index), .nullable = nullable, .weight = 1 };
+        return .{ .begin = index, .entry = index, .holes = builder.open_out(index), .nullable = nullable, .least = if (nullable) 0 else 1, .weight = 1 };
     }
 
     /// One octet from `lo` to `hi`.
@@ -128,7 +131,8 @@ pub const Builder = struct {
     /// No string at all.
     pub fn fail(builder: *Builder) Error!Fragment {
         const index = try builder.emit(.{ .kind = .fail });
-        return .{ .begin = index, .entry = index, .holes = .{}, .nullable = false, .weight = 1 };
+        // No match at all: no count of bytes is too many, and none is too few.
+        return .{ .begin = index, .entry = index, .holes = .{}, .nullable = false, .least = 0, .weight = 1 };
     }
 
     /// `first` then `second`, in the pattern's order.
@@ -141,6 +145,7 @@ pub const Builder = struct {
             .entry = head.entry,
             .holes = rest.holes,
             .nullable = first.nullable and second.nullable,
+            .least = first.least +| second.least,
             .weight = @max(first.weight, second.weight),
         };
     }
@@ -153,6 +158,7 @@ pub const Builder = struct {
             .entry = index,
             .holes = builder.join(first.holes, second.holes),
             .nullable = first.nullable or second.nullable,
+            .least = @min(first.least, second.least),
             .weight = @max(first.weight, second.weight),
         };
     }
@@ -183,6 +189,7 @@ pub const Builder = struct {
             .entry = split.index,
             .holes = builder.join(operand.holes, split.leave),
             .nullable = true,
+            .least = 0,
             .weight = operand.weight,
         };
     }
@@ -196,6 +203,7 @@ pub const Builder = struct {
             .entry = operand.entry,
             .holes = split.leave,
             .nullable = operand.nullable,
+            .least = operand.least,
             .weight = operand.weight,
         };
     }
@@ -213,6 +221,7 @@ pub const Builder = struct {
             .entry = split.index,
             .holes = split.leave,
             .nullable = true,
+            .least = 0,
             .weight = operand.weight,
         };
     }
@@ -229,6 +238,7 @@ pub const Builder = struct {
             .entry = open,
             .holes = builder.open_out(close),
             .nullable = operand.nullable,
+            .least = operand.least,
             .weight = operand.weight,
         };
     }
@@ -251,6 +261,7 @@ pub const Builder = struct {
             .entry = fragment.entry + shift,
             .holes = .{ .head = moved_hole(fragment.holes.head, shift), .tail = moved_hole(fragment.holes.tail, shift) },
             .nullable = fragment.nullable,
+            .least = fragment.least,
             .weight = fragment.weight,
         };
     }

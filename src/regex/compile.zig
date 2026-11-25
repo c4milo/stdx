@@ -40,6 +40,8 @@ const Pass = struct {
     entry: u32,
     group_count: u32,
     names: []const GroupName,
+    /// The fewest bytes a match takes, as the fragments count it.
+    least: u16,
 };
 
 /// Reads the pattern into the builder in one direction, and keeps its names in `names`. The
@@ -63,7 +65,7 @@ fn trie_pass(builder: *Builder, pattern: []const u8, flags: atom.Flags, directio
     const whole = try builder.capture(body, 0);
     const end = try builder.emit(.{ .kind = .match });
     builder.patch(whole.holes, end);
-    return .{ .entry = whole.entry, .group_count = 1, .names = &.{} };
+    return .{ .entry = whole.entry, .group_count = 1, .names = &.{}, .least = whole.least };
 }
 
 /// True when the pattern holds `(?`, which a named group starts with. `std.mem.indexOf` would
@@ -122,8 +124,8 @@ fn pass_in(builder: *Builder, pattern: []const u8, start: syntax.Start, directio
     const whole = try builder.capture(try parser.parse(), 0);
     const end = try builder.emit(.{ .kind = .match });
     builder.patch(whole.holes, end);
-    const read = keep.read orelse return .{ .entry = whole.entry, .group_count = parser.group_count, .names = &.{} };
-    return .{ .entry = whole.entry, .group_count = parser.group_count, .names = try keep_names(keep.kept, read, pattern) };
+    const read = keep.read orelse return .{ .entry = whole.entry, .group_count = parser.group_count, .names = &.{}, .least = whole.least };
+    return .{ .entry = whole.entry, .group_count = parser.group_count, .names = try keep_names(keep.kept, read, pattern), .least = whole.least };
 }
 
 /// Copies the names the parser read into `names`: none where the caller gave no storage, and
@@ -183,6 +185,7 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         .reverse_nodes = (builder.len - forward_len) - (builder.held - forward_held),
         .forward = forward.entry,
         .reverse = reverse_entry,
+        .len_min = forward.least,
         .group_count = forward.group_count,
         .reads_ahead = looks.ahead,
         .has_looks = looks.any,
