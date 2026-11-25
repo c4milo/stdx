@@ -95,8 +95,8 @@ pub const Look = enum(u8) {
     }
 };
 
-/// One instruction. Its size is 12 octets and its alignment 4, so a thousand instructions take
-/// 12 kB.
+/// One instruction. Its size is 16 octets and its alignment 4, so a thousand instructions take
+/// 16 kB.
 pub const Instruction = extern struct {
     /// The instruction that follows, for every kind but `match` and `fail`.
     out: u32 = 0,
@@ -107,6 +107,10 @@ pub const Instruction = extern struct {
     lo: u8 = 0,
     hi: u8 = 0,
     look: Look = .behind_text,
+    /// The node's number in its half of the program, from 0, which `compile` writes: a DFA's
+    /// sets find a member by it, in a list of a word for each node (decision 86 as amended on
+    /// 2026-11-25). A range that a `ranges` node holds is no node, and holds `no_node`.
+    node: u32 = 0,
 
     pub fn takes(instruction: Instruction, octet: u8) bool {
         assert(instruction.kind == .range);
@@ -151,6 +155,9 @@ pub fn step_ranges(instructions: []const Instruction, index: u32, octet: u8) ?u3
 
 /// An entry that names no program.
 pub const no_entry = std.math.maxInt(u32);
+
+/// The number of a range that a `ranges` node holds, which is no node.
+pub const no_node = std.math.maxInt(u32);
 
 /// A named capture group, as `(?P<year>` names one: its group and its name, which `compile`
 /// copies, so a program's names do not hold the pattern.
@@ -233,7 +240,7 @@ pub const Program = struct {
 };
 
 comptime {
-    assert(@sizeOf(Instruction) == 3 * @sizeOf(u32));
+    assert(@sizeOf(Instruction) == 4 * @sizeOf(u32));
     assert(@alignOf(Instruction) == @alignOf(u32));
     assert(std.meta.fields(Context).len == constants.context_count);
 }

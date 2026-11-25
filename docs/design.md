@@ -10883,6 +10883,36 @@ to 12 are reordered and nothing else changes.
       pair in bytes; no letter pair in UTF-8, twice; a pair judged by its first member alone,
       and by its second alone; and a pair of sequences of any length, twice.
 
+  The DFA's lists by node (decision 86 as amended on 2026-11-25):
+  - `unicode/overlapping-words/english` takes the groups of `(\p{L}{14})|...|(\p{L}{5})` on
+    each line, at 0.42 of Rust's crate on the N2. Its two DFAs' least took about 1.17 million
+    words of the default cache's 1,048,576, so the reverse DFA did not start, and the matcher
+    found the groups of each line.
+  - Two of a DFA's six lists found a member by its instruction, a word for each instruction.
+    `compile` now writes each node's number in `Instruction.node`, and the two lists find a
+    member by it (`dfa_node_set.zig`): all six take a word for each node. A read-back `\p{L}`
+    holds 1,768 instructions and 1,222 nodes, and a forward one 1,348 and 303.
+  - An instruction takes 16 bytes where it took 12. The walk of `dfa_length.zig` keeps the
+    bounds it took from the program's instructions.
+  **Check:** each half's nodes numbered from 0 and no number in a node's ranges; a set found by
+  node numbers; the least of the lists; the walk and the pass over a node of many ranges; both
+  DFAs of the row start in the default cache; two paired runs of the `bench` workflow on each
+  runner; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not recorded yet.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter, built ReleaseSafe, started both DFAs of the row in the default cache: the
+    forward DFA with room for 956 states and the reverse one for 488.
+  - A probe of rebar's `grep_captures` model over `en-medium.txt`, built ReleaseSafe for
+    x86-64-v3 and exporting `platform.memset` as the benchmarks do, ran at 0.87 to 1.37 MB/s
+    at `1567a18` and 1.93 to 2.22 with the change. With claim R8 off it ran at 6.55 to 7.01:
+    the backtracker clears its bits for 148,000 instructions at each offset of a span.
+  - Mutations: 8, each CAUGHT. Against `zig build test-regex`: a node's range numbered as a
+    node; each number one too high; the key taken as the instruction's index; one slot for
+    every member; the least of the old lists; the walk's budget counted by nodes; and the
+    pass's turns counted by nodes. The last was NOT CAUGHT until a test passed a node of 13
+    ranges, whose turns outnumber three times its nodes.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

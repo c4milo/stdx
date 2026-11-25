@@ -215,14 +215,14 @@ fn expect_nodes(program: *const Program) !void {
     try testing.expectEqual(dfa_config.nodes_of(program.instructions[program.forward_len..]), program.reverse_nodes);
 }
 
-test "a DFA's lists hold its nodes alone, and find a member by any instruction" {
+test "a DFA's lists hold a word for each node alone, and find a member by its node's number" {
     var fixture: Fixture = .{};
     fixture.program = try compiler.compile("[ac-eg]+x", .{}, &fixture.storage);
     const program = &fixture.program;
     const block = dfa_config.Block.of(program, program.forward);
     try testing.expect(block.nodes < block.len);
     const stride = @as(u32, program.class_count) + constants.context_count;
-    const lists = dfa_file.sparse_lists * @as(usize, block.len) + dfa_file.node_lists * @as(usize, block.nodes) + 1;
+    const lists = (dfa_file.sparse_lists + dfa_file.node_lists) * @as(usize, block.nodes) + 1;
     const least = Dfa.memory_len_min(program, program.forward);
     try testing.expectEqual(lists + Cache.memory_len(constants.dfa_states_min, stride), least);
     // The forward DFA runs in memory that holds its least and no more.

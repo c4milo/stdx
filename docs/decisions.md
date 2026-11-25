@@ -5959,6 +5959,19 @@ last part lists what still waits on a ruling.
       (amended 2026-11-23, design §8 part 22n). The compiler counts each program's nodes as it
       writes them (`Program.forward_nodes`). With a word an instruction in each list, the
       reverse DFA of `\p{L}{28,33}` did not start in its third of the cache.
+      - Amended by the owner's ruling of 2026-11-25 (design §8 part 22q): the two lists that
+        find a member are found by the member's node number, so all six take a word for each
+        node (`dfa_node_set.zig`). `compile` writes each node's number in its half of the
+        program, from 0, in a new field, `Instruction.node`, so an instruction takes 16 bytes
+        where it took 12, and the next release is a MINOR one (decision 65).
+      - On rebar's `overlapping-words`, the read-back program of each `\p{L}` holds 1,768
+        instructions and 1,222 nodes. The two DFAs' least took about 1.17 million words, more
+        than the default cache's 1,048,576, so the reverse DFA did not start, and the matcher
+        found the groups of every line. They now take about 870,000 words, and both start.
+      - Two other homes for the number lost. A table in the program's storage would have asked a
+        caller for about a third more instructions of storage. Writing the nodes first, and a
+        `ranges` node's members after them all, would have changed eight readers of a node's
+        members and the Lean model's programs.
     - A searcher gives each DFA its least first, and divides the rest of its cache two parts to
       one, the forward DFA's two (the owner's ruling of 2026-11-23, design §8 part 22n). RE2
       divides its memory two parts to one from its start. Rust's crate gives each DFA a cache of

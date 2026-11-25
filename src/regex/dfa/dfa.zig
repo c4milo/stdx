@@ -18,7 +18,7 @@ const program_file = @import("../program.zig");
 const Program = program_file.Program;
 const Instruction = program_file.Instruction;
 const Context = program_file.Context;
-const SparseSet = @import("../sparse_set.zig").SparseSet;
+const NodeSet = @import("dfa_node_set.zig").NodeSet;
 const Cache = @import("dfa_cache.zig").Cache;
 const Skip = @import("dfa_skip.zig").Skip;
 const Literal = @import("../literal.zig").Literal;
@@ -39,8 +39,8 @@ pub const Scan = dfa_config.Scan;
 const Block = dfa_config.Block;
 
 /// The lists a DFA builds a state with: two sets, each a list of its members and a list that
-/// finds a member by its instruction, the threads and the stack. The lists that find a member
-/// are as long as the program, and the other four as its nodes (`Block.nodes`).
+/// finds a member by its node's number (dfa_node_set.zig), the threads and the stack. Each is as
+/// long as the program's nodes (`Block.nodes`).
 pub const sparse_lists = 2;
 pub const node_lists = 4;
 
@@ -72,9 +72,9 @@ pub const Dfa = struct {
     first_columns: [constants.octet_values]u16,
     cache: Cache,
     /// The instructions the state being built passed through.
-    visited: SparseSet,
+    visited: NodeSet,
     /// The instructions the state being built leads to, in order of preference.
-    next: SparseSet,
+    next: NodeSet,
     threads: []u32,
     threads_len: u32,
     stack: []u32,
@@ -126,7 +126,7 @@ pub const Dfa = struct {
     /// lists cover the DFA's own program, which a search never leaves: the forward program, or
     /// the reverse one, which the compiler writes after it.
     fn memory_len_min_of(program: *const Program, block: Block) usize {
-        const lists = sparse_lists * @as(usize, block.len) + node_lists * @as(usize, block.nodes) + 1;
+        const lists = (sparse_lists + node_lists) * @as(usize, block.nodes) + 1;
         return lists + Cache.memory_len(constants.dfa_states_min, stride_of(program));
     }
 
@@ -162,8 +162,8 @@ pub const Dfa = struct {
             .class_count = program.class_count,
             .pair_shift = 0,
             .first_columns = undefined,
-            .visited = SparseSet.init_at(take(&rest, nodes), take(&rest, len), block.base),
-            .next = SparseSet.init_at(take(&rest, nodes), take(&rest, len), block.base),
+            .visited = NodeSet.init(take(&rest, nodes), take(&rest, nodes), program.instructions, len),
+            .next = NodeSet.init(take(&rest, nodes), take(&rest, nodes), program.instructions, len),
             .threads = lists[0..nodes],
             .threads_len = 0,
             .stack = lists[nodes..],
@@ -486,6 +486,7 @@ fn take(memory: *[]u32, len: usize) []u32 {
 test {
     _ = @import("dfa_cache.zig");
     _ = @import("dfa_close.zig");
+    _ = @import("dfa_node_set.zig");
     _ = @import("dfa_skip.zig");
     _ = @import("dfa_suffix.zig");
     _ = @import("dfa_wait.zig");

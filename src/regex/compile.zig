@@ -157,6 +157,26 @@ const Looks = struct {
     }
 };
 
+/// Writes each node's number in one half of a program, from 0, and `no_node` in each range that a
+/// `ranges` node holds after it. Gives the count of nodes.
+fn number_nodes(half: []Instruction) u32 {
+    var nodes: u32 = 0;
+    var members: u32 = 0;
+    for (half) |*instruction| {
+        if (members > 0) {
+            assert(instruction.kind == .range);
+            instruction.node = program_file.no_node;
+            members -= 1;
+            continue;
+        }
+        instruction.node = nodes;
+        nodes += 1;
+        if (instruction.kind == .ranges) members = instruction.arg;
+    }
+    assert(members == 0);
+    return nodes;
+}
+
 /// Compiles `pattern` into `storage` and gives the program, which holds a slice of `storage`.
 /// `error.NoSpaceLeft` says the storage is too small for the pattern.
 pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) errors.Error!Program {
@@ -176,13 +196,17 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         reverse_entry = reverse.entry;
     }
     const instructions = storage[0..builder.len];
+    const forward_nodes = number_nodes(instructions[0..forward_len]);
+    const reverse_nodes = number_nodes(instructions[forward_len..]);
+    assert(forward_nodes == forward_len - forward_held);
+    assert(reverse_nodes == (builder.len - forward_len) - (builder.held - forward_held));
     const looks = Looks.of(instructions[0..forward_len]);
     const classes = octet_classes.compute(instructions, looks.any);
     return .{
         .instructions = instructions,
         .forward_len = forward_len,
-        .forward_nodes = forward_len - forward_held,
-        .reverse_nodes = (builder.len - forward_len) - (builder.held - forward_held),
+        .forward_nodes = forward_nodes,
+        .reverse_nodes = reverse_nodes,
         .forward = forward.entry,
         .reverse = reverse_entry,
         .len_min = forward.least,

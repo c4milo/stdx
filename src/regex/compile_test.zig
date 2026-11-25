@@ -120,6 +120,43 @@ test "compile takes exactly the storage a pattern needs, and writes no instructi
     }
 }
 
+/// Requires each half of `program` to number its nodes from 0 in order, as many as the half's
+/// count, and to give each range a `ranges` node holds no number.
+fn expect_numbered(program: *const Program) !void {
+    const halves = [_]struct { instructions: []const Instruction, nodes: u32 }{
+        .{ .instructions = program.instructions[0..program.forward_len], .nodes = program.forward_nodes },
+        .{ .instructions = program.instructions[program.forward_len..], .nodes = program.reverse_nodes },
+    };
+    for (halves) |half| {
+        var next: u32 = 0;
+        var members: u32 = 0;
+        for (half.instructions) |instruction| {
+            if (members > 0) {
+                try testing.expectEqual(program_file.no_node, instruction.node);
+                members -= 1;
+                continue;
+            }
+            try testing.expectEqual(next, instruction.node);
+            next += 1;
+            if (instruction.kind == .ranges) members = instruction.arg;
+        }
+        try testing.expectEqual(half.nodes, next);
+    }
+}
+
+test "each half of a program numbers its nodes from 0, and a node's ranges hold no number" {
+    var storage: [storage_len]Instruction = undefined;
+    const patterns = [_][]const u8{ "[ac-eg]+x", "(a|b)\\w{2}", "\\p{Greek}+", "foo|bar|baz" };
+    var members: usize = 0;
+    for (patterns) |pattern| {
+        const program = try compiler.compile(pattern, .{}, &storage);
+        try expect_numbered(&program);
+        members += program.instructions.len - program.forward_nodes - program.reverse_nodes;
+    }
+    // The patterns' classes hold ranges after their nodes, so the rule for them is tried.
+    try testing.expect(members > 0);
+}
+
 test "a pattern compiles to the same program each time" {
     var first: [storage_len]Instruction = undefined;
     var second: [storage_len]Instruction = undefined;

@@ -43,21 +43,20 @@ const none = open - 1;
 /// program holds a loop, so that a match may take any count of bytes, or reaches no `match`.
 pub fn of(dfa: *Dfa) ?Lengths {
     assert(dfa.cache.table.len > 0);
-    // The lists that find a set's member are as long as the program, and hold each node's
-    // lengths for the pass. A set is empty after it, whatever its list holds.
+    // The lists that find a set's member hold a word for each node, at its number, and hold
+    // each node's lengths for the pass. A set is empty after it, whatever its list holds.
     const least = dfa.visited.sparse;
     const most = dfa.next.sparse;
-    const base = dfa.visited.base;
-    assert(least.len == most.len and base == dfa.next.base);
-    assert(least.len < none);
+    assert(least.len == most.len);
+    assert(dfa.visited.program_len < none);
     dfa.visited.clear();
     dfa.next.clear();
     @memset(least, unseen);
     if (!pass(dfa, dfa.config.entry)) return null;
-    const first = least[dfa.config.entry - base];
+    const first = least[dfa.visited.key(dfa.config.entry)];
     if (first == none) return null;
-    const last = most[dfa.config.entry - base];
-    assert(first <= last and last <= least.len);
+    const last = most[dfa.visited.key(dfa.config.entry)];
+    assert(first <= last and last <= dfa.visited.program_len);
     return .{ .least = first, .most = last, .bound = last };
 }
 
@@ -66,11 +65,11 @@ pub fn of(dfa: *Dfa) ?Lengths {
 /// still at, and `dfa.threads` holds, for each of them, how many targets it has named.
 fn pass(dfa: *Dfa, entry: u32) bool {
     const least = dfa.visited.sparse;
-    const base = dfa.visited.base;
+    const program_len: usize = dfa.visited.program_len;
     var depth: usize = enter(dfa, 0, entry);
     // A turn names one target of a node, or closes one node. A node has a target for each
     // range it holds, one more for a split, and closes once.
-    for (0..least.len + least.len + dfa.stack.len) |_| {
+    for (0..program_len + program_len + dfa.stack.len) |_| {
         if (depth == 0) break;
         const node = dfa.stack[depth - 1];
         const named = dfa.threads[depth - 1];
@@ -81,7 +80,7 @@ fn pass(dfa: *Dfa, entry: u32) bool {
         }
         dfa.threads[depth - 1] = named + 1;
         const target = target_of(dfa.instructions, node, named);
-        switch (least[target - base]) {
+        switch (least[dfa.visited.key(target)]) {
             unseen => depth = enter(dfa, depth, target),
             // The node is one of those the pass is still at: a loop.
             open => return false,
@@ -95,10 +94,10 @@ fn pass(dfa: *Dfa, entry: u32) bool {
 /// Puts `node` on the stack as the pass meets it. The depth after it.
 fn enter(dfa: *Dfa, depth: usize, node: u32) usize {
     const least = dfa.visited.sparse;
-    assert(least[node - dfa.visited.base] == unseen);
+    assert(least[dfa.visited.key(node)] == unseen);
     // The stack holds each node once at most.
     assert(depth < dfa.threads.len);
-    least[node - dfa.visited.base] = open;
+    least[dfa.visited.key(node)] = open;
     dfa.stack[depth] = node;
     dfa.threads[depth] = 0;
     return depth + 1;
@@ -134,25 +133,24 @@ fn target_of(instructions: []const Instruction, node: u32, ordinal: u32) u32 {
 fn close_node(dfa: *Dfa, node: u32) void {
     const least = dfa.visited.sparse;
     const most = dfa.next.sparse;
-    const base = dfa.visited.base;
     const instruction = dfa.instructions[node];
-    assert(least[node - base] == open);
+    assert(least[dfa.visited.key(node)] == open);
     var low: u32 = if (instruction.kind == .match) 0 else none;
     var high: u32 = 0;
     for (0..target_count(instruction)) |ordinal| {
         const target = target_of(dfa.instructions, node, @intCast(ordinal));
-        const target_low = least[target - base];
+        const target_low = least[dfa.visited.key(target)];
         assert(target_low != unseen and target_low != open);
         low = @min(low, target_low);
-        high = @max(high, most[target - base]);
+        high = @max(high, most[dfa.visited.key(target)]);
     }
     const takes_a_byte = instruction.kind == .range or instruction.kind == .ranges;
     if (takes_a_byte and low != none) {
         low += 1;
         high += 1;
     }
-    least[node - base] = low;
-    most[node - base] = high;
+    least[dfa.visited.key(node)] = low;
+    most[dfa.visited.key(node)] = high;
 }
 
 /// The counts of bytes that the DFA's program takes from `entry` to `match`. Null where a match
@@ -160,7 +158,7 @@ fn close_node(dfa: *Dfa, node: u32) void {
 /// reaches no `match` from `entry`.
 pub fn from(dfa: *Dfa, entry: u32, most_max: usize) ?Lengths {
     assert(dfa.cache.table.len > 0);
-    const budget = dfa.visited.sparse.len * constants.length_steps_per_instruction;
+    const budget = @as(usize, dfa.visited.program_len) * constants.length_steps_per_instruction;
     var steps: usize = 0;
     var least: ?usize = null;
     var most: usize = 0;
@@ -289,6 +287,8 @@ test "the walk and the pass find the least and the greatest length of a pattern 
         // A scalar value takes one to four bytes of UTF-8.
         .{ .pattern = "^.{3}$", .least = 3, .most = 12 },
         .{ .pattern = "[a\xC3\xA9]{2}", .least = 2, .most = 4 },
+        // Each node holds 13 ranges, so the pass's turns outnumber three times its nodes.
+        .{ .pattern = "[acegikmoqsuwy]{2}", .least = 2, .most = 2 },
         // One way of the choice reaches no match, after a byte, and changes neither length.
         .{ .pattern = "(?:a[^\\x00-\\x{10FFFF}]|bc)d?", .least = 2, .most = 3 },
     };
