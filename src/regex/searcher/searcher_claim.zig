@@ -86,7 +86,7 @@ fn ready_suffix(searcher: *Searcher, program: *const Program) void {
 
 /// Judges the claims that waited, and leaves none waiting. The walks take the DFAs' lists,
 /// which no scan holds between two searches.
-pub fn judge(searcher: *Searcher) void {
+pub noinline fn judge(searcher: *Searcher) void {
     const program = &searcher.matcher.program;
     if (searcher.deferred.suffix) {
         // `init` refused the first rule, so a suffix taken here is the second's or the third's.
