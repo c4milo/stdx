@@ -10379,8 +10379,20 @@ to 12 are reordered and nothing else changes.
   the matcher; a searcher of `^.{3}$` refuses a text one byte under the least length and one
   over the greatest, reads none of it, and takes a text at each edge; counts of instructions
   against `b49e0f9`; two paired runs of the `bench` workflow on each runner; mutations.
-  **Check passed in part, 2026-11-24.** The same container. The paired runs are not recorded
-  yet.
+  **Check passed, 2026-11-25.** The same container, and two paired runs.
+  - Runs 45513335082 and 45513338291 of the `bench` workflow at `7f79953` with `b49e0f9` as
+    their base, on a Neoverse-N2 each, a Xeon Platinum 8370C and an AMD EPYC 9V45.
+    `opt/fixed-length/go33484-3` won in all four jobs by decision 20's rule, at 26.7 to 38.7
+    times its base. The pass stays.
+    - Three rows that a searcher refuses by its lengths, at the base as with the pass, ran at
+      0.959 to 0.986 of their base: `opt/fixed-length/go33484-2` in all four jobs, and
+      `go33484-1` and `too-big-ascii` in three. In the probe a count of `^((aaa)|(aa))$` over
+      10,000 bytes takes 221 instructions for each pass at both commits, and so does one of
+      `^a{2,5}$`. `find_span`, the function that refuses the text, has the same 8,766 bytes
+      in both programs, at another address. So the moves are placement (decision 20).
+    - `dictionary/search/english-15` lost by 1.0% to 4.2% in three jobs and won in the
+      fourth. No other row lost in more than two jobs. Six rows won in three jobs, by 0.8% to
+      7.0%: the pass runs in none of their searches, so those moves are placement too.
   - `zig build test` exits 0. `zig build test-regex` runs 344 tests.
   - Instructions for each pass of the probe, at `b49e0f9` and with the pass.
     - A count of `^.{249}$` as UTF-8 over 1,000 bytes: 2,860 and 221. In turns, 400,000 passes
