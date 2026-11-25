@@ -385,3 +385,18 @@ fn expect_lean_equal() !void {
         try testing.expectEqualSlices(u8, reference[0..reference_len], coded[0..lean_len]);
     }
 }
+
+test "encoded_len_max gives a buffer's length at compile time, a header for each meta-block" {
+    const Whole = encoder.Encoder(.{});
+    const fixed_len = constants.encoder_stream_header_len_max + constants.encoder_last_len;
+    const empty_len = comptime Whole.encoded_len_max(0);
+    const one_block_len = comptime Whole.encoded_len_max(constants.encoder_meta_block_len_max);
+    const two_blocks_len = comptime Whole.encoded_len_max(constants.encoder_meta_block_len_max + 1);
+    try testing.expectEqual(fixed_len + constants.encoder_uncompressed_overhead, empty_len);
+    try testing.expectEqual(fixed_len + constants.encoder_uncompressed_overhead + constants.encoder_meta_block_len_max, one_block_len);
+    try testing.expectEqual(one_block_len + constants.encoder_uncompressed_overhead + 1, two_blocks_len);
+    // A length known only as the program runs gives the same count.
+    var len: usize = constants.encoder_meta_block_len_max;
+    len += 1;
+    try testing.expectEqual(two_blocks_len, Whole.encoded_len_max(len));
+}
