@@ -5,7 +5,8 @@
 //! A pattern is a shape of runs and words: a word that starts every match, one that ends every
 //! match, one inside, and an alternation of words, each beside a run that may take the word's
 //! bytes. Half of the texts hold the word twice. One case in `fold_share` writes its word with
-//! a place that folds, and its text then holds some of the word's letters in upper case.
+//! a place that folds, and its text then holds some of the word's letters in upper case. Half
+//! of the cases write each run and word as a capture group.
 const std = @import("std");
 const regex_generate = @import("../differential/regex_generate.zig");
 const Generator = @import("codec").testing.split.Generator;
@@ -118,6 +119,15 @@ fn word_pattern(buffer: *[word_pattern_len_max]u8, word: []const u8, fold: Fold)
     };
 }
 
+/// The bytes a part of a pattern takes at most: a run or a word, and a group around it.
+const part_len_max = 24;
+
+/// A part of a pattern as a case writes it: as it is, or as a capture group.
+fn part(buffer: *[part_len_max]u8, text: []const u8, grouped: bool) []const u8 {
+    if (!grouped) return text;
+    return std.fmt.bufPrint(buffer, "({s})", .{text}) catch unreachable;
+}
+
 /// Adds a word to a text where it fits. For a word with a place that folds, each letter is in
 /// upper case in half of the draws, so the text holds the word where only a fold reads it.
 fn fit_word(generator: *Generator, text: *std.ArrayList(u8), word: []const u8, fold: Fold) void {
@@ -143,7 +153,17 @@ pub fn draw(generator: *Generator, case: *regex_generate.Case, text_len_max: usi
         else => .none,
     };
     var word_buffer: [word_pattern_len_max]u8 = undefined;
-    write_pattern(&pattern, shape, run, word_pattern(&word_buffer, word, fold), other, second);
+    // Half of the cases write each part as a capture group.
+    const grouped = generator.below(2) == 0;
+    var parts: [4][part_len_max]u8 = undefined;
+    write_pattern(
+        &pattern,
+        shape,
+        part(&parts[0], run, grouped),
+        part(&parts[1], word_pattern(&word_buffer, word, fold), grouped),
+        part(&parts[2], other, grouped),
+        part(&parts[3], second, grouped),
+    );
     pattern.appendSliceAssumeCapacity(pick(generator, &tails));
     case.pattern.len = pattern.items.len;
     draw_text(generator, case, shape, word, fold, text_len_max);
@@ -212,6 +232,26 @@ test "a text holds a word in upper case only where the word folds" {
     var text: std.ArrayList(u8) = .initBuffer(buffer[0..3]);
     fit_word(&generator, &text, "ab c", .whole);
     try testing.expectEqual(@as(usize, 0), text.items.len);
+}
+
+test "a part is written as it is, or as a capture group" {
+    var buffer: [part_len_max]u8 = undefined;
+    try testing.expectEqualStrings("[ab]*", part(&buffer, "[ab]*", false));
+    try testing.expectEqualStrings("([ab]*)", part(&buffer, "[ab]*", true));
+    try testing.expectEqualStrings("()", part(&buffer, "", true));
+    // The longest run and the longest word fit with their group.
+    var longest: usize = 0;
+    for (runs) |run| longest = @max(longest, run.len);
+    try testing.expect(longest + "()".len <= part_len_max and word_pattern_len_max + "()".len <= part_len_max);
+    var generator = Generator.init(3);
+    var case: regex_generate.Case = .{};
+    var grouped: usize = 0;
+    const cases = 64;
+    for (0..cases) |_| {
+        draw(&generator, &case, test_text_len_max);
+        grouped += @intFromBool(std.mem.indexOf(u8, case.pattern.slice(), ")(") != null or case.pattern.octets[0] == '(' and case.pattern.octets[1] != '?');
+    }
+    try testing.expect(grouped > cases / 4 and grouped < cases);
 }
 
 test "a word is written whole, in a fold, or with its first byte in a fold" {

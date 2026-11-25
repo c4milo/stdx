@@ -6647,8 +6647,12 @@ last part lists what still waits on a ruling.
         two cases, as `Literal.walk` reads a letter of `(?i)`. Each rule reads both: the
         first rule holds where the part before takes neither case of the first place, and
         the third where neither is a separator.
-    - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
-      claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
+    - Not proved: the parser, the builder, a DFA's table and the claims that change how it
+      reads its bytes, and the Zig code of `Literal.find`. `Stdx/Regex/Captures.lean` holds
+      the matcher with the slots of each thread, and proves that its match ends where the
+      proved matcher's does. No theorem says which path wrote the slots, and none holds
+      claim R6's one thread or claim R8's backtracker: the script holds the groups of all
+      three to the model's on each program and text it draws. Three
       things hold by a proved check for each program and text a run draws, and by no proof
       for the builder: a node's ranges stand apart, the reverse program takes each match
       read backward, and a match that starts before a continuation byte is empty. For a

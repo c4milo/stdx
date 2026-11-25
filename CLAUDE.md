@@ -299,12 +299,15 @@ Change this section when a step adds or renames a command.
   search and checks the hypotheses of the model's theorems for each program and text
   (`spec/lean/Stdx/Regex/Hypotheses.lean`). It also checks a rule of claim R4 or the rule of
   claim R14 for each literal that a searcher took by it (`spec/lean/Stdx/Regex/Rules.lean`,
-  `RulesWide.lean`, `RulesSeparator.lean` and `RulesInner.lean`). `zig build matcher-replay`
+  `RulesWide.lean`, `RulesSeparator.lean` and `RulesInner.lean`). After each answer it writes
+  the groups of the match, from the slots of the model's threads
+  (`spec/lean/Stdx/Regex/Captures.lean`). `zig build matcher-replay`
   builds the program that replays both (`tools/matcher_replay.zig`, with its pieces in
   `tools/matcher_replay/`): for a compiled pattern it asks the matcher, a
   searcher with every claim, one with none, one with every claim that read a long text first,
-  and one with every claim and a small cache. One case in eight takes a text of up to 1,024
-  bytes. With no seed, the seed is the time in seconds, and a seed that fails is printed.
+  and one with every claim and a small cache, for the match and for its groups. One case in
+  eight takes a text of up to 1,024 bytes. With no seed, the seed is the time in seconds, and a
+  seed that fails is printed.
   `PROGRAMS` and `PATTERNS` set what a seed draws, 4096 each by default. It needs lake, and
   `tools/ci.sh` runs it where lake is on the path. `zig build test` runs the replay program's
   own tests, and replays the committed file of one seed, `src/regex/matcher_vectors.txt`, as a
