@@ -10581,9 +10581,18 @@ to 12 are reordered and nothing else changes.
   what the matcher gives from every offset of seeded texts, in a cache of each size; the replay
   refuses a wrong width, bound, cut or literal; the script runs `windowSetOn` for each set; two
   paired runs of the `bench` workflow on each runner, by decision 20's rule; mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and the two paired runs on GitHub's runners.
   - `zig build test` exits 0, and `zig build lean` exits 0, with 126 theorems pinned.
+  - The `bench` workflow's runs 45636615717 and 45636622394 measured `805e10e` against
+    `06850a8`, each in one job on the N2 and one on x86-64, an EPYC 9V74 and an EPYC 7763. The
+    pair holds the set's place in claim R5's slot and the judgment out of line too. By decision
+    20's rule, 3 of the 284 rows ran faster in all four jobs, and none ran slower.
+    - `awyer-inn` ran 8.20 and 8.30 times as fast on the N2, at 1.48 and 1.49 of Rust's crate,
+      and 13.5 and 14.1 times on x86-64, at 0.79 of it.
+    - `tom-sawyer-huckle-fin-prefix-short` ran 12.0 and 12.2 times as fast on the N2, and 27.7
+      and 29.3 times on x86-64; `tom-sawyer-huckle-fin-prefix-long` 11.7 and 11.9, and 26.3 and
+      27.6. Both now run at 11.5 to 12.0 times Rust's crate's speed on the N2.
   - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13. Their dumps hold 308 `claim
     windows` lines, and Lean judged each sound.
   - The filter, built ReleaseSafe, counted the row's 209 matches in rebar's
