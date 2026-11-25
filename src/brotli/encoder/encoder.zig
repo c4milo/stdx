@@ -169,9 +169,12 @@ pub fn Encoder(comptime options: EncoderOptions) type {
         }
 
         /// The most octets `encode_all` writes for `input_len` octets: the stream header, every
-        /// meta-block uncompressed with its header, and the empty last meta-block.
+        /// meta-block uncompressed with its header, and the empty last meta-block. A program may
+        /// call it at compile time for a buffer's length, so the count of meta-blocks states its
+        /// type: `@max` of two values known at compile time gives the least type that holds the
+        /// result.
         pub fn encoded_len_max(input_len: usize) usize {
-            const blocks = @max(1, std.math.divCeil(usize, input_len, constants.encoder_meta_block_len_max) catch unreachable);
+            const blocks: usize = @max(1, std.math.divCeil(usize, input_len, constants.encoder_meta_block_len_max) catch unreachable);
             return constants.encoder_stream_header_len_max + blocks * constants.encoder_uncompressed_overhead + input_len + constants.encoder_last_len;
         }
     };
