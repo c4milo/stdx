@@ -11,8 +11,8 @@
 # 2. `matcher_replay dump` writes the programs that `compile` gives the patterns the seed draws,
 #    with a text and its searches. `lake exe vectors --answers` answers each search, and checks
 #    that each program and text pass the hypotheses of the model's theorems
-#    (spec/lean/Stdx/Regex/Hypotheses.lean), and that claim R4's first rule holds for each
-#    literal a new searcher took by it (spec/lean/Stdx/Regex/Rules.lean). `matcher_replay` compiles each pattern again and
+#    (spec/lean/Stdx/Regex/Hypotheses.lean), and that a rule of claim R4 holds for each
+#    literal a searcher took by it (spec/lean/Stdx/Regex/Rules.lean, RulesSeparator.lean). `matcher_replay` compiles each pattern again and
 #    requires the answer of `Matcher.find` and of four searchers: one with every claim, one
 #    with none, one with every claim that read a long text first, and one with every claim and
 #    a small cache. One case in eight takes a text of up to 1,024 bytes.
@@ -126,6 +126,25 @@ range 97 99 8
 split 7 9
 match
 claim suffix 2 97 98
+text 3 99 97 98
+search 0
+DUMP
+# The same program, with the claim that a searcher took `ab` after it read enough text. The
+# part before the literal takes one byte or more, and ends with no separator: neither the
+# second rule nor the third holds.
+canary "claim suffix-wide" <<'DUMP'
+program bytes 10 0 5
+range 97 99 1
+split 0 2
+range 97 97 3
+range 98 98 4
+match
+range 98 98 6
+range 97 97 7
+range 97 99 8
+split 7 9
+match
+claim suffix-wide 2 97 98
 text 3 99 97 98
 search 0
 DUMP

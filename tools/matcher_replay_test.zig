@@ -149,6 +149,36 @@ test "a replay requires its new searcher to hold the literal of a claim line" {
     try testing.expectEqual(error.ClaimDiffers, failed.cause);
 }
 
+test "a replay holds the searcher that read its long text to a literal of a rule that waits" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var lines: replay_dump.Lines = .{ .arena = arena.allocator() };
+    var scratch = try replay_dump.Scratch.init(arena.allocator());
+    // The part before `shing` takes one byte, which may be `s`: the second rule, and not the
+    // first. A new searcher holds no literal, and one that read enough text holds `shing`.
+    const pattern = "[a-z]shing";
+    const program = try regex.compile(pattern, .{}, scratch.storage);
+    try lines.add_case(pattern, &program, scratch.suffix_claim(&program), "xashing", &.{0});
+    const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 7");
+    try testing.expect(std.mem.indexOf(u8, text, "\nclaim suffix-wide 5 115 104 105 110 103\n") != null);
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, text) == null);
+    try testing.expectEqual(@as(usize, 1), replay.claims);
+    const cases = [_]struct { old: []const u8, new: []const u8 }{
+        // The literal named as the first rule's, another literal, and no line.
+        .{ .old = "claim suffix-wide 5", .new = "claim suffix 5" },
+        .{ .old = "claim suffix-wide 5 115", .new = "claim suffix-wide 5 116" },
+        .{ .old = "claim suffix-wide 5 115 104 105 110 103\n", .new = "" },
+    };
+    for (cases) |case| {
+        const changed = try std.mem.replaceOwned(u8, arena.allocator(), text, case.old, case.new);
+        try testing.expect(!std.mem.eql(u8, changed, text));
+        var other = try Replay.init(arena.allocator());
+        const failed = replay_text(&other, changed) orelse return error.TestExpectedFailure;
+        try testing.expectEqual(error.ClaimDiffers, failed.cause);
+    }
+}
+
 test "the long text judges each claim that waits, in the third searcher alone" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

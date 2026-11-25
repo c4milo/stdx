@@ -6625,9 +6625,11 @@ last part lists what still waits on a ruling.
         R5 to one literal, and claims R11 and R12, over a program's own scans. They take a
         rule of where a match starts, which a third function decides for one text.
       - `Stdx/Regex/Rules.lean` decides claim R4's first rule from a program: `apartOn`,
-        with `apart_program`. The script runs it for each literal that a new searcher took
-        by that rule, so the choice is held for every text, and not for the drawn one alone.
-        The second rule, the third and claim R14's are not decided yet.
+        with `apart_program`. `RulesWide.lean` and `RulesSeparator.lean` decide the second
+        rule and the third: `wideOn`, with `wide_program`. The script runs them for each
+        literal that a searcher took by a rule, so the choice is held for every text, and
+        not for the drawn one alone. Claim R14's rule is not decided yet, nor a literal with
+        a place that folds.
     - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
       claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
       things hold by a proved check for each program and text a run draws, and by no proof
