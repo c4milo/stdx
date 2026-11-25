@@ -10328,6 +10328,31 @@ to 12 are reordered and nothing else changes.
       first rule; each wide rule left out; a wide suffix of one byte; and lengths walked with
       the budget of a suffix's part.
 
+  The runs after these claims landed:
+  - Eighteen runs of the `bench` workflow at `b49e0f9`
+    (`bench/results/2026-11-24-regex-places-*`). All 18 arm jobs drew a Neoverse-N2. The x86-64
+    jobs drew an AMD EPYC 9V74 7 times, an EPYC 9V45 6 times, an EPYC 7763 3 times, and two
+    Xeons once each. The README's chart and the two charts of `docs/benchmarks.md` draw from
+    them, and both pages say that the set is tuned.
+  - On the N2, by the chart's rules (decision 85), stdx is ahead of Rust's crate on 125 of the
+    set's 181 searches, level on 1 and behind on 55. At `1df5f9f` it was ahead on 88 and behind
+    on 90. The geometric mean of rebar's imported searches went from 0.52 to 1.22, and that of
+    its opt searches from 0.29 to 1.07.
+  - By the median of the 18 jobs, 12 rows stand under half of Rust's crate, where 40 did, and 3
+    under a tenth, where 26 did:
+    - `dictionary/search/english-10` at 1/142: an alternation of a dictionary's words, whose
+      states outgrow the cache.
+    - `opt/fixed-length/go33484-3` at 1/46: `^.{249}$` as UTF-8, whose lengths the walk by
+      levels does not find within its budget.
+    - `imported/sherlock/line-boundary-sherlock-holmes` at 1/26: `(?m)^Sherlock
+      Holmes|Sherlock Holmes$`, two ways that start with one literal, each with an assertion.
+    - `imported/leipzig/awyer-inn` at 1/5.5, `imported/sherlock/ing-suffix-limited-space` at
+      1/3.5 and `imported/leipzig/ing-whitespace` at 1/2.8: a literal in a match's middle,
+      after a part that may hold the literal's bytes, which no rule of claim R14 takes.
+    - `reported/i13-subset-regex/huge-ascii-nosuffixlit` at 1/3.1 and its `unicode` row at
+      1/2.2; `unicode/overlapping-words/russian` at 1/3.0 and `english` at 1/2.8;
+      `opt/fixed-length/too-small-ascii` at 1/2.2; and `imported/rsc/literal` at 1/2.1.
+
   The lengths of a pattern of scalar values (claim R13, decision 86 as amended):
   - The paired runs at `b2d008c` left rebar's `opt/fixed-length/go33484-3` at 1/46 of Rust's
     crate on the N2: `^.{249}$` as UTF-8 over 1,000 bytes. Its searcher kept no lengths, and

@@ -32,10 +32,11 @@ On GitHub's Arm Neoverse N2 runner:
 - No level of zlib, zlib-ng or libdeflate encodes gzip both faster and smaller than any of stdx's
   levels 1, 6 and 9.
 - `json`'s `TextWriter` writes JSON at 1.64 to 16.35 times serde_json's speed.
-- On rebar's benchmarks that no tuning of stdx saw, `regex` runs 88 of 181 searches faster than
-  Rust's regex crate on the N2, and 90 slower. The slowest is about 24,000 times slower. It
-  compiles all 15 patterns faster. On the two sets that stdx was tuned on, it runs 17 of 18
-  searches faster, and 25 of 31.
+- `regex` was tuned on each set that measures it. On rebar's other benchmarks it runs 125 of 181
+  searches faster than Rust's regex crate on the N2, and 55 slower. The slowest is about 140
+  times slower. Before the tuning it ran 88 faster and 90 slower, the slowest about 24,000 times
+  slower. It compiles all 15 patterns faster. On the patterns written for its benchmark it runs
+  17 of 18 searches faster, and on rebar's curated set 24 of 31.
 - stdx decodes Zstandard slower than libzstd on 25 of the 39 files. libzstd's level 3 is both
   faster and smaller than stdx's levels 1 and 3.
 
@@ -179,30 +180,32 @@ again.
 
 ### Regular expressions
 
-The median of 18 runs at commit 1df5f9f, against Rust's regex crate 1.13.2 and Go's regexp. The
+The median of 18 runs at commit b49e0f9, against Rust's regex crate 1.13.2 and Go's regexp. The
 rows are rebar's benchmarks outside its curated set and its tests, whose engines name Go's regexp
-or RE2: 197 of them, each under rebar's own model, pattern and haystack. No work on stdx timed them
-or chose a constant with them ([decision 86](docs/decisions.md)).
+or RE2: 197 of them, each under rebar's own model, pattern and haystack.
 
-One change was made for one of these rows: the bytes mode, for the answer of
-`unicode/compile/match-every-line-ascii`. It was judged on that answer and on no speed. stdx now
-runs each benchmark that leaves `unicode` off in bytes, as Rust's crate runs it.
+stdx was tuned on these rows. The owner ruled it on 2026-11-24, and each change since is judged
+on them ([decision 86](docs/decisions.md), [design §8 part 22q](docs/design.md)). So this chart
+can favor stdx, as a chart of rows that a library was tuned on can.
 
-These runs are the last that came before any work on these rows. The owner then ruled to tune
-stdx on this set too, and each later change is judged on its rows. So a chart from later runs
-shows rows that stdx was tuned on ([design §8 part 22q](docs/design.md)).
+The runs at commit 1df5f9f are the last that came before any work on these rows
+(`bench/results/2026-11-24-regex-bytes-*`). The README at commit
+[1744e4a](https://github.com/c4milo/stdx/blob/1744e4a/README.md#regular-expressions) draws them.
+One change came before them, for the answer of `unicode/compile/match-every-line-ascii` and on no
+speed: stdx runs each benchmark that leaves `unicode` off in bytes, as Rust's crate runs it.
 
 ![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on Neoverse-N2](docs/images/regex-rebar-others-aarch64.svg)
 
 <details>
-<summary>x86-64: AMD EPYC 9V45 96-Core Processor</summary>
+<summary>x86-64: AMD EPYC 9V74 80-Core Processor</summary>
 
-![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on AMD EPYC 9V45 96-Core Processor](docs/images/regex-rebar-others-x86_64.svg)
+![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor](docs/images/regex-rebar-others-x86_64.svg)
 
 </details>
 
 [`docs/benchmarks.md`](docs/benchmarks.md#regular-expressions) holds two more charts from the same
-runs: the patterns written for this benchmark, and rebar's curated set. stdx was tuned on both.
+runs: the patterns written for this benchmark, and rebar's curated set. stdx was tuned on both
+too.
 
 ### Compression, JSON, checksums and base 64
 
