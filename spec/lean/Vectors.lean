@@ -263,7 +263,9 @@ where the scans do not give the answer.
 
 A `claim suffix` line holds the literal that a Zig searcher took for claim R4 by its first
 rule. The lines below decide that rule from the program, with `apartOn` of
-`Stdx/Regex/Rules.lean`, and write such a line where it does not hold. -/
+`Stdx/Regex/Rules.lean`, and write such a line where it does not hold. A `claim suffix-wide`
+line holds a literal that a searcher took after it read enough text, by the second rule or the
+third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. -/
 
 open Stdx.Regex.Program in
 /-- An assertion from the name `program.Look` gives it. -/
@@ -360,12 +362,24 @@ def claimLines (dump : Dump) (literal : List Nat) : List String :=
   | some reverse =>
     if (apartOn dump.prog reverse literal.reverse).isSome then [] else ["differs claim suffix"]
 
+open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where neither the second rule of claim R4 nor the third holds
+for a literal that a Zig searcher took after it read enough text. `wideOn` decides both from
+the program, and `wide_program` proves the search from it. -/
+def wideClaimLines (dump : Dump) (literal : List Nat) : List String :=
+  match dump.reverse with
+  | none => ["differs claim suffix-wide"]
+  | some reverse =>
+    if wideOn dump.prog reverse literal.reverse then [] else ["differs claim suffix-wide"]
+
 /-- The lines that answer one line of a dump, and what the dump holds after it. A line that
 holds no program, text, claim or search is written as it is. -/
 def answerLine (dump : Dump) (line : String) : List String × Dump :=
   match line.splitOn " " with
   | "claim" :: "suffix" :: _ :: bytes =>
     (line :: claimLines dump (bytes.filterMap String.toNat?), dump)
+  | "claim" :: "suffix-wide" :: _ :: bytes =>
+    (line :: wideClaimLines dump (bytes.filterMap String.toNat?), dump)
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
       utf8 := encoding == "utf8", prog := #[], forward := forward.toNat?.getD 0,
