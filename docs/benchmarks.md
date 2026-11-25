@@ -21,7 +21,7 @@ The charts are of two kinds ([decision 85](decisions.md)).
   - A blue bar is ahead, a gray bar is level, and an orange bar is behind. A row is level when
     its ratio is inside the noise: the spread of the two cells, combined.
   - An encoder's panel plots each library's speed against its compression ratio.
-- The regular expression charts draw the median of 18 jobs, at commit 1df5f9f.
+- The regular expression charts draw the median of 18 jobs, at commit b49e0f9.
   - A bar is the median job, and its whisker is a 95% interval of that median.
   - A row is ahead or behind when its interval is above or below 1. It is level when the
     interval holds 1 and stays inside 5% of 1. It is unclear when the interval holds 1 and goes
@@ -178,37 +178,37 @@ crate, Go's encoding/base64 and Zig's std.base64, from 60 octets to 1 MiB.
 `zig build bench-regex -Doracles` times the `regex` module beside Rust's regex crate 1.13.2, Go's
 regexp, mvzr and zig-regex. Each library's answer must equal Go's before it is timed.
 
-- Eighteen runs ran it at commit 1df5f9f (`bench/results/2026-11-24-regex-bytes-*`). The N2
-  chart draws all 18 jobs. The x86-64 chart draws the 5 jobs on an AMD EPYC 9V45, the model that
-  the most jobs drew. The other 13 jobs drew four other models.
+- Eighteen runs ran it at commit b49e0f9 (`bench/results/2026-11-24-regex-places-*`). The N2
+  chart draws all 18 jobs. The x86-64 chart draws the 7 jobs on an AMD EPYC 9V74, the model that
+  the most jobs drew. The other 11 jobs drew four other models.
 - These patterns were written for this benchmark, and stdx was tuned on them. So they can favor
   stdx.
-- From these runs on, stdx runs each pattern of rebar's sets that leaves `unicode` off in bytes
-  (decision 86).
+- Since the runs at commit 1df5f9f, stdx runs each pattern of rebar's sets that leaves `unicode`
+  off in bytes (decision 86).
 
 ![stdx's regular expressions against libraries in Rust, Go and Zig, on Neoverse-N2](images/regex-aarch64.svg)
 
 <!-- claims of regex-aarch64 -->
 
-- search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 1 (1 inside 5%) of 6 rows, 5 patterns; geometric mean over these rows 1.40; from 0.990 to 3.79; against Go regexp: ahead on 5, level on 0, behind on 1 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
-- search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5 (1 inside 5%), level on 0, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.41; from 1.047 to 2.41; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
-- search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 7, level on 0, behind on 0 of 7 rows, 7 patterns; from 1.05 to 8.17; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4
-- a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 3, level on 1, behind on 1 (1 inside 5%) of 5 rows, 5 patterns; geometric mean over these rows 1.20; from 0.988 to 1.45; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2
-- the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, inside 5%, at 0.969, 0.964 to 0.977; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1
-- a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.21 to 28.34; against Go regexp: ahead on 6, level on 5, behind on 12 of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21
+- search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 1 (1 inside 5%) of 6 rows, 5 patterns; geometric mean over these rows 1.41; from 0.987 to 3.81; against Go regexp: ahead on 5, level on 0, behind on 1 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
+- search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.45; from 1.06 to 2.43; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
+- search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 7, level on 0, behind on 0 of 7 rows, 7 patterns; from 1.10 to 8.26; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4
+- a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.48; from 1.32 to 1.63; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2
+- the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, inside 5%, at 0.971, 0.970 to 0.975; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1
+- a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.20 to 28.29; against Go regexp: ahead on 8 (3 inside 5%), level on 1, behind on 14 (2 inside 5%) of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21
 
 <!-- end of claims -->
 
-![stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 9V45 96-Core Processor](images/regex-x86_64.svg)
+![stdx's regular expressions against libraries in Rust, Go and Zig, on AMD EPYC 9V74 80-Core Processor](images/regex-x86_64.svg)
 
 <!-- claims of regex-x86_64 -->
 
-- search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 0, behind on 0 of 6 rows, 5 patterns; geometric mean over these rows 1.53; from 1.13 to 4.10; against Go regexp: ahead on 6, level on 0, behind on 0 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
-- search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.36; from 1.06 to 2.32; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
-- search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 0, behind on 1 (1 inside 5%) of 7 rows, 7 patterns; from 0.982 to 10.63; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4
-- a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.35; from 1.11 to 1.67; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2
-- the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: behind, at 0.89, 0.88 to 0.94; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1
-- a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.26 to 32.80; against Go regexp: ahead on 11, level on 0, behind on 12 of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21
+- search for a literal: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 0, behind on 0 of 6 rows, 5 patterns; geometric mean over these rows 1.57; from 1.19 to 3.75; against Go regexp: ahead on 6, level on 0, behind on 0 of 6; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
+- search that starts with a class: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 4 patterns; geometric mean over these rows 1.34; from 1.08 to 2.05; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 5, level on 0, behind on 0 of 5
+- search of other shapes: every match in 1 MiB, in multiples of Rust regex's speed: against Rust regex: ahead on 7, level on 0, behind on 0 of 7 rows, 7 patterns; from 1.14 to 11.00; against Go regexp: ahead on 7, level on 0, behind on 0 of 7; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 4, level on 0, behind on 0 of 4
+- a pattern that validates each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: ahead on 5, level on 0, behind on 0 of 5 rows, 5 patterns; geometric mean over these rows 1.62; from 1.43 to 1.82; against Go regexp: ahead on 5, level on 0, behind on 0 of 5; mvzr: ahead on 5, level on 0, behind on 0 of 5; zig-regex: ahead on 2, level on 0, behind on 0 of 2
+- the capture groups of each of 65,536 short texts, in multiples of Rust regex's speed: against Rust regex: unclear, at 0.81, 0.75 to 1.032; against Go regexp: ahead on 1, level on 0, behind on 0 of 1; mvzr: no pattern timed; zig-regex: ahead on 1, level on 0, behind on 0 of 1
+- a pattern compiled and made ready for its first search, in multiples of Rust regex's speed: against Rust regex: ahead on 23, level on 0, behind on 0 of 23 rows, 21 patterns; from 1.14 to 26.51; against Go regexp: ahead on 4, level on 1, unclear on 2, behind on 16 of 23; mvzr: ahead on 0, level on 0, behind on 21 of 21; zig-regex: ahead on 1, level on 0, behind on 20 of 21
 
 <!-- end of claims -->
 
@@ -229,17 +229,17 @@ That is 31 searches and 10 compiles, each under rebar's own model, pattern and h
 
 <!-- claims of regex-rebar-aarch64 -->
 
-- rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 25 (3 inside 5%), level on 0, behind on 6 (2 inside 5%) of 31 rows, 31 patterns; geometric mean over these rows 1.46; from 0.74 to 6.36; against Go regexp: ahead on 31, level on 0, behind on 0 of 31
-- rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 5.42; from 3.59 to 10.58; against Go regexp: ahead on 9, level on 0, behind on 1 of 10
+- rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 24 (2 inside 5%), level on 1, behind on 6 (2 inside 5%) of 31 rows, 31 patterns; geometric mean over these rows 1.48; from 0.74 to 6.42; against Go regexp: ahead on 31, level on 0, behind on 0 of 31
+- rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 5.42; from 3.59 to 10.42; against Go regexp: ahead on 9, level on 0, behind on 1 of 10
 
 <!-- end of claims -->
 
-![stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on AMD EPYC 9V45 96-Core Processor](images/regex-rebar-x86_64.svg)
+![stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor](images/regex-rebar-x86_64.svg)
 
 <!-- claims of regex-rebar-x86_64 -->
 
-- rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 27 (1 inside 5%), level on 0, behind on 4 (1 inside 5%) of 31 rows, 31 patterns; geometric mean over these rows 1.44; from 0.72 to 7.33; against Go regexp: ahead on 30, level on 1, behind on 0 of 31
-- rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 5.33; from 3.59 to 10.19; against Go regexp: ahead on 9, level on 0, behind on 1 of 10
+- rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 27, level on 1, behind on 3 of 31 rows, 31 patterns; geometric mean over these rows 1.47; from 0.65 to 5.61; against Go regexp: ahead on 31, level on 0, behind on 0 of 31
+- rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 4.71; from 2.88 to 9.05; against Go regexp: ahead on 9, level on 0, behind on 1 of 10
 
 <!-- end of claims -->
 
@@ -249,13 +249,17 @@ The same runs time every benchmark of rebar's definitions outside its curated se
 whose engines name Go's regexp or RE2: 197 of them, each under rebar's own model, pattern and
 haystack. The README draws this chart, by the owner's ruling of 2026-11-23 (decision 85).
 
-- No work on stdx timed these rows, and no constant was chosen with one
-  ([#44](https://github.com/c4milo/stdx/issues/44)).
-- One change was made for one of them: the bytes mode, for the answer of
+- The owner ruled on 2026-11-24 to tune stdx on this set, and design §8 part 22q judges each
+  change on its rows. So this set is tuned now, as the two sets above are, and it no longer shows
+  how stdx runs on patterns that its tuning did not see.
+- The runs at commit 1df5f9f are the last that came before any work on these rows
+  (`bench/results/2026-11-24-regex-bytes-*`), and the README at commit
+  [1744e4a](https://github.com/c4milo/stdx/blob/1744e4a/README.md#regular-expressions) draws
+  them. No work on stdx had timed these rows, and no constant was chosen with one
+  ([#44](https://github.com/c4milo/stdx/issues/44)). stdx was behind Rust's crate on 90 of the
+  181 searches on the N2 there, and is behind on 55 here.
+- One change came before those runs: the bytes mode, for the answer of
   `unicode/compile/match-every-line-ascii`. It was judged on that answer and on no speed.
-- These runs are the last that came before any work on these rows. The owner ruled on 2026-11-24
-  to tune stdx on this set, and design §8 part 22q judges each change on its rows. A chart from
-  later runs shows tuned rows.
 - stdx gives no answer on `unicode/codepoints/letters-one`. stdx and Go's regexp count Unicode
   17.0.0's letters, and rebar's count comes from older tables.
 - rebar's README says that these benchmarks mostly serve to make Rust's regex crate faster. So the
@@ -265,27 +269,27 @@ haystack. The README draws this chart, by the owner's ruling of 2026-11-23 (deci
 
 <!-- claims of regex-rebar-others-aarch64 -->
 
-- searches of rebar's imported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 50 (2 inside 5%), level on 0, behind on 56 (11 inside 5%) of 106 rows, 106 patterns; geometric mean over these rows 0.52; from 1/21504 to 102; against Go regexp: ahead on 101, level on 0, behind on 5 of 106
-- searches of rebar's opt definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 12 (3 inside 5%), level on 0, behind on 14 (1 inside 5%) of 26 rows, 26 patterns; geometric mean over these rows 0.29; from 1/24551 to 8.98; against Go regexp: ahead on 24, level on 0, behind on 2 of 26
-- searches of rebar's reported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 9, level on 0, behind on 3 of 12 rows, 12 patterns; geometric mean over these rows 11.80; from 0.32 to 915; against Go regexp: ahead on 9, level on 0, behind on 3 of 12
-- searches of rebar's unicode definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 3, level on 1, behind on 5 (1 inside 5%) of 9 rows, 9 patterns; geometric mean over these rows 0.58; from 1/32 to 1.63; stdx gives no answer on 1: unicode/codepoints/letters-one; against Go regexp: ahead on 7, level on 0, behind on 2 of 9
-- searches of rebar's wild definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 1, behind on 8 (2 inside 5%) of 15 rows, 15 patterns; geometric mean over these rows 1.13; from 0.70 to 3.04; against Go regexp: ahead on 15, level on 0, behind on 0 of 15
-- searches of rebar's other definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 8, level on 1, behind on 4 (1 inside 5%) of 13 rows, 13 patterns; geometric mean over these rows 1.06; from 1/158 to 39.06; against Go regexp: ahead on 11, level on 0, behind on 1 of 12
-- rebar's other compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 15, level on 0, behind on 0 of 15 rows, 15 patterns; geometric mean over these rows 5.29; from 1.47 to 16.44; against Go regexp: ahead on 6, level on 0, behind on 9 of 15
+- searches of rebar's imported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 78 (2 inside 5%), level on 0, behind on 28 (6 inside 5%) of 106 rows, 106 patterns; geometric mean over these rows 1.22; from 1/26 to 103; against Go regexp: ahead on 104, level on 0, behind on 2 of 106
+- searches of rebar's opt definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 16 (4 inside 5%), level on 0, behind on 10 of 26 rows, 26 patterns; geometric mean over these rows 1.07; from 1/46 to 9.05; against Go regexp: ahead on 26, level on 0, behind on 0 of 26
+- searches of rebar's reported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 9, level on 0, behind on 3 of 12 rows, 12 patterns; geometric mean over these rows 11.93; from 0.32 to 915; against Go regexp: ahead on 9, level on 0, behind on 3 of 12
+- searches of rebar's unicode definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 5 (2 inside 5%), level on 0, behind on 4 (1 inside 5%) of 9 rows, 9 patterns; geometric mean over these rows 0.86; from 0.33 to 1.65; stdx gives no answer on 1: unicode/codepoints/letters-one; against Go regexp: ahead on 7, level on 0, behind on 2 of 9
+- searches of rebar's wild definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 8, level on 1, behind on 6 (2 inside 5%) of 15 rows, 15 patterns; geometric mean over these rows 1.38; from 0.70 to 3.09; against Go regexp: ahead on 15, level on 0, behind on 0 of 15
+- searches of rebar's other definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 9 (1 inside 5%), level on 0, behind on 4 (1 inside 5%) of 13 rows, 13 patterns; geometric mean over these rows 1.07; from 1/142 to 39.15; against Go regexp: ahead on 11, level on 0, behind on 1 of 12
+- rebar's other compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 15, level on 0, behind on 0 of 15 rows, 15 patterns; geometric mean over these rows 5.29; from 1.47 to 16.47; against Go regexp: ahead on 6, level on 0, behind on 9 of 15
 
 <!-- end of claims -->
 
-![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on AMD EPYC 9V45 96-Core Processor](images/regex-rebar-others-x86_64.svg)
+![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor](images/regex-rebar-others-x86_64.svg)
 
 <!-- claims of regex-rebar-others-x86_64 -->
 
-- searches of rebar's imported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 45 (4 inside 5%), level on 10, unclear on 2, behind on 49 (1 inside 5%) of 106 rows, 106 patterns; geometric mean over these rows 0.46; from 1/36495 to 246; against Go regexp: ahead on 102, level on 0, behind on 4 of 106
-- searches of rebar's opt definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 11 (1 inside 5%), level on 2, unclear on 1, behind on 12 of 26 rows, 26 patterns; geometric mean over these rows 0.27; from 1/18904 to 9.44; against Go regexp: ahead on 24, level on 0, behind on 2 of 26
-- searches of rebar's reported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 8, level on 1, behind on 3 of 12 rows, 12 patterns; geometric mean over these rows 12.64; from 0.43 to 1002; against Go regexp: ahead on 9, level on 0, behind on 3 of 12
-- searches of rebar's unicode definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 3 (1 inside 5%), level on 2, behind on 4 of 9 rows, 9 patterns; geometric mean over these rows 0.52; from 1/91 to 1.39; stdx gives no answer on 1: unicode/codepoints/letters-one; against Go regexp: ahead on 7, level on 0, behind on 2 of 9
-- searches of rebar's wild definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 6, level on 1, behind on 8 (1 inside 5%) of 15 rows, 15 patterns; geometric mean over these rows 1.21; from 0.79 to 4.44; against Go regexp: ahead on 15, level on 0, behind on 0 of 15
-- searches of rebar's other definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 10 (1 inside 5%), level on 0, behind on 3 of 13 rows, 13 patterns; geometric mean over these rows 1.10; from 1/135 to 42.43; against Go regexp: ahead on 12, level on 0, behind on 1 of 13
-- rebar's other compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 15, level on 0, behind on 0 of 15 rows, 15 patterns; geometric mean over these rows 5.43; from 1.32 to 17.32; against Go regexp: ahead on 7, level on 0, behind on 8 of 15
+- searches of rebar's imported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 82 (8 inside 5%), level on 0, unclear on 4, behind on 20 (1 inside 5%) of 106 rows, 106 patterns; geometric mean over these rows 1.22; from 1/52 to 298; against Go regexp: ahead on 105, level on 0, behind on 1 of 106
+- searches of rebar's opt definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 15 (2 inside 5%), level on 1, unclear on 1, behind on 9 of 26 rows, 26 patterns; geometric mean over these rows 1.09; from 1/50 to 6.96; against Go regexp: ahead on 26, level on 0, behind on 0 of 26
+- searches of rebar's reported definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 9, level on 0, behind on 3 of 12 rows, 12 patterns; geometric mean over these rows 14.27; from 0.47 to 1146; against Go regexp: ahead on 9, level on 0, behind on 3 of 12
+- searches of rebar's unicode definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 6 (3 inside 5%), level on 0, behind on 3 of 9 rows, 9 patterns; geometric mean over these rows 0.92; from 0.44 to 1.63; stdx gives no answer on 1: unicode/codepoints/letters-one; against Go regexp: ahead on 7, level on 0, behind on 2 of 9
+- searches of rebar's wild definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 8, level on 1, behind on 6 (2 inside 5%) of 15 rows, 15 patterns; geometric mean over these rows 1.40; from 0.70 to 3.59; against Go regexp: ahead on 15, level on 0, behind on 0 of 15
+- searches of rebar's other definitions, in multiples of Rust regex's speed: against Rust regex: ahead on 9, level on 0, unclear on 1, behind on 3 of 13 rows, 13 patterns; geometric mean over these rows 1.09; from 1/118 to 32.24; against Go regexp: ahead on 12, level on 0, behind on 1 (1 inside 5%) of 13
+- rebar's other compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 15, level on 0, behind on 0 of 15 rows, 15 patterns; geometric mean over these rows 4.71; from 1.20 to 16.83; against Go regexp: ahead on 5, level on 0, unclear on 1, behind on 9 of 15
 
 <!-- end of claims -->
 

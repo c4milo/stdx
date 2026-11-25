@@ -100,14 +100,16 @@ PANELS = {
               "wrote Rust's crate, and rebar's BIAS.md says the set may favor that crate.", ["Go regexp"]),
         Panel(HELD_COMPILE, r"", "rebar's curated compiles", True, 12, None, ["Go regexp"]),
     ]),
-    # Every other definition of rebar but its tests: no work on stdx has measured them, and no
-    # change is judged on them (decision 86). A panel for each folder of rebar's definitions.
+    # Every other definition of rebar but its tests. Design §8 part 22q tuned stdx on them since
+    # the owner's ruling of 2026-11-24 (decision 86). A panel for each folder of rebar's
+    # definitions.
     "regex-rebar-others": ("regular expressions on rebar's other benchmarks", "Rust's regex and Go's regexp", [
         Panel(OTHER_SEARCH, r"^imported/", "searches of rebar's imported definitions", True, None,
               "Each row is a benchmark of rebar outside its curated set and its tests whose engines name Go's regexp or "
-              "RE2, under rebar's own model, pattern and haystack. rebar's author chose them, and no work on stdx has "
-              "measured them. rebar's README says that they mostly serve to make Rust's regex crate faster, and "
-              "rebar's BIAS.md says its benchmarks may favor that crate.", ["Go regexp"]),
+              "RE2, under rebar's own model, pattern and haystack. rebar's author chose them, and design §8 part 22q "
+              "tuned stdx on them since, so they no longer show how stdx runs on patterns its tuning did not see. "
+              "rebar's README says that they mostly serve to make Rust's regex crate faster, and rebar's BIAS.md says "
+              "its benchmarks may favor that crate.", ["Go regexp"]),
         Panel(OTHER_SEARCH, r"^opt/", "searches of rebar's opt definitions", True, None, None, ["Go regexp"]),
         Panel(OTHER_SEARCH, r"^reported/", "searches of rebar's reported definitions", True, None, None, ["Go regexp"]),
         Panel(OTHER_SEARCH, r"^unicode/", "searches of rebar's unicode definitions", True, None, None, ["Go regexp"]),

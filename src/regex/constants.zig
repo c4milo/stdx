@@ -182,12 +182,10 @@ pub const dfa_octets_per_state_min = 10;
 /// The searches a `Searcher` lets its lazy DFA give up before it stops trying the DFA.
 pub const dfa_give_ups_max = 8;
 
-/// The steps of the walk that finds the lengths of a program's matches, or of a part of it, for
-/// each instruction of the DFA's program (dfa_length.zig, claim R13 and claim R4's second rule).
-/// A level of the walk takes a step for each instruction it passes, so a pattern such as
-/// `^.{249}$`, whose levels each hold a few instructions, takes about one step an instruction.
-/// A pattern whose levels each hold most of its instructions would take the square of its
-/// length, and stops here.
+/// The steps of the walk by levels that finds the lengths of a part of a program, for each
+/// instruction of the DFA's program (`dfa_length.from`, claim R4's second rule). A level of the
+/// walk takes a step for each instruction it passes. A part whose levels each hold most of its
+/// instructions would take the square of its length, and stops here.
 pub const length_steps_per_instruction = 8;
 
 /// The most bytes that the part of a match before its last literal takes, where claim R4 goes to

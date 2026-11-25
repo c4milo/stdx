@@ -10328,6 +10328,97 @@ to 12 are reordered and nothing else changes.
       first rule; each wide rule left out; a wide suffix of one byte; and lengths walked with
       the budget of a suffix's part.
 
+  The runs after these claims landed:
+  - Eighteen runs of the `bench` workflow at `b49e0f9`
+    (`bench/results/2026-11-24-regex-places-*`). All 18 arm jobs drew a Neoverse-N2. The x86-64
+    jobs drew an AMD EPYC 9V74 7 times, an EPYC 9V45 6 times, an EPYC 7763 3 times, and two
+    Xeons once each. The README's chart and the two charts of `docs/benchmarks.md` draw from
+    them, and both pages say that the set is tuned.
+  - On the N2, by the chart's rules (decision 85), stdx is ahead of Rust's crate on 125 of the
+    set's 181 searches, level on 1 and behind on 55. At `1df5f9f` it was ahead on 88 and behind
+    on 90. The geometric mean of rebar's imported searches went from 0.52 to 1.22, and that of
+    its opt searches from 0.29 to 1.07.
+  - By the median of the 18 jobs, 12 rows stand under half of Rust's crate, where 40 did, and 3
+    under a tenth, where 26 did:
+    - `dictionary/search/english-10` at 1/142: an alternation of a dictionary's words, whose
+      states outgrow the cache.
+    - `opt/fixed-length/go33484-3` at 1/46: `^.{249}$` as UTF-8, whose lengths the walk by
+      levels does not find within its budget.
+    - `imported/sherlock/line-boundary-sherlock-holmes` at 1/26: `(?m)^Sherlock
+      Holmes|Sherlock Holmes$`, two ways that start with one literal, each with an assertion.
+    - `imported/leipzig/awyer-inn` at 1/5.5, `imported/sherlock/ing-suffix-limited-space` at
+      1/3.5 and `imported/leipzig/ing-whitespace` at 1/2.8: a literal in a match's middle,
+      after a part that may hold the literal's bytes, which no rule of claim R14 takes.
+    - `reported/i13-subset-regex/huge-ascii-nosuffixlit` at 1/3.1 and its `unicode` row at
+      1/2.2; `unicode/overlapping-words/russian` at 1/3.0 and `english` at 1/2.8;
+      `opt/fixed-length/too-small-ascii` at 1/2.2; and `imported/rsc/literal` at 1/2.1.
+
+  The lengths of a pattern of scalar values (claim R13, decision 86 as amended):
+  - The paired runs at `b2d008c` left rebar's `opt/fixed-length/go33484-3` at 1/46 of Rust's
+    crate on the N2: `^.{249}$` as UTF-8 over 1,000 bytes. Its searcher kept no lengths, and
+    its DFA read 250 bytes of each text.
+    - The walk by levels takes a step for each instruction of a level. A scalar value takes
+      one to four bytes, so a level of this pattern holds the nodes of each value that may end
+      at it. The walk passed its budget of 8 steps an instruction for `^.{249}$`, and for
+      `^.{12}$` and `^(?:a|bc|def){2,5}x?$` too.
+  - `dfa_length.of` is now one pass over the program, depth first, that computes each node
+    once: the least and the greatest length of the nodes it goes to, and one byte more where
+    the node takes a byte. A node that the pass meets while it is still at it is a loop, and
+    the pass gives no lengths.
+    - The pass keeps each node's two lengths in the two lists that find a member of the DFA's
+      sets, which are as long as the program. A set whose list holds other values is still
+      empty: a member is also in the set's other list, under the set's count.
+    - `dfa_length.from`, the walk by levels, stays for claim R4's second rule, which names 8
+      levels at most.
+    - A pattern whose one loop takes no byte, as `^(?:)*$`, had lengths by the walk and has
+      none by the pass. Its searcher takes the plain search.
+  **Check:** the pass gives the walk's lengths for each pattern of the walk's tests, and none
+  for a pattern with a loop, or with no match at once, after a byte or after a choice; it
+  gives the lengths of three patterns whose walk passes its budget; the DFA's sets are empty
+  after it, and a scan gives its answer; a searcher of `^.{12}$` holds lengths and agrees with
+  the matcher; a searcher of `^.{3}$` refuses a text one byte under the least length and one
+  over the greatest, reads none of it, and takes a text at each edge; counts of instructions
+  against `b49e0f9`; two paired runs of the `bench` workflow on each runner; mutations.
+  **Check passed, 2026-11-25.** The same container, and two paired runs.
+  - Runs 45513335082 and 45513338291 of the `bench` workflow at `7f79953` with `b49e0f9` as
+    their base, on a Neoverse-N2 each, a Xeon Platinum 8370C and an AMD EPYC 9V45.
+    `opt/fixed-length/go33484-3` won in all four jobs by decision 20's rule, at 26.7 to 38.7
+    times its base. The pass stays.
+    - Three rows that a searcher refuses by its lengths, at the base as with the pass, ran at
+      0.959 to 0.986 of their base: `opt/fixed-length/go33484-2` in all four jobs, and
+      `go33484-1` and `too-big-ascii` in three. In the probe a count of `^((aaa)|(aa))$` over
+      10,000 bytes takes 221 instructions for each pass at both commits, and so does one of
+      `^a{2,5}$`. `find_span`, the function that refuses the text, has the same 8,766 bytes
+      in both programs, at another address. So the moves are placement (decision 20).
+    - `dictionary/search/english-15` lost by 1.0% to 4.2% in three jobs and won in the
+      fourth. No other row lost in more than two jobs. Six rows won in three jobs, by 0.8% to
+      7.0%: the pass runs in none of their searches, so those moves are placement too.
+  - `zig build test` exits 0. `zig build test-regex` runs 344 tests.
+  - Instructions for each pass of the probe, at `b49e0f9` and with the pass.
+    - A count of `^.{249}$` as UTF-8 over 1,000 bytes: 2,860 and 221. In turns, 400,000 passes
+      took 161 ms and 7 ms.
+    - A count of `^.{12}$` over 100 bytes: 440 and 221.
+    - A text of 12 bytes, which `^.{12}$` matches: 603 and 793 as a count, 640 and 755 as a
+      walk of `Matches.next`, and 233 and 233 as a grep. A searcher with lengths takes a
+      claim's search, one call out of line, and counts by `find`, as a searcher of `^a{2,5}$`
+      does since claim R13 (decision 86).
+    - A pattern compiled and made ready: 1,349,217 and 1,349,217 for `^.{249}$`. The pass
+      runs at the judgment.
+    - Five other rows take the same instructions: `[abcdw]`, `\w+` over 64 kB, `[0-9]+`, the
+      date and time pattern, and `\w+\s+Holmes`.
+  - Mutations: 24, all CAUGHT, each by a failing test or a halt, against `zig build
+    test-regex`.
+    - The pass: a loop not refused; a node met again and entered anew, or not marked as it is
+      entered; a count of named targets not cleared, or not raised; a node closed and left on
+      the stack; and fewer turns than the targets and the nodes.
+    - A node's targets: a split's second target not named, or its first named twice; a node's
+      first range alone, by its count or by its place; and an assertion with no target.
+    - A node's lengths: no byte for the least length, or for the greatest; no byte for a
+      range, or for a node of ranges; a byte for a node that reaches no match; the greatest of
+      the least lengths, or the least of the greatest; and a `match` that has no length.
+    - The answer: a program with no match given lengths; the pass's verdict not read; the
+      lists not set before the pass; and the sets not emptied.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
