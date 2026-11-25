@@ -250,3 +250,18 @@ const start_level = 3;
 const start_frame_cases = [_]Case{ .long, .whole, .whole, .medium, .medium, .run, .long, .long, .short };
 const start_wrap_frame = 5;
 const start_wrap_tag = 16_382;
+
+test "encoded_len_max gives a buffer's length at compile time, a header for each block" {
+    const Encoder = encoder.Encoder(.{});
+    const fixed_len = constants.magic_len + constants.frame_header_len_max + constants.checksum_len;
+    const empty_len = comptime Encoder.encoded_len_max(0);
+    const one_block_len = comptime Encoder.encoded_len_max(constants.block_len_max);
+    const two_blocks_len = comptime Encoder.encoded_len_max(constants.block_len_max + 1);
+    try testing.expectEqual(fixed_len + constants.block_header_len, empty_len);
+    try testing.expectEqual(fixed_len + constants.block_header_len + constants.block_len_max, one_block_len);
+    try testing.expectEqual(one_block_len + constants.block_header_len + 1, two_blocks_len);
+    // A length known only as the program runs gives the same count.
+    var len: usize = constants.block_len_max;
+    len += 1;
+    try testing.expectEqual(two_blocks_len, Encoder.encoded_len_max(len));
+}
