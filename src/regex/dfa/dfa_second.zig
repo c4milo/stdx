@@ -25,7 +25,11 @@ pub fn start(dfa: *Dfa, behind: Context) ?u32 {
     if (row == constants.dfa_unknown) {
         dfa.next.clear();
         const head = @intFromEnum(context) | dfa_file.restart_bit | dfa_file.second_bit;
-        row = dfa.cache.intern(head, dfa.next.slice()) orelse return null;
+        const clears = dfa.cache.clears;
+        const interned = dfa.cache.intern(head, dfa.next.slice());
+        // A cache that cleared holds no state under its old row, as in `Dfa.build`.
+        if (dfa.cache.clears != clears) dfa.idle = constants.dfa_unknown;
+        row = interned orelse return null;
         dfa.cache.starts[slot] = row;
     }
     return row;

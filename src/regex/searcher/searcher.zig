@@ -455,6 +455,7 @@ test {
     _ = @import("searcher_matches.zig");
     _ = @import("searcher_edge_test.zig");
     _ = @import("searcher_inner_test.zig");
+    _ = @import("searcher_second_test.zig");
     _ = @import("searcher_claim_test.zig");
     _ = @import("searcher_account.zig");
 }
