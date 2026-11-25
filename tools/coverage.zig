@@ -8,7 +8,9 @@
 const std = @import("std");
 const pepegrillo = @import("pepegrillo");
 
-/// The library's modules, one directory each, as build/modules.zig declares them.
+/// The library's modules, one directory each, as build/modules.zig declares them. `src/unicode`
+/// holds the `utf8` module's directory, and the engine refuses a directory inside another, as a
+/// line would count twice, so `src/unicode` counts both modules' lines.
 const directories = [_][]const u8{
     "src/codec",
     "src/hash",
@@ -21,7 +23,6 @@ const directories = [_][]const u8{
     "src/encoding/base64",
     "src/platform",
     "src/regex",
-    "src/unicode/utf8",
     "src/unicode",
     "src/stdx",
 };
