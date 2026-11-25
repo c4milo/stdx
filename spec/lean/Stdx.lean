@@ -20,4 +20,6 @@ import Stdx.Regex.Reverse
 import Stdx.Regex.Hypotheses
 import Stdx.Regex.Searcher
 import Stdx.Regex.Rules
+import Stdx.Regex.RulesWide
+import Stdx.Regex.RulesSeparator
 import Stdx.Axioms

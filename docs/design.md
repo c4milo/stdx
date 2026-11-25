@@ -10703,6 +10703,65 @@ to 12 are reordered and nothing else changes.
     after it read some text; claim R14's rule; and a literal with a place that folds, which
     the dump leaves out.
 
+  **Part 22r, its seventh part built: claim R4's second rule and its third decided from a
+  program (decision 86).** **Check:** `lake build` exits 0 and pins each new theorem's axioms;
+  each rule holds and fails on small programs by `decide`; `tools/matcher_model_check.sh`
+  passes, with a rule decided for each literal that a searcher took after it read enough text.
+
+  **Check passed, part 22r, its seventh part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on
+  x86-64 Linux 6.18, in a cloud container.
+  - A searcher judges the second rule and the third after its searches were given enough
+    text. Before this part, no proof held the code's two rules to the hypotheses of the
+    search's theorem. `Stdx/Axioms.lean` pins 7 more theorems.
+  - `Stdx/Regex/RulesWide.lean` decides the second rule: the part of a match before the
+    literal takes one count of bytes.
+    - `levelsOk` checks a list of sets, one a level: level `k` holds each instruction that a
+      path stands at after `k` bytes, only level `n` may hold `match`, and level `n + 1` is
+      empty. `fixed_of_levelsOk` proves from the check alone that each path takes `n` bytes.
+    - `fixedOn` is the rule, and `fixed_program` gives the search's answer: every match has
+      one length, which gives `Rising`.
+    - The Zig walk stops at `suffix_before_len_max` bytes. The proof needs no such bound.
+  - `Stdx/Regex/RulesSeparator.lean` decides the third rule: the part before the literal
+    ends with one byte or more of a set, the separator, and holds none before them.
+    - `separatedOk` checks three sets of instructions: what the reverse program reaches with
+      no byte, what it reaches over separators, and what it reaches past a byte that is
+      none. `first_separator`, `inside_first` and `past_clean` are what a path from each set
+      takes, and `separated_rising` gives `Rising` from them.
+    - `separatedOn` tries the rule for the literal and for each tail of it, as the Zig rule
+      tries the literal whole and the literal past its first run. The rule for a tail gives
+      `Rising` too, and the search goes to the places of the whole literal.
+    - So the Lean rule takes more literals than the Zig rule. `[a-c ]+ +xy` fails for `xy`,
+      since the part before takes a space, and holds for `y` with the separator `x`.
+  - `wideOn` is the second rule or the third, and `wide_program` gives the search's answer.
+  - The dump now reads a searcher twice. A new searcher holds a literal of the first rule
+    alone. Where it holds none, the searcher reads a text of 16,384 bytes, and a literal it
+    then holds goes into a `claim suffix-wide` line. The vector writer runs `wideOn` for it,
+    and writes `differs claim suffix-wide` where it fails. The replay requires its searcher
+    that read the long text to hold the same literal, and its new searcher to hold none.
+  - The second pattern source draws two more shapes for these rules: a run of one count of
+    bytes before a word, and a run, a space or more, and a word.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 41 s. Seeds 1, 2 and 3 with
+    20,000 patterns each hold 1,345 literals of the first rule and 1,915 of the other two,
+    and a proved rule held for each.
+  - Twelve mutations, each CAUGHT:
+    - Four of the Zig rules, against the script. Three were caught first by a searcher's
+      answer: the two rules taken to hold always, the second rule for a part of more than
+      one length, and the third rule with no check of the literal's bytes. One was caught by
+      `differs claim suffix-wide`: the third rule with a separator let past the separator.
+    - For the first three, the rules also refuse the literals with no text: of the literals
+      that the faulty searcher took for seed 7, they refused 147 of 323, 41 of 182 and 77 of
+      243.
+    - The vector writer with no line for a rule that fails: CAUGHT by a canary dump.
+    - Four of the Lean rules, against `lake build`: a level that may hold `match` at any
+      count; a level past the last one that may hold instructions; a range past the
+      separator that may hold one; and a literal whose first byte may be a separator. Each
+      fails its proof, and the second and the third also fail an example.
+    - Three of the replay program, against `zig build test-tools`: no check of the searcher
+      that read the long text, a dump that reads no long text, and a new searcher held to a
+      literal of a rule that waits.
+  - What this part does not decide: claim R14's rule, and a literal with a place that folds.
+    The sixth part's count of literals is of the dump before this part's two shapes.
+
   **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
   **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
   the model gives RE2's ends on small programs; mutations of the definitions fail the build.

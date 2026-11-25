@@ -15,8 +15,10 @@
 //! `long_text_len_max`, with more searches.
 //!
 //! After a program's instructions, a `claim suffix` line holds the literal that a new searcher
-//! took for claim R4. The Lean side decides the claim's first rule for it from the program
-//! (spec/lean/Stdx/Regex/Rules.lean), which holds for every text or for none.
+//! took for claim R4, by the claim's first rule. A `claim suffix-wide` line holds the literal
+//! that a searcher took after it read enough text, by the second rule or the third. The Lean
+//! side decides each rule for the literal from the program (spec/lean/Stdx/Regex/Rules.lean
+//! and RulesSeparator.lean), and a rule holds for every text or for none.
 const std = @import("std");
 const regex = @import("regex");
 const platform = @import("platform");
@@ -76,10 +78,12 @@ pub fn line_of(buffer: []u8, instruction: Instruction) ![]const u8 {
 /// The parts of a pattern shaped for the searcher's claims. A run takes some bytes, and most
 /// runs take a byte of a word, so a search from the word's place must read past it.
 const runs = [_][]const u8{
-    "[ab]*",         "[a-c]+",          "(?:a|ba)*",          ".*", "\\w+", "[^b]*", "a?", "(?:ab)*?", "", "[b ]+", "\\w*?", "(?:[ab]|c[ab]ab)", "c", "(?i:b)*",
+    "[ab]*",         "[a-c]+",          "(?:a|ba)*",          ".*",    "\\w+",   "[^b]*",   "a?", "(?:ab)*?", "", "[b ]+", "\\w*?", "(?:[ab]|c[ab]ab)", "c", "(?i:b)*",
     // Runs whose DFA holds a state for each set of the last few bytes: more states than a small
     // cache holds, over a text of mixed letters.
     "[ab]*a[ab]{5}", "[a-c]*b[a-c]{3}", "(?:a|ba)*b[ab ]{4}",
+    // Runs of one count of bytes, which may be a word's first: claim R4's second rule.
+    "[a-c]", "\\w\\w", "[ab]{2}",
 };
 const words = [_][]const u8{ "ab", "ba", "abc", "aab", "b a", "cab", "aa", "abab" };
 const tails = [_][]const u8{ "", "", "", "$", "\\b", "c*", "[ab]?" };
@@ -110,6 +114,9 @@ const Shape = enum {
     /// starts later and ends sooner. A search from the word's places then needs a rule, which
     /// spec/lean/Stdx/Regex/Required.lean names `NoEarlier` (`needs_no_earlier`).
     nested,
+    /// A run, a space or more, then a word: claim R4's third rule, where the run takes no
+    /// space.
+    separated,
 };
 
 fn pick(generator: *Generator, comptime list: []const []const u8) []const u8 {
@@ -163,6 +170,7 @@ fn claim_case(generator: *Generator, case: *regex_generate.Case) void {
         .set => pattern.printAssumeCapacity("(?:{s}|{s}){s}", .{ word, other, run }),
         .either => pattern.printAssumeCapacity("(?:{s}{s}|{s})", .{ run, word, other }),
         .nested => pattern.printAssumeCapacity("(?:[ab]|c[ab]{s}){s}{s}", .{ word, word, second }),
+        .separated => pattern.printAssumeCapacity("{s} +{s}", .{ run, word }),
     }
     pattern.appendSliceAssumeCapacity(pick(generator, &tails));
     case.pattern.len = pattern.items.len;
@@ -210,25 +218,45 @@ pub const Lines = struct {
         try lines.bytes.append(lines.arena, '\n');
     }
 
-    /// The literal a new searcher took for claim R4: its length and its bytes, in the text's
-    /// order.
-    fn add_claim(lines: *Lines, literal: []const u8) !void {
+    /// The literal a searcher took for claim R4, under the word of its rule: its length and
+    /// its bytes, in the text's order.
+    fn add_claim(lines: *Lines, claim: Claim) !void {
         var buffer: [line_len_max]u8 = undefined;
-        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim suffix {d}", .{literal.len}));
-        for (literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
+        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim {s} {d}", .{ claim.rule.word(), claim.literal.len }));
+        for (claim.literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
         try lines.bytes.append(lines.arena, '\n');
     }
 
     /// One case: a pattern, the program `compile` gave it, the claim a new searcher took for
     /// it, a text, and a search from each offset of `lows`.
-    pub fn add_case(lines: *Lines, pattern: []const u8, program: *const regex.Program, claim: ?[]const u8, text: []const u8, lows: []const usize) !void {
+    pub fn add_case(lines: *Lines, pattern: []const u8, program: *const regex.Program, claim: ?Claim, text: []const u8, lows: []const usize) !void {
         try lines.add_pattern(pattern);
         try lines.add_program(program);
-        if (claim) |literal| try lines.add_claim(literal);
+        if (claim) |taken| try lines.add_claim(taken);
         try lines.add_text(text);
         for (lows) |low| try lines.add("search {d}", .{low});
     }
 };
+
+/// The rule that a searcher took a literal for claim R4 by.
+pub const Rule = enum {
+    /// The first rule, which a new searcher judges.
+    first,
+    /// The second rule or the third, which a searcher judges after its searches were given
+    /// enough text.
+    wide,
+
+    /// The word of a claim line for the rule.
+    pub fn word(rule: Rule) []const u8 {
+        return switch (rule) {
+            .first => "suffix",
+            .wide => "suffix-wide",
+        };
+    }
+};
+
+/// A literal that a searcher took for claim R4, and the rule it took it by.
+pub const Claim = struct { rule: Rule, literal: []const u8 };
 
 /// The literal of claim R4 that a searcher holds, where no place of it folds. Null where the
 /// searcher took none, or one with a place that takes its byte in either case.
@@ -244,27 +272,40 @@ pub fn claimed_suffix(searcher: *const regex.Searcher) ?[]const u8 {
 pub const Scratch = struct {
     storage: []Instruction,
     memory: []u64,
+    /// A text long enough that a searcher which read it has judged each rule that waits.
+    judging_text: []u8,
     features: platform.CpuFeatures,
     searcher: regex.Searcher = undefined,
 
     pub fn init(arena: std.mem.Allocator) !Scratch {
         const memory_len = regex.Searcher.memory_len(instructions_max, slots_max, regex.constants.cache_words_default);
+        const judging_text = try arena.alloc(u8, judging_text_len);
+        @memset(judging_text, 0);
         return .{
             .storage = try arena.alloc(Instruction, instructions_max),
             .memory = try arena.alloc(u64, memory_len),
+            .judging_text = judging_text,
             .features = platform.CpuFeatures.detect(),
         };
     }
 
-    /// The literal that a new searcher takes for claim R4 of `program`. A new searcher has
-    /// judged the claim's first rule alone: the other rules wait for text. The literal holds
-    /// until the next call.
-    pub fn suffix_claim(scratch: *Scratch, program: *const regex.Program) ?[]const u8 {
+    /// The literal that a searcher takes for claim R4 of `program`, and by which rule. A new
+    /// searcher has judged the first rule alone. Where it took no literal, the searcher reads
+    /// the long text, and a literal it then holds is the second rule's or the third's. The
+    /// literal holds until the next call.
+    pub fn suffix_claim(scratch: *Scratch, program: *const regex.Program) ?Claim {
         const memory_len = regex.Searcher.memory_len(program.forward_len, program.slot_count(), regex.constants.cache_words_default);
         scratch.searcher.init(program, &.{ .features = scratch.features }, scratch.memory[0..memory_len]);
-        return claimed_suffix(&scratch.searcher);
+        if (claimed_suffix(&scratch.searcher)) |literal| return .{ .rule = .first, .literal = literal };
+        _ = scratch.searcher.is_match(scratch.judging_text);
+        const literal = claimed_suffix(&scratch.searcher) orelse return null;
+        return .{ .rule = .wide, .literal = literal };
     }
 };
+
+/// The bytes of a text after which a searcher has judged each rule that waits: what it waits
+/// for, for each instruction a dumped program may hold (decision 86, the claims that wait).
+pub const judging_text_len = regex.constants.claim_text_per_instruction * instructions_max;
 
 /// A long text for a case whose own text is `short`. A run repeats one filler, or holds mixed
 /// pieces, which make a DFA build many states.
@@ -392,9 +433,24 @@ test "a dump names the literal that a new searcher took for claim R4" {
     // No digit is the literal's first byte, so the first rule holds. `[a-c]+ab` takes `a`
     // before its literal, and a new searcher has judged no other rule.
     const taken = try regex.compile("[0-9]+ab", .{}, scratch.storage);
-    try testing.expectEqualStrings("ab", scratch.suffix_claim(&taken).?);
+    const first = scratch.suffix_claim(&taken).?;
+    try testing.expectEqual(Rule.first, first.rule);
+    try testing.expectEqualStrings("ab", first.literal);
+    // No rule holds for `[a-c]+ab`: the part before takes `a`, takes more than one count of
+    // bytes, and ends with no separator.
     const refused = try regex.compile("[a-c]+ab", .{}, scratch.storage);
     try testing.expect(scratch.suffix_claim(&refused) == null);
+    // The second rule: the part before takes one byte, which may be the literal's first.
+    const fixed = try regex.compile("[a-z]shing", .{}, scratch.storage);
+    const second = scratch.suffix_claim(&fixed).?;
+    try testing.expectEqual(Rule.wide, second.rule);
+    try testing.expectEqualStrings("shing", second.literal);
+    // The third rule: the part before ends with a space or more, and holds none before them.
+    // The literal starts with the one space that every match holds before `Holmes`.
+    const separated = try regex.compile("[A-Za-z]+ +Holmes", .{}, scratch.storage);
+    const third = scratch.suffix_claim(&separated).?;
+    try testing.expectEqual(Rule.wide, third.rule);
+    try testing.expectEqualStrings(" Holmes", third.literal);
     // A literal with a place that folds is left out.
     const folded = try regex.compile("[0-9]+(?i:ab)", .{}, scratch.storage);
     try testing.expect(scratch.suffix_claim(&folded) == null);
@@ -407,7 +463,7 @@ test "a dump names the literal that a new searcher took for claim R4" {
     var before: []const u8 = "";
     while (lines.next()) |line| {
         // A claim line stands after the program's last instruction, and before its text.
-        if (std.mem.startsWith(u8, line, "claim suffix ")) {
+        if (std.mem.startsWith(u8, line, "claim suffix")) {
             claims += 1;
             try testing.expect(!std.mem.startsWith(u8, before, "text ") and !std.mem.startsWith(u8, before, "search "));
         }
