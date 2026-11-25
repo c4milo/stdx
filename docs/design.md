@@ -10863,9 +10863,8 @@ to 12 are reordered and nothing else changes.
   offset; each two-range class's program; no DFA builds a state for a short text; callgrind's
   count of the row at each commit; two paired runs of the `bench` workflow on each runner;
   mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container, and two paired runs of the copy on GitHub's runners. The node's runs are not
-  recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and two paired runs of the copy and two of the node on GitHub's runners.
   - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13
     with the two-range node.
   - The `bench` workflow's runs 45690968421 and 45690976230 measured `2111e8f`, the copy and
@@ -10880,6 +10879,11 @@ to 12 are reordered and nothing else changes.
       579 at `2111e8f`: the last search, from the text's end, ran the forward DFA where the
       check had refused it. `count` now judges the length in its own loop, and a count takes
       458 and 450. A count of `quotes-bounded` takes 6,014,121, 0.15% over `6370426`'s.
+  - The runs 45694765306 and 45694769730 measured `1567a18`, the node, against `2111e8f`, each in
+    one job on the N2 and one on x86-64, the Xeon 6973P-C and the Xeon Platinum 8573C. By
+    decision 20's rule, 8 of the 284 rows ran faster in all four jobs, and none slower.
+    `11-unstructured-to-json/extract` ran 1.34 to 1.53 times as fast, `huge-ascii-nosuffixlit`
+    1.43 to 1.48, and `overlapping-words/ascii` 1.20 to 1.38.
   - The matcher alone, built ReleaseSafe for x86-64-v3, ran the row's 16 MB at 3.3 MB/s at
     `9e61c55`, 3.6 to 4.0 with the two moves, and 6.4 to 6.8 with the node too. Under
     callgrind, a count of the row's first 2 MB through a searcher took 9.97, 8.48 and 5.68
@@ -10914,9 +10918,23 @@ to 12 are reordered and nothing else changes.
   node numbers; the least of the lists; the walk and the pass over a node of many ranges; both
   DFAs of the row start in the default cache; two paired runs of the `bench` workflow on each
   runner; mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and the two paired runs on GitHub's runners.
   - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The runs 45703736856 and 45703740588 measured `5222087`, the lists and `count`'s check in its
+    loop, against `1567a18`, each in one job on the N2 and one on x86-64, the Xeon Platinum 8573C
+    and the EPYC 9V74. By decision 20's rule, 3 of the 284 rows ran faster in all four jobs, and
+    8 slower.
+    - `overlapping-words/english` ran 2.62 and 4.38 times as fast on the N2 and 1.79 and 2.72
+      on x86-64. It now runs at 1.27 of Rust's crate on the N2, 3.80 against 2.99 MB/s, and at
+      1.18 on x86-64. The two rows that count in `zabb` ran 1.35 to 1.49 times as fast.
+    - The four `opt/fixed-length` rows whose pattern is the whole text ran 18% to 26% slower. A
+      count of `^\w{30}$` took 52 instructions at `1567a18` and 73 at `5222087`, which works out
+      `counts_ends` before it refuses the text. `count` refuses it before the loop again, at 57.
+    - Four compile rows ran 3% to 16% slower, and on the N2 alone most compile rows 2% to 18%.
+      Under callgrind a compile and ready took 0.6% to 2.1% more instructions: 25,599 in place of
+      25,454 for `Pharaoh`, and 46,639 in place of 45,658 for `href="[^"]*"`. The rest is not an
+      instruction; the larger instructions are the likely cause, and no count shows it.
   - The filter, built ReleaseSafe, started both DFAs of the row in the default cache: the
     forward DFA with room for 956 states and the reverse one for 488.
   - A probe of rebar's `grep_captures` model over `en-medium.txt`, built ReleaseSafe for

@@ -44,18 +44,23 @@ pub const Matches = struct {
     /// give. A count needs each match's end alone (claim R10).
     pub fn count(matches: *Matches) u64 {
         var total: u64 = 0;
+        // Claim R13 refuses the text by its length before the first search, and the rest of it
+        // after each match: here, and not in `find_end`, where the check changed how the compiler
+        // built the DFA's loop below it. The refusal before the loop returns before any other work.
+        if (matches.position <= matches.haystack.len and holds_none(matches.searcher, matches.haystack.len, matches.position)) {
+            matches.position = matches.haystack.len + 1;
+            return 0;
+        }
         const by_ends = counts_ends(matches.searcher);
         // Each turn counts a match that ends past the last one, or the first match: at most the
         // haystack's offsets and one. No match is left after that many.
         for (0..matches.haystack.len + 1) |_| {
             if (matches.position > matches.haystack.len) break;
-            // Claim R13 refuses the rest of the text by its length, before each search. Here, and
-            // not in `find_end`, where the check changed how the compiler built the DFA's loop.
-            if (holds_none(matches.searcher, matches.haystack.len, matches.position)) break;
             const end = if (by_ends) matches.next_end() else matches.next_span_end();
             matches.position = end orelse break;
             matches.last_end = end;
             total += 1;
+            if (holds_none(matches.searcher, matches.haystack.len, matches.position)) break;
         }
         matches.position = matches.haystack.len + 1;
         return total;
