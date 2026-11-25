@@ -6036,6 +6036,22 @@ last part lists what still waits on a ruling.
         Its loop tests one bound an octet, as the plain loop does.
       - Rust's crate runs its prefilter inside its lazy DFA the same way, and starts again after
         a look-behind assertion. R3 runs only with R1 and R2, so `stdx, no skip` turns it off too.
+      - A program with more than one way to start takes R3 where each way starts with the same
+        literal, as `(?m)^Sherlock Holmes|Sherlock Holmes$` does (amended 2026-11-25, design §8
+        part 22q). `literal_common.zig` walks the ways a level at a time: a level holds the
+        instructions that take a byte at one place, one for each way. The place holds the byte
+        that each of them takes, or a letter in either case.
+        - The walk runs where the program holds an assertion and the walk of one instruction
+          after another reads less than `literal_prefix_len_min` bytes. A program with no
+          assertion has claim R5's set of literals for its ways, which skips with R1's state.
+        - A level holds `literal_ways_max` instructions at most, and the walk reads
+          `literal_ways_free_max` instructions at most for a place. Both bound what
+          `Searcher.init` pays for a pattern that the walk does not serve.
+        - rebar's `imported/sherlock/line-boundary-sherlock-holmes` ran at 1/26 of Rust's crate
+          on the N2 before it. Its DFA read every byte.
+        - Refused: a set of literals for such a program, one for each way. Claim R3 starts the
+          DFA at a place in the state of the byte behind it, which one literal gives and a set
+          would give for each of its literals. The common literal serves the rows of rebar.
     - Claim R4: where no literal starts every match, every match ends with a literal, and no
       part of a match before that literal takes its first octet, the searcher goes to the
       literal's next place. The reverse DFA reads back from the place's end to the least start of
@@ -6603,6 +6619,10 @@ last part lists what still waits on a ruling.
       - `Stdx/Regex/Prefix.lean` holds the skip of claims R2, R3 and R5 to a literal that
         starts every match, and `gap_of_byte`: claim R4's first rule holds for any byte of
         the literal. `Stdx/Regex/Count.lean` holds claim R10: `count_eq`.
+      - `Stdx/Regex/RulesPrefix.lean` decides from a program that every match starts with a
+        literal, for a program with any count of ways to start: `leadsOn`, with
+        `leads_program`. The script runs it for each literal that a searcher's forward DFA
+        goes to, so the choice of claims R2 and R3 is held for every text.
       - `Stdx/Regex/Closure.lean` and `Stdx/Regex/Matcher.lean` hold the matcher for a search
         from one start (design §8 part 22h). `closure_value`: one `visited` set for all the
         seeds of a position changes no first value among its threads. `run_eq`: the matcher

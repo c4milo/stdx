@@ -6,6 +6,7 @@ const regex = @import("regex");
 const matcher_replay = @import("../matcher_replay.zig");
 const replay_dump = @import("matcher_replay_dump.zig");
 const matcher_replay_claim = @import("matcher_replay_claim.zig");
+const matcher_replay_prefix = @import("matcher_replay_prefix.zig");
 const Instruction = regex.Instruction;
 const Replay = matcher_replay.Replay;
 const replay_text = matcher_replay.replay_text;
@@ -79,7 +80,7 @@ fn answered_case(arena: std.mem.Allocator) ![]const u8 {
     var lines: replay_dump.Lines = .{ .arena = arena };
     const storage = try arena.alloc(Instruction, replay_dump.instructions_max);
     const program = try regex.compile("a|ab", .{}, storage);
-    try lines.add_case("a|ab", &program, null, "xab", &.{ 0, 2 });
+    try lines.add_case("a|ab", &program, null, null, "xab", &.{ 0, 2 });
     const first = try std.mem.replaceOwned(u8, arena, lines.bytes.items, "search 0", "find 0 1 2\ngroups 0 1 1:2");
     return std.mem.replaceOwned(u8, arena, first, "search 2", "find 2 none\ngroups 2 none");
 }
@@ -114,7 +115,7 @@ fn answered_claim(arena: std.mem.Allocator) ![]const u8 {
     var scratch = try replay_dump.Scratch.init(arena);
     const pattern = "[0-9]+ab";
     const program = try regex.compile(pattern, .{}, scratch.storage);
-    try lines.add_case(pattern, &program, scratch.taker.claim(&program), "x12ab", &.{0});
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), matcher_replay_prefix.held(&scratch.taker.searcher), "x12ab", &.{0});
     return std.mem.replaceOwned(u8, arena, lines.bytes.items, "search 0", "find 0 1 5\ngroups 0 1 1:5");
 }
 
@@ -156,9 +157,45 @@ fn answered_groups(arena: std.mem.Allocator, pattern: []const u8, text: []const 
     var lines: replay_dump.Lines = .{ .arena = arena };
     var scratch = try replay_dump.Scratch.init(arena);
     const program = try regex.compile(pattern, .{}, scratch.storage);
-    try lines.add_case(pattern, &program, scratch.taker.claim(&program), text, &.{0});
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), matcher_replay_prefix.held(&scratch.taker.searcher), text, &.{0});
     const answer = try std.fmt.allocPrint(arena, "{s}\n{s}", .{ find, groups });
     return std.mem.replaceOwned(u8, arena, lines.bytes.items, "search 0", answer);
+}
+
+test "a replay requires its new searcher's forward DFA to go to the literal of a prefix line" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // Two ways that start with `ab`, each with an assertion (claim R3).
+    const ways = try answered_groups(arena.allocator(), "(?m)^ab|ab$", "xab", "find 0 1 3", "groups 0 1 1:3");
+    try testing.expect(std.mem.indexOf(u8, ways, "\nprefix 2 97 98\n") != null);
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, ways) == null);
+    try testing.expectEqual(@as(usize, 1), replay.prefix.lines);
+    const cases = [_]struct { old: []const u8, new: []const u8, cause: anyerror }{
+        // No line, another literal, a shorter one, and a place that folds where none does.
+        .{ .old = "prefix 2 97 98\n", .new = "", .cause = error.PrefixDiffers },
+        .{ .old = "prefix 2 97 98", .new = "prefix 2 97 99", .cause = error.PrefixDiffers },
+        .{ .old = "prefix 2 97 98", .new = "prefix 1 97", .cause = error.PrefixDiffers },
+        .{ .old = "prefix 2 97 98", .new = "prefix 2 97 98 folds 1", .cause = error.PrefixDiffers },
+        // A literal of no byte, and a word after the bytes that is not `folds`.
+        .{ .old = "prefix 2 97 98", .new = "prefix 0", .cause = error.VectorPrefix },
+        .{ .old = "prefix 2 97 98", .new = "prefix 2 97 98 1", .cause = error.VectorPrefix },
+    };
+    for (cases) |case| {
+        const changed = try std.mem.replaceOwned(u8, arena.allocator(), ways, case.old, case.new);
+        try testing.expect(!std.mem.eql(u8, changed, ways));
+        var other = try Replay.init(arena.allocator());
+        const failed = replay_text(&other, changed) orelse return error.TestExpectedFailure;
+        try testing.expectEqual(case.cause, failed.cause);
+    }
+    // A program with no literal after one with a literal: the second program's line is its own,
+    // and it has none.
+    const plain = try answered_groups(arena.allocator(), "[0-9]+ab", "x12ab", "find 0 1 5", "groups 0 1 1:5");
+    try testing.expect(std.mem.indexOf(u8, plain, "prefix") == null);
+    const both = try std.mem.concat(arena.allocator(), u8, &.{ ways, plain });
+    var third = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&third, both) == null);
+    try testing.expectEqual(@as(usize, 2), third.programs);
 }
 
 test "a replay holds the matcher and each searcher to the groups of a line" {
@@ -240,7 +277,7 @@ test "a replay holds a searcher to the places of its literal that fold" {
     // The literal's first place takes `a` in either case, and no digit is `a` or `A`.
     const pattern = "[0-9]+(?i:a)b";
     const program = try regex.compile(pattern, .{}, scratch.storage);
-    try lines.add_case(pattern, &program, scratch.taker.claim(&program), "x1Ab", &.{0});
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), matcher_replay_prefix.held(&scratch.taker.searcher), "x1Ab", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 4\ngroups 0 1 1:4");
     try testing.expect(std.mem.indexOf(u8, text, "\nclaim suffix 2 97 98 folds 1\n") != null);
     var replay = try Replay.init(arena.allocator());
@@ -269,7 +306,7 @@ test "a replay holds the searcher that read its long text to a literal of a rule
     // first. A new searcher holds no literal, and one that read enough text holds `shing`.
     const pattern = "[a-z]shing";
     const program = try regex.compile(pattern, .{}, scratch.storage);
-    try lines.add_case(pattern, &program, scratch.taker.claim(&program), "xashing", &.{0});
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), matcher_replay_prefix.held(&scratch.taker.searcher), "xashing", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 7\ngroups 0 1 1:7");
     try testing.expect(std.mem.indexOf(u8, text, "\nclaim suffix-wide 5 115 104 105 110 103\n") != null);
     var replay = try Replay.init(arena.allocator());
@@ -300,7 +337,7 @@ test "a replay holds the searcher that read its long text to the literal of clai
     const pattern = "[a-c]+@[a-c]+";
     const program = try regex.compile(pattern, .{}, scratch.storage);
     const claim = scratch.taker.claim(&program).?;
-    try lines.add_case(pattern, &program, claim, "xab@ca", &.{0});
+    try lines.add_case(pattern, &program, claim, matcher_replay_prefix.held(&scratch.taker.searcher), "xab@ca", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 6\ngroups 0 1 1:6");
     var named_buffer: [replay_dump.line_len_max]u8 = undefined;
     const named = try std.fmt.bufPrint(&named_buffer, "claim inner {d} 1 64", .{claim.before});
@@ -340,7 +377,7 @@ test "the long text judges each claim that waits, in the third searcher alone" {
     const program = try regex.compile(pattern, .{}, scratch.storage);
     const claim = scratch.taker.claim(&program).?;
     try testing.expectEqual(matcher_replay_claim.Rule.inner, claim.rule);
-    try lines.add_case(pattern, &program, claim, "axb", &.{0});
+    try lines.add_case(pattern, &program, claim, matcher_replay_prefix.held(&scratch.taker.searcher), "axb", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 none\ngroups 0 none");
     var replay = try Replay.init(arena.allocator());
     try testing.expect(replay_text(&replay, text) == null);

@@ -21,10 +21,15 @@
 //! claim R4's first rule, `suffix-wide` for its second rule or its third, and `inner` for claim
 //! R14. The Lean side decides each rule for the literal from the program, and a rule holds for
 //! every text or for none.
+//!
+//! A `prefix` line holds the literal that the searcher's forward DFA goes to, by claim R2 or
+//! claim R3 (matcher_replay_prefix.zig). The Lean side decides that every match starts with it.
 const std = @import("std");
 const regex = @import("regex");
 const regex_generate = @import("../differential/regex_generate.zig");
 const matcher_replay_claim = @import("matcher_replay_claim.zig");
+const matcher_replay_prefix = @import("matcher_replay_prefix.zig");
+const Prefix = matcher_replay_prefix.Prefix;
 const matcher_replay_shapes = @import("matcher_replay_shapes.zig");
 const pick = matcher_replay_shapes.pick;
 const fit = matcher_replay_shapes.fit;
@@ -135,13 +140,24 @@ pub const Lines = struct {
         try lines.bytes.append(lines.arena, '\n');
     }
 
+    /// The literal that a searcher's forward DFA goes to: its length and its bytes, and where a
+    /// place folds, the word `folds` and the places' bits.
+    fn add_prefix(lines: *Lines, prefix: Prefix) !void {
+        var buffer: [line_len_max]u8 = undefined;
+        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "prefix {d}", .{prefix.literal.len}));
+        for (prefix.literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
+        if (prefix.folds != 0) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " folds {d}", .{prefix.folds}));
+        try lines.bytes.append(lines.arena, '\n');
+    }
+
     /// One case: a pattern, the program `compile` gave it, the claim a new searcher took for
-    /// it, a text, and a search from each offset of `lows`.
-    pub fn add_case(lines: *Lines, pattern: []const u8, program: *const regex.Program, claim: ?Claim, text: []const u8, lows: []const usize) !void {
+    /// it, the literal its forward DFA goes to, a text, and a search from each offset of `lows`.
+    pub fn add_case(lines: *Lines, pattern: []const u8, program: *const regex.Program, claim: ?Claim, prefix: ?Prefix, text: []const u8, lows: []const usize) !void {
         try lines.add_pattern(pattern);
         try lines.add_program(program);
         try lines.add("slots {d}", .{program.slot_count()});
         if (claim) |taken| try lines.add_claim(taken);
+        if (prefix) |taken| try lines.add_prefix(taken);
         try lines.add_text(text);
         for (lows) |low| try lines.add("search {d}", .{low});
     }
@@ -184,17 +200,19 @@ fn add_drawn(lines: *Lines, generator: *Generator, case: *const regex_generate.C
     const program = regex.compile(case.pattern.slice(), .{ .encoding = encoding }, scratch.storage) catch return false;
     if (program.slot_count() > slots_max) return false;
     const claim = scratch.taker.claim(&program);
+    // The taker's searcher is the one that `claim` made ready for the program.
+    const prefix = matcher_replay_prefix.held(&scratch.taker.searcher);
     var long: [long_text_len_max]u8 = undefined;
     const short = case.text[0..@min(case.text_len, text_len_max)];
     if (generator.below(long_case_share) != 0) {
         const lows = [_]usize{ 0, generator.below(short.len + 1) };
-        try lines.add_case(case.pattern.slice(), &program, claim, short, if (lows[1] == 0) lows[0..1] else &lows);
+        try lines.add_case(case.pattern.slice(), &program, claim, prefix, short, if (lows[1] == 0) lows[0..1] else &lows);
         return true;
     }
     const text = long_text(generator, short, &long);
     var lows: [long_searches]usize = @splat(0);
     for (lows[1..]) |*low| low.* = generator.below(text.len + 1);
-    try lines.add_case(case.pattern.slice(), &program, claim, text, &lows);
+    try lines.add_case(case.pattern.slice(), &program, claim, prefix, text, &lows);
     return true;
 }
 
@@ -288,9 +306,14 @@ test "a dump names the literal that a searcher took, after the program and befor
     var claims: usize = 0;
     var inner: usize = 0;
     var folded: usize = 0;
+    var prefixes: usize = 0;
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     var before: []const u8 = "";
     while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "prefix ")) {
+            prefixes += 1;
+            try testing.expect(!std.mem.startsWith(u8, before, "text ") and !std.mem.startsWith(u8, before, "search "));
+        }
         if (std.mem.startsWith(u8, line, "claim ")) {
             claims += 1;
             inner += @intFromBool(std.mem.startsWith(u8, line, "claim inner "));
@@ -302,6 +325,7 @@ test "a dump names the literal that a searcher took, after the program and befor
     try testing.expect(claims > 0 and claims < cases);
     try testing.expect(inner > 0 and inner < claims);
     try testing.expect(folded > 0 and folded < claims);
+    try testing.expect(prefixes > 0 and prefixes < cases);
 }
 
 /// Requires a claim line's parts: its rule, for claim R14 an instruction, the literal's length

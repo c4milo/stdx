@@ -268,7 +268,9 @@ case. The lines below decide that rule from the program, with `apartOn` of
 line holds a literal that a searcher took after it read enough text, by the second rule or the
 third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. A `claim inner` line holds
 the literal of claim R14, after the instruction where the reverse program stands after it,
-and `innerOn` of `Stdx/Regex/RulesInner.lean` decides its rule.
+and `innerOn` of `Stdx/Regex/RulesInner.lean` decides its rule. A `prefix` line holds the literal
+that a searcher's forward DFA goes to by claim R2 or claim R3, and `leadsOn` of
+`Stdx/Regex/RulesPrefix.lean` decides that every match starts with it.
 
 A `slots` line names the slots of the program's capture groups. After each `find` line of
 such a program, a `groups` line holds the groups of the search's match, which `capturesAt` of
@@ -431,6 +433,13 @@ def wideClaimLines (dump : Dump) (literal : List (Nat × Nat)) : List String :=
     if wideOn dump.prog reverse literal.reverse then [] else ["differs claim suffix-wide"]
 
 open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where a literal that a Zig searcher's forward DFA goes to, by
+claim R2 or claim R3, does not start every match. `leadsOn` decides that from the program for
+every way the program starts, and `leads_program` proves the search from it. -/
+def prefixLines (dump : Dump) (literal : List (Nat × Nat)) : List String :=
+  if !literal.isEmpty && leadsOn dump.prog dump.forward literal then [] else ["differs prefix"]
+
+open Stdx.Regex.Matcher in
 /-- A line that begins `differs` where claim R14's rule does not hold for a literal that a Zig
 searcher took by it. `before` is the reverse DFA's second entry, where the reverse program
 stands after the literal. `innerOn` decides the rule from the program for a cut: the walk of
@@ -457,6 +466,8 @@ def answerLine (dump : Dump) (line : String) : List String × Dump :=
   | "claim" :: "inner" :: before :: _ :: literal =>
     (line :: innerClaimLines dump before.toNat? (placesOf literal),
       { dump with claimed := true })
+  | "prefix" :: _ :: literal =>
+    (line :: prefixLines dump (placesOf literal), { dump with claimed := true })
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
       utf8 := encoding == "utf8", prog := #[], forward := forward.toNat?.getD 0,
